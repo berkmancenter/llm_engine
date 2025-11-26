@@ -1,0 +1,695 @@
+
+<!DOCTYPE html>
+
+<html class="no-js" lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width,initial-scale=1" name="viewport"/>
+<link href="../installing/" rel="prev"/>
+<link href="../assets/images/favicon.png" rel="icon"/>
+<meta content="mkdocs-1.6.1, mkdocs-material-9.7.0" name="generator"/>
+<title>Developers - LLM Engine</title>
+<link href="../assets/stylesheets/main.618322db.min.css" rel="stylesheet"/>
+<link href="../assets/stylesheets/palette.ab4e12ef.min.css" rel="stylesheet"/>
+<style>:root{--md-annotation-icon:url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20d%3D%22M11%209h2V7h-2m1%2013c-4.41%200-8-3.59-8-8s3.59-8%208-8%208%203.59%208%208-3.59%208-8%208m0-18A10%2010%200%200%200%202%2012a10%2010%200%200%200%2010%2010%2010%2010%200%200%200%2010-10A10%2010%200%200%200%2012%202m-1%2015h2v-6h-2z%22/%3E%3C/svg%3E');}</style>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&amp;display=fallback" rel="stylesheet"/>
+<style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+<script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+</head>
+<body data-md-color-accent="indigo" data-md-color-primary="custom" data-md-color-scheme="default" dir="ltr">
+<input autocomplete="off" class="md-toggle" data-md-toggle="drawer" id="__drawer" type="checkbox"/>
+<input autocomplete="off" class="md-toggle" data-md-toggle="search" id="__search" type="checkbox"/>
+<label class="md-overlay" for="__drawer"></label>
+<div data-md-component="skip">
+<a class="md-skip" href="#llm-engine-developer-documentation">
+          Skip to content
+        </a>
+</div>
+<div data-md-component="announce">
+</div>
+<header class="md-header md-header--shadow" data-md-component="header">
+<nav aria-label="Header" class="md-header__inner md-grid">
+<a aria-label="LLM Engine" class="md-header__button md-logo" data-md-component="logo" href=".." title="LLM Engine">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 3c5.5 0 10 3.58 10 8 0 .58-.08 1.14-.22 1.68-.59-.3-1.23-.52-1.9-.62.08-.34.12-.7.12-1.06 0-3.31-3.58-6-8-6s-8 2.69-8 6 3.58 6 8 6l1.09-.05L13 18l.08.95L12 19c-1.19 0-2.38-.17-3.53-.5C6.64 20 4.37 20.89 2 21c2.33-2.33 2.75-3.9 2.75-4.5A7.22 7.22 0 0 1 2 11c0-4.42 4.5-8 10-8m6 11h2v3h3v2h-3v3h-2v-3h-3v-2h3z"></path></svg>
+</a>
+<label class="md-header__button md-icon" for="__drawer">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"></path></svg>
+</label>
+<div class="md-header__title" data-md-component="header-title">
+<div class="md-header__ellipsis">
+<div class="md-header__topic">
+<span class="md-ellipsis">
+            LLM Engine
+          </span>
+</div>
+<div class="md-header__topic" data-md-component="header-topic">
+<span class="md-ellipsis">
+            
+              Developers
+            
+          </span>
+</div>
+</div>
+</div>
+<label class="md-header__button md-icon" for="__search">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+</label>
+<div class="md-search" data-md-component="search" role="dialog">
+<label class="md-search__overlay" for="__search"></label>
+<div class="md-search__inner" role="search">
+<form class="md-search__form" name="search">
+<input aria-label="Search" autocapitalize="off" autocomplete="off" autocorrect="off" class="md-search__input" data-md-component="search-query" name="query" placeholder="Search" required="" spellcheck="false" type="text"/>
+<label class="md-search__icon md-icon" for="__search">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+</label>
+<nav aria-label="Search" class="md-search__options">
+<button aria-label="Clear" class="md-search__icon md-icon" tabindex="-1" title="Clear" type="reset">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg>
+</button>
+</nav>
+<div class="md-search__suggest" data-md-component="search-suggest"></div>
+</form>
+<div class="md-search__output">
+<div class="md-search__scrollwrap" data-md-scrollfix="" tabindex="0">
+<div class="md-search-result" data-md-component="search-result">
+<div class="md-search-result__meta">
+            Initializing search
+          </div>
+<ol class="md-search-result__list" role="presentation"></ol>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="md-header__source">
+<a class="md-source" data-md-component="source" href="https://github.com/berkmancenter/llm_engine" title="Go to repository">
+<div class="md-source__icon md-icon">
+<svg viewbox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"></path></svg>
+</div>
+<div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+</div>
+</nav>
+</header>
+<div class="md-container" data-md-component="container">
+<main class="md-main" data-md-component="main">
+<div class="md-main__inner md-grid">
+<div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation">
+<div class="md-sidebar__scrollwrap">
+<div class="md-sidebar__inner">
+<nav aria-label="Navigation" class="md-nav md-nav--primary" data-md-level="0">
+<label class="md-nav__title" for="__drawer">
+<a aria-label="LLM Engine" class="md-nav__button md-logo" data-md-component="logo" href=".." title="LLM Engine">
+<svg viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 3c5.5 0 10 3.58 10 8 0 .58-.08 1.14-.22 1.68-.59-.3-1.23-.52-1.9-.62.08-.34.12-.7.12-1.06 0-3.31-3.58-6-8-6s-8 2.69-8 6 3.58 6 8 6l1.09-.05L13 18l.08.95L12 19c-1.19 0-2.38-.17-3.53-.5C6.64 20 4.37 20.89 2 21c2.33-2.33 2.75-3.9 2.75-4.5A7.22 7.22 0 0 1 2 11c0-4.42 4.5-8 10-8m6 11h2v3h3v2h-3v3h-2v-3h-3v-2h3z"></path></svg>
+</a>
+    LLM Engine
+  </label>
+<div class="md-nav__source">
+<a class="md-source" data-md-component="source" href="https://github.com/berkmancenter/llm_engine" title="Go to repository">
+<div class="md-source__icon md-icon">
+<svg viewbox="0 0 448 512" xmlns="http://www.w3.org/2000/svg"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"></path></svg>
+</div>
+<div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+</div>
+<ul class="md-nav__list" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="..">
+<span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="../installing/">
+<span class="md-ellipsis">
+    
+  
+    Installing
+  
+
+    
+  </span>
+</a>
+</li>
+<li class="md-nav__item md-nav__item--active">
+<input class="md-nav__toggle md-toggle" id="__toc" type="checkbox"/>
+<label class="md-nav__link md-nav__link--active" for="__toc">
+<span class="md-ellipsis">
+    
+  
+    Developers
+  
+
+    
+  </span>
+<span class="md-nav__icon md-icon"></span>
+</label>
+<a class="md-nav__link md-nav__link--active" href="./">
+<span class="md-ellipsis">
+    
+  
+    Developers
+  
+
+    
+  </span>
+</a>
+<nav aria-label="Table of contents" class="md-nav md-nav--secondary">
+<label class="md-nav__title" for="__toc">
+<span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+<ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#developer-capabilities-and-features">
+<span class="md-ellipsis">
+      
+        Developer Capabilities and Features
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#system-description">
+<span class="md-ellipsis">
+      
+        System Description
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#system-diagram">
+<span class="md-ellipsis">
+      
+        System Diagram
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#repofolder-overview">
+<span class="md-ellipsis">
+      
+        Repo/Folder overview
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#api-documentation">
+<span class="md-ellipsis">
+      
+        API documentation
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#understanding-message-control-flow">
+<span class="md-ellipsis">
+      
+        Understanding Message Control Flow
+      
+    </span>
+</a>
+<nav aria-label="Understanding Message Control Flow" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#diagrams">
+<span class="md-ellipsis">
+      
+        Diagrams
+      
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#tests-and-benchmarks">
+<span class="md-ellipsis">
+      
+        Tests and Benchmarks
+      
+    </span>
+</a>
+<nav aria-label="Tests and Benchmarks" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#unit-and-integration-tests">
+<span class="md-ellipsis">
+      
+        Unit and integration tests
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#agent-tests">
+<span class="md-ellipsis">
+      
+        Agent tests
+      
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#production-vs-development-agents">
+<span class="md-ellipsis">
+      
+        Production vs. Development Agents
+      
+    </span>
+</a>
+<nav aria-label="Production vs. Development Agents" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#enabling-development-agents">
+<span class="md-ellipsis">
+      
+        Enabling development agents
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#testing-development-agents">
+<span class="md-ellipsis">
+      
+        Testing development agents
+      
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#production-vs-development-platforms">
+<span class="md-ellipsis">
+      
+        Production vs. Development Platforms
+      
+    </span>
+</a>
+<nav aria-label="Production vs. Development Platforms" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#enabling-development-platforms">
+<span class="md-ellipsis">
+      
+        Enabling development platforms
+      
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#openapi-specs-and-types">
+<span class="md-ellipsis">
+      
+        OpenAPI specs and types
+      
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+</ul>
+</nav>
+</div>
+</div>
+</div>
+<div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc">
+<div class="md-sidebar__scrollwrap">
+<div class="md-sidebar__inner">
+<nav aria-label="Table of contents" class="md-nav md-nav--secondary">
+<label class="md-nav__title" for="__toc">
+<span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+<ul class="md-nav__list" data-md-component="toc" data-md-scrollfix="">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#developer-capabilities-and-features">
+<span class="md-ellipsis">
+      
+        Developer Capabilities and Features
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#system-description">
+<span class="md-ellipsis">
+      
+        System Description
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#system-diagram">
+<span class="md-ellipsis">
+      
+        System Diagram
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#repofolder-overview">
+<span class="md-ellipsis">
+      
+        Repo/Folder overview
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#api-documentation">
+<span class="md-ellipsis">
+      
+        API documentation
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#understanding-message-control-flow">
+<span class="md-ellipsis">
+      
+        Understanding Message Control Flow
+      
+    </span>
+</a>
+<nav aria-label="Understanding Message Control Flow" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#diagrams">
+<span class="md-ellipsis">
+      
+        Diagrams
+      
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#tests-and-benchmarks">
+<span class="md-ellipsis">
+      
+        Tests and Benchmarks
+      
+    </span>
+</a>
+<nav aria-label="Tests and Benchmarks" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#unit-and-integration-tests">
+<span class="md-ellipsis">
+      
+        Unit and integration tests
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#agent-tests">
+<span class="md-ellipsis">
+      
+        Agent tests
+      
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#production-vs-development-agents">
+<span class="md-ellipsis">
+      
+        Production vs. Development Agents
+      
+    </span>
+</a>
+<nav aria-label="Production vs. Development Agents" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#enabling-development-agents">
+<span class="md-ellipsis">
+      
+        Enabling development agents
+      
+    </span>
+</a>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#testing-development-agents">
+<span class="md-ellipsis">
+      
+        Testing development agents
+      
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#production-vs-development-platforms">
+<span class="md-ellipsis">
+      
+        Production vs. Development Platforms
+      
+    </span>
+</a>
+<nav aria-label="Production vs. Development Platforms" class="md-nav">
+<ul class="md-nav__list">
+<li class="md-nav__item">
+<a class="md-nav__link" href="#enabling-development-platforms">
+<span class="md-ellipsis">
+      
+        Enabling development platforms
+      
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</li>
+<li class="md-nav__item">
+<a class="md-nav__link" href="#openapi-specs-and-types">
+<span class="md-ellipsis">
+      
+        OpenAPI specs and types
+      
+    </span>
+</a>
+</li>
+</ul>
+</nav>
+</div>
+</div>
+</div>
+<div class="md-content" data-md-component="content">
+<article class="md-content__inner md-typeset">
+<h1 id="llm-engine-developer-documentation">LLM Engine Developer Documentation</h1>
+<h2 id="developer-capabilities-and-features">Developer Capabilities and Features</h2>
+<p>✅ Include <strong>multiple LLM agents</strong> in a <strong>voice or text</strong> conversation using our REST and Websocket APIs</p>
+<p>✅ Configure agents to <strong>intercept and respond to user messages immediately</strong> and/or <strong>execute periodically</strong></p>
+<p>✅ Configure agents to <strong>receive and respond to messages on a variety of channels</strong>, including directly to a user.</p>
+<p>✅ Choose from a <strong>variety of agent templates</strong> and easily create new ones</p>
+<p>✅ <strong>Support for multiple LLM models</strong> including OpenAI and open-source models using <a href="https://ollama.com/search">Ollama</a>, <a href="http://runpod.io">Runpod</a>, and <a href="http://modal.com">Modal</a>. (More coming soon!)</p>
+<p>✅ <strong>Modify agent prompts, models, and RAG materials</strong> via API to create custom interventions</p>
+<p>✅ <strong>Support for plain text and structured data messages/payloads</strong></p>
+<p>✅ Use with <strong>multiple simultaneous front-end clients</strong> such as Nextspace and Zoom <strong>in a single conversation</strong></p>
+<p>✅ <strong>Access and save real-time and full event transcripts</strong>, from both text and audio interactions</p>
+<p>✅ Supports organizing <strong>events</strong> into <strong>topics</strong>. Events can have <strong>channels</strong> to segment a conversation.</p>
+<p>✅ <strong>JWT authentication</strong> and support for <strong>pseudonymous user interaction</strong>, <strong>user persistence</strong> and optional <strong>login</strong>.</p>
+<p>✅ Support for <strong>prompt experimentation, testing and reporting</strong>, including replaying previous events with revised prompts</p>
+<p>✅ <strong>Define and configure your own agents via API</strong> and <strong>customize conversation flow</strong></p>
+<p>✅ Observe and evaluate agent performance using Langsmith and Promptfoo</p>
+<p>✅ Support <strong>threaded messages</strong></p>
+<p>[ ] LLM <strong>automated prompt iteration and refinement</strong></p>
+<h2 id="system-description">System Description</h2>
+<ol>
+<li>Conversations are organized into "Topics"</li>
+<li>Conversations have many sequential Messages.</li>
+<li>Messages can contain structured data and be threaded through a parent/child relationship between Messages.</li>
+<li>Messages can be received or sent through different Adapters connected to various transports (e.g. Websockets or HTTP API) and platforms (e.g. Zoom, Slack or Nextspace).</li>
+<li>Messages can be sent or received through one or more Channels to segregate different audiences (e.g. a moderator vs. participants) or content (e.g. group messages, DMs or audio transcripts)</li>
+<li>Agents can
+   a. Intercept each message or be scheduled to run periodically
+   b. Evaluate Conversation history as desired and respond or reject user messages.
+   c. Make use of RAG if desired</li>
+<li>Conversations can be replayed with different Agent configurations as Experiments to learn and iterate Agent designs.</li>
+<li>Benchmarks can be developed to evaluate Agents on different dimensions.</li>
+</ol>
+<p>Note: Since messages allow for <strong>structured data</strong> they can act as a <a href="https://en.wikipedia.org/wiki/Transaction_log">transaction log</a>, supporting a wide variety of use contexts beyond messaging apps (e.g. also gaming, real-time collaboration tools). This transaction log also enables <strong>agent replay</strong> and <strong>experiments</strong>.</p>
+<h2 id="system-diagram">System Diagram</h2>
+<p>Below is a diagram of the primary system components and how they are connected.</p>
+<pre class="mermaid"><code>flowchart TD
+  subgraph LLM Engine
+    direction TB
+    Topic["Topic"]
+    Conversation["Conversation"]
+    Experiment["Experiment"]
+    Benchmark["Benchmark"]
+    Agent["Agent"]
+    Channel["Channel"]
+    Message["Message*"]
+    Thread["Thread"]
+    Zoom["Zoom (Audio/Text)"]
+    Nextspace["Nextspace"]
+    Prompts["Prompts"]
+    MCPTools["MCP Tools"]
+    MCPResources["MCP Resources"]
+    Slack["Slack"]
+    API["HTTP API"]
+
+    Topic --&gt;|many| Conversation
+    Conversation --&gt;|many| Agent
+    Conversation --&gt;|many| Channel
+    Conversation --&gt;|many| Experiment
+    Channel &lt;--&gt;|many| Message
+    Channel -. "optional" .-&gt; Conversation
+
+    Prompts --&gt; Agent
+    Benchmark --&gt;|evaluate| Agent
+    RAG --&gt; Agent
+    Agent -. "planned" .-&gt; MCPTools
+    Agent -. "planned" .-&gt; MCPResources
+
+    Message --&gt; |intercept| Agent
+    Agent --&gt;|create| Message
+
+    Message --&gt; |parent/children|Thread
+
+    Message &lt;--&gt;|many|Adapter
+
+    Adapter &lt;--&gt; Websocket
+    Adapter &lt;--&gt; API
+    Adapter &lt;--&gt; Nextspace
+    Adapter &lt;--&gt; Slack
+    Adapter &lt;--&gt; Zoom
+
+    end
+
+  ExternalAgents["External Agents"]
+  ExternalAgents &lt;-. "A2A protocol (planned)" .-&gt; Agent
+</code></pre>
+<h2 id="repofolder-overview">Repo/Folder overview</h2>
+<ul>
+<li>docs - Documentation files, including this file!</li>
+<li>k6 - Load testing</li>
+<li>promptfoo - <a href="https://www.promptfoo.dev/">Promptfoo</a> safety testing configuration</li>
+<li>rag_documents - Saved documents used with some agents</li>
+<li>report_templates - Templates used for generating reports</li>
+<li>src - Main source code folder</li>
+<li>adapters - Adapters for different communication platforms (e.g. Zoom, Slack)</li>
+<li>agents - Conversational agent configuration and code</li>
+<li>config - Main app config</li>
+<li>controllers - API route controllers</li>
+<li>conversations - Conversations config</li>
+<li>docs - OpenAPI docs helpers</li>
+<li>handlers - Various handlers</li>
+<li>jobs - Scheduled job handlers</li>
+<li>middlewares - expressjs middleware</li>
+<li>models - mongoose/mongodb data models</li>
+<li>routes - api route definitions</li>
+<li>services - core services used by controllers and elsewhere</li>
+<li>types - type definitions</li>
+<li>utils - various utilities</li>
+<li>validations - API validations</li>
+<li>websockets - websocket handlers</li>
+<li>tests - Extensive automated tests</li>
+</ul>
+<h2 id="api-documentation">API documentation</h2>
+<p>OpenAPI documentation is available when running the app locally at the route <code>v1/docs</code>.</p>
+<p>In particular, see the examples in the <code>POST</code> <code>Conversations</code> endpoint for how to create conversations with certain agent types.</p>
+<h2 id="understanding-message-control-flow">Understanding Message Control Flow</h2>
+<p>It can be very helpful to understand the Message routing and control flow to and from Agents and different platforms through Adapters.</p>
+<h4 id="diagrams">Diagrams</h4>
+<p>You can find several diagrams to help you understand the message routing and control flow.</p>
+<p><strong><a href="diagrams/receive_message_agent_routing/">Received Message Routing to Agents</a></strong>
+Describes how new messages are processed and routed through different agents for action.</p>
+<p><strong><a href="diagrams/agent_respond_message/">Agent Evaluate and Respond</a></strong>
+Describes how agents evaluate and choose to respond to or reject received messages.</p>
+<p><strong><a href="diagrams/receive_message_from_nextspace_or_nymspace/">Agents Receive a Message from Nextspace or Nymspace</a></strong>
+A more detailed description of what happens when a message is received from a websocket-based web app like Nextspace or Nymspace.</p>
+<p><strong><a href="diagrams/receive_message_from_zoom_or_slack/">Agents Receive a Message from Zoom or Slack</a></strong>
+A more detailed description of what happens when a message is received from an external app like Zoom or Slack.</p>
+<p><strong><a href="diagrams/new_adapter_user_creation/">New Users via an Adapter</a></strong>
+Describes how new system users are created as needed on demand when they encountered through an Adapter</p>
+<h2 id="tests-and-benchmarks">Tests and Benchmarks</h2>
+<h3 id="unit-and-integration-tests">Unit and integration tests</h3>
+<p>Unit and integration tests can be run with <code>yarn run test</code>, and a coverage report can be seen with <code>yarn run coverage</code>.</p>
+<h3 id="agent-tests">Agent tests</h3>
+<p>Tests of the built-in "production" agent types can be run with <code>yarn test:agents</code>.</p>
+<h2 id="production-vs-development-agents">Production vs. Development Agents</h2>
+<p>A few agent types have been carefully tested and vetted for "production" use. There are other experimental <a href="development_agents/">development agent</a> types under development in the <code>agents/development</code> folder. Be careful running development agents! They should only be used in experimental or development contexts.</p>
+<h3 id="enabling-development-agents">Enabling development agents</h3>
+<p>In your <code>.env</code> file set <code>ENABLE_DEVELOPMENT_AGENTS=true</code>.</p>
+<h3 id="testing-development-agents">Testing development agents</h3>
+<p>To run tests of the built-in development agent types, run <code>yarn test:agents:development</code>.</p>
+<h2 id="production-vs-development-platforms">Production vs. Development Platforms</h2>
+<p>A few platforms types have been carefully tested and vetted for "production" use (e.g. Nextspace and Zoom). There are other experimental <a href="development_platforms/">development platforms</a> under development. New platforms can be added by create a new <a href="adapters/">adapter</a>. Be careful with development platforms! They should only be used in experimental or development contexts.</p>
+<h3 id="enabling-development-platforms">Enabling development platforms</h3>
+<p>In your <code>.env</code> file set <code>ENABLE_DEVELOPMENT_ADAPTERS=true</code>.</p>
+<h2 id="openapi-specs-and-types">OpenAPI specs and types</h2>
+<p>The server exposes our OpenAPI spec at <code>/v1/openapi.json</code>.
+You can use the <code>package.json</code> script <code>openapi-types:generate</code> to generate a corresponding types file which is placed at <code>src/types/openapi.d.ts</code>.
+Both the backend and the frontend can use this OpenAPI route and this script to generate type files, instead of having to important them as a separate package. Nice!</p>
+</article>
+</div>
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+</div>
+</main>
+<footer class="md-footer">
+<div class="md-footer-meta md-typeset">
+<div class="md-footer-meta__inner md-grid">
+<div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" rel="noopener" target="_blank">
+      Material for MkDocs
+    </a>
+</div>
+</div>
+</div>
+</footer>
+</div>
+<div class="md-dialog" data-md-component="dialog">
+<div class="md-dialog__inner md-typeset"></div>
+</div>
+<script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "navigation.sections", "search.suggest"], "search": "../assets/javascripts/workers/search.7a47a382.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+<script src="../assets/javascripts/bundle.e71a0d61.min.js"></script>
+<script type="module">import mermaid from "https://unpkg.com/mermaid@10.4.0/dist/mermaid.esm.min.mjs";
+window.mermaidConfig = {default: {
+    startOnLoad: false
+}};</script></body>
+</html>
