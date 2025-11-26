@@ -18,6 +18,8 @@ LLM Engine is [AGPL 3.0 licensed](./LICENSE).
 
 To contribute to LLM Engine please review our [guide to contributions](./CONTRIBUTING.md).
 
+Please see the list of [active contributors](./CONTRIBUTORS.md) and [historical contributors](./HISTORICAL_CONTRIBUTORS.md).
+
 ## Development
 
 Developers can find additional technical documentation in our [guide for developers](https://berkmancenter.github.io/llm_engine/developers/).
