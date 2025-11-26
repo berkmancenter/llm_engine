@@ -1,0 +1,32 @@
+Direct Message Agent Responses Report
+===========================
+
+Experiment: {{experiment.name}}
+{{#if experiment.description}}
+Description: {{experiment.description}}
+{{/if}}
+Experiment Time: {{formatDate experiment.executedAt}}
+Base Conversation ID: {{baseConversation}}
+Result Conversation ID: {{resultConversation}}
+
+{{#each agents}}
+===========================
+Agent Name: {{name}}
+Total Users Messaged: {{userCount}}
+Total Users Responded: {{participantCount}}
+Min Engagements Per User: {{minEngagements}}
+Max Engagements Per User: {{maxEngagements}}
+Average Engagements Per User: {{avgEngagements}}
+
+{{#each messages}}
+---------------------------
+**User: {{username}}**
+
+{{#each comments}}
+{{formatTime timestamp}}  {{{user}}}: {{{text}}}
+
+{{/each}}
+---------------------------
+{{/each}}
+===========================
+{{/each}}

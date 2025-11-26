@@ -1,0 +1,31 @@
+# Dependencies
+node_modules
+
+# yarn error logs
+yarn-error.log
+
+# Environment varibales
+.env*
+!.env*.example
+
+# Code coverage
+coverage
+
+# MacOS
+.DS_Store
+
+# Build
+dist
+
+# AI coding tools
+.aider*
+
+# Promptfoo
+redteam.yaml
+promptfoo-errors.log
+
+# Openapi-typescript generated type file
+src/types/openapi.d.ts
+
+# k6
+k6/*.json

@@ -1,0 +1,52 @@
+import httpStatus from 'http-status'
+import ApiError from '../utils/ApiError.js'
+import { exportService } from '../services/index.js'
+import Conversation from '../models/conversation.model.js'
+import logger from '../config/logger.js'
+import catchAsync from '../utils/catchAsync'
+
+const exportConversation = catchAsync(async (req, res) => {
+  const { conversationId } = req.params
+  const { format = 'docx', timezone = 'UTC' } = req.query
+
+  req.setTimeout(5 * 60 * 1000)
+  res.setTimeout(5 * 60 * 1000)
+
+  const conversation = await Conversation.findById(conversationId).populate('topic')
+  if (!conversation) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'Conversation not found')
+  }
+
+  if (!conversation.topic) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'Channel not found')
+  }
+
+  if (conversation.topic.owner.toString() !== req.user.id) {
+    throw new ApiError(httpStatus.FORBIDDEN, 'Only channel owner can export conversations')
+  }
+
+  if (!['docx', 'csv'].includes(format)) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Invalid format. Use docx or csv')
+  }
+
+  try {
+    const { buffer, filename, contentType } = await exportService.exportConversation(
+      conversationId,
+      format,
+      req.user,
+      timezone
+    )
+
+    res.setHeader('Content-Type', contentType)
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+    res.setHeader('Content-Length', buffer.length)
+    res.send(buffer)
+  } catch (error) {
+    logger.error('Export error:', error)
+    throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'Failed to export conversation')
+  }
+})
+
+export default {
+  exportConversation
+}

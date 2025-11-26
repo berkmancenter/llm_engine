@@ -1,0 +1,989 @@
+components:
+  schemas:
+    Vote:
+      type: object
+      properties:
+        owner:
+          type: string
+          description: Reference to User ID
+        pseudonym:
+          type: string
+        reason:
+          type: string
+
+    Message:
+      type: object
+      required:
+        - body
+        - conversation
+        - fromAgent
+        - pause
+        - visible
+        - pseudonym
+        - pseudonymId
+        - upVotes
+        - downVotes
+      properties:
+        id:
+          type: string
+        owner:
+          type: string
+          description: Reference to User ID
+        body:
+          oneOf:
+            - type: string
+            - type: object
+              additionalProperties: true
+        bodyType:
+          type: string
+        source:
+          type: string
+        channels:
+          type: array
+          items:
+            type: string
+        conversation:
+          type: string
+          description: Reference to Conversation ID
+        fromAgent:
+          type: boolean
+        pause:
+          type: boolean
+        visible:
+          type: boolean
+        count:
+          type: integer
+        pseudonym:
+          type: string
+        pseudonymId:
+          type: string
+        active:
+          type: boolean
+        isDeleted:
+          type: boolean
+        upVotes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Vote'
+        downVotes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Vote'
+        parentMessage:
+          type: string
+          description: Reference to parent Message ID
+        createdAt:
+          type: string
+          format: date-time
+        replyCount:
+          type: integer
+
+    Pseudonym:
+      type: object
+      required:
+        - token
+        - pseudonym
+        - active
+        - isDeleted
+        - conversations
+      properties:
+        id:
+          type: string
+        token:
+          type: string
+        pseudonym:
+          type: string
+        active:
+          type: boolean
+        isDeleted:
+          type: boolean
+        conversations:
+          type: array
+          items:
+            type: string
+          description: Array of Conversation IDs
+
+    BaseUser:
+      type: object
+      properties:
+        id:
+          type: string
+
+    User:
+      type: object
+      required:
+        - password
+        - username
+        - pseudonyms
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        email:
+          type: string
+        password:
+          type: string
+        role:
+          type: string
+        goodReputation:
+          type: boolean
+        dataExportOptOut:
+          type: boolean
+        pseudonyms:
+          type: array
+          items:
+            $ref: '#/components/schemas/Pseudonym'
+
+    Follower:
+      type: object
+      required:
+        - user
+        - conversation
+        - topic
+      properties:
+        user:
+          type: string
+          description: Reference to User ID
+        conversation:
+          type: string
+          description: Reference to Conversation ID
+        topic:
+          type: string
+          description: Reference to Topic ID
+
+    Topic:
+      type: object
+      required:
+        - name
+        - conversations
+        - votingAllowed
+        - owner
+        - conversationCreationAllowed
+        - private
+        - archivable
+        - followers
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        name:
+          type: string
+        defaultSortAverage:
+          type: number
+        followed:
+          type: boolean
+        conversations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Conversation'
+        votingAllowed:
+          type: boolean
+        owner:
+          $ref: '#/components/schemas/User'
+        conversationCreationAllowed:
+          type: boolean
+        private:
+          type: boolean
+        passcode:
+          type: integer
+        archivable:
+          type: boolean
+        archived:
+          type: boolean
+        isDeleted:
+          type: boolean
+        isArchiveNotified:
+          type: boolean
+        archiveEmail:
+          type: string
+        followers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Follower'
+        latestMessageCreatedAt:
+          type: string
+          format: date-time
+        messageCount:
+          type: integer
+        conversationCount:
+          type: integer
+
+    Channel:
+      type: object
+      required:
+        - name
+        - passcode
+        - direct
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        passcode:
+          type: string
+          nullable: true
+        direct:
+          type: boolean
+        participants:
+          type: array
+          items:
+            $ref: '#/components/schemas/BaseUser'
+
+    AdapterChannelConfig:
+      type: object
+      required:
+        - direction
+      properties:
+        direct:
+          type: boolean
+          description: 'Indicates if this is a direct message channel'
+        agent:
+          type: string
+          description: 'Agent ID or name for direct message channel'
+        name:
+          type: string
+          description: 'The channel name. Optional if this is a direct message channel.'
+        direction:
+          type: string
+          enum: [incoming, outgoing, both]
+        config:
+          type: object
+          additionalProperties: true
+
+    Adapter:
+      type: object
+      required:
+        - type
+        - config
+        - conversation
+        - active
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        config:
+          type: object
+          additionalProperties: true
+        conversation:
+          type: string
+          description: Reference to Conversation ID
+        active:
+          type: boolean
+        audioChannels:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdapterChannelConfig'
+        chatChannels:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdapterChannelConfig'
+        dmChannels:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdapterChannelConfig'
+
+    ConversationHistorySettings:
+      type: object
+      properties:
+        count:
+          type: integer
+          description: Max number of messages to include in conversation history
+        timeWindow:
+          type: integer
+          description: Time window in seconds for conversation history
+        endTime:
+          type: string
+          format: date-time
+        channels:
+          type: array
+          items:
+            type: string
+          description: Array of non-direct channel names to include in history
+        directMessages:
+          type: boolean
+          description: Whether to include direct messages in history
+
+    ConversationHistory:
+      type: object
+      required:
+        - start
+        - end
+        - messages
+      properties:
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+
+    PerMessageTrigger:
+      type: object
+      properties:
+        minNewMessages:
+          type: integer
+          description: Minimum number of new messages before triggering
+        directMessages:
+          type: boolean
+          description: Whether to trigger on direct messages
+        channels:
+          type: array
+          items:
+            type: string
+          description: Array of channel names to monitor for messages
+        conversationHistorySettings:
+          $ref: '#/components/schemas/ConversationHistorySettings'
+
+    PeriodicTrigger:
+      type: object
+      required:
+        - timerPeriod
+      properties:
+        timerPeriod:
+          type: integer
+          description: Timer period in seconds to trigger agent message processing
+        conversationHistorySettings:
+          $ref: '#/components/schemas/ConversationHistorySettings'
+
+    Triggers:
+      type: object
+      properties:
+        perMessage:
+          $ref: '#/components/schemas/PerMessageTrigger'
+        periodic:
+          $ref: '#/components/schemas/PeriodicTrigger'
+
+    AgentEvaluation:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          type: integer
+          description: 'Agent message action: 0=OK, 1=REJECT, 2=CONTRIBUTE'
+          enum: [0, 1, 2]
+
+    LlmPlatformOptions:
+      type: object
+      required:
+        - useKeepAlive
+      properties:
+        useKeepAlive:
+          type: boolean
+        baseUrl:
+          type: string
+
+    Agent:
+      type: object
+      required:
+        - name
+        - description
+        - pseudonyms
+        - conversation
+        - agentType
+        - llmPlatform
+        - llmModel
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        pseudonyms:
+          type: array
+          items:
+            $ref: '#/components/schemas/Pseudonym'
+        conversation:
+          type: string
+          description: Reference to Conversation ID
+        instanceName:
+          type: string
+        agentType:
+          type: string
+        llmPlatform:
+          type: string
+          enum: [openai, ollama, perspective, bedrock, vllm]
+        llmPlatformOptions:
+          $ref: '#/components/schemas/LlmPlatformOptions'
+        llmModel:
+          type: string
+        lastActiveMessageCount:
+          type: number
+        agentEvaluation:
+          $ref: '#/components/schemas/AgentEvaluation'
+        llmModelOptions:
+          type: object
+          additionalProperties: true
+        llmTemplateVars:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+        llmTemplates:
+          type: object
+          additionalProperties:
+            type: string
+        agentConfig:
+          type: object
+          additionalProperties: true
+        ragCollectionName:
+          type: string
+        triggers:
+          $ref: '#/components/schemas/Triggers'
+        active:
+          type: boolean
+        conversationHistorySettings:
+          $ref: '#/components/schemas/ConversationHistorySettings'
+        useTranscriptRAGCollection:
+          type: boolean
+
+    ConversationTypeProperty:
+      type: object
+      required:
+        - name
+        - required
+        - type
+      properties:
+        name:
+          type: string
+        required:
+          type: boolean
+        type:
+          type: string
+          enum: [string, number, boolean, object]
+        label:
+          type: string
+        default:
+          oneOf:
+            - type: string
+            - type: number
+            - type: boolean
+            - type: object
+        description:
+          type: string
+        enum:
+          type: array
+          items:
+            oneOf:
+              - type: string
+              - type: number
+              - type: boolean
+              - type: object
+        validationKeys:
+          type: array
+          items:
+            type: string
+
+    ChannelConfig:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        passcode:
+          type: string
+          nullable: true
+        direct:
+          type: boolean
+
+    AgentConfig:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        properties:
+          type: object
+          additionalProperties: true
+
+    PlatformConfig:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        label:
+          type: string
+
+    AdapterConfig:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+        config:
+          type: object
+          additionalProperties: true
+        audioChannels:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdapterChannelConfig'
+        chatChannels:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdapterChannelConfig'
+        dmChannels:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdapterChannelConfig'
+
+    ConversationType:
+      type: object
+      required:
+        - name
+        - description
+        - platforms
+        - properties
+      properties:
+        name:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+        platforms:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformConfig'
+        properties:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConversationTypeProperty'
+        agents:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentConfig'
+        channels:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelConfig'
+        enableDMs:
+          type: array
+          items:
+            type: string
+        adapters:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/AdapterConfig'
+
+    Conversation:
+      type: object
+      required:
+        - messages
+        - name
+        - followers
+        - agents
+        - channels
+        - adapters
+        - enableDMs
+        - experiments
+        - owner
+        - topic
+      properties:
+        id:
+          type: string
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+        slug:
+          type: string
+        name:
+          type: string
+        conversationType:
+          type: string
+        platforms:
+          type: array
+          items:
+            type: string
+        followers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Follower'
+        agents:
+          type: array
+          items:
+            $ref: '#/components/schemas/Agent'
+        channels:
+          type: array
+          items:
+            $ref: '#/components/schemas/Channel'
+        scheduledTime:
+          type: string
+          format: date-time
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        adapters:
+          type: array
+          items:
+            $ref: '#/components/schemas/Adapter'
+        enableDMs:
+          type: array
+          items:
+            type: string
+        experimental:
+          type: boolean
+        experiments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Experiment'
+        active:
+          type: boolean
+        locked:
+          type: boolean
+        enableAgents:
+          type: boolean
+        owner:
+          $ref: '#/components/schemas/User'
+        topic:
+          $ref: '#/components/schemas/Topic'
+        followed:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        messageCount:
+          type: number
+
+    AgentModification:
+      type: object
+      required:
+        - agent
+      properties:
+        agent:
+          $ref: '#/components/schemas/Agent'
+        experimentValues:
+          type: object
+          additionalProperties: true
+          description: Should match properties object of agentType
+        simulatedStartTime:
+          type: string
+          format: date-time
+          description: The Date of the earliest message considered in the periodic interval
+
+    Experiment:
+      type: object
+      required:
+        - name
+        - baseConversation
+        - createdBy
+        - createdAt
+        - status
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        baseConversation:
+          $ref: '#/components/schemas/Conversation'
+        createdBy:
+          $ref: '#/components/schemas/User'
+        createdAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [running, completed, failed, 'not started']
+        agentModifications:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentModification'
+        resultConversation:
+          $ref: '#/components/schemas/Conversation'
+        executedAt:
+          type: string
+          format: date-time
+
+    Poll:
+      type: object
+      required:
+        - title
+        - slug
+        - locked
+        - owner
+        - topic
+        - multiSelect
+        - allowNewChoices
+        - choicesVisible
+        - responseCountsVisible
+        - onlyOwnChoicesVisible
+        - whenResultsVisible
+        - responsesVisibleToNonParticipants
+        - responsesVisible
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+        locked:
+          type: boolean
+        owner:
+          $ref: '#/components/schemas/User'
+        threshold:
+          type: number
+        expirationDate:
+          type: string
+          format: date-time
+        topic:
+          $ref: '#/components/schemas/Topic'
+        multiSelect:
+          type: boolean
+        allowNewChoices:
+          type: boolean
+        choicesVisible:
+          type: boolean
+        responseCountsVisible:
+          type: boolean
+        onlyOwnChoicesVisible:
+          type: boolean
+        whenResultsVisible:
+          type: string
+        responsesVisibleToNonParticipants:
+          type: boolean
+        responsesVisible:
+          type: boolean
+        choices:
+          type: array
+          items:
+            $ref: '#/components/schemas/PollChoice'
+
+    PollChoice:
+      type: object
+      required:
+        - text
+        - poll
+      properties:
+        id:
+          type: string
+        text:
+          type: string
+        poll:
+          $ref: '#/components/schemas/Poll'
+
+    PollResponse:
+      type: object
+      required:
+        - choice
+        - removed
+        - owner
+        - poll
+      properties:
+        id:
+          type: string
+        choice:
+          $ref: '#/components/schemas/PollChoice'
+        removed:
+          type: boolean
+        owner:
+          $ref: '#/components/schemas/User'
+        poll:
+          $ref: '#/components/schemas/Poll'
+
+    GenericAgentAnswer:
+      type: object
+      required:
+        - explanation
+        - message
+        - visible
+        - channels
+        - action
+      properties:
+        explanation:
+          type: string
+        message:
+          oneOf:
+            - type: string
+            - type: object
+              additionalProperties: true
+        visible:
+          type: boolean
+        channels:
+          type: array
+          items:
+            type: string
+        action:
+          type: integer
+          enum: [0, 1, 2]
+
+    AgentResponse:
+      type: object
+      required:
+        - visible
+        - message
+      properties:
+        visible:
+          type: boolean
+        message:
+          oneOf:
+            - type: string
+            - type: object
+              additionalProperties: true
+        channels:
+          type: array
+          items:
+            $ref: '#/components/schemas/Channel'
+        messageType:
+          type: string
+        context:
+          type: string
+
+    LlmPlatformDetails:
+      type: object
+      required:
+        - name
+        - description
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        options:
+          $ref: '#/components/schemas/LlmPlatformOptions'
+
+    LlmModelDetails:
+      type: object
+      required:
+        - name
+        - label
+        - llmPlatform
+        - llmModel
+        - description
+      properties:
+        name:
+          type: string
+        label:
+          type: string
+        llmPlatform:
+          type: string
+        llmModel:
+          type: string
+        description:
+          type: string
+        defaultModelOptions:
+          type: object
+          additionalProperties: true
+
+    PaginateResults:
+      type: object
+      required:
+        - results
+        - page
+        - limit
+        - totalPages
+        - totalResults
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+        page:
+          type: integer
+        limit:
+          type: integer
+        totalPages:
+          type: integer
+        totalResults:
+          type: integer
+
+    Token:
+      type: object
+      properties:
+        token:
+          type: string
+        expires:
+          type: string
+          format: date-time
+      example:
+        token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1ZWJhYzUzNDk1NGI1NDEzOTgwNmMxMTIiLCJpYXQiOjE1ODkyOTg0ODQsImV4cCI6MTU4OTMwMDI4NH0.m1U63blB0MLej_WfB7yC2FTMnCziif9X8yzwDEfJXAg
+        expires: 2020-05-12T16:18:04.793Z
+
+    AuthTokens:
+      type: object
+      properties:
+        access:
+          $ref: '#/components/schemas/Token'
+        refresh:
+          $ref: '#/components/schemas/Token'
+
+    Error:
+      type: object
+      properties:
+        code:
+          type: number
+        message:
+          type: string
+
+  responses:
+    DuplicateEmail:
+      description: Email already taken
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: 400
+            message: Email already taken
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: 401
+            message: Please log in
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: 403
+            message: Forbidden
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: 404
+            message: Not found
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

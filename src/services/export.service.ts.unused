@@ -1,0 +1,293 @@
+import { Document, Paragraph, HeadingLevel, Packer } from 'docx'
+import { createObjectCsvWriter } from 'csv-writer'
+import archiver from 'archiver'
+import { promise as fs } from 'fs'
+import path from 'path'
+import os from 'os'
+import Message from '../models/message.model'
+import User from '../models/user.model/user.model'
+import Conversation from '../models/conversation.model'
+import ExportAudit from '../models/exportAudit.model'
+import config from '../config/config'
+
+const createCsvWriter = createObjectCsvWriter
+
+/**
+ * Get exportable messages for a conversation (excluding opted-out users)
+ * @param {string} conversationId - The conversation ID
+ * @returns {Promise<Array>} Array of messages
+ */
+const getExportableMessages = async (conversationId) => {
+  const queryFilter = { conversation: conversationId }
+
+  if (config.enableExportOptOut) {
+    const optedOutUsers = await User.find({
+      dataExportOptOut: true
+    }).select('_id')
+
+    const optedOutUserIds = optedOutUsers.map((u) => u._id)
+    queryFilter.owner = { $nin: optedOutUserIds }
+  }
+
+  const messages = await Message.find(queryFilter).populate('owner', 'pseudonyms').sort({ createdAt: 1 })
+
+  return messages.map((msg) => {
+    const activePseudonym = msg.owner?.pseudonyms?.find((p) => p.active)
+    return {
+      _id: msg._id.toString(),
+      body: msg.body,
+      createdAt: msg.createdAt,
+      parentMessage: msg.parentMessage?.toString() || null,
+      pseudonym: activePseudonym?.pseudonym || 'Anonymous',
+      replies: []
+    }
+  })
+}
+
+/**
+ * Build message hierarchy from flat array
+ * @param {Array} messages - Flat array of messages
+ * @returns {Array} Hierarchical array of messages
+ */
+const buildMessageHierarchy = (messages) => {
+  const messageMap = new Map()
+  const rootMessages = []
+
+  messages.forEach((msg) => {
+    messageMap.set(msg._id, { ...msg, replies: [] })
+  })
+
+  messages.forEach((msg) => {
+    if (msg.parentMessage && messageMap.has(msg.parentMessage)) {
+      messageMap.get(msg.parentMessage).replies.push(messageMap.get(msg._id))
+    } else {
+      rootMessages.push(messageMap.get(msg._id))
+    }
+  })
+
+  return rootMessages
+}
+
+/**
+ * Format messages for DOCX with proper indentation
+ * @param {Array} messages - Hierarchical messages
+ * @param {number} level - Indentation level
+ * @param {string} timezone - Timezone for date formatting
+ * @returns {Array} Array of Paragraph objects
+ */
+const formatMessagesForDocx = (messages, level = 0, timezone = 'UTC') => {
+  return messages
+    .map((msg) => {
+      const indent = level * 720
+      return [
+        new Paragraph({
+          text: `${msg.pseudonym} - ${new Date(msg.createdAt).toLocaleString('en-US', {
+            timeZone: timezone
+          })}`,
+          indent: { left: indent },
+          spacing: { before: 240 },
+          style: 'Heading3'
+        }),
+        new Paragraph({
+          text: msg.body,
+          indent: { left: indent },
+          spacing: { after: 240 }
+        }),
+        ...formatMessagesForDocx(msg.replies || [], level + 1, timezone)
+      ]
+    })
+    .flat()
+}
+
+/**
+ * Generate DOCX file from messages
+ * @param {Array} messages - Hierarchical messages
+ * @param {Object} metadata - Conversation metadata
+ * @param {string} timezone - Timezone for date formatting
+ * @returns {Promise<Buffer>} DOCX file buffer
+ */
+const generateDocx = async (messages, metadata, timezone = 'UTC') => {
+  const doc = new Document({
+    sections: [
+      {
+        properties: {},
+        children: [
+          new Paragraph({
+            text: metadata.conversationName,
+            heading: HeadingLevel.TITLE
+          }),
+          new Paragraph({
+            text: `Channel: ${metadata.topicName}`,
+            heading: HeadingLevel.HEADING_2
+          }),
+          new Paragraph({
+            text: `Exported on: ${new Date().toLocaleString('en-US', { timeZone: timezone })} (${timezone})`,
+            heading: HeadingLevel.HEADING_2,
+            spacing: { after: 480 }
+          }),
+          new Paragraph({
+            text: `Message timestamps shown in ${timezone}`
+          }),
+          ...formatMessagesForDocx(messages, 0, timezone)
+        ]
+      }
+    ]
+  })
+
+  return Packer.toBuffer(doc)
+}
+
+/**
+ * Generate CSV files for messages
+ * @param {Array} messages - Flat array of messages
+ * @param {Object} metadata - Conversation metadata
+ * @param {string} timezone - Timezone for date formatting
+ * @returns {Promise<Buffer>} ZIP file buffer containing CSV files
+ */
+const generateCsv = async (messages, metadata, timezone = 'UTC') => {
+  const tempDir = path.join(os.tmpdir(), `export-${metadata.conversationId}-${Date.now()}`)
+  // eslint-disable-next-line security/detect-non-literal-fs-filename
+  await fs.mkdir(tempDir, { recursive: true })
+
+  try {
+    const csvData = messages.map((msg) => ({
+      messageId: msg._id,
+      pseudonym: msg.pseudonym,
+      body: msg.body,
+      createdAt: `${new Date(msg.createdAt).toLocaleString('en-US', { timeZone: timezone })} (${timezone})`,
+      parentMessageId: msg.parentMessage || 'root'
+    }))
+
+    const csvWriter = createCsvWriter({
+      path: path.join(tempDir, 'messages.csv'),
+      header: [
+        { id: 'messageId', title: 'Message ID' },
+        { id: 'pseudonym', title: 'Pseudonym' },
+        { id: 'body', title: 'Message' },
+        { id: 'createdAt', title: 'Created At' },
+        { id: 'parentMessageId', title: 'Parent Message ID' }
+      ]
+    })
+
+    await csvWriter.writeRecords(csvData)
+
+    const metadataWriter = createCsvWriter({
+      path: path.join(tempDir, 'metadata.csv'),
+      header: [
+        { id: 'conversationName', title: 'Conversation Name' },
+        { id: 'topicName', title: 'Channel Name' },
+        { id: 'exportDate', title: 'Export Date' },
+        { id: 'messageCount', title: 'Message Count' }
+      ]
+    })
+
+    await metadataWriter.writeRecords([
+      {
+        conversationName: metadata.conversationName,
+        topicName: metadata.topicName,
+        exportDate: `${new Date().toLocaleString('en-US', { timeZone: timezone })} (${timezone})`,
+        messageCount: messages.length
+      }
+    ])
+
+    const csvFilePath = path.join(tempDir, 'messages.csv')
+    const metadataFilePath = path.join(tempDir, 'metadata.csv')
+    // eslint-disable-next-line security/detect-non-literal-fs-filename
+    const messagesContent = await fs.readFile(csvFilePath)
+    // eslint-disable-next-line security/detect-non-literal-fs-filename
+    const metadataContent = await fs.readFile(metadataFilePath)
+    const archive = archiver('zip', { zlib: { level: 9 } })
+    const chunks = []
+
+    const archivePromise = new Promise((resolve, reject) => {
+      archive.on('error', reject)
+      archive.on('end', resolve)
+      archive.on('data', (chunk) => chunks.push(chunk))
+    })
+
+    archive.append(messagesContent, { name: 'messages.csv' })
+    archive.append(metadataContent, { name: 'metadata.csv' })
+    archive.finalize()
+
+    await archivePromise
+    await fs.rm(tempDir, { recursive: true, force: true })
+
+    return Buffer.concat(chunks)
+  } catch (error) {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {})
+    throw error
+  }
+}
+
+/**
+ * Export conversation data
+ * @param {string} conversationId - Conversation ID
+ * @param {string} format - Export format (docx or csv)
+ * @param {Object} exportingUser - User performing the export
+ * @param {string} timezone - Timezone for date formatting (default: UTC)
+ * @returns {Promise<Object>} Object with buffer and metadata
+ */
+const exportConversation = async (conversationId, format = 'docx', exportingUser, timezone = 'UTC') => {
+  const conversation = await Conversation.findById(conversationId).populate('topic', 'name')
+  if (!conversation) {
+    throw new Error('Conversation not found')
+  }
+
+  const messages = await getExportableMessages(conversationId)
+  const affectedUsersMap = new Map()
+  const allMessages = await Message.find({ conversation: conversationId }).populate('owner', 'pseudonyms')
+
+  allMessages.forEach((msg) => {
+    if (msg.owner && !affectedUsersMap.has(msg.owner._id.toString())) {
+      const activePseudonym = msg.owner.pseudonyms?.find((p) => p.active)
+      affectedUsersMap.set(msg.owner._id.toString(), {
+        userId: msg.owner._id,
+        pseudonym: activePseudonym?.pseudonym || 'Anonymous'
+      })
+    }
+  })
+
+  await ExportAudit.create({
+    conversationId: conversation._id,
+    conversationName: conversation.name,
+    exportedBy: exportingUser._id,
+    exporterUsername: exportingUser.username || 'Unknown',
+    format,
+    affectedUsers: Array.from(affectedUsersMap.values()),
+    messageCount: messages.length,
+    exportDate: new Date()
+  })
+
+  const hierarchicalMessages = buildMessageHierarchy(messages)
+  const metadata = {
+    conversationId: conversation._id.toString(),
+    conversationName: conversation.name,
+    topicName: conversation.topic?.name || 'Unknown Channel'
+  }
+  let buffer
+  let filename
+  let contentType
+  const dateStr = new Date().toISOString().split('T')[0]
+  const sanitizedConversationName = conversation.slug.replace(/[^a-z0-9-_]/gi, '_')
+
+  if (format === 'csv') {
+    buffer = await generateCsv(messages, metadata, timezone)
+    filename = `${sanitizedConversationName}-messages-${dateStr}.zip`
+    contentType = 'application/zip'
+  } else {
+    buffer = await generateDocx(hierarchicalMessages, metadata, timezone)
+    filename = `${sanitizedConversationName}-conversation-export-${dateStr}.docx`
+    contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  }
+
+  return {
+    buffer,
+    filename,
+    contentType
+  }
+}
+
+export default {
+  exportConversation,
+  getExportableMessages
+}

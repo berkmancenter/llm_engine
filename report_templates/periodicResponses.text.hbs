@@ -1,0 +1,36 @@
+Periodic Agent Responses Report
+===========================
+
+Experiment: {{experiment.name}}
+{{#if experiment.description}}
+Description: {{experiment.description}}
+{{/if}}
+Experiment Time: {{formatDate experiment.executedAt}}
+Base Conversation ID: {{baseConversation}}
+Result Conversation ID: {{resultConversation}}
+Unique Participants: {{participantCount}}
+
+{{#each agents}}
+===========================
+Agent Name: {{name}}
+
+
+{{#each messages}}
+{{#if timestamp.end}}
+***Messages in time period: {{formatTime timestamp.start}} - {{formatTime timestamp.end}}***
+{{else}}
+***Messages from: {{formatTime timestamp.start}} onwards***
+{{/if}}
+
+{{#each comments}}
+{{formatTime timestamp}}  {{{user}}}: {{{text}}}
+
+{{/each}}
+
+{{#if hasResponses}}
+**Agent Responses**
+{{{formatObject responses}}}
+{{/if}}
+
+{{/each}}
+{{/each}}

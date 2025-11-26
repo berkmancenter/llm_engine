@@ -1,0 +1,50 @@
+name: Deploy to Staging
+concurrency: staging
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.PRIVATE_KEY }}
+          port: ${{ secrets.PORT }}
+          script: |
+            sudo -u llm_engine /home/llm_engine/update_and_build.sh
+            echo "Restarting app..."
+            sudo systemctl restart llm_engine-server
+            echo "Checking if service is active..."
+            if ! sudo systemctl is-active --quiet llm_engine-server; then
+              echo "Service failed to start"
+              sudo journalctl -u llm_engine-server --no-pager -n 50
+              exit 1
+            fi
+            echo "Service is active"
+
+            echo "Waiting for app health check to pass..."
+            for i in {1..10}; do
+              if curl --fail --silent http://localhost:3000/v1/health; then
+                echo "App is healthy"
+                exit 0
+              else
+                echo "Health check failed (try $i), retrying..."
+                sleep 3
+              fi
+            done
+
+            echo "App failed health check after restart"
+            sudo journalctl -u llm_engine-server --no-pager -n 50
+            exit 1

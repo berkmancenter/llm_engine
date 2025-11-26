@@ -1,0 +1,59 @@
+import express from 'express'
+import exportController from '../../controllers/export.controller'
+import auth from '../../middlewares/auth'
+
+const router = express.Router()
+
+/**
+ * @swagger
+ * tags:
+ *   name: Export
+ *   description: Data export endpoints
+ */
+
+/**
+ * @swagger
+ * /export/conversation/{conversationId}:
+ *   get:
+ *     description: Export conversation data (conversation owner only)
+ *     tags: [Export]
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         description: The ID of the conversation to export
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: format
+ *         description: Export format (docx or csv)
+ *         schema:
+ *           type: string
+ *           enum: [docx, csv]
+ *           default: docx
+ *       - in: query
+ *         name: timezone
+ *         description: Timezone for date formatting (e.g., America/New_York, Europe/London)
+ *         schema:
+ *           type: string
+ *           default: UTC
+ *     responses:
+ *       200:
+ *         description: File download
+ *         content:
+ *           application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *           application/zip:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       403:
+ *         description: Forbidden - not conversation owner
+ *       404:
+ *         description: Conversation not found
+ */
+router.route('/conversation/:conversationId').get(auth('exportOwnConversation'), exportController.exportConversation)
+
+export default router

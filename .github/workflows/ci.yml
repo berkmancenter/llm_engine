@@ -1,0 +1,167 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      llmPlatform:
+        description: 'The LLM Platform to use for agent testing'
+        required: true
+        default: 'openai'
+        type: choice
+        options:
+          - 'openai'
+          - 'bedrock'
+          - 'vllm'
+      llmModel:
+        description: 'The LLM Model to use for agent testing'
+        required: true
+        default: 'gpt-4o-mini'
+        type: string
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      mongodb:
+        image: mongo:8.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping: 1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      chromadb:
+        image: chromadb/chroma:0.6.3
+        ports:
+          - 8000:8000
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect Agent Changes
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          list-files: shell
+          filters: |
+            agents:
+              - 'src/agents/**'
+              - 'src/models/user.model/agent.model/**'
+              - 'tests/agents/**'
+
+      - name: Setup Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - name: Enable Yarn
+        run: corepack enable
+
+      - name: Get yarn cache directory path
+        id: yarn-cache-dir-path
+        run: echo "dir=$(yarn cache dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache yarn dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
+          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build and verify app starts
+        run: |
+          echo "Building application..."
+          yarn build:up &
+          BUILD_PID=$!
+
+          cleanup_build() {
+            if kill -0 $BUILD_PID 2>/dev/null; then
+              echo "Stopping build process (PID: $BUILD_PID)"
+              kill $BUILD_PID
+              wait $BUILD_PID 2>/dev/null || true
+            fi
+          }
+
+          # Set trap to ensure cleanup happens on script exit
+          trap cleanup_build EXIT
+
+          echo "Waiting for app health check to pass..."
+          HEALTH_CHECK_PASSED=false
+          for i in {1..10}; do
+            if curl --fail --silent http://localhost:3000/v1/health; then
+              echo "App is healthy"
+              HEALTH_CHECK_PASSED=true
+              break
+            else
+              echo "Health check failed (try $i), retrying..."
+              sleep 3
+            fi
+          done
+
+          if [ "$HEALTH_CHECK_PASSED" = true ]; then
+            echo "App started successfully"
+            exit 0
+          else
+            echo "App failed health check after restart"
+            exit 1
+          fi
+
+        env:
+          PORT: 3000
+          MONGODB_URL: mongodb://127.0.0.1:27017/node-boilerplate
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          CHROMA_DB_URL: http://0.0.0.0:8000
+          DEFAULT_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DEFAULT_OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+
+      - name: Run tests
+        run: yarn test
+        env:
+          PORT: 3000
+          MONGODB_URL: mongodb://127.0.0.1:27017/node-boilerplate
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          CHROMA_DB_URL: http://0.0.0.0:8000
+          DEFAULT_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DEFAULT_OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+
+      - name: Run agent tests
+        if: steps.changes.outputs.agents == 'true' || github.event_name== 'workflow_dispatch'
+        run: yarn test:agents
+        env:
+          PORT: 3000
+          MONGODB_URL: mongodb://127.0.0.1:27017/node-boilerplate
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          CHROMA_DB_URL: http://0.0.0.0:8000
+          DEFAULT_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DEFAULT_OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          LANGSMITH_TRACING_V2: true
+          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          BEDROCK_API_KEY: ${{ secrets.BEDROCK_API_KEY }}
+          BEDROCK_BASE_URL: ${{ secrets.BEDROCK_BASE_URL }}
+          VLLM_API_URL: ${{ secrets.VLLM_API_URL }}
+          VLLM_API_KEY: ${{ secrets.VLLM_API_KEY }}
+          TEST_LLM_PLATFORM: ${{ github.event.inputs.llmPlatform }}
+          TEST_LLM_MODEL: ${{ github.event.inputs.llmModel }}
+
+      - name: Run linting
+        run: yarn lint
+
+      - name: Check code formatting
+        run: yarn prettier
+
+      - name: Security audit (critical vulnerabilities)
+        run: yarn audit:critical
+
+      - name: Security audit (high vulnerabilities)
+        run: yarn audit:high
+        continue-on-error: true
