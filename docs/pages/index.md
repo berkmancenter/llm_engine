@@ -2,7 +2,7 @@
 
 ## What is LLM Engine?
 
-LLM Engine is a extensible service for deploying and developing assistive interactive agents in multi-modal, intentional conversations, both online and hybrid.
+LLM Engine is an extensible service for deploying and developing assistive interactive agents in multi-modal, intentional conversations, both online and hybrid.
 
 ✅ LLM Engine intentionally supports **events** and **educational settings**
 
