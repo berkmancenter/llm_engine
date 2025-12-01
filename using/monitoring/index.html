@@ -19,7 +19,7 @@
     
     
       
-        <title>Development - Agents - LLM Engine</title>
+        <title>Monitoring and Reporting - LLM Engine</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#development-agents" class="md-skip">
+        <a href="#monitoring-and-reporting" class="md-skip">
           Skip to content
         </a>
       
@@ -110,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Development - Agents
+              Monitoring and Reporting
             
           </span>
         </div>
@@ -286,7 +286,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../using/" class="md-nav__link">
+      <a href="../" class="md-nav__link">
         
   
   
@@ -313,7 +313,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../" class="md-nav__link">
+      <a href="../../developers/" class="md-nav__link">
         
   
   
@@ -353,6 +353,92 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#langsmith-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Langsmith integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#llm-engine-reports" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LLM Engine reports
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="LLM Engine reports">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#creating-an-experiment-from-a-past-conversation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating an experiment from a past conversation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#running-a-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running a report
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Running a report">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#direct-message-reports" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Direct message reports
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#periodic-reports" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Periodic reports
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -371,17 +457,99 @@
   
 
 
-<h1 id="development-agents">Development - Agents</h1>
-<p>❗ Caution! The agent types below are experimental! These are meant as inspiration for your own agents or for further evaluation and development.
-❗ Use them only with audiences who know they are engaging an experimental agent!</p>
-<p>They become available when enabled using the <code>ENABLE_DEVELOPMENT_AGENTS</code> environment variable.</p>
-<p>✅ <strong>Civility Agent</strong> - Preemptively intercepts toxic messages and suggests modifications</p>
-<p>✅ <strong>Delegates Agent</strong> - Creates a bots-only conversation between agents acting as delegates for participants and an "expert" moderator that uses RAG with topical reference material</p>
-<p>✅ <strong>Experts Agent</strong> - Creates a bots-only conversation between agents acting as experts with opposing viewpoints, using RAG with topical reference material</p>
-<p>✅ <strong>Playful Agent</strong> - Injects playful reactions and questions into a conversation</p>
-<p>✅ <strong>Radical Empathy Agent</strong> - Suggests modifications to messages to promote radical empathy among participants</p>
-<p>✅ <strong>Reflection Agent</strong> - Helps participants reflect on areas of agreement and disagreement</p>
-<p>[ ] <strong>Agenda Assistant</strong> - Helps a user to prepare a thoughtful, structured agenda conversationally</p>
+<h1 id="monitoring-and-reporting">Monitoring and Reporting</h1>
+<p>LLM Engine provides some support for monitoring a live event and generating post-event reports for additional insight into agent performance.</p>
+<h2 id="langsmith-integration">Langsmith integration</h2>
+<p>We integrate with <a href="https://www.langchain.com/langsmith/observability">Langsmith</a> for real-time conversation tracing. To connect and use Langsmith, set the following environment variables in your <code>.env</code> file:</p>
+<div class="highlight"><pre><span></span><code>LANGSMITH_TRACING_V2=true
+LANGSMITH_API_KEY=[Your API key]
+# Optional
+LANGSMITH_PROJECT=[any unique identifier]
+</code></pre></div>
+<p>When <code>LANGSMTIH_TRACING_V2</code> is set to true, Langsmith will report all agent interactions as traces in the Langsmith dashboard. You can inspect these traces to see user input and agent responses, as well as the context and conversation history that was provided to the agent. Langsmith also reports latency and token usage.</p>
+<p>Traces can be manually annotated with feedback or configured to be automatically annotated with evaluators. Importantly, traces can be added to a dataset to support future evaluation and experimentation.</p>
+<h2 id="llm-engine-reports">LLM Engine reports</h2>
+<p>LLM Engine offers an endpoint to generate summary reports of a past conversation, including basic statistics like average number of interactions and a detailed history of all user and agent messages. The reporting endpoint is linked to the <a href="../experiments/">experimentation feature</a>, but it is possible to label a past conversation as an experiment in order to generate a report.</p>
+<h3 id="creating-an-experiment-from-a-past-conversation">Creating an experiment from a past conversation</h3>
+<p>To create an experiment from a conversation, post the following body to the <code>/experiments</code> endpoint:</p>
+<div class="highlight"><pre><span></span><code>{
+  &quot;name&quot;: [conversation name],
+  &quot;baseConversation&quot;: [conversation id],
+  &quot;executedAt&quot;: [conversation start time in ISO8601 format, e.g. &quot;2025-11-19T17:20:00.000Z&quot; ]
+}
+</code></pre></div>
+<p>The response will contain the ID of the new experiment, which can be used to generate a report</p>
+<h3 id="running-a-report">Running a report</h3>
+<p>There are two types of reports for conversations: direct message and periodic.</p>
+<h4 id="direct-message-reports">Direct message reports</h4>
+<p>The direct message report is for agents like the Event Assistant that are used for direct user to agent communication only. The report prints the message history for each user interaction in the conversation. To run the report, make the following GET request: <code>/experiments/{{experimentId}}/results?reportName=directMessageResponses&amp;format=text</code></p>
+<p>The response should look something like this:</p>
+<div class="highlight"><pre><span></span><code>Direct Message Agent Responses Report
+===========================
+
+Experiment: My Event
+Experiment Time: 11/19/2025, 5:20:00 PM
+Base Conversation ID: 123456789
+Result Conversation ID: 123456789
+
+===========================
+Agent Name: Event Assistant
+Total Users Messaged: 68
+Total Users Responded: 32
+Min Engagements Per User: 1
+Max Engagements Per User: 24
+Average Engagements Per User: 4.09375
+
+---------------------------
+**User: Steely Angelfish**
+
+5:21:01 PM  Event Assistant: Hi! I&#39;m the LLM Event Assistant. If you miss something, or want a clarification on something that’s been said during the event, you can DM me. None of your messages to me will be surfaced to the moderator or the rest of the audience.
+
+5:21:05 PM  Steely Angelfish: What is this event about?
+
+...
+
+---------------------------
+---------------------------
+**User: Scholarly Babbler**
+
+5:35:51 PM  Event Assistant: Hi! I&#39;m the LLM Event Assistant. If you miss something, or want a clarification on something that’s been said during the event, you can DM me. None of your messages to me will be surfaced to the moderator or the rest of the audience.
+
+5:42:19 PM  Scholarly Babbler: I just joined. What have I missed?
+
+...
+</code></pre></div>
+<h4 id="periodic-reports">Periodic reports</h4>
+<p>The periodic report is for agents like the Back Channel that generate responses periodically, rather than on-demand in response to a user message. The report prints all user messages and agent responses within each time interval. To run the report, make the following GET request: <code>/experiments/{{defaultExperiment}}/results?reportName=periodicResponses&amp;format=text</code></p>
+<p>The response should look something like this:</p>
+<div class="highlight"><pre><span></span><code>Periodic Agent Responses Report
+===========================
+
+Experiment: My Moderated Event
+Generated: 9/10/2025, 12:20:00 PM
+Unique Participants: 22
+
+===========================
+Agent Name: Back Channel Insights Agent
+
+***Messages in time period: 12:31:27 PM - 12:33:27 PM***
+
+12:32:39 PM  Blithe Belemnite: What is the speaker&#39;s definition of artificial intelligence?
+
+
+**Agent Responses**
+
+  Insights:
+
+      Value: What is the speaker&#39;s definition of artificial intelligence?
+      Comments:
+
+          User: Blithe Belemnite
+          Text: What is the speaker&#39;s definition of artificial intelligence?
+
+...
+</code></pre></div>
+<p>More report types and formats other than text may be developed in the future.</p>
 
 
 
