@@ -4,32 +4,6 @@
 
 Configuration is done with an environment variables file. Copy `.env.example` to create your `.env` file.
 
-## Using Docker
-
-- Create file `.env` and copy contents of `.env.example`. Feel free to change the port number in the file but make sure to make changes on fronend env file to reflect the correct port number. Also, if you change the port number, make sure to change the port numbers in `docker-compose.yml` as well. Certain optional app functionality, like polls and LLM agents can be enabled or disabled with environment variables.
-- Edit `docker-compose.dev.yml` file to add the following block to the `node-app` service
-
-```
-    env_file:
-      - .env
-```
-
-the full block should then look like this:
-
-```
-services:
-  node-app:
-    env_file:
-      - .env
-
-```
-
-- Run below docker compose command to start the server
-
-```
-docker-compose -f docker-compose.yml -f docker-compose.dev.yml up --build
-```
-
 ## Running locally
 
 1. Start by copying `.env.example` to `.env`.
