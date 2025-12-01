@@ -334,17 +334,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#using-docker" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Using Docker
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#running-locally" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -522,17 +511,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#using-docker" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Using Docker
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#running-locally" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -660,25 +638,6 @@
 <h1 id="installing-llm-engine">Installing LLM Engine</h1>
 <h2 id="configuration">Configuration</h2>
 <p>Configuration is done with an environment variables file. Copy <code>.env.example</code> to create your <code>.env</code> file.</p>
-<h2 id="using-docker">Using Docker</h2>
-<ul>
-<li>Create file <code>.env</code> and copy contents of <code>.env.example</code>. Feel free to change the port number in the file but make sure to make changes on fronend env file to reflect the correct port number. Also, if you change the port number, make sure to change the port numbers in <code>docker-compose.yml</code> as well. Certain optional app functionality, like polls and LLM agents can be enabled or disabled with environment variables.</li>
-<li>Edit <code>docker-compose.dev.yml</code> file to add the following block to the <code>node-app</code> service</li>
-</ul>
-<div class="highlight"><pre><span></span><code>    env_file:
-      - .env
-</code></pre></div>
-<p>the full block should then look like this:</p>
-<div class="highlight"><pre><span></span><code>services:
-  node-app:
-    env_file:
-      - .env
-</code></pre></div>
-<ul>
-<li>Run below docker compose command to start the server</li>
-</ul>
-<div class="highlight"><pre><span></span><code>docker-compose -f docker-compose.yml -f docker-compose.dev.yml up --build
-</code></pre></div>
 <h2 id="running-locally">Running locally</h2>
 <ol>
 <li>Start by copying <code>.env.example</code> to <code>.env</code>.</li>
