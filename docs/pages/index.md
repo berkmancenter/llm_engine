@@ -24,7 +24,7 @@ LLM Engine is an extensible service for deploying and developing assistive inter
 
 ## Production Agents
 
-LLM Engine comes with three tested agents that are ready for use in your events or classrooms*.
+LLM Engine comes with three tested agents that are ready for use in your events or classrooms\*.
 
 ✅ **Back Channel Insights Agent** - Synthesizes private messages sent by event participants into actionable insights for a moderator
 
@@ -32,8 +32,7 @@ LLM Engine comes with three tested agents that are ready for use in your events 
 
 ✅ **Event Assistant** - Answers questions related to an event in real-time or asynchronously, using the event transcript and/or conversation history
 
-* NOTE: Additional [experimental agents](developers/development_agents.md) are available for evaluation and further development.
-
+- NOTE: Additional [experimental agents](developers/development_agents.md) are available for evaluation and further development.
 
 ## Supported Clients
 
@@ -42,7 +41,6 @@ While any front end client could use our APIs, we specifically support the follo
 ✅ **[Nextspace](https://github.com/berkmancenter/nextspace)**
 
 ✅ **Zoom** (audio and chat, including DMs)
-
 
 ## Supported LLM Platforms and Models
 
@@ -60,7 +58,7 @@ See our installation guide for more information.
 
 ## Installing
 
-To install and try out LLM Engine please see our [installation guide](installing/index.md).
+To install and try out LLM Engine please see our [installation guide](installing/index.md) and [usage guide](using/index.md).
 
 ## Development
 

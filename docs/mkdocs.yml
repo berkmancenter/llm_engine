@@ -6,6 +6,7 @@ repo_url: https://github.com/berkmancenter/llm_engine
 nav:
   - About: index.md
   - Installing: installing/index.md
+  - Using: using/index.md
   - Developers: developers/index.md
 plugins:
   - search
