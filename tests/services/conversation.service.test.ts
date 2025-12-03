@@ -287,6 +287,32 @@ describe('Conversation service methods', () => {
         expect(conversation.scheduledTime).toEqual(scheduledTime)
         expect(conversation.active).toBe(false) // Should not auto-start when scheduled
       })
+      test('should create conversation with metadata', async () => {
+        const params = {
+          type: 'eventAssistant',
+          name: 'Scheduled Event',
+          platforms: ['zoom'],
+          topicId: topicOne._id.toString(),
+          properties: {
+            zoomMeetingUrl: 'https://zoom.us/j/123456789'
+          },
+          description: 'An event about something',
+          moderators: [{ name: 'Joe Moderator', bio: 'Moderates' }],
+          presenters: [
+            { name: 'Sam Speaker', bio: 'Speaks' },
+            { name: 'Jim Speaker', bio: 'Also Speaks' }
+          ]
+        }
+
+        const conversation = await conversationService.createConversationFromType(params, registeredUser)
+
+        expect(conversation.description).toEqual(params.description)
+        expect(conversation.moderators).toHaveLength(1)
+        expect(conversation.moderators![0]).toMatchObject(params.moderators[0])
+        expect(conversation.presenters).toHaveLength(2)
+        expect(conversation.presenters![0]).toMatchObject(params.presenters[0])
+        expect(conversation.presenters![1]).toMatchObject(params.presenters[1])
+      })
       test('should not set llmModel on agents when optional property is omitted', async () => {
         const params = {
           type: 'eventAssistant',
