@@ -241,7 +241,7 @@ const resolvePropertyReferences = (obj, properties) => {
  * @returns {Promise<Conversation>}
  */
 const createConversationFromType = async (params, user) => {
-  const { type, name, platforms, topicId, properties = {}, scheduledTime } = params
+  const { type, platforms, properties = {} } = params
 
   const conversationType = getConversationType(type)
   if (!conversationType) {
@@ -318,17 +318,13 @@ const createConversationFromType = async (params, user) => {
     ? resolvePropertyReferences(conversationType.agents, resolvedProperties)
     : []
 
-  // Build conversation body
   const conversationBody = {
-    name,
-    topicId,
+    ...params,
     conversationType: type,
-    platforms,
     agentTypes: resolvedAgents,
     adapters: adapterConfigs,
     channels: conversationType.channels || [],
-    enableDMs: conversationType.enableDMs,
-    ...(scheduledTime && { scheduledTime })
+    enableDMs: conversationType.enableDMs
   }
 
   return createConversation(conversationBody, user)
