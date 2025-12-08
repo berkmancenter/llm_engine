@@ -18,7 +18,8 @@ import { getConversationType } from '../conversations/index.js'
 import { supportedModels } from '../agents/helpers/getEmbeddings.js'
 import transcript from '../agents/helpers/transcript.js'
 
-const returnFields = 'name slug locked owner createdAt active conversationType platforms scheduledTime'
+const returnFields =
+  'name slug locked owner createdAt active conversationType platforms scheduledTime description moderators presenters'
 const transcriptBatchInterval = 30
 export const maxScheduledInterval = 10 * 60 * 1000 // 10 minutes in milliseconds
 /**
@@ -403,6 +404,10 @@ const findByIdFull = async (id, user) => {
   const followed = Follower.findOne({ conversation, user }).select('_id').exec() !== null
   const conversationPojo = conversation.toObject({
     transform: (doc, ret: ConversationDocument) => {
+      // Only transform the top-level conversation document
+      if (doc !== conversation) {
+        return ret
+      }
       const { _id, ...cleanRet } = ret
       // display channel passcodes only to conversation owner
       let { channels } = cleanRet
