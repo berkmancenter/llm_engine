@@ -94,10 +94,10 @@ const createMessage = async (messageBody, user, conversation) => {
   return message
 }
 
-const conversationMessages = async (id, channels) => {
+const conversationMessages = async (id, channels, user) => {
   if (channels?.length) {
     // check channel passcodes first, if any
-    await authChannels(channels, id)
+    await authChannels(channels, id, user)
   }
 
   // fetch visible in the right channels, including those with no channel (main channel)

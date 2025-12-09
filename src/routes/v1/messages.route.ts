@@ -121,7 +121,7 @@ router.post('/', auth('createMessage'), validate(messageValidation), messageCont
  *       404:
  *         $ref: '#/components/responses/NotFound'
  */
-router.route('/:conversationId').get(messageController.conversationMessages)
+router.route('/:conversationId').get(auth('getConversation'), messageController.conversationMessages)
 
 /**
  * @swagger
