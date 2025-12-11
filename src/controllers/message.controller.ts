@@ -14,7 +14,7 @@ const conversationMessages = catchAsync(async (req, res) => {
       const parts = c.split(',').map((p) => p.trim())
       return { name: parts[0], passcode: parts[1] }
     })
-  const messages = await messageService.conversationMessages(req.params.conversationId, channels)
+  const messages = await messageService.conversationMessages(req.params.conversationId, channels, req.user)
   res.status(httpStatus.OK).send(messages)
 })
 const vote = catchAsync(async (req, res) => {

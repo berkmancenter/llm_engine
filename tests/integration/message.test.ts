@@ -280,6 +280,7 @@ describe('Message routes', () => {
 
   describe('GET /v1/messages/:conversationId', () => {
     test('a request without channels should return 200 and body should be all visible messages without channels for a conversation', async () => {
+      await insertUsers([registeredUser, userOne])
       await insertMessages([visibleMessageTC, invisibleMessageTC, visibleChannelMessageTC, invisibleChannelMessageTC])
       conversationWithChannels.messages = [
         visibleMessageTC,
@@ -303,8 +304,8 @@ describe('Message routes', () => {
       expect(resp.body).toHaveLength(1)
       expect(resp.body[0].id).toBe(visibleMessageTC._id.toString())
     })
-
     test('a request with channels should return 200 and body should be all visible messages without a channel or with specified channels for a conversation', async () => {
+      await insertUsers([registeredUser, userOne])
       await insertMessages([visibleMessageTC, invisibleMessageTC, visibleChannelMessageTC, invisibleChannelMessageTC])
       conversationWithChannels.messages = [
         visibleMessageTC,
