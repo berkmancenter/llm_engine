@@ -52,6 +52,8 @@ LLM Engine works with a variety of LLM platforms and models:
 
 ✅ **AWS Bedrock** - any model
 
+✅ **Google Generative AI** - any model
+
 ✅ **Open Source Models** - most models
 
 See our installation guide for more information.

@@ -14,6 +14,7 @@ on:
           - 'openai'
           - 'bedrock'
           - 'vllm'
+          - 'google'
       llmModel:
         description: 'The LLM Model to use for agent testing'
         required: true
@@ -148,6 +149,8 @@ jobs:
           LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
           BEDROCK_API_KEY: ${{ secrets.BEDROCK_API_KEY }}
           BEDROCK_BASE_URL: ${{ secrets.BEDROCK_BASE_URL }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GOOGLE_BASE_URL: ${{ secrets.GOOGLE_BASE_URL }}
           VLLM_API_URL: ${{ secrets.VLLM_API_URL }}
           VLLM_API_KEY: ${{ secrets.VLLM_API_KEY }}
           TEST_LLM_PLATFORM: ${{ github.event.inputs.llmPlatform }}

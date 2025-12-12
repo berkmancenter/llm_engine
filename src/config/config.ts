@@ -54,6 +54,10 @@ const envVarsSchema = Joi.object()
     DEFAULT_OPENAI_BASE_URL: Joi.string().description('Default OpenAI API base url'),
     OLLAMA_BASE_URL: Joi.string().description('Ollama API base url').default('http://0.0.0.0:11434'),
     PERSPECTIVE_API_KEY: Joi.string().description('Perspective API key'),
+    GOOGLE_API_KEY: Joi.string().description('Google GenAI API key'),
+    GOOGLE_BASE_URL: Joi.string().description('Google GenAI base url'),
+    BEDROCK_API_KEY: Joi.string().description('Bedrock API key'),
+    BEDROCK_BASE_URL: Joi.string().description('Bedrock base url'),
     RECALL_API_KEY: Joi.string().description('API Key for Recall.ai'),
     RECALL_TOKEN: Joi.string().description('Token for Recall.ai incoming webhook verification'),
     RECALL_BASE_URL: Joi.string().description('Base URL of Recall.ai server'),
@@ -149,6 +153,10 @@ const config = {
       secret: envVars.BEDROCK_SECRET_ACCESS_KEY ?? 'dummy',
       baseUrl: envVars.BEDROCK_BASE_URL,
       region: envVars.BEDROCK_REGION ?? 'us-east-1'
+    },
+    google: {
+      key: envVars.GOOGLE_API_KEY,
+      baseUrl: envVars.GOOGLE_BASE_URL
     }
   },
   embeddings: {

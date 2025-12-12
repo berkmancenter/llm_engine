@@ -31,6 +31,11 @@ Note that this will work for any OpenAI compatible LLM provider.
 1. Configure `BEDROCK_API_KEY` and `BEDROCK_BASE_URL` in your `.env` file.
 2. When creating a Conversation with an Agent, specify `llmPlatform` to be `bedrock` and `llmModel` to be an available Bedrock model.
 
+### Google Generative AI (including Gemini)
+
+1. Configure `GOOGLE_API_KEY` and `GOOGLE_BASE_URL` in your `.env` file.
+2. When creating a Conversation with an Agent, specify `llmPlatform` to be `google` and `llmModel` to be an available Google generative AI model.
+
 ### Open Source Models via vLLM
 
 Open source models are available through [vLLM](https://docs.vllm.ai/en/latest/) running locally or on one of two hosted serverless providers:

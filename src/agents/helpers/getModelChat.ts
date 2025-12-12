@@ -2,6 +2,7 @@ import { ChatOpenAI } from '@langchain/openai'
 import { ChatOllama } from '@langchain/ollama'
 import { BedrockChat } from '@langchain/community/chat_models/bedrock'
 import { google } from 'googleapis'
+import { ChatGoogleGenerativeAI } from '@langchain/google-genai'
 import config from '../../config/config.js'
 import { createClaudeFetchFn } from './claudeHandler.js'
 import { LlmPlatforms, LlmPlatformDetails, LlmModelDetails } from '../../types/index.types.js'
@@ -46,6 +47,14 @@ export const supportedModels: LlmModelDetails[] = [
     llmModel: 'anthropic.claude-3-5-sonnet-20240620-v1:0',
     description:
       'Balanced model offering strong intelligence and speed for everyday conversational tasks and complex reasoning'
+  },
+  {
+    name: 'gemini-3-pro-preview',
+    label: 'Google Gemini 3 Pro Preview',
+    llmPlatform: 'google',
+    llmModel: 'gemini-3-pro-preview',
+    description: 'Advanced multimodal model designed to support deep, engaging conversations across a wide range of topics',
+    defaultModelOptions: { thinkingConfig: { thinkingLevel: 'LOW' } }
   }
 ]
 
@@ -61,6 +70,18 @@ export async function getOpenAIChat(model, modelOptions) {
   }
 
   return new ChatOpenAI(aiConfig)
+}
+
+export async function getGoogleChat(model, modelOptions) {
+  const aiConfig = {
+    ...modelOptions,
+    model,
+    baseUrl: config.llms.google.baseUrl,
+    configuration: {
+      apiKey: config.llms.google.key
+    }
+  }
+  return new ChatGoogleGenerativeAI(aiConfig)
 }
 
 // vLLM uses OpenAI compatible request formats
@@ -122,6 +143,10 @@ export async function getModelChat(platform: LlmPlatforms, model, modelOptions =
   if (platform === 'bedrock') {
     return getBedrockChat(model, options)
   }
+  if (platform === 'google') {
+    return getGoogleChat(model, options)
+  }
+
   if (platform === 'vllm') {
     return getVllmChat(model, options, platformOptions)
   }
@@ -134,6 +159,7 @@ export const llmPlatforms: LlmPlatformDetails[] = [
   { name: 'openai', description: 'OpenAI' },
   { name: 'ollama', description: 'Ollama Open Source Models' },
   { name: 'perspective', description: 'Google Perspective API' },
+  { name: 'google', description: 'Google Generative AI' },
   {
     name: 'vllm',
     description: 'vLLM OpenAI-compatible server',
