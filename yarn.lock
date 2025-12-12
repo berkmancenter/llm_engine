@@ -1351,6 +1351,11 @@
   resolved "https://registry.yarnpkg.com/@google/generative-ai/-/generative-ai-0.1.3.tgz#8e529d4d86c85b64d297b4abf1a653d613a09a9f"
   integrity sha512-Cm4uJX1sKarpm1mje/MiOIinM7zdUUrQp/5/qGPAgznbdd/B9zup5ehT6c1qGqycFcSopTA1J1HpqHS5kJR8hQ==
 
+"@google/generative-ai@^0.24.0":
+  version "0.24.1"
+  resolved "https://registry.yarnpkg.com/@google/generative-ai/-/generative-ai-0.24.1.tgz#634a3c06f8ea7a6125c1b0d6c1e66bb11afb52c9"
+  integrity sha512-MqO+MLfM6kjxcKoy0p1wRzG3b4ZZXtPI+z2IE26UogS2Cm/XHO+7gGRBh6gcJsOiIVoH93UwKvW4HdgiOZCy9Q==
+
 "@googleapis/sheets@^9.8.0":
   version "9.8.0"
   resolved "https://registry.yarnpkg.com/@googleapis/sheets/-/sheets-9.8.0.tgz#93fb5ec521b32c189c6b69011c4284ca9b71bfa9"
@@ -1810,6 +1815,14 @@
     uuid "^10.0.0"
     zod "^3.25.32"
     zod-to-json-schema "^3.22.3"
+
+"@langchain/google-genai@^2.0.4":
+  version "2.0.4"
+  resolved "https://registry.yarnpkg.com/@langchain/google-genai/-/google-genai-2.0.4.tgz#85433219a8a55181feb6b32db11cafef38758878"
+  integrity sha512-ZtybhINhdWdGYE1YHnJ5rXrfcg8RS1PaVjpaACcie0wnFsdGQGX9BM2VNQSRfKNFem7B4j7J7q9+1tnDlAoHxQ==
+  dependencies:
+    "@google/generative-ai" "^0.24.0"
+    uuid "^11.1.0"
 
 "@langchain/mongodb@^0.1.0":
   version "0.1.0"

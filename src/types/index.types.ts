@@ -347,9 +347,9 @@ export interface GenericAgentAnswer {
   action: AgentMessageAction
 }
 
-export type LlmPlatforms = 'openai' | 'ollama' | 'perspective' | 'bedrock' | 'vllm'
+export type LlmPlatforms = 'openai' | 'ollama' | 'perspective' | 'bedrock' | 'vllm' | 'google'
 
-export const LLM_PLATFORMS: LlmPlatforms[] = ['openai', 'ollama', 'perspective', 'bedrock', 'vllm']
+export const LLM_PLATFORMS: LlmPlatforms[] = ['openai', 'ollama', 'perspective', 'bedrock', 'vllm', 'google']
 
 export interface LlmPlatformDetails {
   name: string

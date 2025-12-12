@@ -410,7 +410,7 @@ components:
           type: string
         llmPlatform:
           type: string
-          enum: [openai, ollama, perspective, bedrock, vllm]
+          enum: [openai, ollama, perspective, bedrock, vllm, google]
         llmPlatformOptions:
           $ref: '#/components/schemas/LlmPlatformOptions'
         llmModel:
