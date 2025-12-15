@@ -1263,6 +1263,9 @@ describe('Conversation routes', () => {
       await adapter.save()
       const scheduledTime = new Date()
       agentConversation.scheduledTime = scheduledTime
+      agentConversation.description = 'A conversation about something'
+      agentConversation.presenters = [{ name: 'Ann Speaker', bio: 'An experienced speaker' }]
+      agentConversation.moderators = [{ name: 'Joe Moderator', bio: 'An experienced moderator' }]
       agentConversation.adapters.push(adapter)
       await agentConversation.save()
 
@@ -1294,7 +1297,10 @@ describe('Conversation routes', () => {
         locked: agentConversation.locked,
         id: agentConversation._id.toString(),
         owner: agentConversation.owner._id.toString(),
-        scheduledTime: scheduledTime.toISOString()
+        scheduledTime: scheduledTime.toISOString(),
+        description: agentConversation.description,
+        presenters: [{ name: 'Ann Speaker', bio: 'An experienced speaker' }],
+        moderators: [{ name: 'Joe Moderator', bio: 'An experienced moderator' }]
       }
       agentConversation.agents.push(agent)
       await agentConversation.save()
