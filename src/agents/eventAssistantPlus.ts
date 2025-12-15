@@ -1,14 +1,14 @@
-import verify from '../helpers/verify.js'
-import { AgentMessageActions, AgentResponse, ConversationHistory } from '../../types/index.types.js'
-import { formatSingleUserConversationHistory } from '../helpers/llmInputFormatters.js'
+import verify from './helpers/verify.js'
+import { AgentMessageActions, AgentResponse, ConversationHistory } from '../types/index.types.js'
+import { formatSingleUserConversationHistory } from './helpers/llmInputFormatters.js'
 import {
   backChannelLLMTemplates,
   backChannelLLMTemplateVars,
   processParticipantMessages
-} from '../backChannel/backChannelInsightsGenerator.js'
-import logger from '../../config/logger.js'
-import Message from '../../models/message.model.js'
-import { answerQuestion, eventAssistantLlmTemplateVars } from '../eventAssistant/eventQuestionHandler.js'
+} from './backChannel/backChannelInsightsGenerator.js'
+import logger from '../config/logger.js'
+import Message from '../models/message.model.js'
+import { answerQuestion, eventAssistantLlmTemplateVars } from './eventAssistant/eventQuestionHandler.js'
 
 const defaultLLMTemplates = {
   ...backChannelLLMTemplates,
@@ -32,7 +32,7 @@ function isAffirmative(text) {
 }
 
 export default verify({
-  name: 'Event Engagement Agent',
+  name: 'Event Assistant Plus',
   description: 'A combination of eventAssistant and backChannel for all your event needs',
   priority: 100,
   maxTokens: 2000,
