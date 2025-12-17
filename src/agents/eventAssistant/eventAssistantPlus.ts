@@ -1,24 +1,9 @@
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, AgentResponse, ConversationHistory } from '../../types/index.types.js'
 import { formatSingleUserConversationHistory } from '../helpers/llmInputFormatters.js'
-import {
-  backChannelLLMTemplates,
-  backChannelLLMTemplateVars,
-  processParticipantMessages
-} from '../backChannel/backChannelInsightsGenerator.js'
-import logger from '../../config/logger.js'
+
 import Message from '../../models/message.model.js'
-import { answerQuestion, eventAssistantLlmTemplateVars } from './eventQuestionHandler.js'
-
-const defaultLLMTemplates = {
-  ...backChannelLLMTemplates,
-  ...eventAssistantLlmTemplateVars
-}
-
-const llmTemplateVars = {
-  ...backChannelLLMTemplateVars,
-  ...eventAssistantLlmTemplateVars
-}
+import { eventAssistantLLMTemplates, eventAssistantLlmTemplateVars, answerQuestion } from './eventQuestionHandler.js'
 
 const submitToModeratorQuestion = 'Would you like to submit this question anonymously to the moderator for Q&A?'
 const submitToModeratorReply = 'Your message has been submitted to the moderator.'
@@ -37,28 +22,17 @@ export default verify({
   priority: 100,
   maxTokens: 2000,
   defaultTriggers: {
-    perMessage: { directMessages: true },
-    periodic: { timerPeriod: 120, conversationHistorySettings: { timeWindow: 120, channels: ['participant'] } }
+    perMessage: { directMessages: true }
   },
   agentConfig: {
     introMessage:
       "Hi! I'm the LLM Event Assistant. If you miss something, or want a clarification on something that’s been said during the event, you can DM me. None of your messages to me will be surfaced to the moderator or the rest of the audience."
   },
-  llmTemplateVars,
-  defaultLLMTemplates,
+  llmTemplateVars: eventAssistantLlmTemplateVars,
+  defaultLLMTemplates: eventAssistantLLMTemplates,
   defaultLLMPlatform: 'openai',
   defaultLLMModel: 'gpt-4o-mini',
   ragCollectionName: undefined,
-  parseOutput: (msg) => {
-    if (msg.bodyType === 'text') {
-      return msg
-    }
-    const translatedMsg = msg.toObject()
-    translatedMsg.bodyType = 'text'
-    translatedMsg.body = `💡 BACKCHANNEL REPORT 💡
-${msg.body.insights.map((insight) => `⚫ ${insight.value}`).join('\n')}`
-    return translatedMsg
-  },
   useTranscriptRAGCollection: true,
   defaultConversationHistorySettings: { count: 100, directMessages: true },
 
@@ -114,17 +88,6 @@ ${msg.body.insights.map((insight) => `⚫ ${insight.value}`).join('\n')}`
 
       return agentResponses
     }
-
-    if (conversationHistory.messages.length === 0) {
-      logger.debug('No periodic messages to process')
-      return []
-    }
-    return processParticipantMessages.call(
-      this,
-      conversationHistory.messages,
-      conversationHistory.start,
-      conversationHistory.end
-    )
   },
   async start() {
     return true
