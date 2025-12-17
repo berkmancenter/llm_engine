@@ -1,21 +1,21 @@
 /* eslint-disable no-console */
 import * as ls from 'langsmith/jest'
-import setupAgentTest from '../utils/setupAgentTest.js'
+import setupAgentTest from '../../utils/setupAgentTest.js'
 import {
   evaluateNonContextualResult,
   evaluateSemanticResponse,
   evaluateTimeWindowResponse,
   initializeEvaluators
-} from '../utils/evaluators.js'
-import defaultAgentTypes from '../../src/agents/index.js'
+} from '../../utils/evaluators.js'
+import defaultAgentTypes from '../../../src/agents/index.js'
 import {
   createEventAssistantConversation,
   createDirectMessage,
   createPublicTopic,
   createUser,
   loadPartTimeWorkTranscript
-} from '../utils/agentTestHelpers.js'
-import Channel from '../../src/models/channel.model.js'
+} from '../../utils/agentTestHelpers.js'
+import Channel from '../../../src/models/channel.model.js'
 
 jest.setTimeout(180000)
 

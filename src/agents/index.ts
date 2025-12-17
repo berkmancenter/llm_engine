@@ -15,7 +15,7 @@ import experts from './development/experts/index.js'
 
 import generic from './development/generic/index.js'
 import config from '../config/config.js'
-import eventAssistantPlus from './eventAssistantPlus.js'
+import eventAssistantPlus from './eventAssistant/eventAssistantPlus.js'
 
 const development = {
   civilityPerMessage,
