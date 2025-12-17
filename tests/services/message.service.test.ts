@@ -11,6 +11,7 @@ import defaultAdapterTypes from '../../src/adapters/index.js'
 import { User, Message, Conversation } from '../../src/models/index.js'
 import websocketGateway from '../../src/websockets/websocketGateway.js'
 import { Direction } from '../../src/types/index.types.js'
+import logger from '../../src/config/logger.js'
 
 setupIntTest()
 jest.setTimeout(120000)
@@ -675,6 +676,390 @@ describe('Message service methods', () => {
       const nestedReplies = await messageService.getMessageReplies(firstReply?._id)
       expect(nestedReplies).toHaveLength(1)
       expect(nestedReplies[0].body).toBe('Nested reply to first reply')
+    })
+  })
+
+  describe('newMessageHandler() - feedback routing', () => {
+    let feedbackUser
+
+    beforeEach(async () => {
+      feedbackUser = await createUser('Feedback Tester')
+      jest.clearAllMocks()
+    })
+
+    test('should route text feedback message starting with /ShareFeedback to feedback channel', async () => {
+      const feedbackMessage = {
+        conversation: testConversation._id,
+        body: '/ShareFeedback|rating|msg123|5',
+        bodyType: 'text',
+        channels: []
+      }
+
+      const result = await messageService.newMessageHandler(feedbackMessage, feedbackUser)
+
+      expect(result).toBeDefined()
+      expect(result).toHaveLength(1)
+      expect(result[0].channels).toContain('feedback')
+      expect(result[0].bodyType).toBe('json')
+      expect(result[0].body).toEqual({
+        type: 'rating',
+        messageId: 'msg123',
+        value: '5'
+      })
+
+      // Verify adapters and websockets were not called
+      expect(mockSendZoomMessage).not.toHaveBeenCalled()
+      expect(mockSendSlackMessage).not.toHaveBeenCalled()
+      expect(websocketGateway.broadcastNewMessage).not.toHaveBeenCalled()
+    })
+
+    test('should route JSON feedback message with feedback:true to feedback channel', async () => {
+      const feedbackMessage = {
+        conversation: testConversation._id,
+        body: {
+          feedback: true,
+          rating: 4,
+          comment: 'Great feature!'
+        },
+        bodyType: 'json',
+        channels: []
+      }
+
+      const result = await messageService.newMessageHandler(feedbackMessage, feedbackUser)
+
+      expect(result).toBeDefined()
+      expect(result).toHaveLength(1)
+      expect(result[0].channels).toContain('feedback')
+      expect(result[0].bodyType).toBe('json')
+      expect(result[0].body).toEqual({
+        feedback: true,
+        rating: 4,
+        comment: 'Great feature!'
+      })
+
+      // Verify adapters and websockets were not called
+      expect(mockSendZoomMessage).not.toHaveBeenCalled()
+      expect(mockSendSlackMessage).not.toHaveBeenCalled()
+      expect(websocketGateway.broadcastNewMessage).not.toHaveBeenCalled()
+    })
+
+    test('should create feedback channel if it does not exist', async () => {
+      // Verify no feedback channel exists initially
+      const initialChannels = await Channel.find({ name: 'feedback' })
+      expect(initialChannels).toHaveLength(0)
+
+      const feedbackMessage = {
+        conversation: testConversation._id,
+        body: '/ShareFeedback|type1|msg456|testvalue',
+        bodyType: 'text',
+        channels: []
+      }
+
+      await messageService.newMessageHandler(feedbackMessage, feedbackUser)
+
+      // Verify feedback channel was created
+      const feedbackChannels = await Channel.find({ name: 'feedback' })
+      expect(feedbackChannels).toHaveLength(1)
+      expect(feedbackChannels[0].name).toBe('feedback')
+      expect(feedbackChannels[0].direct).toBe(false)
+      expect(feedbackChannels[0].passcode).toBeDefined()
+      expect(feedbackChannels[0].passcode).not.toBeNull()
+    })
+
+    test('should reuse existing feedback channel if it already exists', async () => {
+      // Create a feedback channel first
+      const existingFeedbackChannel = new Channel({
+        name: 'feedback',
+        passcode: 'existing-passcode',
+        direct: false
+      })
+      await existingFeedbackChannel.save()
+
+      testConversation.channels.push(existingFeedbackChannel)
+      await testConversation.save()
+
+      const feedbackMessage = {
+        conversation: testConversation._id,
+        body: '/ShareFeedback|type2|msg789|anothervalue',
+        bodyType: 'text',
+        channels: []
+      }
+
+      const result = await messageService.newMessageHandler(feedbackMessage, feedbackUser)
+
+      // Verify the existing channel was reused (should still be only 1 feedback channel)
+      const feedbackChannels = await Channel.find({ name: 'feedback' })
+      expect(feedbackChannels).toHaveLength(1)
+      expect(feedbackChannels[0]._id.toString()).toBe(existingFeedbackChannel._id.toString())
+      expect(feedbackChannels[0].passcode).toBe('existing-passcode')
+
+      expect(result[0].channels).toContain('feedback')
+    })
+
+    test('should parse pipe-delimited text feedback correctly with whitespace', async () => {
+      const feedbackMessage = {
+        conversation: testConversation._id,
+        body: '/ShareFeedback | sentiment | msg999 | positive ',
+        bodyType: 'text',
+        channels: []
+      }
+
+      const result = await messageService.newMessageHandler(feedbackMessage, feedbackUser)
+
+      expect(result[0].body).toEqual({
+        type: 'sentiment',
+        messageId: 'msg999',
+        value: 'positive'
+      })
+    })
+
+    test('should replace existing channels with feedback channel', async () => {
+      const feedbackMessage = {
+        conversation: testConversation._id,
+        body: '/ShareFeedback|category|msg111|important',
+        bodyType: 'text',
+        channels: [testZoomChannel, testSlackChannel]
+      }
+
+      const result = await messageService.newMessageHandler(feedbackMessage, feedbackUser)
+
+      expect(result[0].channels).toHaveLength(1)
+      expect(result[0].channels).toContain('feedback')
+      expect(result[0].channels).not.toContain('zoom-channel')
+      expect(result[0].channels).not.toContain('slack-channel')
+    })
+
+    test('should not route normal text messages through feedback handler', async () => {
+      const normalMessage = {
+        conversation: testConversation._id,
+        body: 'This is a normal message, not feedback',
+        bodyType: 'text',
+        channels: []
+      }
+
+      const result = await messageService.newMessageHandler(normalMessage, feedbackUser)
+
+      expect(result).toBeDefined()
+      expect(result).toHaveLength(1)
+      expect(result[0].channels).not.toContain('feedback')
+      expect(result[0].bodyType).toBe('text')
+      expect(result[0].body).toBe('This is a normal message, not feedback')
+
+      // Normal messages should trigger websocket broadcast
+      expect(websocketGateway.broadcastNewMessage).toHaveBeenCalled()
+    })
+
+    test('should not route JSON messages without feedback property through feedback handler', async () => {
+      const normalJsonMessage = {
+        conversation: testConversation._id,
+        body: {
+          data: 'some data',
+          other: 'properties'
+        },
+        bodyType: 'json',
+        channels: []
+      }
+
+      const result = await messageService.newMessageHandler(normalJsonMessage, feedbackUser)
+
+      expect(result).toBeDefined()
+      expect(result).toHaveLength(1)
+      expect(result[0].channels).not.toContain('feedback')
+      expect(result[0].bodyType).toBe('json')
+      expect(result[0].body).toEqual({
+        data: 'some data',
+        other: 'properties'
+      })
+
+      // Normal messages should trigger websocket broadcast
+      expect(websocketGateway.broadcastNewMessage).toHaveBeenCalled()
+    })
+
+    test('should handle feedback message with agent processing disabled', async () => {
+      // Disable agents for this test
+      testConversation.enableAgents = false
+      await testConversation.save()
+
+      const feedbackMessage = {
+        conversation: testConversation._id,
+        body: '/ShareFeedback|quality|msg222|excellent',
+        bodyType: 'text',
+        channels: []
+      }
+
+      const result = await messageService.newMessageHandler(feedbackMessage, feedbackUser)
+
+      expect(result).toBeDefined()
+      expect(result).toHaveLength(1)
+      expect(result[0].channels).toContain('feedback')
+      expect(result[0].body).toEqual({
+        type: 'quality',
+        messageId: 'msg222',
+        value: 'excellent'
+      })
+
+      // Verify no adapters or websockets were called
+      expect(mockSendZoomMessage).not.toHaveBeenCalled()
+      expect(mockSendSlackMessage).not.toHaveBeenCalled()
+      expect(websocketGateway.broadcastNewMessage).not.toHaveBeenCalled()
+    })
+
+    test('should store feedback message in database', async () => {
+      const feedbackMessage = {
+        conversation: testConversation._id,
+        body: '/ShareFeedback|helpfulness|msg333|very helpful',
+        bodyType: 'text',
+        channels: []
+      }
+
+      const result = await messageService.newMessageHandler(feedbackMessage, feedbackUser)
+
+      // Verify message was saved to database
+      const savedMessage = await Message.findById(result[0]._id)
+      expect(savedMessage).toBeDefined()
+      expect(savedMessage?.channels).toContain('feedback')
+      expect(savedMessage?.bodyType).toBe('json')
+      expect(savedMessage?.body).toEqual({
+        type: 'helpfulness',
+        messageId: 'msg333',
+        value: 'very helpful'
+      })
+      expect(savedMessage?.owner?.toString()).toBe(feedbackUser._id.toString())
+      expect(savedMessage?.conversation?.toString()).toBe(testConversation._id.toString())
+    })
+
+    test('should lowercase the type property when converting text to JSON', async () => {
+      const feedbackMessage = {
+        conversation: testConversation._id,
+        body: '/ShareFeedback|RATING|msg444|UPPERCASE_VALUE',
+        bodyType: 'text',
+        channels: []
+      }
+
+      const result = await messageService.newMessageHandler(feedbackMessage, feedbackUser)
+
+      expect(result).toBeDefined()
+      expect(result).toHaveLength(1)
+      expect(result[0].bodyType).toBe('json')
+      expect(result[0].body).toEqual({
+        type: 'rating', // Should be lowercased
+        messageId: 'msg444', // Not lowercased
+        value: 'UPPERCASE_VALUE' // Not lowercased
+      })
+    })
+
+    test('should abort and log warning when feedback message is missing type', async () => {
+      const loggerWarnSpy = jest.spyOn(logger, 'warn')
+
+      const malformedMessage = {
+        conversation: testConversation._id,
+        body: '/ShareFeedback||msg555|value',
+        bodyType: 'text',
+        channels: []
+      }
+
+      const result = await messageService.newMessageHandler(malformedMessage, feedbackUser)
+
+      expect(result).toBeDefined()
+      expect(result).toHaveLength(0)
+      expect(loggerWarnSpy).toHaveBeenCalledWith(
+        'Feedback message missing required parts. Expected format: /ShareFeedback|type|messageId|value'
+      )
+
+      loggerWarnSpy.mockRestore()
+    })
+
+    test('should abort and log warning when feedback message is missing messageId', async () => {
+      const loggerWarnSpy = jest.spyOn(logger, 'warn')
+
+      const malformedMessage = {
+        conversation: testConversation._id,
+        body: '/ShareFeedback|rating||value',
+        bodyType: 'text',
+        channels: []
+      }
+
+      const result = await messageService.newMessageHandler(malformedMessage, feedbackUser)
+
+      expect(result).toBeDefined()
+      expect(result).toHaveLength(0)
+      expect(loggerWarnSpy).toHaveBeenCalledWith(
+        'Feedback message missing required parts. Expected format: /ShareFeedback|type|messageId|value'
+      )
+
+      loggerWarnSpy.mockRestore()
+    })
+
+    test('should abort and log warning when feedback message is missing value', async () => {
+      const loggerWarnSpy = jest.spyOn(logger, 'warn')
+
+      const malformedMessage = {
+        conversation: testConversation._id,
+        body: '/ShareFeedback|rating|msg666|',
+        bodyType: 'text',
+        channels: []
+      }
+
+      const result = await messageService.newMessageHandler(malformedMessage, feedbackUser)
+
+      expect(result).toBeDefined()
+      expect(result).toHaveLength(0)
+      expect(loggerWarnSpy).toHaveBeenCalledWith(
+        'Feedback message missing required parts. Expected format: /ShareFeedback|type|messageId|value'
+      )
+
+      loggerWarnSpy.mockRestore()
+    })
+
+    test('should abort and log warning when feedback message has insufficient parts', async () => {
+      const loggerWarnSpy = jest.spyOn(logger, 'warn')
+
+      const malformedMessage = {
+        conversation: testConversation._id,
+        body: '/ShareFeedback|rating',
+        bodyType: 'text',
+        channels: []
+      }
+
+      const result = await messageService.newMessageHandler(malformedMessage, feedbackUser)
+
+      expect(result).toBeDefined()
+      expect(result).toHaveLength(0)
+      expect(loggerWarnSpy).toHaveBeenCalledWith(
+        'Feedback message missing required parts. Expected format: /ShareFeedback|type|messageId|value'
+      )
+
+      loggerWarnSpy.mockRestore()
+    })
+
+    test('should not create message or trigger adapters when feedback message is malformed', async () => {
+      const loggerWarnSpy = jest.spyOn(logger, 'warn')
+
+      const malformedMessage = {
+        conversation: testConversation._id,
+        body: '/ShareFeedback|rating',
+        bodyType: 'text',
+        channels: []
+      }
+
+      const result = await messageService.newMessageHandler(malformedMessage, feedbackUser)
+
+      // Verify no message was created
+      expect(result).toHaveLength(0)
+
+      // Verify no messages were saved to database
+      const messages = await Message.find({
+        conversation: testConversation._id,
+        owner: feedbackUser._id
+      })
+      expect(messages).toHaveLength(0)
+
+      // Verify no adapters or websockets were called
+      expect(mockSendZoomMessage).not.toHaveBeenCalled()
+      expect(mockSendSlackMessage).not.toHaveBeenCalled()
+      expect(websocketGateway.broadcastNewMessage).not.toHaveBeenCalled()
+
+      loggerWarnSpy.mockRestore()
     })
   })
 })
