@@ -7,6 +7,7 @@ import { eventAssistantLLMTemplates, eventAssistantLlmTemplateVars, answerQuesti
 
 const submitToModeratorQuestion = 'Would you like to submit this question anonymously to the moderator for Q&A?'
 const submitToModeratorReply = 'Your message has been submitted to the moderator.'
+const submitToModeratorCommand = '/mod'
 
 function isAffirmative(text) {
   const normalized = text.trim().toLowerCase()
@@ -14,6 +15,16 @@ function isAffirmative(text) {
     /^(yes|yeah|yep|yup|sure|okay|ok|absolutely|definitely|certainly|affirmative|correct|right|indeed|of course|you bet|sounds good)/
 
   return affirmativePatterns.test(normalized)
+}
+
+function submitToModeratorResponse(userMessage) {
+  return [
+    {
+      visible: true,
+      message: submitToModeratorReply,
+      channels: this.conversation.channels.filter((channel) => userMessage.channels.includes(channel.name))
+    }
+  ]
 }
 
 export default verify({
@@ -40,8 +51,15 @@ export default verify({
     return true
   },
   async evaluate(userMessage) {
+    const modifiedMessage = { ...userMessage }
+    if (modifiedMessage.body.trim().toString().toLowerCase().startsWith(submitToModeratorCommand)) {
+      modifiedMessage!.channels = modifiedMessage!.channels ?? []
+      modifiedMessage!.channels.push('participant')
+      // Remove the '/mod ' command from the message body
+      modifiedMessage.body = modifiedMessage.body.trim().substring(submitToModeratorCommand.length).trim()
+    }
     return {
-      userMessage,
+      userMessage: modifiedMessage,
       action: AgentMessageActions.CONTRIBUTE,
       userContributionVisible: true,
       suggestion: undefined
@@ -61,15 +79,12 @@ export default verify({
           message!.channels = message!.channels ?? []
           message!.channels.push('participant')
           await message!.save()
-          return [
-            {
-              visible: true,
-              message: submitToModeratorReply,
-              channels: this.conversation.channels.filter((channel) => userMessage.channels.includes(channel.name))
-            }
-          ]
+          return [submitToModeratorResponse.call(this, userMessage)]
         }
         return []
+      }
+      if (userMessage.channels?.includes('participant')) {
+        return [submitToModeratorResponse.call(this, userMessage)]
       }
       const chatHistory = formatSingleUserConversationHistory(conversationHistory)
 

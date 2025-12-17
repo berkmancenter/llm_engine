@@ -6,6 +6,7 @@ import { publicTopic } from '../fixtures/conversation.fixture.js'
 import { insertTopics } from '../fixtures/topic.fixture.js'
 import { loadTranscript } from './transcriptUtils.js'
 import transcript from '../../src/agents/helpers/transcript.js'
+import { IMessage } from '../../src/types/index.types.js'
 
 /**
  * NOTE: this video transcript is from TedX Talks
@@ -446,7 +447,13 @@ export async function createUser(pseudonym) {
   return user
 }
 
-export async function createMessage(body, user, conversation, channels: string[] = [], createdAt = new Date()) {
+export async function createMessage(
+  body,
+  user,
+  conversation,
+  channels: string[] = [],
+  createdAt = new Date()
+): Promise<IMessage> {
   return {
     body,
     bodyType: typeof body === 'object' ? 'json' : 'text',
@@ -530,6 +537,36 @@ export async function createEventAssistantConversation(conversationObj, owner, t
   await agent.start()
   return conversation
 }
+
+export async function createEventAssistantPlusConversation(
+  conversationObj,
+  owner,
+  topic,
+  startTime,
+  llmPlatform?,
+  llmModel?
+) {
+  const conversation = await createConversation(conversationObj, owner, topic, startTime)
+  const agent = new Agent({
+    agentType: 'eventAssistantPlus',
+    conversation,
+    llmPlatform,
+    llmModel
+  })
+  const channels = await Channel.create([
+    { name: 'transcript' },
+    { name: `direct-agents-${owner._id}`, direct: true, participants: [owner, agent] },
+    { name: 'participant' }
+  ])
+  conversation.channels.push(...channels)
+  await agent.save()
+  conversation.agents.push(agent)
+  await conversation.save()
+  await agent.initialize()
+  await agent.start()
+  return conversation
+}
+
 export async function createBackChannelConversation(conversationObj, owner, topic, startTime, llmPlatform, llmModel) {
   const conversation = await createConversation(conversationObj, owner, topic, startTime)
   const channels = await Channel.create([{ name: 'moderator' }, { name: 'participant' }])
