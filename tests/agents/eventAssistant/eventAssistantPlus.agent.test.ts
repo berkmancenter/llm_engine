@@ -18,7 +18,6 @@ jest.setTimeout(180000)
 const testConfig = setupAgentTest('eventAssistantPlus')
 
 const submitToModeratorQuestion = 'Would you like to submit this question anonymously to the moderator for Q&A?'
-const submitToModeratorReply = 'Your message has been submitted to the moderator.'
 
 const testTimeout = 120000
 
@@ -39,12 +38,24 @@ ls.describe(
       expect(responses[0].channels[0].name).toEqual(`direct-agents-${user1._id}`)
     }
 
-    beforeAll(async () => {
+    beforeEach(async () => {
       user1 = await createUser('John Hancock')
 
       topic = await createPublicTopic()
       conversation = await createEventAssistantPlusConversation(
-        { name: 'Test Event' },
+        {
+          name: 'Test Event',
+          description: `"No one wants to work anymore." Entrepreneur Jessica Drain believes otherwise—instead it's that businesses aren't structuring jobs to attract and retain the widest number of people possible, including those with a limited number of hours to give to a career. 
+Speaking about her own experience as a single mother and professional, Jessica delineates how she's grown a seven-figure business in part-time hours with a small team of part-time employees, and how recent research shows that jobs with lower hour requirements improve employee recruitment, retention, and productivity – not the other way around.`,
+          presenters: [
+            {
+              name: 'Jessica Drain',
+              bio: `A career marketer and graphic designer, Jessica has helped businesses brand and market themselves for almost two decades. In 2018, she and her sister innovated a new tool for the sewing world – SewTites® Magnetic Sewing Pins™ – and founded a company with the same name. 
+Since then, Jessica has led the company to a 7-figure annual business – all in part-time hours with a small team of part-time employees. A single mom of two children with primary custody, she is passionate about finding value in and creating work for people who don’t have the desire or ability to work full-time hours but still want and need to earn a living.`
+            }
+          ],
+          moderators: [{ name: 'Joe Moderator', bio: 'An experienced event moderator who moderates all day long.' }]
+        },
         user1,
         topic,
         startTime,
@@ -63,36 +74,209 @@ ls.describe(
       return msg
     }
 
-    describe('submit to moderator functionality', () => {
+    describe('classification-based submitToModerator prompting', () => {
+      // ON_TOPIC_ANSWER - Should NOT ask to submit
       it(
-        'asks if user wants to submit on-topic question to moderator',
+        'does not ask to submit for simple acknowledgments (ON_TOPIC_ANSWER)',
+        async () => {
+          const msg = await createQuestion('Thanks for this presentation')
+
+          const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+
+          // Should only have 1 response, no moderator question
+          expect(responses).toHaveLength(1)
+          expect(responses[0].message).not.toEqual(submitToModeratorQuestion)
+        },
+        testTimeout
+      )
+
+      it(
+        'does not ask to submit for recap questions (ON_TOPIC_ANSWER)',
         async () => {
           const msg = await createQuestion('What did the speaker say about part-time work?')
-
           const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
-
-          // Should have 2 responses: the answer and the moderator question
           await validateResponse(responses)
-          expect(responses).toHaveLength(2)
-          expect(responses[1].message).toEqual(submitToModeratorQuestion)
+
+          // Should only have 1 response, no moderator question
+          expect(responses).toHaveLength(1)
+          expect(responses[0].message).not.toEqual(submitToModeratorQuestion)
         },
         testTimeout
       )
 
       it(
-        'does not ask about submitting for off-topic questions',
+        'does not ask to submit when helping draft questions (ON_TOPIC_ANSWER)',
         async () => {
-          const msg = await createQuestion('What is the weather like today?')
-
+          const msg = await createQuestion('Can you help me write a question about workplace flexibility?')
           const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
           await validateResponse(responses)
 
-          // Should only have 1 response: the "cannot answer" message
+          // Should only have 1 response, no moderator question
           expect(responses).toHaveLength(1)
+          expect(responses[0].message).not.toEqual(submitToModeratorQuestion)
         },
         testTimeout
       )
 
+      // ON_TOPIC_ASK_SPEAKER - Should ask to submit
+      it(
+        'asks to submit for statistical questions beyond presentation (ON_TOPIC_ASK_SPEAKER)',
+        async () => {
+          const msg = await createQuestion('What percentage of U.S. workers are part-time?')
+          const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+
+          // Should have 2 responses: the answer and the moderator question
+          expect(responses).toHaveLength(2)
+          expect(responses[1].message).toEqual(submitToModeratorQuestion)
+          expect(responses[1].visible).toBe(true)
+        },
+        testTimeout
+      )
+
+      it(
+        'asks to submit for resource requests (ON_TOPIC_ASK_SPEAKER)',
+        async () => {
+          const msg = await createQuestion('Where can I learn more about workplace flexibility?')
+          const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+
+          // Should have 2 responses: the answer and the moderator question
+          expect(responses).toHaveLength(2)
+          expect(responses[1].message).toEqual(submitToModeratorQuestion)
+          expect(responses[1].visible).toBe(true)
+        },
+        testTimeout
+      )
+
+      it(
+        'asks to submit for substantive negative feedback (ON_TOPIC_ASK_SPEAKER)',
+        async () => {
+          const msg = await createQuestion('This talk is boring')
+
+          const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+
+          // Should have 2 responses: the answer and the moderator question
+          expect(responses).toHaveLength(2)
+          expect(responses[1].message).toEqual(submitToModeratorQuestion)
+          expect(responses[1].visible).toBe(true)
+        },
+        testTimeout
+      )
+
+      it(
+        'asks to submit for disagreement/criticism (ON_TOPIC_ASK_SPEAKER)',
+        async () => {
+          const msg = await createQuestion('I disagree that part-time work solves the hiring problem')
+
+          const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+
+          // Should have 2 responses: the answer and the moderator question
+          expect(responses).toHaveLength(2)
+          expect(responses[1].message).toEqual(submitToModeratorQuestion)
+          expect(responses[1].visible).toBe(true)
+        },
+        testTimeout
+      )
+
+      it(
+        'asks to submit for opinion/advice requests (ON_TOPIC_ASK_SPEAKER)',
+        async () => {
+          const msg = await createQuestion('What is her advice for those who want to switch to part-time work?')
+
+          const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+
+          // Should have 2 responses: the answer and the moderator question
+          expect(responses).toHaveLength(2)
+          expect(responses[1].message).toEqual(submitToModeratorQuestion)
+          expect(responses[1].visible).toBe(true)
+        },
+        testTimeout
+      )
+
+      it(
+        'asks to submit for implementation questions (ON_TOPIC_ASK_SPEAKER)',
+        async () => {
+          const msg = await createQuestion('How would Jessica recommend implementing this at a startup?')
+
+          const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+
+          // Should have 2 responses: the answer and the moderator question
+          expect(responses).toHaveLength(2)
+          expect(responses[1].message).toEqual(submitToModeratorQuestion)
+          expect(responses[1].visible).toBe(true)
+        },
+        testTimeout
+      )
+
+      it(
+        'asks to submit for hypothetical questions (ON_TOPIC_ASK_SPEAKER)',
+        async () => {
+          const msg = await createQuestion('What if an employee abuses the flexibility?')
+          const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+
+          // Should have 2 responses: the answer and the moderator question
+          expect(responses).toHaveLength(2)
+          expect(responses[1].message).toEqual(submitToModeratorQuestion)
+          expect(responses[1].visible).toBe(true)
+        },
+        testTimeout
+      )
+
+      // OFF_TOPIC - Should NOT ask to submit
+      it(
+        'does not ask to submit for off-topic questions',
+        async () => {
+          const msg = await createQuestion('What is the weather like today?')
+          const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+
+          // Should only have 1 response (off-topic message), no moderator question
+          expect(responses).toHaveLength(1)
+          expect(responses[0].message).not.toEqual(submitToModeratorQuestion)
+        },
+        testTimeout
+      )
+
+      // CATCHUP - Should NOT ask to submit
+      it(
+        'does not ask to submit for catchup questions',
+        async () => {
+          const msg = await createQuestion('What did I miss?')
+          const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+
+          // Should only have 1 response (summary), no moderator question
+          expect(responses).toHaveLength(1)
+          expect(responses[0].message).not.toEqual(submitToModeratorQuestion)
+        },
+        testTimeout
+      )
+
+      // UNANSWERABLE - Should ask to submit
+      it(
+        'asks to submit for unanswerable on-topic questions (UNANSWERABLE)',
+        async () => {
+          const msg = await createQuestion('What were the exact salary figures mentioned in slide 7?')
+          const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+
+          // Should have 2 responses: the "can't answer" message and the moderator question
+          expect(responses).toHaveLength(2)
+          expect(responses[1].message).toEqual(submitToModeratorQuestion)
+          expect(responses[1].visible).toBe(true)
+        },
+        testTimeout
+      )
+    })
+
+    describe('submit to moderator functionality', () => {
       it(
         'submits question to moderator when user responds affirmatively',
         async () => {

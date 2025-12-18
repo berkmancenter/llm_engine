@@ -3,7 +3,14 @@ import { AgentMessageActions, AgentResponse, ConversationHistory } from '../../t
 import { formatSingleUserConversationHistory } from '../helpers/llmInputFormatters.js'
 
 import Message from '../../models/message.model.js'
-import { eventAssistantLLMTemplates, eventAssistantLlmTemplateVars, answerQuestion } from './eventQuestionHandler.js'
+import {
+  eventAssistantLLMTemplates,
+  eventAssistantLlmTemplateVars,
+  answerQuestion,
+  QuestionClassification
+} from './eventQuestionHandler.js'
+
+import logger from '../../config/logger.js'
 
 const submitToModeratorQuestion = 'Would you like to submit this question anonymously to the moderator for Q&A?'
 const submitToModeratorReply = 'Your message has been submitted to the moderator.'
@@ -74,8 +81,12 @@ export default verify({
         conversationHistory.messages[conversationHistory.messages.length - 1].body === submitToModeratorQuestion
       ) {
         if (isAffirmative(userMessage.body)) {
-          const message = await Message.findById(conversationHistory.messages[conversationHistory.messages.length - 3]._id)
-          // TODO message not found
+          const originalMessageId = conversationHistory.messages[conversationHistory.messages.length - 3]._id
+          const message = await Message.findById(originalMessageId)
+          if (!message) {
+            logger.error(`Could not find original message with ID ${originalMessageId} to submit to moderator`)
+            return []
+          }
           message!.channels = message!.channels ?? []
           message!.channels.push('participant')
           await message!.save()
@@ -90,10 +101,11 @@ export default verify({
 
       const agentResponse = await answerQuestion.call(this, userMessage, chatHistory)
       const agentResponses: AgentResponse<string>[] = [agentResponse]
-      // TODO not every semantic query will be on topic. Not harmful to push it through b/c backChannel functionality
-      // should filter, but strange that we are asking?
-      const onTopic = agentResponse.semantic
-      if (onTopic) {
+      const { classification } = agentResponse
+      if (
+        classification === QuestionClassification.UNANSWERABLE ||
+        classification === QuestionClassification.ON_TOPIC_ASK_SPEAKER
+      ) {
         agentResponses.push({
           visible: true,
           message: submitToModeratorQuestion,

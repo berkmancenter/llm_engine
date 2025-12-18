@@ -16,6 +16,7 @@ import {
   loadPartTimeWorkTranscript
 } from '../../utils/agentTestHelpers.js'
 import Channel from '../../../src/models/channel.model.js'
+import { QuestionClassification } from '../../../src/agents/eventAssistant/eventQuestionHandler.js'
 
 jest.setTimeout(180000)
 
@@ -234,6 +235,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
 
         const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
         await validateResponse(responses)
+        expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
 
         await evaluateSemanticResponse(inputs.question, responses[0], referenceOutputs!.responses)
         return responses[0].message
@@ -252,6 +254,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
       }
       const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
       await validateResponse(responses)
+      expect(responses[0].classification).toBe(QuestionClassification.OFF_TOPIC)
       expect(responses[0].message).toEqual(cannotAnswerResponse)
     })
     ls.test(
@@ -282,6 +285,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         }
         const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
         await validateResponse(responses)
+        expect(responses[0].classification).toBe(QuestionClassification.CATCHUP)
         await evaluateTimeWindowResponse(inputs.question, responses[0], referenceOutputs!.responses)
         // necessary to log output to Langsmith experiment
         return responses[0].message
@@ -317,6 +321,10 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         }
         const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
         await validateResponse(responses)
+        // This is borderline between an answer and an ask speaker, so either is acceptable
+        expect([QuestionClassification.ON_TOPIC_ANSWER, QuestionClassification.ON_TOPIC_ASK_SPEAKER]).toContain(
+          responses[0].classification
+        )
         await evaluateSemanticResponse(inputs.question, responses[0], referenceOutputs!.responses)
         return responses[0].message
       },
@@ -350,6 +358,11 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         }
         const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
         await validateResponse(responses)
+        // This is borderline between an answer and an ask speaker, so either is acceptable
+        // This is borderline between an answer and an ask speaker, so either is acceptable
+        expect([QuestionClassification.ON_TOPIC_ANSWER, QuestionClassification.ON_TOPIC_ASK_SPEAKER]).toContain(
+          responses[0].classification
+        )
         await evaluateSemanticResponse(inputs.question, responses[0], referenceOutputs!.responses)
         return responses[0].message
       },
@@ -384,6 +397,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         }
         const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
         await validateResponse(responses)
+        expect(responses[0].classification).toBe(QuestionClassification.CATCHUP)
         await evaluateTimeWindowResponse(inputs.question, responses[0], referenceOutputs!.responses)
         return responses[0].message
       },
@@ -418,6 +432,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         }
         const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
         await validateResponse(responses)
+        expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ASK_SPEAKER)
         await evaluateNonContextualResult(inputs.question, responses[0], referenceOutputs!.responses)
         return responses[0].message
       },
@@ -452,6 +467,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         }
         const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
         await validateResponse(responses)
+        expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ASK_SPEAKER)
         await evaluateNonContextualResult(inputs.question, responses[0], referenceOutputs!.responses)
         return responses[0].message
       },
@@ -486,6 +502,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         }
         const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
         await validateResponse(responses)
+        expect(responses[0].classification).toBe(QuestionClassification.CATCHUP)
         await evaluateTimeWindowResponse(inputs.question, responses[0], referenceOutputs!.responses)
         return responses[0].message
       },
@@ -517,6 +534,9 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         }
         const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
         await validateResponse(responses)
+        expect([QuestionClassification.ON_TOPIC_ANSWER, QuestionClassification.ON_TOPIC_ASK_SPEAKER]).toContain(
+          responses[0].classification
+        )
         await evaluateSemanticResponse(inputs.question, responses[0], referenceOutputs!.responses)
         return responses[0].message
       },
@@ -542,6 +562,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         }
         const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
         await validateResponse(responses)
+        expect(responses[0].classification).toBe(QuestionClassification.CATCHUP)
         await evaluateSemanticResponse(inputs.question, responses[0], referenceOutputs!.responses)
         return responses[0].message
       },
@@ -576,6 +597,9 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         }
         const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
         await validateResponse(responses)
+        expect([QuestionClassification.ON_TOPIC_ANSWER, QuestionClassification.ON_TOPIC_ASK_SPEAKER]).toContain(
+          responses[0].classification
+        )
         await evaluateSemanticResponse(inputs.question, responses[0], referenceOutputs!.responses)
         return responses[0].message
       },
@@ -610,6 +634,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         }
         const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
         await validateResponse(responses)
+        expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ASK_SPEAKER)
         await evaluateNonContextualResult(inputs.question, responses[0], referenceOutputs!.responses)
         return responses[0].message
       },
@@ -648,6 +673,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         }
         const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
         await validateResponse(responses)
+        expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
         await evaluateNonContextualResult(inputs.question, responses[0], referenceOutputs!.responses)
         return responses[0].message
       },
@@ -683,6 +709,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         }
         const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
         await validateResponse(responses)
+
         await evaluateNonContextualResult(inputs.question, responses[0], referenceOutputs!.responses)
         return responses[0].message
       },
@@ -699,6 +726,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         }
         const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
         await validateResponse(responses)
+        expect(responses[0].classification).toBe(QuestionClassification.OFF_TOPIC)
         expect(responses[0].message).toEqual(cannotAnswerResponse)
       },
       testTimeout
@@ -733,31 +761,37 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
       }
       const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
       await validateResponse(responses)
+      expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
       expect(responses[0].message).toEqual(expect.stringMatching('Drain'))
 
       const msg2 = await createQuestion('Who is the speaker?')
       const responses2 = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg2)
       await validateResponse(responses2)
+      expect(responses2[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
       expect(responses2[0].message).toEqual(expect.stringMatching('Drain'))
 
       const msg3 = await createQuestion('Who is the moderator?')
       const responses3 = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg3)
       await validateResponse(responses3)
+      expect(responses3[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
       expect(responses3[0].message).toEqual(expect.stringMatching('Joe Moderator'))
 
       const msg4 = await createQuestion('Who is moderating this event?')
       const responses4 = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg4)
       await validateResponse(responses4)
+      expect(responses4[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
       expect(responses4[0].message).toEqual(expect.stringMatching('Joe Moderator'))
 
       const msg5 = await createQuestion('Who are the speakers?')
       const responses5 = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg5)
       await validateResponse(responses5)
+      expect(responses5[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
       expect(responses5[0].message).toEqual(expect.stringMatching('Drain'))
 
       const msg7 = await createQuestion('Tell me about the speaker')
       const responses7 = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg7)
       await validateResponse(responses7)
+      expect(responses7[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
       expect(responses7[0].message).toEqual(expect.stringMatching('Drain'))
       expect(responses7[0].message).toEqual(expect.stringMatching('marketer'))
     })
@@ -772,6 +806,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
       }
       const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
       await validateResponse(responses)
+      expect(responses[0].classification).toBe(QuestionClassification.CATCHUP)
       expect(responses[0].message).not.toEqual(cannotAnswerResponse)
     })
 
