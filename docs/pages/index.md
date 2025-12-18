@@ -32,6 +32,8 @@ LLM Engine comes with three tested agents that are ready for use in your events 
 
 ✅ **Event Assistant** - Answers questions related to an event in real-time or asynchronously, using the event transcript and/or conversation history
 
+✅ **Event Assistant Plus** - Combines the functionality of Event Assistant and the Back Channel agents
+
 - NOTE: Additional [experimental agents](developers/development_agents.md) are available for evaluation and further development.
 
 ## Supported Clients

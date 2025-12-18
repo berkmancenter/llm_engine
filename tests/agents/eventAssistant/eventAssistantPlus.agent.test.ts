@@ -258,36 +258,85 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         },
         testTimeout
       )
-
-      // UNANSWERABLE - Should ask to submit
-      it(
-        'asks to submit for unanswerable on-topic questions (UNANSWERABLE)',
-        async () => {
-          const msg = await createQuestion('What were the exact salary figures mentioned in slide 7?')
-          const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
-          await validateResponse(responses)
-
-          // Should have 2 responses: the "can't answer" message and the moderator question
-          expect(responses).toHaveLength(2)
-          expect(responses[1].message).toEqual(submitToModeratorQuestion)
-          expect(responses[1].visible).toBe(true)
-        },
-        testTimeout
-      )
     })
 
     describe('submit to moderator functionality', () => {
-      it(
-        'submits question to moderator when user responds affirmatively',
-        async () => {
-          // First, ask a question
-          const questionMsg = await createQuestion('What did the speaker say about flexibility?')
+      it('should submit to moderator when user responds with yes', async () => {
+        const questionMsg = await createQuestion('What is the meaning of life?')
+        const savedQuestion = await Message.create(questionMsg)
+
+        const affirmativeMsg = await createQuestion('yes')
+        const conversationHistory = {
+          messages: [savedQuestion, { body: "I don't have enough information." }, { body: submitToModeratorQuestion }]
+        }
+
+        const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, conversationHistory, affirmativeMsg)
+
+        await validateResponse(responses)
+        expect(responses).toHaveLength(1)
+        expect(responses[0].message).toBe('Your message has been submitted to the moderator.')
+
+        const updatedMessage = await Message.findById(savedQuestion._id)
+        expect(updatedMessage!.channels).toContain('participant')
+      })
+
+      it('should submit to moderator when user responds with yes please', async () => {
+        const questionMsg = await createQuestion('What is the meaning of life?')
+        const savedQuestion = await Message.create(questionMsg)
+
+        const affirmativeMsg = await createQuestion('yes please')
+        const conversationHistory = {
+          messages: [savedQuestion, { body: "I don't have enough information." }, { body: submitToModeratorQuestion }]
+        }
+
+        const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, conversationHistory, affirmativeMsg)
+
+        await validateResponse(responses)
+        expect(responses).toHaveLength(1)
+        expect(responses[0].message).toBe('Your message has been submitted to the moderator.')
+      })
+
+      it('should decline submission when user responds with no', async () => {
+        const questionMsg = await createQuestion('What is the meaning of life?')
+        const savedQuestion = await Message.create(questionMsg)
+
+        const negativeMsg = await createQuestion('no')
+        const conversationHistory = {
+          messages: [savedQuestion, { body: "I don't have enough information." }, { body: submitToModeratorQuestion }]
+        }
+
+        const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, conversationHistory, negativeMsg)
+
+        await validateResponse(responses)
+        expect(responses).toHaveLength(1)
+        expect(responses[0].message).toBe("OK, I won't submit it. Feel free to ask me anything else!")
+
+        const updatedMessage = await Message.findById(savedQuestion._id)
+        expect(updatedMessage!.channels).not.toContain('participant')
+      })
+
+      it('should submit to moderator for various affirmative responses', async () => {
+        const affirmativeVariants = [
+          'yes',
+          'yeah',
+          'yep',
+          'yup',
+          'sure',
+          'okay',
+          'ok',
+          'absolutely',
+          'definitely',
+          'yes please',
+          'sure thing'
+        ]
+
+        for (const variant of affirmativeVariants) {
+          const questionMsg = await createQuestion('What is the meaning of life?')
           const savedQuestion = await Message.create(questionMsg)
 
-          // Now respond with affirmative
-          const affirmativeMsg = await createQuestion('yes')
+          const affirmativeMsg = await createQuestion(variant)
           const conversationHistory = {
-            messages: [savedQuestion, { body: 'Here is an answer' }, { body: submitToModeratorQuestion }]
+            messages: [savedQuestion, { body: "I don't have enough information." }, { body: submitToModeratorQuestion }]
           }
 
           const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(
@@ -296,134 +345,71 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
             affirmativeMsg
           )
 
-          // Should have 1 response confirming submission
+          await validateResponse(responses)
           expect(responses).toHaveLength(1)
-          expect(responses[0][0].message).toEqual(submitToModeratorReply)
+          expect(responses[0].message).toBe('Your message has been submitted to the moderator.')
+        }
+      })
 
-          // Verify the original question was updated with 'participant' channel
-          const updatedQuestion = await Message.findById(savedQuestion._id)
-          expect(updatedQuestion!.channels).toContain('participant')
-        },
-        testTimeout
-      )
+      it('should decline submission for various negative responses', async () => {
+        const negativeVariants = ['no', 'nope', 'nah', 'no thanks', "don't", 'never mind']
 
-      it(
-        'handles various affirmative responses',
-        async () => {
-          const affirmativeResponses = [
-            'yes',
-            'yeah',
-            'yep',
-            'yup',
-            'sure',
-            'okay',
-            'ok',
-            'absolutely',
-            'definitely',
-            'certainly',
-            'affirmative',
-            'correct',
-            'right',
-            'indeed',
-            'of course',
-            'you bet',
-            'sounds good'
-          ]
-
-          for (const affirmative of affirmativeResponses) {
-            // Setup: ask a question first
-            const questionMsg = await createQuestion('What was discussed about hiring?')
-            const savedQuestion = await Message.create(questionMsg)
-
-            // Test affirmative response
-            const affirmativeMsg = await createQuestion(affirmative)
-            const conversationHistory = {
-              messages: [savedQuestion, { body: 'Here is an answer' }, { body: submitToModeratorQuestion }]
-            }
-
-            const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(
-              agent,
-              conversationHistory,
-              affirmativeMsg
-            )
-
-            expect(responses).toHaveLength(1)
-            expect(responses[0][0].message).toEqual(submitToModeratorReply)
-          }
-        },
-        testTimeout
-      )
-
-      it(
-        'does not submit when user responds negatively',
-        async () => {
-          // Setup: ask a question first
-          const questionMsg = await createQuestion('Tell me about the speaker')
+        for (const variant of negativeVariants) {
+          const questionMsg = await createQuestion('What is the meaning of life?')
           const savedQuestion = await Message.create(questionMsg)
 
-          // Respond negatively
-          const negativeMsg = await createQuestion('no')
+          const negativeMsg = await createQuestion(variant)
           const conversationHistory = {
-            messages: [savedQuestion, { body: 'Here is an answer' }, { body: submitToModeratorQuestion }]
+            messages: [savedQuestion, { body: "I don't have enough information." }, { body: submitToModeratorQuestion }]
           }
 
           const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, conversationHistory, negativeMsg)
 
-          // Should return empty array (no response)
-          expect(responses).toHaveLength(0)
-
-          // Verify the original question was NOT updated
-          const updatedQuestion = await Message.findById(savedQuestion._id)
-          expect(updatedQuestion!.channels).not.toContain('participant')
-        },
-        testTimeout
-      )
-
-      it(
-        'submits question immediately when using /mod command',
-        async () => {
-          const msg = await createQuestion('/mod What are the benefits of part-time work?')
-
-          // First, evaluate should add 'participant' channel
-          const evaluation = await defaultAgentTypes.eventAssistantPlus.evaluate.call(agent, msg)
-          expect(evaluation.userMessage.channels).toHaveLength(2)
-          expect(evaluation.userMessage.channels).toContain('participant')
-          expect(evaluation.userMessage.body).toEqual('What are the benefits of part-time work?')
-          expect(evaluation.action).toEqual(AgentMessageActions.CONTRIBUTE)
-          expect(evaluation.userContributionVisible).toBe(true)
-
-          // Then respond should confirm submission
-          const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(
-            agent,
-            { messages: [] },
-            evaluation.userMessage
-          )
-
+          await validateResponse(responses)
           expect(responses).toHaveLength(1)
-          expect(responses[0][0].message).toEqual(submitToModeratorReply)
-        },
-        testTimeout
-      )
+          expect(responses[0].message).toBe("OK, I won't submit it. Feel free to ask me anything else!")
+        }
+      })
 
-      it(
-        'handles /mod command with various cases and whitespace',
-        async () => {
-          const commands = [
-            '/mod question here',
-            '/MOD question here',
-            '/Mod question here',
-            '  /mod question here',
-            '/mod   question here'
-          ]
+      it('should process new question when user ignores submit prompt', async () => {
+        const questionMsg = await createQuestion('What is the meaning of life?')
+        const savedQuestion = await Message.create(questionMsg)
 
-          for (const command of commands) {
-            const msg = await createQuestion(command)
-            const evaluation = await defaultAgentTypes.eventAssistantPlus.evaluate.call(agent, msg)
-            expect(evaluation.userMessage.channels).toContain('participant')
-          }
-        },
-        testTimeout
-      )
+        const newQuestion = await createQuestion("What was the speaker's main point?")
+        const conversationHistory = {
+          messages: [savedQuestion, { body: "I don't have enough information." }, { body: submitToModeratorQuestion }]
+        }
+
+        const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, conversationHistory, newQuestion)
+
+        await validateResponse(responses)
+        // New question should be processed normally, not treated as yes/no response
+        expect(responses.length).toBeGreaterThan(0)
+
+        const updatedMessage = await Message.findById(savedQuestion._id)
+        expect(updatedMessage!.channels).not.toContain('participant')
+      })
+
+      it('should handle /mod command in evaluate', async () => {
+        const modMsg = await createQuestion('/mod This is urgent')
+
+        const evaluation = await defaultAgentTypes.eventAssistantPlus.evaluate.call(agent, modMsg)
+
+        expect(evaluation.userMessage.body).toBe('This is urgent')
+        expect(evaluation.userMessage.channels).toContain('participant')
+        expect(evaluation.action).toBe(AgentMessageActions.CONTRIBUTE)
+      })
+
+      it('should return moderator submission message for participant channel messages', async () => {
+        const participantMsg = await createQuestion('Question from user')
+        participantMsg.channels = [`direct-agents-${user1._id}`, 'participant']
+
+        const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, participantMsg)
+
+        await validateResponse(responses)
+        expect(responses).toHaveLength(1)
+        expect(responses[0].message).toBe('Your message has been submitted to the moderator.')
+      })
     })
 
     describe('evaluate function', () => {

@@ -24,12 +24,32 @@ function isAffirmative(text) {
   return affirmativePatterns.test(normalized)
 }
 
+function isNegative(text) {
+  const normalized = text.trim().toLowerCase()
+  const negativePatterns =
+    /^(no|nah|nope|naw|not really|don't|dont|never mind|nevermind|no thanks|no thank you|negative|not now|maybe later|i'm good|im good)/
+
+  return negativePatterns.test(normalized)
+}
+
 function submitToModeratorResponse(userMessage) {
   return [
     {
       visible: true,
       message: submitToModeratorReply,
-      channels: this.conversation.channels.filter((channel) => userMessage.channels.includes(channel.name))
+      channels: this.conversation.channels.filter((channel) => userMessage.channels.includes(channel.name) && channel.direct)
+    }
+  ]
+}
+
+function declineModeratorResponse(userMessage) {
+  return [
+    {
+      visible: true,
+      message: "OK, I won't submit it. Feel free to ask me anything else!",
+      channels: this.conversation.channels.filter(
+        (channel) => userMessage.channels.includes(channel.name) && channel.direct === true
+      )
     }
   ]
 }
@@ -43,8 +63,9 @@ export default verify({
     perMessage: { directMessages: true }
   },
   agentConfig: {
-    introMessage:
-      "Hi! I'm the LLM Event Assistant. If you miss something, or want a clarification on something that’s been said during the event, you can DM me. None of your messages to me will be surfaced to the moderator or the rest of the audience."
+    introMessage: `Hi! I'm the LLM Event Assistant. I'm listening to the event, so feel free to ask me questions like “what did I just miss,” or, “what was that acronym?” If you ask a (relevant!) question I can't answer, I'll ask if you want to send it through to the moderator. Use /mod to fast-track a message to the mod. The mod will get a digestible summary of questions.
+
+A pseudonymized message transcript will be visible to our eng team. Thanks for trying the tool, please share your feedback at brk.mn/feedback!`
   },
   llmTemplateVars: eventAssistantLlmTemplateVars,
   defaultLLMTemplates: eventAssistantLLMTemplates,
@@ -74,8 +95,7 @@ export default verify({
   },
   async respond(conversationHistory: ConversationHistory, userMessage) {
     if (userMessage) {
-      // TODO think through how to use replies for this? Not sure if we can get that info from Zoom
-      // TODO if the user says yes + anything else in the reply text, that extra will not get processed.
+      // Check if the previous message was asking about submitting to moderator
       if (
         conversationHistory.messages.length > 1 &&
         conversationHistory.messages[conversationHistory.messages.length - 1].body === submitToModeratorQuestion
@@ -90,13 +110,19 @@ export default verify({
           message!.channels = message!.channels ?? []
           message!.channels.push('participant')
           await message!.save()
-          return [submitToModeratorResponse.call(this, userMessage)]
+          return submitToModeratorResponse.call(this, userMessage)
         }
-        return []
+
+        if (isNegative(userMessage.body)) {
+          return declineModeratorResponse.call(this, userMessage)
+        }
+        // If neither affirmative nor negative, fall through to process as a new question
       }
+
       if (userMessage.channels?.includes('participant')) {
-        return [submitToModeratorResponse.call(this, userMessage)]
+        return submitToModeratorResponse.call(this, userMessage)
       }
+
       const chatHistory = formatSingleUserConversationHistory(conversationHistory)
 
       const agentResponse = await answerQuestion.call(this, userMessage, chatHistory)
@@ -112,7 +138,6 @@ export default verify({
           channels: this.conversation.channels.filter((channel) => userMessage.channels.includes(channel.name))
         })
       }
-
       return agentResponses
     }
   },

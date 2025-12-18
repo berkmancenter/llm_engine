@@ -24,6 +24,7 @@ describe('LLM Input Formatter Tests', () => {
       pseudonymId: ownerPseudo,
       pseudonym,
       createdAt,
+      updatedAt: createdAt,
       fromAgent
     })
     return msg
