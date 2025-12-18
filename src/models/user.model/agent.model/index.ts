@@ -510,13 +510,16 @@ agentSchema.post('init', function () {
 // preserves conversation connection
 agentSchema.method('deepPatch', function (origPatch) {
   const patch = origPatch
+
   const { conversation } = this
 
-  // patch validated/allowed properties
-  const update = this.toObject()
+  // Remove conversation to break circular reference
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { conversation: _, ...update } = this.toObject()
   deepExtend(update, patch)
 
   Object.assign(this, update)
+
   this.conversation = conversation
 })
 
