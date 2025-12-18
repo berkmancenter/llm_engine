@@ -1061,5 +1061,109 @@ describe('Message service methods', () => {
 
       loggerWarnSpy.mockRestore()
     })
+
+    test('should route feedback message with lowercase /sharefeedback to feedback channel', async () => {
+      const feedbackMessage = {
+        conversation: testConversation._id,
+        body: '/sharefeedback|rating|msg777|4',
+        bodyType: 'text',
+        channels: []
+      }
+
+      const result = await messageService.newMessageHandler(feedbackMessage, feedbackUser)
+
+      expect(result).toBeDefined()
+      expect(result).toHaveLength(1)
+      expect(result[0].channels).toContain('feedback')
+      expect(result[0].bodyType).toBe('json')
+      expect(result[0].body).toEqual({
+        type: 'rating',
+        messageId: 'msg777',
+        value: '4'
+      })
+
+      // Verify adapters and websockets were not called
+      expect(mockSendZoomMessage).not.toHaveBeenCalled()
+      expect(mockSendSlackMessage).not.toHaveBeenCalled()
+      expect(websocketGateway.broadcastNewMessage).not.toHaveBeenCalled()
+    })
+
+    test('should route feedback message with uppercase /SHAREFEEDBACK to feedback channel', async () => {
+      const feedbackMessage = {
+        conversation: testConversation._id,
+        body: '/SHAREFEEDBACK|sentiment|msg888|negative',
+        bodyType: 'text',
+        channels: []
+      }
+
+      const result = await messageService.newMessageHandler(feedbackMessage, feedbackUser)
+
+      expect(result).toBeDefined()
+      expect(result).toHaveLength(1)
+      expect(result[0].channels).toContain('feedback')
+      expect(result[0].bodyType).toBe('json')
+      expect(result[0].body).toEqual({
+        type: 'sentiment',
+        messageId: 'msg888',
+        value: 'negative'
+      })
+
+      // Verify adapters and websockets were not called
+      expect(mockSendZoomMessage).not.toHaveBeenCalled()
+      expect(mockSendSlackMessage).not.toHaveBeenCalled()
+      expect(websocketGateway.broadcastNewMessage).not.toHaveBeenCalled()
+    })
+
+    test('should route feedback message with mixed case /ShareFeedBack to feedback channel', async () => {
+      const feedbackMessage = {
+        conversation: testConversation._id,
+        body: '/ShareFeedBack|quality|msg999|excellent',
+        bodyType: 'text',
+        channels: []
+      }
+
+      const result = await messageService.newMessageHandler(feedbackMessage, feedbackUser)
+
+      expect(result).toBeDefined()
+      expect(result).toHaveLength(1)
+      expect(result[0].channels).toContain('feedback')
+      expect(result[0].bodyType).toBe('json')
+      expect(result[0].body).toEqual({
+        type: 'quality',
+        messageId: 'msg999',
+        value: 'excellent'
+      })
+
+      // Verify adapters and websockets were not called
+      expect(mockSendZoomMessage).not.toHaveBeenCalled()
+      expect(mockSendSlackMessage).not.toHaveBeenCalled()
+      expect(websocketGateway.broadcastNewMessage).not.toHaveBeenCalled()
+    })
+
+    test('should route feedback message with /sHaReFEEDBACK (random case) to feedback channel', async () => {
+      const feedbackMessage = {
+        conversation: testConversation._id,
+        body: '/sHaReFEEDBACK|helpfulness|msg1010|very useful',
+        bodyType: 'text',
+        channels: []
+      }
+
+      const result = await messageService.newMessageHandler(feedbackMessage, feedbackUser)
+
+      expect(result).toBeDefined()
+      expect(result).toHaveLength(1)
+      expect(result[0].channels).toContain('feedback')
+      expect(result[0].bodyType).toBe('json')
+      expect(result[0].body).toEqual({
+        type: 'helpfulness',
+        messageId: 'msg1010',
+        value: 'very useful'
+      })
+
+      // Verify adapters and websockets were not called
+      expect(mockSendZoomMessage).not.toHaveBeenCalled()
+      expect(mockSendSlackMessage).not.toHaveBeenCalled()
+      expect(websocketGateway.broadcastNewMessage).not.toHaveBeenCalled()
+    })
   })
 })

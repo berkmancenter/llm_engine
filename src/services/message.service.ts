@@ -273,7 +273,7 @@ const handleFeedbackMessage = async (message, user, conversation) => {
 const newMessageHandler = async (message, user, request = null) => {
   // Check if this is a feedback message
   const isFeedback =
-    (message.bodyType === 'text' && message.body?.startsWith('/ShareFeedback')) ||
+    (message.bodyType === 'text' && message.body?.toLowerCase().startsWith('/sharefeedback')) ||
     (message.bodyType === 'json' && message.body?.feedback === true)
 
   if (isFeedback) {
