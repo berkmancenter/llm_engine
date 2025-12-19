@@ -7,6 +7,7 @@ import ApiError from '../utils/ApiError.js'
 import websocketGateway from '../websockets/websocketGateway.js'
 import { IAgent, IMessage, AgentMessageActions } from '../types/index.types.js'
 import authChannels from '../utils/authChannels.js'
+import channelService from './channel.service.js'
 
 /**
  * Check if we can create a message and fetch conversation
@@ -207,12 +208,80 @@ const vote = async (messageId, direction, status, requestUser) => {
 }
 
 /**
+ * Handle feedback messages by routing them to the feedback channel
+ * @param {Object} message
+ * @param {User} user
+ * @param {Conversation} conversation
+ * @returns {Promise<[Message]>}
+ */
+const handleFeedbackMessage = async (message, user, conversation) => {
+  // Find or create the feedback channel
+  let feedbackChannel = conversation.channels.find((c) => c.name === 'feedback')
+  if (!feedbackChannel) {
+    feedbackChannel = await channelService.createChannel(conversation, {
+      name: 'feedback',
+      direct: false
+      // passcode will auto-generate via the model default
+    })
+  }
+
+  // Create a modified copy of the message for feedback
+  let feedbackMessageBody = message.body
+  let feedbackBodyType = message.bodyType
+
+  // Transform text messages to JSON format
+  if (message.bodyType === 'text') {
+    const parts = message.body.split('|').map((p) => p.trim())
+
+    // Validate that all required parts are present
+    if (!parts[1] || !parts[2] || !parts[3]) {
+      logger.warn('Feedback message missing required parts. Expected format: /feedback|type|messageId|value')
+      return []
+    }
+
+    // Remove "/feedback" from first element and create JSON body
+    feedbackMessageBody = {
+      type: parts[1].toLowerCase(),
+      messageId: parts[2],
+      value: parts[3]
+    }
+    feedbackBodyType = 'json'
+  }
+
+  // Create message object with feedback channel
+  const feedbackMessageData = {
+    ...message,
+    body: feedbackMessageBody,
+    bodyType: feedbackBodyType,
+    channels: [feedbackChannel]
+  }
+
+  // Create and save the message
+  const feedbackMessage = await createMessage(feedbackMessageData, user, conversation)
+
+  // NO adapters or websockets for feedback messages
+
+  return [feedbackMessage]
+}
+
+/**
  * Handle all stages of processing a new message
  * @param {Object} message
  * @param {User} user
  * @returns {Promise<[Message]>}
  */
 const newMessageHandler = async (message, user, request = null) => {
+  // Check if this is a feedback message
+  const isFeedback =
+    (message.bodyType === 'text' && message.body?.toLowerCase().startsWith('/feedback')) ||
+    (message.bodyType === 'json' && message.body?.feedback === true)
+
+  if (isFeedback) {
+    const conversation = await fetchConversation(message, user)
+    return await handleFeedbackMessage(message, user, conversation)
+  }
+
+  // Existing processing logic continues here
   const conversation = await fetchConversation(message, user)
   let userContributionVisible = true
   const respondingAgents: Array<IAgent> = []
