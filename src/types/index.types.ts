@@ -83,6 +83,7 @@ export interface IMessage {
   downVotes: Vote[]
   parentMessage?: mongoose.Types.ObjectId
   createdAt?: Date
+  updatedAt?: Date
   replyCount?: number
 }
 

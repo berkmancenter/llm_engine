@@ -964,7 +964,7 @@ ls.describe(
           downVotes: []
         })
         const translatedMsg = await defaultAgentTypes.backChannelInsights.parseOutput(agentMsg)
-        expect(translatedMsg.body).toEqual(expect.stringContaining('BACKCHANNEL REPORT'))
+        expect(translatedMsg.body).toEqual(expect.stringContaining('MODERATOR REPORT'))
         expect(translatedMsg.bodyType).toEqual('text')
         return responses[0].message.insights
       },

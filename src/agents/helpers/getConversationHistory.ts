@@ -22,10 +22,10 @@ export default function getConversationHistory(
   if (timeWindow) {
     start = new Date(end.getTime() - timeWindow * 1000)
     filteredMessages = filteredMessages.filter(
-      (message) => message.createdAt.getTime() >= start.getTime() && message.createdAt.getTime() <= end.getTime()
+      (message) => message.updatedAt.getTime() >= start.getTime() && message.updatedAt.getTime() <= end.getTime()
     )
   } else if (endTime) {
-    filteredMessages = filteredMessages.filter((message) => message.createdAt.getTime() <= endTime.getTime())
+    filteredMessages = filteredMessages.filter((message) => message.updatedAt.getTime() <= endTime.getTime())
   }
   if (count) {
     filteredMessages = filteredMessages.slice(Math.max(0, filteredMessages.length - count))
@@ -37,7 +37,7 @@ export default function getConversationHistory(
   }
   if (!start) {
     // Set start to the timestamp of the first message
-    start = filteredMessages[0]?.createdAt
+    start = filteredMessages[0]?.updatedAt
   }
   if (parseInput) {
     filteredMessages = filteredMessages.map((message) => new Message(parseInput(message.toObject())))

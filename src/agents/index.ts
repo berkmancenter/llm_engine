@@ -15,7 +15,7 @@ import experts from './development/experts/index.js'
 
 import generic from './development/generic/index.js'
 import config from '../config/config.js'
-import eventEngagement from './development/eventEngagement.js'
+import eventAssistantPlus from './eventAssistant/eventAssistantPlus.js'
 
 const development = {
   civilityPerMessage,
@@ -26,13 +26,13 @@ const development = {
   reflection,
   delegates,
   experts,
-  generic,
-  eventEngagement
+  generic
 }
 
 export default {
   ...(config.enableDevelopmentAgents ? development : {}),
   backChannelMetrics,
   backChannelInsights,
-  eventAssistant
+  eventAssistant,
+  eventAssistantPlus
 }

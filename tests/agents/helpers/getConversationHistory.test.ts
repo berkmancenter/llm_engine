@@ -7,7 +7,7 @@ const conversation = new mongoose.Types.ObjectId()
 const ownerPseudo = new mongoose.Types.ObjectId()
 
 describe('Get Conversation History Tests', () => {
-  async function createMessage(body, pseudonym, createdAt: Date = new Date(), source?, channels?) {
+  async function createMessage(body, pseudonym, updatedAt: Date = new Date(), source?, channels?) {
     const msg = new Message({
       _id: new mongoose.Types.ObjectId(),
       body,
@@ -17,7 +17,7 @@ describe('Get Conversation History Tests', () => {
       pseudonymId: ownerPseudo,
       pseudonym,
       source,
-      createdAt
+      updatedAt
     })
     return msg
   }
@@ -34,7 +34,7 @@ describe('Get Conversation History Tests', () => {
     // Just the two most recent messages should be returned
     expect(convHistory.messages).toEqual([msg2, msg3])
     expect(convHistory.end).toBeDefined()
-    expect(convHistory.start).toEqual(msg2.createdAt)
+    expect(convHistory.start).toEqual(msg2.updatedAt)
   })
 
   it('should get conversation history by time', async () => {
@@ -115,7 +115,7 @@ describe('Get Conversation History Tests', () => {
     // Should only include messages before or at endTime
     expect(convHistory.messages).toEqual([msg1, msg2, msg3])
     expect(convHistory.end).toEqual(baseTime)
-    expect(convHistory.start).toEqual(msg1.createdAt)
+    expect(convHistory.start).toEqual(msg1.updatedAt)
   })
 
   it('should format conversation history by endTime and count', async () => {
@@ -145,7 +145,7 @@ describe('Get Conversation History Tests', () => {
     // Should include only 2 most recent messages before or at endTime
     expect(convHistory.messages).toEqual([msg2, msg3])
     expect(convHistory.end).toEqual(baseTime)
-    expect(convHistory.start).toEqual(msg2.createdAt)
+    expect(convHistory.start).toEqual(msg2.updatedAt)
   })
 
   it('should format conversation history by endTime and timeWindow', async () => {
@@ -261,7 +261,7 @@ describe('Get Conversation History Tests', () => {
     // Should include messages before and at endTime, but not after
     expect(convHistory.messages).toEqual([msg1, msg2])
     expect(convHistory.end).toEqual(baseTime)
-    expect(convHistory.start).toEqual(msg1.createdAt)
+    expect(convHistory.start).toEqual(msg1.updatedAt)
   })
 
   it('should handle endTime with timeWindow extending beyond message range', async () => {
@@ -325,7 +325,7 @@ describe('Get Conversation History Tests', () => {
     expect(convHistory.messages[0].body).toEqual('Scooby Doo')
     expect(convHistory.messages[1].body).toEqual('Scooby Doo')
     expect(convHistory.messages[2].body).toEqual('Scooby Doo')
-    expect(convHistory.start).toEqual(msg1.createdAt)
+    expect(convHistory.start).toEqual(msg1.updatedAt)
   })
 
   it('should include all messages when includeAgents is not provided', async () => {

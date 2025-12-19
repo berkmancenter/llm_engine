@@ -8,9 +8,12 @@ import { messageService } from '../../src/services/index.js'
 import Adapter, { setAdapterTypes } from '../../src/models/adapter.model.js'
 import Channel from '../../src/models/channel.model.js'
 import defaultAdapterTypes from '../../src/adapters/index.js'
-import { User, Message, Conversation } from '../../src/models/index.js'
+import { User, Message, Conversation, Agent } from '../../src/models/index.js'
 import websocketGateway from '../../src/websockets/websocketGateway.js'
-import { Direction } from '../../src/types/index.types.js'
+import { AgentMessageActions, Direction } from '../../src/types/index.types.js'
+import schedule from '../../src/jobs/schedule.js'
+import { setAgentTypes } from '../../src/models/user.model/agent.model/index.js'
+import defaultAgentTypes from '../../src/agents/index.js'
 import logger from '../../src/config/logger.js'
 
 setupIntTest()
@@ -34,6 +37,31 @@ const testAdapterTypes = {
   },
   zoom: {
     sendMessage: mockSendZoomMessage
+  }
+}
+
+const mockEvaluate = jest.fn()
+const mockInitialize = jest.fn()
+const mockStart = jest.fn()
+
+const testAgentTypes = {
+  perMessage: {
+    evaluate: mockEvaluate,
+    initialize: mockInitialize,
+    start: mockStart,
+    name: 'Test Per Message Agent',
+    description: 'An agent that responds per message after a certain number reached',
+    maxTokens: 2000,
+    defaultTriggers: { perMessage: { directMessages: true } },
+    priority: 1,
+    llmTemplateVars: { template: [] },
+    defaultLLMTemplates: {
+      template: 'Default template'
+    },
+    defaultLLMPlatform: 'openai',
+    defaultLLMModel: 'gpt-4o-mini',
+    defaultLLMModelOptions: { prop: 'value' },
+    useTranscriptRAGCollection: true
   }
 }
 
@@ -317,6 +345,296 @@ describe('Message service methods', () => {
 
       const sentMessage = mockSendZoomMessage.mock.calls[0][0]
       expect(sentMessage.body).toBe('Direct message')
+    })
+  })
+
+  describe('newMessageHandler() - agent message modification', () => {
+    let mockAgent
+
+    beforeAll(async () => {
+      setAgentTypes(testAgentTypes)
+    })
+
+    beforeEach(async () => {
+      mockAgent = new Agent({
+        agentType: 'perMessage',
+        conversation: testConversation,
+        active: true
+      })
+      await mockAgent.save()
+    })
+
+    afterAll(() => {
+      setAgentTypes(defaultAgentTypes)
+    })
+
+    test('should allow agent to modify message body', async () => {
+      testConversation.enableAgents = true
+      testConversation.agents = [mockAgent]
+      await testConversation.save()
+
+      const originalBody = 'This message contains profanity'
+      const modifiedBody = 'This message contains [redacted]'
+
+      mockEvaluate.mockResolvedValue({
+        action: AgentMessageActions.OK,
+        userMessage: {
+          ...testMessage,
+          body: modifiedBody
+        },
+        userContributionVisible: true,
+        suggestion: undefined
+      })
+
+      testMessage.body = originalBody
+
+      const result = await messageService.newMessageHandler(testMessage, testUser)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].body).toBe(modifiedBody)
+      expect(mockEvaluate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: originalBody
+        })
+      )
+    })
+
+    test('should allow agent to modify message bodyType', async () => {
+      testConversation.enableAgents = true
+      testConversation.agents = [mockAgent]
+      await testConversation.save()
+
+      mockEvaluate.mockResolvedValue({
+        action: AgentMessageActions.OK,
+        userMessage: {
+          ...testMessage,
+          body: { formatted: 'structured content' },
+          bodyType: 'json'
+        },
+        userContributionVisible: true,
+        suggestion: undefined
+      })
+
+      testMessage.body = 'plain text content'
+      testMessage.bodyType = 'text'
+
+      const result = await messageService.newMessageHandler(testMessage, testUser)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].bodyType).toBe('json')
+      expect(result[0].body).toEqual({ formatted: 'structured content' })
+    })
+
+    test('should allow agent to modify message channels', async () => {
+      testConversation.enableAgents = true
+      testConversation.agents = [mockAgent]
+      await testConversation.save()
+
+      const newChannel = new Channel({
+        name: 'moderated-channel'
+      })
+      await newChannel.save()
+      testConversation.channels.push(newChannel)
+      await testConversation.save()
+
+      mockEvaluate.mockResolvedValue({
+        action: AgentMessageActions.OK,
+        userMessage: {
+          ...testMessage,
+          channels: [newChannel.name]
+        },
+        userContributionVisible: true,
+        suggestion: undefined
+      })
+
+      // agent will only receive the message if it's direct
+      testZoomChannel.direct = true
+      testZoomChannel.participants = [testUser._id, mockAgent._id]
+      await testZoomChannel.save()
+      testMessage.channels = [testZoomChannel]
+
+      const result = await messageService.newMessageHandler(testMessage, testUser)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].channels).toEqual(['moderated-channel'])
+      expect(result[0].channels).not.toContain('zoom-channel')
+    })
+
+    test('should apply modifications from multiple agents in priority order', async () => {
+      const agent1 = new Agent({
+        agentType: 'perMessage',
+        conversation: testConversation,
+        active: true,
+        priority: 1
+      })
+      await agent1.save()
+
+      const agent2 = new Agent({
+        agentType: 'perMessage',
+        conversation: testConversation,
+        active: true,
+        priority: 2
+      })
+
+      await agent2.save()
+
+      testConversation.enableAgents = true
+      testConversation.agents = [agent2, agent1] // Intentionally out of order
+      await testConversation.save()
+
+      // Agent 1 (priority 1) runs first
+      mockEvaluate
+        .mockResolvedValue({})
+        .mockResolvedValueOnce({
+          action: AgentMessageActions.OK,
+          userMessage: {
+            ...testMessage,
+            body: 'Modified by agent 1'
+          },
+          userContributionVisible: true,
+          suggestion: undefined
+        })
+        .mockResolvedValueOnce({
+          action: AgentMessageActions.OK,
+          userMessage: {
+            ...testMessage,
+            body: 'Modified by agent 1, then agent 2'
+          },
+          userContributionVisible: true,
+          suggestion: undefined
+        })
+
+      testMessage.body = 'Original message'
+
+      const result = await messageService.newMessageHandler(testMessage, testUser)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].body).toBe('Modified by agent 1, then agent 2')
+
+      expect(mockEvaluate).toHaveBeenCalledTimes(2)
+
+      // Verify call order
+      expect(mockEvaluate).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          body: 'Original message'
+        })
+      )
+      expect(mockEvaluate).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          body: 'Modified by agent 1'
+        })
+      )
+    })
+
+    test('should preserve user properties when agent modifies message', async () => {
+      testConversation.enableAgents = true
+      testConversation.agents = [mockAgent]
+      await testConversation.save()
+
+      mockEvaluate.mockResolvedValue({
+        action: AgentMessageActions.OK,
+        userMessage: {
+          ...testMessage,
+          body: 'Modified body'
+        },
+        userContributionVisible: true,
+        suggestion: undefined
+      })
+
+      const result = await messageService.newMessageHandler(testMessage, testUser)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].pseudonym).toBe(testUser.activePseudonym.pseudonym)
+      expect(result[0].owner!.toString()).toBe(testUser._id.toString())
+      expect(result[0].pseudonymId.toString()).toBe(testUser.activePseudonym._id.toString())
+    })
+
+    test('should handle agent modification and contribution together', async () => {
+      jest.spyOn(schedule, 'agentResponse').mockResolvedValue()
+
+      testConversation.enableAgents = true
+      testConversation.agents = [mockAgent]
+      await testConversation.save()
+
+      mockEvaluate.mockResolvedValue({
+        action: AgentMessageActions.CONTRIBUTE,
+        userMessage: {
+          ...testMessage,
+          body: 'User message modified by agent'
+        },
+        userContributionVisible: true,
+        suggestion: undefined
+      })
+
+      testMessage.body = 'Original user message'
+
+      const result = await messageService.newMessageHandler(testMessage, testUser)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].body).toBe('User message modified by agent')
+      expect(schedule.agentResponse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentId: mockAgent._id,
+          message: expect.objectContaining({
+            body: 'User message modified by agent'
+          })
+        })
+      )
+    })
+
+    test('should send modified message to adapters', async () => {
+      testConversation.enableAgents = true
+      testConversation.agents = [mockAgent]
+      await testConversation.save()
+
+      const modifiedBody = 'Sanitized message for external channel'
+
+      // agent will only receive the message if it's direct
+      testZoomChannel.direct = true
+      testZoomChannel.participants = [testUser._id, mockAgent._id]
+      await testZoomChannel.save()
+
+      testMessage.body = 'Original message with sensitive content'
+      testMessage.channels = [testZoomChannel]
+
+      mockEvaluate.mockResolvedValue({
+        action: AgentMessageActions.OK,
+        userMessage: {
+          ...testMessage,
+          channels: [testZoomChannel.name],
+          body: modifiedBody
+        },
+        userContributionVisible: true,
+        suggestion: undefined
+      })
+
+      zoomAdapter.chatChannels = [{ name: testZoomChannel.name, direction: Direction.OUTGOING }]
+      await zoomAdapter.save()
+
+      await messageService.newMessageHandler(testMessage, testUser)
+
+      expect(mockSendZoomMessage).toHaveBeenCalledTimes(1)
+      const sentMessage = mockSendZoomMessage.mock.calls[0][0]
+      expect(sentMessage.body).toBe(modifiedBody)
+    })
+
+    test('should not modify message when agent does not return an evaluation', async () => {
+      // inactive agent returns undefined
+      mockAgent.active = false
+      await mockAgent.save()
+      testConversation.enableAgents = true
+      testConversation.agents = [mockAgent]
+      await testConversation.save()
+
+      const originalBody = 'Original message'
+      testMessage.body = originalBody
+
+      const result = await messageService.newMessageHandler(testMessage, testUser)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].body).toBe(originalBody)
     })
   })
 

@@ -111,7 +111,8 @@ const userMessage = {
   pseudonym: registeredUser.pseudonyms[0].pseudonym,
   pseudonymId: registeredUser.pseudonyms[0]._id,
   fromAgent: false,
-  createdAt: new Date('2024-01-01T10:30:00Z')
+  createdAt: new Date('2024-01-01T10:30:00Z'),
+  updatedAt: new Date('2024-01-01T10:30:00Z')
 }
 
 const userMessage2 = {
@@ -122,7 +123,8 @@ const userMessage2 = {
   pseudonym: registeredUser.pseudonyms[0].pseudonym,
   pseudonymId: registeredUser.pseudonyms[0]._id,
   fromAgent: false,
-  createdAt: new Date('2024-01-01T10:34:00Z')
+  createdAt: new Date('2024-01-01T10:34:00Z'),
+  updatedAt: new Date('2024-01-01T10:34:00Z')
 }
 
 const testAgent = {
@@ -193,7 +195,8 @@ const agentMessage = {
   pseudonym: testAgent.pseudonyms[0].pseudonym,
   pseudonymId: testAgent.pseudonyms[0]._id,
   fromAgent: true,
-  createdAt: new Date('2024-01-01T11:00:00Z')
+  createdAt: new Date('2024-01-01T11:00:00Z'),
+  updatedAt: new Date('2024-01-01T11:00:00Z')
 }
 
 const experimentCreateRequest = {
@@ -676,6 +679,7 @@ describe('Experiment routes', () => {
         bodyType: 'json',
         fromAgent: true,
         createdAt: new Date('2024-01-01T10:30:00Z'),
+        updatedAt: new Date('2024-01-01T10:30:00Z'),
         pseudonym: testAgent.pseudonyms[0].pseudonym,
         pseudonymId: testAgent.pseudonyms[0]._id
       }
@@ -686,6 +690,7 @@ describe('Experiment routes', () => {
         body: 'Hello There',
         fromAgent: true,
         createdAt: new Date('2024-01-01T10:08:00Z'),
+        updatedAt: new Date('2024-01-01T10:08:00Z'),
         pseudonym: testTextAgent.pseudonyms[0].pseudonym,
         pseudonymId: testTextAgent.pseudonyms[0]._id
       }
@@ -698,6 +703,7 @@ describe('Experiment routes', () => {
         bodyType: 'json',
         fromAgent: false,
         createdAt: new Date('2024-01-01T10:10:00Z'),
+        updatedAt: new Date('2024-01-01T10:10:00Z'),
         pseudonym: registeredUser.pseudonyms[0].pseudonym,
         pseudonymId: registeredUser.pseudonyms[0]._id
       }
@@ -710,6 +716,7 @@ describe('Experiment routes', () => {
         bodyType: 'json',
         fromAgent: false,
         createdAt: new Date('2024-01-01T09:50:00Z'),
+        updatedAt: new Date('2024-01-01T09:50:00Z'),
         pseudonym: registeredUser.pseudonyms[0].pseudonym,
         pseudonymId: registeredUser.pseudonyms[0]._id
       }
@@ -722,6 +729,7 @@ describe('Experiment routes', () => {
         bodyType: 'json',
         fromAgent: false,
         createdAt: new Date('2024-01-01T10:15:00Z'),
+        updatedAt: new Date('2024-01-01T10:15:00Z'),
         pseudonym: userOne.pseudonyms[0].pseudonym,
         pseudonymId: userOne.pseudonyms[0]._id
       }
@@ -987,6 +995,7 @@ ${formatTime(msg3Time)}  Fearful Frog: I have something to say
           body: 'Hello agent, can you help me?',
           fromAgent: false,
           createdAt: msg1Time,
+          updatedAt: msg1Time,
           pseudonym: registeredUser.pseudonyms[0].pseudonym,
           pseudonymId: registeredUser.pseudonyms[0]._id
         }
@@ -999,6 +1008,7 @@ ${formatTime(msg3Time)}  Fearful Frog: I have something to say
           body: 'Sure, I can help you with that.',
           fromAgent: true,
           createdAt: msg2Time,
+          updatedAt: msg2Time,
           pseudonym: dmAgent1.pseudonyms[0].pseudonym,
           pseudonymId: dmAgent1.pseudonyms[0]._id
         }
@@ -1011,6 +1021,7 @@ ${formatTime(msg3Time)}  Fearful Frog: I have something to say
           body: 'Thank you for the help!',
           fromAgent: false,
           createdAt: msg3Time,
+          updatedAt: msg3Time,
           pseudonym: registeredUser.pseudonyms[0].pseudonym,
           pseudonymId: registeredUser.pseudonyms[0]._id
         }
@@ -1023,6 +1034,7 @@ ${formatTime(msg3Time)}  Fearful Frog: I have something to say
           body: 'I need assistance too',
           fromAgent: false,
           createdAt: msg4Time,
+          updatedAt: msg4Time,
           pseudonym: userOne.pseudonyms[0].pseudonym,
           pseudonymId: userOne.pseudonyms[0]._id
         }
@@ -1035,6 +1047,7 @@ ${formatTime(msg3Time)}  Fearful Frog: I have something to say
           body: 'Of course, what do you need?',
           fromAgent: true,
           createdAt: msg5Time,
+          updatedAt: msg5Time,
           pseudonym: dmAgent1.pseudonyms[0].pseudonym,
           pseudonymId: dmAgent1.pseudonyms[0]._id
         }
@@ -1047,6 +1060,7 @@ ${formatTime(msg3Time)}  Fearful Frog: I have something to say
           body: 'Hi there!',
           fromAgent: false,
           createdAt: msg6Time,
+          updatedAt: msg6Time,
           pseudonym: registeredUser.pseudonyms[0].pseudonym,
           pseudonymId: registeredUser.pseudonyms[0]._id
         }
@@ -1059,6 +1073,7 @@ ${formatTime(msg3Time)}  Fearful Frog: I have something to say
           body: 'Hello! How can I help?',
           fromAgent: true,
           createdAt: msg7Time,
+          updatedAt: msg7Time,
           pseudonym: dmAgent2.pseudonyms[0].pseudonym,
           pseudonymId: dmAgent2.pseudonyms[0]._id
         }
@@ -1225,6 +1240,7 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
           body: 'This is an agent-only message',
           fromAgent: true,
           createdAt: new Date('2024-01-01T10:12:00Z'),
+          updatedAt: new Date('2024-01-01T10:12:00Z'),
           pseudonym: 'DMTestAgent1',
           pseudonymId: new mongoose.Types.ObjectId()
         }
@@ -1687,7 +1703,8 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         pseudonymId: registeredUser.pseudonyms[0]._id,
         fromAgent: false,
         channels: ['participant'],
-        createdAt: new Date('2024-01-01T10:30:00Z')
+        createdAt: new Date('2024-01-01T10:30:00Z'),
+        updatedAt: new Date('2024-01-01T10:30:00Z')
       }
 
       const participantMsg2 = {
@@ -1699,7 +1716,8 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         pseudonymId: registeredUser.pseudonyms[0]._id,
         fromAgent: false,
         channels: ['participant'],
-        createdAt: new Date('2024-01-01T10:35:00Z')
+        createdAt: new Date('2024-01-01T10:35:00Z'),
+        updatedAt: new Date('2024-01-01T10:35:00Z')
       }
 
       await insertMessages([participantMsg1, participantMsg2])
@@ -1771,7 +1789,8 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         owner: registeredUser,
         fromAgent: false,
         channels: [directChannel.name],
-        createdAt: new Date('2024-01-01T10:30:00Z')
+        createdAt: new Date('2024-01-01T10:30:00Z'),
+        updatedAt: new Date('2024-01-01T10:30:00Z')
       }
 
       const regularMsg = {
@@ -1784,7 +1803,8 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         owner: registeredUser,
         fromAgent: false,
         channels: ['participant'],
-        createdAt: new Date('2024-01-01T10:35:00Z')
+        createdAt: new Date('2024-01-01T10:35:00Z'),
+        updatedAt: new Date('2024-01-01T10:35:00Z')
       }
 
       await insertMessages([directMsg, regularMsg])
@@ -1845,7 +1865,8 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         pseudonymId: registeredUser.pseudonyms[0]._id,
         fromAgent: false,
         channels: ['participant'],
-        createdAt: new Date('2024-01-01T10:30:00Z')
+        createdAt: new Date('2024-01-01T10:30:00Z'),
+        updatedAt: new Date('2024-01-01T10:30:00Z')
       }
 
       const moderatorMsg = {
@@ -1857,7 +1878,8 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         pseudonymId: registeredUser.pseudonyms[0]._id,
         fromAgent: false,
         channels: ['moderator'],
-        createdAt: new Date('2024-01-01T10:35:00Z')
+        createdAt: new Date('2024-01-01T10:35:00Z'),
+        updatedAt: new Date('2024-01-01T10:35:00Z')
       }
 
       await insertMessages([participantMsg, moderatorMsg])
@@ -1920,7 +1942,8 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         pseudonymId: registeredUser.pseudonyms[0]._id,
         fromAgent: false,
         channels: ['transcript'],
-        createdAt: new Date('2024-01-01T10:30:00Z')
+        createdAt: new Date('2024-01-01T10:30:00Z'),
+        updatedAt: new Date('2024-01-01T10:30:00Z')
       }
 
       await insertMessages([transcriptMsg])
@@ -1988,7 +2011,8 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         owner: registeredUser,
         fromAgent: false,
         channels: ['participant'],
-        createdAt: new Date('2024-01-01T10:30:00Z')
+        createdAt: new Date('2024-01-01T10:30:00Z'),
+        updatedAt: new Date('2024-01-01T10:30:00Z')
       }
 
       const directMsg = {
@@ -2001,7 +2025,8 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         owner: registeredUser,
         fromAgent: false,
         channels: [directChannel.name],
-        createdAt: new Date('2024-01-01T10:35:00Z')
+        createdAt: new Date('2024-01-01T10:35:00Z'),
+        updatedAt: new Date('2024-01-01T10:35:00Z')
       }
 
       const moderatorMsg = {
@@ -2014,7 +2039,8 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         owner: registeredUser,
         fromAgent: false,
         channels: ['moderator'],
-        createdAt: new Date('2024-01-01T10:40:00Z')
+        createdAt: new Date('2024-01-01T10:40:00Z'),
+        updatedAt: new Date('2024-01-01T10:40:00Z')
       }
 
       await insertMessages([participantMsg, directMsg, moderatorMsg])
@@ -2082,7 +2108,8 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         pseudonymId: registeredUser.pseudonyms[0]._id,
         fromAgent: false,
         channels: ['moderator'],
-        createdAt: new Date('2024-01-01T10:30:00Z')
+        createdAt: new Date('2024-01-01T10:30:00Z'),
+        updatedAt: new Date('2024-01-01T10:30:00Z')
       }
 
       await insertMessages([moderatorMsg])

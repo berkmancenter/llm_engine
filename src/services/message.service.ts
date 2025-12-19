@@ -286,7 +286,7 @@ const newMessageHandler = async (message, user, request = null) => {
   let userContributionVisible = true
   const respondingAgents: Array<IAgent> = []
 
-  const messageWithUser = {
+  let modifiedMessage = {
     ...message,
     pseudonym: user.activePseudonym.pseudonym,
     channels: message.channels?.map((c) => c.name),
@@ -298,19 +298,35 @@ const newMessageHandler = async (message, user, request = null) => {
     for (const agent of sortedAgents) {
       // use in memory conversation for speed
       agent.conversation = conversation
-      const agentEvaluation = await agent.evaluate(messageWithUser)
+      const agentEvaluation = await agent.evaluate(modifiedMessage)
       if (!agentEvaluation) continue
       if (agentEvaluation.action === AgentMessageActions.REJECT) {
         logger.info(`Rejecting message: ${agentEvaluation.suggestion}`)
         throw new ApiError(httpStatus.UNPROCESSABLE_ENTITY, agentEvaluation.suggestion)
       }
+      if (agentEvaluation.userMessage) modifiedMessage = agentEvaluation.userMessage
       if (agentEvaluation.action === AgentMessageActions.CONTRIBUTE) respondingAgents.push(agent)
       if (!agentEvaluation.userContributionVisible) userContributionVisible = false
     }
   }
+
   const messages: Array<IMessage> = []
   if (userContributionVisible) {
-    const sentMessage = await createMessage(message, user, conversation)
+    // Convert channels back to objects for createMessage
+    const messageWithObjectChannels = {
+      ...modifiedMessage,
+      channels: modifiedMessage.channels?.map((channelName) => {
+        // First check original message channels
+        const originalChannel = message.channels?.find((c) => c.name === channelName)
+        if (originalChannel) return originalChannel
+
+        // If not found (agent added it), get from conversation
+        const conversationChannel = conversation.channels?.find((c) => c.name === channelName)
+        return conversationChannel
+      })
+    }
+
+    const sentMessage = await createMessage(messageWithObjectChannels, user, conversation)
     messages.push(sentMessage)
     sentMessage.owner = user._id
 
@@ -321,8 +337,10 @@ const newMessageHandler = async (message, user, request = null) => {
     // TODO websocket should be an adapter, keeping here for now until we require messages to have channels
     websocketGateway.broadcastNewMessage(sentMessage, request)
   }
+
+  // modifiedMessage still has string[] channels for agents
   for (const respondingAgent of respondingAgents) {
-    await schedule.agentResponse({ agentId: respondingAgent._id, message: messageWithUser })
+    await schedule.agentResponse({ agentId: respondingAgent._id, message: modifiedMessage })
   }
   return messages
 }
