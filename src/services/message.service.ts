@@ -235,11 +235,11 @@ const handleFeedbackMessage = async (message, user, conversation) => {
 
     // Validate that all required parts are present
     if (!parts[1] || !parts[2] || !parts[3]) {
-      logger.warn('Feedback message missing required parts. Expected format: /ShareFeedback|type|messageId|value')
+      logger.warn('Feedback message missing required parts. Expected format: /feedback|type|messageId|value')
       return []
     }
 
-    // Remove "/ShareFeedback" from first element and create JSON body
+    // Remove "/feedback" from first element and create JSON body
     feedbackMessageBody = {
       type: parts[1].toLowerCase(),
       messageId: parts[2],
@@ -273,7 +273,7 @@ const handleFeedbackMessage = async (message, user, conversation) => {
 const newMessageHandler = async (message, user, request = null) => {
   // Check if this is a feedback message
   const isFeedback =
-    (message.bodyType === 'text' && message.body?.toLowerCase().startsWith('/sharefeedback')) ||
+    (message.bodyType === 'text' && message.body?.toLowerCase().startsWith('/feedback')) ||
     (message.bodyType === 'json' && message.body?.feedback === true)
 
   if (isFeedback) {

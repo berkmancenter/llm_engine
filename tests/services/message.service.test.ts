@@ -687,10 +687,10 @@ describe('Message service methods', () => {
       jest.clearAllMocks()
     })
 
-    test('should route text feedback message starting with /ShareFeedback to feedback channel', async () => {
+    test('should route text feedback message starting with /feedback to feedback channel', async () => {
       const feedbackMessage = {
         conversation: testConversation._id,
-        body: '/ShareFeedback|rating|msg123|5',
+        body: '/feedback|rating|msg123|5',
         bodyType: 'text',
         channels: []
       }
@@ -750,7 +750,7 @@ describe('Message service methods', () => {
 
       const feedbackMessage = {
         conversation: testConversation._id,
-        body: '/ShareFeedback|type1|msg456|testvalue',
+        body: '/feedback|type1|msg456|testvalue',
         bodyType: 'text',
         channels: []
       }
@@ -780,7 +780,7 @@ describe('Message service methods', () => {
 
       const feedbackMessage = {
         conversation: testConversation._id,
-        body: '/ShareFeedback|type2|msg789|anothervalue',
+        body: '/feedback|type2|msg789|anothervalue',
         bodyType: 'text',
         channels: []
       }
@@ -799,7 +799,7 @@ describe('Message service methods', () => {
     test('should parse pipe-delimited text feedback correctly with whitespace', async () => {
       const feedbackMessage = {
         conversation: testConversation._id,
-        body: '/ShareFeedback | sentiment | msg999 | positive ',
+        body: '/feedback | sentiment | msg999 | positive ',
         bodyType: 'text',
         channels: []
       }
@@ -816,7 +816,7 @@ describe('Message service methods', () => {
     test('should replace existing channels with feedback channel', async () => {
       const feedbackMessage = {
         conversation: testConversation._id,
-        body: '/ShareFeedback|category|msg111|important',
+        body: '/feedback|category|msg111|important',
         bodyType: 'text',
         channels: [testZoomChannel, testSlackChannel]
       }
@@ -882,7 +882,7 @@ describe('Message service methods', () => {
 
       const feedbackMessage = {
         conversation: testConversation._id,
-        body: '/ShareFeedback|quality|msg222|excellent',
+        body: '/feedback|quality|msg222|excellent',
         bodyType: 'text',
         channels: []
       }
@@ -907,7 +907,7 @@ describe('Message service methods', () => {
     test('should store feedback message in database', async () => {
       const feedbackMessage = {
         conversation: testConversation._id,
-        body: '/ShareFeedback|helpfulness|msg333|very helpful',
+        body: '/feedback|helpfulness|msg333|very helpful',
         bodyType: 'text',
         channels: []
       }
@@ -931,7 +931,7 @@ describe('Message service methods', () => {
     test('should lowercase the type property when converting text to JSON', async () => {
       const feedbackMessage = {
         conversation: testConversation._id,
-        body: '/ShareFeedback|RATING|msg444|UPPERCASE_VALUE',
+        body: '/feedback|RATING|msg444|UPPERCASE_VALUE',
         bodyType: 'text',
         channels: []
       }
@@ -953,7 +953,7 @@ describe('Message service methods', () => {
 
       const malformedMessage = {
         conversation: testConversation._id,
-        body: '/ShareFeedback||msg555|value',
+        body: '/feedback||msg555|value',
         bodyType: 'text',
         channels: []
       }
@@ -963,7 +963,7 @@ describe('Message service methods', () => {
       expect(result).toBeDefined()
       expect(result).toHaveLength(0)
       expect(loggerWarnSpy).toHaveBeenCalledWith(
-        'Feedback message missing required parts. Expected format: /ShareFeedback|type|messageId|value'
+        'Feedback message missing required parts. Expected format: /feedback|type|messageId|value'
       )
 
       loggerWarnSpy.mockRestore()
@@ -974,7 +974,7 @@ describe('Message service methods', () => {
 
       const malformedMessage = {
         conversation: testConversation._id,
-        body: '/ShareFeedback|rating||value',
+        body: '/feedback|rating||value',
         bodyType: 'text',
         channels: []
       }
@@ -984,7 +984,7 @@ describe('Message service methods', () => {
       expect(result).toBeDefined()
       expect(result).toHaveLength(0)
       expect(loggerWarnSpy).toHaveBeenCalledWith(
-        'Feedback message missing required parts. Expected format: /ShareFeedback|type|messageId|value'
+        'Feedback message missing required parts. Expected format: /feedback|type|messageId|value'
       )
 
       loggerWarnSpy.mockRestore()
@@ -995,7 +995,7 @@ describe('Message service methods', () => {
 
       const malformedMessage = {
         conversation: testConversation._id,
-        body: '/ShareFeedback|rating|msg666|',
+        body: '/feedback|rating|msg666|',
         bodyType: 'text',
         channels: []
       }
@@ -1005,7 +1005,7 @@ describe('Message service methods', () => {
       expect(result).toBeDefined()
       expect(result).toHaveLength(0)
       expect(loggerWarnSpy).toHaveBeenCalledWith(
-        'Feedback message missing required parts. Expected format: /ShareFeedback|type|messageId|value'
+        'Feedback message missing required parts. Expected format: /feedback|type|messageId|value'
       )
 
       loggerWarnSpy.mockRestore()
@@ -1016,7 +1016,7 @@ describe('Message service methods', () => {
 
       const malformedMessage = {
         conversation: testConversation._id,
-        body: '/ShareFeedback|rating',
+        body: '/feedback|rating',
         bodyType: 'text',
         channels: []
       }
@@ -1026,7 +1026,7 @@ describe('Message service methods', () => {
       expect(result).toBeDefined()
       expect(result).toHaveLength(0)
       expect(loggerWarnSpy).toHaveBeenCalledWith(
-        'Feedback message missing required parts. Expected format: /ShareFeedback|type|messageId|value'
+        'Feedback message missing required parts. Expected format: /feedback|type|messageId|value'
       )
 
       loggerWarnSpy.mockRestore()
@@ -1037,7 +1037,7 @@ describe('Message service methods', () => {
 
       const malformedMessage = {
         conversation: testConversation._id,
-        body: '/ShareFeedback|rating',
+        body: '/feedback|rating',
         bodyType: 'text',
         channels: []
       }
@@ -1062,10 +1062,10 @@ describe('Message service methods', () => {
       loggerWarnSpy.mockRestore()
     })
 
-    test('should route feedback message with lowercase /sharefeedback to feedback channel', async () => {
+    test('should route feedback message with lowercase /feedback to feedback channel', async () => {
       const feedbackMessage = {
         conversation: testConversation._id,
-        body: '/sharefeedback|rating|msg777|4',
+        body: '/feedback|rating|msg777|4',
         bodyType: 'text',
         channels: []
       }
@@ -1088,10 +1088,10 @@ describe('Message service methods', () => {
       expect(websocketGateway.broadcastNewMessage).not.toHaveBeenCalled()
     })
 
-    test('should route feedback message with uppercase /SHAREFEEDBACK to feedback channel', async () => {
+    test('should route feedback message with uppercase /feedback to feedback channel', async () => {
       const feedbackMessage = {
         conversation: testConversation._id,
-        body: '/SHAREFEEDBACK|sentiment|msg888|negative',
+        body: '/feedback|sentiment|msg888|negative',
         bodyType: 'text',
         channels: []
       }
@@ -1114,10 +1114,10 @@ describe('Message service methods', () => {
       expect(websocketGateway.broadcastNewMessage).not.toHaveBeenCalled()
     })
 
-    test('should route feedback message with mixed case /ShareFeedBack to feedback channel', async () => {
+    test('should route feedback message with mixed case /feedback to feedback channel', async () => {
       const feedbackMessage = {
         conversation: testConversation._id,
-        body: '/ShareFeedBack|quality|msg999|excellent',
+        body: '/feedback|quality|msg999|excellent',
         bodyType: 'text',
         channels: []
       }
@@ -1140,10 +1140,10 @@ describe('Message service methods', () => {
       expect(websocketGateway.broadcastNewMessage).not.toHaveBeenCalled()
     })
 
-    test('should route feedback message with /sHaReFEEDBACK (random case) to feedback channel', async () => {
+    test('should route feedback message with /feedback (random case) to feedback channel', async () => {
       const feedbackMessage = {
         conversation: testConversation._id,
-        body: '/sHaReFEEDBACK|helpfulness|msg1010|very useful',
+        body: '/feedback|helpfulness|msg1010|very useful',
         bodyType: 'text',
         channels: []
       }
