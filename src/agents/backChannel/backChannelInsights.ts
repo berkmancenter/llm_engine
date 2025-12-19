@@ -33,7 +33,7 @@ export default verify({
     }
     const translatedMsg = msg.toObject()
     translatedMsg.bodyType = 'text'
-    translatedMsg.body = `💡 BACKCHANNEL REPORT 💡
+    translatedMsg.body = `💡 MODERATOR REPORT 💡
 ${msg.body.insights.map((insight) => `⚫ ${insight.value}`).join('\n')}`
     return translatedMsg
   },
