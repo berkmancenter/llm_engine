@@ -1,5 +1,4 @@
 import { RunnableLambda, RunnableSequence } from '@langchain/core/runnables'
-import { StructuredOutputParser } from '@langchain/core/output_parsers'
 import { ChatPromptTemplate } from '@langchain/core/prompts'
 import * as fuzzball from 'fuzzball'
 import { z } from 'zod'
@@ -7,7 +6,7 @@ import { formatMessages } from '../helpers/llmInputFormatters.js'
 import transcript from '../helpers/transcript.js'
 import logger from '../../config/logger.js'
 import responseFormatSchemas from '../helpers/responseFormatSchemas.js'
-import { shouldUseStructuredOutput } from '../helpers/llmChain.js'
+import { getStructuredResponseChain } from '../helpers/llmChain.js'
 import { BackChannelAgentResponse } from './backChannel.types.js'
 import filterHallucinations from './hallucinations.js'
 import { AgentResponse } from '../../types/index.types.js'
@@ -289,40 +288,9 @@ export async function processParticipantMessages(messages, startTime, endTime) {
     ['user', this.llmTemplates.standaloneQuestionUser]
   ])
 
-  const toolSchema = {
-    name: 'structured_response',
-    description: 'Respond with structured data',
-    input_schema: responseFormatSchemas.commentInsights
-  }
+  const insightsChain = getStructuredResponseChain(llm, insightsPrompt, responseFormatSchemas.insights)
 
-  const llmWithTool = llm.bind({
-    tools: [toolSchema]
-  })
-
-  const parser = StructuredOutputParser.fromZodSchema(responseFormatSchemas.commentInsights)
-  const insightsChain = shouldUseStructuredOutput(llm)
-    ? insightsPrompt.pipe(llm.withStructuredOutput(responseFormatSchemas.insights))
-    : insightsPrompt
-        .pipe(llmWithTool)
-        .pipe(parser)
-        .pipe(async (parsed) => {
-          if (Array.isArray(parsed)) {
-            return { results: parsed }
-          }
-          return parsed
-        })
-
-  const questionsChain = shouldUseStructuredOutput(llm)
-    ? questionsPrompt.pipe(llm.withStructuredOutput(responseFormatSchemas.insights))
-    : questionsPrompt
-        .pipe(llmWithTool)
-        .pipe(parser)
-        .pipe(async (parsed) => {
-          if (Array.isArray(parsed)) {
-            return { results: parsed }
-          }
-          return parsed
-        })
+  const questionsChain = getStructuredResponseChain(llm, questionsPrompt, responseFormatSchemas.insights)
 
   const insightsLambda = new RunnableLambda({
     func: async (input: { comments: string; topic: string; maxInsights: string; reportingThreshold: string }) => {
