@@ -1,7 +1,8 @@
 import { ChatPromptTemplate, PromptTemplate } from '@langchain/core/prompts'
 // import { ConsoleCallbackHandler } from 'langchain/callbacks'
-import { StringOutputParser } from '@langchain/core/output_parsers'
+import { StringOutputParser, StructuredOutputParser } from '@langchain/core/output_parsers'
 import { RunnableSequence } from '@langchain/core/runnables'
+import { z } from 'zod'
 import logger from '../../config/logger.js'
 import rag from './rag.js'
 
@@ -79,7 +80,149 @@ function ensureAlternatingChat(history: any[]) {
   return out
 }
 
-async function getSingleUserChatPromptResponse(llm, systemTemplate, userTemplate, inputParams, inputChatHistory?) {
+/**
+ * Creates a LangChain response chain that handles structured output from an LLM.
+ *
+ * This function supports two execution paths:
+ * 1. **Structured output mode**: Uses the LLM's native structured output capability when available
+ * 2. **Tool-based mode**: Falls back to using tool calling with manual parsing
+ *
+ * The function automatically deduces the non-structured schema format from the provided structured schema:
+ * - If the structured schema is an object with a single array property (e.g., `z.object({ results: z.array(...) })`),
+ *   it unwraps the array for the non-structured schema and re-wraps parsed arrays with the original key name
+ * - Otherwise, it uses the structured schema as-is for both modes
+ *
+ * @param llm - The language model instance to use for generation
+ * @param prompt - The prompt template to pipe input through
+ * @param responseFormatSchema - A Zod schema (created with `z.object()`) defining the expected
+ *   response structure. If this contains a single property that's an array, the function will automatically
+ *   handle unwrapping/rewrapping for compatibility with tool-based parsing.
+ *
+ * @returns A LangChain runnable that processes the prompt through the LLM and returns structured output
+ *   matching the provided schema
+ *
+ * @example
+ * ```typescript
+ * // Schema with wrapped array (for structured output compatibility)
+ * const schema = z.object({
+ *   results: z.array(z.object({
+ *     title: z.string(),
+ *     score: z.number()
+ *   }))
+ * });
+ *
+ * const chain = getStructuredResponseChain(llm, prompt, schema);
+ * // Returns: { results: [...] }
+ * ```
+ *
+ * @example
+ * ```typescript
+ * // Simple object schema (no unwrapping needed)
+ * const schema = z.object({
+ *   name: z.string(),
+ *   age: z.number()
+ * });
+ *
+ * const chain = getStructuredResponseChain(llm, prompt, schema);
+ * // Returns: { name: "...", age: ... }
+ * ```
+ */
+function getStructuredResponseChain(llm, prompt, responseFormatSchema) {
+  // Deduce the non-structured schema from the structured schema
+  // If structured schema is an object with a single property that's an array, unwrap it
+  // Otherwise, use the structured schema as-is
+  const { shape } = responseFormatSchema
+  const keys = Object.keys(shape)
+
+  let responseFormatSchemaNonStructured
+  let arrayKey
+
+  if (keys.length === 1 && shape[keys[0]] instanceof z.ZodArray) {
+    ;[arrayKey] = keys
+    responseFormatSchemaNonStructured = shape[keys[0]]
+  } else {
+    responseFormatSchemaNonStructured = responseFormatSchema
+  }
+
+  const toolSchema = {
+    name: 'structured_response',
+    description: 'Respond with structured data',
+    input_schema: responseFormatSchemaNonStructured
+  }
+
+  const llmWithTool = llm.bind({
+    tools: [toolSchema]
+  })
+
+  const parser = StructuredOutputParser.fromZodSchema(responseFormatSchemaNonStructured)
+
+  return shouldUseStructuredOutput(llm)
+    ? prompt.pipe(llm.withStructuredOutput(responseFormatSchema))
+    : prompt
+        .pipe(llmWithTool)
+        .pipe(parser)
+        .pipe(async (parsed) => {
+          if (Array.isArray(parsed) && arrayKey) {
+            return { [arrayKey]: parsed }
+          }
+          return parsed
+        })
+}
+
+/**
+ * Executes a single-turn chat prompt with an LLM, optionally with structured output.
+ *
+ * This function constructs a chat prompt from system and user templates, optionally includes
+ * chat history, and invokes the LLM. When a structured output schema is provided, it uses
+ * the `getStructuredResponseChain` function to ensure properly formatted responses.
+ *
+ * @param llm - The language model instance to use for generation
+ * @param systemTemplate - The system message template string
+ * @param userTemplate - The user message template string
+ * @param inputParams - Parameters to fill in the template variables
+ * @param inputChatHistory - Optional array of previous chat messages in [role, content] format
+ * @param structuredOutputSchema - Optional Zod schema for structured output. When provided,
+ *   the response will be parsed and validated against this schema.
+ *
+ * @returns A promise that resolves to either a string (default) or structured object (when schema provided)
+ *
+ * @example
+ * ```typescript
+ * // Simple string response
+ * const response = await getSingleUserChatPromptResponse(
+ *   llm,
+ *   "You are a helpful assistant",
+ *   "What is {topic}?",
+ *   { topic: "TypeScript" }
+ * );
+ * ```
+ *
+ * @example
+ * ```typescript
+ * // Structured output response
+ * const schema = z.object({
+ *   results: z.array(z.object({ name: z.string(), score: z.number() }))
+ * });
+ *
+ * const response = await getSingleUserChatPromptResponse(
+ *   llm,
+ *   "You are a data analyst",
+ *   "Analyze {data}",
+ *   { data: "sales figures" },
+ *   undefined,
+ *   schema
+ * );
+ * // Returns: { results: [...] }
+ * ```
+ */
+async function getSingleUserChatPromptResponse(
+  llm,
+  systemTemplate,
+  userTemplate,
+  inputParams,
+  inputChatHistory?,
+  structuredOutputSchema?
+) {
   // a requirement for vLLM over OpenAI compatible API
   const chatHistory = ensureAlternatingChat(inputChatHistory)
 
@@ -93,7 +236,11 @@ async function getSingleUserChatPromptResponse(llm, systemTemplate, userTemplate
   // logger.debug(`Messages for LLM: ${JSON.stringify(messages, null, 2)}`)
 
   const chatPrompt = ChatPromptTemplate.fromMessages(messages)
-  const chain = RunnableSequence.from([chatPrompt, llm, new StringOutputParser()])
+
+  const chain = structuredOutputSchema
+    ? getStructuredResponseChain(llm, chatPrompt, structuredOutputSchema)
+    : RunnableSequence.from([chatPrompt, llm, new StringOutputParser()])
+
   const invokeParams = { ...inputParams }
 
   return chain.invoke(invokeParams)
@@ -170,5 +317,6 @@ export {
   getRAGAugmentedResponse,
   getSingleUserChatPromptResponse,
   shouldUseStructuredOutput,
-  pingLLM
+  pingLLM,
+  getStructuredResponseChain
 }

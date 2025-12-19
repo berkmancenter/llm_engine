@@ -27,8 +27,6 @@ const insight = z.object({
 
 const insights = z.object({ results: z.array(insight) })
 
-const commentInsights = z.array(insight)
-
 // This schema uses JSONSchema so we can inject a user's outputSchema as the result property
 export function generateGenericAgentAnswerSchema(outputSchema) {
   return {
@@ -74,7 +72,6 @@ export function generateGenericAgentAnswerSchema(outputSchema) {
 export default {
   citedAnswer,
   votingAnswer,
-  commentInsights,
   insights,
   generateGenericAgentAnswerSchema
 }
