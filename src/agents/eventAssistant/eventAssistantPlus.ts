@@ -115,7 +115,7 @@ A pseudonymized message transcript will be visible to our eng team. Thanks for t
         lastMessage.bodyType === 'json' &&
         (lastMessage.body as Record<string, unknown>).text === submitToModeratorQuestion
       ) {
-        const originalMessageId = conversationHistory.messages[conversationHistory.messages.length - 3]._id
+        const originalMessageId = (lastMessage.body as Record<string, unknown>).message
         const message = await Message.findById(originalMessageId)
         if (isAffirmative(userMessage.body)) {
           if (!message) {
@@ -151,7 +151,8 @@ A pseudonymized message transcript will be visible to our eng team. Thanks for t
           visible: true,
           message: {
             type: 'backchannel',
-            text: submitToModeratorQuestion
+            text: submitToModeratorQuestion,
+            message: userMessage._id.toString()
           },
           messageType: 'json',
           channels: this.conversation.channels.filter((channel) => userMessage.channels.includes(channel.name)),
