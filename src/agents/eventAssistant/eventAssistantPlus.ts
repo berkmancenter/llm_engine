@@ -154,7 +154,14 @@ A pseudonymized message transcript will be visible to our eng team. Thanks for t
             text: submitToModeratorQuestion
           },
           messageType: 'json',
-          channels: this.conversation.channels.filter((channel) => userMessage.channels.includes(channel.name))
+          channels: this.conversation.channels.filter((channel) => userMessage.channels.includes(channel.name)),
+          replyFormat: {
+            type: 'singleChoice',
+            options: [
+              { value: 'no', label: 'No' },
+              { value: 'yes', label: 'Yes' }
+            ]
+          }
         })
       }
       return agentResponses

@@ -169,7 +169,13 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
           expect(responses).toHaveLength(2)
           expect(responses[1].message).toMatchObject(submitToModeratorQuestion)
           expect(responses[1].message).toEqual(submitToModeratorQuestion)
-          expect(responses[1].message).toEqual(submitToModeratorQuestion)
+          expect(responses[1].replyFormat).toMatchObject({
+            type: 'singleChoice',
+            options: [
+              { value: 'no', label: 'No' },
+              { value: 'yes', label: 'Yes' }
+            ]
+          })
           expect(responses[1].visible).toBe(true)
         },
         testTimeout
