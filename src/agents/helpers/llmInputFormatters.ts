@@ -1,3 +1,4 @@
+import logger from '../../config/logger.js'
 import { IMessage, ConversationHistory, ConversationHistorySettings } from '../../types/index.types'
 import getConversationHistory from './getConversationHistory.js'
 
@@ -71,10 +72,20 @@ function formatConversationHistory(conversationHistory: ConversationHistory, use
 
 function formatSingleUserConversationHistory(conversationHistory: ConversationHistory) {
   return conversationHistory.messages.map((message) => {
-    if (message.fromAgent) {
-      return { role: 'assistant', content: message.body }
+    let messageText = message.body
+    // conversation history messsages must be strings. If json, assume it has a 'text' property
+    if (message.bodyType === 'json') {
+      if (!(message.body as Record<string, unknown>).text) {
+        logger.warn(`Message with ID ${message._id} has bodyType 'json' but no 'text' property. Defaulting to empty string.`)
+        messageText = ''
+      } else {
+        messageText = (message.body as Record<string, unknown>).text as string
+      }
     }
-    return { role: 'user', content: message.body }
+    if (message.fromAgent) {
+      return { role: 'assistant', content: messageText }
+    }
+    return { role: 'user', content: messageText }
   })
 }
 
