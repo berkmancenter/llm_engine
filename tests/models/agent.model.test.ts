@@ -492,10 +492,21 @@ describe('agent tests', () => {
       suggestion: undefined
     }
 
+    const prompt = {
+      type: 'singleChoice',
+      options: [
+        { value: 'icecream', label: 'Ice Cream' },
+        { value: 'pizza', label: 'Pizza' },
+        { value: 'candy', label: 'Candy' }
+      ],
+      validation: { required: true }
+    }
+
     const expectedResponse = {
       visible: true,
       message: 'Another response',
-      pause: 30
+      pause: 30,
+      replyFormat: prompt
     }
     mockEvaluate.mockResolvedValue(expectedEval)
     mockRespond.mockResolvedValue([expectedResponse])
@@ -509,7 +520,8 @@ describe('agent tests', () => {
         visible: true,
         body: 'Another response',
         conversation,
-        fromAgent: true
+        fromAgent: true,
+        prompt
       })
     )
     expect(responses[0].pause).toBe(30)

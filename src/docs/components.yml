@@ -72,11 +72,58 @@ components:
         parentMessage:
           type: string
           description: Reference to parent Message ID
+        prompt:
+          $ref: '#/components/schemas/MessagePrompt'
         createdAt:
           type: string
           format: date-time
         replyCount:
           type: integer
+
+    MessagePrompt:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum:
+            - multipleChoice
+            - singleChoice
+            - text
+            - number
+            - date
+            - custom
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/PromptOption'
+        placeholder:
+          type: string
+        validation:
+          type: object
+          properties:
+            required:
+              type: boolean
+            min:
+              type: number
+            max:
+              type: number
+            pattern:
+              type: string
+
+    PromptOption:
+      type: object
+      required:
+        - value
+        - label
+      properties:
+        value:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
 
     Pseudonym:
       type: object

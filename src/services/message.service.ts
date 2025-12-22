@@ -73,6 +73,7 @@ const createMessage = async (messageBody, user, conversation) => {
     body: messageBody.body,
     ...(messageBody.bodyType !== undefined && { bodyType: messageBody.bodyType }),
     ...(messageBody.createdAt !== undefined && { createdAt: messageBody.createdAt }),
+    ...(messageBody.prompt !== undefined && { prompt: messageBody.prompt }),
     conversation: conversation._id,
     owner: user,
     pseudonym: activePseudo.pseudonym,

@@ -1,6 +1,6 @@
 import mongoose, { Model } from 'mongoose'
 import { toJSON, paginate } from './plugins/index.js'
-import { IMessage, Vote } from '../types/index.types.js'
+import { IMessage, Vote, MessagePrompt } from '../types/index.types.js'
 
 const voteSchema = new mongoose.Schema<Vote>({
   owner: {
@@ -17,6 +17,33 @@ const voteSchema = new mongoose.Schema<Vote>({
     required: false
   }
 })
+
+const promptSchema = new mongoose.Schema<MessagePrompt>(
+  {
+    type: {
+      type: String,
+      enum: ['multipleChoice', 'singleChoice', 'text', 'number', 'date', 'custom'],
+      required: true
+    },
+    options: [
+      {
+        value: { type: String, required: true },
+        label: { type: String, required: true },
+        description: { type: String }
+      }
+    ],
+    placeholder: { type: String },
+    validation: {
+      required: { type: Boolean, default: false },
+      min: { type: Number },
+      max: { type: Number },
+      pattern: { type: String }
+    }
+  },
+  {
+    _id: false
+  }
+)
 
 export interface MessageMethods {
   parseOutput?: (msg: IMessage) => IMessage
@@ -87,6 +114,9 @@ const messageSchema = new mongoose.Schema<IMessage, MessageModel>(
     parentMessage: {
       type: mongoose.SchemaTypes.ObjectId,
       ref: 'Message'
+    },
+    prompt: {
+      type: promptSchema
     }
   },
   {

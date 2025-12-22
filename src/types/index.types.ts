@@ -63,6 +63,24 @@ export interface Vote {
   reason?: string
 }
 
+export interface PromptOption {
+  value: string
+  label: string
+  description?: string
+}
+
+export interface MessagePrompt {
+  type: 'multipleChoice' | 'singleChoice' | 'text' | 'number' | 'date' | 'custom'
+  options?: PromptOption[]
+  placeholder?: string
+  validation?: {
+    required?: boolean
+    min?: number
+    max?: number
+    pattern?: string
+  }
+}
+
 export interface IMessage {
   _id?: mongoose.Types.ObjectId
   owner?: IBaseUser
@@ -85,6 +103,7 @@ export interface IMessage {
   createdAt?: Date
   updatedAt?: Date
   replyCount?: number
+  prompt?: MessagePrompt
 }
 
 export interface IFollower {
@@ -314,6 +333,7 @@ export interface AgentResponse<T> {
   channels?: IChannel[]
   messageType?: string
   context?: string
+  replyFormat?: MessagePrompt
 }
 
 export interface ConversationHistorySettings {
