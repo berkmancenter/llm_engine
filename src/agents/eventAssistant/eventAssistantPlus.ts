@@ -14,6 +14,7 @@ import logger from '../../config/logger.js'
 
 const submitToModeratorQuestion = 'Would you like to submit this question anonymously to the moderator for Q&A?'
 const submitToModeratorReply = 'Your message has been submitted to the moderator.'
+const declineModeratorReply = "OK, I won't submit it. Feel free to ask me anything else!"
 const submitToModeratorCommand = '/mod'
 
 function isAffirmative(text) {
@@ -32,21 +33,23 @@ function isNegative(text) {
   return negativePatterns.test(normalized)
 }
 
-function submitToModeratorResponse(userMessage) {
+function submitToModeratorResponse(userMessage, message) {
   return [
     {
       visible: true,
-      message: submitToModeratorReply,
+      message: { type: 'backchannel', text: submitToModeratorReply, message: message._id.toString() },
+      messageType: 'json',
       channels: this.conversation.channels.filter((channel) => userMessage.channels.includes(channel.name) && channel.direct)
     }
   ]
 }
 
-function declineModeratorResponse(userMessage) {
+function declineModeratorResponse(userMessage, message) {
   return [
     {
       visible: true,
-      message: "OK, I won't submit it. Feel free to ask me anything else!",
+      message: { type: 'backchannel', text: declineModeratorReply, message: message._id.toString() },
+      messageType: 'json',
       channels: this.conversation.channels.filter(
         (channel) => userMessage.channels.includes(channel.name) && channel.direct === true
       )
@@ -71,6 +74,15 @@ A pseudonymized message transcript will be visible to our eng team. Thanks for t
   defaultLLMTemplates: eventAssistantLLMTemplates,
   defaultLLMPlatform: 'openai',
   defaultLLMModel: 'gpt-4o-mini',
+  parseOutput: (msg) => {
+    if (msg.bodyType === 'text') {
+      return msg
+    }
+    const translatedMsg = msg.toObject()
+    translatedMsg.bodyType = 'text'
+    translatedMsg.body = msg.body.text
+    return translatedMsg
+  },
   ragCollectionName: undefined,
   useTranscriptRAGCollection: true,
   defaultConversationHistorySettings: { count: 100, directMessages: true },
@@ -96,13 +108,16 @@ A pseudonymized message transcript will be visible to our eng team. Thanks for t
   async respond(conversationHistory: ConversationHistory, userMessage) {
     if (userMessage) {
       // Check if the previous message was asking about submitting to moderator
+      const lastMessage = conversationHistory.messages[conversationHistory.messages.length - 1]
+
       if (
         conversationHistory.messages.length > 1 &&
-        conversationHistory.messages[conversationHistory.messages.length - 1].body === submitToModeratorQuestion
+        lastMessage.bodyType === 'json' &&
+        (lastMessage.body as Record<string, unknown>).text === submitToModeratorQuestion
       ) {
+        const originalMessageId = (lastMessage.body as Record<string, unknown>).message
+        const message = await Message.findById(originalMessageId)
         if (isAffirmative(userMessage.body)) {
-          const originalMessageId = conversationHistory.messages[conversationHistory.messages.length - 3]._id
-          const message = await Message.findById(originalMessageId)
           if (!message) {
             logger.error(`Could not find original message with ID ${originalMessageId} to submit to moderator`)
             return []
@@ -110,23 +125,23 @@ A pseudonymized message transcript will be visible to our eng team. Thanks for t
           message!.channels = message!.channels ?? []
           message!.channels.push('participant')
           await message!.save()
-          return submitToModeratorResponse.call(this, userMessage)
+          return submitToModeratorResponse.call(this, userMessage, message)
         }
 
         if (isNegative(userMessage.body)) {
-          return declineModeratorResponse.call(this, userMessage)
+          return declineModeratorResponse.call(this, userMessage, message)
         }
         // If neither affirmative nor negative, fall through to process as a new question
       }
 
       if (userMessage.channels?.includes('participant')) {
-        return submitToModeratorResponse.call(this, userMessage)
+        return submitToModeratorResponse.call(this, userMessage, userMessage)
       }
 
       const chatHistory = formatSingleUserConversationHistory(conversationHistory)
 
       const agentResponse = await answerQuestion.call(this, userMessage, chatHistory)
-      const agentResponses: AgentResponse<string>[] = [agentResponse]
+      const agentResponses: AgentResponse<string | Record<string, unknown>>[] = [agentResponse]
       const { classification } = agentResponse
       if (
         classification === QuestionClassification.UNANSWERABLE ||
@@ -134,8 +149,20 @@ A pseudonymized message transcript will be visible to our eng team. Thanks for t
       ) {
         agentResponses.push({
           visible: true,
-          message: submitToModeratorQuestion,
-          channels: this.conversation.channels.filter((channel) => userMessage.channels.includes(channel.name))
+          message: {
+            type: 'backchannel',
+            text: submitToModeratorQuestion,
+            message: userMessage._id.toString()
+          },
+          messageType: 'json',
+          channels: this.conversation.channels.filter((channel) => userMessage.channels.includes(channel.name)),
+          replyFormat: {
+            type: 'singleChoice',
+            options: [
+              { value: 'no', label: 'No' },
+              { value: 'yes', label: 'Yes' }
+            ]
+          }
         })
       }
       return agentResponses

@@ -341,7 +341,8 @@ function createMessages(responses: Array<AgentResponse<unknown>>, channel?) {
       downVotes: [],
       channels: channel ? [channel] : response.channels,
       ...(response.messageType !== undefined && { bodyType: response.messageType }),
-      ...(agentTypes[this.agentType].parseOutput !== undefined && { parseOutput: agentTypes[this.agentType].parseOutput })
+      ...(agentTypes[this.agentType].parseOutput !== undefined && { parseOutput: agentTypes[this.agentType].parseOutput }),
+      ...(response.replyFormat !== undefined && { prompt: response.replyFormat })
     })
   }
   return agentMessages

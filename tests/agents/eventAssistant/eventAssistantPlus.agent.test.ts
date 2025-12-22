@@ -1,5 +1,6 @@
 /* eslint-disable no-console */
 import * as ls from 'langsmith/jest'
+import mongoose from 'mongoose'
 import setupAgentTest from '../../utils/setupAgentTest.js'
 import defaultAgentTypes from '../../../src/agents/index.js'
 import {
@@ -17,7 +18,10 @@ jest.setTimeout(180000)
 
 const testConfig = setupAgentTest('eventAssistantPlus')
 
-const submitToModeratorQuestion = 'Would you like to submit this question anonymously to the moderator for Q&A?'
+const submitToModeratorQuestion = {
+  text: 'Would you like to submit this question anonymously to the moderator for Q&A?',
+  type: 'backchannel'
+}
 
 const testTimeout = 120000
 
@@ -86,7 +90,8 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
 
           // Should only have 1 response, no moderator question
           expect(responses).toHaveLength(1)
-          expect(responses[0].message).not.toEqual(submitToModeratorQuestion)
+          expect(responses[0].messageType).not.toEqual('json')
+          expect(responses[0].message).not.toEqual(submitToModeratorQuestion.text)
         },
         testTimeout
       )
@@ -100,7 +105,8 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
 
           // Should only have 1 response, no moderator question
           expect(responses).toHaveLength(1)
-          expect(responses[0].message).not.toEqual(submitToModeratorQuestion)
+          expect(responses[0].messageType).not.toEqual('json')
+          expect(responses[0].message).not.toEqual(submitToModeratorQuestion.text)
         },
         testTimeout
       )
@@ -114,7 +120,8 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
 
           // Should only have 1 response, no moderator question
           expect(responses).toHaveLength(1)
-          expect(responses[0].message).not.toEqual(submitToModeratorQuestion)
+          expect(responses[0].messageType).not.toEqual('json')
+          expect(responses[0].message).not.toEqual(submitToModeratorQuestion.text)
         },
         testTimeout
       )
@@ -124,12 +131,16 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         'asks to submit for statistical questions beyond presentation (ON_TOPIC_ASK_SPEAKER)',
         async () => {
           const msg = await createQuestion('What percentage of U.S. workers are part-time?')
+          msg._id = new mongoose.Types.ObjectId()
           const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
           await validateResponse(responses)
 
           // Should have 2 responses: the answer and the moderator question
           expect(responses).toHaveLength(2)
-          expect(responses[1].message).toEqual(submitToModeratorQuestion)
+          expect(responses[1].message).toMatchObject({
+            ...submitToModeratorQuestion,
+            message: msg._id.toString().toString()
+          })
           expect(responses[1].visible).toBe(true)
         },
         testTimeout
@@ -139,12 +150,13 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         'asks to submit for resource requests (ON_TOPIC_ASK_SPEAKER)',
         async () => {
           const msg = await createQuestion('Where can I learn more about workplace flexibility?')
+          msg._id = new mongoose.Types.ObjectId()
           const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
           await validateResponse(responses)
 
           // Should have 2 responses: the answer and the moderator question
           expect(responses).toHaveLength(2)
-          expect(responses[1].message).toEqual(submitToModeratorQuestion)
+          expect(responses[1].message).toMatchObject({ ...submitToModeratorQuestion, message: msg._id.toString() })
           expect(responses[1].visible).toBe(true)
         },
         testTimeout
@@ -154,13 +166,21 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         'asks to submit for substantive negative feedback (ON_TOPIC_ASK_SPEAKER)',
         async () => {
           const msg = await createQuestion('This talk is boring')
+          msg._id = new mongoose.Types.ObjectId()
 
           const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
           await validateResponse(responses)
 
           // Should have 2 responses: the answer and the moderator question
           expect(responses).toHaveLength(2)
-          expect(responses[1].message).toEqual(submitToModeratorQuestion)
+          expect(responses[1].message).toMatchObject({ ...submitToModeratorQuestion, message: msg._id.toString() })
+          expect(responses[1].replyFormat).toMatchObject({
+            type: 'singleChoice',
+            options: [
+              { value: 'no', label: 'No' },
+              { value: 'yes', label: 'Yes' }
+            ]
+          })
           expect(responses[1].visible).toBe(true)
         },
         testTimeout
@@ -170,13 +190,13 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         'asks to submit for disagreement/criticism (ON_TOPIC_ASK_SPEAKER)',
         async () => {
           const msg = await createQuestion('I disagree that part-time work solves the hiring problem')
-
+          msg._id = new mongoose.Types.ObjectId()
           const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
           await validateResponse(responses)
 
           // Should have 2 responses: the answer and the moderator question
           expect(responses).toHaveLength(2)
-          expect(responses[1].message).toEqual(submitToModeratorQuestion)
+          expect(responses[1].message).toMatchObject({ ...submitToModeratorQuestion, message: msg._id.toString() })
           expect(responses[1].visible).toBe(true)
         },
         testTimeout
@@ -186,13 +206,13 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         'asks to submit for opinion/advice requests (ON_TOPIC_ASK_SPEAKER)',
         async () => {
           const msg = await createQuestion('What is her advice for those who want to switch to part-time work?')
-
+          msg._id = new mongoose.Types.ObjectId()
           const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
           await validateResponse(responses)
 
           // Should have 2 responses: the answer and the moderator question
           expect(responses).toHaveLength(2)
-          expect(responses[1].message).toEqual(submitToModeratorQuestion)
+          expect(responses[1].message).toMatchObject({ ...submitToModeratorQuestion, message: msg._id.toString() })
           expect(responses[1].visible).toBe(true)
         },
         testTimeout
@@ -202,13 +222,13 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         'asks to submit for implementation questions (ON_TOPIC_ASK_SPEAKER)',
         async () => {
           const msg = await createQuestion('How would Jessica recommend implementing this at a startup?')
-
+          msg._id = new mongoose.Types.ObjectId()
           const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
           await validateResponse(responses)
 
           // Should have 2 responses: the answer and the moderator question
           expect(responses).toHaveLength(2)
-          expect(responses[1].message).toEqual(submitToModeratorQuestion)
+          expect(responses[1].message).toMatchObject({ ...submitToModeratorQuestion, message: msg._id.toString() })
           expect(responses[1].visible).toBe(true)
         },
         testTimeout
@@ -218,12 +238,13 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         'asks to submit for hypothetical questions (ON_TOPIC_ASK_SPEAKER)',
         async () => {
           const msg = await createQuestion('What if an employee abuses the flexibility?')
+          msg._id = new mongoose.Types.ObjectId()
           const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
           await validateResponse(responses)
 
           // Should have 2 responses: the answer and the moderator question
           expect(responses).toHaveLength(2)
-          expect(responses[1].message).toEqual(submitToModeratorQuestion)
+          expect(responses[1].message).toMatchObject({ ...submitToModeratorQuestion, message: msg._id.toString() })
           expect(responses[1].visible).toBe(true)
         },
         testTimeout
@@ -239,7 +260,8 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
 
           // Should only have 1 response (off-topic message), no moderator question
           expect(responses).toHaveLength(1)
-          expect(responses[0].message).not.toEqual(submitToModeratorQuestion)
+          expect(responses[0].messageType).not.toEqual('json')
+          expect(responses[0].message).not.toEqual(submitToModeratorQuestion.text)
         },
         testTimeout
       )
@@ -254,7 +276,8 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
 
           // Should only have 1 response (summary), no moderator question
           expect(responses).toHaveLength(1)
-          expect(responses[0].message).not.toEqual(submitToModeratorQuestion)
+          expect(responses[0].messageType).not.toEqual('json')
+          expect(responses[0].message).not.toEqual(submitToModeratorQuestion.text)
         },
         testTimeout
       )
@@ -267,33 +290,25 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
 
         const affirmativeMsg = await createQuestion('yes')
         const conversationHistory = {
-          messages: [savedQuestion, { body: "I don't have enough information." }, { body: submitToModeratorQuestion }]
+          messages: [
+            savedQuestion,
+            { body: "I don't have enough information.", fromAgent: true },
+            { body: { ...submitToModeratorQuestion, message: savedQuestion._id }, bodyType: 'json', fromAgent: true }
+          ]
         }
 
         const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, conversationHistory, affirmativeMsg)
 
         await validateResponse(responses)
         expect(responses).toHaveLength(1)
-        expect(responses[0].message).toBe('Your message has been submitted to the moderator.')
+        expect(responses[0].message).toMatchObject({
+          text: 'Your message has been submitted to the moderator.',
+          type: 'backchannel',
+          message: savedQuestion._id.toString()
+        })
 
         const updatedMessage = await Message.findById(savedQuestion._id)
         expect(updatedMessage!.channels).toContain('participant')
-      })
-
-      it('should submit to moderator when user responds with yes please', async () => {
-        const questionMsg = await createQuestion('What is the meaning of life?')
-        const savedQuestion = await Message.create(questionMsg)
-
-        const affirmativeMsg = await createQuestion('yes please')
-        const conversationHistory = {
-          messages: [savedQuestion, { body: "I don't have enough information." }, { body: submitToModeratorQuestion }]
-        }
-
-        const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, conversationHistory, affirmativeMsg)
-
-        await validateResponse(responses)
-        expect(responses).toHaveLength(1)
-        expect(responses[0].message).toBe('Your message has been submitted to the moderator.')
       })
 
       it('should decline submission when user responds with no', async () => {
@@ -302,14 +317,22 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
 
         const negativeMsg = await createQuestion('no')
         const conversationHistory = {
-          messages: [savedQuestion, { body: "I don't have enough information." }, { body: submitToModeratorQuestion }]
+          messages: [
+            savedQuestion,
+            { body: "I don't have enough information.", fromAgent: true },
+            { body: { ...submitToModeratorQuestion, message: savedQuestion._id }, fromAgent: true, bodyType: 'json' }
+          ]
         }
 
         const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, conversationHistory, negativeMsg)
 
         await validateResponse(responses)
         expect(responses).toHaveLength(1)
-        expect(responses[0].message).toBe("OK, I won't submit it. Feel free to ask me anything else!")
+        expect(responses[0].message).toMatchObject({
+          type: 'backchannel',
+          text: "OK, I won't submit it. Feel free to ask me anything else!",
+          message: savedQuestion._id.toString()
+        })
 
         const updatedMessage = await Message.findById(savedQuestion._id)
         expect(updatedMessage!.channels).not.toContain('participant')
@@ -336,7 +359,11 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
 
           const affirmativeMsg = await createQuestion(variant)
           const conversationHistory = {
-            messages: [savedQuestion, { body: "I don't have enough information." }, { body: submitToModeratorQuestion }]
+            messages: [
+              savedQuestion,
+              { body: "I don't have enough information.", fromAgent: true },
+              { body: { ...submitToModeratorQuestion, message: savedQuestion._id }, bodyType: 'json', fromAgent: true }
+            ]
           }
 
           const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(
@@ -347,7 +374,11 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
 
           await validateResponse(responses)
           expect(responses).toHaveLength(1)
-          expect(responses[0].message).toBe('Your message has been submitted to the moderator.')
+          expect(responses[0].message).toMatchObject({
+            text: 'Your message has been submitted to the moderator.',
+            type: 'backchannel',
+            message: savedQuestion._id.toString()
+          })
         }
       })
 
@@ -360,14 +391,22 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
 
           const negativeMsg = await createQuestion(variant)
           const conversationHistory = {
-            messages: [savedQuestion, { body: "I don't have enough information." }, { body: submitToModeratorQuestion }]
+            messages: [
+              savedQuestion,
+              { body: "I don't have enough information.", fromAgent: true },
+              { body: { ...submitToModeratorQuestion, message: savedQuestion._id }, bodyType: 'json', fromAgent: true }
+            ]
           }
 
           const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, conversationHistory, negativeMsg)
 
           await validateResponse(responses)
           expect(responses).toHaveLength(1)
-          expect(responses[0].message).toBe("OK, I won't submit it. Feel free to ask me anything else!")
+          expect(responses[0].message).toMatchObject({
+            text: "OK, I won't submit it. Feel free to ask me anything else!",
+            type: 'backchannel',
+            message: savedQuestion._id.toString()
+          })
         }
       })
 
@@ -377,7 +416,11 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
 
         const newQuestion = await createQuestion("What was the speaker's main point?")
         const conversationHistory = {
-          messages: [savedQuestion, { body: "I don't have enough information." }, { body: submitToModeratorQuestion }]
+          messages: [
+            savedQuestion,
+            { body: "I don't have enough information.", fromAgent: true },
+            { body: submitToModeratorQuestion, bodyType: 'json', fromAgent: true }
+          ]
         }
 
         const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, conversationHistory, newQuestion)
@@ -385,6 +428,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         await validateResponse(responses)
         // New question should be processed normally, not treated as yes/no response
         expect(responses.length).toBeGreaterThan(0)
+        expect(responses[0].messageType).not.toBe('json')
 
         const updatedMessage = await Message.findById(savedQuestion._id)
         expect(updatedMessage!.channels).not.toContain('participant')
@@ -402,13 +446,48 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
 
       it('should return moderator submission message for participant channel messages', async () => {
         const participantMsg = await createQuestion('Question from user')
+        participantMsg._id = new mongoose.Types.ObjectId()
         participantMsg.channels = [`direct-agents-${user1._id}`, 'participant']
 
         const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, participantMsg)
 
         await validateResponse(responses)
         expect(responses).toHaveLength(1)
-        expect(responses[0].message).toBe('Your message has been submitted to the moderator.')
+        expect(responses[0].message).toMatchObject({
+          type: 'backchannel',
+          text: 'Your message has been submitted to the moderator.',
+          message: participantMsg._id.toString()
+        })
+      })
+
+      it('should parse backchannel messages to string', async () => {
+        const agentMsg = new Message({
+          body: submitToModeratorQuestion,
+          bodyType: 'json',
+          conversation: conversation._id,
+          pseudonym: agent.pseudonyms[0].pseudonym,
+          pseudonymId: agent.pseudonyms[0]._id
+        })
+
+        const translatedMsg = await defaultAgentTypes.eventAssistantPlus.parseOutput(agentMsg)
+        expect(translatedMsg).toMatchObject({
+          ...agentMsg.toObject(),
+          body: submitToModeratorQuestion.text,
+          bodyType: 'text'
+        })
+      })
+
+      it('should parse regular messages as string', async () => {
+        const agentMsg = new Message({
+          body: 'A response to your thoughtful question',
+          bodyType: 'text',
+          conversation: conversation._id,
+          pseudonym: agent.pseudonyms[0].pseudonym,
+          pseudonymId: agent.pseudonyms[0]._id
+        })
+
+        const translatedMsg = await defaultAgentTypes.eventAssistantPlus.parseOutput(agentMsg)
+        expect(translatedMsg).toMatchObject(agentMsg)
       })
     })
 

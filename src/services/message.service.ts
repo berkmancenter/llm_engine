@@ -73,6 +73,7 @@ const createMessage = async (messageBody, user, conversation) => {
     body: messageBody.body,
     ...(messageBody.bodyType !== undefined && { bodyType: messageBody.bodyType }),
     ...(messageBody.createdAt !== undefined && { createdAt: messageBody.createdAt }),
+    ...(messageBody.prompt !== undefined && { prompt: messageBody.prompt }),
     conversation: conversation._id,
     owner: user,
     pseudonym: activePseudo.pseudonym,
@@ -311,6 +312,7 @@ const newMessageHandler = async (message, user, request = null) => {
   }
 
   const messages: Array<IMessage> = []
+  let sentMessage = modifiedMessage
   if (userContributionVisible) {
     // Convert channels back to objects for createMessage
     const messageWithObjectChannels = {
@@ -326,7 +328,7 @@ const newMessageHandler = async (message, user, request = null) => {
       })
     }
 
-    const sentMessage = await createMessage(messageWithObjectChannels, user, conversation)
+    sentMessage = await createMessage(messageWithObjectChannels, user, conversation)
     messages.push(sentMessage)
     sentMessage.owner = user._id
 
@@ -338,9 +340,8 @@ const newMessageHandler = async (message, user, request = null) => {
     websocketGateway.broadcastNewMessage(sentMessage, request)
   }
 
-  // modifiedMessage still has string[] channels for agents
   for (const respondingAgent of respondingAgents) {
-    await schedule.agentResponse({ agentId: respondingAgent._id, message: modifiedMessage })
+    await schedule.agentResponse({ agentId: respondingAgent._id, message: sentMessage.toObject() })
   }
   return messages
 }

@@ -638,6 +638,28 @@ describe('Message service methods', () => {
     })
   })
 
+  describe('newMessageHandler() - message properties', () => {
+    test('should set message prompt on created message', async () => {
+      const prompt = {
+        type: 'singleChoice',
+        options: [
+          { value: 'icecream', label: 'Ice Cream' },
+          { value: 'pizza', label: 'Pizza' },
+          { value: 'candy', label: 'Candy' }
+        ],
+        validation: { required: true }
+      }
+      testMessage.prompt = prompt
+
+      const result = await messageService.newMessageHandler(testMessage, testUser)
+
+      expect(result).toBeDefined()
+
+      const savedMessage = await Message.findById(result[0]._id)
+      expect(savedMessage!.prompt).toMatchObject(prompt)
+    })
+  })
+
   describe('duplicateConversationMessages()', () => {
     let sourceConversation
     let targetConversation
