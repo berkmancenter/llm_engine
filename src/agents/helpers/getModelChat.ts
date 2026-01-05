@@ -49,6 +49,13 @@ export const supportedModels: LlmModelDetails[] = [
       'Balanced model offering strong intelligence and speed for everyday conversational tasks and complex reasoning'
   },
   {
+    name: 'opus-4.5',
+    label: 'AWS Bedrock Claude 4.5 Opus',
+    llmPlatform: 'bedrock',
+    llmModel: 'us.anthropic.claude-opus-4-5-20251101-v1:0',
+    description: 'Premium model combining maximum intelligence with practical performance'
+  },
+  {
     name: 'gemini-3-pro-preview',
     label: 'Google Gemini 3 Pro Preview',
     llmPlatform: 'google',
