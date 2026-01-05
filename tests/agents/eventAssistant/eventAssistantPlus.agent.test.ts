@@ -20,7 +20,7 @@ const testConfig = setupAgentTest('eventAssistantPlus')
 
 const submitToModeratorQuestion = {
   text: 'Would you like to submit this question anonymously to the moderator for Q&A?',
-  type: 'backchannel'
+  type: 'moderator_offered'
 }
 
 const testTimeout = 120000
@@ -303,7 +303,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         expect(responses).toHaveLength(1)
         expect(responses[0].message).toMatchObject({
           text: 'Your message has been submitted to the moderator.',
-          type: 'backchannel',
+          type: 'moderator_submitted',
           message: savedQuestion._id.toString()
         })
 
@@ -329,7 +329,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         await validateResponse(responses)
         expect(responses).toHaveLength(1)
         expect(responses[0].message).toMatchObject({
-          type: 'backchannel',
+          type: 'moderator_declined',
           text: "OK, I won't submit it. Feel free to ask me anything else!",
           message: savedQuestion._id.toString()
         })
@@ -376,7 +376,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
           expect(responses).toHaveLength(1)
           expect(responses[0].message).toMatchObject({
             text: 'Your message has been submitted to the moderator.',
-            type: 'backchannel',
+            type: 'moderator_submitted',
             message: savedQuestion._id.toString()
           })
         }
@@ -404,7 +404,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
           expect(responses).toHaveLength(1)
           expect(responses[0].message).toMatchObject({
             text: "OK, I won't submit it. Feel free to ask me anything else!",
-            type: 'backchannel',
+            type: 'moderator_declined',
             message: savedQuestion._id.toString()
           })
         }
@@ -454,7 +454,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         await validateResponse(responses)
         expect(responses).toHaveLength(1)
         expect(responses[0].message).toMatchObject({
-          type: 'backchannel',
+          type: 'moderator_submitted',
           text: 'Your message has been submitted to the moderator.',
           message: participantMsg._id.toString()
         })

@@ -37,7 +37,7 @@ function submitToModeratorResponse(userMessage, message) {
   return [
     {
       visible: true,
-      message: { type: 'backchannel', text: submitToModeratorReply, message: message._id.toString() },
+      message: { type: 'moderator_submitted', text: submitToModeratorReply, message: message._id.toString() },
       messageType: 'json',
       channels: this.conversation.channels.filter((channel) => userMessage.channels.includes(channel.name) && channel.direct)
     }
@@ -48,7 +48,7 @@ function declineModeratorResponse(userMessage, message) {
   return [
     {
       visible: true,
-      message: { type: 'backchannel', text: declineModeratorReply, message: message._id.toString() },
+      message: { type: 'moderator_declined', text: declineModeratorReply, message: message._id.toString() },
       messageType: 'json',
       channels: this.conversation.channels.filter(
         (channel) => userMessage.channels.includes(channel.name) && channel.direct === true
@@ -150,7 +150,7 @@ A pseudonymized message transcript will be visible to our eng team. Thanks for t
         agentResponses.push({
           visible: true,
           message: {
-            type: 'backchannel',
+            type: 'moderator_offered',
             text: submitToModeratorQuestion,
             message: userMessage._id.toString()
           },
