@@ -658,6 +658,17 @@ describe('Message service methods', () => {
       const savedMessage = await Message.findById(result[0]._id)
       expect(savedMessage!.prompt).toMatchObject(prompt)
     })
+    test('should set parent message on created message', async () => {
+      const parent = new mongoose.Types.ObjectId()
+      testMessage.parentMessage = parent.toString()
+
+      const result = await messageService.newMessageHandler(testMessage, testUser)
+
+      expect(result).toBeDefined()
+
+      const savedMessage = await Message.findById(result[0]._id)
+      expect(savedMessage!.parentMessage?.toString()).toEqual(parent.toString())
+    })
   })
 
   describe('duplicateConversationMessages()', () => {
