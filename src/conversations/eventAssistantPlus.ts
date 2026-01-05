@@ -22,7 +22,7 @@ const eventAssistantPlus: ConversationType = {
       description: 'The display name for the bot as it will appear in Zoom',
       required: false,
       type: 'string',
-      default: 'Ask Privately'
+      default: 'Event Assistant Plus'
     },
     {
       name: 'llmModel',

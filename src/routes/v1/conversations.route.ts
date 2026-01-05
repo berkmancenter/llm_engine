@@ -83,7 +83,7 @@ const router = express.Router()
  *                   - type: "zoom"
  *                     config:
  *                       meetingUrl: "{{ZOOM_MEETING_URL}}"
- *                       botName: "Ask Privately"
+ *                       botName: "Event Assistant"
  *                     dmChannels:
  *                       - direct: true
  *                         agent: "eventAssistant"
@@ -205,7 +205,7 @@ router.route('/').post(auth('createConversation'), conversationsController.creat
  *                 topicId: "507f1f77bcf86cd799439011"
  *                 properties:
  *                   zoomMeetingUrl: "https://zoom.us/j/123456789"
- *                   botName: "Ask Privately"
+ *                   botName: "Event Assistant"
  *                   llmModel:
  *                     name: "gpt-4"
  *                     platform: "openai"

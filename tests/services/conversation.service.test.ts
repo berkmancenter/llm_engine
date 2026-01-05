@@ -212,7 +212,7 @@ describe('Conversation service methods', () => {
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
 
         const adapters = await Adapter.find({ conversation: conversation._id })
-        expect(adapters[0].config.botName).toBe('Ask Privately')
+        expect(adapters[0].config.botName).toBe('Event Assistant')
       })
 
       test('should use custom botName when provided', async () => {
