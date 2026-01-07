@@ -562,9 +562,10 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         }
         const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
         await validateResponse(responses)
-        expect(
-          [QuestionClassification.CATCHUP, QuestionClassification.ON_TOPIC_ANSWER].includes(responses[0].classification)
-        ).toBe(true)
+        expect([QuestionClassification.CATCHUP, QuestionClassification.ON_TOPIC_ANSWER]).toContain(
+          responses[0].classification
+        )
+
         await evaluateSemanticResponse(inputs.question, responses[0], referenceOutputs!.responses)
         return responses[0].message
       },
