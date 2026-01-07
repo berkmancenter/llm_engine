@@ -6,7 +6,7 @@ import { z } from 'zod'
 import logger from '../../config/logger.js'
 import rag from './rag.js'
 
-const RESPONSE_PLACEHOLDER = ' '
+const RESPONSE_PLACEHOLDER = '(user sent an empty message)'
 
 // Helper to determine if we should use structured output for a given LLM
 function shouldUseStructuredOutput(llm): boolean {

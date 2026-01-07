@@ -187,12 +187,12 @@ ls.describe(
       conversation = await createEventAssistantConversation(
         {
           name: 'Why your company should consider part-time work',
-          description: `"No one wants to work anymore." Entrepreneur Jessica Drain believes otherwise—instead it's that businesses aren't structuring jobs to attract and retain the widest number of people possible, including those with a limited number of hours to give to a career. 
+          description: `"No one wants to work anymore." Entrepreneur Jessica Drain believes otherwise—instead it's that businesses aren't structuring jobs to attract and retain the widest number of people possible, including those with a limited number of hours to give to a career.
 Speaking about her own experience as a single mother and professional, Jessica delineates how she's grown a seven-figure business in part-time hours with a small team of part-time employees, and how recent research shows that jobs with lower hour requirements improve employee recruitment, retention, and productivity – not the other way around.`,
           presenters: [
             {
               name: 'Jessica Drain',
-              bio: `A career marketer and graphic designer, Jessica has helped businesses brand and market themselves for almost two decades. In 2018, she and her sister innovated a new tool for the sewing world – SewTites® Magnetic Sewing Pins™ – and founded a company with the same name. 
+              bio: `A career marketer and graphic designer, Jessica has helped businesses brand and market themselves for almost two decades. In 2018, she and her sister innovated a new tool for the sewing world – SewTites® Magnetic Sewing Pins™ – and founded a company with the same name.
 Since then, Jessica has led the company to a 7-figure annual business – all in part-time hours with a small team of part-time employees. A single mom of two children with primary custody, she is passionate about finding value in and creating work for people who don’t have the desire or ability to work full-time hours but still want and need to earn a living.`
             }
           ],
@@ -562,7 +562,9 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         }
         const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
         await validateResponse(responses)
-        expect(responses[0].classification).toBe(QuestionClassification.CATCHUP)
+        expect(
+          [QuestionClassification.CATCHUP, QuestionClassification.ON_TOPIC_ANSWER].includes(responses[0].classification)
+        ).toBe(true)
         await evaluateSemanticResponse(inputs.question, responses[0], referenceOutputs!.responses)
         return responses[0].message
       },

@@ -80,7 +80,7 @@ Output Style:
 - Content creation based on the event (tweets, summaries, posts, etc.)
 - Simple acknowledgments ("thanks", "got it")
 
-**OFF_TOPIC**: Zero connection to the event or the event topic
+**OFF_TOPIC**: Zero connection to the event or the event topic, or an entirely irrelevant request or instruction
 - Must be completely unrelated subject matter
 - Example for aliens event: "What's the weather?" = OFF_TOPIC
 - Example for aliens event: "How many sightings per year?" = ON_TOPIC_ASK_SPEAKER
