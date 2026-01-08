@@ -16,9 +16,9 @@ export const supportedModels: LlmModelDetails[] = [
     llmPlatform: 'openai',
     llmModel: 'gpt-5.2-2025-12-11',
     description:
-      'Powerful general-purpose model built to handle complex reasoning, detailed analysis, and a wide range of creative and technical tasks.',
+      'Powerful general-purpose model built to handle complex reasoning, detailed analysis, and a wide range of creative and technical tasks.'
     // defaults to "none"
-    defaultModelOptions: { reasoningEffort: 'high' }
+    // defaultModelOptions: { reasoningEffort: 'high' }
   },
   {
     name: 'opus-4.5',
@@ -33,9 +33,9 @@ export const supportedModels: LlmModelDetails[] = [
     label: 'Google Gemini 3 Pro Preview',
     llmPlatform: 'google',
     llmModel: 'gemini-3-pro-preview',
-    description: 'Advanced multimodal model designed to support deep, engaging conversations across a wide range of topics',
+    description: 'Advanced multimodal model designed to support deep, engaging conversations across a wide range of topics'
     // defaults to "HIGH"
-    defaultModelOptions: { thinkingConfig: { thinkingLevel: 'HIGH' } }
+    // defaultModelOptions: { thinkingConfig: { thinkingLevel: 'HIGH' } }
   }
 ]
 
