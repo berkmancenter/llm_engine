@@ -11,42 +11,14 @@ const PERSPECTIVE_API_URL = 'https://commentanalyzer.googleapis.com/$discovery/r
 
 export const supportedModels: LlmModelDetails[] = [
   {
-    name: 'gpt-4o-mini',
-    label: 'OpenAI GPT-4o Mini',
+    name: 'gpt-5.2',
+    label: 'OpenAI GPT-5.2',
     llmPlatform: 'openai',
-    llmModel: 'gpt-4o-mini',
-    description: 'Fast, lightweight model ideal for everyday conversations and straightforward tasks'
-  },
-  {
-    name: 'gpt-4.1-2025-04-14',
-    label: 'OpenAI GPT-4.1',
-    llmPlatform: 'openai',
-    llmModel: 'gpt-4.1-2025-04-14',
-    description: 'A general-purpose model designed to handle a wide range of questions and tasks.'
-  },
-  {
-    name: 'gpt-5',
-    label: 'OpenAI GPT-5',
-    llmPlatform: 'openai',
-    llmModel: 'gpt-5',
+    llmModel: 'gpt-5.2-2025-12-11',
     description:
       'Powerful general-purpose model built to handle complex reasoning, detailed analysis, and a wide range of creative and technical tasks.',
-    defaultModelOptions: { reasoningEffort: 'minimal' }
-  },
-  {
-    name: 'haiku-3.5',
-    label: 'AWS Bedrock Claude 3.5 Haiku',
-    llmPlatform: 'bedrock',
-    llmModel: 'anthropic.claude-3-5-haiku-20241022-v1:0',
-    description: 'Fast, cost-effective model optimized for high-volume conversations and quick response times'
-  },
-  {
-    name: 'sonnet-3.5',
-    label: 'AWS Bedrock Claude 3.5 Sonnet',
-    llmPlatform: 'bedrock',
-    llmModel: 'anthropic.claude-3-5-sonnet-20240620-v1:0',
-    description:
-      'Balanced model offering strong intelligence and speed for everyday conversational tasks and complex reasoning'
+    // defaults to "none"
+    defaultModelOptions: { reasoningEffort: 'high' }
   },
   {
     name: 'opus-4.5',
@@ -54,6 +26,7 @@ export const supportedModels: LlmModelDetails[] = [
     llmPlatform: 'bedrock',
     llmModel: 'us.anthropic.claude-opus-4-5-20251101-v1:0',
     description: 'Premium model combining maximum intelligence with practical performance'
+    // "effort" level is currently in beta only
   },
   {
     name: 'gemini-3-pro-preview',
@@ -61,7 +34,8 @@ export const supportedModels: LlmModelDetails[] = [
     llmPlatform: 'google',
     llmModel: 'gemini-3-pro-preview',
     description: 'Advanced multimodal model designed to support deep, engaging conversations across a wide range of topics',
-    defaultModelOptions: { thinkingConfig: { thinkingLevel: 'LOW' } }
+    // defaults to "HIGH"
+    defaultModelOptions: { thinkingConfig: { thinkingLevel: 'HIGH' } }
   }
 ]
 
