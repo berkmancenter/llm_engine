@@ -2,6 +2,7 @@ import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
 import { formatConversationHistory } from '../helpers/llmInputFormatters.js'
 import { getSinglePromptResponse } from '../helpers/llmChain.js'
+import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 
 const defaultLLMTemplates = {
   main: `You are a playful discussion facilitator who can suggest discussion questions based only on the topic provided and the conversation history.
@@ -28,8 +29,8 @@ export default verify({
   defaultTriggers: { perMessage: { directMessages: true } },
   llmTemplateVars,
   defaultLLMTemplates,
-  defaultLLMPlatform: 'openai',
-  defaultLLMModel: 'gpt-4o-mini',
+  defaultLLMPlatform,
+  defaultLLMModel,
   defaultConversationHistorySettings: { count: 10 },
   ragCollectionName: undefined,
 

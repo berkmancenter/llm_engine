@@ -2,6 +2,7 @@ import { AgentMessageActions } from '../../types/index.types.js'
 import verify from '../helpers/verify.js'
 import { formatMessage } from '../helpers/llmInputFormatters.js'
 import { getSinglePromptResponse } from '../helpers/llmChain.js'
+import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 
 const defaultLLMTemplates = {
   main: `You are a facilitator and coach in a text-based chat. Your job is to promote "radical empathy."
@@ -43,8 +44,8 @@ export default verify({
   defaultTriggers: { perMessage: {} },
   llmTemplateVars,
   defaultLLMTemplates,
-  defaultLLMPlatform: 'openai',
-  defaultLLMModel: 'gpt-4o-mini',
+  defaultLLMPlatform,
+  defaultLLMModel,
   defaultConversationHistorySettings: { count: 10 },
   ragCollectionName: undefined,
 

@@ -9,6 +9,7 @@ import { defaultLLMTemplates, llmTemplateVars, discussionQuestions, displayNames
 import addCitations from '../../helpers/addCitations.js'
 import saveMessage from '../../helpers/saveMessage.js'
 import getConversationHistory from '../../helpers/getConversationHistory.js'
+import { defaultLLMModel, defaultLLMPlatform } from '../../helpers/getModelChat.js'
 
 // agentConfig property should be an an object with these properties
 // discussionQuestions: String Array // questions the moderator should pose, optional if no questions
@@ -64,8 +65,8 @@ export default verify({
   },
   llmTemplateVars,
   defaultLLMTemplates,
-  defaultLLMPlatform: 'openai',
-  defaultLLMModel: 'gpt-4o-mini',
+  defaultLLMPlatform,
+  defaultLLMModel,
   defaultLLMModelOptions: {
     temperature: 1.2
   },

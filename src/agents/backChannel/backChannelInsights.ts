@@ -2,7 +2,7 @@ import { AgentMessageActions, ConversationHistory } from '../../types/index.type
 import verify from '../helpers/verify.js'
 
 import logger from '../../config/logger.js'
-
+import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import {
   backChannelLLMTemplates,
   backChannelLLMTemplateVars,
@@ -24,8 +24,8 @@ export default verify({
   },
   llmTemplateVars: backChannelLLMTemplateVars,
   defaultLLMTemplates: backChannelLLMTemplates,
-  defaultLLMPlatform: 'openai',
-  defaultLLMModel: 'gpt-4o-mini',
+  defaultLLMPlatform,
+  defaultLLMModel,
   ragCollectionName: undefined,
   parseOutput: (msg) => {
     if (msg.bodyType === 'text') {

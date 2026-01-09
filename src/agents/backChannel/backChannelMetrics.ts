@@ -1,6 +1,6 @@
 import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
 import verify from '../helpers/verify.js'
-
+import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { BackChannelAgentResponse, Comment, Metric } from './backChannel.types.js'
 import logger from '../../config/logger.js'
 
@@ -77,8 +77,8 @@ export default verify({
   },
   llmTemplateVars,
   defaultLLMTemplates,
-  defaultLLMPlatform: 'openai',
-  defaultLLMModel: 'gpt-4o-mini',
+  defaultLLMPlatform,
+  defaultLLMModel,
   defaultConversationHistorySettings: { timeWindow: 120, channels: ['participant'] },
   ragCollectionName: undefined,
 

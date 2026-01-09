@@ -2,6 +2,7 @@ import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
 import { formatSingleUserConversationHistory } from '../helpers/llmInputFormatters.js'
 import { eventAssistantLLMTemplates, eventAssistantLlmTemplateVars, answerQuestion } from './eventQuestionHandler.js'
+import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 
 export default verify({
   name: 'Event Assistant',
@@ -17,8 +18,8 @@ export default verify({
   },
   llmTemplateVars: eventAssistantLlmTemplateVars,
   defaultLLMTemplates: eventAssistantLLMTemplates,
-  defaultLLMPlatform: 'openai',
-  defaultLLMModel: 'gpt-4o-mini',
+  defaultLLMPlatform,
+  defaultLLMModel,
   ragCollectionName: undefined,
   useTranscriptRAGCollection: true,
   defaultConversationHistorySettings: { count: 100, directMessages: true },

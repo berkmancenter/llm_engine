@@ -10,6 +10,15 @@ import { LlmPlatforms, LlmPlatformDetails, LlmModelDetails } from '../../types/i
 const PERSPECTIVE_API_URL = 'https://commentanalyzer.googleapis.com/$discovery/rest?version=v1alpha1'
 
 export const supportedModels: LlmModelDetails[] = [
+  // first one in list is default
+  {
+    name: 'opus-4.5',
+    label: 'AWS Bedrock Claude 4.5 Opus',
+    llmPlatform: 'bedrock',
+    llmModel: 'us.anthropic.claude-opus-4-5-20251101-v1:0',
+    description: 'Premium model combining maximum intelligence with practical performance'
+    // "effort" level is currently in beta only
+  },
   {
     name: 'gpt-5.2',
     label: 'OpenAI GPT-5.2',
@@ -21,14 +30,6 @@ export const supportedModels: LlmModelDetails[] = [
     // defaultModelOptions: { reasoningEffort: 'high' }
   },
   {
-    name: 'opus-4.5',
-    label: 'AWS Bedrock Claude 4.5 Opus',
-    llmPlatform: 'bedrock',
-    llmModel: 'us.anthropic.claude-opus-4-5-20251101-v1:0',
-    description: 'Premium model combining maximum intelligence with practical performance'
-    // "effort" level is currently in beta only
-  },
-  {
     name: 'gemini-3-pro-preview',
     label: 'Google Gemini 3 Pro Preview',
     llmPlatform: 'google',
@@ -38,6 +39,9 @@ export const supportedModels: LlmModelDetails[] = [
     // defaultModelOptions: { thinkingConfig: { thinkingLevel: 'HIGH' } }
   }
 ]
+
+export const defaultLLMPlatform = supportedModels[0].llmPlatform
+export const defaultLLMModel = supportedModels[0].llmModel
 
 export async function getOpenAIChat(model, modelOptions) {
   const aiConfig = {
