@@ -12,6 +12,7 @@ import Job from '../../../src/models/job.model'
 import setupAgentTest from '../../utils/setupAgentTest.js'
 import rag, { TRANSCRIPT_COLLECTION_PREFIX } from '../../../src/agents/helpers/rag'
 import { loadTestTranscript } from '../../utils/agentTestHelpers'
+import { defaultLLMPlatform, defaultLLMModel } from '../../../src/agents/helpers/getModelChat.js'
 
 jest.setTimeout(120000)
 const mockEvaluate = jest.fn()
@@ -41,8 +42,8 @@ const testAgentTypes = {
     defaultLLMTemplates: {
       template: 'Default template'
     },
-    defaultLLMPlatform: 'openai',
-    defaultLLMModel: 'gpt-4o-mini',
+    defaultLLMPlatform,
+    defaultLLMModel,
     defaultLLMModelOptions: { prop: 'value' },
     defaultConversationHistorySettings: { timeWindow: 45 }
   }

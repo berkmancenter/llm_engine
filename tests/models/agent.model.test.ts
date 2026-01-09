@@ -8,6 +8,7 @@ import { insertTopics } from '../fixtures/topic.fixture.js'
 import { AgentMessageActions } from '../../src/types/index.types.js'
 import { setAgentTypes } from '../../src/models/user.model/agent.model/index.js'
 import defaultAgentTypes from '../../src/agents/index.js'
+import { defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/getModelChat.js'
 
 jest.setTimeout(120000)
 const mockEvaluate = jest.fn()
@@ -36,8 +37,8 @@ const testAgentTypes = {
     defaultLLMTemplates: {
       template: 'Default template'
     },
-    defaultLLMPlatform: 'openai',
-    defaultLLMModel: 'gpt-4o-mini',
+    defaultLLMPlatform,
+    defaultLLMModel,
     defaultLLMModelOptions: { prop: 'value' },
     defaultConversationHistorySettings: { timeWindow: 45 },
     useTranscriptRAGCollection: true
@@ -55,8 +56,8 @@ const testAgentTypes = {
     priority: 200,
     llmTemplateVars: {},
     llmTemplates: {},
-    defaultLLMPlatform: 'openai',
-    defaultLLMModel: 'gpt-4o-mini'
+    defaultLLMPlatform,
+    defaultLLMModel
   },
   perMessage: {
     initialize: mockInitialize,
@@ -71,8 +72,8 @@ const testAgentTypes = {
     priority: 10,
     llmTemplateVars: {},
     llmTemplates: {},
-    defaultLLMPlatform: 'openai',
-    defaultLLMModel: 'gpt-4o-mini',
+    defaultLLMPlatform,
+    defaultLLMModel,
     defaultConversationHistorySettings: { directMessages: true }
   },
 
@@ -89,8 +90,8 @@ const testAgentTypes = {
     priority: 10,
     llmTemplateVars: {},
     llmTemplates: {},
-    defaultLLMPlatform: 'openai',
-    defaultLLMModel: 'gpt-4o-mini',
+    defaultLLMPlatform,
+    defaultLLMModel,
     parseInput: (msg) => {
       const translatedMsg = { ...msg }
       translatedMsg.bodyType = 'json'
@@ -120,8 +121,8 @@ const testAgentTypes = {
     priority: 10,
     llmTemplateVars: {},
     llmTemplates: {},
-    defaultLLMPlatform: 'openai',
-    defaultLLMModel: 'gpt-4o-mini',
+    defaultLLMPlatform,
+    defaultLLMModel,
     parseInput: (msg) => {
       const translatedMsg = { ...msg }
       translatedMsg.bodyType = 'json'
@@ -198,8 +199,8 @@ describe('agent tests', () => {
 
     expect(agent.llmTemplates!.template).toBe('Default template')
     expect(agent.llmTemplateVars!.template).toHaveLength(0)
-    expect(agent.llmModel).toBe('gpt-4o-mini')
-    expect(agent.llmPlatform).toBe('openai')
+    expect(agent.llmModel).toBe(defaultLLMModel)
+    expect(agent.llmPlatform).toBe(defaultLLMPlatform)
     expect(agent.llmModelOptions!.prop).toBe('value')
     expect(agent.triggers).toBe(testAgentTypes.perMessageWithMin.defaultTriggers)
     expect(agent.conversationHistorySettings).toBe(testAgentTypes.perMessageWithMin.defaultConversationHistorySettings)

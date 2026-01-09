@@ -12,6 +12,7 @@ import { setAgentTypes } from '../../src/models/user.model/agent.model/index.js'
 import defaultAgentTypes from '../../src/agents/index.js'
 import defaultAdapterTypes from '../../src/adapters/index.js'
 import defaultConversationTypes, { setConversationTypes } from '../../src/conversations/index.js'
+import { defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/getModelChat.js'
 
 import websocketGateway from '../../src/websockets/websocketGateway.js'
 import {
@@ -74,8 +75,8 @@ const testAgentTypeSpecification = {
       contribution: 'You are an agent that does awesome stuff. Be awesome!',
       voting: 'You should vote on this data {voteData}'
     },
-    defaultLLMPlatform: 'openai',
-    defaultLLMModel: 'gpt-4o-mini',
+    defaultLLMPlatform,
+    defaultLLMModel,
     useTranscriptRAGCollection: true
   },
   testManual: {
@@ -94,8 +95,8 @@ const testAgentTypeSpecification = {
       contribution: 'You are an agent that does awesome stuff. Be awesome!',
       voting: 'You should vote on this data {voteData}'
     },
-    defaultLLMPlatform: 'openai',
-    defaultLLMModel: 'gpt-4o-mini',
+    defaultLLMPlatform,
+    defaultLLMModel,
     useTranscriptRAGCollection: true
   }
 }

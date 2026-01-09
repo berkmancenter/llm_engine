@@ -15,6 +15,7 @@ import schedule from '../../src/jobs/schedule.js'
 import { setAgentTypes } from '../../src/models/user.model/agent.model/index.js'
 import defaultAgentTypes from '../../src/agents/index.js'
 import logger from '../../src/config/logger.js'
+import { defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/getModelChat.js'
 
 setupIntTest()
 jest.setTimeout(120000)
@@ -58,8 +59,8 @@ const testAgentTypes = {
     defaultLLMTemplates: {
       template: 'Default template'
     },
-    defaultLLMPlatform: 'openai',
-    defaultLLMModel: 'gpt-4o-mini',
+    defaultLLMPlatform,
+    defaultLLMModel,
     defaultLLMModelOptions: { prop: 'value' },
     useTranscriptRAGCollection: true
   }

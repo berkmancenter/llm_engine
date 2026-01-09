@@ -7,7 +7,7 @@ import conversationService from '../../src/services/conversation.service.js'
 import { Agent, Adapter } from '../../src/models/index.js'
 import ApiError from '../../src/utils/ApiError.js'
 import websocketGateway from '../../src/websockets/websocketGateway.js'
-import { supportedModels } from '../../src/agents/helpers/getModelChat.js'
+import { supportedModels, defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/getModelChat.js'
 import defaultAdapterTypes from '../../src/adapters/index.js'
 import { setAdapterTypes } from '../../src/models/adapter.model.js'
 import { setAgentTypes } from '../../src/models/user.model/agent.model/index.js'
@@ -49,8 +49,8 @@ const testAgentTypeSpecification = {
       contribution: 'You are an agent that does awesome stuff. Be awesome!',
       voting: 'You should vote on this data {voteData}'
     },
-    defaultLLMPlatform: 'openai',
-    defaultLLMModel: 'gpt-4o-mini',
+    defaultLLMPlatform,
+    defaultLLMModel,
     useTranscriptRAGCollection: true
   },
   backChannelInsights: {
@@ -68,8 +68,8 @@ const testAgentTypeSpecification = {
       contribution: 'You are an agent that does awesome stuff. Be awesome!',
       voting: 'You should vote on this data {voteData}'
     },
-    defaultLLMPlatform: 'openai',
-    defaultLLMModel: 'gpt-4o-mini',
+    defaultLLMPlatform,
+    defaultLLMModel,
     useTranscriptRAGCollection: true
   },
   backChannelMetrics: {
@@ -87,8 +87,8 @@ const testAgentTypeSpecification = {
       contribution: 'You are an agent that does awesome stuff. Be awesome!',
       voting: 'You should vote on this data {voteData}'
     },
-    defaultLLMPlatform: 'openai',
-    defaultLLMModel: 'gpt-4o-mini',
+    defaultLLMPlatform,
+    defaultLLMModel,
     useTranscriptRAGCollection: true
   }
 }
@@ -331,8 +331,8 @@ describe('Conversation service methods', () => {
         expect(agents).toHaveLength(1)
         expect(agents[0].agentType).toBe('eventAssistant')
         // These should be undefined so underlying agent defaults are used
-        expect(agents[0].llmModel).toBe('gpt-4o-mini') // the agent's default
-        expect(agents[0].llmPlatform).toBe('openai')
+        expect(agents[0].llmModel).toBe(defaultLLMModel) // the agent's default
+        expect(agents[0].llmPlatform).toBe(defaultLLMPlatform)
       })
     })
 
@@ -512,7 +512,7 @@ describe('Conversation service methods', () => {
           topicId: topicOne._id.toString(),
           properties: {
             zoomMeetingUrl: 'https://zoom.us/j/123456789',
-            llmModel: { name: 'gpt-4o-mini', llmPlatform: 'openai', llmModel: 'gpt-4o-mini' }
+            llmModel: { name: 'opus-4.5', llmPlatform: defaultLLMPlatform, llmModel: defaultLLMModel }
           }
         }
 

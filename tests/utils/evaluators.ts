@@ -9,7 +9,8 @@ import {
   RAG_RETRIEVAL_RELEVANCE_PROMPT
 } from 'openevals'
 import * as ls from 'langsmith/jest'
-import { getOpenAIChat } from '../../src/agents/helpers/getModelChat.js'
+import { getModelChat, defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/getModelChat.js'
+import { LlmPlatforms } from '../../src/types/index.types.js'
 
 // Shared evaluators that will be initialized once
 export const evaluators = {
@@ -36,41 +37,43 @@ export const initializeEvaluators = async (customPrompts: CustomPrompts = {}) =>
     return // Already initialized with defaults
   }
 
+  const judge = (await getModelChat(defaultLLMPlatform as LlmPlatforms, defaultLLMModel, {})) as any
+
   evaluators.concisenessEvaluator = createLLMAsJudge({
     prompt: customPrompts.conciseness || CONCISENESS_PROMPT,
     continuous: true,
     feedbackKey: 'conciseness',
-    judge: await getOpenAIChat('gpt-4o-mini', {})
+    judge
   })
   evaluators.correctnessEvaluator = createLLMAsJudge({
     prompt: customPrompts.correctness || CORRECTNESS_PROMPT,
     continuous: true,
     feedbackKey: 'correctness',
-    judge: await getOpenAIChat('gpt-4o-mini', {})
+    judge
   })
   evaluators.hallucinationEvaluator = createLLMAsJudge({
     prompt: customPrompts.hallucination || HALLUCINATION_PROMPT,
     continuous: true,
     feedbackKey: 'hallucination',
-    judge: await getOpenAIChat('gpt-4o-mini', {})
+    judge
   })
   evaluators.helpfulnessEvaluator = createLLMAsJudge({
     prompt: customPrompts.helpfulness || RAG_HELPFULNESS_PROMPT,
     continuous: true,
     feedbackKey: 'helpfulness',
-    judge: await getOpenAIChat('gpt-4o-mini', {})
+    judge
   })
   evaluators.groundednessEvaluator = createLLMAsJudge({
     prompt: customPrompts.groundedness || RAG_GROUNDEDNESS_PROMPT,
     continuous: true,
     feedbackKey: 'groundedness',
-    judge: await getOpenAIChat('gpt-4o-mini', {})
+    judge
   })
   evaluators.retrievalRelevanceEvaluator = createLLMAsJudge({
     prompt: customPrompts.retrievalRelevance || RAG_RETRIEVAL_RELEVANCE_PROMPT,
     continuous: true,
     feedbackKey: 'retrievalRelevance',
-    judge: await getOpenAIChat('gpt-4o-mini', {})
+    judge
   })
 }
 

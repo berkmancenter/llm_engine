@@ -6,6 +6,7 @@ import { insertUsers, registeredUser } from '../../fixtures/user.fixture'
 import defaultAgentTypes from '../../../src/agents/index.js'
 import JobHandlers from '../../../src/jobs/handlers/index.js'
 import websocketGateway from '../../../src/websockets/websocketGateway.js'
+import { defaultLLMPlatform, defaultLLMModel } from '../../../src/agents/helpers/getModelChat.js'
 
 import setupAgentTest from '../../utils/setupAgentTest.js'
 
@@ -37,8 +38,8 @@ const testAgentTypes = {
     defaultLLMTemplates: {
       template: 'Default template'
     },
-    defaultLLMPlatform: 'openai',
-    defaultLLMModel: 'gpt-4o-mini',
+    defaultLLMPlatform,
+    defaultLLMModel,
     defaultLLMModelOptions: { prop: 'value' },
     defaultConversationHistorySettings: { timeWindow: 45 }
   }

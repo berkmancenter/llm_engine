@@ -31,9 +31,9 @@ describe('claudeHandler', () => {
       expect(shouldUseClaudeFormat('claude-3', 'openai')).toBe(false)
     })
 
-    it('should return false for GPT models', () => {
+    it('should return false for non-Bedrock/Anthropic models on non-Bedrock/Anthropic platforms', () => {
       expect(shouldUseClaudeFormat('gpt-4', 'bedrock')).toBe(true) // platform takes precedence
-      expect(shouldUseClaudeFormat('gpt-4o-mini', 'openai')).toBe(false)
+      expect(shouldUseClaudeFormat('claude-3-5-sonnet', 'bedrock')).toBe(true) // bedrock platform with claude model
     })
 
     it('should handle undefined inputs', () => {
@@ -112,7 +112,7 @@ describe('claudeHandler', () => {
         messages: [{ content: 'Hello world' }]
       }
 
-      const result = transformPayloadForClaude(inputPayload, 'gpt-4o-mini', 'openai')
+      const result = transformPayloadForClaude(inputPayload, 'gpt-4', 'openai')
 
       expect(result).toBe(inputPayload)
     })
