@@ -18,7 +18,7 @@ on:
       llmModel:
         description: "The LLM Model to use for agent testing"
         required: true
-        default: "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        default: "us.anthropic.claude-haiku-4-5-20251001-v1:0"
         type: string
 
 jobs:

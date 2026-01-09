@@ -12,6 +12,13 @@ const PERSPECTIVE_API_URL = 'https://commentanalyzer.googleapis.com/$discovery/r
 export const supportedModels: LlmModelDetails[] = [
   // first one in list is default
   {
+    name: 'haiku-4.5',
+    label: 'AWS Bedrock Haiku 4.5 Opus',
+    llmPlatform: 'bedrock',
+    llmModel: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+    description: "Anthropic's fastest model with near-frontier intelligence"
+  },
+  {
     name: 'opus-4.5',
     label: 'AWS Bedrock Claude 4.5 Opus',
     llmPlatform: 'bedrock',
