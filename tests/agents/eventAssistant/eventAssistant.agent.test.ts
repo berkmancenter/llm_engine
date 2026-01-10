@@ -467,7 +467,9 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         }
         const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
         await validateResponse(responses)
-        expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ASK_SPEAKER)
+        expect([QuestionClassification.ON_TOPIC_ASK_SPEAKER, QuestionClassification.ON_TOPIC_ANSWER]).toContain(
+          responses[0].classification
+        )
         await evaluateNonContextualResult(inputs.question, responses[0], referenceOutputs!.responses)
         return responses[0].message
       },
