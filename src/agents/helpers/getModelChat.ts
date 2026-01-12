@@ -13,14 +13,14 @@ export const supportedModels: LlmModelDetails[] = [
   // first one in list is default
   {
     name: 'haiku-4.5',
-    label: 'AWS Bedrock Haiku 4.5 Opus',
+    label: 'AWS Bedrock Claude Haiku 4.5',
     llmPlatform: 'bedrock',
     llmModel: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
     description: "Anthropic's fastest model with near-frontier intelligence"
   },
   {
     name: 'opus-4.5',
-    label: 'AWS Bedrock Claude 4.5 Opus',
+    label: 'AWS Bedrock Claude Opus 4.5',
     llmPlatform: 'bedrock',
     llmModel: 'us.anthropic.claude-opus-4-5-20251101-v1:0',
     description: 'Premium model combining maximum intelligence with practical performance'
