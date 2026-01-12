@@ -13,6 +13,7 @@ import defaultAgentTypes from '../../src/agents/index.js'
 import { Direction } from '../../src/types/index.types.js'
 import webhookService from '../../src/services/webhook.service.js'
 import defaultAdapterTypes from '../../src/adapters/index.js'
+import { defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/getModelChat.js'
 
 jest.setTimeout(120000)
 
@@ -29,8 +30,8 @@ const testAgentTypeSpecification = {
       contribution: 'You are an agent that does awesome stuff. Be awesome!',
       voting: 'You should vote on this data {voteData}'
     },
-    defaultLLMPlatform: 'openai',
-    defaultLLMModel: 'gpt-4o-mini',
+    defaultLLMPlatform,
+    defaultLLMModel,
     useTranscriptRAGCollection: true
   }
 }

@@ -4,6 +4,7 @@ import logger from '../../../config/logger.js'
 import { formatConversationHistory } from '../../helpers/llmInputFormatters.js'
 import { getSinglePromptResponse } from '../../helpers/llmChain.js'
 import { generateGenericAgentAnswerSchema } from '../../helpers/responseFormatSchemas.js'
+import { defaultLLMModel, defaultLLMPlatform } from '../../helpers/getModelChat.js'
 
 /*
  * A simple, single prompt generic agent. Meant to be customized by a user
@@ -55,8 +56,8 @@ export default verify({
   },
   llmTemplateVars,
   defaultLLMTemplates,
-  defaultLLMPlatform: 'openai',
-  defaultLLMModel: 'gpt-4o-mini',
+  defaultLLMPlatform,
+  defaultLLMModel,
   ragCollectionName: undefined,
   parseInput: (msg) => {
     if (msg.bodyType === 'text') {

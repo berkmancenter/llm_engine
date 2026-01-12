@@ -3,6 +3,7 @@ import { AgentMessageActions, AgentResponse, ConversationHistory } from '../../t
 import { formatSingleUserConversationHistory } from '../helpers/llmInputFormatters.js'
 
 import Message from '../../models/message.model.js'
+import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import {
   eventAssistantLLMTemplates,
   eventAssistantLlmTemplateVars,
@@ -72,8 +73,8 @@ A pseudonymized message transcript will be visible to our eng team. Thanks for t
   },
   llmTemplateVars: eventAssistantLlmTemplateVars,
   defaultLLMTemplates: eventAssistantLLMTemplates,
-  defaultLLMPlatform: 'openai',
-  defaultLLMModel: 'gpt-4o-mini',
+  defaultLLMPlatform,
+  defaultLLMModel,
   parseOutput: (msg) => {
     if (msg.bodyType === 'text') {
       return msg

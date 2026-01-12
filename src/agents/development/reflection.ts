@@ -7,6 +7,7 @@ import { formatMessages } from '../helpers/llmInputFormatters.js'
 import { getSinglePromptResponse } from '../helpers/llmChain.js'
 import Message from '../../models/message.model.js'
 import saveMessage from '../helpers/saveMessage.js'
+import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 
 const defaultLLMTemplates = {
   summarization: `You are a facilitator of an online deliberation on the given discussion topic.
@@ -75,8 +76,8 @@ export default verify({
   defaultTriggers: { perMessage: {}, periodic: { timerPeriod: 300 } },
   llmTemplateVars,
   defaultLLMTemplates,
-  defaultLLMPlatform: 'openai',
-  defaultLLMModel: 'gpt-4o-mini',
+  defaultLLMPlatform,
+  defaultLLMModel,
   defaultConversationHistorySettings: { count: 10 },
   ragCollectionName: undefined,
   async initialize() {

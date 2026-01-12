@@ -65,22 +65,23 @@ Output Style:
 - Contains phrases like: "what did I miss", "catch me up", "what happened so far", "summarize"
 - Asks for broad overview, not specific opinions
 
-**ON_TOPIC_ASK_SPEAKER**: Question relates to the event topic (DEFAULT for topic-related questions)
+**ON_TOPIC_ASK_SPEAKER**: Question relates to the event topic (DEFAULT for topic-related questions), OR helpful for the speaker to understand audience positive or negative sentiment.
+Important! When deciding between ON_TOPIC_ASK_SPEAKER and ON_TOPIC_ANSWER, bias towards ON_TOPIC_ASK_SPEAKER.
 - Speaker's opinions, perspectives, or expertise on anything related to the topic
 - Requests for data, statistics, or facts about the event topic
 - Requests for resources, recommendations, or next steps
-- User feedback, criticism, or reactions about the talk ("boring", "disagree", "interesting")
+- User feedback, criticism, or reactions about the talk (e.g. "boring", "disagree", "interesting")
 - Personal questions about the speaker's views or preferences related to the topic
 - If it's about the event topic and NOT one of the categories below, use this
 
-**ON_TOPIC_ANSWER**: Can be answered WITHOUT speaker input from available context
+**ON_TOPIC_ANSWER**: Can be answered authoritatively and exhaustively WITHOUT speaker input from available context and clearly NOT helpful for the speaker to understand audience sentiment.
 - Help writing/formulating a question for the speaker
 - Speaker/moderator info available in context (name, bio)
 - Direct quotes or summaries of what was explicitly said
 - Content creation based on the event (tweets, summaries, posts, etc.)
 - Simple acknowledgments ("thanks", "got it")
 
-**OFF_TOPIC**: Zero connection to the event or the event topic
+**OFF_TOPIC**: Zero connection to the event or the event topic, or an entirely irrelevant request or instruction
 - Must be completely unrelated subject matter
 - Example for aliens event: "What's the weather?" = OFF_TOPIC
 - Example for aliens event: "How many sightings per year?" = ON_TOPIC_ASK_SPEAKER

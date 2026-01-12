@@ -13,6 +13,7 @@ import { setAgentTypes } from '../../src/models/user.model/agent.model/index.js'
 import defaultAgentTypes from '../../src/agents/index.js'
 import { insertTopics } from '../fixtures/topic.fixture.js'
 import { AgentMessageActions } from '../../src/types/index.types.js'
+import { defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/getModelChat.js'
 
 jest.setTimeout(10000)
 setupIntTest()
@@ -50,8 +51,8 @@ const testAgentTypeSpecification = {
       contribution: 'You are an agent that does awesome stuff. Be awesome!',
       voting: 'You should vote on this data {voteData}'
     },
-    defaultLLMPlatform: 'openai',
-    defaultLLMModel: 'gpt-4o-mini'
+    defaultLLMPlatform,
+    defaultLLMModel
   },
   generic: {
     respond: mockRespond,
@@ -65,8 +66,8 @@ const testAgentTypeSpecification = {
     defaultLLMTemplates: {
       main: 'You are an un-configured Generic Agent. Please configure me.'
     },
-    defaultLLMPlatform: 'openai',
-    defaultLLMModel: 'gpt-4o-mini'
+    defaultLLMPlatform,
+    defaultLLMModel
   },
   testText: {
     respond: mockRespond,
@@ -81,8 +82,8 @@ const testAgentTypeSpecification = {
       contribution: 'You are an agent that does awesome stuff. Be awesome!',
       voting: 'You should vote on this data {voteData}'
     },
-    defaultLLMPlatform: 'openai',
-    defaultLLMModel: 'gpt-4o-mini'
+    defaultLLMPlatform,
+    defaultLLMModel
   }
 }
 
@@ -1622,8 +1623,8 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         defaultLLMTemplates: {
           main: 'You respond to every message. Message: {lastMessage}'
         },
-        defaultLLMPlatform: 'openai',
-        defaultLLMModel: 'gpt-4o-mini'
+        defaultLLMPlatform,
+        defaultLLMModel
       },
       perMessageDirect: {
         respond: mockRespond,
@@ -1637,8 +1638,8 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         defaultLLMTemplates: {
           main: 'You respond to direct messages. Message: {lastMessage}'
         },
-        defaultLLMPlatform: 'openai',
-        defaultLLMModel: 'gpt-4o-mini'
+        defaultLLMPlatform,
+        defaultLLMModel
       },
       perMessageTranscript: {
         respond: mockRespond,
@@ -1653,8 +1654,8 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         defaultLLMTemplates: {
           main: 'You respond using transcript data. Message: {lastMessage}'
         },
-        defaultLLMPlatform: 'openai',
-        defaultLLMModel: 'gpt-4o-mini'
+        defaultLLMPlatform,
+        defaultLLMModel
       }
     }
 

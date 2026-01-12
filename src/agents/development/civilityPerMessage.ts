@@ -2,6 +2,7 @@ import { AgentMessageActions } from '../../types/index.types.js'
 import verify from '../helpers/verify.js'
 import { formatMessage } from '../helpers/llmInputFormatters.js'
 import { getSinglePromptResponse } from '../helpers/llmChain.js'
+import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 
 const defaultLLMTemplates = {
   main: `You are a facilitator in a text-based chat. You consider one message at a time and your only responsibilities are to:
@@ -31,8 +32,8 @@ export default verify({
   defaultTriggers: { perMessage: {} },
   llmTemplateVars,
   defaultLLMTemplates,
-  defaultLLMPlatform: 'openai',
-  defaultLLMModel: 'gpt-4o-mini',
+  defaultLLMPlatform,
+  defaultLLMModel,
   ragCollectionName: undefined,
 
   async initialize() {

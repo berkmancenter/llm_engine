@@ -12,6 +12,7 @@ import saveMessage from '../../helpers/saveMessage.js'
 import { IMessage } from '../../../types/index.types.js'
 import { Delegate } from './delegates.types.js'
 import getConversationHistory from '../../helpers/getConversationHistory.js'
+import { defaultLLMModel, defaultLLMPlatform } from '../../helpers/getModelChat.js'
 
 // agentConfig property should be an an object with these properties
 // delegates: an array of multiple delegates with these properties
@@ -201,8 +202,8 @@ export default verify({
   },
   llmTemplateVars,
   defaultLLMTemplates,
-  defaultLLMPlatform: 'openai',
-  defaultLLMModel: 'gpt-4o-mini',
+  defaultLLMPlatform,
+  defaultLLMModel,
   defaultLLMModelOptions: {
     temperature: 1.0
   },

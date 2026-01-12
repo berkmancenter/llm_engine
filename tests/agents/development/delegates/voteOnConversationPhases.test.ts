@@ -4,8 +4,8 @@ import { Message } from '../../../../src/models/index.js'
 import { defaultLLMTemplates } from '../../../../src/agents/development/delegates/prompts.js'
 import vote from '../../../../src/agents/development/delegates/voteOnConversationPhases.js'
 import { formatConversationPhases } from '../../../../src/agents/helpers/llmInputFormatters.js'
-import { getModelChat } from '../../../../src/agents/helpers/getModelChat.js'
-import { IMessage } from '../../../../src/types/index.types.js'
+import { getModelChat, defaultLLMPlatform, defaultLLMModel } from '../../../../src/agents/helpers/getModelChat.js'
+import { IMessage, LlmPlatforms } from '../../../../src/types/index.types.js'
 
 jest.setTimeout(120000)
 
@@ -53,7 +53,7 @@ describe('delegate agent voting tests', () => {
   }
 
   beforeAll(async () => {
-    llm = await getModelChat('openai', 'gpt-4o-mini', { temperature: 1.2 })
+    llm = await getModelChat(defaultLLMPlatform as LlmPlatforms, defaultLLMModel, { temperature: 1.2 })
   })
   it('should not choose the discussion that begins with its own question', async () => {
     const phasedHistory: { question: IMessage; conversation: Array<IMessage> }[] = []

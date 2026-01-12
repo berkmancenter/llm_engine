@@ -10,53 +10,45 @@ import { LlmPlatforms, LlmPlatformDetails, LlmModelDetails } from '../../types/i
 const PERSPECTIVE_API_URL = 'https://commentanalyzer.googleapis.com/$discovery/rest?version=v1alpha1'
 
 export const supportedModels: LlmModelDetails[] = [
+  // first one in list is default
   {
-    name: 'gpt-4o-mini',
-    label: 'OpenAI GPT-4o Mini',
-    llmPlatform: 'openai',
-    llmModel: 'gpt-4o-mini',
-    description: 'Fast, lightweight model ideal for everyday conversations and straightforward tasks'
-  },
-  {
-    name: 'gpt-4.1-2025-04-14',
-    label: 'OpenAI GPT-4.1',
-    llmPlatform: 'openai',
-    llmModel: 'gpt-4.1-2025-04-14',
-    description: 'A general-purpose model designed to handle a wide range of questions and tasks.'
-  },
-  {
-    name: 'gpt-5',
-    label: 'OpenAI GPT-5',
-    llmPlatform: 'openai',
-    llmModel: 'gpt-5',
-    description:
-      'Powerful general-purpose model built to handle complex reasoning, detailed analysis, and a wide range of creative and technical tasks.',
-    defaultModelOptions: { reasoningEffort: 'minimal' }
-  },
-  {
-    name: 'haiku-3.5',
-    label: 'AWS Bedrock Claude 3.5 Haiku',
+    name: 'haiku-4.5',
+    label: 'AWS Bedrock Claude Haiku 4.5',
     llmPlatform: 'bedrock',
-    llmModel: 'anthropic.claude-3-5-haiku-20241022-v1:0',
-    description: 'Fast, cost-effective model optimized for high-volume conversations and quick response times'
+    llmModel: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+    description: "Anthropic's fastest model with near-frontier intelligence"
   },
   {
-    name: 'sonnet-3.5',
-    label: 'AWS Bedrock Claude 3.5 Sonnet',
+    name: 'opus-4.5',
+    label: 'AWS Bedrock Claude Opus 4.5',
     llmPlatform: 'bedrock',
-    llmModel: 'anthropic.claude-3-5-sonnet-20240620-v1:0',
+    llmModel: 'us.anthropic.claude-opus-4-5-20251101-v1:0',
+    description: 'Premium model combining maximum intelligence with practical performance'
+    // "effort" level is currently in beta only
+  },
+  {
+    name: 'gpt-5.2',
+    label: 'OpenAI GPT-5.2',
+    llmPlatform: 'openai',
+    llmModel: 'gpt-5.2-2025-12-11',
     description:
-      'Balanced model offering strong intelligence and speed for everyday conversational tasks and complex reasoning'
+      'Powerful general-purpose model built to handle complex reasoning, detailed analysis, and a wide range of creative and technical tasks.'
+    // defaults to "none"
+    // defaultModelOptions: { reasoningEffort: 'high' }
   },
   {
     name: 'gemini-3-pro-preview',
     label: 'Google Gemini 3 Pro Preview',
     llmPlatform: 'google',
     llmModel: 'gemini-3-pro-preview',
-    description: 'Advanced multimodal model designed to support deep, engaging conversations across a wide range of topics',
-    defaultModelOptions: { thinkingConfig: { thinkingLevel: 'LOW' } }
+    description: 'Advanced multimodal model designed to support deep, engaging conversations across a wide range of topics'
+    // defaults to "HIGH"
+    // defaultModelOptions: { thinkingConfig: { thinkingLevel: 'HIGH' } }
   }
 ]
+
+export const defaultLLMPlatform = supportedModels[0].llmPlatform
+export const defaultLLMModel = supportedModels[0].llmModel
 
 export async function getOpenAIChat(model, modelOptions) {
   const aiConfig = {

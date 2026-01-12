@@ -6,19 +6,19 @@ on:
   workflow_dispatch:
     inputs:
       llmPlatform:
-        description: 'The LLM Platform to use for agent testing'
+        description: "The LLM Platform to use for agent testing"
         required: true
-        default: 'openai'
+        default: "bedrock"
         type: choice
         options:
-          - 'openai'
-          - 'bedrock'
-          - 'vllm'
-          - 'google'
+          - "openai"
+          - "bedrock"
+          - "vllm"
+          - "google"
       llmModel:
-        description: 'The LLM Model to use for agent testing'
+        description: "The LLM Model to use for agent testing"
         required: true
-        default: 'gpt-4o-mini'
+        default: "us.anthropic.claude-haiku-4-5-20251001-v1:0"
         type: string
 
 jobs:

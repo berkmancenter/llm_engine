@@ -8,6 +8,7 @@ import Conversation from '../../src/models/conversation.model.js'
 import defaultAgentTypes from '../../src/agents/index.js'
 import schedule from '../../src/jobs/schedule.js'
 import defineJob from '../../src/jobs/define.js'
+import { defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/getModelChat.js'
 
 const mockEvaluate = jest.fn()
 const mockRespond = jest.fn()
@@ -33,8 +34,8 @@ const testAgentTypes = {
     defaultLLMTemplates: {
       template: 'Default template'
     },
-    defaultLLMPlatform: 'openai',
-    defaultLLMModel: 'gpt-4o-mini',
+    defaultLLMPlatform,
+    defaultLLMModel,
     defaultLLMModelOptions: { prop: 'value' }
   },
   periodic: {
@@ -51,8 +52,8 @@ const testAgentTypes = {
     priority: 200,
     llmTemplateVars: {},
     llmTemplates: {},
-    defaultLLMPlatform: 'openai',
-    defaultLLMModel: 'gpt-4o-mini'
+    defaultLLMPlatform,
+    defaultLLMModel
   },
   perMessage: {
     initialize: mockInitialize,
@@ -68,8 +69,8 @@ const testAgentTypes = {
     priority: 10,
     llmTemplateVars: {},
     llmTemplates: {},
-    defaultLLMPlatform: 'openai',
-    defaultLLMModel: 'gpt-4o-mini'
+    defaultLLMPlatform,
+    defaultLLMModel
   }
 }
 setupIntTest()
