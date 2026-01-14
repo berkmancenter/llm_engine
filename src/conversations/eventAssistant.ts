@@ -41,7 +41,7 @@ const eventAssistant: ConversationType = {
     }
   ],
   enableDMs: ['agents'],
-  channels: [{ name: 'transcript' }],
+  channels: [{ name: 'transcript' }, { name: 'chat' }],
   adapters: {
     zoom: {
       type: 'zoom',
