@@ -62,7 +62,7 @@ describe('WebSocket Integration - Conversation Terminology', () => {
       }, 500)
     })
 
-    test('should join conversation room with channel', (done) => {
+    test('should join conversation room with single channel', (done) => {
       let errorReceived = false
       const testChannel = { name: 'general' }
 
@@ -76,6 +76,52 @@ describe('WebSocket Integration - Conversation Terminology', () => {
       clientSocket1.on('error', (error) => {
         errorReceived = true
         done(new Error(`Failed to join conversation with channel: ${error.message}`))
+      })
+
+      setTimeout(() => {
+        if (!errorReceived) {
+          done()
+        }
+      }, 500)
+    })
+
+    test('should join conversation room with multiple channels', (done) => {
+      let errorReceived = false
+      const testChannels = [{ name: 'general' }, { name: 'announcements' }]
+
+      clientSocket1.emit('conversation:join', {
+        token: userOneAccessToken,
+        conversationId: conversationOne._id,
+        channels: testChannels,
+        request: 'test-request-3'
+      })
+
+      clientSocket1.on('error', (error) => {
+        errorReceived = true
+        done(new Error(`Failed to join conversation with multiple channels: ${error.message}`))
+      })
+
+      setTimeout(() => {
+        if (!errorReceived) {
+          done()
+        }
+      }, 500)
+    })
+
+    test('should join channel directly', (done) => {
+      let errorReceived = false
+      const testChannel = { name: 'general' }
+
+      clientSocket1.emit('channel:join', {
+        token: userOneAccessToken,
+        conversationId: conversationOne._id,
+        channel: testChannel,
+        request: 'test-request-4'
+      })
+
+      clientSocket1.on('error', (error) => {
+        errorReceived = true
+        done(new Error(`Failed to join channel directly: ${error.message}`))
       })
 
       setTimeout(() => {
@@ -164,7 +210,7 @@ describe('WebSocket Integration - Conversation Terminology', () => {
       }, 500)
     })
 
-    test('should generate correct room ID for conversation with channel', (done) => {
+    test('should generate correct room ID for conversation with single channel', (done) => {
       let errorReceived = false
       const testChannel = { name: 'general' }
 
@@ -178,6 +224,52 @@ describe('WebSocket Integration - Conversation Terminology', () => {
       clientSocket1.on('error', (error) => {
         errorReceived = true
         done(new Error(`Room ID generation with channel failed: ${error.message}`))
+      })
+
+      setTimeout(() => {
+        if (!errorReceived) {
+          done()
+        }
+      }, 500)
+    })
+
+    test('should generate correct room IDs for conversation with multiple channels', (done) => {
+      let errorReceived = false
+      const testChannels = [{ name: 'general' }, { name: 'announcements' }]
+
+      clientSocket1.emit('conversation:join', {
+        token: userOneAccessToken,
+        conversationId: conversationOne._id,
+        channels: testChannels,
+        request: 'test-room-3'
+      })
+
+      clientSocket1.on('error', (error) => {
+        errorReceived = true
+        done(new Error(`Room ID generation with multiple channels failed: ${error.message}`))
+      })
+
+      setTimeout(() => {
+        if (!errorReceived) {
+          done()
+        }
+      }, 500)
+    })
+
+    test('should generate correct room ID for direct channel join', (done) => {
+      let errorReceived = false
+      const testChannel = { name: 'general' }
+
+      clientSocket1.emit('channel:join', {
+        token: userOneAccessToken,
+        conversationId: conversationOne._id,
+        channel: testChannel,
+        request: 'test-room-4'
+      })
+
+      clientSocket1.on('error', (error) => {
+        errorReceived = true
+        done(new Error(`Room ID generation for direct channel join failed: ${error.message}`))
       })
 
       setTimeout(() => {

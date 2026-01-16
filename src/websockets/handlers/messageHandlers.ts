@@ -1,8 +1,7 @@
-import { conversationService, messageService } from '../../services/index.js'
+import { messageService } from '../../services/index.js'
 import WebsocketError from '../../utils/WebsocketError.js'
-import { checkAuth, getRoomId } from '../utils.js'
+import { checkAuth } from '../utils.js'
 import logger from '../../config/logger.js'
-import authChannels from '../../utils/authChannels.js'
 
 export default (io, socket) => {
   const createMessage = async (data) => {
@@ -17,28 +16,6 @@ export default (io, socket) => {
       // send error back to user
       io.in(data.userId).emit('error', {
         error: 'message:create',
-        message: err.message,
-        request: data.request,
-        statusCode: err.statusCode
-      })
-    }
-  }
-  const joinConversation = async (data) => {
-    try {
-      await conversationService.joinConversation(data.conversationId.toString(), data.user)
-
-      let channelName
-      if (data.channel) {
-        await authChannels([data.channel], data.conversationId.toString(), data.user)
-        channelName = data.channel.name
-      }
-      const roomId = getRoomId(data.conversationId.toString(), channelName)
-      logger.debug('Joining conversation via socket. Room: %s', roomId)
-      socket.join(roomId)
-    } catch (err) {
-      logger.error('Error joining conversation', err)
-      socket.emit('error', {
-        error: 'conversation:join',
         message: err.message,
         request: data.request,
         statusCode: err.statusCode
@@ -64,7 +41,6 @@ export default (io, socket) => {
     }
   })
   socket.on('message:create', createMessage)
-  socket.on('conversation:join', joinConversation)
   socket.on('conversation:disconnect', () => {
     logger.info('Socket disconnecting from conversation.')
     socket.disconnect(true)
