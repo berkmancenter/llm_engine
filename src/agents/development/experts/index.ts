@@ -2,7 +2,7 @@ import mongoose from 'mongoose'
 
 import responseFormatSchemas from '../../helpers/responseFormatSchemas.js'
 import verify from '../../helpers/verify.js'
-import { formatConversationHistory } from '../../helpers/llmInputFormatters.js'
+import { formatMessage, formatMessages } from '../../helpers/llmInputFormatters.js'
 import { getRAGAugmentedResponse } from '../../helpers/llmChain.js'
 import logger from '../../../config/logger.js'
 import { defaultLLMTemplates, llmTemplateVars, discussionQuestions, displayNames } from './prompts.js'
@@ -10,6 +10,7 @@ import addCitations from '../../helpers/addCitations.js'
 import saveMessage from '../../helpers/saveMessage.js'
 import getConversationHistory from '../../helpers/getConversationHistory.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../../helpers/getModelChat.js'
+import { ConversationHistory } from '../../../types/index.types.js'
 
 // agentConfig property should be an an object with these properties
 // discussionQuestions: String Array // questions the moderator should pose, optional if no questions
@@ -18,6 +19,12 @@ import { defaultLLMModel, defaultLLMPlatform } from '../../helpers/getModelChat.
 // expertRAGFiles: String Array, // rag document filenames the expert can consult
 
 const MODERATOR_NAME = 'Moderator'
+
+function formatConversationHistory(conversationHistory: ConversationHistory, userMessage?) {
+  const formattedMessages = formatMessages(conversationHistory.messages)
+  if (userMessage) formattedMessages.push(formatMessage(userMessage))
+  return formattedMessages.join('\n')
+}
 
 async function getExpertResponse(question, expertName) {
   if (!this.llmTemplateVars[expertName]) throw new Error(`No known expert ${expertName}`)

@@ -1,4 +1,4 @@
-import { getSingleUserChatPromptResponse } from '../helpers/llmChain.js'
+import { getChatPromptResponse } from '../helpers/llmChain.js'
 import transcript from '../helpers/transcript.js'
 
 export enum QuestionClassification {
@@ -123,7 +123,7 @@ export const eventAssistantLlmTemplateVars = {
 async function getResponse(question, optionalRecentTranscriptSection, chunks, chatHistory, systemTemplate) {
   const llm = await this.getLLM()
   const topic = this.conversation.name
-  const llmResponse = await getSingleUserChatPromptResponse(
+  const llmResponse = await getChatPromptResponse(
     llm,
     systemTemplate,
     this.llmTemplates.user,

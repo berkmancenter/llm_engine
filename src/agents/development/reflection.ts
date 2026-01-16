@@ -1,37 +1,41 @@
 import { RunnableSequence } from '@langchain/core/runnables'
-import { PromptTemplate } from '@langchain/core/prompts'
+import { ChatPromptTemplate } from '@langchain/core/prompts'
 import { StringOutputParser } from '@langchain/core/output_parsers'
 import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
 import verify from '../helpers/verify.js'
-import { formatMessages } from '../helpers/llmInputFormatters.js'
-import { getSinglePromptResponse } from '../helpers/llmChain.js'
+import { formatMultiUserConversationHistory } from '../helpers/llmInputFormatters.js'
+import { getChatPromptResponse } from '../helpers/llmChain.js'
 import Message from '../../models/message.model.js'
 import saveMessage from '../helpers/saveMessage.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 
 const defaultLLMTemplates = {
-  summarization: `You are a facilitator of an online deliberation on the given discussion topic.
-You will receive the most recent comments on the topic.
-In each line of the most recent comments, I provide you with a participant's handle name, followed by a ":" and then the participants's comment on the given discussion topic.
+  summarization: {
+    system: `You are a facilitator of an online deliberation on the given discussion topic.
+You will receive the most recent comments on the topic in the conversation history.
+Each comment includes the participant's handle name.
 You will also receive summaries of the conversation that occurred prior to these most recent comments.
 Please generate a summary of the deliberation thus far. Do not summarize the comments one at a time.
 Instead write a well-written, highly coherent, and all encompassing summary.
 In the summary, make sure to include information and quantification on how much agreement versus disagreement there was among participants.
-Exclude off-topic comments from your analysis.
-Deliberation topic: {topic}
-Comments: {convHistory}
+Exclude off-topic comments from your analysis.`,
+    user: `Deliberation topic: {topic}
 Summaries: {summaries}
-Answer:`,
-  consensus: `Given the following summary of various comments from a deliberation platform, generate one original comment that is likely to get consensus.
+Answer:`
+  },
+  consensus: {
+    system: `Given the following summary of various comments from a deliberation platform, generate one original comment that is likely to get consensus.
 I am including your prior consensus proposals. Make sure your original comment is unique from these prior proposals.
 Present your comment to the group for discussion along with a more concise summary of the discussion thus far.
-Limit your summary and comment to three sentences. Use a conversational tone. Present the summary first. Do not identify the summary and comment with labels.
-Summary: {summary}
+Limit your summary and comment to three sentences. Use a conversational tone. Present the summary first. Do not identify the summary and comment with labels.`,
+    user: `Summary: {summary}
 Prior Consensus Proposals: {proposals}
-Answer: `,
-  chat: `You are a facilitator of an online deliberation on the given discussion topic.
-You will receive the most recent comments on the topic.
-In each line of the most recent comments, I provide you with a participant's handle name, followed by a ":" and then the participants's comment on the given discussion topic.
+Answer:`
+  },
+  chat: {
+    system: `You are a facilitator of an online deliberation on the given discussion topic.
+You will receive the most recent comments on the topic in the conversation history.
+Each comment includes the participant's handle name.
 You are the participant known as 'AI'.
 You will also receive summaries of the conversation that occurred prior to these most recent comments.
 A participant has asked you the given Participant Question, addressing you as '@"Reflection Agent".'
@@ -39,12 +43,12 @@ The question starts with participants's username followed by ":" and then the pa
 Do your best to answer the question, but only if it broadly concerns the discussion topic, a topic you raised in the conversation history, or guidelines for healthy civil deliberation.
 Othwerise, respond with a polite reminder that you can only answer questions about the discussion topic or deliberation procedure.
 Be concise and limit your answer to three sentences.
-Respond to the participant by their username (all text before the : character), prefaced with the @ symbol.
-Deliberation topic: {topic}
-Comments: {convHistory}
+Respond to the participant by their username (all text before the : character), prefaced with the @ symbol.`,
+    user: `Deliberation topic: {topic}
 Summaries: {summaries}
 Participant Question: {question}
 Answer:`
+  }
 }
 
 const llmTemplateVars = {
@@ -138,21 +142,44 @@ export default verify({
     const summaries = summaryMessages.map((message) => `Summary: ${message.body}`)
 
     if (userMessage?.body.includes(`@"${this.name}"`)) {
-      const msgs = conversationHistory.messages.filter((msg) => msg.visible)
-      const convHistory = formatMessages(msgs).join('\n')
-      llmResponse = await getSinglePromptResponse(llm, this.llmTemplates.chat, {
-        convHistory,
-        summaries,
-        topic: this.conversation.name,
-        question: `${userMessage.pseudonym}: ${userMessage.body}`
-      })
+      const visibleConversationHistory = {
+        ...conversationHistory,
+        messages: conversationHistory.messages.filter((msg) => msg.visible)
+      }
+      const chatHistory = formatMultiUserConversationHistory(visibleConversationHistory)
+      llmResponse = await getChatPromptResponse(
+        llm,
+        this.llmTemplates.chat.system,
+        this.llmTemplates.chat.user,
+        {
+          summaries,
+          topic: this.conversation.name,
+          question: `${userMessage.pseudonym}: ${userMessage.body}`
+        },
+        chatHistory
+      )
     } else {
       pause = 30
-      const msgs = conversationHistory.messages.filter((msg) => !msg.fromAgent)
-      const convHistory = formatMessages(msgs).join('\n')
-      const summarizationPrompt = PromptTemplate.fromTemplate(this.llmTemplates.summarization)
+      const nonAgentConversationHistory = {
+        ...conversationHistory,
+        messages: conversationHistory.messages.filter((msg) => !msg.fromAgent)
+      }
+      const chatHistory = formatMultiUserConversationHistory(nonAgentConversationHistory)
+
+      // Convert {role, content} format to [role, content] tuple format for LangChain
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const chatHistoryTuples = chatHistory.map((msg) => [msg.role, msg.content] as any)
+
+      const summarizationPrompt = ChatPromptTemplate.fromMessages([
+        ['system', this.llmTemplates.summarization.system],
+        ...chatHistoryTuples,
+        ['user', this.llmTemplates.summarization.user]
+      ])
       const summarizationChain = summarizationPrompt.pipe(llm).pipe(new StringOutputParser())
-      const consensusPrompt = PromptTemplate.fromTemplate(this.llmTemplates.consensus)
+      const consensusPrompt = ChatPromptTemplate.fromMessages([
+        ['system', this.llmTemplates.consensus.system],
+        ['user', this.llmTemplates.consensus.user]
+      ])
 
       // Store detailed summaries as invisible agent messages to use for context in future analysis
       const storeSummary = async (summary) => {
@@ -184,7 +211,7 @@ export default verify({
         llm,
         new StringOutputParser()
       ])
-      llmResponse = await chain.invoke({ topic: this.conversation.name, convHistory, summaries })
+      llmResponse = await chain.invoke({ topic: this.conversation.name, summaries })
     }
 
     const agentResponse = {
