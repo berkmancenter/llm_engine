@@ -527,6 +527,7 @@ export async function createEventAssistantConversation(conversationObj, owner, t
   })
   const channels = await Channel.create([
     { name: 'transcript' },
+    { name: 'chat' },
     { name: `direct-agents-${owner._id}`, direct: true, participants: [owner, agent] }
   ])
   conversation.channels.push(...channels)
@@ -556,7 +557,8 @@ export async function createEventAssistantPlusConversation(
   const channels = await Channel.create([
     { name: 'transcript' },
     { name: `direct-agents-${owner._id}`, direct: true, participants: [owner, agent] },
-    { name: 'participant' }
+    { name: 'participant' },
+    { name: 'chat' }
   ])
   conversation.channels.push(...channels)
   await agent.save()

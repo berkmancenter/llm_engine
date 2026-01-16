@@ -1,6 +1,5 @@
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, AgentResponse, ConversationHistory } from '../../types/index.types.js'
-import { formatSingleUserConversationHistory } from '../helpers/llmInputFormatters.js'
 
 import Message from '../../models/message.model.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
@@ -64,12 +63,14 @@ export default verify({
   priority: 100,
   maxTokens: 2000,
   defaultTriggers: {
-    perMessage: { directMessages: true }
+    perMessage: { directMessages: true, channels: ['chat'] }
   },
   agentConfig: {
     introMessage: `Hi! I'm the LLM Event Assistant. I'm listening to the event, so feel free to ask me questions like “what did I just miss,” or, “what was that acronym?” If you ask a (relevant!) question I can't answer, I'll ask if you want to send it through to the moderator. Use /mod to fast-track a message to the mod. The mod will get a digestible summary of questions.
 
-A pseudonymized message transcript will be visible to our eng team. Thanks for trying the tool, please share your feedback at brk.mn/feedback!`
+A pseudonymized message transcript will be visible to our eng team. Thanks for trying the tool, please share your feedback at brk.mn/feedback!`,
+    chatIntroMessage:
+      'Welcome to the chat! This is a space to chat with other event participants. You can also ask me questions with an @Event Assistant mention. Just remember that everyone can see what you ask me here. Use the Event Assistant tab if you want to talk privately. Have fun!'
   },
   llmTemplateVars: eventAssistantLlmTemplateVars,
   defaultLLMTemplates: eventAssistantLLMTemplates,
@@ -86,12 +87,21 @@ A pseudonymized message transcript will be visible to our eng team. Thanks for t
   },
   ragCollectionName: undefined,
   useTranscriptRAGCollection: true,
-  defaultConversationHistorySettings: { count: 100, directMessages: true },
+  defaultConversationHistorySettings: { count: 100, directMessages: true, channels: ['chat'] },
 
   async initialize() {
     return true
   },
   async evaluate(userMessage) {
+    if (userMessage?.channels?.includes('chat') && !userMessage?.body.includes('@Event Assistant')) {
+      // regular chat message, no need to process
+      return {
+        userMessage,
+        action: AgentMessageActions.OK,
+        userContributionVisible: true,
+        suggestion: undefined
+      }
+    }
     const modifiedMessage = { ...userMessage }
     if (modifiedMessage.body.trim().toString().toLowerCase().startsWith(submitToModeratorCommand)) {
       modifiedMessage!.channels = modifiedMessage!.channels ?? []
@@ -107,67 +117,75 @@ A pseudonymized message transcript will be visible to our eng team. Thanks for t
     }
   },
   async respond(conversationHistory: ConversationHistory, userMessage) {
-    if (userMessage) {
-      // Check if the previous message was asking about submitting to moderator
-      const lastMessage = conversationHistory.messages[conversationHistory.messages.length - 1]
-
-      if (
-        conversationHistory.messages.length > 1 &&
-        lastMessage.bodyType === 'json' &&
-        (lastMessage.body as Record<string, unknown>).text === submitToModeratorQuestion
-      ) {
-        const originalMessageId = (lastMessage.body as Record<string, unknown>).message
-        const message = await Message.findById(originalMessageId)
-        if (isAffirmative(userMessage.body)) {
-          if (!message) {
-            logger.error(`Could not find original message with ID ${originalMessageId} to submit to moderator`)
-            return []
-          }
-          message!.channels = message!.channels ?? []
-          message!.channels.push('participant')
-          await message!.save()
-          return submitToModeratorResponse.call(this, userMessage, message)
-        }
-
-        if (isNegative(userMessage.body)) {
-          return declineModeratorResponse.call(this, userMessage, message)
-        }
-        // If neither affirmative nor negative, fall through to process as a new question
-      }
-
-      if (userMessage.channels?.includes('participant')) {
-        return submitToModeratorResponse.call(this, userMessage, userMessage)
-      }
-
-      const chatHistory = formatSingleUserConversationHistory(conversationHistory)
-
-      const agentResponse = await answerQuestion.call(this, userMessage, chatHistory)
-      const agentResponses: AgentResponse<string | Record<string, unknown>>[] = [agentResponse]
-      const { classification } = agentResponse
-      if (
-        classification === QuestionClassification.UNANSWERABLE ||
-        classification === QuestionClassification.ON_TOPIC_ASK_SPEAKER
-      ) {
-        agentResponses.push({
-          visible: true,
-          message: {
-            type: 'moderator_offered',
-            text: submitToModeratorQuestion,
-            message: userMessage._id.toString()
-          },
-          messageType: 'json',
-          channels: this.conversation.channels.filter((channel) => userMessage.channels.includes(channel.name)),
-          replyFormat: {
-            type: 'singleChoice',
-            options: [
-              { value: 'no', label: 'No' },
-              { value: 'yes', label: 'Yes' }
-            ]
-          }
-        })
-      }
-      return agentResponses
+    // Message on chat channel?
+    if (userMessage?.channels?.includes('chat')) {
+      const modifiedMessage = { ...userMessage }
+      // trim the '@Event Assistant' from the message body so it's just a regular question
+      modifiedMessage.body = modifiedMessage.body
+        .trim()
+        .replace(/@Event Assistant/gi, '')
+        .trim()
+      const agentResponse = await answerQuestion.call(this, modifiedMessage, conversationHistory)
+      return [agentResponse]
     }
+
+    // Check if the previous message was asking about submitting to moderator
+    const lastMessage = conversationHistory.messages[conversationHistory.messages.length - 1]
+
+    if (
+      conversationHistory.messages.length > 1 &&
+      lastMessage.bodyType === 'json' &&
+      (lastMessage.body as Record<string, unknown>).text === submitToModeratorQuestion
+    ) {
+      const originalMessageId = (lastMessage.body as Record<string, unknown>).message
+      const message = await Message.findById(originalMessageId)
+      if (isAffirmative(userMessage.body)) {
+        if (!message) {
+          logger.error(`Could not find original message with ID ${originalMessageId} to submit to moderator`)
+          return []
+        }
+        message!.channels = message!.channels ?? []
+        message!.channels.push('participant')
+        await message!.save()
+        return submitToModeratorResponse.call(this, userMessage, message)
+      }
+
+      if (isNegative(userMessage.body)) {
+        return declineModeratorResponse.call(this, userMessage, message)
+      }
+      // If neither affirmative nor negative, fall through to process as a new question
+    }
+
+    if (userMessage.channels?.includes('participant')) {
+      return submitToModeratorResponse.call(this, userMessage, userMessage)
+    }
+
+    const agentResponse = await answerQuestion.call(this, userMessage, conversationHistory)
+    const agentResponses: AgentResponse<string | Record<string, unknown>>[] = [agentResponse]
+    const { classification } = agentResponse
+    if (
+      classification === QuestionClassification.UNANSWERABLE ||
+      classification === QuestionClassification.ON_TOPIC_ASK_SPEAKER
+    ) {
+      agentResponses.push({
+        visible: true,
+        message: {
+          type: 'moderator_offered',
+          text: submitToModeratorQuestion,
+          message: userMessage._id.toString()
+        },
+        messageType: 'json',
+        channels: this.conversation.channels.filter((channel) => userMessage.channels.includes(channel.name)),
+        replyFormat: {
+          type: 'singleChoice',
+          options: [
+            { value: 'no', label: 'No' },
+            { value: 'yes', label: 'Yes' }
+          ]
+        }
+      })
+    }
+    return agentResponses
   },
   async start() {
     return true
@@ -180,6 +198,15 @@ A pseudonymized message transcript will be visible to our eng team. Thanks for t
       return [
         {
           message: this.agentConfig.introMessage,
+          channels: [channel],
+          visible: true
+        }
+      ]
+    }
+    if (channel.name === 'chat') {
+      return [
+        {
+          message: this.agentConfig.chatIntroMessage,
           channels: [channel],
           visible: true
         }
