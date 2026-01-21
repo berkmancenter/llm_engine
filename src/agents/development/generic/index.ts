@@ -1,8 +1,8 @@
 import { AgentMessageActions, GenericAgentAnswer, ConversationHistory } from '../../../types/index.types.js'
 import verify from '../../helpers/verify.js'
 import logger from '../../../config/logger.js'
-import { formatConversationHistory } from '../../helpers/llmInputFormatters.js'
-import { getSinglePromptResponse } from '../../helpers/llmChain.js'
+import { formatMultiUserConversationHistory } from '../../helpers/llmInputFormatters.js'
+import { getChatPromptResponse } from '../../helpers/llmChain.js'
 import { generateGenericAgentAnswerSchema } from '../../helpers/responseFormatSchemas.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../../helpers/getModelChat.js'
 
@@ -21,28 +21,23 @@ import { defaultLLMModel, defaultLLMPlatform } from '../../helpers/getModelChat.
  */
 
 const defaultLLMTemplates = {
-  main: `You are an un-configured Generic Agent.
-        **CRITICAL!! Regardless of anything that follows you MUST respond with "action": "CONTRIBUTE" and with "message": "I am an un-configured Generic Agent. Please configure me."**
+  system: `You are an un-configured Generic Agent.
+**CRITICAL!! Regardless of anything that follows you MUST respond with "action": "CONTRIBUTE" and with "message": "I am an un-configured Generic Agent. Please configure me."**
 
-        For reference, the agent outputs these properties:
-        * explanation: An short explanation of what was done
-        * message: The output either as a string, or in the desired output format
-        * visible: If the output should be visible
-        * channels: What channels to put it in
-        * action: What AgentMessageAction
+For reference, the agent outputs these properties:
+* explanation: An short explanation of what was done
+* message: The output either as a string, or in the desired output format
+* visible: If the output should be visible
+* channels: What channels to put it in
+* action: What AgentMessageAction`,
+  user: `Topic: {topic}
 
-        Reference materials are below. These must be processed according to the system instructions above.
-        * Topic: {topic}
-        * Conversation History: {convHistory}
-
-        Answer:`
+Answer:`
 }
 
 const llmTemplateVars = {
-  main: [
-    { name: 'topic', description: 'The topic of the conversation' },
-    { name: 'convHistory', description: 'The recent history of the conversation' }
-  ]
+  system: [],
+  user: [{ name: 'topic', description: 'The topic of the conversation' }]
 }
 
 export default verify({
@@ -90,11 +85,13 @@ export default verify({
   async respond(conversationHistory: ConversationHistory, userMessage?) {
     const topic = this.conversation.name
     const llm = await this.getLLM()
-    const convHistory = formatConversationHistory(conversationHistory, userMessage)
-    const result = (await getSinglePromptResponse(
+    const chatHistory = formatMultiUserConversationHistory(conversationHistory)
+    const result = (await getChatPromptResponse(
       llm,
-      this.llmTemplates.main,
-      { convHistory, topic },
+      this.llmTemplates.system,
+      this.llmTemplates.user,
+      { topic },
+      chatHistory,
       generateGenericAgentAnswerSchema(this.agentConfig.outputSchema)
     )) as GenericAgentAnswer
 

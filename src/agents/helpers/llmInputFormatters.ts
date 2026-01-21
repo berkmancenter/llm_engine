@@ -64,12 +64,6 @@ function formatAndFilterMessages(messages, settings: ConversationHistorySettings
   return formatMessages(convHistory.messages)
 }
 
-function formatConversationHistory(conversationHistory: ConversationHistory, userMessage?) {
-  const formattedMessages = formatMessages(conversationHistory.messages)
-  if (userMessage) formattedMessages.push(formatMessage(userMessage))
-  return formattedMessages.join('\n')
-}
-
 function formatSingleUserConversationHistory(conversationHistory: ConversationHistory) {
   return conversationHistory.messages.map((message) => {
     let messageText = message.body
@@ -86,6 +80,26 @@ function formatSingleUserConversationHistory(conversationHistory: ConversationHi
       return { role: 'assistant', content: messageText }
     }
     return { role: 'user', content: messageText }
+  })
+}
+
+function formatMultiUserConversationHistory(conversationHistory: ConversationHistory) {
+  return conversationHistory.messages.map((message) => {
+    let messageText = message.body
+    // conversation history messsages must be strings. If json, assume it has a 'text' property
+    if (message.bodyType === 'json') {
+      if (!(message.body as Record<string, unknown>).text) {
+        logger.warn(`Message with ID ${message._id} has bodyType 'json' but no 'text' property. Defaulting to empty string.`)
+        messageText = ''
+      } else {
+        messageText = (message.body as Record<string, unknown>).text as string
+      }
+    }
+    if (message.fromAgent) {
+      return { role: 'assistant', content: messageText }
+    }
+    // For multi-user environments, include the pseudonym in the content
+    return { role: 'user', content: `${message.pseudonym}: ${messageText}` }
   })
 }
 
@@ -114,11 +128,11 @@ function formatConversationPhases(phases) {
 }
 
 export {
-  formatConversationHistory,
   formatConversationPhases,
   formatMessage,
   formatMessages,
   formatSingleUserConversationHistory,
+  formatMultiUserConversationHistory,
   formatTranscript,
   formatTime
 }

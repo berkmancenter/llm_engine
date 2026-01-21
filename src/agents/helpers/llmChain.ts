@@ -175,6 +175,7 @@ function getStructuredResponseChain(llm, prompt, responseFormatSchema) {
  * This function constructs a chat prompt from system and user templates, optionally includes
  * chat history, and invokes the LLM. When a structured output schema is provided, it uses
  * the `getStructuredResponseChain` function to ensure properly formatted responses.
+ * Supports multi-user environments where chat history can include messages from multiple users.
  *
  * @param llm - The language model instance to use for generation
  * @param systemTemplate - The system message template string
@@ -189,7 +190,7 @@ function getStructuredResponseChain(llm, prompt, responseFormatSchema) {
  * @example
  * ```typescript
  * // Simple string response
- * const response = await getSingleUserChatPromptResponse(
+ * const response = await getChatPromptResponse(
  *   llm,
  *   "You are a helpful assistant",
  *   "What is {topic}?",
@@ -204,7 +205,7 @@ function getStructuredResponseChain(llm, prompt, responseFormatSchema) {
  *   results: z.array(z.object({ name: z.string(), score: z.number() }))
  * });
  *
- * const response = await getSingleUserChatPromptResponse(
+ * const response = await getChatPromptResponse(
  *   llm,
  *   "You are a data analyst",
  *   "Analyze {data}",
@@ -215,7 +216,7 @@ function getStructuredResponseChain(llm, prompt, responseFormatSchema) {
  * // Returns: { results: [...] }
  * ```
  */
-async function getSingleUserChatPromptResponse(
+async function getChatPromptResponse(
   llm,
   systemTemplate,
   userTemplate,
@@ -224,7 +225,7 @@ async function getSingleUserChatPromptResponse(
   structuredOutputSchema?
 ) {
   // a requirement for vLLM over OpenAI compatible API
-  const chatHistory = ensureAlternatingChat(inputChatHistory)
+  const chatHistory = ensureAlternatingChat(inputChatHistory || [])
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any = [
@@ -315,7 +316,7 @@ async function getRAGAugmentedResponse(
 export {
   getSinglePromptResponse,
   getRAGAugmentedResponse,
-  getSingleUserChatPromptResponse,
+  getChatPromptResponse,
   shouldUseStructuredOutput,
   pingLLM,
   getStructuredResponseChain

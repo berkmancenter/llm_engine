@@ -1,7 +1,7 @@
 import mongoose from 'mongoose'
 import responseFormatSchemas from '../../helpers/responseFormatSchemas.js'
 import verify from '../../helpers/verify.js'
-import { formatConversationHistory, formatConversationPhases } from '../../helpers/llmInputFormatters.js'
+import { formatConversationPhases, formatMessage, formatMessages } from '../../helpers/llmInputFormatters.js'
 import voteOnConversationPhase from './voteOnConversationPhases.js'
 import { getSinglePromptResponse, getRAGAugmentedResponse } from '../../helpers/llmChain.js'
 import logger from '../../../config/logger.js'
@@ -9,7 +9,7 @@ import websocketGateway from '../../../websockets/websocketGateway.js'
 import { defaultLLMTemplates, llmTemplateVars } from './prompts.js'
 import addCitations from '../../helpers/addCitations.js'
 import saveMessage from '../../helpers/saveMessage.js'
-import { IMessage } from '../../../types/index.types.js'
+import { ConversationHistory, IMessage } from '../../../types/index.types.js'
 import { Delegate } from './delegates.types.js'
 import getConversationHistory from '../../helpers/getConversationHistory.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../../helpers/getModelChat.js'
@@ -25,6 +25,12 @@ import { defaultLLMModel, defaultLLMPlatform } from '../../helpers/getModelChat.
 // delegateRAGFiles: String Array // rag document filenames the delegates can consult
 
 // give moderator access to more conversation history
+
+function formatConversationHistory(conversationHistory: ConversationHistory, userMessage?) {
+  const formattedMessages = formatMessages(conversationHistory.messages)
+  if (userMessage) formattedMessages.push(formatMessage(userMessage))
+  return formattedMessages.join('\n')
+}
 
 async function getContributionResponse(delegate, question) {
   const convHistory = formatConversationHistory(

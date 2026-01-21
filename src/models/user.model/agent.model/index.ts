@@ -373,18 +373,44 @@ agentSchema.method('respond', async function (userMessage = null) {
     ? this.triggers?.perMessage?.conversationHistorySettings ?? this.conversationHistorySettings
     : this.triggers?.periodic?.conversationHistorySettings ?? this.conversationHistorySettings
   if (conversationHistorySettings) {
-    let directChannels
+    const effectiveSettings = { ...conversationHistorySettings }
+
+    // When there's a userMessage and channels are specified in settings,
+    // filter to only channels that are both:
+    // 1. In the user's settings (channels they want history from)
+    // 2. Channels the userMessage is on
+    if (userMessage && effectiveSettings.channels) {
+      effectiveSettings.channels = effectiveSettings.channels.filter((channel) => userMessage.channels.includes(channel))
+    }
+
+    let directChannels: string[] | undefined
     if (userMessage) {
-      // history of messages between this specific user and agent on this message's direct channels
+      // When there's a userMessage, only include direct channels the message is on
+      // Check if any of the userMessage channels are direct channels
+      const userMessageDirectChannels = this.conversation.channels.filter(
+        (channel) => channel.direct && userMessage.channels.includes(channel.name)
+      )
+
+      if (userMessageDirectChannels.length > 0) {
+        // history of messages between this specific user and agent on this message's direct channels
+        directChannels = this.conversation.channels
+          .filter((channel) => {
+            const participantIds = channel.participants?.map((p) => p.toString()) || []
+            return (
+              userMessage.channels.includes(channel.name) &&
+              channel.direct &&
+              participantIds.includes(userMessage.owner.toString()) &&
+              participantIds.includes(this._id.toString())
+            )
+          })
+          .map((c) => c.name)
+      }
+    } else if (effectiveSettings.directMessages) {
+      // When there's no userMessage (periodic trigger), get all direct channels with this agent
       directChannels = this.conversation.channels
         .filter((channel) => {
           const participantIds = channel.participants?.map((p) => p.toString()) || []
-          return (
-            userMessage.channels.includes(channel.name) &&
-            channel.direct &&
-            participantIds.includes(userMessage.owner.toString()) &&
-            participantIds.includes(this._id.toString())
-          )
+          return channel.direct && participantIds.includes(this._id.toString())
         })
         .map((c) => c.name)
     }
@@ -396,7 +422,7 @@ agentSchema.method('respond', async function (userMessage = null) {
     // Get conversation history
     conversationHistory = getConversationHistory(
       messagesToProcess,
-      conversationHistorySettings,
+      effectiveSettings,
       [this.name],
       directChannels,
       agentTypes[this.agentType].parseInput

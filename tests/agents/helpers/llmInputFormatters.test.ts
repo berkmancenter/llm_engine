@@ -1,10 +1,10 @@
 import mongoose from 'mongoose'
 import { Message } from '../../../src/models/index.js'
 import {
-  formatConversationHistory,
   formatConversationPhases,
   formatMessage,
-  formatSingleUserConversationHistory
+  formatSingleUserConversationHistory,
+  formatMultiUserConversationHistory
 } from '../../../src/agents/helpers/llmInputFormatters.js'
 import { IMessage } from '../../../src/types/index.types.js'
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
@@ -73,56 +73,44 @@ describe('LLM Input Formatter Tests', () => {
     expect(chunks).toEqual(expectedChunks)
   })
 
-  it('should format conversation history', async () => {
+  it('should format multi-user conversation history', async () => {
     const msg1 = await createMessage('I think AI should have rights if it demonstrates consciousness.', 'Pro AI Urban Woman')
     const msg2 = await createMessage(
-      'But how do we define consciousness? Isn’t it just simulation?',
+      "But how do we define consciousness? Isn't it just simulation?",
       'AI Curious College Student'
     )
     const msg3 = await createMessage('Are you breathing?', 'Pro AI Urban Woman')
     const convHistory = getConversationHistory([msg1, msg2, msg3], { count: 2 })
-    const formattedMessages = formatConversationHistory(convHistory)
+    const formattedMessages = formatMultiUserConversationHistory(convHistory)
     // Just the two most recent messages should be returned
-    expect(formattedMessages)
-      .toEqual(`AI Curious College Student: "But how do we define consciousness? Isn’t it just simulation?"
-Pro AI Urban Woman: "Are you breathing?"`)
+    expect(formattedMessages).toEqual([
+      { role: 'user', content: "AI Curious College Student: But how do we define consciousness? Isn't it just simulation?" },
+      { role: 'user', content: 'Pro AI Urban Woman: Are you breathing?' }
+    ])
   })
 
-  it('should always include the user message if specified', async () => {
-    const msg1 = await createMessage(
-      'I think AI should have rights if it demonstrates consciousness.',
-      'Pro AI Urban Woman',
-      new Date(Date.now() - 120 * 1000)
-    )
-    const msg2 = await createMessage(
-      'But how do we define consciousness? Isn’t it just simulation?',
-      'AI Curious College Student',
-      new Date(Date.now() - 90 * 1000)
-    )
-    const msg3 = await createMessage('Are you breathing?', 'Pro AI Urban Woman', new Date(Date.now() - 60 * 1000))
-
-    const msg4 = await createMessage(
-      'There must be more to it than that',
-      'AI Curious College Student',
-      new Date(Date.now() - 45 * 1000)
-    )
-    // making the assumption it doesn't take 20 seconds or more to get to the time check
-    const convHistory = getConversationHistory([msg1, msg2, msg3], { timeWindow: 110, count: 1 })
-    const formattedMessages = formatConversationHistory(convHistory, msg4)
-    // Just the one message + user message should be returned
-    expect(formattedMessages).toEqual(`Pro AI Urban Woman: "Are you breathing?"
-AI Curious College Student: "There must be more to it than that"`)
+  it('should format multi-user conversation history with agent messages', async () => {
+    const msg1 = await createMessage('I think AI should have rights if it demonstrates consciousness.', 'Pro AI Urban Woman')
+    const msg2 = await createMessage("But how do we define consciousness? Isn't it just simulation?", 'BOT', undefined, true)
+    const msg3 = await createMessage('Are you breathing?', 'Pro AI Urban Woman')
+    const convHistory = getConversationHistory([msg1, msg2, msg3], { count: 100 })
+    const formattedMessages = formatMultiUserConversationHistory(convHistory)
+    expect(formattedMessages).toEqual([
+      { role: 'user', content: 'Pro AI Urban Woman: I think AI should have rights if it demonstrates consciousness.' },
+      { role: 'assistant', content: "But how do we define consciousness? Isn't it just simulation?" },
+      { role: 'user', content: 'Pro AI Urban Woman: Are you breathing?' }
+    ])
   })
 
   it('should format single user conversation history', async () => {
     const msg1 = await createMessage('I think AI should have rights if it demonstrates consciousness.', 'Pro AI Urban Woman')
-    const msg2 = await createMessage('But how do we define consciousness? Isn’t it just simulation?', 'BOT', undefined, true)
+    const msg2 = await createMessage("But how do we define consciousness? Isn't it just simulation?", 'BOT', undefined, true)
     const msg3 = await createMessage('Are you breathing?', 'Pro AI Urban Woman')
     const convHistory = getConversationHistory([msg1, msg2, msg3], { count: 100 })
     const formattedMessages = formatSingleUserConversationHistory(convHistory)
     expect(formattedMessages).toEqual([
       { role: 'user', content: 'I think AI should have rights if it demonstrates consciousness.' },
-      { role: 'assistant', content: 'But how do we define consciousness? Isn’t it just simulation?' },
+      { role: 'assistant', content: "But how do we define consciousness? Isn't it just simulation?" },
       { role: 'user', content: 'Are you breathing?' }
     ])
   })
@@ -149,7 +137,7 @@ AI Curious College Student: "There must be more to it than that"`)
   it('should use empty string with json body type and no text property', async () => {
     const msg1 = await createMessage('I think AI should have rights if it demonstrates consciousness.', 'Pro AI Urban Woman')
     const msg2 = await createMessage(
-      { value: 'But how do we define consciousness? Isn’t it just simulation?' },
+      { value: "But how do we define consciousness? Isn't it just simulation?" },
       'BOT',
       undefined,
       true,
@@ -162,6 +150,25 @@ AI Curious College Student: "There must be more to it than that"`)
       { role: 'user', content: 'I think AI should have rights if it demonstrates consciousness.' },
       { role: 'assistant', content: '' },
       { role: 'user', content: 'Are you breathing?' }
+    ])
+  })
+
+  it('should format multi-user conversation history with json body type', async () => {
+    const msg1 = await createMessage('I think AI should have rights if it demonstrates consciousness.', 'Pro AI Urban Woman')
+    const msg2 = await createMessage(
+      { text: "But how do we define consciousness? Isn't it just simulation?" },
+      'BOT',
+      undefined,
+      true,
+      'json'
+    )
+    const msg3 = await createMessage('Are you breathing?', 'Pro AI Urban Woman')
+    const convHistory = getConversationHistory([msg1, msg2, msg3], { count: 100 })
+    const formattedMessages = formatMultiUserConversationHistory(convHistory)
+    expect(formattedMessages).toEqual([
+      { role: 'user', content: 'Pro AI Urban Woman: I think AI should have rights if it demonstrates consciousness.' },
+      { role: 'assistant', content: "But how do we define consciousness? Isn't it just simulation?" },
+      { role: 'user', content: 'Pro AI Urban Woman: Are you breathing?' }
     ])
   })
 

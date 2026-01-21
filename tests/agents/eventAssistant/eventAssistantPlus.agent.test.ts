@@ -7,7 +7,8 @@ import {
   createUser,
   loadPartTimeWorkTranscript,
   createPublicTopic,
-  createEventAssistantPlusConversation
+  createEventAssistantPlusConversation,
+  createMessage
 } from '../../utils/agentTestHelpers.js'
 import Channel from '../../../src/models/channel.model.js'
 import Message from '../../../src/models/message.model.js'
@@ -31,12 +32,12 @@ describe(`event assistant plus tests`, () => {
   let topic
   const startTime = new Date(Date.now() - 15 * 60 * 1000) // The whole event started 15 minutes ago
 
-  async function validateResponse(responses) {
+  async function validateResponse(responses, channel = `direct-agents-${user1._id}`) {
     expect(responses).not.toHaveLength(0)
     expect(responses[0].message).toBeDefined()
     console.log(`A: ${responses[0].message}`)
     expect(responses[0].channels).toHaveLength(1)
-    expect(responses[0].channels[0].name).toEqual(`direct-agents-${user1._id}`)
+    expect(responses[0].channels[0].name).toEqual(channel)
   }
 
   beforeEach(async () => {
@@ -517,6 +518,43 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
     )
   })
 
+  describe('chat support', () => {
+    it('responds to an @Event Assistant message on the chat channel', async () => {
+      const user2 = await createUser('Sleepy Salamander')
+      const msg1 = await createMessage('What is up in this chat?', user2, conversation, ['chat'])
+      const msg = await createMessage('@Event Assistant Hey, what did I miss?', user1, conversation, ['chat'])
+      agent.conversationHistorySettings = {
+        endTime: new Date(startTime.getTime() + 829 * 1000),
+        count: 100,
+        directMessages: true,
+        channels: ['chat']
+      }
+      const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
+      expect(evaluation.action).toEqual(AgentMessageActions.CONTRIBUTE)
+      const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [msg1] }, msg)
+      await validateResponse(responses, 'chat')
+
+      // Test with mention in the middle of the message
+      const msg2 = await createMessage('Hey @Event Assistant, what did I miss?', user1, conversation, ['chat'])
+      const evaluation2 = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg2)
+      expect(evaluation2.action).toEqual(AgentMessageActions.CONTRIBUTE)
+      const responses2 = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [msg1] }, msg2)
+      await validateResponse(responses2, 'chat')
+    })
+
+    it('does not respond to a regular message on the chat channel', async () => {
+      const msg = await createMessage('@Sleepy Salamander Hey, what did I miss?', user1, conversation, ['chat'])
+      agent.conversationHistorySettings = {
+        endTime: new Date(startTime.getTime() + 829 * 1000),
+        count: 100,
+        directMessages: true,
+        channels: ['chat']
+      }
+      const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
+      expect(evaluation.action).toEqual(AgentMessageActions.OK)
+    })
+  })
+
   it(
     'introduces itself on new DM channels',
     async () => {
@@ -534,7 +572,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
   )
 
   it(
-    'does not introduce itself on non-direct channels',
+    'does not introduce itself on non-direct or chat channels',
     async () => {
       const [channel] = await Channel.create([{ name: 'public-channel' }])
       const msgs = await agent.introduce(channel)
@@ -542,4 +580,13 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
     },
     testTimeout
   )
+
+  it('introduces itself on chat channels', async () => {
+    const [chatChannel] = await Channel.create([{ name: 'chat' }])
+    const msgs = await agent.introduce(chatChannel)
+    expect(msgs).toHaveLength(1)
+    expect(msgs[0].body).toEqual(agent.agentConfig.chatIntroMessage)
+    expect(msgs[0].channels).toHaveLength(1)
+    expect(msgs[0].channels[0]).toEqual(chatChannel)
+  })
 })

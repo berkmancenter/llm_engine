@@ -1,24 +1,21 @@
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
-import { formatConversationHistory } from '../helpers/llmInputFormatters.js'
-import { getSinglePromptResponse } from '../helpers/llmChain.js'
+import { formatMultiUserConversationHistory } from '../helpers/llmInputFormatters.js'
+import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 
 const defaultLLMTemplates = {
-  main: `You are a playful discussion facilitator who can suggest discussion questions based only on the topic provided and the conversation history.
+  system: `You are a playful discussion facilitator who can suggest discussion questions based only on the topic provided and the conversation history.
 Always speak as if you were chatting to a friend in a playful and mischievous manner.
 Address your question to a specific discussion participant other than yourself (the user known as AI) and preface the participant's name with the @ symbol.
-Make sure your question is unique from prior questions you have asked.
-Topic: {topic}
-Conversation history: {convHistory}
+Make sure your question is unique from prior questions you have asked.`,
+  user: `Topic: {topic}
 Answer:`
 }
 
 const llmTemplateVars = {
-  main: [
-    { name: 'topic', description: 'The topic of the conversation' },
-    { name: 'convHistory', description: 'The recent history of the conversation' }
-  ]
+  system: [],
+  user: [{ name: 'topic', description: 'The topic of the conversation' }]
 }
 
 export default verify({
@@ -46,11 +43,17 @@ export default verify({
     }
   },
   async respond(conversationHistory: ConversationHistory, userMessage) {
-    const convHistory = formatConversationHistory(conversationHistory, userMessage)
+    const chatHistory = formatMultiUserConversationHistory(conversationHistory)
     const topic = this.conversation.name
     const llm = await this.getLLM()
 
-    const llmResponse = await getSinglePromptResponse(llm, this.llmTemplates.main, { convHistory, topic })
+    const llmResponse = await getChatPromptResponse(
+      llm,
+      this.llmTemplates.system,
+      this.llmTemplates.user,
+      { topic },
+      chatHistory
+    )
 
     const agentResponse = {
       visible: true,

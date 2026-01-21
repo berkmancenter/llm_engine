@@ -1,4 +1,5 @@
-import { getSingleUserChatPromptResponse } from '../helpers/llmChain.js'
+import { getChatPromptResponse } from '../helpers/llmChain.js'
+import { formatMultiUserConversationHistory, formatSingleUserConversationHistory } from '../helpers/llmInputFormatters.js'
 import transcript from '../helpers/transcript.js'
 
 export enum QuestionClassification {
@@ -123,7 +124,7 @@ export const eventAssistantLlmTemplateVars = {
 async function getResponse(question, optionalRecentTranscriptSection, chunks, chatHistory, systemTemplate) {
   const llm = await this.getLLM()
   const topic = this.conversation.name
-  const llmResponse = await getSingleUserChatPromptResponse(
+  const llmResponse = await getChatPromptResponse(
     llm,
     systemTemplate,
     this.llmTemplates.user,
@@ -138,7 +139,13 @@ async function getResponse(question, optionalRecentTranscriptSection, chunks, ch
   return llmResponse
 }
 
-export async function answerQuestion(userMessage, chatHistory) {
+export async function answerQuestion(userMessage, conversationHistory) {
+  let chatHistory
+  if (userMessage?.channels?.includes('chat')) {
+    chatHistory = formatMultiUserConversationHistory(conversationHistory)
+  } else {
+    chatHistory = formatSingleUserConversationHistory(conversationHistory)
+  }
   const question = userMessage.body
   const { chunks, timeWindow } = await transcript.searchTranscript(
     this.conversation,

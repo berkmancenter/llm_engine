@@ -1397,4 +1397,387 @@ describe('agent tests', () => {
       expect(mockEvaluate).not.toHaveBeenCalled()
     })
   })
+
+  describe('Agent channel filtering in respond method', () => {
+    let testConversation
+    let generalChannel
+    let randomChannel
+    let offTopicChannel
+
+    beforeEach(async () => {
+      // Create channels
+      generalChannel = await Channel.create({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'general',
+        direct: false
+      })
+      randomChannel = await Channel.create({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'random',
+        direct: false
+      })
+      offTopicChannel = await Channel.create({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'off-topic',
+        direct: false
+      })
+
+      // Create a conversation with channels
+      testConversation = new Conversation({
+        ...conversationAgentsEnabled,
+        channels: [generalChannel, randomChannel, offTopicChannel],
+        _id: new mongoose.Types.ObjectId()
+      })
+      await testConversation.save()
+    })
+
+    test('should filter conversation history to intersection of settings channels and userMessage channels', async () => {
+      const agent = new Agent({
+        agentType: 'perMessage',
+        conversation: testConversation,
+        conversationHistorySettings: {
+          channels: ['general', 'random', 'off-topic'],
+          count: 10
+        }
+      })
+      await agent.save()
+      await agent.initialize()
+      await agent.start()
+
+      // Create messages on different channels
+      const msgGeneral = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Message on general',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['general']
+      })
+      await msgGeneral.save()
+
+      const msgRandom = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Message on random',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['random']
+      })
+      await msgRandom.save()
+
+      const msgOffTopic = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Message on off-topic',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['off-topic']
+      })
+      await msgOffTopic.save()
+
+      // New message only on 'general' and 'random'
+      const userMessage = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'New message on general and random',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['general', 'random']
+      })
+
+      const expectedEval = {
+        userMessage,
+        action: AgentMessageActions.CONTRIBUTE,
+        agentContributionVisible: true,
+        userContributionVisible: true,
+        suggestion: undefined
+      }
+
+      const expectedResponse = {
+        visible: true,
+        message: 'Test response',
+        pause: 0
+      }
+
+      mockEvaluate.mockResolvedValue(expectedEval)
+      mockRespond.mockResolvedValue([expectedResponse])
+
+      await agent.evaluate(userMessage)
+      await userMessage.save()
+      await testConversation.populate(['messages', 'channels'])
+      await agent.respond(userMessage)
+
+      // Should only include messages from 'general' and 'random', not 'off-topic'
+      const conversationHistory = mockRespond.mock.calls[0][0]
+      expect(conversationHistory.messages).toHaveLength(2)
+      expect(conversationHistory.messages.find((m) => m.body === 'Message on general')).toBeDefined()
+      expect(conversationHistory.messages.find((m) => m.body === 'Message on random')).toBeDefined()
+      expect(conversationHistory.messages.find((m) => m.body === 'Message on off-topic')).toBeUndefined()
+    })
+
+    test('should use all settings channels when there is no userMessage (periodic trigger)', async () => {
+      const agent = new Agent({
+        agentType: 'periodic',
+        conversation: testConversation,
+        triggers: {
+          periodic: {
+            timerPeriod: 300,
+            conversationHistorySettings: {
+              channels: ['general', 'random'],
+              count: 10
+            }
+          }
+        }
+      })
+      await agent.save()
+      await agent.initialize()
+      await agent.start()
+
+      // Create messages on different channels
+      const msgGeneral = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Message on general',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['general']
+      })
+      await msgGeneral.save()
+
+      const msgRandom = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Message on random',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['random']
+      })
+      await msgRandom.save()
+
+      const msgOffTopic = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Message on off-topic',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['off-topic']
+      })
+      await msgOffTopic.save()
+
+      const expectedEval = {
+        userMessage: null,
+        action: AgentMessageActions.CONTRIBUTE,
+        agentContributionVisible: true,
+        userContributionVisible: true,
+        suggestion: undefined
+      }
+
+      const expectedResponse = {
+        visible: true,
+        message: 'Periodic response',
+        pause: 0
+      }
+
+      mockEvaluate.mockResolvedValue(expectedEval)
+      mockRespond.mockResolvedValue([expectedResponse])
+
+      await agent.evaluate()
+      await testConversation.populate(['messages', 'channels'])
+      await agent.respond()
+
+      // Should include messages from both 'general' and 'random', but not 'off-topic'
+      const conversationHistory = mockRespond.mock.calls[0][0]
+      expect(conversationHistory.messages).toHaveLength(2)
+      expect(conversationHistory.messages.find((m) => m.body === 'Message on general')).toBeDefined()
+      expect(conversationHistory.messages.find((m) => m.body === 'Message on random')).toBeDefined()
+      expect(conversationHistory.messages.find((m) => m.body === 'Message on off-topic')).toBeUndefined()
+    })
+
+    test('should get all direct channels for periodic trigger when directMessages enabled', async () => {
+      const agent = new Agent({
+        agentType: 'periodic',
+        conversation: testConversation,
+        triggers: {
+          periodic: {
+            timerPeriod: 300,
+            conversationHistorySettings: {
+              directMessages: true,
+              count: 10
+            }
+          }
+        }
+      })
+      await agent.save()
+
+      const directChannel1 = await Channel.create({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'dm-user1-agent',
+        participants: [registeredUser._id, agent._id],
+        direct: true
+      })
+
+      const directChannel2 = await Channel.create({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'dm-user2-agent',
+        participants: [new mongoose.Types.ObjectId(), agent._id],
+        direct: true
+      })
+
+      testConversation.channels.push(directChannel1, directChannel2)
+      await testConversation.save()
+
+      await agent.initialize()
+      await agent.start()
+
+      // Create messages on different direct channels
+      const msgDirect1 = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Message on dm-user1-agent',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['dm-user1-agent']
+      })
+      await msgDirect1.save()
+
+      const msgDirect2 = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Message on dm-user2-agent',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['dm-user2-agent']
+      })
+      await msgDirect2.save()
+
+      const expectedEval = {
+        userMessage: null,
+        action: AgentMessageActions.CONTRIBUTE,
+        agentContributionVisible: true,
+        userContributionVisible: true,
+        suggestion: undefined
+      }
+
+      const expectedResponse = {
+        visible: true,
+        message: 'Periodic response',
+        pause: 0
+      }
+
+      mockEvaluate.mockResolvedValue(expectedEval)
+      mockRespond.mockResolvedValue([expectedResponse])
+
+      await agent.evaluate()
+      await testConversation.populate(['messages', 'channels'])
+      await agent.respond()
+
+      // Should include messages from all direct channels where this agent is a participant
+      const conversationHistory = mockRespond.mock.calls[0][0]
+      expect(conversationHistory.messages).toHaveLength(2)
+      expect(conversationHistory.messages.find((m) => m.body === 'Message on dm-user1-agent')).toBeDefined()
+      expect(conversationHistory.messages.find((m) => m.body === 'Message on dm-user2-agent')).toBeDefined()
+    })
+
+    test('should only get direct channels from userMessage when userMessage is present', async () => {
+      const agent = new Agent({
+        agentType: 'perMessage',
+        conversation: testConversation,
+        conversationHistorySettings: {
+          directMessages: true,
+          count: 10
+        }
+      })
+      await agent.save()
+
+      const directChannel1 = await Channel.create({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'dm-user1-agent',
+        participants: [registeredUser._id, agent._id],
+        direct: true
+      })
+
+      const directChannel2 = await Channel.create({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'dm-user2-agent',
+        participants: [new mongoose.Types.ObjectId(), agent._id],
+        direct: true
+      })
+
+      testConversation.channels.push(directChannel1, directChannel2)
+      await testConversation.save()
+
+      await agent.initialize()
+      await agent.start()
+
+      // Create messages on different direct channels
+      const msgDirect1 = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Message on dm-user1-agent',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['dm-user1-agent']
+      })
+      await msgDirect1.save()
+
+      const msgDirect2 = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Message on dm-user2-agent',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['dm-user2-agent']
+      })
+      await msgDirect2.save()
+
+      // New message only on dm-user1-agent
+      const userMessage = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'New message on dm-user1-agent',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['dm-user1-agent']
+      })
+
+      const expectedEval = {
+        userMessage,
+        action: AgentMessageActions.CONTRIBUTE,
+        agentContributionVisible: true,
+        userContributionVisible: true,
+        suggestion: undefined
+      }
+
+      const expectedResponse = {
+        visible: true,
+        message: 'Test response',
+        pause: 0
+      }
+
+      mockEvaluate.mockResolvedValue(expectedEval)
+      mockRespond.mockResolvedValue([expectedResponse])
+
+      await agent.evaluate(userMessage)
+      await userMessage.save()
+      await testConversation.populate(['messages', 'channels'])
+      await agent.respond(userMessage)
+
+      // Should only include messages from dm-user1-agent, not dm-user2-agent
+      const conversationHistory = mockRespond.mock.calls[0][0]
+      expect(conversationHistory.messages).toHaveLength(1)
+      expect(conversationHistory.messages[0].body).toEqual('Message on dm-user1-agent')
+    })
+  })
 })
