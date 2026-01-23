@@ -551,7 +551,6 @@ agentSchema.method('deepPatch', function (origPatch) {
 })
 
 agentSchema.method('introduce', async function (channel) {
-  if (!this.active) return []
   if (channel.direct && !channel.participants.includes(this._id)) {
     return [] // do not introduce in direct channels where this agent is not a participant
   }

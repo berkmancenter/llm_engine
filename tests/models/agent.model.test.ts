@@ -243,7 +243,7 @@ describe('agent tests', () => {
     expect(introductions[0].channels![0]).toEqual(directChannel)
   })
 
-  test('should not introduce itself if not active', async () => {
+  test('should introduce itself if not active', async () => {
     const agent = new Agent({
       agentType: 'perMessageWithMin',
       conversation,
@@ -260,8 +260,8 @@ describe('agent tests', () => {
     await agent.initialize()
 
     const introductions = await agent.introduce(directChannel)
-    expect(mockIntroduce).not.toHaveBeenCalled()
-    expect(introductions).toHaveLength(0)
+    expect(mockIntroduce).toHaveBeenCalled()
+    expect(introductions).toHaveLength(1)
   })
   test('should return an empty array if agent type has no introduce method', async () => {
     const agent = new Agent({
