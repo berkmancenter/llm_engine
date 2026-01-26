@@ -1,6 +1,11 @@
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
-import { eventAssistantLLMTemplates, eventAssistantLlmTemplateVars, answerQuestion } from './eventQuestionHandler.js'
+import {
+  eventAssistantLLMTemplates,
+  eventAssistantLlmTemplateVars,
+  answerQuestion,
+  generatePseudonymFunFact
+} from './eventQuestionHandler.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 
 export default verify({
@@ -13,7 +18,7 @@ export default verify({
   },
   agentConfig: {
     introMessage:
-      "Hi! I'm the LLM Event Assistant. You can ask me questions about the event content like “what did I just miss,” or, “what was that acronym?” None of your messages to me will be surfaced to the moderator or the rest of the audience, but please note that a pseudonymized message transcript will be visible to our eng team. Please share your feedback on the tool at brk.mn/feedback!",
+      "Hey! I'm your event assistant-ask me about what's happening, or use /mod to fast-track a message to the mod.",
     chatIntroMessage:
       'Welcome to the chat! This is a space to chat with other event participants. You can also ask me questions with an @Event Assistant mention. Just remember that everyone can see what you ask me here. Use the Event Assistant tab if you want to talk privately. Have fun!'
   },
@@ -65,9 +70,17 @@ export default verify({
   },
   async introduce(channel) {
     if (channel.direct) {
+      const { introMessage: defaultIntroMessage } = this.agentConfig
+      let introMessage = defaultIntroMessage
+
+      const funFact = await generatePseudonymFunFact.call(this, channel)
+      if (funFact) {
+        introMessage = `${introMessage} Fun fact about your pseudonym: ${funFact}`
+      }
+
       return [
         {
-          message: this.agentConfig.introMessage,
+          message: introMessage,
           channels: [channel],
           visible: true
         }

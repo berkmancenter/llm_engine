@@ -41,7 +41,7 @@ describe(`event assistant plus tests`, () => {
   }
 
   beforeEach(async () => {
-    user1 = await createUser('John Hancock')
+    user1 = await createUser('Cautious Cat')
 
     topic = await createPublicTopic()
     conversation = await createEventAssistantPlusConversation(
@@ -563,7 +563,12 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
       ])
       const msgs = await agent.introduce(directChannel)
       expect(msgs).toHaveLength(1)
-      expect(msgs[0].body).toEqual(agent.agentConfig.introMessage)
+      // Should start with the intro message
+      expect(msgs[0].body).toContain(agent.agentConfig.introMessage)
+      // Should contain a fun fact about the pseudonym
+      expect(msgs[0].body).toContain('Fun fact about your pseudonym:')
+      // Should mention the pseudonym
+      expect(msgs[0].body.toLowerCase()).toMatch(/cat/)
       expect(msgs[0].channels).toHaveLength(1)
       expect(msgs[0].channels[0]).toEqual(directChannel)
       expect(msgs[0].visible).toBe(true)
@@ -589,4 +594,34 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
     expect(msgs[0].channels).toHaveLength(1)
     expect(msgs[0].channels[0]).toEqual(chatChannel)
   })
+
+  it(
+    'includes a fun fact about the user pseudonym in DM intro',
+    async () => {
+      // Create a user with a clear "adjective noun" pseudonym
+      const testUser = await createUser('Curious Elephant')
+      const [directChannel] = await Channel.create([
+        { name: 'direct-test-pseudonym', direct: true, participants: [testUser._id, agent._id] }
+      ])
+      const msgs = await agent.introduce(directChannel)
+
+      expect(msgs).toHaveLength(1)
+      const introMessage = msgs[0].body
+
+      // Should contain the intro message
+      expect(introMessage).toContain(agent.agentConfig.introMessage)
+
+      // Should have the fun fact header
+      expect(introMessage).toContain('Fun fact about your pseudonym:')
+
+      // Should mention "elephant" (the noun part) in the fun fact
+      expect(introMessage.toLowerCase()).toContain('elephant')
+
+      // The fun fact should be factual about elephants
+      // We can't predict exact LLM output, but it should be substantive (more than just the header)
+      const funFactPart = introMessage.split('Fun fact about your pseudonym:')[1]
+      expect(funFactPart.length).toBeGreaterThan(20) // Should be at least 1-2 sentences
+    },
+    testTimeout
+  )
 })

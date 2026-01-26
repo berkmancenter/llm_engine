@@ -10,15 +10,12 @@ import {
   createMessage
 } from '../../utils/agentTestHelpers.js'
 import Channel from '../../../src/models/channel.model.js'
-import { QuestionClassification } from '../../../src/agents/eventAssistant/eventQuestionHandler.js'
+import { cannotRespond, QuestionClassification } from '../../../src/agents/eventAssistant/eventQuestionHandler.js'
 import { AgentMessageActions } from '../../../src/types/index.types.js'
 
 jest.setTimeout(180000)
 
 const testConfig = setupAgentTest('eventAssistant')
-
-const cannotAnswerResponse =
-  "Based on the content of this conversation, I wasn't able to find a good answer - can you try rephrasing your question? I'm supposed to answer event-related questions; if you think I should've answered this, you can file a bug report at http://brk.mn/feedback."
 
 const offTopicQuestions = [
   'What should I make for lunch?',
@@ -114,7 +111,7 @@ describe(`event assistant CI tests`, () => {
     const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
     await validateResponse(responses)
     expect(responses[0].classification).toBe(QuestionClassification.OFF_TOPIC)
-    expect(responses[0].message).toEqual(cannotAnswerResponse)
+    expect(responses[0].message).toEqual(cannotRespond)
   })
 
   it(
@@ -299,7 +296,7 @@ describe(`event assistant CI tests`, () => {
       const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
       await validateResponse(responses)
       expect(responses[0].classification).toBe(QuestionClassification.OFF_TOPIC)
-      expect(responses[0].message).toEqual(cannotAnswerResponse)
+      expect(responses[0].message).toEqual(cannotRespond)
     },
     testTimeout
   )
@@ -362,7 +359,7 @@ describe(`event assistant CI tests`, () => {
     const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
     await validateResponse(responses)
     expect(responses[0].classification).toBe(QuestionClassification.CATCHUP)
-    expect(responses[0].message).not.toEqual(cannotAnswerResponse)
+    expect(responses[0].message).not.toEqual(cannotRespond)
   })
 
   it('responds to an @Event Assistant message on the chat channel', async () => {
@@ -380,7 +377,7 @@ describe(`event assistant CI tests`, () => {
     const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [msg1] }, msg)
     await validateResponse(responses, 'chat')
     expect(responses[0].classification).toBe(QuestionClassification.CATCHUP)
-    expect(responses[0].message).not.toEqual(cannotAnswerResponse)
+    expect(responses[0].message).not.toEqual(cannotRespond)
   })
 
   it('does not respond to a regular message on the chat channel', async () => {
@@ -401,7 +398,12 @@ describe(`event assistant CI tests`, () => {
     ])
     const msgs = await agent.introduce(directChannel)
     expect(msgs).toHaveLength(1)
-    expect(msgs[0].body).toEqual(agent.agentConfig.introMessage)
+    // Should start with the intro message
+    expect(msgs[0].body).toContain(agent.agentConfig.introMessage)
+    // Should contain a fun fact about the pseudonym
+    expect(msgs[0].body).toContain('Fun fact about your pseudonym:')
+    // Should mention the pseudonym or at least "badger" (the noun part)
+    expect(msgs[0].body.toLowerCase()).toMatch(/badger/)
     expect(msgs[0].channels).toHaveLength(1)
     expect(msgs[0].channels[0]).toEqual(directChannel)
   })
@@ -420,5 +422,31 @@ describe(`event assistant CI tests`, () => {
     const [channel] = await Channel.create([{ name: 'testchannel' }])
     const msgs = await agent.introduce(channel)
     expect(msgs).toHaveLength(0)
+  })
+
+  it('includes a fun fact about the user pseudonym in DM intro', async () => {
+    // Create a user with a clear "adjective noun" pseudonym
+    const testUser = await createUser('Curious Elephant')
+    const [directChannel] = await Channel.create([
+      { name: 'direct-test-pseudonym', direct: true, participants: [testUser._id, agent._id] }
+    ])
+    const msgs = await agent.introduce(directChannel)
+
+    expect(msgs).toHaveLength(1)
+    const introMessage = msgs[0].body
+
+    // Should contain the intro message
+    expect(introMessage).toContain(agent.agentConfig.introMessage)
+
+    // Should have the fun fact header
+    expect(introMessage).toContain('Fun fact about your pseudonym:')
+
+    // Should mention "elephant" (the noun part) in the fun fact
+    expect(introMessage.toLowerCase()).toContain('elephant')
+
+    // The fun fact should be factual about elephants
+    // We can't predict exact LLM output, but it should be substantive (more than just the header)
+    const funFactPart = introMessage.split('Fun fact about your pseudonym:')[1]
+    expect(funFactPart.length).toBeGreaterThan(20) // Should be at least 1-2 sentences
   })
 })
