@@ -6,19 +6,19 @@ on:
   workflow_dispatch:
     inputs:
       llmPlatform:
-        description: "The LLM Platform to use for agent testing"
+        description: 'The LLM Platform to use for agent testing'
         required: true
-        default: "bedrock"
+        default: 'bedrock'
         type: choice
         options:
-          - "openai"
-          - "bedrock"
-          - "vllm"
-          - "google"
+          - 'openai'
+          - 'bedrock'
+          - 'vllm'
+          - 'google'
       llmModel:
-        description: "The LLM Model to use for agent testing"
+        description: 'The LLM Model to use for agent testing'
         required: true
-        default: "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+        default: 'us.anthropic.claude-haiku-4-5-20251001-v1:0'
         type: string
 
 jobs:
@@ -145,8 +145,6 @@ jobs:
           CHROMA_DB_URL: http://0.0.0.0:8000
           DEFAULT_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DEFAULT_OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
-          LANGSMITH_TRACING_V2: true
-          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
           BEDROCK_API_KEY: ${{ secrets.BEDROCK_API_KEY }}
           BEDROCK_BASE_URL: ${{ secrets.BEDROCK_BASE_URL }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}

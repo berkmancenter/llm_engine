@@ -1,6 +1,7 @@
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { formatMultiUserConversationHistory, formatSingleUserConversationHistory } from '../helpers/llmInputFormatters.js'
 import transcript from '../helpers/transcript.js'
+import { IChannel } from '../../types/index.types.js'
 
 export enum QuestionClassification {
   ON_TOPIC_ANSWER = 'ON_TOPIC_ANSWER',
@@ -20,7 +21,7 @@ export const eventAssistantLLMTemplates = {
 - Use only the provided transcript chunks.
 - Do not add context or thematic commentary
 - Use only "they/them" pronouns when referring to any person, including speakers, attendees, or individuals mentioned in questions, regardless of how the user refers to them.
-- State what was said directly — avoid “the speaker discussed…” or similar.
+- State what was said directly — avoid "the speaker discussed…" or similar.
 
 **Output Style:**
 - 1-3 sentences maximum.
@@ -92,15 +93,14 @@ Important! When deciding between ON_TOPIC_ASK_SPEAKER and ON_TOPIC_ANSWER, bias 
 - Completely unintelligible questions
 - Requires unavailable proprietary data
 
-**Return ONLY one of:** CATCHUP, ON_TOPIC_ASK_SPEAKER, ON_TOPIC_ANSWER, OFF_TOPIC, UNANSWERABLE`,
+**Output Format:**
+**Return ONLY a single string - one of:** CATCHUP, ON_TOPIC_ASK_SPEAKER, ON_TOPIC_ANSWER, OFF_TOPIC, UNANSWERABLE
+Do NOT provide any explanation or additional text.`,
   user: `## Event topic:
   {topic}
 
-
-{optionalRecentTranscriptSection}
-
-  ## Relevant Retrieved Context:
-  {retrievedChunks}
+  ## Context:
+  {context}
 
   ## User question:
   {question}`
@@ -113,15 +113,14 @@ export const eventAssistantLlmTemplateVars = {
   user: [
     { name: 'topic', description: 'The topic of the event' },
     {
-      name: 'optionalRecentTranscriptSection',
-      description: 'The recent portions of the event transcript, for semantic search only'
+      name: 'context',
+      description: 'The context for answering the question - may include recent transcript and/or relevant retrieved chunks'
     },
-    { name: 'retrievedChunks', description: 'The relevant portions of the earlier event transcript' },
     { name: 'question', description: 'The user question' }
   ]
 }
 
-async function getResponse(question, optionalRecentTranscriptSection, chunks, chatHistory, systemTemplate) {
+async function getResponse(question, context, chatHistory, systemTemplate) {
   const llm = await this.getLLM()
   const topic = this.conversation.name
   const llmResponse = await getChatPromptResponse(
@@ -129,8 +128,7 @@ async function getResponse(question, optionalRecentTranscriptSection, chunks, ch
     systemTemplate,
     this.llmTemplates.user,
     {
-      optionalRecentTranscriptSection,
-      retrievedChunks: chunks,
+      context,
       question,
       topic
     },
@@ -139,54 +137,68 @@ async function getResponse(question, optionalRecentTranscriptSection, chunks, ch
   return llmResponse
 }
 
-export async function answerQuestion(userMessage, conversationHistory) {
-  let chatHistory
-  if (userMessage?.channels?.includes('chat')) {
-    chatHistory = formatMultiUserConversationHistory(conversationHistory)
-  } else {
-    chatHistory = formatSingleUserConversationHistory(conversationHistory)
-  }
+export async function answerQuestion(userMessage, conversationHistory, options?) {
+  const chatHistory = userMessage?.channels?.includes('chat')
+    ? formatMultiUserConversationHistory(conversationHistory)
+    : formatSingleUserConversationHistory(conversationHistory)
+
   const question = userMessage.body
-  const { chunks, timeWindow } = await transcript.searchTranscript(
-    this.conversation,
-    question,
-    this.conversationHistorySettings?.endTime
-  )
 
-  const systemTemplate = timeWindow ? this.llmTemplates.timeWindowSystem : this.llmTemplates.semanticSystem
-  let optionalRecentTranscriptSection = ''
-  if (!timeWindow) {
-    // If not using time window, we can include the recent transcript section
-    // TODO timeWindow configurable
-    const liveTranscript = transcript.getTranscript(this.conversation, 300, this.conversationHistorySettings?.endTime)
-    optionalRecentTranscriptSection = timeWindow
-      ? ''
-      : ` ## Recent Transcript:
-${liveTranscript}`
+  // Use provided context from options if available, otherwise search transcript
+  let contextString: string
+  let promptType = options?.promptType // 'timeWindow' or 'semantic'
+
+  if (options?.context) {
+    // Use provided context string directly
+    contextString = options.context
+  } else {
+    // Normal flow - search transcript
+    const searchResult = await transcript.searchTranscript(
+      this.conversation,
+      question,
+      this.conversationHistorySettings?.endTime
+    )
+    const { chunks, timeWindow } = searchResult
+
+    // Determine prompt type from search result if not provided
+    if (!promptType) {
+      promptType = timeWindow ? 'timeWindow' : 'semantic'
+    }
+
+    if (timeWindow) {
+      // For time window searches, use only the chunks
+      contextString = chunks
+    } else {
+      // For semantic searches, include recent transcript and retrieved chunks
+      const liveTranscript = transcript.getTranscript(this.conversation, 300, this.conversationHistorySettings?.endTime)
+      contextString = `## Recent Transcript:
+${liveTranscript}
+
+## Relevant Retrieved Context:
+${chunks}`
+    }
   }
 
-  const classification = timeWindow
+  // Default to semantic if no prompt type specified
+  const isTimeWindow = promptType === 'timeWindow'
+  const systemTemplate = isTimeWindow ? this.llmTemplates.timeWindowSystem : this.llmTemplates.semanticSystem
+
+  const classification = isTimeWindow
     ? QuestionClassification.CATCHUP
-    : await getResponse.call(
-        this,
-        question,
-        optionalRecentTranscriptSection,
-        chunks,
-        chatHistory,
-        this.llmTemplates.semanticClassificationSystem
-      )
+    : await getResponse.call(this, question, contextString, chatHistory, this.llmTemplates.semanticClassificationSystem)
 
   const llmResponse =
     classification === QuestionClassification.OFF_TOPIC || classification === QuestionClassification.UNANSWERABLE
       ? cannotRespond
-      : await getResponse.call(this, question, optionalRecentTranscriptSection, chunks, chatHistory, systemTemplate)
+      : await getResponse.call(this, question, contextString, chatHistory, systemTemplate)
 
   const agentResponse = {
     visible: true,
     message: llmResponse,
-    channels: this.conversation.channels.filter((channel) => userMessage.channels.includes(channel.name)),
-    context: `${optionalRecentTranscriptSection}\n## Relevant Retrieved Context:\n${chunks}`,
-    classification
+    channels: this.conversation.channels.filter((channel: IChannel) => userMessage.channels.includes(channel.name)),
+    context: contextString,
+    classification,
+    promptType
   }
   return agentResponse
 }

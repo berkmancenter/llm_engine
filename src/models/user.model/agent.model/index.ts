@@ -1,6 +1,6 @@
 import mongoose, { HydratedDocument, Model } from 'mongoose'
 import deepExtend from 'deep-extend'
-import { traceable } from 'langsmith/traceable'
+import { traceable, getCurrentRunTree } from 'langsmith/traceable'
 import { toJSON, paginate } from '../../plugins/index.js'
 import BaseUser from '../baseUser.model.js'
 import pseudonymSchema from '../schemas/pseudonym.schema.js'
@@ -437,16 +437,58 @@ agentSchema.method('respond', async function (userMessage = null) {
     const { parseInput } = agentTypes[this.agentType]
     translatedMsg = parseInput ? parseInput(userMessage) : userMessage
   }
-  const tracedRespond = traceable(async (convHistory, msg) => agentType.respond.call(this, convHistory, msg), {
-    name: this.agentType,
-    metadata: {
-      llmModel: this.llmModel,
-      llmPlatform: this.llmPlatform,
-      embeddingsModel: config.embeddings.openAI.realtimeModel
-    }
-  })
 
-  const responses = await tracedRespond(conversationHistory, translatedMsg)
+  // Store actual responses to return after tracing
+  let actualResponses: Array<AgentResponse<unknown>> = []
+
+  // Compute metadata before creating traceable wrapper
+  const traceMetadata = {
+    llmModel: this.llmModel,
+    llmPlatform: this.llmPlatform,
+    embeddingsModel: config.embeddings.openAI.realtimeModel
+  }
+
+  const tracedRespond = traceable(
+    async () => {
+      const result = await agentType.respond.call(this, conversationHistory, translatedMsg)
+      actualResponses = result
+
+      // Update metadata with response-dependent data
+      if (agentType.getTraceMetadata) {
+        try {
+          const runTree = getCurrentRunTree()
+          if (runTree) {
+            const additionalMetadata = agentType.getTraceMetadata.call(this, conversationHistory, translatedMsg, result)
+            runTree.metadata = {
+              ...runTree.metadata,
+              ...additionalMetadata
+            }
+          }
+        } catch (error) {
+          logger.warn(`Failed to update trace metadata: ${error}`)
+        }
+      }
+
+      // Return formatted output for trace
+      if (agentType.formatTraceOutput) {
+        return agentType.formatTraceOutput.call(this, result, conversationHistory, translatedMsg)
+      }
+      return result
+    },
+    {
+      name: this.agentType,
+      metadata: traceMetadata
+    }
+  )
+
+  // Format input for trace
+  const traceInput = agentType.formatTraceInput
+    ? agentType.formatTraceInput.call(this, conversationHistory, translatedMsg)
+    : { conversationHistory, userMessage: translatedMsg }
+
+  await tracedRespond(traceInput)
+
+  const responses = actualResponses
   verifyResponses(responses)
 
   return createMessages.call(this, responses)

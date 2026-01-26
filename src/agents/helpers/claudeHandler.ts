@@ -112,7 +112,6 @@ export function createClaudeFetchFn(defaultLLMModel: string, defaultLLMPlatform:
       try {
         let bodyContent: unknown = {}
         if (init?.body) {
-          logger.debug('init.body before parse:', init.body)
           if (
             typeof init.body === 'string' &&
             (init.body.trim().toLowerCase().startsWith('<!doctype') || init.body.trim().toLowerCase().startsWith('<html'))

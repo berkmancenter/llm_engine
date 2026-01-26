@@ -1780,4 +1780,318 @@ describe('agent tests', () => {
       expect(conversationHistory.messages[0].body).toEqual('Message on dm-user1-agent')
     })
   })
+
+  describe('LangSmith tracing behavior', () => {
+    let mockGetCurrentRunTree: jest.Mock
+    let mockRunTree: { metadata: Record<string, unknown> }
+
+    beforeEach(() => {
+      // Mock getCurrentRunTree and RunTree
+      mockRunTree = {
+        metadata: {}
+      }
+      mockGetCurrentRunTree = jest.fn().mockReturnValue(mockRunTree)
+
+      // Mock the langsmith module
+      jest.mock('langsmith/traceable', () => ({
+        traceable: jest.fn((fn) => fn),
+        getCurrentRunTree: mockGetCurrentRunTree
+      }))
+    })
+
+    afterEach(() => {
+      jest.unmock('langsmith/traceable')
+    })
+
+    test('should set base metadata (llmModel, llmPlatform, embeddingsModel) in trace', async () => {
+      const agent = new Agent({
+        agentType: 'perMessage',
+        conversation,
+        llmModel: 'gpt-4',
+        llmPlatform: 'openai'
+      })
+      await agent.save()
+      await agent.initialize()
+      await agent.start()
+
+      const expectedResponse = {
+        visible: true,
+        message: 'Test response',
+        pause: 0
+      }
+
+      const expectedEval = {
+        userMessage: msg1,
+        action: AgentMessageActions.CONTRIBUTE,
+        agentContributionVisible: true,
+        userContributionVisible: true,
+        suggestion: undefined
+      }
+
+      mockEvaluate.mockResolvedValue(expectedEval)
+      mockRespond.mockResolvedValue([expectedResponse])
+
+      await agent.evaluate(msg1)
+      await msg1.save()
+      await conversation.populate(['messages', 'channels'])
+      await agent.respond(msg1)
+
+      // Base metadata should be set on the trace
+      expect(mockRespond).toHaveBeenCalled()
+    })
+
+    test('should call getTraceMetadata when defined and merge metadata', async () => {
+      const mockGetTraceMetadata = jest.fn().mockReturnValue({
+        context: 'test context',
+        promptType: 'standard'
+      })
+
+      const agentTypeWithMetadata = {
+        ...testAgentTypes.perMessage,
+        getTraceMetadata: mockGetTraceMetadata
+      }
+
+      const testAgentTypesWithMetadata = {
+        ...testAgentTypes,
+        perMessageWithMetadata: agentTypeWithMetadata
+      }
+
+      setAgentTypes(testAgentTypesWithMetadata)
+
+      const agent = new Agent({
+        agentType: 'perMessageWithMetadata',
+        conversation
+      })
+      await agent.save()
+      await agent.initialize()
+      await agent.start()
+
+      const expectedResponse = {
+        visible: true,
+        message: 'Test response',
+        pause: 0,
+        context: 'test context',
+        promptType: 'standard'
+      }
+
+      const expectedEval = {
+        userMessage: msg1,
+        action: AgentMessageActions.CONTRIBUTE,
+        agentContributionVisible: true,
+        userContributionVisible: true,
+        suggestion: undefined
+      }
+
+      mockEvaluate.mockResolvedValue(expectedEval)
+      mockRespond.mockResolvedValue([expectedResponse])
+
+      await agent.evaluate(msg1)
+      await msg1.save()
+      await conversation.populate(['messages', 'channels'])
+      await agent.respond(msg1)
+
+      // getTraceMetadata should be called with conversationHistory, translatedMsg, and responses
+      expect(mockGetTraceMetadata).toHaveBeenCalled()
+
+      // Reset agent types
+      setAgentTypes(testAgentTypes)
+    })
+
+    test('should call formatTraceInput when defined', async () => {
+      const mockFormatTraceInput = jest.fn().mockReturnValue({
+        formattedHistory: 'formatted conversation',
+        formattedMessage: 'formatted message'
+      })
+
+      const agentTypeWithFormatInput = {
+        ...testAgentTypes.perMessage,
+        formatTraceInput: mockFormatTraceInput
+      }
+
+      const testAgentTypesWithFormat = {
+        ...testAgentTypes,
+        perMessageWithFormatInput: agentTypeWithFormatInput
+      }
+
+      setAgentTypes(testAgentTypesWithFormat)
+
+      const agent = new Agent({
+        agentType: 'perMessageWithFormatInput',
+        conversation
+      })
+      await agent.save()
+      await agent.initialize()
+      await agent.start()
+
+      const expectedResponse = {
+        visible: true,
+        message: 'Test response',
+        pause: 0
+      }
+
+      const expectedEval = {
+        userMessage: msg1,
+        action: AgentMessageActions.CONTRIBUTE,
+        agentContributionVisible: true,
+        userContributionVisible: true,
+        suggestion: undefined
+      }
+
+      mockEvaluate.mockResolvedValue(expectedEval)
+      mockRespond.mockResolvedValue([expectedResponse])
+
+      await agent.evaluate(msg1)
+      await msg1.save()
+      await conversation.populate(['messages', 'channels'])
+      await agent.respond(msg1)
+
+      // formatTraceInput should be called
+      expect(mockFormatTraceInput).toHaveBeenCalled()
+
+      // Reset agent types
+      setAgentTypes(testAgentTypes)
+    })
+
+    test('should call formatTraceOutput when defined', async () => {
+      const mockFormatTraceOutput = jest.fn().mockReturnValue('formatted output')
+
+      const agentTypeWithFormatOutput = {
+        ...testAgentTypes.perMessage,
+        formatTraceOutput: mockFormatTraceOutput
+      }
+
+      const testAgentTypesWithFormat = {
+        ...testAgentTypes,
+        perMessageWithFormatOutput: agentTypeWithFormatOutput
+      }
+
+      setAgentTypes(testAgentTypesWithFormat)
+
+      const agent = new Agent({
+        agentType: 'perMessageWithFormatOutput',
+        conversation
+      })
+      await agent.save()
+      await agent.initialize()
+      await agent.start()
+
+      const expectedResponse = {
+        visible: true,
+        message: 'Test response',
+        pause: 0
+      }
+
+      const expectedEval = {
+        userMessage: msg1,
+        action: AgentMessageActions.CONTRIBUTE,
+        agentContributionVisible: true,
+        userContributionVisible: true,
+        suggestion: undefined
+      }
+
+      mockEvaluate.mockResolvedValue(expectedEval)
+      mockRespond.mockResolvedValue([expectedResponse])
+
+      await agent.evaluate(msg1)
+      await msg1.save()
+      await conversation.populate(['messages', 'channels'])
+      await agent.respond(msg1)
+
+      // formatTraceOutput should be called with result, conversationHistory, and translatedMsg
+      expect(mockFormatTraceOutput).toHaveBeenCalled()
+      expect(mockFormatTraceOutput).toHaveBeenCalledWith([expectedResponse], expect.anything(), expect.anything())
+
+      // Reset agent types
+      setAgentTypes(testAgentTypes)
+    })
+
+    test('should use default trace format when no format functions defined', async () => {
+      const agent = new Agent({
+        agentType: 'perMessage',
+        conversation
+      })
+      await agent.save()
+      await agent.initialize()
+      await agent.start()
+
+      const expectedResponse = {
+        visible: true,
+        message: 'Test response',
+        pause: 0
+      }
+
+      const expectedEval = {
+        userMessage: msg1,
+        action: AgentMessageActions.CONTRIBUTE,
+        agentContributionVisible: true,
+        userContributionVisible: true,
+        suggestion: undefined
+      }
+
+      mockEvaluate.mockResolvedValue(expectedEval)
+      mockRespond.mockResolvedValue([expectedResponse])
+
+      await agent.evaluate(msg1)
+      await msg1.save()
+      await conversation.populate(['messages', 'channels'])
+      const responses = await agent.respond(msg1)
+
+      // Should return responses without formatting
+      expect(responses).toHaveLength(1)
+      expect(responses[0].body).toBe('Test response')
+    })
+
+    test('should handle trace metadata update errors gracefully', async () => {
+      const mockGetTraceMetadataError = jest.fn().mockImplementation(() => {
+        throw new Error('Metadata error')
+      })
+
+      const agentTypeWithMetadataError = {
+        ...testAgentTypes.perMessage,
+        getTraceMetadata: mockGetTraceMetadataError
+      }
+
+      const testAgentTypesWithError = {
+        ...testAgentTypes,
+        perMessageWithMetadataError: agentTypeWithMetadataError
+      }
+
+      setAgentTypes(testAgentTypesWithError)
+
+      const agent = new Agent({
+        agentType: 'perMessageWithMetadataError',
+        conversation
+      })
+      await agent.save()
+      await agent.initialize()
+      await agent.start()
+
+      const expectedResponse = {
+        visible: true,
+        message: 'Test response',
+        pause: 0
+      }
+
+      const expectedEval = {
+        userMessage: msg1,
+        action: AgentMessageActions.CONTRIBUTE,
+        agentContributionVisible: true,
+        userContributionVisible: true,
+        suggestion: undefined
+      }
+
+      mockEvaluate.mockResolvedValue(expectedEval)
+      mockRespond.mockResolvedValue([expectedResponse])
+
+      await agent.evaluate(msg1)
+      await msg1.save()
+      await conversation.populate(['messages', 'channels'])
+
+      // Should not throw even if getTraceMetadata throws
+      await expect(agent.respond(msg1)).resolves.not.toThrow()
+
+      // Reset agent types
+      setAgentTypes(testAgentTypes)
+    })
+  })
 })

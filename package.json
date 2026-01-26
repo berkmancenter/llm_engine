@@ -22,6 +22,7 @@
     "test:agents:all-models": "NODE_ENV=test node --loader ts-node/esm scripts/test-all-models.ts",
     "test:agents:development": "NODE_ENV=test node --max-old-space-size=6144 --experimental-vm-modules ./node_modules/.bin/jest -i --colors --verbose --forceExit --config jest.agent.development.config.ts",
     "test:watch": "NODE_ENV=test node --experimental-vm-modules ./node_modules/.bin/jest -i --watchAll",
+    "evaluate:event-assistant": "NODE_ENV=test node --loader ts-node/esm evaluations/event-assistant/runEventAssistantEvaluations.ts",
     "coverage": "NODE_ENV=test node --experimental-vm-modules ./node_modules/.bin/jest -i --coverage",
     "coverage:coveralls": "NODE_ENV=test node --experimental-vm-modules ./node_modules/.bin/jest -i --coverage --coverageReporters=text-lcov | coveralls",
     "lint:fix": "eslint src/ tests/ --fix",

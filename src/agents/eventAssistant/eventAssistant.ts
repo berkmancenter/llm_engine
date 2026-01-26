@@ -45,7 +45,7 @@ export default verify({
       suggestion: undefined
     }
   },
-  async respond(conversationHistory: ConversationHistory, userMessage) {
+  async respond(conversationHistory: ConversationHistory, userMessage, options?) {
     const modifiedMessage = { ...userMessage }
     if (userMessage?.channels?.includes('chat')) {
       // trim the '@Event Assistant' from the message body so it's just a regular question
@@ -54,7 +54,7 @@ export default verify({
         .replace(/@Event Assistant/gi, '')
         .trim()
     }
-    const agentResponse = await answerQuestion.call(this, modifiedMessage, conversationHistory)
+    const agentResponse = await answerQuestion.call(this, modifiedMessage, conversationHistory, options)
     return [agentResponse]
   },
   async start() {
@@ -83,5 +83,22 @@ export default verify({
       ]
     }
     return []
+  },
+
+  formatTraceInput(conversationHistory, userMessage) {
+    return userMessage?.body
+  },
+
+  formatTraceOutput(responses) {
+    return responses[0].message
+  },
+
+  getTraceMetadata(conversationHistory, userMessage, responses) {
+    return {
+      context: responses[0].context,
+      conversationHistory,
+      channels: userMessage?.channels,
+      promptType: responses[0]?.promptType
+    }
   }
 })

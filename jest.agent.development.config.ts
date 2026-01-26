@@ -3,7 +3,7 @@ export default {
   testEnvironment: 'node',
   testMatch: ['**/tests/agents/development/**/*.test.ts'],
   setupFilesAfterEnv: ['./tests/setup.ts'],
-  reporters: ['default', 'langsmith/jest/reporter'],
+  reporters: ['default'],
   extensionsToTreatAsEsm: ['.ts'],
   globalSetup: './jest.agent.globalSetup.js',
   moduleNameMapper: {
