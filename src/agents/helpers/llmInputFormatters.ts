@@ -65,7 +65,7 @@ function formatAndFilterMessages(messages, settings: ConversationHistorySettings
 }
 
 function formatSingleUserConversationHistory(conversationHistory: ConversationHistory) {
-  return conversationHistory.messages.map((message) => {
+  return conversationHistory.messages?.map((message) => {
     let messageText = message.body
     // conversation history messsages must be strings. If json, assume it has a 'text' property
     if (message.bodyType === 'json') {
@@ -84,7 +84,7 @@ function formatSingleUserConversationHistory(conversationHistory: ConversationHi
 }
 
 function formatMultiUserConversationHistory(conversationHistory: ConversationHistory) {
-  return conversationHistory.messages.map((message) => {
+  return conversationHistory.messages?.map((message) => {
     let messageText = message.body
     // conversation history messsages must be strings. If json, assume it has a 'text' property
     if (message.bodyType === 'json') {
