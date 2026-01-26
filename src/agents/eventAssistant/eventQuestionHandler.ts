@@ -12,7 +12,7 @@ export enum QuestionClassification {
 }
 
 const cannotRespond =
-  "Based on the content of this conversation, I wasn't able to find a good answer - can you try rephrasing your question? I'm supposed to answer event-related questions; if you think I should've answered this, you can file a bug report at http://brk.mn/feedback."
+  "Hmm, I don't have a great answer to that one. Can you try rephrasing it? I'm best at event-related questions. And if you think this was on me, a bug report at http://brk.mn/feedback would be much appreciated!"
 
 export const eventAssistantLLMTemplates = {
   timeWindowSystem: `You are rephrasing short transcript chunks from a live event. The user missed this part of the conversation and only needs the reworded content.
