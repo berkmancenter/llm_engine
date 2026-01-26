@@ -75,4 +75,3 @@ export const initializeEvaluators = async (customPrompts: CustomPrompts = {}) =>
     judge
   })
 }
-

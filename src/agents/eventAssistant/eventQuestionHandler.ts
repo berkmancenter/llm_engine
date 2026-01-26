@@ -93,7 +93,9 @@ Important! When deciding between ON_TOPIC_ASK_SPEAKER and ON_TOPIC_ANSWER, bias 
 - Completely unintelligible questions
 - Requires unavailable proprietary data
 
-**Return ONLY one of:** CATCHUP, ON_TOPIC_ASK_SPEAKER, ON_TOPIC_ANSWER, OFF_TOPIC, UNANSWERABLE`,
+**Output Format:**
+**Return ONLY a single string - one of:** CATCHUP, ON_TOPIC_ASK_SPEAKER, ON_TOPIC_ANSWER, OFF_TOPIC, UNANSWERABLE
+Do NOT provide any explanation or additional text.`,
   user: `## Event topic:
   {topic}
 
