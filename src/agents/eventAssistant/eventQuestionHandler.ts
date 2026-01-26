@@ -186,7 +186,8 @@ ${liveTranscript}`
     message: llmResponse,
     channels: this.conversation.channels.filter((channel) => userMessage.channels.includes(channel.name)),
     context: `${optionalRecentTranscriptSection}\n## Relevant Retrieved Context:\n${chunks}`,
-    classification
+    classification,
+    promptType: timeWindow ? 'timeWindow' : 'semantic'
   }
   return agentResponse
 }

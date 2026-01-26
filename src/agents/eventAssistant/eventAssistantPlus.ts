@@ -213,5 +213,21 @@ A pseudonymized message transcript will be visible to our eng team. Thanks for t
       ]
     }
     return []
+  },
+  formatTraceInput(conversationHistory, userMessage) {
+    return userMessage?.body
+  },
+
+  formatTraceOutput(responses) {
+    return responses[0].message
+  },
+
+  getTraceMetadata(conversationHistory, userMessage, responses) {
+    return {
+      context: responses[0].context,
+      conversationHistory,
+      channels: userMessage?.channels,
+      promptType: responses[0]?.promptType
+    }
   }
 })
