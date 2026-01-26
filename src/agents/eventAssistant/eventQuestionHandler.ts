@@ -1,6 +1,8 @@
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { formatMultiUserConversationHistory, formatSingleUserConversationHistory } from '../helpers/llmInputFormatters.js'
 import transcript from '../helpers/transcript.js'
+import User from '../../models/user.model/user.model.js'
+import logger from '../../config/logger.js'
 import { IChannel } from '../../types/index.types.js'
 
 export enum QuestionClassification {
@@ -11,8 +13,8 @@ export enum QuestionClassification {
   CATCHUP = 'CATCHUP'
 }
 
-const cannotRespond =
-  "Based on the content of this conversation, I wasn't able to find a good answer - can you try rephrasing your question? I'm supposed to answer event-related questions; if you think I should've answered this, you can file a bug report at http://brk.mn/feedback."
+export const cannotRespond =
+  "Hmm, I don't have a great answer to that one. Can you try rephrasing it? I'm best at event-related questions. And if you think this was on me, a bug report at http://brk.mn/feedback would be much appreciated!"
 
 export const eventAssistantLLMTemplates = {
   timeWindowSystem: `You are rephrasing short transcript chunks from a live event. The user missed this part of the conversation and only needs the reworded content.
@@ -120,6 +122,10 @@ export const eventAssistantLlmTemplateVars = {
   ]
 }
 
+const funFactSystemTemplate =
+  'You create short, fun facts about pseudonyms. The pseudonym is in the form "adjective noun". Create a 1 sentence fun fact that is factual about the noun, but can be playful about the adjective part. Makes sure your answers are safe for work.'
+const funFactUserTemplate = 'Create a fun fact about the pseudonym: {pseudonym}'
+
 async function getResponse(question, context, chatHistory, systemTemplate) {
   const llm = await this.getLLM()
   const topic = this.conversation.name
@@ -135,6 +141,28 @@ async function getResponse(question, context, chatHistory, systemTemplate) {
     chatHistory
   )
   return llmResponse
+}
+
+export async function generatePseudonymFunFact(channel) {
+  // Find the user participant (not the agent)
+  const userParticipantId = channel.participants.find(
+    (participantId: string) => participantId.toString() !== this._id.toString()
+  )
+  const user = await User.findById(userParticipantId)
+  const activePseudonym = user?.pseudonyms?.find((p) => p.active)
+
+  if (!activePseudonym?.pseudonym) {
+    logger.debug(`No active pseudonym found for user ${user?._id} on channel ${channel.name}, cannot generate fun fact.`)
+    return null
+  }
+
+  const llm = await this.getLLM()
+
+  const funFact = await getChatPromptResponse(llm, funFactSystemTemplate, funFactUserTemplate, {
+    pseudonym: activePseudonym.pseudonym
+  })
+
+  return funFact
 }
 
 export async function answerQuestion(userMessage, conversationHistory, options?) {
