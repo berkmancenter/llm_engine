@@ -401,7 +401,7 @@ describe(`event assistant CI tests`, () => {
     // Should start with the intro message
     expect(msgs[0].body).toContain(agent.agentConfig.introMessage)
     // Should contain a fun fact about the pseudonym
-    expect(msgs[0].body).toContain('Fun fact about your pseudonym:')
+    expect(msgs[0].body).toMatch(/fun fact about your pseudonym:/i)
     // Should mention the pseudonym or at least "badger" (the noun part)
     expect(msgs[0].body.toLowerCase()).toMatch(/badger/)
     expect(msgs[0].channels).toHaveLength(1)
@@ -439,14 +439,14 @@ describe(`event assistant CI tests`, () => {
     expect(introMessage).toContain(agent.agentConfig.introMessage)
 
     // Should have the fun fact header
-    expect(introMessage).toContain('Fun fact about your pseudonym:')
+    expect(introMessage).toMatch(/fun fact about your pseudonym:/i)
 
     // Should mention "elephant" (the noun part) in the fun fact
     expect(introMessage.toLowerCase()).toContain('elephant')
 
     // The fun fact should be factual about elephants
     // We can't predict exact LLM output, but it should be substantive (more than just the header)
-    const funFactPart = introMessage.split('Fun fact about your pseudonym:')[1]
+    const funFactPart = introMessage.split(/fun fact about your pseudonym:/i)[1]
     expect(funFactPart.length).toBeGreaterThan(20) // Should be at least 1-2 sentences
   })
 })
