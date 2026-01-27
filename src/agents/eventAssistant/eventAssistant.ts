@@ -18,7 +18,7 @@ export default verify({
   },
   agentConfig: {
     introMessage:
-      "Hey! I'm your event assistant-ask me about what's happening, or use /mod to fast-track a message to the mod.",
+      "Hey! I'm the NextSpace Event Assistant. Ask me about what's happening, or use /mod to fast-track a message to the mod.",
     chatIntroMessage:
       'Welcome to the chat! This is a space to chat with other event participants. You can also ask me questions with an @Event Assistant mention. Just remember that everyone can see what you ask me here. Use the Event Assistant tab if you want to talk privately. Have fun!'
   },
@@ -75,7 +75,7 @@ export default verify({
 
       const funFact = await generatePseudonymFunFact.call(this, channel)
       if (funFact) {
-        introMessage = `${introMessage} Fun fact about your pseudonym: ${funFact}`
+        introMessage = `${introMessage} ${funFact}`
       }
 
       return [

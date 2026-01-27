@@ -122,8 +122,8 @@ export const eventAssistantLlmTemplateVars = {
   ]
 }
 
-const funFactSystemTemplate =
-  'You create short, fun facts about pseudonyms. The pseudonym is in the form "adjective noun". Create a 1 sentence fun fact that is factual about the noun, but can be playful about the adjective part. Makes sure your answers are safe for work.'
+const funFactSystemTemplate = `You create short, fun facts about pseudonyms. The pseudonym is in the form "adjective noun". Create a 1 sentence fun fact that is factual about the noun, but can be playful about the adjective part. Makes sure your answers are safe for work.
+  **IMPORTANT** Always start the sentence with the phrase 'Fun Fact about your pseudonym:'`
 const funFactUserTemplate = 'Create a fun fact about the pseudonym: {pseudonym}'
 
 async function getResponse(question, context, chatHistory, systemTemplate) {
