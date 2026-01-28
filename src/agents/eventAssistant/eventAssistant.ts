@@ -105,15 +105,16 @@ export default verify({
   },
 
   formatTraceOutput(responses) {
-    return responses[0].message
+    return responses[0]?.message
   },
 
   getTraceMetadata(conversationHistory, userMessage, responses) {
     return {
-      context: responses[0].context,
+      context: responses[0]?.context,
       conversationHistory,
       channels: userMessage?.channels,
-      promptType: responses[0]?.promptType
+      promptType: responses[0]?.promptType,
+      topic: responses[0]?.topic
     }
   }
 })

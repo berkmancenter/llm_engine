@@ -12,6 +12,7 @@ import {
 } from './eventQuestionHandler.js'
 
 import logger from '../../config/logger.js'
+import config from '../../config/config.js'
 
 const submitToModeratorQuestion = 'Would you like to submit this question anonymously to the moderator for Q&A?'
 const submitToModeratorReply = 'Your message has been submitted to the moderator.'
@@ -70,7 +71,8 @@ export default verify({
     introMessage:
       "Hey! I'm the NextSpace Event Assistant. Ask me about what's happening, or use /mod to fast-track a message to the mod.",
     chatIntroMessage:
-      'Welcome to the chat! This is a space to chat with other event participants. You can also ask me questions with an @Event Assistant mention. Just remember that everyone can see what you ask me here. Use the Event Assistant tab if you want to talk privately. Have fun!'
+      'Welcome to the chat! This is a space to chat with other event participants. You can also ask me questions with an @Event Assistant mention. Just remember that everyone can see what you ask me here. Use the Event Assistant tab if you want to talk privately. Have fun!',
+    enablePersonality: config.enableAgentPersonality
   },
   llmTemplateVars: eventAssistantLlmTemplateVars,
   defaultLLMTemplates: eventAssistantLLMTemplates,
@@ -227,15 +229,16 @@ export default verify({
   },
 
   formatTraceOutput(responses) {
-    return responses[0].message
+    return responses[0]?.message
   },
 
   getTraceMetadata(conversationHistory, userMessage, responses) {
     return {
-      context: responses[0].context,
+      context: responses[0]?.context,
       conversationHistory,
       channels: userMessage?.channels,
-      promptType: responses[0]?.promptType
+      promptType: responses[0]?.promptType,
+      topic: responses[0]?.topic
     }
   }
 })

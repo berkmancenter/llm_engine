@@ -162,14 +162,12 @@ async function runSingleExample(
     const msg = await createDirectMessage(example.inputs.input, sharedSetup.user, sharedSetup.conversation)
 
     // Extract context from metadata if available
-    const options: any = {}
-    if (example.metadata?.context) {
-      options.context = example.metadata.context
+    const { context, promptType, topic } = example.metadata ?? {}
+    const options: any = {
+      ...(context && { context }),
+      ...(promptType && { promptType }),
+      ...(topic && { topics: topic })
     }
-    if (example.metadata?.promptType) {
-      options.promptType = example.metadata.promptType
-    }
-
     // NOTE: Latency is reported as the time between createRun and updateRun called with end_time
     await langsmithClient.createRun({
       id: runId,
