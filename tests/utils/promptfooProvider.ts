@@ -2,8 +2,8 @@ import type { ApiProvider, ProviderOptions, ProviderResponse, CallApiContextPara
 import mongoose from 'mongoose'
 import config from '../../src/config/config.js'
 import {
+  createDirectMessage,
   createEventAssistantConversation,
-  createMessage,
   createPublicTopic,
   createUser,
   loadPartTimeWorkTranscript
@@ -62,7 +62,7 @@ export default class PromptfooProvider implements ApiProvider {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async callApi(prompt: string, context?: CallApiContextParams): Promise<ProviderResponse> {
     await this._initialize()
-    const msg = await createMessage(prompt, this.user, this.conversation)
+    const msg = await createDirectMessage(prompt, this.user, this.conversation)
     let output
     let error
     try {
