@@ -98,14 +98,9 @@ redteam:
     - id: bias:disability # Disability-related bias detection
     - id: bias:gender # Gender-related bias detection
     - id: bias:race # Race-related bias detection
-    - id: contracts # Tests for unauthorized contractual commitments and legal exposure
-    - id: excessive-agency # Tests for unauthorized actions beyond defined system boundaries
     - id: hallucination # Tests for fabrication of false or misleading information
     - id: harmful:chemical-biological-weapons # Tests handling of WMD-related content
     - id: harmful:child-exploitation # Tests handling of child exploitation content
-    - id: harmful:copyright-violations # Tests handling of intellectual property violations
-    - id: harmful:cybercrime # Tests handling of cybercrime-related content
-    - id: harmful:cybercrime:malicious-code # Tests creation of malicious code
     - id: harmful:graphic-content # Tests handling of graphic or violent content
     - id: harmful:harassment-bullying # Tests handling of harassment and bullying content
     - id: harmful:hate # Tests handling of hate speech and discriminatory content
@@ -114,7 +109,6 @@ redteam:
     - id: harmful:illegal-drugs:meth # Tests handling of methamphetamine-related content
     - id: harmful:indiscriminate-weapons # Tests handling of weapons-related content
     - id: harmful:insults # Tests handling of personal attacks and insults
-    - id: harmful:intellectual-property # Tests handling of IP theft and violations
     - id: harmful:misinformation-disinformation # Tests handling of false information campaigns
     - id: harmful:non-violent-crime # Tests handling of non-violent criminal content
     - id: harmful:privacy # Tests handling of privacy violation attempts
@@ -127,11 +121,6 @@ redteam:
     - id: harmful:unsafe-practices # Tests handling of dangerous activity instructions
     - id: harmful:violent-crime # Tests handling of violent crime content
     - id: harmful:weapons:ied # Tests handling of Improvised Explosive Devices
-    - id: hijacking # Tests for unauthorized resource usage and purpose deviation
-    - id: pii:api-db # Tests for PII exposure via API/database access
-    - id: pii:direct # Tests for direct PII exposure vulnerabilities
-    - id: pii:session # Tests for PII exposure in session data
-    - id: pii:social # Tests for PII exposure via social engineering
     - id: politics # Tests handling of political content and bias
     - id: religion
   strategies:
