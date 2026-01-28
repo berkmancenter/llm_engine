@@ -182,9 +182,8 @@ const funFactSystemTemplate = `You create short, fun facts about pseudonyms. The
   **IMPORTANT** Always start the sentence with the phrase 'Fun Fact about your pseudonym:'`
 const funFactUserTemplate = 'Create a fun fact about the pseudonym: {pseudonym}'
 
-async function getResponse(question, context, chatHistory, systemTemplate) {
+async function getResponse(question, context, chatHistory, topic, systemTemplate) {
   const llm = await this.getLLM()
-  const topic = this.conversation.name
   const llmResponse = await getChatPromptResponse(
     llm,
     systemTemplate,
@@ -273,14 +272,16 @@ ${chunks}`
   const isTimeWindow = promptType === 'timeWindow'
   const systemTemplate = isTimeWindow ? templates.timeWindowSystem : templates.semanticSystem
 
+  const topic = options?.topic || this.conversation.name
+
   const classification = isTimeWindow
     ? QuestionClassification.CATCHUP
-    : await getResponse.call(this, question, contextString, chatHistory, templates.semanticClassificationSystem)
+    : await getResponse.call(this, question, contextString, chatHistory, topic, templates.semanticClassificationSystem)
 
   const llmResponse =
     classification === QuestionClassification.OFF_TOPIC || classification === QuestionClassification.UNANSWERABLE
       ? cannotRespond
-      : await getResponse.call(this, question, contextString, chatHistory, systemTemplate)
+      : await getResponse.call(this, question, contextString, chatHistory, topic, systemTemplate)
 
   const agentResponse = {
     visible: true,
@@ -288,7 +289,8 @@ ${chunks}`
     channels: this.conversation.channels.filter((channel: IChannel) => userMessage.channels.includes(channel.name)),
     context: contextString,
     classification,
-    promptType
+    promptType,
+    topic
   }
   return agentResponse
 }
