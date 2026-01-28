@@ -153,6 +153,7 @@ jobs:
           VLLM_API_KEY: ${{ secrets.VLLM_API_KEY }}
           TEST_LLM_PLATFORM: ${{ github.event.inputs.llmPlatform }}
           TEST_LLM_MODEL: ${{ github.event.inputs.llmModel }}
+          ENABLE_AGENT_PERSONALITY: true
 
       - name: Run linting
         run: yarn lint

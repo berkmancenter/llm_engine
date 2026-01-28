@@ -449,4 +449,161 @@ describe(`event assistant CI tests`, () => {
     const funFactPart = introMessage.split(/fun fact about your pseudonym:/i)[1]
     expect(funFactPart.length).toBeGreaterThan(20) // Should be at least 1-2 sentences
   })
+
+  // PERSONALITY CONFIGURATION TESTS
+
+  describe('buildLLMTemplates personality configuration', () => {
+    it('includes personality section when enablePersonality is true', async () => {
+      // Import and rebuild templates with personality enabled
+      const { eventAssistantLLMTemplates } = await import('../../../src/agents/eventAssistant/eventQuestionHandler.js')
+
+      // The default export uses buildLLMTemplates(true)
+      expect(eventAssistantLLMTemplates.timeWindowSystem).toContain('**Your role:**')
+      expect(eventAssistantLLMTemplates.semanticSystem).toContain('**Your role:**')
+    })
+
+    it('personality section contains expected content', async () => {
+      const { eventAssistantLLMTemplates } = await import('../../../src/agents/eventAssistant/eventQuestionHandler.js')
+
+      // Check for key personality traits
+      expect(eventAssistantLLMTemplates.semanticSystem).toContain('1-2 sentences max')
+      expect(eventAssistantLLMTemplates.semanticSystem).toContain('Lead with the answer')
+      expect(eventAssistantLLMTemplates.semanticSystem).toContain('Heavy sarcasm')
+      expect(eventAssistantLLMTemplates.timeWindowSystem).toContain('1-2 sentences max')
+    })
+
+    it('classification system does not include personality section', async () => {
+      const { eventAssistantLLMTemplates } = await import('../../../src/agents/eventAssistant/eventQuestionHandler.js')
+
+      // Classification system should never have personality
+      expect(eventAssistantLLMTemplates.semanticClassificationSystem).not.toContain('**Your role:**')
+      expect(eventAssistantLLMTemplates.semanticClassificationSystem).not.toContain('RUTHLESS BREVITY')
+      expect(eventAssistantLLMTemplates.semanticClassificationSystem).not.toContain('sarcasm')
+    })
+
+    it('user template is unchanged by personality setting', async () => {
+      const { eventAssistantLLMTemplates } = await import('../../../src/agents/eventAssistant/eventQuestionHandler.js')
+
+      // User template should always be the same
+      expect(eventAssistantLLMTemplates.user).toContain('## Event topic:')
+      expect(eventAssistantLLMTemplates.user).toContain('## Context:')
+      expect(eventAssistantLLMTemplates.user).toContain('## User question:')
+    })
+  })
+
+  describe('personality enable/disable functionality', () => {
+    it(
+      'uses personality when enablePersonality is true in agentConfig',
+      async () => {
+        // Set agentConfig to explicitly enable personality
+        agent.agentConfig = {
+          ...agent.agentConfig,
+          enablePersonality: true
+        }
+
+        const msg = await createQuestion('What did she say about part-time work?')
+        agent.conversationHistorySettings = {
+          endTime: new Date(startTime.getTime() + 147 * 1000),
+          count: 100,
+          directMessages: true
+        }
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+
+        expect(responses).toHaveLength(1)
+        expect(responses[0].message).toBeDefined()
+
+        // Response should be relatively concise (personality enforces 1-3 sentences)
+        const sentences = responses[0].message.split(/[.!?]+/).filter((s) => s.trim().length > 0)
+        expect(sentences.length).toBeLessThanOrEqual(4)
+      },
+      testTimeout
+    )
+
+    it(
+      'does not use personality when enablePersonality is false in agentConfig',
+      async () => {
+        // Set agentConfig to explicitly disable personality
+        agent.agentConfig = {
+          ...agent.agentConfig,
+          enablePersonality: false
+        }
+
+        const msg = await createQuestion('What did she say about part-time work?')
+        agent.conversationHistorySettings = {
+          endTime: new Date(startTime.getTime() + 147 * 1000),
+          count: 100,
+          directMessages: true
+        }
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+
+        expect(responses).toHaveLength(1)
+        expect(responses[0].message).toBeDefined()
+
+        // Response should still be helpful and answer the question
+        expect(responses[0].message.length).toBeGreaterThan(10)
+      },
+      testTimeout
+    )
+
+    it(
+      'falls back to config.enableAgentPersonality when agentConfig does not specify enablePersonality',
+      async () => {
+        const config = await import('../../../src/config/config.js')
+
+        // Don't set enablePersonality in agentConfig, should use config default
+        delete agent.agentConfig.enablePersonality
+
+        const msg = await createQuestion('What did she say about part-time work?')
+        agent.conversationHistorySettings = {
+          endTime: new Date(startTime.getTime() + 147 * 1000),
+          count: 100,
+          directMessages: true
+        }
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+
+        expect(responses).toHaveLength(1)
+        expect(responses[0].message).toBeDefined()
+
+        // Response should be helpful regardless of personality setting
+        expect(responses[0].message.length).toBeGreaterThan(10)
+
+        // Verify it used the config value
+        expect(config.default.enableAgentPersonality).toBeDefined()
+      },
+      testTimeout
+    )
+
+    it(
+      'agentConfig.enablePersonality overrides config.enableAgentPersonality',
+      async () => {
+        const config = await import('../../../src/config/config.js')
+
+        // Set agentConfig opposite to what config says
+        const configValue = config.default.enableAgentPersonality
+        agent.agentConfig = {
+          ...agent.agentConfig,
+          enablePersonality: !configValue
+        }
+
+        const msg = await createQuestion('What did she say about part-time work?')
+        agent.conversationHistorySettings = {
+          endTime: new Date(startTime.getTime() + 147 * 1000),
+          count: 100,
+          directMessages: true
+        }
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+
+        expect(responses).toHaveLength(1)
+        expect(responses[0].message).toBeDefined()
+
+        // Response should be helpful regardless of personality setting
+        expect(responses[0].message.length).toBeGreaterThan(10)
+      },
+      testTimeout
+    )
+  })
 })

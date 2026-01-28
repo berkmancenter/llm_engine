@@ -19,6 +19,7 @@ const envVarsSchema = Joi.object()
     ENABLE_PUBLIC_CHANNEL_CREATION: Joi.boolean().default(false).description('Enable channel creation'),
     ENABLE_AUTO_DELETION: Joi.boolean().default(true).description('Enable automatic deletion of inactive topics'),
     ENABLE_EXPORT_OPT_OUT: Joi.boolean().default(true).description('Enable export opt-out functionality'),
+    ENABLE_AGENT_PERSONALITY: Joi.boolean().default(false).description('Enable agent personality in prompts'),
     JWT_SECRET: Joi.string().required().description('JWT secret key'),
     JWT_ACCESS_EXPIRATION_MINUTES: Joi.number().default(30).description('minutes after which access tokens expire'),
     JWT_REFRESH_EXPIRATION_DAYS: Joi.number().default(30).description('days after which refresh tokens expire'),
@@ -133,6 +134,7 @@ const config = {
   enablePublicChannelCreation: envVars.ENABLE_PUBLIC_CHANNEL_CREATION,
   enableAutoDeletion: envVars.ENABLE_AUTO_DELETION,
   enableExportOptOut: envVars.ENABLE_EXPORT_OPT_OUT,
+  enableAgentPersonality: envVars.ENABLE_AGENT_PERSONALITY,
   langsmith: {
     key: envVars.LANGSMITH_API_KEY
   },

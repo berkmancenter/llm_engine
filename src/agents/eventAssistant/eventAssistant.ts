@@ -7,6 +7,7 @@ import {
   generatePseudonymFunFact
 } from './eventQuestionHandler.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
+import config from '../../config/config.js'
 
 export default verify({
   name: 'Event Assistant',
@@ -20,7 +21,8 @@ export default verify({
     introMessage:
       "Hey! I'm the NextSpace Event Assistant. Ask me about what's happening, or use /mod to fast-track a message to the mod.",
     chatIntroMessage:
-      'Welcome to the chat! This is a space to chat with other event participants. You can also ask me questions with an @Event Assistant mention. Just remember that everyone can see what you ask me here. Use the Event Assistant tab if you want to talk privately. Have fun!'
+      'Welcome to the chat! This is a space to chat with other event participants. You can also ask me questions with an @Event Assistant mention. Just remember that everyone can see what you ask me here. Use the Event Assistant tab if you want to talk privately. Have fun!',
+    enablePersonality: config.enableAgentPersonality
   },
   llmTemplateVars: eventAssistantLlmTemplateVars,
   defaultLLMTemplates: eventAssistantLLMTemplates,
