@@ -15,7 +15,7 @@ import {
 } from '../../tests/utils/agentTestHelpers.js'
 import { evaluators } from '../../tests/utils/evaluators.js'
 import config from '../../src/config/config.js'
-import { evaluationTypes, initializeAgentEvaluators } from './event-assistant-config.js'
+import { evaluationTypes, initializeAgentEvaluators } from './eventAssistantConfig.js'
 import agenda from '../../src/jobs/index.js'
 
 // ---------------------------------------------------------------------------

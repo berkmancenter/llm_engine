@@ -82,15 +82,34 @@ Special cases for maximum conciseness (score = 1.0):
 {reference_outputs}
 </reference_outputs>`
 
+const personalityEvaluators = [
+  'conciseness',
+  'ceremony',
+  'leadWithAnswer',
+  'antiSycophancy',
+  'pragmatic',
+  'opinionatedBounded',
+  'confidentNotCocky',
+  'witAndHumor',
+  'honestyAboutLimits'
+]
+
 // Evaluation type configurations
 export const evaluationTypes = {
   semantic: {
     name: 'Semantic Response',
-    evaluators: ['correctness', 'hallucination', 'groundedness', 'helpfulness', 'retrievalRelevance', 'conciseness']
+    evaluators: [
+      ...personalityEvaluators,
+      'correctness',
+      'hallucination',
+      'groundedness',
+      'helpfulness',
+      'retrievalRelevance'
+    ]
   },
   timewindow: {
     name: 'Time Window Response',
-    evaluators: ['correctness', 'hallucination', 'groundedness']
+    evaluators: [...personalityEvaluators, 'correctness', 'hallucination', 'groundedness']
   }
 }
 
