@@ -16,6 +16,7 @@ const allRoles = {
     'publicConversations',
     'topicConversations',
     'deleteConversation',
+    'deleteTranscript',
     'vote',
     'managePseudonym',
     'manageAccount',
