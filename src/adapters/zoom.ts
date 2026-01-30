@@ -51,12 +51,12 @@ async function deployMeetingBot() {
       {
         type: 'webhook',
         events: ['participant_events.chat_message'],
-        url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/chat/?token=${config.recall.token}&conversationId=${this.conversation._id}`
+        url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/chat/?conversationId=${this.conversation._id}`
       },
       {
         type: 'webhook',
         events: ['participant_events.join'],
-        url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/join/?token=${config.recall.token}&conversationId=${this.conversation._id}`
+        url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/join/?conversationId=${this.conversation._id}`
       }
     ]
 
@@ -66,7 +66,7 @@ async function deployMeetingBot() {
       realtimeEndpoints.push({
         type: 'webhook',
         events: ['transcript.data'],
-        url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/transcript/?token=${config.recall.token}&conversationId=${this.conversation._id}`
+        url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/transcript/?conversationId=${this.conversation._id}`
       })
       recordingConfig = {
         transcript: {

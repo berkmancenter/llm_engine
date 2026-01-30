@@ -505,12 +505,12 @@ describe('zoom adapter tests', () => {
               {
                 type: 'webhook',
                 events: ['participant_events.chat_message'],
-                url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/chat/?token=${config.recall.token}&conversationId=${conversation._id}`
+                url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/chat/?conversationId=${conversation._id}`
               },
               {
                 type: 'webhook',
                 events: ['participant_events.join'],
-                url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/join/?token=${config.recall.token}&conversationId=${conversation._id}`
+                url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/join/?conversationId=${conversation._id}`
               }
             ],
             retention: {
@@ -567,12 +567,12 @@ describe('zoom adapter tests', () => {
               {
                 type: 'webhook',
                 events: ['participant_events.chat_message'],
-                url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/chat/?token=${config.recall.token}&conversationId=${conversation._id}`
+                url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/chat/?conversationId=${conversation._id}`
               },
               {
                 type: 'webhook',
                 events: ['participant_events.join'],
-                url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/join/?token=${config.recall.token}&conversationId=${conversation._id}`
+                url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/join/?conversationId=${conversation._id}`
               }
             ],
             retention: null

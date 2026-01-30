@@ -1,10 +1,60 @@
 import httpStatus from 'http-status'
 import crypto from 'crypto'
+import { Buffer } from 'buffer'
 import ApiError from '../utils/ApiError.js'
 import config from '../config/config.js'
 import logger from '../config/logger.js'
 import Conversation from '../models/conversation.model.js'
 import webhookService from '../services/webhook.service.js'
+
+const verifyRequestFromRecall = (args: { secret: string; headers: Record<string, string>; payload: string | null }) => {
+  const { secret, headers, payload } = args
+  const msgId = headers['webhook-id'] ?? headers['svix-id']
+  const msgTimestamp = headers['webhook-timestamp'] ?? headers['svix-timestamp']
+  const msgSignature = headers['webhook-signature'] ?? headers['svix-signature']
+
+  if (!secret || !secret.startsWith('whsec_')) {
+    throw new Error(`Verification secret (${secret}) is missing or invalid`)
+  }
+  if (!msgId || !msgTimestamp || !msgSignature) {
+    throw new Error(`Missing webhook ID (${msgId}), timestamp (${msgTimestamp}), or signature (${msgSignature})`)
+  }
+
+  const prefix = 'whsec_'
+  const base64Part = secret.startsWith(prefix) ? secret.slice(prefix.length) : secret
+  const key = Buffer.from(base64Part, 'base64')
+
+  let payloadStr = ''
+  if (payload) {
+    if (Buffer.isBuffer(payload)) {
+      payloadStr = payload.toString('utf8')
+    } else if (typeof payload === 'string') {
+      payloadStr = payload
+    }
+  }
+
+  const toSign = `${msgId}.${msgTimestamp}.${payloadStr}`
+  const expectedSig = crypto.createHmac('sha256', key).update(toSign).digest('base64')
+
+  const passedSigs = msgSignature.split(' ')
+  for (const versionedSig of passedSigs) {
+    const [version, signature] = versionedSig.split(',')
+    if (version !== 'v1') {
+      continue
+    }
+    const sigBytes = Buffer.from(signature, 'base64')
+    const expectedSigBytes = Buffer.from(expectedSig, 'base64')
+    if (
+      expectedSigBytes.length === sigBytes.length &&
+      crypto.timingSafeEqual(new Uint8Array(expectedSigBytes), new Uint8Array(sigBytes))
+    ) {
+      return
+    }
+  }
+
+  throw new Error('No matching signature found')
+}
+
 
 const supportedEvents = ['transcript.data', 'participant_events.chat_message', 'participant_events.join']
 const handleEvent = async (req, res) => {
@@ -32,20 +82,32 @@ const handleEvent = async (req, res) => {
   res.status(httpStatus.OK).send('ok')
 }
 
-const middleware = async (req, res, next) => {
+const middleware = async (req, _res, next) => {
   try {
-    const { token } = req.query
-    if (!token) {
-      throw new ApiError(httpStatus.UNAUTHORIZED, 'Token not provided')
+    // Calculate headers first
+    const headers: Record<string, string> = {}
+    Object.keys(req.headers).forEach((key) => {
+      const value = req.headers[key]
+      if (typeof value === 'string') {
+        headers[key.toLowerCase()] = value
+      }
+    })
+
+    // Determine which secret to use based on the presence of Svix headers
+    const isSvixWebhook = !!headers['svix-id']
+    const secret = isSvixWebhook ? config.recall.svixSecret : config.recall.realtimeSecret
+
+    // Use raw body captured by body-parser verify function
+    const payload = req.rawBody || null
+
+    try {
+      verifyRequestFromRecall({ secret, headers, payload })
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      logger.warn(`Recall webhook verification failed: ${errorMessage}`)
+      throw new ApiError(httpStatus.UNAUTHORIZED, 'Invalid webhook signature')
     }
-    const providedBuffer = Buffer.from(token)
-    const secretBuffer = Buffer.from(config.recall.token)
-    if (providedBuffer.length !== secretBuffer.length) {
-      throw new ApiError(httpStatus.UNAUTHORIZED, 'Invalid token')
-    }
-    if (!crypto.timingSafeEqual(providedBuffer, secretBuffer)) {
-      throw new ApiError(httpStatus.UNAUTHORIZED, 'Invalid token')
-    }
+
     next()
   } catch (err) {
     next(err)

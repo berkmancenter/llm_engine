@@ -32,13 +32,15 @@ const testAdapterTypes = {
 describe('POST /v1/webhooks/recall', () => {
   let receiveMessageSpy
   let zoomAdapter
-  let recallToken
+  let realtimeSecret
+  let svixSecret
   let conversation
   beforeAll(() => {
     setAdapterTypes(testAdapterTypes)
-    recallToken = config.recall.token
-    // This token can be any string, set for internal testing so env variable not required
-    config.recall.token = 'dlakdfj000223dkflsdkjx232'
+    realtimeSecret = config.recall.realtimeSecret
+    svixSecret = config.recall.svixSecret
+    config.recall.realtimeSecret = undefined
+    config.recall.svixSecret = undefined
   })
   beforeEach(async () => {
     await insertTopics([publicTopic])
@@ -57,17 +59,15 @@ describe('POST /v1/webhooks/recall', () => {
   })
   afterAll(() => {
     setAdapterTypes(defaultAdapterTypes)
-    config.recall.token = recallToken
+    config.recall.realtimeSecret = realtimeSecret
+    config.recall.svixSecret = svixSecret
   })
   afterEach(async () => {
     jest.clearAllMocks()
   })
   test('should return 200 and route to the correct zoom adapter when properly authenticated', async () => {
     const testEvent = { event: 'transcript.data', data: { text: 'Welcome to our meeting', bot: { id: botId } } }
-    await request(app)
-      .post(`/v1/webhooks/recall?token=${config.recall.token}&conversationId=${conversation._id}`)
-      .send(testEvent)
-      .expect(httpStatus.OK)
+    await request(app).post(`/v1/webhooks/recall?conversationId=${conversation._id}`).send(testEvent).expect(httpStatus.OK)
     expect(receiveMessageSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: zoomAdapter._id }), testEvent)
   })
   test('should return 401 if token invalid', async () => {
@@ -87,14 +87,14 @@ describe('POST /v1/webhooks/recall', () => {
   test('should return 200 and do nothing if unsupported event type', async () => {
     const testData = { text: 'Welcome to our meeting' }
     await request(app)
-      .post(`/v1/webhooks/recall?token=${config.recall.token}&conversationId=${conversation._id}`)
+      .post(`/v1/webhooks/recall?conversationId=${conversation._id}`)
       .send({ event: 'something', data: testData })
       .expect(httpStatus.OK)
   })
   test('should return 404 if conversation not found', async () => {
-    const testData = { text: 'Welcome to our meeting' }
+    const testData = { text: 'Welcome to our meeting', bot: { id: botId } }
     await request(app)
-      .post(`/v1/webhooks/recall?token=${config.recall.token}&conversationId=68250298445b876b3451add4`)
+      .post(`/v1/webhooks/recall?conversationId=68250298445b876b3451add4`)
       .send({ event: 'transcript.data', data: testData })
       .expect(httpStatus.NOT_FOUND)
   })
@@ -107,7 +107,7 @@ describe('POST /v1/webhooks/recall', () => {
     await noAdapterconversation.save()
     const testData = { text: 'Welcome to our meeting', bot: { id: botId } }
     await request(app)
-      .post(`/v1/webhooks/recall?token=${config.recall.token}&conversationId=${noAdapterconversation._id}`)
+      .post(`/v1/webhooks/recall?conversationId=${noAdapterconversation._id}`)
       .send({ event: 'transcript.data', data: testData })
       .expect(httpStatus.NOT_FOUND)
   })
@@ -115,7 +115,7 @@ describe('POST /v1/webhooks/recall', () => {
     const differentBotId = 'different-bot-id'
     const testData = { text: 'Welcome to our meeting', bot: { id: differentBotId } }
     await request(app)
-      .post(`/v1/webhooks/recall?token=${config.recall.token}&conversationId=${conversation._id}`)
+      .post(`/v1/webhooks/recall?conversationId=${conversation._id}`)
       .send({ event: 'transcript.data', data: testData })
       .expect(httpStatus.NOT_FOUND)
 
