@@ -82,6 +82,22 @@ async function deployMeetingBot() {
       body: JSON.stringify({
         meeting_url: meetingUrl,
         bot_name: botName ?? defaultBotName,
+        automatic_leave: {
+          bot_detection: {
+            using_participant_events: {
+              timeout: 999999,
+              activate_after: 999999
+            }
+          },
+          everyone_left_timeout: {
+            timeout: 2,
+            activate_after: 1
+          },
+          waiting_room_timeout: 1200,
+          noone_joined_timeout: 1200,
+          in_call_not_recording_timeout: 3600,
+          recording_permission_denied_timeout: 30
+        },
         recording_config: {
           ...recordingConfig,
           realtime_endpoints: realtimeEndpoints,
