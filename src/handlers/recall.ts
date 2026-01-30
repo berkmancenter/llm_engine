@@ -5,6 +5,7 @@ import ApiError from '../utils/ApiError.js'
 import config from '../config/config.js'
 import logger from '../config/logger.js'
 import Conversation from '../models/conversation.model.js'
+import Adapter from '../models/adapter.model.js'
 import webhookService from '../services/webhook.service.js'
 
 const verifyRequestFromRecall = (args: { secret: string; headers: Record<string, string>; payload: string | null }) => {
@@ -55,31 +56,78 @@ const verifyRequestFromRecall = (args: { secret: string; headers: Record<string,
   throw new Error('No matching signature found')
 }
 
+const handleBotStatusChange = async (adapter, body) => {
+  const { code, sub_code: subCode, message } = body.data.data
+  logger.info(`Bot status changed for adapter ${adapter._id}: ${code}${subCode ? ` (${subCode})` : ''} - ${message}`)
 
-const supportedEvents = ['transcript.data', 'participant_events.chat_message', 'participant_events.join']
-const handleEvent = async (req, res) => {
+  const { conversation } = adapter
+  if (!conversation.active) {
+    logger.info('Conversation is not active. Skipping bot status change handling.')
+    return
+  }
+
+  // Handle bot stopping/leaving (call_ended with specific sub_codes)
+  const stoppedSubCodes = [
+    'bot_received_leave_call',
+    'timeout_exceeded_waiting_room',
+    'timeout_exceeded_noone_joined',
+    'timeout_exceeded_in_call_not_recording'
+  ]
+
+  if (code === 'call_ended' && subCode && stoppedSubCodes.includes(subCode)) {
+    // Attempt to redeploy the bot
+    logger.warn(`Bot left call but meeting still active (${subCode}). Attempting to redeploy...`)
+    try {
+      await adapter.start()
+      logger.info(`Successfully redeployed bot for adapter ${adapter._id}`)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      logger.error(`Failed to redeploy bot for adapter ${adapter._id}: ${errorMessage}`)
+    }
+  }
+}
+
+const supportedEvents = ['transcript.data', 'participant_events.chat_message', 'participant_events.join', 'bot.call_ended']
+const handleEvent = async (req, _res) => {
   const { event } = req.body
   if (!supportedEvents.includes(event)) {
     logger.warn(`Received unsupported event type: ${event}`)
-    res.status(httpStatus.OK).send('ok')
+    _res.status(httpStatus.OK).send('ok')
     return
   }
+
+  const botId = req.body.data?.bot?.id
+
+  // These events come from dashboard webhooks (not realtime endpoints)
+  // so we need to search for the adapter by botId across all conversations
+  if (event === 'bot.call_ended') {
+    const zoomAdapter = await Adapter.findOne({ type: 'zoom', 'config.botId': botId }).populate('conversation').exec()
+    if (!zoomAdapter) {
+      logger.warn(`Received bot.status_change for unknown botId ${botId}`)
+      _res.status(httpStatus.OK).send('ok')
+      return
+    }
+    await handleBotStatusChange(zoomAdapter, req.body)
+    _res.status(httpStatus.OK).send('ok')
+    return
+  }
+
+  // For other events, use conversationId from query params
   const { conversationId } = req.query
   const conversation = await Conversation.findOne({ _id: conversationId }).populate('adapters').exec()
   if (!conversation) {
     throw new ApiError(httpStatus.NOT_FOUND, 'Conversation not found')
   }
-  const botId = req.body.data.bot.id
   const zoomAdapter = conversation.adapters?.find((adapter) => adapter.type === 'zoom' && adapter.config.botId === botId)
   if (!zoomAdapter) {
     throw new ApiError(httpStatus.NOT_FOUND, `No Zoom adapter with botId ${botId} configured for this conversation`)
   }
   if (event === 'transcript.data' || event === 'participant_events.chat_message') {
     await webhookService.receiveMessage(zoomAdapter, req.body)
-  } else {
+  } else if (event === 'participant_events.join') {
     await webhookService.participantJoined(zoomAdapter, req.body.data.data.participant)
   }
-  res.status(httpStatus.OK).send('ok')
+  _res.status(httpStatus.OK).send('ok')
 }
 
 const middleware = async (req, _res, next) => {

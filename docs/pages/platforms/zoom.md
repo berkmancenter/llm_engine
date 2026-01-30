@@ -15,13 +15,20 @@ We provide a Zoom adapter that saves real-time transcription of a Zoom meeting t
 
 1. Complete Step 1 of [these instructions](https://beta-docs.recall.ai/docs/step-1-create-a-zoom-marketplace-app) to create a Zoom marketplace app and connect it to Recall.
 2. In Zoom Marketplace, Set up Zoom event subscriptions in your app to receive meeting started and ended events. Choose Webhook method and set the event notification endpoint URL to [baseUrl]/v1/webhooks/zoom
-3. Set the four Recall environment variables and Zoom event subscription variable in `.env`
-
+3. Create a new Webhook from the Recall.ai dashboard. Use [baseUrl]/v1/webhooks/recall/status as the endpoint. Subscribe to `bot.call_ended` events. Copy the signing secret displayed on the webhook page for setting the `RECALL_SVIX_SECRET` environment variable.
+4. Set the Recall environment variables and Zoom event subscription variable in `.env`
 ```
 RECALL_API_KEY
 RECALL_BASE_URL: the URL used to connect to your Recall account
-RECALL_TOKEN: can be anything. Sent to Recall to use as a query param for authentication when it calls back to our webhooks
 RECALL_BASE_URL: The URL Recall should use to send events to this server, e.g. a static ngrok domain if running locally
+# Verification secrets for webhook signature validation
+# For legacy accounts (created before Dec 15, 2025), you need TWO secrets:
+# - RECALL_REALTIME_SECRET: from API keys dashboard for real-time endpoints (chat, join, transcript)
+# - RECALL_SVIX_SECRET: from webhooks dashboard for bot.status_change events
+# For newer accounts, only RECALL_REALTIME_SECRET is needed (same for both)
+# Get these from: https://[region].recall.ai/dashboard/developers/api-keys
+RECALL_REALTIME_SECRET=whsec_...
+RECALL_SVIX_SECRET=whsec_...
 ZOOM_SECRET_TOKEN: the secret token found in your app configuration in the Zoom marketplace
 ```
 

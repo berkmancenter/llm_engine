@@ -27,13 +27,8 @@ async function isBotDeployed() {
     return false
   }
   const recentStatus = statusChanges[statusChanges.length - 1]
-  // If a bot times out in the waiting room, its status will be done
-  if (
-    recentStatus.code === 'done' ||
-    recentStatus.code === 'fatal' ||
-    recentStatus.code === 'media_expired' ||
-    recentStatus.code === 'call_ended'
-  ) {
+  // Bot is no longer active if it's in a terminal state
+  if (recentStatus.code === 'done' || recentStatus.code === 'fatal' || recentStatus.code === 'call_ended') {
     logger.info(`Found an existing bot that is no longer active. ID: ${botId}. Deploying new bot.`)
     return false
   }
