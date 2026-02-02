@@ -1683,6 +1683,270 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         expect(response.text).toContain('**Additional Channel: chat**')
         expect(response.text).toContain('Chat message')
       })
+
+      describe('feedback reporting', () => {
+        test('should include rating feedback on agent messages in the report', async () => {
+          // Get the agent message IDs from the setup
+          const agentMsg = await Message.findOne({
+            conversation: directMessageConversation._id,
+            fromAgent: true,
+            createdAt: msg2Time
+          })
+
+          // Create a rating feedback message
+          await Message.create({
+            _id: new mongoose.Types.ObjectId(),
+            conversation: directMessageConversation._id,
+            channels: ['feedback'],
+            bodyType: 'json',
+            body: {
+              messageId: agentMsg!._id.toString(),
+              type: 'rating',
+              value: '5'
+            },
+            fromAgent: false,
+            createdAt: new Date('2024-01-01T10:12:00Z'),
+            updatedAt: new Date('2024-01-01T10:12:00Z'),
+            pseudonym: registeredUser.pseudonyms[0].pseudonym,
+            pseudonymId: registeredUser.pseudonyms[0]._id
+          })
+
+          const response = await request(app)
+            .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+            .query({
+              reportName: 'directMessageResponses',
+              format: 'text'
+            })
+            .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+            .expect(httpStatus.OK)
+
+          // Verify feedback is included in the report
+          expect(response.text).toContain('rating: 5')
+        })
+
+        test('should include text feedback on agent messages in the report', async () => {
+          const agentMsg2 = await Message.findOne({
+            conversation: directMessageConversation._id,
+            fromAgent: true,
+            createdAt: msg5Time
+          })
+
+          // Create a text feedback message
+          await Message.create({
+            _id: new mongoose.Types.ObjectId(),
+            conversation: directMessageConversation._id,
+            channels: ['feedback'],
+            bodyType: 'json',
+            body: {
+              messageId: agentMsg2!._id.toString(),
+              type: 'text',
+              value: 'Very helpful response!'
+            },
+            fromAgent: false,
+            createdAt: new Date('2024-01-01T10:13:00Z'),
+            updatedAt: new Date('2024-01-01T10:13:00Z'),
+            pseudonym: userOne.pseudonyms[0].pseudonym,
+            pseudonymId: userOne.pseudonyms[0]._id
+          })
+
+          const response = await request(app)
+            .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+            .query({
+              reportName: 'directMessageResponses',
+              format: 'text'
+            })
+            .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+            .expect(httpStatus.OK)
+
+          // Verify feedback is included in the report
+          expect(response.text).toContain('text: Very helpful response!')
+        })
+
+        test('should include multiple feedback items on a single agent message', async () => {
+          const agentMsg3 = await Message.findOne({
+            conversation: directMessageConversation._id,
+            fromAgent: true,
+            createdAt: msg7Time
+          })
+
+          // Create multiple feedback messages for the same agent message
+          await Message.create([
+            {
+              _id: new mongoose.Types.ObjectId(),
+              conversation: directMessageConversation._id,
+              channels: ['feedback'],
+              bodyType: 'json',
+              body: {
+                messageId: agentMsg3!._id.toString(),
+                type: 'rating',
+                value: '4'
+              },
+              fromAgent: false,
+              createdAt: new Date('2024-01-01T10:14:00Z'),
+              updatedAt: new Date('2024-01-01T10:14:00Z'),
+              pseudonym: registeredUser.pseudonyms[0].pseudonym,
+              pseudonymId: registeredUser.pseudonyms[0]._id
+            },
+            {
+              _id: new mongoose.Types.ObjectId(),
+              conversation: directMessageConversation._id,
+              channels: ['feedback'],
+              bodyType: 'json',
+              body: {
+                messageId: agentMsg3!._id.toString(),
+                type: 'text',
+                value: 'Clear and concise'
+              },
+              fromAgent: false,
+              createdAt: new Date('2024-01-01T10:15:00Z'),
+              updatedAt: new Date('2024-01-01T10:15:00Z'),
+              pseudonym: registeredUser.pseudonyms[0].pseudonym,
+              pseudonymId: registeredUser.pseudonyms[0]._id
+            }
+          ])
+
+          const response = await request(app)
+            .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+            .query({
+              reportName: 'directMessageResponses',
+              format: 'text'
+            })
+            .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+            .expect(httpStatus.OK)
+
+          // Verify both feedback items are included
+          expect(response.text).toContain('rating: 4')
+          expect(response.text).toContain('text: Clear and concise')
+        })
+
+        test('should not include feedback on user messages', async () => {
+          const userMsg = await Message.findOne({
+            conversation: directMessageConversation._id,
+            fromAgent: false,
+            createdAt: msg1Time
+          })
+
+          // Create feedback for a user message (should be ignored)
+          await Message.create({
+            _id: new mongoose.Types.ObjectId(),
+            conversation: directMessageConversation._id,
+            channels: ['feedback'],
+            bodyType: 'json',
+            body: {
+              messageId: userMsg!._id.toString(),
+              type: 'rating',
+              value: '5'
+            },
+            fromAgent: false,
+            createdAt: new Date('2024-01-01T10:16:00Z'),
+            updatedAt: new Date('2024-01-01T10:16:00Z'),
+            pseudonym: registeredUser.pseudonyms[0].pseudonym,
+            pseudonymId: registeredUser.pseudonyms[0]._id
+          })
+
+          const response = await request(app)
+            .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+            .query({
+              reportName: 'directMessageResponses',
+              format: 'text'
+            })
+            .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+            .expect(httpStatus.OK)
+
+          // Verify that the user message text is in the report but not feedback for it
+          expect(response.text).toContain('Hello agent, can you help me?')
+          // The feedback should not appear near the user message
+          const userMessageIndex = response.text.indexOf('Hello agent, can you help me?')
+          const nextAgentMessageIndex = response.text.indexOf('Sure, I can help you with that.')
+          const textBetween = response.text.substring(userMessageIndex, nextAgentMessageIndex)
+          expect(textBetween).not.toContain('rating: 5')
+        })
+
+        test('should handle feedback messages with missing or invalid fields gracefully', async () => {
+          const agentMsg4 = await Message.findOne({
+            conversation: directMessageConversation._id,
+            fromAgent: true,
+            createdAt: msg2Time
+          })
+
+          // Create feedback messages with invalid/missing fields
+          await Message.create([
+            {
+              _id: new mongoose.Types.ObjectId(),
+              conversation: directMessageConversation._id,
+              channels: ['feedback'],
+              bodyType: 'json',
+              body: {
+                // Missing messageId
+                type: 'rating',
+                value: '5'
+              },
+              fromAgent: false,
+              createdAt: new Date('2024-01-01T10:17:00Z'),
+              updatedAt: new Date('2024-01-01T10:17:00Z'),
+              pseudonym: registeredUser.pseudonyms[0].pseudonym,
+              pseudonymId: registeredUser.pseudonyms[0]._id
+            },
+            {
+              _id: new mongoose.Types.ObjectId(),
+              conversation: directMessageConversation._id,
+              channels: ['feedback'],
+              bodyType: 'json',
+              body: {
+                messageId: agentMsg4!._id.toString(),
+                // Missing type
+                value: '5'
+              },
+              fromAgent: false,
+              createdAt: new Date('2024-01-01T10:18:00Z'),
+              updatedAt: new Date('2024-01-01T10:18:00Z'),
+              pseudonym: registeredUser.pseudonyms[0].pseudonym,
+              pseudonymId: registeredUser.pseudonyms[0]._id
+            },
+            {
+              _id: new mongoose.Types.ObjectId(),
+              conversation: directMessageConversation._id,
+              channels: ['feedback'],
+              bodyType: 'string', // Wrong bodyType
+              body: 'Just a string',
+              fromAgent: false,
+              createdAt: new Date('2024-01-01T10:19:00Z'),
+              updatedAt: new Date('2024-01-01T10:19:00Z'),
+              pseudonym: registeredUser.pseudonyms[0].pseudonym,
+              pseudonymId: registeredUser.pseudonyms[0]._id
+            }
+          ])
+
+          // Should not throw an error
+          const response = await request(app)
+            .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+            .query({
+              reportName: 'directMessageResponses',
+              format: 'text'
+            })
+            .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+            .expect(httpStatus.OK)
+
+          // Report should still be generated successfully
+          expect(response.text).toContain('DMTestAgent1')
+        })
+
+        test('should handle experiments with no feedback messages', async () => {
+          // No feedback messages created - just verify report generates normally
+          const response = await request(app)
+            .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+            .query({
+              reportName: 'directMessageResponses',
+              format: 'text'
+            })
+            .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+            .expect(httpStatus.OK)
+
+          // Report should be generated without feedback sections
+          expect(response.text).toContain('DMTestAgent1')
+          expect(response.text).toContain('Sure, I can help you with that.')
+        })
+      })
     })
   })
 

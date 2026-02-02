@@ -10,11 +10,17 @@ import logger from '../config/logger.js'
 import transcript from '../agents/helpers/transcript.js'
 import { duplicateConversationMessages } from './message.service.js'
 
+interface FeedbackReport {
+  type: 'rating' | 'text'
+  value: string
+}
+
 interface CommentReport {
   user: string
   text: string
   timestamp?: Date
   fromAgent?: boolean
+  feedback?: FeedbackReport[]
 }
 
 interface MessageReport {
@@ -96,12 +102,47 @@ async function generateDirectMessageAgentsData(experiment, additionalChannelName
         conversation: experiment.resultConversation._id
       }).sort({ createdAt: 1 })
 
-      const comments: CommentReport[] = directMessages.map((msg) => ({
-        user: msg.pseudonym,
-        text: msg.body as string,
-        timestamp: msg.createdAt,
-        fromAgent: msg.fromAgent
-      }))
+      // Fetch all feedback messages for this conversation
+      const feedbackMessages = await Message.find({
+        channels: 'feedback',
+        conversation: experiment.resultConversation._id
+      })
+
+      // Create a map of messageId -> feedback[] for quick lookup
+      const feedbackMap = new Map<string, FeedbackReport[]>()
+      for (const feedbackMsg of feedbackMessages) {
+        if (feedbackMsg.bodyType === 'json' && typeof feedbackMsg.body === 'object') {
+          const feedbackBody = feedbackMsg.body as Record<string, unknown>
+          if (feedbackBody.messageId && feedbackBody.type && feedbackBody.value) {
+            const messageId = feedbackBody.messageId as string
+            const feedback: FeedbackReport = {
+              type: feedbackBody.type as 'rating' | 'text',
+              value: feedbackBody.value as string
+            }
+
+            if (!feedbackMap.has(messageId)) {
+              feedbackMap.set(messageId, [])
+            }
+            feedbackMap.get(messageId)!.push(feedback)
+          }
+        }
+      }
+
+      const comments: CommentReport[] = directMessages.map((msg) => {
+        const comment: CommentReport = {
+          user: msg.pseudonym,
+          text: msg.body as string,
+          timestamp: msg.createdAt,
+          fromAgent: msg.fromAgent
+        }
+
+        // Add feedback if this is an agent message and feedback exists
+        if (msg.fromAgent && feedbackMap.has(msg._id.toString())) {
+          comment.feedback = feedbackMap.get(msg._id.toString())
+        }
+
+        return comment
+      })
       // Only include interactions where a human sent at least one message
       const humanMessages = directMessages.filter((msg) => !msg.fromAgent)
       if (humanMessages.length > 0) {

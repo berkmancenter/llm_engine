@@ -30,6 +30,11 @@ Additional Channels:
 
 {{#each comments}}
 {{formatTime timestamp}}  {{{user}}}: {{{text}}}
+{{#if feedback}}
+{{#each feedback}}
+  Feedback: {{#if (eq type 'rating')}}Rating - {{value}}{{else}}{{value}}{{/if}}
+{{/each}}
+{{/if}}
 
 {{/each}}
 ---------------------------
