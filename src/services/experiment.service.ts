@@ -35,6 +35,12 @@ interface PeriodicAgentReport {
   messages: MessageReport[]
 }
 
+interface AdditionalChannelReport {
+  channelName: string
+  messages: CommentReport[]
+  totalUsers: number
+}
+
 interface DirectMessageAgentReport {
   name: string
   messages: DirectMessageReport[]
@@ -43,6 +49,7 @@ interface DirectMessageAgentReport {
   maxEngagements: number
   avgEngagements: number
   userCount: number
+  additionalChannels?: AdditionalChannelReport[]
 }
 async function findComments(createdAtQuery, conversationId) {
   const matchQuery = {
@@ -69,7 +76,7 @@ async function findComments(createdAtQuery, conversationId) {
   return comments
 }
 
-async function generateDirectMessageAgentsData(experiment) {
+async function generateDirectMessageAgentsData(experiment, additionalChannelNames: string[] = []) {
   await experiment.populate('resultConversation')
   await experiment.resultConversation.populate('agents')
 
@@ -101,6 +108,34 @@ async function generateDirectMessageAgentsData(experiment) {
         messages.push({ username: humanMessages[0].pseudonym, comments, userMsgCount: humanMessages.length })
       }
     }
+
+    // Process additional channels
+    const additionalChannels: AdditionalChannelReport[] = []
+    for (const channelName of additionalChannelNames) {
+      const channelMessages = await Message.find({
+        channels: channelName,
+        conversation: experiment.resultConversation._id
+      }).sort({ createdAt: 1 })
+
+      if (channelMessages.length > 0) {
+        const comments: CommentReport[] = channelMessages.map((msg) => ({
+          user: msg.pseudonym,
+          text: msg.body as string,
+          timestamp: msg.createdAt,
+          fromAgent: msg.fromAgent
+        }))
+
+        // Calculate unique pseudonyms for this channel
+        const uniquePseudonyms = new Set(channelMessages.map((msg) => msg.pseudonym))
+
+        additionalChannels.push({
+          channelName,
+          messages: comments,
+          totalUsers: uniquePseudonyms.size
+        })
+      }
+    }
+
     if (messages.length > 0) {
       const userMsgCounts = messages.map((msg) => msg.userMsgCount)
       agents.push({
@@ -110,7 +145,8 @@ async function generateDirectMessageAgentsData(experiment) {
         userCount: totalUsers,
         minEngagements: Math.min(...userMsgCounts),
         maxEngagements: Math.max(...userMsgCounts),
-        avgEngagements: userMsgCounts.reduce((acc, count) => acc + count, 0) / userMsgCounts.length
+        avgEngagements: userMsgCounts.reduce((acc, count) => acc + count, 0) / userMsgCounts.length,
+        ...(additionalChannels.length > 0 && { additionalChannels })
       })
     }
   }
@@ -414,7 +450,13 @@ const getExperiment = async (id) => {
   return experimentPojo
 }
 
-const generateExperimentReport = async (experimentId, reportName, format = 'text', timezone = 'UTC') => {
+const generateExperimentReport = async (
+  experimentId,
+  reportName,
+  format = 'text',
+  timezone = 'UTC',
+  additionalChannels: string[] = []
+) => {
   const experiment = await Experiment.findOne({ _id: experimentId })
   if (!experiment) throw new ApiError(httpStatus.NOT_FOUND, 'Experiment not found')
 
@@ -425,7 +467,7 @@ const generateExperimentReport = async (experimentId, reportName, format = 'text
       reportData = await generatePeriodicAgentsData(experiment)
       break
     case 'directMessageResponses':
-      reportData = await generateDirectMessageAgentsData(experiment)
+      reportData = await generateDirectMessageAgentsData(experiment, additionalChannels)
       break
     default:
       throw new ApiError(httpStatus.BAD_REQUEST, `Unknown report name: ${reportName}`)

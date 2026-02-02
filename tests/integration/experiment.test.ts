@@ -1438,6 +1438,251 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         expect(response.text).toContain(formatDateUTC(directMessageExperiment.executedAt))
         expect(response.text).toContain(formatTimeUTC(msg1Time))
       })
+
+      test('should include additional channels when specified as comma-separated string', async () => {
+        // Create a chat channel with messages
+        const chatMsg1Time = new Date('2024-01-01T10:12:00Z')
+        const chatMessage1 = {
+          _id: new mongoose.Types.ObjectId(),
+          conversation: directMessageConversation!._id,
+          channels: ['chat'],
+          body: 'Hello from the chat channel!',
+          fromAgent: false,
+          createdAt: chatMsg1Time,
+          updatedAt: chatMsg1Time,
+          pseudonym: registeredUser.pseudonyms[0].pseudonym,
+          pseudonymId: registeredUser.pseudonyms[0]._id
+        }
+
+        const chatMsg2Time = new Date('2024-01-01T10:13:00Z')
+        const chatMessage2 = {
+          _id: new mongoose.Types.ObjectId(),
+          conversation: directMessageConversation!._id,
+          channels: ['chat'],
+          body: 'Another message in chat',
+          fromAgent: false,
+          createdAt: chatMsg2Time,
+          updatedAt: chatMsg2Time,
+          pseudonym: userOne.pseudonyms[0].pseudonym,
+          pseudonymId: userOne.pseudonyms[0]._id
+        }
+
+        await Message.create([chatMessage1, chatMessage2])
+
+        const response = await request(app)
+          .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+          .query({
+            reportName: 'directMessageResponses',
+            format: 'text',
+            additionalChannels: 'chat'
+          })
+          .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+          .expect(httpStatus.OK)
+
+        expect(response.headers['content-type']).toBe('text/plain; charset=utf-8')
+        expect(response.text).toContain('**Additional Channel: chat**')
+        expect(response.text).toContain('  - chat: 2 user(s)')
+        expect(response.text).toContain('Hello from the chat channel!')
+        expect(response.text).toContain('Another message in chat')
+        expect(response.text).toContain(formatTime(chatMsg1Time))
+        expect(response.text).toContain(formatTime(chatMsg2Time))
+      })
+
+      test('should include multiple additional channels when specified as comma-separated string', async () => {
+        // Create chat and forum channels with messages
+        const chatMsgTime = new Date('2024-01-01T10:12:00Z')
+        const chatMessage = {
+          _id: new mongoose.Types.ObjectId(),
+          conversation: directMessageConversation!._id,
+          channels: ['chat'],
+          body: 'Chat message',
+          fromAgent: false,
+          createdAt: chatMsgTime,
+          updatedAt: chatMsgTime,
+          pseudonym: registeredUser.pseudonyms[0].pseudonym,
+          pseudonymId: registeredUser.pseudonyms[0]._id
+        }
+
+        const forumMsgTime = new Date('2024-01-01T10:13:00Z')
+        const forumMessage = {
+          _id: new mongoose.Types.ObjectId(),
+          conversation: directMessageConversation!._id,
+          channels: ['forum'],
+          body: 'Forum message',
+          fromAgent: false,
+          createdAt: forumMsgTime,
+          updatedAt: forumMsgTime,
+          pseudonym: userOne.pseudonyms[0].pseudonym,
+          pseudonymId: userOne.pseudonyms[0]._id
+        }
+
+        await Message.create([chatMessage, forumMessage])
+
+        const response = await request(app)
+          .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+          .query({
+            reportName: 'directMessageResponses',
+            format: 'text',
+            additionalChannels: 'chat,forum'
+          })
+          .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+          .expect(httpStatus.OK)
+
+        expect(response.text).toContain('**Additional Channel: chat**')
+        expect(response.text).toContain('Chat message')
+        expect(response.text).toContain('**Additional Channel: forum**')
+        expect(response.text).toContain('Forum message')
+      })
+
+      test('should include additional channels when specified as array query parameters', async () => {
+        const chatMsgTime = new Date('2024-01-01T10:12:00Z')
+        const chatMessage = {
+          _id: new mongoose.Types.ObjectId(),
+          conversation: directMessageConversation!._id,
+          channels: ['chat'],
+          body: 'Chat message',
+          fromAgent: false,
+          createdAt: chatMsgTime,
+          updatedAt: chatMsgTime,
+          pseudonym: registeredUser.pseudonyms[0].pseudonym,
+          pseudonymId: registeredUser.pseudonyms[0]._id
+        }
+
+        const forumMsgTime = new Date('2024-01-01T10:13:00Z')
+        const forumMessage = {
+          _id: new mongoose.Types.ObjectId(),
+          conversation: directMessageConversation!._id,
+          channels: ['forum'],
+          body: 'Forum message',
+          fromAgent: false,
+          createdAt: forumMsgTime,
+          updatedAt: forumMsgTime,
+          pseudonym: userOne.pseudonyms[0].pseudonym,
+          pseudonymId: userOne.pseudonyms[0]._id
+        }
+
+        await Message.create([chatMessage, forumMessage])
+
+        // Use array format: ?additionalChannels=chat&additionalChannels=forum
+        const response = await request(app)
+          .get(`/v1/experiments/${directMessageExperiment._id}/results?additionalChannels=chat&additionalChannels=forum`)
+          .query({
+            reportName: 'directMessageResponses',
+            format: 'text'
+          })
+          .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+          .expect(httpStatus.OK)
+
+        expect(response.text).toContain('**Additional Channel: chat**')
+        expect(response.text).toContain('Chat message')
+        expect(response.text).toContain('**Additional Channel: forum**')
+        expect(response.text).toContain('Forum message')
+      })
+
+      test('should handle additional channel with no messages', async () => {
+        const response = await request(app)
+          .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+          .query({
+            reportName: 'directMessageResponses',
+            format: 'text',
+            additionalChannels: 'nonexistent'
+          })
+          .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+          .expect(httpStatus.OK)
+
+        // Should not contain the additional channel section if no messages exist
+        expect(response.text).not.toContain('**Additional Channel: nonexistent**')
+      })
+
+      test('should calculate total users correctly for additional channels', async () => {
+        // Create messages from 3 different users in chat channel
+        const chatMsg1Time = new Date('2024-01-01T10:12:00Z')
+        const chatMessage1 = {
+          _id: new mongoose.Types.ObjectId(),
+          conversation: directMessageConversation!._id,
+          channels: ['chat'],
+          body: 'Message from user 1',
+          fromAgent: false,
+          createdAt: chatMsg1Time,
+          updatedAt: chatMsg1Time,
+          pseudonym: registeredUser.pseudonyms[0].pseudonym,
+          pseudonymId: registeredUser.pseudonyms[0]._id
+        }
+
+        const chatMsg2Time = new Date('2024-01-01T10:13:00Z')
+        const chatMessage2 = {
+          _id: new mongoose.Types.ObjectId(),
+          conversation: directMessageConversation!._id,
+          channels: ['chat'],
+          body: 'Message from user 1 again',
+          fromAgent: false,
+          createdAt: chatMsg2Time,
+          updatedAt: chatMsg2Time,
+          pseudonym: registeredUser.pseudonyms[0].pseudonym,
+          pseudonymId: registeredUser.pseudonyms[0]._id
+        }
+
+        const chatMsg3Time = new Date('2024-01-01T10:14:00Z')
+        const chatMessage3 = {
+          _id: new mongoose.Types.ObjectId(),
+          conversation: directMessageConversation!._id,
+          channels: ['chat'],
+          body: 'Message from user 2',
+          fromAgent: false,
+          createdAt: chatMsg3Time,
+          updatedAt: chatMsg3Time,
+          pseudonym: userOne.pseudonyms[0].pseudonym,
+          pseudonymId: userOne.pseudonyms[0]._id
+        }
+
+        await Message.create([chatMessage1, chatMessage2, chatMessage3])
+
+        const response = await request(app)
+          .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+          .query({
+            reportName: 'directMessageResponses',
+            format: 'text',
+            additionalChannels: 'chat'
+          })
+          .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+          .expect(httpStatus.OK)
+
+        expect(response.text).toContain('**Additional Channel: chat**')
+        expect(response.text).toContain('  - chat: 2 user(s)')
+        expect(response.text).toContain('Message from user 1')
+        expect(response.text).toContain('Message from user 1 again')
+        expect(response.text).toContain('Message from user 2')
+      })
+
+      test('should handle whitespace in comma-separated channel names', async () => {
+        const chatMsgTime = new Date('2024-01-01T10:12:00Z')
+        const chatMessage = {
+          _id: new mongoose.Types.ObjectId(),
+          conversation: directMessageConversation!._id,
+          channels: ['chat'],
+          body: 'Chat message',
+          fromAgent: false,
+          createdAt: chatMsgTime,
+          updatedAt: chatMsgTime,
+          pseudonym: registeredUser.pseudonyms[0].pseudonym,
+          pseudonymId: registeredUser.pseudonyms[0]._id
+        }
+
+        await Message.create([chatMessage])
+
+        const response = await request(app)
+          .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+          .query({
+            reportName: 'directMessageResponses',
+            format: 'text',
+            additionalChannels: ' chat , forum '
+          })
+          .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+          .expect(httpStatus.OK)
+
+        expect(response.text).toContain('**Additional Channel: chat**')
+        expect(response.text).toContain('Chat message')
+      })
     })
   })
 
