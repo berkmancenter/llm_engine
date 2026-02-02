@@ -414,7 +414,7 @@ const getExperiment = async (id) => {
   return experimentPojo
 }
 
-const generateExperimentReport = async (experimentId, reportName, format = 'text') => {
+const generateExperimentReport = async (experimentId, reportName, format = 'text', timezone = 'UTC') => {
   const experiment = await Experiment.findOne({ _id: experimentId })
   if (!experiment) throw new ApiError(httpStatus.NOT_FOUND, 'Experiment not found')
 
@@ -447,12 +447,12 @@ const generateExperimentReport = async (experimentId, reportName, format = 'text
   // Register helpers for formatting
   handlebars.registerHelper('formatTime', (timestamp) => {
     if (!timestamp) return 'No timestamp'
-    return new Date(timestamp).toLocaleTimeString()
+    return new Date(timestamp).toLocaleTimeString('en-US', { timeZone: timezone })
   })
 
   handlebars.registerHelper('formatDate', (timestamp) => {
     if (!timestamp) return 'No date'
-    return new Date(timestamp).toLocaleString()
+    return new Date(timestamp).toLocaleString('en-US', { timeZone: timezone })
   })
   handlebars.registerHelper('eq', (a, b) => a === b)
 

@@ -29,12 +29,12 @@ const agentTextId = new mongoose.Types.ObjectId()
 // Generate expected times dynamically to match any timezone
 const formatTime = (timestamp) => {
   if (!timestamp) return 'No timestamp'
-  return new Date(timestamp).toLocaleTimeString()
+  return new Date(timestamp).toLocaleTimeString('en-US', { timeZone: 'UTC' })
 }
 
 const formatDate = (timestamp) => {
   if (!timestamp) return 'No date'
-  return new Date(timestamp).toLocaleString()
+  return new Date(timestamp).toLocaleString('en-US', { timeZone: 'UTC' })
 }
 
 const testAgentTypeSpecification = {
@@ -905,6 +905,71 @@ ${formatTime(msg3Time)}  Fearful Frog: I have something to say
           })
           .expect(httpStatus.BAD_REQUEST)
       })
+
+      test('should use provided timezone for formatting dates and times', async () => {
+        const timezone = 'America/New_York'
+        const response = await request(app)
+          .get(`/v1/experiments/${completedExperiment._id}/results`)
+          .query({
+            reportName: 'periodicResponses',
+            format: 'text'
+          })
+          .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+          .set('x-timezone', timezone)
+          .expect(httpStatus.OK)
+
+        expect(response.headers['content-type']).toBe('text/plain; charset=utf-8')
+
+        // Create formatter functions with the same timezone
+        const formatTimeWithTimezone = (timestamp) => {
+          if (!timestamp) return 'No timestamp'
+          return new Date(timestamp).toLocaleTimeString('en-US', { timeZone: timezone })
+        }
+
+        const formatDateWithTimezone = (timestamp) => {
+          if (!timestamp) return 'No date'
+          return new Date(timestamp).toLocaleString('en-US', { timeZone: timezone })
+        }
+
+        const experimentDate = new Date('2024-01-01T10:00:00Z')
+        const msg2Time = new Date('2024-01-01T09:50:00Z')
+
+        // Verify the report contains times formatted with the specified timezone
+        expect(response.text).toContain(formatDateWithTimezone(experimentDate))
+        expect(response.text).toContain(formatTimeWithTimezone(msg2Time))
+      })
+
+      test('should default to UTC timezone when not specified', async () => {
+        const response = await request(app)
+          .get(`/v1/experiments/${completedExperiment._id}/results`)
+          .query({
+            reportName: 'periodicResponses',
+            format: 'text'
+          })
+          .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+          // x-timezone header not set, should default to UTC
+          .expect(httpStatus.OK)
+
+        expect(response.headers['content-type']).toBe('text/plain; charset=utf-8')
+
+        // Create formatter functions with UTC timezone
+        const formatTimeUTC = (timestamp) => {
+          if (!timestamp) return 'No timestamp'
+          return new Date(timestamp).toLocaleTimeString('en-US', { timeZone: 'UTC' })
+        }
+
+        const formatDateUTC = (timestamp) => {
+          if (!timestamp) return 'No date'
+          return new Date(timestamp).toLocaleString('en-US', { timeZone: 'UTC' })
+        }
+
+        const experimentDate = new Date('2024-01-01T10:00:00Z')
+        const msg2Time = new Date('2024-01-01T09:50:00Z')
+
+        // Verify the report contains times formatted with UTC
+        expect(response.text).toContain(formatDateUTC(experimentDate))
+        expect(response.text).toContain(formatTimeUTC(msg2Time))
+      })
     })
     describe('directMessageResponses report', () => {
       let directMessageExperiment
@@ -1313,6 +1378,65 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
           })
           .set('Authorization', `Bearer ${registeredUserAccessToken}`)
           .expect(httpStatus.NOT_FOUND)
+      })
+
+      test('should use provided timezone for formatting dates and times', async () => {
+        const timezone = 'Europe/London'
+        const response = await request(app)
+          .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+          .query({
+            reportName: 'directMessageResponses',
+            format: 'text'
+          })
+          .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+          .set('x-timezone', timezone)
+          .expect(httpStatus.OK)
+
+        expect(response.headers['content-type']).toBe('text/plain; charset=utf-8')
+
+        // Create formatter functions with the same timezone
+        const formatTimeWithTimezone = (timestamp) => {
+          if (!timestamp) return 'No timestamp'
+          return new Date(timestamp).toLocaleTimeString('en-US', { timeZone: timezone })
+        }
+
+        const formatDateWithTimezone = (timestamp) => {
+          if (!timestamp) return 'No date'
+          return new Date(timestamp).toLocaleString('en-US', { timeZone: timezone })
+        }
+
+        // Verify the report contains times formatted with the specified timezone
+        expect(response.text).toContain(formatDateWithTimezone(directMessageExperiment.executedAt))
+        expect(response.text).toContain(formatTimeWithTimezone(msg1Time))
+      })
+
+      test('should default to UTC timezone when not specified', async () => {
+        const response = await request(app)
+          .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+          .query({
+            reportName: 'directMessageResponses',
+            format: 'text'
+          })
+          .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+          // x-timezone header not set, should default to UTC
+          .expect(httpStatus.OK)
+
+        expect(response.headers['content-type']).toBe('text/plain; charset=utf-8')
+
+        // Create formatter functions with UTC timezone
+        const formatTimeUTC = (timestamp) => {
+          if (!timestamp) return 'No timestamp'
+          return new Date(timestamp).toLocaleTimeString('en-US', { timeZone: 'UTC' })
+        }
+
+        const formatDateUTC = (timestamp) => {
+          if (!timestamp) return 'No date'
+          return new Date(timestamp).toLocaleString('en-US', { timeZone: 'UTC' })
+        }
+
+        // Verify the report contains times formatted with UTC
+        expect(response.text).toContain(formatDateUTC(directMessageExperiment.executedAt))
+        expect(response.text).toContain(formatTimeUTC(msg1Time))
       })
     })
   })

@@ -20,7 +20,8 @@ const getExperiment = catchAsync(async (req, res) => {
 const getExperimentResults = catchAsync(async (req, res) => {
   const { experimentId } = req.params
   const { reportName, format = 'text' } = req.query
-  const report = await experimentService.generateExperimentReport(experimentId, reportName, format)
+  const timezone = req.headers['x-timezone'] || 'UTC'
+  const report = await experimentService.generateExperimentReport(experimentId, reportName, format, timezone)
   const contentTypes = {
     text: 'text/plain'
   }
