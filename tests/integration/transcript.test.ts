@@ -4,7 +4,7 @@ import mongoose from 'mongoose'
 import setupIntTest from '../utils/setupIntTest.js'
 import app from '../../src/app.js'
 import { insertUsers, userOne, userTwo, registeredUser } from '../fixtures/user.fixture.js'
-import { userOneAccessToken, userTwoAccessToken } from '../fixtures/token.fixture.js'
+import { userOneAccessToken } from '../fixtures/token.fixture.js'
 import { insertTopics } from '../fixtures/topic.fixture.js'
 import { Conversation, Agent, Message } from '../../src/models/index.js'
 import { setAgentTypes } from '../../src/models/user.model/agent.model/index.js'
@@ -187,8 +187,8 @@ describe('Transcript routes', () => {
       expect(transcriptMessagesAfter).toHaveLength(0)
     })
 
-    test('should return 204 and delete RAG collection when conversation has RAG-enabled agent', async () => {
-      const deleteCollectionSpy = jest.spyOn(rag, 'deleteCollection').mockResolvedValue()
+    test('should return 204 and clear transcript content from RAG (preserve metadata) when conversation has RAG-enabled agent', async () => {
+      const removeFromVectorStoreSpy = jest.spyOn(rag, 'removeFromVectorStore').mockResolvedValue()
 
       // Create conversation with RAG-enabled agent
       const conversation = new Conversation({
@@ -230,8 +230,10 @@ describe('Transcript routes', () => {
         .send()
         .expect(httpStatus.NO_CONTENT)
 
-      // Verify RAG collection was deleted
-      expect(deleteCollectionSpy).toHaveBeenCalledWith(`${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`)
+      // Verify only transcript content was removed (not entire collection)
+      expect(removeFromVectorStoreSpy).toHaveBeenCalledWith(`${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`, {
+        type: 'transcript'
+      })
 
       // Verify messages are deleted
       const transcriptMessagesAfter = await Message.find({
@@ -240,11 +242,11 @@ describe('Transcript routes', () => {
       })
       expect(transcriptMessagesAfter).toHaveLength(0)
 
-      deleteCollectionSpy.mockRestore()
+      removeFromVectorStoreSpy.mockRestore()
     })
 
-    test('should return 204 and not delete RAG collection when conversation has no RAG-enabled agents', async () => {
-      const deleteCollectionSpy = jest.spyOn(rag, 'deleteCollection').mockResolvedValue()
+    test('should return 204 and not touch RAG when conversation has no RAG-enabled agents', async () => {
+      const removeFromVectorStoreSpy = jest.spyOn(rag, 'removeFromVectorStore').mockResolvedValue()
 
       // Create conversation without RAG-enabled agents
       const conversation = new Conversation({
@@ -287,8 +289,8 @@ describe('Transcript routes', () => {
         .send()
         .expect(httpStatus.NO_CONTENT)
 
-      // Verify RAG collection was NOT deleted
-      expect(deleteCollectionSpy).not.toHaveBeenCalled()
+      // Verify RAG was not touched
+      expect(removeFromVectorStoreSpy).not.toHaveBeenCalled()
 
       // Verify messages are still deleted
       const transcriptMessagesAfter = await Message.find({
@@ -297,7 +299,7 @@ describe('Transcript routes', () => {
       })
       expect(transcriptMessagesAfter).toHaveLength(0)
 
-      deleteCollectionSpy.mockRestore()
+      removeFromVectorStoreSpy.mockRestore()
     })
 
     test('should return 204 when deleting transcript with no messages', async () => {
@@ -359,8 +361,10 @@ describe('Transcript routes', () => {
         .expect(httpStatus.BAD_REQUEST)
     })
 
-    test('should handle RAG deletion failure gracefully', async () => {
-      const deleteCollectionSpy = jest.spyOn(rag, 'deleteCollection').mockRejectedValue(new Error('RAG deletion failed'))
+    test('should handle RAG clear failure gracefully', async () => {
+      const removeFromVectorStoreSpy = jest
+        .spyOn(rag, 'removeFromVectorStore')
+        .mockRejectedValue(new Error('RAG clear failed'))
 
       // Create conversation with RAG-enabled agent
       const conversation = new Conversation({
@@ -395,7 +399,7 @@ describe('Transcript routes', () => {
       })
       await transcriptMessage.save()
 
-      // Delete transcript should return 204 even if RAG deletion fails
+      // Delete transcript should return 204 even if RAG clear fails
       // The function handles the error gracefully and continues to delete messages
       await request(app)
         .delete(`/v1/transcript/${conversation._id}`)
@@ -403,8 +407,10 @@ describe('Transcript routes', () => {
         .send()
         .expect(httpStatus.NO_CONTENT)
 
-      // Verify RAG deletion was attempted
-      expect(deleteCollectionSpy).toHaveBeenCalledWith(`${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`)
+      // Verify RAG clear was attempted
+      expect(removeFromVectorStoreSpy).toHaveBeenCalledWith(`${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`, {
+        type: 'transcript'
+      })
 
       // Verify messages are still deleted despite RAG failure
       const transcriptMessagesAfter = await Message.find({
@@ -413,7 +419,7 @@ describe('Transcript routes', () => {
       })
       expect(transcriptMessagesAfter).toHaveLength(0)
 
-      deleteCollectionSpy.mockRestore()
+      removeFromVectorStoreSpy.mockRestore()
     })
 
     test('should delete only messages in transcript channel, preserving messages in other channels', async () => {
@@ -572,6 +578,73 @@ describe('Transcript routes', () => {
       // Verify transcript status changes to deleted
       const updatedConversation = await Conversation.findById(conversation._id)
       expect(updatedConversation!.transcript?.status).toBe('deleted')
+    })
+
+    test('should return 204 when deleting a paused transcript', async () => {
+      const conversation = new Conversation({
+        name: 'Paused Transcript Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'paused' }
+      })
+      await conversation.save()
+
+      // Create transcript message
+      const transcriptMessage = new Message({
+        conversation: conversation._id,
+        body: 'Paused transcript message',
+        channels: ['transcript'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: new Date()
+      })
+      await transcriptMessage.save()
+
+      // Delete paused transcript
+      await request(app)
+        .delete(`/v1/transcript/${conversation._id}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.NO_CONTENT)
+
+      // Verify messages are deleted
+      const transcriptMessagesAfter = await Message.find({
+        conversation: conversation._id,
+        channels: { $in: ['transcript'] }
+      })
+      expect(transcriptMessagesAfter).toHaveLength(0)
+
+      // Verify transcript status changes to deleted
+      const updatedConversation = await Conversation.findById(conversation._id)
+      expect(updatedConversation!.transcript?.status).toBe('deleted')
+    })
+
+    test('should broadcast transcript status change when deleting transcript', async () => {
+      const conversation = new Conversation({
+        name: 'Broadcast Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'stopped' }
+      })
+      await conversation.save()
+
+      // Delete transcript
+      await request(app)
+        .delete(`/v1/transcript/${conversation._id}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.NO_CONTENT)
+
+      // Verify broadcast was called with 'deleted' status
+      expect(broadcastTranscriptStatusChangeSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ _id: conversation._id }),
+        'deleted'
+      )
     })
   })
 })

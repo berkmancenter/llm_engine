@@ -42,7 +42,7 @@ const deleteTranscript = async (conversationId, user) => {
   logger.debug(`Delete transcript for conversation: ${conversation._id}`)
 
   try {
-    await transcript.deleteTranscript(conversation)
+    await transcript.clearTranscript(conversation)
 
     // Set transcript status to deleted after deletion
     await _updateTranscriptStatus(conversation, 'deleted')
