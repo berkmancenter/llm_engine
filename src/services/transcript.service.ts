@@ -5,6 +5,7 @@ import ApiError from '../utils/ApiError.js'
 import logger from '../config/logger.js'
 import transcript from '../agents/helpers/transcript.js'
 import websocketGateway from '../websockets/websocketGateway.js'
+import adapterService from './adapter.service.js'
 
 /**
  * Internal helper - updates transcript status without touching adapters
@@ -44,7 +45,6 @@ const deleteTranscript = async (conversationId, user) => {
   try {
     await transcript.clearTranscript(conversation)
 
-    // Set transcript status to deleted after deletion
     await _updateTranscriptStatus(conversation, 'deleted')
   } catch (error) {
     logger.warn(`Failed to delete transcript for conversation ${conversation._id}: ${error.message}`)
@@ -65,12 +65,50 @@ const stopTranscript = async (conversationId) => {
   // Update transcript status and broadcast
   await _updateTranscriptStatus(conversation, 'stopped')
 
-  return conversation
+  return { status: 'stopped' }
+}
+const pauseTranscript = async (conversationId, user) => {
+  const conversation = await Conversation.findOne({ _id: conversationId }).populate(['topic', 'adapters'])
+  if (!conversation) {
+    throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${conversationId} not found`)
+  }
+
+  if (!conversation.transcript) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'No transcript configured for this conversation')
+  }
+  logger.debug(`Pause transcript recording for conversation: ${conversation._id}`)
+
+  // Pause recording on all adapters
+  for (const adapter of conversation.adapters) {
+    await adapterService.pauseRecording(adapter)
+  }
+}
+
+const resumeTranscript = async (conversationId, user) => {
+  const conversation = await Conversation.findOne({ _id: conversationId }).populate(['topic', 'adapters'])
+  if (!conversation) {
+    throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${conversationId} not found`)
+  }
+
+  if (!conversation.transcript) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'No transcript configured for this conversation')
+  }
+  if (!conversation.active) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Cannot resume transcript for an inactive conversation')
+  }
+  logger.debug(`Resume transcript recording for conversation: ${conversation._id}`)
+
+  // Resume recording on all adapters
+  for (const adapter of conversation.adapters) {
+    await adapterService.resumeRecording(adapter)
+  }
 }
 
 const transcriptService = {
   deleteTranscript,
   stopTranscript,
+  pauseTranscript,
+  resumeTranscript,
   // Export helper for system-initiated status changes (e.g., from webhooks)
   updateTranscriptStatus: _updateTranscriptStatus
 }

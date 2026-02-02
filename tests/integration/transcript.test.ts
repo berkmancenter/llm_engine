@@ -646,5 +646,378 @@ describe('Transcript routes', () => {
         'deleted'
       )
     })
+    test('should return 204 and set status to deleted when deleting a paused transcript', async () => {
+      const conversation = new Conversation({
+        name: 'Paused Transcript Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'paused' }
+      })
+      await conversation.save()
+
+      // Create transcript message
+      const transcriptMessage = new Message({
+        conversation: conversation._id,
+        body: 'Paused transcript message',
+        channels: ['transcript'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: new Date()
+      })
+      await transcriptMessage.save()
+
+      // Delete paused transcript
+      await request(app)
+        .delete(`/v1/transcript/${conversation._id}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.NO_CONTENT)
+
+      // Verify messages are deleted
+      const transcriptMessagesAfter = await Message.find({
+        conversation: conversation._id,
+        channels: { $in: ['transcript'] }
+      })
+      expect(transcriptMessagesAfter).toHaveLength(0)
+
+      // Verify transcript status is set to deleted
+      const updatedConversation = await Conversation.findById(conversation._id)
+      expect(updatedConversation!.transcript?.status).toBe('deleted')
+    })
+  })
+
+  describe('POST /v1/transcript/:conversationId/pause', () => {
+    test('should return 204 and call pause on adapters', async () => {
+      // Create a conversation with an active transcript
+      const conversation = new Conversation({
+        name: 'Pause Test Conversation',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'active' }
+      })
+      await conversation.save()
+
+      // Pause transcript
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/pause`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.NO_CONTENT)
+    })
+
+    test('should call pauseRecording on all adapters', async () => {
+      const adapterService = await import('../../src/services/adapter.service.js')
+      const pauseRecordingSpy = jest.spyOn(adapterService.default, 'pauseRecording').mockResolvedValue()
+
+      const conversation = new Conversation({
+        name: 'Multiple Adapters Pause Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'active' }
+      })
+      await conversation.save()
+
+      // Create mock adapters
+      const { default: Adapter } = await import('../../src/models/adapter.model.js')
+      const adapter1 = new Adapter({
+        type: 'zoom',
+        conversation: conversation._id,
+        config: { meetingUrl: 'https://zoom.us/j/123' }
+      })
+      await adapter1.save()
+
+      const adapter2 = new Adapter({
+        type: 'zoom',
+        conversation: conversation._id,
+        config: { meetingUrl: 'https://zoom.us/j/456' }
+      })
+      await adapter2.save()
+
+      conversation.adapters = [adapter1, adapter2]
+      await conversation.save()
+
+      // Pause transcript
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/pause`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.NO_CONTENT)
+
+      // Verify pauseRecording was called for each adapter
+      expect(pauseRecordingSpy).toHaveBeenCalledTimes(2)
+      expect(pauseRecordingSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: adapter1._id }))
+      expect(pauseRecordingSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: adapter2._id }))
+
+      pauseRecordingSpy.mockRestore()
+    })
+
+    test('should return 404 when conversation does not exist', async () => {
+      const nonExistentId = new mongoose.Types.ObjectId()
+
+      await request(app)
+        .post(`/v1/transcript/${nonExistentId}/pause`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.NOT_FOUND)
+    })
+
+    test('should return 401 when no auth token provided', async () => {
+      const conversation = new Conversation({
+        name: 'Unauthorized Pause Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'active' }
+      })
+      await conversation.save()
+
+      await request(app).post(`/v1/transcript/${conversation._id}/pause`).send().expect(httpStatus.UNAUTHORIZED)
+    })
+
+    test('should return 400 when conversationId is invalid ObjectId', async () => {
+      await request(app)
+        .post('/v1/transcript/invalid-id/pause')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.BAD_REQUEST)
+    })
+
+    test('should return 400 when conversation has no transcript configured', async () => {
+      const conversation = new Conversation({
+        name: 'No Transcript Pause Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: []
+        // No transcript field
+      })
+      await conversation.save()
+
+      const response = await request(app)
+        .post(`/v1/transcript/${conversation._id}/pause`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.BAD_REQUEST)
+
+      expect(response.body.message).toContain('No transcript configured')
+    })
+
+    test('should successfully pause an already paused transcript', async () => {
+      const conversation = new Conversation({
+        name: 'Already Paused Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'paused' }
+      })
+      await conversation.save()
+
+      // Should succeed even if already paused
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/pause`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.NO_CONTENT)
+    })
+  })
+
+  describe('POST /v1/transcript/:conversationId/resume', () => {
+    test('should return 204 and call resume on adapters', async () => {
+      // Create a conversation with a paused transcript
+      const conversation = new Conversation({
+        name: 'Resume Test Conversation',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        active: true,
+        transcript: { status: 'paused' }
+      })
+      await conversation.save()
+
+      // Resume transcript
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/resume`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.NO_CONTENT)
+    })
+
+    test('should call resumeRecording on all adapters', async () => {
+      const adapterService = await import('../../src/services/adapter.service.js')
+      const resumeRecordingSpy = jest.spyOn(adapterService.default, 'resumeRecording').mockResolvedValue()
+
+      const conversation = new Conversation({
+        name: 'Multiple Adapters Resume Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        active: true,
+        transcript: { status: 'paused' }
+      })
+      await conversation.save()
+
+      // Create mock adapters
+      const { default: Adapter } = await import('../../src/models/adapter.model.js')
+      const adapter1 = new Adapter({
+        type: 'zoom',
+        conversation: conversation._id,
+        config: { meetingUrl: 'https://zoom.us/j/123' }
+      })
+      await adapter1.save()
+
+      const adapter2 = new Adapter({
+        type: 'zoom',
+        conversation: conversation._id,
+        config: { meetingUrl: 'https://zoom.us/j/456' }
+      })
+      await adapter2.save()
+
+      conversation.adapters = [adapter1, adapter2]
+      await conversation.save()
+
+      // Resume transcript
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/resume`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.NO_CONTENT)
+
+      // Verify resumeRecording was called for each adapter
+      expect(resumeRecordingSpy).toHaveBeenCalledTimes(2)
+      expect(resumeRecordingSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: adapter1._id }))
+      expect(resumeRecordingSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: adapter2._id }))
+
+      resumeRecordingSpy.mockRestore()
+    })
+
+    test('should return 404 when conversation does not exist', async () => {
+      const nonExistentId = new mongoose.Types.ObjectId()
+
+      await request(app)
+        .post(`/v1/transcript/${nonExistentId}/resume`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.NOT_FOUND)
+    })
+
+    test('should return 401 when no auth token provided', async () => {
+      const conversation = new Conversation({
+        name: 'Unauthorized Resume Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        active: true,
+        transcript: { status: 'paused' }
+      })
+      await conversation.save()
+
+      await request(app).post(`/v1/transcript/${conversation._id}/resume`).send().expect(httpStatus.UNAUTHORIZED)
+    })
+
+    test('should return 400 when conversationId is invalid ObjectId', async () => {
+      await request(app)
+        .post('/v1/transcript/invalid-id/resume')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.BAD_REQUEST)
+    })
+
+    test('should return 400 when conversation has no transcript configured', async () => {
+      const conversation = new Conversation({
+        name: 'No Transcript Resume Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        active: true
+        // No transcript field
+      })
+      await conversation.save()
+
+      const response = await request(app)
+        .post(`/v1/transcript/${conversation._id}/resume`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.BAD_REQUEST)
+
+      expect(response.body.message).toContain('No transcript configured')
+    })
+
+    test('should return 400 when trying to resume transcript for an inactive conversation', async () => {
+      const conversation = new Conversation({
+        name: 'Inactive Conversation Resume Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        active: false,
+        transcript: { status: 'paused' }
+      })
+      await conversation.save()
+
+      const response = await request(app)
+        .post(`/v1/transcript/${conversation._id}/resume`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.BAD_REQUEST)
+
+      expect(response.body.message).toContain('Cannot resume transcript for an inactive conversation')
+
+      // Verify status is still paused
+      const updatedConversation = await Conversation.findById(conversation._id)
+      expect(updatedConversation!.transcript?.status).toBe('paused')
+    })
+
+    test('should successfully resume an already active transcript', async () => {
+      const conversation = new Conversation({
+        name: 'Already Active Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        active: true,
+        transcript: { status: 'active' }
+      })
+      await conversation.save()
+
+      // Should succeed even if already active
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/resume`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.NO_CONTENT)
+    })
+
+    test('should successfully resume a stopped transcript', async () => {
+      const conversation = new Conversation({
+        name: 'Resume Stopped Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        active: true,
+        transcript: { status: 'stopped' }
+      })
+      await conversation.save()
+
+      // Should be able to resume a stopped transcript
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/resume`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.NO_CONTENT)
+    })
   })
 })

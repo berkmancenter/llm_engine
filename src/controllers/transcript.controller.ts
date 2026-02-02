@@ -7,5 +7,14 @@ const deleteTranscript = catchAsync(async (req, res) => {
   res.status(httpStatus.NO_CONTENT).send()
 })
 
-// eslint-disable-next-line import/prefer-default-export
-export { deleteTranscript }
+const pauseTranscript = catchAsync(async (req, res) => {
+  await transcriptService.pauseTranscript(req.params.conversationId, req.user)
+  res.status(httpStatus.NO_CONTENT).send()
+})
+
+const resumeTranscript = catchAsync(async (req, res) => {
+  await transcriptService.resumeTranscript(req.params.conversationId, req.user)
+  res.status(httpStatus.NO_CONTENT).send()
+})
+
+export { deleteTranscript, pauseTranscript, resumeTranscript }

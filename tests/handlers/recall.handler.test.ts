@@ -478,4 +478,120 @@ describe('POST /v1/webhooks/recall', () => {
       expect(updateTranscriptStatusSpy).not.toHaveBeenCalled()
     })
   })
+
+  describe('bot.in_call_not_recording event', () => {
+    test('should pause transcript when bot stops recording and transcript was active', async () => {
+      // Set conversation as active with active transcript
+      conversation.active = true
+      conversation.transcript = {
+        status: 'active'
+      }
+      await conversation.save()
+
+      const statusChangeEvent = {
+        event: 'bot.in_call_not_recording',
+        data: {
+          bot: { id: botId },
+          data: {
+            code: 'in_call_not_recording',
+            message: 'Bot is not recording'
+          }
+        }
+      }
+      const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
+      await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
+
+      expect(updateTranscriptStatusSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }), 'paused')
+    })
+
+    test('should not update transcript status when already paused', async () => {
+      // Set conversation as active with paused transcript
+      conversation.active = true
+      conversation.transcript = {
+        status: 'paused'
+      }
+      await conversation.save()
+
+      const statusChangeEvent = {
+        event: 'bot.in_call_not_recording',
+        data: {
+          bot: { id: botId },
+          data: {
+            code: 'in_call_not_recording',
+            message: 'Bot is not recording'
+          }
+        }
+      }
+      const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
+      await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
+
+      expect(updateTranscriptStatusSpy).not.toHaveBeenCalled()
+    })
+
+    test('should not update transcript status when already stopped', async () => {
+      // Set conversation as active with stopped transcript
+      conversation.active = true
+      conversation.transcript = {
+        status: 'stopped'
+      }
+      await conversation.save()
+
+      const statusChangeEvent = {
+        event: 'bot.in_call_not_recording',
+        data: {
+          bot: { id: botId },
+          data: {
+            code: 'in_call_not_recording',
+            message: 'Bot is not recording'
+          }
+        }
+      }
+      const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
+      await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
+
+      expect(updateTranscriptStatusSpy).not.toHaveBeenCalled()
+    })
+
+    test('should not pause transcript when conversation is not active', async () => {
+      // Set conversation as inactive
+      conversation.active = false
+      conversation.transcript = {
+        status: 'active'
+      }
+      await conversation.save()
+
+      const statusChangeEvent = {
+        event: 'bot.in_call_not_recording',
+        data: {
+          bot: { id: botId },
+          data: {
+            code: 'in_call_not_recording',
+            message: 'Bot is not recording'
+          }
+        }
+      }
+      const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
+      await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
+
+      expect(updateTranscriptStatusSpy).not.toHaveBeenCalled()
+    })
+
+    test('should handle bot.in_call_not_recording when adapter not found', async () => {
+      const nonExistentBotId = 'non-existent-bot-id'
+      const statusChangeEvent = {
+        event: 'bot.in_call_not_recording',
+        data: {
+          bot: { id: nonExistentBotId },
+          data: {
+            code: 'in_call_not_recording',
+            message: 'Bot is not recording'
+          }
+        }
+      }
+      const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
+      await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
+
+      expect(updateTranscriptStatusSpy).not.toHaveBeenCalled()
+    })
+  })
 })

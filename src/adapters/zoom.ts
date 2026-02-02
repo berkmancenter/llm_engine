@@ -11,6 +11,9 @@ const defaultRetention = {
 
 async function isBotDeployed() {
   const { botId } = this.config
+  if (!botId) {
+    return false
+  }
   const options = { method: 'GET', headers: { accept: 'application/json', Authorization: config.recall.key } }
 
   const response = await fetch(`${config.recall.baseUrl}/${botId}`, options)
@@ -41,81 +44,79 @@ async function deployMeetingBot() {
     logger.info(`[LOAD TEST] Skipping deployment of Zoom meeting bot.`)
     return
   }
-  if (!botId || !(await isBotDeployed.call(this))) {
-    const realtimeEndpoints: Record<string, unknown>[] = [
-      {
-        type: 'webhook',
-        events: ['participant_events.chat_message'],
-        url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/chat/?conversationId=${this.conversation._id}`
-      },
-      {
-        type: 'webhook',
-        events: ['participant_events.join'],
-        url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/join/?conversationId=${this.conversation._id}`
-      }
-    ]
+  const realtimeEndpoints: Record<string, unknown>[] = [
+    {
+      type: 'webhook',
+      events: ['participant_events.chat_message'],
+      url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/chat/?conversationId=${this.conversation._id}`
+    },
+    {
+      type: 'webhook',
+      events: ['participant_events.join'],
+      url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/join/?conversationId=${this.conversation._id}`
+    }
+  ]
 
-    let recordingConfig = {}
-    const audioChannelNames = this.audioChannels?.map((c) => c.name) || []
-    if (this.audioChannels && this.conversation.channels.some((channel) => audioChannelNames.includes(channel.name))) {
-      realtimeEndpoints.push({
-        type: 'webhook',
-        events: ['transcript.data'],
-        url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/transcript/?conversationId=${this.conversation._id}`
-      })
-      recordingConfig = {
-        transcript: {
-          provider: {
-            meeting_captions: {}
-          }
+  let recordingConfig = {}
+  const audioChannelNames = this.audioChannels?.map((c) => c.name) || []
+  if (this.audioChannels && this.conversation.channels.some((channel) => audioChannelNames.includes(channel.name))) {
+    realtimeEndpoints.push({
+      type: 'webhook',
+      events: ['transcript.data'],
+      url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/transcript/?conversationId=${this.conversation._id}`
+    })
+    recordingConfig = {
+      transcript: {
+        provider: {
+          meeting_captions: {}
         }
       }
     }
-    const options = {
-      method: 'POST',
-      headers: { accept: 'application/json', 'content-type': 'application/json', Authorization: config.recall.key },
-      body: JSON.stringify({
-        meeting_url: meetingUrl,
-        bot_name: botName ?? defaultBotName,
-        automatic_leave: {
-          bot_detection: {
-            using_participant_events: {
-              timeout: 999999,
-              activate_after: 999999
-            }
-          },
-          everyone_left_timeout: {
-            timeout: 2,
-            activate_after: 1
-          },
-          waiting_room_timeout: 1200,
-          noone_joined_timeout: 1200,
-          in_call_not_recording_timeout: 3600,
-          recording_permission_denied_timeout: 30
-        },
-        recording_config: {
-          ...recordingConfig,
-          realtime_endpoints: realtimeEndpoints,
-          retention: 'retention' in this.config ? retention : defaultRetention
-        },
-        ...(config.zoom?.webinarUserEmail && {
-          zoom: {
-            user_email: config.zoom.webinarUserEmail
-          }
-        })
-      })
-    }
-
-    const response = await fetch(config.recall.baseUrl, options)
-    if (response.status !== httpStatus.CREATED) {
-      logger.error(`Recall error: ${await response.text()}`)
-      throw new Error(`Error deploying bot to Zoom meeting: ${response.status}`)
-    }
-
-    const responseJson: unknown = await response.json()
-    this.config = { ...this.config, botId: (responseJson as { id: string }).id }
-    await this.save()
   }
+  const options = {
+    method: 'POST',
+    headers: { accept: 'application/json', 'content-type': 'application/json', Authorization: config.recall.key },
+    body: JSON.stringify({
+      meeting_url: meetingUrl,
+      bot_name: botName ?? defaultBotName,
+      automatic_leave: {
+        bot_detection: {
+          using_participant_events: {
+            timeout: 999999,
+            activate_after: 999999
+          }
+        },
+        everyone_left_timeout: {
+          timeout: 2,
+          activate_after: 1
+        },
+        waiting_room_timeout: 1200,
+        noone_joined_timeout: 1200,
+        in_call_not_recording_timeout: 3600,
+        recording_permission_denied_timeout: 30
+      },
+      recording_config: {
+        ...recordingConfig,
+        realtime_endpoints: realtimeEndpoints,
+        retention: 'retention' in this.config ? retention : defaultRetention
+      },
+      ...(config.zoom?.webinarUserEmail && {
+        zoom: {
+          user_email: config.zoom.webinarUserEmail
+        }
+      })
+    })
+  }
+
+  const response = await fetch(config.recall.baseUrl, options)
+  if (response.status !== httpStatus.CREATED) {
+    logger.error(`Recall error: ${await response.text()}`)
+    throw new Error(`Error deploying bot to Zoom meeting: ${response.status}`)
+  }
+
+  const responseJson: unknown = await response.json()
+  this.config = { ...this.config, botId: (responseJson as { id: string }).id }
+  await this.save()
 }
 
 async function processTranscript(msgChunks, participantName) {
@@ -201,7 +202,10 @@ export default {
     return messages
   },
   async start() {
-    await deployMeetingBot.call(this)
+    const isDeployed = await isBotDeployed.call(this)
+    if (!isDeployed) {
+      await deployMeetingBot.call(this)
+    }
   },
 
   async stop() {
@@ -222,6 +226,39 @@ export default {
     // Remove Bot ID
     this.config = { ...this.config, botId: undefined }
     await this.save()
+  },
+  async pauseTranscript() {
+    const options = {
+      method: 'POST',
+      headers: { accept: 'application/json', 'content-type': 'application/json', Authorization: config.recall.key }
+    }
+    const url = `${config.recall.baseUrl}/${this.config.botId}/pause_recording/`
+    const response = await fetch(url, options)
+    if (response.status !== httpStatus.OK) {
+      logger.error(`Error pausing recording: ${response.status}. Recall error: ${await response.text()}`)
+      throw new Error(`Error pausing recording: ${response.status}`)
+    }
+    logger.info(`Successfully paused recording for bot ${this.config.botId}`)
+  },
+  async resumeTranscript() {
+    const isDeployed = await isBotDeployed.call(this)
+
+    if (!isDeployed) {
+      await deployMeetingBot.call(this)
+      return
+    }
+
+    const options = {
+      method: 'POST',
+      headers: { accept: 'application/json', 'content-type': 'application/json', Authorization: config.recall.key }
+    }
+    const url = `${config.recall.baseUrl}/${this.config.botId}/resume_recording/`
+    const response = await fetch(url, options)
+    if (response.status !== httpStatus.OK) {
+      logger.error(`Error resuming recording: ${response.status}. Recall error: ${await response.text()}`)
+      throw new Error(`Error resuming recording: ${response.status}`)
+    }
+    logger.info(`Successfully resumed recording for bot ${this.config.botId}`)
   },
   async validateBeforeUpdate() {
     if (!this.config?.meetingUrl) {

@@ -39,4 +39,68 @@ const router = express.Router()
  */
 router.route('/:conversationId').delete(auth('deleteTranscript'), transcriptController.deleteTranscript)
 
+/**
+ * @swagger
+ * /transcript/{conversationId}/pause:
+ *   post:
+ *     summary: Pause a conversation transcript
+ *     description: Pauses recording of a transcript
+ *     tags: [Transcript]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         description: ID of the conversation to pause
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Recording paused successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Conversation'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       403:
+ *         description: Only conversation or topic owner can pause transcript
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ */
+router.route('/:conversationId/pause').post(auth('pauseTranscript'), transcriptController.pauseTranscript)
+
+/**
+ * @swagger
+ * /transcript/{conversationId}/resume:
+ *   post:
+ *     summary: Resume transcription
+ *     description: Resumes paused transcription
+ *     tags: [Transcript]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         description: ID of the conversation with transcript to resume
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Transcript resumed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Conversation'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       403:
+ *         description: Only conversation or topic owner can resume transcript
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ */
+router.route('/:conversationId/resume').post(auth('resumeTranscript'), transcriptController.resumeTranscript)
+
 export default router

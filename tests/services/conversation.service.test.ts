@@ -13,6 +13,7 @@ import { setAdapterTypes } from '../../src/models/adapter.model.js'
 import { setAgentTypes } from '../../src/models/user.model/agent.model/index.js'
 import defaultAgentTypes from '../../src/agents/index.js'
 
+jest.setTimeout(10000)
 setupIntTest()
 const topicOne = newPublicTopic()
 

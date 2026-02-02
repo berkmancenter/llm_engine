@@ -76,6 +76,15 @@ const handleBotStatusChange = async (adapter, body) => {
     return
   }
 
+  // Handle paused recording
+  if (code === 'in_call_not_recording') {
+    if (!wasPaused) {
+      await transcriptService.updateTranscriptStatus(conversation, 'paused')
+      logger.info(`Bot paused recording for adapter ${adapter._id}`)
+    }
+    return
+  }
+
   // Update transcript status if it was active
   if (!wasPaused) {
     await transcriptService.stopTranscript(conversation)
@@ -107,7 +116,8 @@ const supportedEvents = [
   'participant_events.chat_message',
   'participant_events.join',
   'bot.call_ended',
-  'bot.in_call_recording'
+  'bot.in_call_recording',
+  'bot.in_call_not_recording'
 ]
 const handleEvent = async (req, _res) => {
   const { event } = req.body
@@ -121,7 +131,7 @@ const handleEvent = async (req, _res) => {
 
   // These events come from dashboard webhooks (not realtime endpoints)
   // so we need to search for the adapter by botId across all conversations
-  if (event === 'bot.call_ended' || event === 'bot.in_call_recording') {
+  if (event === 'bot.call_ended' || event === 'bot.in_call_recording' || event === 'bot.in_call_not_recording') {
     const zoomAdapter = await Adapter.findOne({ type: 'zoom', 'config.botId': botId }).populate('conversation').exec()
     if (!zoomAdapter) {
       logger.warn(`Received bot.status_change for unknown botId ${botId}`)

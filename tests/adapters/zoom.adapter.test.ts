@@ -905,6 +905,228 @@ describe('zoom adapter tests', () => {
       loggerSpy.mockRestore()
     })
   })
+
+  describe('pauseTranscript', () => {
+    beforeEach(() => {
+      ;(fetch as jest.Mock).mockClear()
+    })
+
+    it('successfully pauses recording', async () => {
+      await createConversation('Test Meeting for Pause Recording')
+      adapter.config.botId = 'active-bot-id-123'
+
+      const mockResponse = {
+        status: httpStatus.OK,
+        text: jest.fn().mockResolvedValue('Recording paused successfully')
+      }
+      ;(fetch as jest.Mock).mockResolvedValue(mockResponse)
+
+      await adapter.pauseTranscript()
+
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(fetch).toHaveBeenCalledWith(`${config.recall.baseUrl}/active-bot-id-123/pause_recording/`, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          Authorization: config.recall.key
+        }
+      })
+    })
+
+    it('throws error when API returns non-200 status', async () => {
+      await createConversation('Test Meeting for Failed Pause')
+      adapter.config.botId = 'failed-bot-id-456'
+
+      const mockResponse = {
+        status: httpStatus.BAD_REQUEST,
+        text: jest.fn().mockResolvedValue('Cannot pause recording')
+      }
+      ;(fetch as jest.Mock).mockResolvedValue(mockResponse)
+
+      const loggerSpy = jest.spyOn(logger, 'error').mockImplementation()
+
+      await expect(adapter.pauseTranscript()).rejects.toThrow('Error pausing recording: 400')
+
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(loggerSpy).toHaveBeenCalledWith('Error pausing recording: 400. Recall error: Cannot pause recording')
+
+      loggerSpy.mockRestore()
+    })
+  })
+
+  describe('resumeTranscript', () => {
+    beforeEach(() => {
+      ;(fetch as jest.Mock).mockClear()
+    })
+
+    it('successfully resumes recording when bot is deployed', async () => {
+      await createConversation('Test Meeting for Resume Recording')
+      adapter.config.botId = 'active-bot-id-789'
+
+      // Mock bot status check to return active
+      const mockStatusResponse = {
+        status: httpStatus.OK,
+        json: jest.fn().mockResolvedValue({
+          status_changes: [{ code: 'in_call', timestamp: '2024-01-01T10:00:00Z' }]
+        })
+      }
+
+      const mockResumeResponse = {
+        status: httpStatus.OK,
+        text: jest.fn().mockResolvedValue('Recording resumed successfully')
+      }
+
+      ;(fetch as jest.Mock).mockResolvedValueOnce(mockStatusResponse).mockResolvedValueOnce(mockResumeResponse)
+
+      await adapter.resumeTranscript()
+
+      expect(fetch).toHaveBeenCalledTimes(2)
+      // First call is status check
+      expect(fetch).toHaveBeenNthCalledWith(1, `${config.recall.baseUrl}/active-bot-id-789`, {
+        method: 'GET',
+        headers: {
+          accept: 'application/json',
+          Authorization: config.recall.key
+        }
+      })
+      // Second call is resume
+      expect(fetch).toHaveBeenNthCalledWith(2, `${config.recall.baseUrl}/active-bot-id-789/resume_recording/`, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          Authorization: config.recall.key
+        }
+      })
+    })
+
+    it('deploys bot and returns without resuming when bot is not deployed', async () => {
+      await createConversation('Test Meeting with No Bot')
+      adapter.config = {
+        meetingUrl: 'https://zoom.us/j/123456789'
+      }
+      adapter.dmChannels = [{ name: 'participant' }]
+      adapter.chatChannels = [{ name: 'participant' }]
+
+      const channel = await Channel.create({ name: 'participant' })
+      conversation.channels.push(channel)
+      await conversation.save()
+
+      const mockDeployResponse = {
+        status: httpStatus.CREATED,
+        json: jest.fn().mockResolvedValue({ id: 'new-bot-id-123' })
+      }
+      ;(fetch as jest.Mock).mockResolvedValue(mockDeployResponse)
+
+      await adapter.resumeTranscript()
+
+      // Should only call fetch once for deployment, not for resume
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(fetch).toHaveBeenCalledWith(config.recall.baseUrl, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          Authorization: config.recall.key
+        },
+        body: expect.stringContaining('"meeting_url":"https://zoom.us/j/123456789"')
+      })
+
+      // Bot ID should be updated
+      expect(adapter.config.botId).toBe('new-bot-id-123')
+    })
+
+    it('deploys bot and returns without resuming when bot is inactive', async () => {
+      await createConversation('Test Meeting with Inactive Bot')
+      adapter.config = {
+        meetingUrl: 'https://zoom.us/j/123456789',
+        botId: 'inactive-bot-456'
+      }
+      adapter.dmChannels = [{ name: 'participant' }]
+      adapter.chatChannels = [{ name: 'participant' }]
+
+      const channel = await Channel.create({ name: 'participant' })
+      conversation.channels.push(channel)
+      await conversation.save()
+
+      // Mock bot status check showing bot is done
+      const mockStatusResponse = {
+        status: httpStatus.OK,
+        json: jest.fn().mockResolvedValue({
+          status_changes: [
+            { code: 'in_call', timestamp: '2024-01-01T10:00:00Z' },
+            { code: 'done', timestamp: '2024-01-01T10:30:00Z' }
+          ]
+        })
+      }
+
+      const mockDeployResponse = {
+        status: httpStatus.CREATED,
+        json: jest.fn().mockResolvedValue({ id: 'new-bot-789' })
+      }
+
+      ;(fetch as jest.Mock).mockResolvedValueOnce(mockStatusResponse).mockResolvedValueOnce(mockDeployResponse)
+
+      await adapter.resumeTranscript()
+
+      // Should call fetch twice: status check and deployment, but not resume
+      expect(fetch).toHaveBeenCalledTimes(2)
+
+      // First call is status check
+      expect(fetch).toHaveBeenNthCalledWith(1, `${config.recall.baseUrl}/inactive-bot-456`, {
+        method: 'GET',
+        headers: {
+          accept: 'application/json',
+          Authorization: config.recall.key
+        }
+      })
+
+      // Second call is deployment
+      expect(fetch).toHaveBeenNthCalledWith(2, config.recall.baseUrl, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          Authorization: config.recall.key
+        },
+        body: expect.stringContaining('"meeting_url":"https://zoom.us/j/123456789"')
+      })
+
+      // Bot ID should be updated
+      expect(adapter.config.botId).toBe('new-bot-789')
+    })
+
+    it('throws error when API returns non-200 status', async () => {
+      await createConversation('Test Meeting for Failed Resume')
+      adapter.config.botId = 'failed-bot-id-999'
+
+      // Mock bot status check to return active
+      const mockStatusResponse = {
+        status: httpStatus.OK,
+        json: jest.fn().mockResolvedValue({
+          status_changes: [{ code: 'in_call', timestamp: '2024-01-01T10:00:00Z' }]
+        })
+      }
+
+      const mockResumeResponse = {
+        status: httpStatus.INTERNAL_SERVER_ERROR,
+        text: jest.fn().mockResolvedValue('Cannot resume recording')
+      }
+
+      ;(fetch as jest.Mock).mockResolvedValueOnce(mockStatusResponse).mockResolvedValueOnce(mockResumeResponse)
+
+      const loggerSpy = jest.spyOn(logger, 'error').mockImplementation()
+
+      await expect(adapter.resumeTranscript()).rejects.toThrow('Error resuming recording: 500')
+
+      expect(fetch).toHaveBeenCalledTimes(2)
+      expect(loggerSpy).toHaveBeenCalledWith('Error resuming recording: 500. Recall error: Cannot resume recording')
+
+      loggerSpy.mockRestore()
+    })
+  })
+
   describe('participantJoined', () => {
     it('configures user and direct channel when DMs are enabled', async () => {
       await createConversation('Meeting with DMs Enabled')
