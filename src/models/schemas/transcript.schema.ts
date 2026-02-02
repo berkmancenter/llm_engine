@@ -13,7 +13,7 @@ const transcriptSchema = new mongoose.Schema<ITranscript>(
     },
     status: {
       type: String,
-      enum: ['active', 'paused', 'stopped'],
+      enum: ['active', 'paused', 'stopped', 'deleted'],
       default: 'stopped',
       required: true
     }

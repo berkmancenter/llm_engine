@@ -4,6 +4,7 @@ import slugify from 'slugify'
 import { toJSON, paginate, lock } from './plugins/index.js'
 import { IConversation, Profile } from '../types/index.types.js'
 import Message from './message.model.js'
+import transcriptSchema from './schemas/transcript.schema.js'
 
 interface ConversationMethods {
   messageCount(): number
@@ -103,17 +104,7 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
       type: Boolean,
       default: false
     },
-    // TODO turn this into a first class object later
-    transcript: {
-      vectorStore: {
-        embeddingsPlatform: {
-          type: String
-        },
-        embeddingsModelName: {
-          type: String
-        }
-      }
-    },
+    transcript: transcriptSchema,
     adapters: [{ type: mongoose.SchemaTypes.ObjectId, ref: 'Adapter' }],
     followers: [{ type: mongoose.SchemaTypes.ObjectId, ref: 'Follower' }],
     agents: [{ type: mongoose.SchemaTypes.ObjectId, ref: 'Agent' }],

@@ -22,7 +22,10 @@ const conversationOne: any = {
   owner: userOne._id,
   topic: publicTopic._id,
   agents: [],
-  messages: []
+  messages: [],
+  transcript: {
+    status: 'stopped'
+  }
 }
 
 const conversationTwo: any = {
@@ -31,7 +34,10 @@ const conversationTwo: any = {
   slug: nameSlug2,
   owner: userOne._id,
   topic: privateTopic._id,
-  messages: []
+  messages: [],
+  transcript: {
+    status: 'stopped'
+  }
 }
 
 const conversationThree: any = {
@@ -40,7 +46,10 @@ const conversationThree: any = {
   slug: nameSlug3,
   owner: userTwo._id,
   topic: privateTopic._id,
-  messages: []
+  messages: [],
+  transcript: {
+    status: 'stopped'
+  }
 }
 
 const experimentalConversation: any = {
@@ -50,7 +59,10 @@ const experimentalConversation: any = {
   owner: userOne._id,
   topic: publicTopic._id,
   messages: [],
-  experimental: true
+  experimental: true,
+  transcript: {
+    status: 'stopped'
+  }
 }
 
 const conversationAgentsEnabled = {
@@ -60,7 +72,10 @@ const conversationAgentsEnabled = {
   topic: publicTopic._id,
   enableAgents: true,
   agents: [],
-  messages: []
+  messages: [],
+  transcript: {
+    status: 'stopped'
+  }
 }
 
 const conversationWithChannels: any = {
@@ -75,7 +90,10 @@ const conversationWithChannels: any = {
     { name: 'channel1', passcode: 'Channel1_CoDe' },
     { name: 'channel2', passcode: 'channel2_CODE' },
     { name: 'channel3', passcode: null, direct: true, participants: [registeredUser._id, new mongoose.Types.ObjectId()] }
-  ]
+  ],
+  transcript: {
+    status: 'stopped'
+  }
 }
 
 const insertConversations = async (conversations) => Conversation.insertMany(conversations)

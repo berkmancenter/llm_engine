@@ -208,6 +208,7 @@ let cancelBatchTranscriptSpy
 let scheduleBatchTranscriptSpy
 let defineJobSpy
 let newConversationSpy
+let broadcastTranscriptStatusChangeSpy
 
 describe('Conversation routes', () => {
   beforeAll(() => {
@@ -231,6 +232,7 @@ describe('Conversation routes', () => {
     scheduleBatchTranscriptSpy = jest.spyOn(schedule, 'batchTranscript').mockResolvedValue()
     defineJobSpy = jest.spyOn(defineJob, 'batchTranscript').mockResolvedValue()
     newConversationSpy = jest.spyOn(websocketGateway, 'broadcastNewConversation').mockResolvedValue()
+    broadcastTranscriptStatusChangeSpy = jest.spyOn(websocketGateway, 'broadcastTranscriptStatusChange').mockResolvedValue()
     mockGetUniqueKeys.mockReturnValue([])
   })
   afterAll(() => {
@@ -261,6 +263,23 @@ describe('Conversation routes', () => {
       // count should be 1 for visible message only
       const t3 = resp.body.find((x) => x.id === conversationThree._id.toString())
       expect(t3.messageCount).toEqual(1)
+    })
+
+    test('should return 200 and include transcript field in conversations', async () => {
+      const resp = await request(app)
+        .get(`/v1/conversations`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.OK)
+
+      expect(resp.body).toHaveLength(4)
+
+      // Verify all conversations have transcript field
+      resp.body.forEach((conversation) => {
+        expect(conversation).toHaveProperty('transcript')
+        expect(conversation.transcript).toHaveProperty('status')
+        expect(['active', 'paused', 'stopped', 'deleted']).toContain(conversation.transcript.status)
+      })
     })
   })
 
@@ -501,6 +520,48 @@ describe('Conversation routes', () => {
       // Should call introduce 6 times (2 agents × 2 channels)
       expect(scheduleSpy).toHaveBeenCalledTimes(4)
     })
+
+    test('should return 201 and include transcript with default status', async () => {
+      const resp = await request(app)
+        .post(`/v1/conversations`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({
+          name: 'Conversation with Transcript',
+          topicId: publicTopic._id.toString(),
+          agentTypes: ['test']
+        })
+        .expect(httpStatus.CREATED)
+
+      expect(newConversationSpy).toHaveBeenCalled()
+      expect(resp.body).toHaveProperty('transcript')
+      expect(resp.body.transcript).toHaveProperty('status')
+      expect(resp.body.transcript.status).toBe('stopped')
+    })
+
+    test('should return 201 and include transcript with vectorStore configuration', async () => {
+      const resp = await request(app)
+        .post(`/v1/conversations`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({
+          name: 'Conversation with Vector Store',
+          topicId: publicTopic._id.toString(),
+          agentTypes: ['test'],
+          transcript: {
+            vectorStore: {
+              embeddingsPlatform: 'openai',
+              embeddingsModelName: 'text-embedding-3-small'
+            }
+          }
+        })
+        .expect(httpStatus.CREATED)
+
+      expect(newConversationSpy).toHaveBeenCalled()
+      expect(resp.body).toHaveProperty('transcript')
+      expect(resp.body.transcript).toHaveProperty('status')
+      expect(resp.body.transcript).toHaveProperty('vectorStore')
+      expect(resp.body.transcript.vectorStore.embeddingsPlatform).toBe('openai')
+      expect(resp.body.transcript.vectorStore.embeddingsModelName).toBe('text-embedding-3-small')
+    })
   })
   describe('POST /v1/conversations/from-type', () => {
     test('should return 201 and create conversation from type with all required fields', async () => {
@@ -693,6 +754,27 @@ describe('Conversation routes', () => {
           }
         })
         .expect(httpStatus.UNAUTHORIZED)
+    })
+
+    test('should return 201 and include transcript field when creating from type', async () => {
+      const resp = await request(app)
+        .post(`/v1/conversations/from-type`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({
+          type: 'testEventAssistant',
+          name: 'Conference with Transcript',
+          platforms: ['zoom'],
+          topicId: publicTopic._id.toString(),
+          properties: {
+            meetingUrl: 'https://zoom.us/j/123456789'
+          }
+        })
+        .expect(httpStatus.CREATED)
+
+      expect(newConversationSpy).toHaveBeenCalled()
+      expect(resp.body).toHaveProperty('transcript')
+      expect(resp.body.transcript).toHaveProperty('status')
+      expect(resp.body.transcript.status).toBe('stopped')
     })
   })
   describe('POST /v1/conversations/ - Adapter functionality', () => {
@@ -1107,6 +1189,23 @@ describe('Conversation routes', () => {
       // One or the other
       expect([conversationOne._id.toString(), conversationAgentsEnabled._id.toString()]).toContain(resp.body[0].id)
     })
+
+    test('should return 200 and include transcript field in conversations', async () => {
+      const resp = await request(app)
+        .get(`/v1/conversations/topic/${publicTopic._id.toString()}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.OK)
+
+      expect(resp.body).toHaveLength(2)
+
+      // Verify all conversations have transcript field
+      resp.body.forEach((conversation) => {
+        expect(conversation).toHaveProperty('transcript')
+        expect(conversation.transcript).toHaveProperty('status')
+        expect(['active', 'paused', 'stopped', 'deleted']).toContain(conversation.transcript.status)
+      })
+    })
   })
 
   describe('GET /v1/conversations/userConversations', () => {
@@ -1129,6 +1228,23 @@ describe('Conversation routes', () => {
         .expect(httpStatus.OK)
 
       expect(resp.body).toHaveLength(3)
+    })
+
+    test('should return 200 and include transcript field in user conversations', async () => {
+      const resp = await request(app)
+        .get(`/v1/conversations/userConversations`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.OK)
+
+      expect(resp.body.length).toBeGreaterThan(0)
+
+      // Verify all conversations have transcript field
+      resp.body.forEach((conversation) => {
+        expect(conversation).toHaveProperty('transcript')
+        expect(conversation.transcript).toHaveProperty('status')
+        expect(['active', 'paused', 'stopped', 'deleted']).toContain(conversation.transcript.status)
+      })
     })
   })
 
@@ -1318,6 +1434,19 @@ describe('Conversation routes', () => {
       expect(resp.body.adapters).toHaveLength(1)
       expect(resp.body.adapters[0]).toMatchObject(expectedAdapterResponse)
       expect(resp.body).toMatchObject(expectedResponse)
+    })
+
+    test('should return 200 and include transcript field', async () => {
+      const url = `/v1/conversations/${agentConversation._id.toString()}`
+      const resp = await request(app)
+        .get(url)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.OK)
+
+      expect(resp.body).toHaveProperty('transcript')
+      expect(resp.body.transcript).toHaveProperty('status')
+      expect(['active', 'paused', 'stopped', 'deleted']).toContain(resp.body.transcript.status)
     })
   })
 
@@ -1622,6 +1751,26 @@ describe('Conversation routes', () => {
       const noMsgConversation = resp.body.find((x) => x.id === conversationWithNoMessages._id.toString())
       expect(noMsgConversation).toBeDefined()
       expect(noMsgConversation.messageCount).toEqual(0)
+    })
+
+    test('should return 200 and include transcript field in active conversations', async () => {
+      // Make a conversation active
+      await Conversation.findByIdAndUpdate(conversationOne._id, { active: true })
+
+      const resp = await request(app)
+        .get(`/v1/conversations/active`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.OK)
+
+      expect(resp.body.length).toBeGreaterThan(0)
+
+      // Verify all conversations have transcript field
+      resp.body.forEach((conversation) => {
+        expect(conversation).toHaveProperty('transcript')
+        expect(conversation.transcript).toHaveProperty('status')
+        expect(['active', 'paused', 'stopped', 'deleted']).toContain(conversation.transcript.status)
+      })
     })
   })
   describe('DELETE /v1/conversations/:conversationId', () => {

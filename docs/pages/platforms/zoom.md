@@ -15,8 +15,9 @@ We provide a Zoom adapter that saves real-time transcription of a Zoom meeting t
 
 1. Complete Step 1 of [these instructions](https://beta-docs.recall.ai/docs/step-1-create-a-zoom-marketplace-app) to create a Zoom marketplace app and connect it to Recall.
 2. In Zoom Marketplace, Set up Zoom event subscriptions in your app to receive meeting started and ended events. Choose Webhook method and set the event notification endpoint URL to [baseUrl]/v1/webhooks/zoom
-3. Create a new Webhook from the Recall.ai dashboard. Use [baseUrl]/v1/webhooks/recall/status as the endpoint. Subscribe to `bot.call_ended` events. Copy the signing secret displayed on the webhook page for setting the `RECALL_SVIX_SECRET` environment variable.
+3. Create a new Webhook from the Recall.ai dashboard. Use [baseUrl]/v1/webhooks/recall/status as the endpoint. Subscribe to `bot.call_ended` and `bot.in_call_recording` events. Copy the signing secret displayed on the webhook page for setting the `RECALL_SVIX_SECRET` environment variable.
 4. Set the Recall environment variables and Zoom event subscription variable in `.env`
+
 ```
 RECALL_API_KEY
 RECALL_BASE_URL: the URL used to connect to your Recall account

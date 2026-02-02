@@ -7,6 +7,7 @@ import logger from '../config/logger.js'
 import Conversation from '../models/conversation.model.js'
 import Adapter from '../models/adapter.model.js'
 import webhookService from '../services/webhook.service.js'
+import transcriptService from '../services/transcript.service.js'
 
 const verifyRequestFromRecall = (args: { secret: string; headers: Record<string, string>; payload: string | null }) => {
   const { secret, headers, payload } = args
@@ -65,6 +66,20 @@ const handleBotStatusChange = async (adapter, body) => {
     logger.info('Conversation is not active. Skipping bot status change handling.')
     return
   }
+  const wasPaused = conversation.transcript?.status !== 'active'
+  // Handle bot resuming recording
+  if (code === 'in_call_recording') {
+    if (wasPaused) {
+      await transcriptService.updateTranscriptStatus(conversation, 'active')
+      logger.info(`Bot resumed recording for adapter ${adapter._id}`)
+    }
+    return
+  }
+
+  // Update transcript status if it was active
+  if (!wasPaused) {
+    await transcriptService.stopTranscript(conversation)
+  }
 
   // Handle bot stopping/leaving (call_ended with specific sub_codes)
   const stoppedSubCodes = [
@@ -87,7 +102,13 @@ const handleBotStatusChange = async (adapter, body) => {
   }
 }
 
-const supportedEvents = ['transcript.data', 'participant_events.chat_message', 'participant_events.join', 'bot.call_ended']
+const supportedEvents = [
+  'transcript.data',
+  'participant_events.chat_message',
+  'participant_events.join',
+  'bot.call_ended',
+  'bot.in_call_recording'
+]
 const handleEvent = async (req, _res) => {
   const { event } = req.body
   if (!supportedEvents.includes(event)) {
@@ -100,7 +121,7 @@ const handleEvent = async (req, _res) => {
 
   // These events come from dashboard webhooks (not realtime endpoints)
   // so we need to search for the adapter by botId across all conversations
-  if (event === 'bot.call_ended') {
+  if (event === 'bot.call_ended' || event === 'bot.in_call_recording') {
     const zoomAdapter = await Adapter.findOne({ type: 'zoom', 'config.botId': botId }).populate('conversation').exec()
     if (!zoomAdapter) {
       logger.warn(`Received bot.status_change for unknown botId ${botId}`)

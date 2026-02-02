@@ -72,6 +72,18 @@ class WebsocketGateway {
   async broadcastConversationUpdate(conversation) {
     await this.broadcast(conversation.topic._id.toString(), 'conversation:update', conversation)
   }
+
+  async broadcastTranscriptStatusChange(conversation, status) {
+    await this.broadcast(
+      conversation._id.toString(),
+      'transcript:status',
+      {
+        conversationId: conversation._id.toString(),
+        status
+      },
+      ['transcript']
+    )
+  }
 }
 const websocketGateway = new WebsocketGateway()
 export default websocketGateway

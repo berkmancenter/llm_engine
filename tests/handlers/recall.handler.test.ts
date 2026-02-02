@@ -9,6 +9,7 @@ import Conversation from '../../src/models/conversation.model.js'
 import config from '../../src/config/config.js'
 import { insertTopics } from '../fixtures/topic.fixture.js'
 import webhookService from '../../src/services/webhook.service.js'
+import transcriptService from '../../src/services/transcript.service.js'
 import defaultAdapterTypes from '../../src/adapters/index.js'
 import setupIntTest from '../utils/setupIntTest.js'
 import { registeredUser } from '../fixtures/user.fixture.js'
@@ -53,6 +54,8 @@ const testAdapterTypes = {
 
 describe('POST /v1/webhooks/recall', () => {
   let receiveMessageSpy
+  let updateTranscriptStatusSpy
+  let stopTranscriptSpy
   let zoomAdapter
   let realtimeSecret
   let svixSecret
@@ -78,6 +81,8 @@ describe('POST /v1/webhooks/recall', () => {
     conversation.adapters.push(zoomAdapter)
     await conversation.save()
     receiveMessageSpy = jest.spyOn(webhookService, 'receiveMessage').mockResolvedValue()
+    updateTranscriptStatusSpy = jest.spyOn(transcriptService, 'updateTranscriptStatus').mockResolvedValue()
+    stopTranscriptSpy = jest.spyOn(transcriptService, 'stopTranscript').mockResolvedValue(conversation)
     mockZoomGetUniqueKeys.mockReturnValue(['type', 'config.meetingUrl'])
   })
   afterAll(() => {
@@ -153,9 +158,12 @@ describe('POST /v1/webhooks/recall', () => {
   })
 
   describe('bot.call_ended event', () => {
-    test('should trigger redeploy when bot times out in waiting room', async () => {
-      // Set conversation as active so bot redeploy is triggered
+    test('should trigger redeploy and stop transcript when bot times out in waiting room with active transcript', async () => {
+      // Set conversation as active with active transcript so bot redeploy and transcript stop are triggered
       conversation.active = true
+      conversation.transcript = {
+        status: 'active'
+      }
       await conversation.save()
 
       const statusChangeEvent = {
@@ -172,12 +180,16 @@ describe('POST /v1/webhooks/recall', () => {
       const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
       await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
 
+      expect(stopTranscriptSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }))
       expect(mockZoomStart).toHaveBeenCalled()
     })
 
-    test('should trigger redeploy when no one joined yet', async () => {
-      // Set conversation as active so bot redeploy is triggered
+    test('should trigger redeploy and stop transcript when no one joined yet with active transcript', async () => {
+      // Set conversation as active with active transcript so bot redeploy and transcript stop are triggered
       conversation.active = true
+      conversation.transcript = {
+        status: 'active'
+      }
       await conversation.save()
 
       const statusChangeEvent = {
@@ -194,12 +206,16 @@ describe('POST /v1/webhooks/recall', () => {
       const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
       await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
 
+      expect(stopTranscriptSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }))
       expect(mockZoomStart).toHaveBeenCalled()
     })
 
-    test('should trigger redeploy on bot_received_leave_call', async () => {
-      // Set conversation as active so bot redeploy is triggered
+    test('should trigger redeploy and stop transcript on bot_received_leave_call with active transcript', async () => {
+      // Set conversation as active with active transcript so bot redeploy and transcript stop are triggered
       conversation.active = true
+      conversation.transcript = {
+        status: 'active'
+      }
       await conversation.save()
 
       const statusChangeEvent = {
@@ -216,10 +232,94 @@ describe('POST /v1/webhooks/recall', () => {
       const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
       await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
 
+      expect(stopTranscriptSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }))
       expect(mockZoomStart).toHaveBeenCalled()
     })
 
-    test('should not redeploy when host ends call', async () => {
+    test('should trigger redeploy and stop transcript on timeout_exceeded_in_call_not_recording with active transcript', async () => {
+      // Set conversation as active with active transcript so bot redeploy and transcript stop are triggered
+      conversation.active = true
+      conversation.transcript = {
+        status: 'active'
+      }
+      await conversation.save()
+
+      const statusChangeEvent = {
+        event: 'bot.call_ended',
+        data: {
+          bot: { id: botId },
+          data: {
+            code: 'call_ended',
+            sub_code: 'timeout_exceeded_in_call_not_recording',
+            message: 'Bot timed out while not recording'
+          }
+        }
+      }
+      const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
+      await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
+
+      expect(stopTranscriptSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }))
+      expect(mockZoomStart).toHaveBeenCalled()
+    })
+
+    test('should trigger redeploy but not stop transcript when transcript was already paused', async () => {
+      // Set conversation as active with paused transcript
+      conversation.active = true
+      conversation.transcript = {
+        status: 'paused'
+      }
+      await conversation.save()
+
+      const statusChangeEvent = {
+        event: 'bot.call_ended',
+        data: {
+          bot: { id: botId },
+          data: {
+            code: 'call_ended',
+            sub_code: 'timeout_exceeded_waiting_room',
+            message: 'Bot timed out in waiting room'
+          }
+        }
+      }
+      const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
+      await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
+
+      expect(stopTranscriptSpy).not.toHaveBeenCalled()
+      expect(mockZoomStart).toHaveBeenCalled()
+    })
+
+    test('should trigger redeploy but not stop transcript when transcript was already stopped', async () => {
+      // Set conversation as active with stopped transcript
+      conversation.active = true
+      conversation.transcript = {
+        status: 'stopped'
+      }
+      await conversation.save()
+
+      const statusChangeEvent = {
+        event: 'bot.call_ended',
+        data: {
+          bot: { id: botId },
+          data: {
+            code: 'call_ended',
+            sub_code: 'timeout_exceeded_noone_joined',
+            message: 'No one joined the meeting'
+          }
+        }
+      }
+      const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
+      await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
+
+      expect(stopTranscriptSpy).not.toHaveBeenCalled()
+      expect(mockZoomStart).toHaveBeenCalled()
+    })
+
+    test('should not redeploy but should stop transcript when host ends call', async () => {
+      conversation.active = true
+      conversation.transcript = {
+        status: 'active'
+      }
+      await conversation.save()
       const statusChangeEvent = {
         event: 'bot.call_ended',
         data: {
@@ -234,10 +334,16 @@ describe('POST /v1/webhooks/recall', () => {
       const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
       await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
 
+      expect(stopTranscriptSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }))
       expect(mockZoomStart).not.toHaveBeenCalled()
     })
 
-    test('should not redeploy when bot is kicked', async () => {
+    test('should not redeploy but should stop transcript when bot is kicked', async () => {
+      conversation.active = true
+      conversation.transcript = {
+        status: 'active'
+      }
+      await conversation.save()
       const statusChangeEvent = {
         event: 'bot.call_ended',
         data: {
@@ -252,7 +358,124 @@ describe('POST /v1/webhooks/recall', () => {
       const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
       await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
 
+      expect(stopTranscriptSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }))
       expect(mockZoomStart).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('bot.in_call_recording event', () => {
+    test('should resume transcript when bot starts recording and transcript was paused', async () => {
+      // Set conversation as active with paused transcript
+      conversation.active = true
+      conversation.transcript = {
+        status: 'paused'
+      }
+      await conversation.save()
+
+      const statusChangeEvent = {
+        event: 'bot.in_call_recording',
+        data: {
+          bot: { id: botId },
+          data: {
+            code: 'in_call_recording',
+            message: 'Bot is now recording'
+          }
+        }
+      }
+      const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
+      await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
+
+      expect(updateTranscriptStatusSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }), 'active')
+    })
+
+    test('should not update transcript status when already active', async () => {
+      // Set conversation as active with active transcript
+      conversation.active = true
+      conversation.transcript = {
+        status: 'active'
+      }
+      await conversation.save()
+
+      const statusChangeEvent = {
+        event: 'bot.in_call_recording',
+        data: {
+          bot: { id: botId },
+          data: {
+            code: 'in_call_recording',
+            message: 'Bot is now recording'
+          }
+        }
+      }
+      const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
+      await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
+
+      expect(updateTranscriptStatusSpy).not.toHaveBeenCalled()
+    })
+
+    test('should resume transcript when bot starts recording and transcript was stopped', async () => {
+      // Set conversation as active with stopped transcript
+      conversation.active = true
+      conversation.transcript = {
+        status: 'stopped'
+      }
+      await conversation.save()
+
+      const statusChangeEvent = {
+        event: 'bot.in_call_recording',
+        data: {
+          bot: { id: botId },
+          data: {
+            code: 'in_call_recording',
+            message: 'Bot is now recording'
+          }
+        }
+      }
+      const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
+      await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
+
+      expect(updateTranscriptStatusSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }), 'active')
+    })
+
+    test('should not resume transcript when conversation is not active', async () => {
+      // Set conversation as inactive
+      conversation.active = false
+      conversation.transcript = {
+        status: 'paused'
+      }
+      await conversation.save()
+
+      const statusChangeEvent = {
+        event: 'bot.in_call_recording',
+        data: {
+          bot: { id: botId },
+          data: {
+            code: 'in_call_recording',
+            message: 'Bot is now recording'
+          }
+        }
+      }
+      const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
+      await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
+
+      expect(updateTranscriptStatusSpy).not.toHaveBeenCalled()
+    })
+
+    test('should handle bot.in_call_recording when adapter not found', async () => {
+      const nonExistentBotId = 'non-existent-bot-id'
+      const statusChangeEvent = {
+        event: 'bot.in_call_recording',
+        data: {
+          bot: { id: nonExistentBotId },
+          data: {
+            code: 'in_call_recording',
+            message: 'Bot is now recording'
+          }
+        }
+      }
+      const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
+      await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
+
+      expect(updateTranscriptStatusSpy).not.toHaveBeenCalled()
     })
   })
 })

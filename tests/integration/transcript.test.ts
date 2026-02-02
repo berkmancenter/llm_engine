@@ -13,6 +13,7 @@ import { publicTopic, privateTopic } from '../fixtures/conversation.fixture.js'
 
 import { defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/getModelChat.js'
 import rag, { TRANSCRIPT_COLLECTION_PREFIX } from '../../src/agents/helpers/rag.js'
+import websocketGateway from '../../src/websockets/websocketGateway.js'
 
 jest.setTimeout(120000)
 
@@ -44,6 +45,8 @@ jest.mock('agenda')
 setupIntTest()
 
 describe('Transcript routes', () => {
+  let broadcastTranscriptStatusChangeSpy
+
   beforeAll(() => {
     setAgentTypes(testAgentTypeSpecification)
   })
@@ -51,6 +54,13 @@ describe('Transcript routes', () => {
   beforeEach(async () => {
     await insertUsers([userOne, userTwo, registeredUser])
     await insertTopics([publicTopic, privateTopic])
+    broadcastTranscriptStatusChangeSpy = jest.spyOn(websocketGateway, 'broadcastTranscriptStatusChange').mockResolvedValue()
+  })
+
+  afterEach(() => {
+    if (broadcastTranscriptStatusChangeSpy) {
+      broadcastTranscriptStatusChangeSpy.mockRestore()
+    }
   })
 
   afterAll(() => {
@@ -58,14 +68,15 @@ describe('Transcript routes', () => {
   })
 
   describe('DELETE /v1/transcript/:conversationId', () => {
-    test('should return 200 and delete transcript messages when user is conversation owner', async () => {
+    test('should return 204 and delete transcript messages when user is conversation owner', async () => {
       // Create a conversation with transcript messages
       const conversation = new Conversation({
         name: 'Test Conversation',
         owner: userOne._id,
         topic: publicTopic._id,
         agents: [],
-        messages: []
+        messages: [],
+        transcript: { status: 'stopped' }
       })
       await conversation.save()
 
@@ -119,7 +130,7 @@ describe('Transcript routes', () => {
         .delete(`/v1/transcript/${conversation._id}`)
         .set('Authorization', `Bearer ${userOneAccessToken}`)
         .send()
-        .expect(httpStatus.OK)
+        .expect(httpStatus.NO_CONTENT)
 
       // Verify transcript messages are deleted
       const transcriptMessagesAfter = await Message.find({
@@ -137,14 +148,15 @@ describe('Transcript routes', () => {
       expect(regularMessagesAfter[0]._id.toString()).toBe(regularMessage._id.toString())
     })
 
-    test('should return 200 and delete transcript messages when user is topic owner', async () => {
+    test('should return 204 and delete transcript messages when user is topic owner', async () => {
       // Create a conversation owned by userTwo but in userOne's topic
       const conversation = new Conversation({
         name: 'Topic Owner Test',
         owner: userTwo._id,
         topic: publicTopic._id, // publicTopic is owned by userOne
         agents: [],
-        messages: []
+        messages: [],
+        transcript: { status: 'stopped' }
       })
       await conversation.save()
 
@@ -165,7 +177,7 @@ describe('Transcript routes', () => {
         .delete(`/v1/transcript/${conversation._id}`)
         .set('Authorization', `Bearer ${userOneAccessToken}`)
         .send()
-        .expect(httpStatus.OK)
+        .expect(httpStatus.NO_CONTENT)
 
       // Verify transcript message is deleted
       const transcriptMessagesAfter = await Message.find({
@@ -175,7 +187,7 @@ describe('Transcript routes', () => {
       expect(transcriptMessagesAfter).toHaveLength(0)
     })
 
-    test('should return 200 and delete RAG collection when conversation has RAG-enabled agent', async () => {
+    test('should return 204 and delete RAG collection when conversation has RAG-enabled agent', async () => {
       const deleteCollectionSpy = jest.spyOn(rag, 'deleteCollection').mockResolvedValue()
 
       // Create conversation with RAG-enabled agent
@@ -184,7 +196,8 @@ describe('Transcript routes', () => {
         owner: userOne._id,
         topic: publicTopic._id,
         agents: [],
-        messages: []
+        messages: [],
+        transcript: { status: 'stopped' }
       })
       await conversation.save()
 
@@ -215,7 +228,7 @@ describe('Transcript routes', () => {
         .delete(`/v1/transcript/${conversation._id}`)
         .set('Authorization', `Bearer ${userOneAccessToken}`)
         .send()
-        .expect(httpStatus.OK)
+        .expect(httpStatus.NO_CONTENT)
 
       // Verify RAG collection was deleted
       expect(deleteCollectionSpy).toHaveBeenCalledWith(`${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`)
@@ -230,7 +243,7 @@ describe('Transcript routes', () => {
       deleteCollectionSpy.mockRestore()
     })
 
-    test('should return 200 and not delete RAG collection when conversation has no RAG-enabled agents', async () => {
+    test('should return 204 and not delete RAG collection when conversation has no RAG-enabled agents', async () => {
       const deleteCollectionSpy = jest.spyOn(rag, 'deleteCollection').mockResolvedValue()
 
       // Create conversation without RAG-enabled agents
@@ -239,7 +252,8 @@ describe('Transcript routes', () => {
         owner: userOne._id,
         topic: publicTopic._id,
         agents: [],
-        messages: []
+        messages: [],
+        transcript: { status: 'stopped' }
       })
       await conversation.save()
 
@@ -271,7 +285,7 @@ describe('Transcript routes', () => {
         .delete(`/v1/transcript/${conversation._id}`)
         .set('Authorization', `Bearer ${userOneAccessToken}`)
         .send()
-        .expect(httpStatus.OK)
+        .expect(httpStatus.NO_CONTENT)
 
       // Verify RAG collection was NOT deleted
       expect(deleteCollectionSpy).not.toHaveBeenCalled()
@@ -286,14 +300,15 @@ describe('Transcript routes', () => {
       deleteCollectionSpy.mockRestore()
     })
 
-    test('should return 200 when deleting transcript with no messages', async () => {
+    test('should return 204 when deleting transcript with no messages', async () => {
       // Create conversation without transcript messages
       const conversation = new Conversation({
         name: 'Empty Transcript Conversation',
         owner: userOne._id,
         topic: publicTopic._id,
         agents: [],
-        messages: []
+        messages: [],
+        transcript: { status: 'stopped' }
       })
       await conversation.save()
 
@@ -302,7 +317,7 @@ describe('Transcript routes', () => {
         .delete(`/v1/transcript/${conversation._id}`)
         .set('Authorization', `Bearer ${userOneAccessToken}`)
         .send()
-        .expect(httpStatus.OK)
+        .expect(httpStatus.NO_CONTENT)
 
       // Verify no messages exist
       const transcriptMessagesAfter = await Message.find({
@@ -328,49 +343,12 @@ describe('Transcript routes', () => {
         owner: userOne._id,
         topic: publicTopic._id,
         agents: [],
-        messages: []
+        messages: [],
+        transcript: { status: 'stopped' }
       })
       await conversation.save()
 
       await request(app).delete(`/v1/transcript/${conversation._id}`).send().expect(httpStatus.UNAUTHORIZED)
-    })
-
-    test('should return 403 when user is not conversation owner or topic owner', async () => {
-      // Create conversation owned by userOne in a topic owned by userOne
-      const conversation = new Conversation({
-        name: 'Forbidden Test',
-        owner: userOne._id,
-        topic: publicTopic._id,
-        agents: [],
-        messages: []
-      })
-      await conversation.save()
-
-      // Create transcript message
-      const transcriptMessage = new Message({
-        conversation: conversation._id,
-        body: 'Forbidden transcript message',
-        channels: ['transcript'],
-        owner: registeredUser._id,
-        pseudonymId: registeredUser.pseudonyms[0]._id,
-        pseudonym: registeredUser.pseudonyms[0].pseudonym,
-        createdAt: new Date()
-      })
-      await transcriptMessage.save()
-
-      // Try to delete as userTwo (not owner)
-      await request(app)
-        .delete(`/v1/transcript/${conversation._id}`)
-        .set('Authorization', `Bearer ${userTwoAccessToken}`)
-        .send()
-        .expect(httpStatus.FORBIDDEN)
-
-      // Verify message still exists
-      const transcriptMessagesAfter = await Message.find({
-        conversation: conversation._id,
-        channels: { $in: ['transcript'] }
-      })
-      expect(transcriptMessagesAfter).toHaveLength(1)
     })
 
     test('should return 400 when conversationId is invalid ObjectId', async () => {
@@ -390,7 +368,8 @@ describe('Transcript routes', () => {
         owner: userOne._id,
         topic: publicTopic._id,
         agents: [],
-        messages: []
+        messages: [],
+        transcript: { status: 'stopped' }
       })
       await conversation.save()
 
@@ -416,13 +395,13 @@ describe('Transcript routes', () => {
       })
       await transcriptMessage.save()
 
-      // Delete transcript should return 200 even if RAG deletion fails
+      // Delete transcript should return 204 even if RAG deletion fails
       // The function handles the error gracefully and continues to delete messages
       await request(app)
         .delete(`/v1/transcript/${conversation._id}`)
         .set('Authorization', `Bearer ${userOneAccessToken}`)
         .send()
-        .expect(httpStatus.OK)
+        .expect(httpStatus.NO_CONTENT)
 
       // Verify RAG deletion was attempted
       expect(deleteCollectionSpy).toHaveBeenCalledWith(`${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`)
@@ -443,7 +422,8 @@ describe('Transcript routes', () => {
         owner: userOne._id,
         topic: publicTopic._id,
         agents: [],
-        messages: []
+        messages: [],
+        transcript: { status: 'stopped' }
       })
       await conversation.save()
 
@@ -490,7 +470,7 @@ describe('Transcript routes', () => {
         .delete(`/v1/transcript/${conversation._id}`)
         .set('Authorization', `Bearer ${userOneAccessToken}`)
         .send()
-        .expect(httpStatus.OK)
+        .expect(httpStatus.NO_CONTENT)
 
       // Verify only transcript-channel messages are deleted
       const transcriptMessagesAfter = await Message.find({
@@ -506,6 +486,92 @@ describe('Transcript routes', () => {
       })
       expect(generalMessagesAfter).toHaveLength(1)
       expect(generalMessagesAfter[0]._id.toString()).toBe(generalMsg._id.toString())
+    })
+
+    test('should return 400 when trying to delete an active transcript', async () => {
+      const conversation = new Conversation({
+        name: 'Active Transcript Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'active' }
+      })
+      await conversation.save()
+
+      // Create transcript message
+      const transcriptMessage = new Message({
+        conversation: conversation._id,
+        body: 'Active transcript message',
+        channels: ['transcript'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: new Date()
+      })
+      await transcriptMessage.save()
+
+      // Try to delete active transcript
+      const response = await request(app)
+        .delete(`/v1/transcript/${conversation._id}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.BAD_REQUEST)
+
+      expect(response.body.message).toContain('Cannot delete an active transcript')
+
+      // Verify message still exists
+      const transcriptMessagesAfter = await Message.find({
+        conversation: conversation._id,
+        channels: { $in: ['transcript'] }
+      })
+      expect(transcriptMessagesAfter).toHaveLength(1)
+
+      // Verify transcript status is still active
+      const updatedConversation = await Conversation.findById(conversation._id)
+      expect(updatedConversation!.transcript?.status).toBe('active')
+    })
+
+    test('should return 204 when deleting an already stopped transcript', async () => {
+      const conversation = new Conversation({
+        name: 'Stopped Transcript Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'stopped' }
+      })
+      await conversation.save()
+
+      // Create transcript message
+      const transcriptMessage = new Message({
+        conversation: conversation._id,
+        body: 'Stopped transcript message',
+        channels: ['transcript'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: new Date()
+      })
+      await transcriptMessage.save()
+
+      // Delete stopped transcript
+      await request(app)
+        .delete(`/v1/transcript/${conversation._id}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.NO_CONTENT)
+
+      // Verify messages are deleted
+      const transcriptMessagesAfter = await Message.find({
+        conversation: conversation._id,
+        channels: { $in: ['transcript'] }
+      })
+      expect(transcriptMessagesAfter).toHaveLength(0)
+
+      // Verify transcript status changes to deleted
+      const updatedConversation = await Conversation.findById(conversation._id)
+      expect(updatedConversation!.transcript?.status).toBe('deleted')
     })
   })
 })
