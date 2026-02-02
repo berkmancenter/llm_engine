@@ -830,6 +830,517 @@ describe('Transcript routes', () => {
     })
   })
 
+  describe('GET /v1/transcript/:conversationId', () => {
+    test('should return 200 and plain text transcript with multiple messages', async () => {
+      // Create a conversation with transcript messages
+      const conversation = new Conversation({
+        name: 'Get Transcript Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'active' }
+      })
+      await conversation.save()
+
+      // Create transcript messages with specific times
+      const time1 = new Date('2024-01-01T10:15:30Z')
+      const time2 = new Date('2024-01-01T10:16:45Z')
+      const time3 = new Date('2024-01-01T10:17:20Z')
+
+      const message1 = new Message({
+        conversation: conversation._id,
+        body: 'First transcript message',
+        channels: ['transcript'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: time1
+      })
+      await message1.save()
+
+      const message2 = new Message({
+        conversation: conversation._id,
+        body: 'Second transcript message',
+        channels: ['transcript'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: time2
+      })
+      await message2.save()
+
+      const message3 = new Message({
+        conversation: conversation._id,
+        body: 'Third transcript message',
+        channels: ['transcript'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: time3
+      })
+      await message3.save()
+
+      // Get transcript
+      const response = await request(app)
+        .get(`/v1/transcript/${conversation._id}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .set('Accept', 'text/plain')
+        .send()
+        .expect(httpStatus.OK)
+
+      // Verify response is plain text
+      expect(response.headers['content-type']).toMatch(/text\/plain/)
+
+      // Verify format: [HH:MM:SS] message body (one per line)
+      const lines = response.text.split('\n')
+      expect(lines).toHaveLength(3)
+      expect(lines[0]).toMatch(/\[\d{1,2}:\d{2}:\d{2} (AM|PM)\] First transcript message/)
+      expect(lines[1]).toMatch(/\[\d{1,2}:\d{2}:\d{2} (AM|PM)\] Second transcript message/)
+      expect(lines[2]).toMatch(/\[\d{1,2}:\d{2}:\d{2} (AM|PM)\] Third transcript message/)
+    })
+
+    test('should return 200 and empty string when conversation has no transcript messages', async () => {
+      // Create conversation without transcript messages
+      const conversation = new Conversation({
+        name: 'Empty Transcript Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'active' }
+      })
+      await conversation.save()
+
+      // Get transcript
+      const response = await request(app)
+        .get(`/v1/transcript/${conversation._id}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .set('Accept', 'text/plain')
+        .send()
+        .expect(httpStatus.OK)
+
+      // Verify response is empty
+      expect(response.text).toBe('')
+    })
+
+    test('should only include messages in transcript channel', async () => {
+      const conversation = new Conversation({
+        name: 'Channel Filter Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'active' }
+      })
+      await conversation.save()
+
+      // Create messages in different channels
+      const transcriptMessage = new Message({
+        conversation: conversation._id,
+        body: 'Transcript message',
+        channels: ['transcript'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: new Date('2024-01-01T10:15:00Z')
+      })
+      await transcriptMessage.save()
+
+      const generalMessage = new Message({
+        conversation: conversation._id,
+        body: 'General message',
+        channels: ['general'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: new Date('2024-01-01T10:16:00Z')
+      })
+      await generalMessage.save()
+
+      // Get transcript
+      const response = await request(app)
+        .get(`/v1/transcript/${conversation._id}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .set('Accept', 'text/plain')
+        .send()
+        .expect(httpStatus.OK)
+
+      // Verify only transcript message is included
+      const lines = response.text.split('\n').filter((line) => line.trim() !== '')
+      expect(lines).toHaveLength(1)
+      expect(response.text).toContain('Transcript message')
+      expect(response.text).not.toContain('General message')
+    })
+
+    test('should include messages that are in multiple channels including transcript', async () => {
+      const conversation = new Conversation({
+        name: 'Multi-Channel Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'active' }
+      })
+      await conversation.save()
+
+      // Create a message in both transcript and general channels
+      const multiChannelMessage = new Message({
+        conversation: conversation._id,
+        body: 'Multi-channel message',
+        channels: ['transcript', 'general'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: new Date('2024-01-01T10:15:00Z')
+      })
+      await multiChannelMessage.save()
+
+      // Get transcript
+      const response = await request(app)
+        .get(`/v1/transcript/${conversation._id}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .set('Accept', 'text/plain')
+        .send()
+        .expect(httpStatus.OK)
+
+      // Verify multi-channel message is included
+      expect(response.text).toContain('Multi-channel message')
+    })
+
+    test('should return messages sorted by createdAt in ascending order', async () => {
+      const conversation = new Conversation({
+        name: 'Sorting Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'active' }
+      })
+      await conversation.save()
+
+      // Create messages out of order
+      const message3 = new Message({
+        conversation: conversation._id,
+        body: 'Third message',
+        channels: ['transcript'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: new Date('2024-01-01T10:17:00Z')
+      })
+      await message3.save()
+
+      const message1 = new Message({
+        conversation: conversation._id,
+        body: 'First message',
+        channels: ['transcript'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: new Date('2024-01-01T10:15:00Z')
+      })
+      await message1.save()
+
+      const message2 = new Message({
+        conversation: conversation._id,
+        body: 'Second message',
+        channels: ['transcript'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: new Date('2024-01-01T10:16:00Z')
+      })
+      await message2.save()
+
+      // Get transcript
+      const response = await request(app)
+        .get(`/v1/transcript/${conversation._id}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .set('Accept', 'text/plain')
+        .send()
+        .expect(httpStatus.OK)
+
+      // Verify messages are in correct order
+      const lines = response.text.split('\n')
+      expect(lines[0]).toContain('First message')
+      expect(lines[1]).toContain('Second message')
+      expect(lines[2]).toContain('Third message')
+    })
+
+    test('should return 404 when conversation does not exist', async () => {
+      const nonExistentId = new mongoose.Types.ObjectId()
+
+      await request(app)
+        .get(`/v1/transcript/${nonExistentId}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .set('Accept', 'text/plain')
+        .send()
+        .expect(httpStatus.NOT_FOUND)
+    })
+
+    test('should return 401 when no auth token provided', async () => {
+      const conversation = new Conversation({
+        name: 'Unauthorized Get Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'active' }
+      })
+      await conversation.save()
+
+      await request(app)
+        .get(`/v1/transcript/${conversation._id}`)
+        .set('Accept', 'text/plain')
+        .send()
+        .expect(httpStatus.UNAUTHORIZED)
+    })
+
+    test('should return 400 when conversationId is invalid ObjectId', async () => {
+      await request(app)
+        .get('/v1/transcript/invalid-id')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .set('Accept', 'text/plain')
+        .send()
+        .expect(httpStatus.BAD_REQUEST)
+    })
+
+    test('should return 406 when Accept header is not text/plain', async () => {
+      const conversation = new Conversation({
+        name: 'Accept Header Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'active' }
+      })
+      await conversation.save()
+
+      await request(app)
+        .get(`/v1/transcript/${conversation._id}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .set('Accept', 'application/json')
+        .send()
+        .expect(httpStatus.NOT_ACCEPTABLE)
+    })
+
+    test('should return 200 with default Accept header (text/plain implied)', async () => {
+      const conversation = new Conversation({
+        name: 'Default Accept Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'active' }
+      })
+      await conversation.save()
+
+      const message = new Message({
+        conversation: conversation._id,
+        body: 'Test message',
+        channels: ['transcript'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: new Date('2024-01-01T10:15:00Z')
+      })
+      await message.save()
+
+      const response = await request(app)
+        .get(`/v1/transcript/${conversation._id}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.OK)
+
+      expect(response.text).toContain('Test message')
+    })
+
+    test('should format timestamps in UTC by default', async () => {
+      const conversation = new Conversation({
+        name: 'Default Timezone Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'active' }
+      })
+      await conversation.save()
+
+      // Create message at 14:30 UTC
+      const message = new Message({
+        conversation: conversation._id,
+        body: 'UTC timezone message',
+        channels: ['transcript'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: new Date('2024-01-15T14:30:45Z')
+      })
+      await message.save()
+
+      const response = await request(app)
+        .get(`/v1/transcript/${conversation._id}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .set('Accept', 'text/plain')
+        .send()
+        .expect(httpStatus.OK)
+
+      // Should be formatted in UTC: 2:30:45 PM
+      expect(response.text).toContain('[2:30:45 PM] UTC timezone message')
+    })
+
+    test('should format timestamps in America/New_York timezone when X-Timezone header is provided', async () => {
+      const conversation = new Conversation({
+        name: 'EST Timezone Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'active' }
+      })
+      await conversation.save()
+
+      // Create message at 14:30 UTC (which is 9:30 AM EST, UTC-5)
+      const message = new Message({
+        conversation: conversation._id,
+        body: 'EST timezone message',
+        channels: ['transcript'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: new Date('2024-01-15T14:30:45Z')
+      })
+      await message.save()
+
+      const response = await request(app)
+        .get(`/v1/transcript/${conversation._id}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .set('Accept', 'text/plain')
+        .set('X-Timezone', 'America/New_York')
+        .send()
+        .expect(httpStatus.OK)
+
+      // Should be formatted in EST: 9:30:45 AM
+      expect(response.text).toContain('[9:30:45 AM] EST timezone message')
+    })
+
+    test('should format timestamps in Asia/Tokyo timezone when X-Timezone header is provided', async () => {
+      const conversation = new Conversation({
+        name: 'Tokyo Timezone Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'active' }
+      })
+      await conversation.save()
+
+      // Create message at 15:00 UTC (which is 00:00 JST next day, UTC+9)
+      const message = new Message({
+        conversation: conversation._id,
+        body: 'Tokyo timezone message',
+        channels: ['transcript'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: new Date('2024-01-15T15:00:00Z')
+      })
+      await message.save()
+
+      const response = await request(app)
+        .get(`/v1/transcript/${conversation._id}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .set('Accept', 'text/plain')
+        .set('X-Timezone', 'Asia/Tokyo')
+        .send()
+        .expect(httpStatus.OK)
+
+      // Should be formatted in JST: 12:00:00 AM (midnight)
+      expect(response.text).toContain('[12:00:00 AM] Tokyo timezone message')
+    })
+
+    test('should format multiple messages with correct timezone offsets', async () => {
+      const conversation = new Conversation({
+        name: 'Multiple Messages Timezone Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'active' }
+      })
+      await conversation.save()
+
+      // Create messages at different UTC times
+      const message1 = new Message({
+        conversation: conversation._id,
+        body: 'First message',
+        channels: ['transcript'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: new Date('2024-01-15T14:00:00Z') // 9:00 AM EST
+      })
+      await message1.save()
+
+      const message2 = new Message({
+        conversation: conversation._id,
+        body: 'Second message',
+        channels: ['transcript'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: new Date('2024-01-15T19:30:00Z') // 2:30 PM EST
+      })
+      await message2.save()
+
+      const response = await request(app)
+        .get(`/v1/transcript/${conversation._id}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .set('Accept', 'text/plain')
+        .set('X-Timezone', 'America/New_York')
+        .send()
+        .expect(httpStatus.OK)
+
+      expect(response.text).toContain('[9:00:00 AM] First message')
+      expect(response.text).toContain('[2:30:00 PM] Second message')
+    })
+
+    test('should handle invalid timezone gracefully by using it as-is', async () => {
+      const conversation = new Conversation({
+        name: 'Invalid Timezone Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        transcript: { status: 'active' }
+      })
+      await conversation.save()
+
+      const message = new Message({
+        conversation: conversation._id,
+        body: 'Test message',
+        channels: ['transcript'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: new Date('2024-01-15T14:30:00Z')
+      })
+      await message.save()
+
+      // Pass an invalid timezone - JavaScript's toLocaleTimeString will throw
+      const response = await request(app)
+        .get(`/v1/transcript/${conversation._id}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .set('Accept', 'text/plain')
+        .set('X-Timezone', 'Invalid/Timezone')
+        .send()
+
+      // The request should fail with an error (toLocaleTimeString will throw on invalid timezone)
+      expect([httpStatus.INTERNAL_SERVER_ERROR, httpStatus.BAD_REQUEST]).toContain(response.status)
+    })
+  })
+
   describe('POST /v1/transcript/:conversationId/resume', () => {
     test('should return 204 and call resume on adapters', async () => {
       // Create a conversation with a paused transcript

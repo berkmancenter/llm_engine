@@ -1,11 +1,13 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import httpStatus from 'http-status'
+import mongoose from 'mongoose'
 import { Conversation } from '../models/index.js'
 import ApiError from '../utils/ApiError.js'
 import logger from '../config/logger.js'
 import transcript from '../agents/helpers/transcript.js'
 import websocketGateway from '../websockets/websocketGateway.js'
 import adapterService from './adapter.service.js'
+import { formatTranscript } from '../agents/helpers/llmInputFormatters.js'
 
 /**
  * Internal helper - updates transcript status without touching adapters
@@ -14,6 +16,10 @@ import adapterService from './adapter.service.js'
 const _updateTranscriptStatus = async (conversation, status: 'active' | 'paused' | 'stopped' | 'deleted'): Promise<void> => {
   if (!conversation.transcript) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'No transcript configured for this conversation')
+  }
+  if (conversation.transcript.status === status) {
+    logger.debug(`Transcript already in status ${status} for conversation ${conversation._id}`)
+    return
   }
 
   // eslint-disable-next-line no-param-reassign
@@ -64,8 +70,6 @@ const stopTranscript = async (conversationId) => {
 
   // Update transcript status and broadcast
   await _updateTranscriptStatus(conversation, 'stopped')
-
-  return { status: 'stopped' }
 }
 const pauseTranscript = async (conversationId, user) => {
   const conversation = await Conversation.findOne({ _id: conversationId }).populate(['topic', 'adapters'])
@@ -104,11 +108,29 @@ const resumeTranscript = async (conversationId, user) => {
   }
 }
 
+const getPlainTextTranscript = async (conversationId, timezone = 'UTC') => {
+  let conversation = conversationId
+  if (typeof conversationId === 'string' || conversationId instanceof mongoose.Types.ObjectId) {
+    conversation = await Conversation.findOne({ _id: conversationId })
+  }
+
+  if (!conversation) {
+    throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${conversationId} not found`)
+  }
+
+  await conversation.populate('messages')
+  const transcriptMessages = conversation.messages
+    .filter((m) => m.channels.includes('transcript'))
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+  return formatTranscript(transcriptMessages, timezone)
+}
+
 const transcriptService = {
   deleteTranscript,
   stopTranscript,
   pauseTranscript,
   resumeTranscript,
+  getPlainTextTranscript,
   // Export helper for system-initiated status changes (e.g., from webhooks)
   updateTranscriptStatus: _updateTranscriptStatus
 }

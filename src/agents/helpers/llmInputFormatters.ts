@@ -2,16 +2,21 @@ import logger from '../../config/logger.js'
 import { IMessage, ConversationHistory, ConversationHistorySettings } from '../../types/index.types'
 import getConversationHistory from './getConversationHistory.js'
 
-function formatTime(date) {
-  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })
+function formatTime(date, timezone = 'UTC') {
+  return date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZone: timezone
+  })
 }
 
-function formatTranscriptMessage(message) {
-  return `[${formatTime(message.createdAt)}] ${message.body}`
+function formatTranscriptMessage(message, timezone = 'UTC') {
+  return `[${formatTime(message.createdAt, timezone)}] ${message.body}`
 }
 
-function formatTranscript(messages) {
-  return messages.map((msg) => formatTranscriptMessage(msg)).join('\n')
+function formatTranscript(messages, timezone = 'UTC') {
+  return messages.map((msg) => formatTranscriptMessage(msg, timezone)).join('\n')
 }
 
 function findNearbyTranscriptMessages(participantMsg, transcript, timeWindow = 15) {

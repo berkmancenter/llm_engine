@@ -19,6 +19,7 @@ const allRoles = {
     'deleteTranscript',
     'pauseTranscript',
     'resumeTranscript',
+    'getTranscript',
     'vote',
     'managePseudonym',
     'manageAccount',

@@ -4,7 +4,9 @@ import {
   formatConversationPhases,
   formatMessage,
   formatSingleUserConversationHistory,
-  formatMultiUserConversationHistory
+  formatMultiUserConversationHistory,
+  formatTime,
+  formatTranscript
 } from '../../../src/agents/helpers/llmInputFormatters.js'
 import { IMessage } from '../../../src/types/index.types.js'
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
@@ -265,6 +267,82 @@ describe('LLM Input Formatter Tests', () => {
       const msg = await createMessage('', 'Empty User')
       const formatted = formatMessage(msg)
       expect(formatted).toEqual('Empty User: ""')
+    })
+  })
+
+  describe('formatTime function', () => {
+    it('should format time in UTC by default', () => {
+      const date = new Date('2024-01-15T14:30:45Z')
+      const formatted = formatTime(date)
+      expect(formatted).toBe('2:30:45 PM')
+    })
+
+    it('should format time in specified timezone', () => {
+      const date = new Date('2024-01-15T14:30:45Z')
+      const formatted = formatTime(date, 'America/New_York')
+      // UTC 14:30 = EST 9:30 AM (UTC-5)
+      expect(formatted).toBe('9:30:45 AM')
+    })
+
+    it('should format time in different timezone', () => {
+      const date = new Date('2024-01-15T14:30:45Z')
+      const formatted = formatTime(date, 'Asia/Tokyo')
+      // UTC 14:30 = JST 11:30 PM (UTC+9)
+      expect(formatted).toBe('11:30:45 PM')
+    })
+
+    it('should handle midnight correctly in different timezones', () => {
+      const date = new Date('2024-01-15T00:00:00Z')
+      const formattedUTC = formatTime(date, 'UTC')
+      const formattedEST = formatTime(date, 'America/New_York')
+
+      expect(formattedUTC).toBe('12:00:00 AM')
+      // UTC 00:00 = EST 7:00 PM previous day (UTC-5)
+      expect(formattedEST).toBe('7:00:00 PM')
+    })
+  })
+
+  describe('formatTranscript function', () => {
+    it('should format transcript with UTC timezone by default', async () => {
+      const msg1 = await createMessage('First message', 'User 1', new Date('2024-01-15T10:15:30Z'))
+      const msg2 = await createMessage('Second message', 'User 2', new Date('2024-01-15T10:16:45Z'))
+
+      const formatted = formatTranscript([msg1, msg2])
+
+      expect(formatted).toBe('[10:15:30 AM] First message\n[10:16:45 AM] Second message')
+    })
+
+    it('should format transcript with specified timezone', async () => {
+      const msg1 = await createMessage('First message', 'User 1', new Date('2024-01-15T14:30:00Z'))
+      const msg2 = await createMessage('Second message', 'User 2', new Date('2024-01-15T14:45:00Z'))
+
+      const formatted = formatTranscript([msg1, msg2], 'America/New_York')
+
+      // UTC 14:30 = EST 9:30 AM
+      expect(formatted).toBe('[9:30:00 AM] First message\n[9:45:00 AM] Second message')
+    })
+
+    it('should format transcript with Asia/Tokyo timezone', async () => {
+      const msg1 = await createMessage('Hello', 'User A', new Date('2024-01-15T15:00:00Z'))
+
+      const formatted = formatTranscript([msg1], 'Asia/Tokyo')
+
+      // UTC 15:00 = JST 00:00 next day (midnight)
+      expect(formatted).toBe('[12:00:00 AM] Hello')
+    })
+
+    it('should handle empty message array', () => {
+      const formatted = formatTranscript([])
+      expect(formatted).toBe('')
+    })
+
+    it('should format single message with timezone', async () => {
+      const msg = await createMessage('Single message', 'User', new Date('2024-01-15T20:00:00Z'))
+
+      const formatted = formatTranscript([msg], 'Europe/London')
+
+      // UTC 20:00 = GMT 20:00 (8:00 PM)
+      expect(formatted).toBe('[8:00:00 PM] Single message')
     })
   })
 })

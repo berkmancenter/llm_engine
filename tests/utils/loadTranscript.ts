@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 import fs from 'fs'
 import mongoose from 'mongoose'
-import { loadTranscript } from './transcriptUtils'
+import loadTranscript from './transcriptUtils'
 
 /**
  * Parses a chat or live meeting transcript from external clients like YouTube LiveStream or Zoom.

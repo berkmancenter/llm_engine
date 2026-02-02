@@ -14,6 +14,44 @@ const router = express.Router()
 /**
  * @swagger
  * /transcript/{conversationId}:
+ *   get:
+ *     summary: Get transcript
+ *     description: Returns the transcript for a given conversation. Use Accept header to specify format (text/plain).
+ *     tags: [Transcript]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         description: ID of the conversation to get transcript from
+ *         schema:
+ *           type: string
+ *       - in: header
+ *         name: Accept
+ *         schema:
+ *           type: string
+ *           example: text/plain
+ *         description: Content type requested (currently supports text/plain)
+ *     responses:
+ *       200:
+ *         description: Transcript in requested format
+ *         content:
+ *           text/plain:
+ *             schema:
+ *               type: string
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       406:
+ *         description: Requested format not supported
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ */
+router.route('/:conversationId').get(auth('getTranscript'), transcriptController.getTranscript)
+
+/**
+ * @swagger
+ * /transcript/{conversationId}:
  *   delete:
  *     summary: Delete a transcript
  *     description: Delete all associated transcript data (datastore, embeddings, etc.) for a given conversation.

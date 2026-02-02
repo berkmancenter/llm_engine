@@ -4,7 +4,7 @@ import { Agent, Channel, Conversation } from '../../src/models/index.js'
 import { insertUsers } from '../fixtures/user.fixture.js'
 import { publicTopic } from '../fixtures/conversation.fixture.js'
 import { insertTopics } from '../fixtures/topic.fixture.js'
-import { loadTranscript } from './transcriptUtils.js'
+import loadTranscript from './transcriptUtils.js'
 import transcript from '../../src/agents/helpers/transcript.js'
 import { IMessage } from '../../src/types/index.types.js'
 

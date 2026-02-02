@@ -208,7 +208,7 @@ let cancelBatchTranscriptSpy
 let scheduleBatchTranscriptSpy
 let defineJobSpy
 let newConversationSpy
-let broadcastTranscriptStatusChangeSpy
+let transcriptStatusChangeSpy
 
 describe('Conversation routes', () => {
   beforeAll(() => {
@@ -232,7 +232,7 @@ describe('Conversation routes', () => {
     scheduleBatchTranscriptSpy = jest.spyOn(schedule, 'batchTranscript').mockResolvedValue()
     defineJobSpy = jest.spyOn(defineJob, 'batchTranscript').mockResolvedValue()
     newConversationSpy = jest.spyOn(websocketGateway, 'broadcastNewConversation').mockResolvedValue()
-    broadcastTranscriptStatusChangeSpy = jest.spyOn(websocketGateway, 'broadcastTranscriptStatusChange').mockResolvedValue()
+    transcriptStatusChangeSpy = jest.spyOn(websocketGateway, 'broadcastTranscriptStatusChange').mockResolvedValue()
     mockGetUniqueKeys.mockReturnValue([])
   })
   afterAll(() => {
@@ -1309,6 +1309,7 @@ describe('Conversation routes', () => {
       await agent.save()
 
       agentConversation.agents.push(agent)
+      agentConversation.transcript.status = 'active'
       await agentConversation.save()
 
       // Start the conversation first
@@ -1326,6 +1327,7 @@ describe('Conversation routes', () => {
       const modifiedAgent = await Agent.findOne({ _id: agent._id })
       expect(modifiedAgent!.active).toBe(false)
       expect(cancelBatchTranscriptSpy).toHaveBeenCalledWith(agentConversation!._id)
+      expect(transcriptStatusChangeSpy).toHaveBeenCalled()
     })
     test('should return 200 and stop adapters', async () => {
       const adapter = new Adapter({
@@ -1334,6 +1336,7 @@ describe('Conversation routes', () => {
       })
       await adapter.save()
       agentConversation.adapters.push(adapter)
+      agentConversation.transcript.status = 'active'
       await agentConversation.save()
 
       // Start the conversation first
@@ -1343,6 +1346,7 @@ describe('Conversation routes', () => {
       const url = `/v1/conversations/${agentConversation._id.toString()}/stop`
       await request(app).post(url).set('Authorization', `Bearer ${userOneAccessToken}`).send().expect(httpStatus.OK)
       expect(mockAdapterStop).toHaveBeenCalled()
+      expect(transcriptStatusChangeSpy).toHaveBeenCalled()
     })
     test('should return 200 attempting to stop a conversation is that is not started', async () => {
       const agent = new Agent({
@@ -1356,6 +1360,7 @@ describe('Conversation routes', () => {
 
       const url = `/v1/conversations/${agentConversation._id.toString()}/stop`
       await request(app).post(url).set('Authorization', `Bearer ${userOneAccessToken}`).send().expect(httpStatus.OK)
+      expect(transcriptStatusChangeSpy).not.toHaveBeenCalled()
     })
   })
 

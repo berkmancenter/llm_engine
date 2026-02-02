@@ -1,5 +1,5 @@
 /* eslint-disable no-console */
-import { loadTranscript } from '../../utils/transcriptUtils.js'
+import loadTranscript from '../../utils/transcriptUtils.js'
 import setupAgentTest from '../../utils/setupAgentTest.js'
 import defaultAgentTypes from '../../../src/agents/index.js'
 import {
