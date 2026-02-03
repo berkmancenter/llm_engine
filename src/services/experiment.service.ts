@@ -89,6 +89,11 @@ async function generateDirectMessageAgentsData(experiment, additionalChannelName
   const agents: DirectMessageAgentReport[] = []
 
   for (const agent of experiment.resultConversation.agents) {
+    // Only process agents that have perMessage triggers
+    if (!agent.triggers?.perMessage) {
+      continue
+    }
+
     const messages: DirectMessageReport[] = []
     // Find all the channels in which this agent participates
     const directChannels = await Channel.find({
@@ -177,16 +182,18 @@ async function generateDirectMessageAgentsData(experiment, additionalChannelName
       }
     }
 
-    if (messages.length > 0) {
+    // Only include agents that have direct channels to message users on
+    if (totalUsers > 0) {
       const userMsgCounts = messages.map((msg) => msg.userMsgCount)
       agents.push({
         name: agent.name,
         messages,
         participantCount: messages.length,
         userCount: totalUsers,
-        minEngagements: Math.min(...userMsgCounts),
-        maxEngagements: Math.max(...userMsgCounts),
-        avgEngagements: userMsgCounts.reduce((acc, count) => acc + count, 0) / userMsgCounts.length,
+        minEngagements: messages.length > 0 ? Math.min(...userMsgCounts) : 0,
+        maxEngagements: messages.length > 0 ? Math.max(...userMsgCounts) : 0,
+        avgEngagements:
+          messages.length > 0 ? userMsgCounts.reduce((acc, count) => acc + count, 0) / userMsgCounts.length : 0,
         ...(additionalChannels.length > 0 && { additionalChannels })
       })
     }

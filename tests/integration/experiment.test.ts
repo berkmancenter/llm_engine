@@ -1004,6 +1004,7 @@ ${formatTime(msg3Time)}  Fearful Frog: I have something to say
           _id: new mongoose.Types.ObjectId(),
           conversation: directMessageConversation,
           agentType: 'test',
+          triggers: { perMessage: { directMessages: true } },
           pseudonyms: [
             {
               _id: new mongoose.Types.ObjectId(),
@@ -1018,6 +1019,7 @@ ${formatTime(msg3Time)}  Fearful Frog: I have something to say
         const dmAgent2 = await Agent.create({
           _id: new mongoose.Types.ObjectId(),
           agentType: 'testText',
+          triggers: { perMessage: { directMessages: true } },
           conversation: directMessageConversation,
           pseudonyms: [
             {
@@ -1260,9 +1262,12 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
 
         expect(response.text).toContain('Direct Message Agent Responses Report')
         expect(response.text).toContain('Direct Message Test Experiment')
-        // Should not contain agent sections since no human messages exist
-        expect(response.text).not.toContain('Agent Name: Test Agent')
-        expect(response.text).not.toContain('Agent Name: Test Text Agent')
+        // Should still show agent headers with counts even when no users responded
+        expect(response.text).toContain('Agent Name: Test Agent')
+        expect(response.text).toContain('Total Users Messaged: 2')
+        expect(response.text).toContain('Total Users Responded: 0')
+        expect(response.text).toContain('Agent Name: Test Text Agent')
+        expect(response.text).toContain('Total Users Messaged: 1')
       })
 
       test('should calculate engagement statistics correctly', async () => {
@@ -1721,7 +1726,7 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
             .expect(httpStatus.OK)
 
           // Verify feedback is included in the report
-          expect(response.text).toContain('rating: 5')
+          expect(response.text).toContain('Feedback: Rating - 5')
         })
 
         test('should include text feedback on agent messages in the report', async () => {
@@ -1759,7 +1764,7 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
             .expect(httpStatus.OK)
 
           // Verify feedback is included in the report
-          expect(response.text).toContain('text: Very helpful response!')
+          expect(response.text).toContain('Feedback: Very helpful response!')
         })
 
         test('should include multiple feedback items on a single agent message', async () => {
@@ -1815,8 +1820,8 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
             .expect(httpStatus.OK)
 
           // Verify both feedback items are included
-          expect(response.text).toContain('rating: 4')
-          expect(response.text).toContain('text: Clear and concise')
+          expect(response.text).toContain('Feedback: Rating - 4')
+          expect(response.text).toContain('Feedback: Clear and concise')
         })
 
         test('should not include feedback on user messages', async () => {
@@ -1859,7 +1864,7 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
           const userMessageIndex = response.text.indexOf('Hello agent, can you help me?')
           const nextAgentMessageIndex = response.text.indexOf('Sure, I can help you with that.')
           const textBetween = response.text.substring(userMessageIndex, nextAgentMessageIndex)
-          expect(textBetween).not.toContain('rating: 5')
+          expect(textBetween).not.toContain('Feedback: Rating - 5')
         })
 
         test('should handle feedback messages with missing or invalid fields gracefully', async () => {
@@ -1907,7 +1912,7 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
               _id: new mongoose.Types.ObjectId(),
               conversation: directMessageConversation._id,
               channels: ['feedback'],
-              bodyType: 'string', // Wrong bodyType
+              bodyType: 'text', // Wrong format for feedback (should be json)
               body: 'Just a string',
               fromAgent: false,
               createdAt: new Date('2024-01-01T10:19:00Z'),
