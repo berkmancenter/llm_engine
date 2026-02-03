@@ -77,7 +77,7 @@ export default verify({
 
       const funFact = await generatePseudonymFunFact.call(this, channel)
       if (funFact) {
-        introMessage = `${introMessage} ${funFact}`
+        introMessage = `${introMessage}\n\n${funFact}`
       }
 
       return [
