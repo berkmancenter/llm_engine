@@ -10,11 +10,17 @@ import logger from '../config/logger.js'
 import transcript from '../agents/helpers/transcript.js'
 import { duplicateConversationMessages } from './message.service.js'
 
+interface FeedbackReport {
+  type: 'rating' | 'text'
+  value: string
+}
+
 interface CommentReport {
   user: string
   text: string
   timestamp?: Date
   fromAgent?: boolean
+  feedback?: FeedbackReport[]
 }
 
 interface MessageReport {
@@ -35,6 +41,12 @@ interface PeriodicAgentReport {
   messages: MessageReport[]
 }
 
+interface AdditionalChannelReport {
+  channelName: string
+  messages: CommentReport[]
+  totalUsers: number
+}
+
 interface DirectMessageAgentReport {
   name: string
   messages: DirectMessageReport[]
@@ -43,6 +55,7 @@ interface DirectMessageAgentReport {
   maxEngagements: number
   avgEngagements: number
   userCount: number
+  additionalChannels?: AdditionalChannelReport[]
 }
 async function findComments(createdAtQuery, conversationId) {
   const matchQuery = {
@@ -69,13 +82,18 @@ async function findComments(createdAtQuery, conversationId) {
   return comments
 }
 
-async function generateDirectMessageAgentsData(experiment) {
+async function generateDirectMessageAgentsData(experiment, additionalChannelNames: string[] = []) {
   await experiment.populate('resultConversation')
   await experiment.resultConversation.populate('agents')
 
   const agents: DirectMessageAgentReport[] = []
 
   for (const agent of experiment.resultConversation.agents) {
+    // Only process agents that have perMessage triggers
+    if (!agent.triggers?.perMessage) {
+      continue
+    }
+
     const messages: DirectMessageReport[] = []
     // Find all the channels in which this agent participates
     const directChannels = await Channel.find({
@@ -89,28 +107,94 @@ async function generateDirectMessageAgentsData(experiment) {
         conversation: experiment.resultConversation._id
       }).sort({ createdAt: 1 })
 
-      const comments: CommentReport[] = directMessages.map((msg) => ({
-        user: msg.pseudonym,
-        text: msg.body as string,
-        timestamp: msg.createdAt,
-        fromAgent: msg.fromAgent
-      }))
+      // Fetch all feedback messages for this conversation
+      const feedbackMessages = await Message.find({
+        channels: 'feedback',
+        conversation: experiment.resultConversation._id
+      })
+
+      // Create a map of messageId -> feedback[] for quick lookup
+      const feedbackMap = new Map<string, FeedbackReport[]>()
+      for (const feedbackMsg of feedbackMessages) {
+        if (feedbackMsg.bodyType === 'json' && typeof feedbackMsg.body === 'object') {
+          const feedbackBody = feedbackMsg.body as Record<string, unknown>
+          if (feedbackBody.messageId && feedbackBody.type && feedbackBody.value) {
+            const messageId = feedbackBody.messageId as string
+            const feedback: FeedbackReport = {
+              type: feedbackBody.type as 'rating' | 'text',
+              value: feedbackBody.value as string
+            }
+
+            if (!feedbackMap.has(messageId)) {
+              feedbackMap.set(messageId, [])
+            }
+            feedbackMap.get(messageId)!.push(feedback)
+          }
+        }
+      }
+
+      const comments: CommentReport[] = directMessages.map((msg) => {
+        const comment: CommentReport = {
+          user: msg.pseudonym,
+          text: msg.body as string,
+          timestamp: msg.createdAt,
+          fromAgent: msg.fromAgent
+        }
+
+        // Add feedback if this is an agent message and feedback exists
+        if (msg.fromAgent && feedbackMap.has(msg._id.toString())) {
+          comment.feedback = feedbackMap.get(msg._id.toString())
+        }
+
+        return comment
+      })
       // Only include interactions where a human sent at least one message
       const humanMessages = directMessages.filter((msg) => !msg.fromAgent)
       if (humanMessages.length > 0) {
         messages.push({ username: humanMessages[0].pseudonym, comments, userMsgCount: humanMessages.length })
       }
     }
-    if (messages.length > 0) {
+
+    // Process additional channels
+    const additionalChannels: AdditionalChannelReport[] = []
+    for (const channelName of additionalChannelNames) {
+      const channelMessages = await Message.find({
+        channels: channelName,
+        conversation: experiment.resultConversation._id
+      }).sort({ createdAt: 1 })
+
+      if (channelMessages.length > 0) {
+        const comments: CommentReport[] = channelMessages.map((msg) => ({
+          user: msg.pseudonym,
+          text: msg.body as string,
+          timestamp: msg.createdAt,
+          fromAgent: msg.fromAgent
+        }))
+
+        // Calculate unique pseudonyms for this channel
+        const uniquePseudonyms = new Set(channelMessages.map((msg) => msg.pseudonym))
+
+        additionalChannels.push({
+          channelName,
+          messages: comments,
+          totalUsers: uniquePseudonyms.size
+        })
+      }
+    }
+
+    // Only include agents that have direct channels to message users on
+    if (totalUsers > 0) {
       const userMsgCounts = messages.map((msg) => msg.userMsgCount)
       agents.push({
         name: agent.name,
         messages,
         participantCount: messages.length,
         userCount: totalUsers,
-        minEngagements: Math.min(...userMsgCounts),
-        maxEngagements: Math.max(...userMsgCounts),
-        avgEngagements: userMsgCounts.reduce((acc, count) => acc + count, 0) / userMsgCounts.length
+        minEngagements: messages.length > 0 ? Math.min(...userMsgCounts) : 0,
+        maxEngagements: messages.length > 0 ? Math.max(...userMsgCounts) : 0,
+        avgEngagements:
+          messages.length > 0 ? userMsgCounts.reduce((acc, count) => acc + count, 0) / userMsgCounts.length : 0,
+        ...(additionalChannels.length > 0 && { additionalChannels })
       })
     }
   }
@@ -414,7 +498,13 @@ const getExperiment = async (id) => {
   return experimentPojo
 }
 
-const generateExperimentReport = async (experimentId, reportName, format = 'text') => {
+const generateExperimentReport = async (
+  experimentId,
+  reportName,
+  format = 'text',
+  timezone = 'UTC',
+  additionalChannels: string[] = []
+) => {
   const experiment = await Experiment.findOne({ _id: experimentId })
   if (!experiment) throw new ApiError(httpStatus.NOT_FOUND, 'Experiment not found')
 
@@ -425,7 +515,7 @@ const generateExperimentReport = async (experimentId, reportName, format = 'text
       reportData = await generatePeriodicAgentsData(experiment)
       break
     case 'directMessageResponses':
-      reportData = await generateDirectMessageAgentsData(experiment)
+      reportData = await generateDirectMessageAgentsData(experiment, additionalChannels)
       break
     default:
       throw new ApiError(httpStatus.BAD_REQUEST, `Unknown report name: ${reportName}`)
@@ -447,12 +537,12 @@ const generateExperimentReport = async (experimentId, reportName, format = 'text
   // Register helpers for formatting
   handlebars.registerHelper('formatTime', (timestamp) => {
     if (!timestamp) return 'No timestamp'
-    return new Date(timestamp).toLocaleTimeString()
+    return new Date(timestamp).toLocaleTimeString('en-US', { timeZone: timezone })
   })
 
   handlebars.registerHelper('formatDate', (timestamp) => {
     if (!timestamp) return 'No date'
-    return new Date(timestamp).toLocaleString()
+    return new Date(timestamp).toLocaleString('en-US', { timeZone: timezone })
   })
   handlebars.registerHelper('eq', (a, b) => a === b)
 

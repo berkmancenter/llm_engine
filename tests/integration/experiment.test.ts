@@ -29,12 +29,12 @@ const agentTextId = new mongoose.Types.ObjectId()
 // Generate expected times dynamically to match any timezone
 const formatTime = (timestamp) => {
   if (!timestamp) return 'No timestamp'
-  return new Date(timestamp).toLocaleTimeString()
+  return new Date(timestamp).toLocaleTimeString('en-US', { timeZone: 'UTC' })
 }
 
 const formatDate = (timestamp) => {
   if (!timestamp) return 'No date'
-  return new Date(timestamp).toLocaleString()
+  return new Date(timestamp).toLocaleString('en-US', { timeZone: 'UTC' })
 }
 
 const testAgentTypeSpecification = {
@@ -905,6 +905,71 @@ ${formatTime(msg3Time)}  Fearful Frog: I have something to say
           })
           .expect(httpStatus.BAD_REQUEST)
       })
+
+      test('should use provided timezone for formatting dates and times', async () => {
+        const timezone = 'America/New_York'
+        const response = await request(app)
+          .get(`/v1/experiments/${completedExperiment._id}/results`)
+          .query({
+            reportName: 'periodicResponses',
+            format: 'text'
+          })
+          .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+          .set('x-timezone', timezone)
+          .expect(httpStatus.OK)
+
+        expect(response.headers['content-type']).toBe('text/plain; charset=utf-8')
+
+        // Create formatter functions with the same timezone
+        const formatTimeWithTimezone = (timestamp) => {
+          if (!timestamp) return 'No timestamp'
+          return new Date(timestamp).toLocaleTimeString('en-US', { timeZone: timezone })
+        }
+
+        const formatDateWithTimezone = (timestamp) => {
+          if (!timestamp) return 'No date'
+          return new Date(timestamp).toLocaleString('en-US', { timeZone: timezone })
+        }
+
+        const experimentDate = new Date('2024-01-01T10:00:00Z')
+        const msg2Time = new Date('2024-01-01T09:50:00Z')
+
+        // Verify the report contains times formatted with the specified timezone
+        expect(response.text).toContain(formatDateWithTimezone(experimentDate))
+        expect(response.text).toContain(formatTimeWithTimezone(msg2Time))
+      })
+
+      test('should default to UTC timezone when not specified', async () => {
+        const response = await request(app)
+          .get(`/v1/experiments/${completedExperiment._id}/results`)
+          .query({
+            reportName: 'periodicResponses',
+            format: 'text'
+          })
+          .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+          // x-timezone header not set, should default to UTC
+          .expect(httpStatus.OK)
+
+        expect(response.headers['content-type']).toBe('text/plain; charset=utf-8')
+
+        // Create formatter functions with UTC timezone
+        const formatTimeUTC = (timestamp) => {
+          if (!timestamp) return 'No timestamp'
+          return new Date(timestamp).toLocaleTimeString('en-US', { timeZone: 'UTC' })
+        }
+
+        const formatDateUTC = (timestamp) => {
+          if (!timestamp) return 'No date'
+          return new Date(timestamp).toLocaleString('en-US', { timeZone: 'UTC' })
+        }
+
+        const experimentDate = new Date('2024-01-01T10:00:00Z')
+        const msg2Time = new Date('2024-01-01T09:50:00Z')
+
+        // Verify the report contains times formatted with UTC
+        expect(response.text).toContain(formatDateUTC(experimentDate))
+        expect(response.text).toContain(formatTimeUTC(msg2Time))
+      })
     })
     describe('directMessageResponses report', () => {
       let directMessageExperiment
@@ -939,6 +1004,7 @@ ${formatTime(msg3Time)}  Fearful Frog: I have something to say
           _id: new mongoose.Types.ObjectId(),
           conversation: directMessageConversation,
           agentType: 'test',
+          triggers: { perMessage: { directMessages: true } },
           pseudonyms: [
             {
               _id: new mongoose.Types.ObjectId(),
@@ -953,6 +1019,7 @@ ${formatTime(msg3Time)}  Fearful Frog: I have something to say
         const dmAgent2 = await Agent.create({
           _id: new mongoose.Types.ObjectId(),
           agentType: 'testText',
+          triggers: { perMessage: { directMessages: true } },
           conversation: directMessageConversation,
           pseudonyms: [
             {
@@ -1195,9 +1262,12 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
 
         expect(response.text).toContain('Direct Message Agent Responses Report')
         expect(response.text).toContain('Direct Message Test Experiment')
-        // Should not contain agent sections since no human messages exist
-        expect(response.text).not.toContain('Agent Name: Test Agent')
-        expect(response.text).not.toContain('Agent Name: Test Text Agent')
+        // Should still show agent headers with counts even when no users responded
+        expect(response.text).toContain('Agent Name: Test Agent')
+        expect(response.text).toContain('Total Users Messaged: 2')
+        expect(response.text).toContain('Total Users Responded: 0')
+        expect(response.text).toContain('Agent Name: Test Text Agent')
+        expect(response.text).toContain('Total Users Messaged: 1')
       })
 
       test('should calculate engagement statistics correctly', async () => {
@@ -1313,6 +1383,574 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
           })
           .set('Authorization', `Bearer ${registeredUserAccessToken}`)
           .expect(httpStatus.NOT_FOUND)
+      })
+
+      test('should use provided timezone for formatting dates and times', async () => {
+        const timezone = 'Europe/London'
+        const response = await request(app)
+          .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+          .query({
+            reportName: 'directMessageResponses',
+            format: 'text'
+          })
+          .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+          .set('x-timezone', timezone)
+          .expect(httpStatus.OK)
+
+        expect(response.headers['content-type']).toBe('text/plain; charset=utf-8')
+
+        // Create formatter functions with the same timezone
+        const formatTimeWithTimezone = (timestamp) => {
+          if (!timestamp) return 'No timestamp'
+          return new Date(timestamp).toLocaleTimeString('en-US', { timeZone: timezone })
+        }
+
+        const formatDateWithTimezone = (timestamp) => {
+          if (!timestamp) return 'No date'
+          return new Date(timestamp).toLocaleString('en-US', { timeZone: timezone })
+        }
+
+        // Verify the report contains times formatted with the specified timezone
+        expect(response.text).toContain(formatDateWithTimezone(directMessageExperiment.executedAt))
+        expect(response.text).toContain(formatTimeWithTimezone(msg1Time))
+      })
+
+      test('should default to UTC timezone when not specified', async () => {
+        const response = await request(app)
+          .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+          .query({
+            reportName: 'directMessageResponses',
+            format: 'text'
+          })
+          .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+          // x-timezone header not set, should default to UTC
+          .expect(httpStatus.OK)
+
+        expect(response.headers['content-type']).toBe('text/plain; charset=utf-8')
+
+        // Create formatter functions with UTC timezone
+        const formatTimeUTC = (timestamp) => {
+          if (!timestamp) return 'No timestamp'
+          return new Date(timestamp).toLocaleTimeString('en-US', { timeZone: 'UTC' })
+        }
+
+        const formatDateUTC = (timestamp) => {
+          if (!timestamp) return 'No date'
+          return new Date(timestamp).toLocaleString('en-US', { timeZone: 'UTC' })
+        }
+
+        // Verify the report contains times formatted with UTC
+        expect(response.text).toContain(formatDateUTC(directMessageExperiment.executedAt))
+        expect(response.text).toContain(formatTimeUTC(msg1Time))
+      })
+
+      test('should include additional channels when specified as comma-separated string', async () => {
+        // Create a chat channel with messages
+        const chatMsg1Time = new Date('2024-01-01T10:12:00Z')
+        const chatMessage1 = {
+          _id: new mongoose.Types.ObjectId(),
+          conversation: directMessageConversation!._id,
+          channels: ['chat'],
+          body: 'Hello from the chat channel!',
+          fromAgent: false,
+          createdAt: chatMsg1Time,
+          updatedAt: chatMsg1Time,
+          pseudonym: registeredUser.pseudonyms[0].pseudonym,
+          pseudonymId: registeredUser.pseudonyms[0]._id
+        }
+
+        const chatMsg2Time = new Date('2024-01-01T10:13:00Z')
+        const chatMessage2 = {
+          _id: new mongoose.Types.ObjectId(),
+          conversation: directMessageConversation!._id,
+          channels: ['chat'],
+          body: 'Another message in chat',
+          fromAgent: false,
+          createdAt: chatMsg2Time,
+          updatedAt: chatMsg2Time,
+          pseudonym: userOne.pseudonyms[0].pseudonym,
+          pseudonymId: userOne.pseudonyms[0]._id
+        }
+
+        await Message.create([chatMessage1, chatMessage2])
+
+        const response = await request(app)
+          .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+          .query({
+            reportName: 'directMessageResponses',
+            format: 'text',
+            additionalChannels: 'chat'
+          })
+          .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+          .expect(httpStatus.OK)
+
+        expect(response.headers['content-type']).toBe('text/plain; charset=utf-8')
+        expect(response.text).toContain('**Additional Channel: chat**')
+        expect(response.text).toContain('  - chat: 2 user(s)')
+        expect(response.text).toContain('Hello from the chat channel!')
+        expect(response.text).toContain('Another message in chat')
+        expect(response.text).toContain(formatTime(chatMsg1Time))
+        expect(response.text).toContain(formatTime(chatMsg2Time))
+      })
+
+      test('should include multiple additional channels when specified as comma-separated string', async () => {
+        // Create chat and forum channels with messages
+        const chatMsgTime = new Date('2024-01-01T10:12:00Z')
+        const chatMessage = {
+          _id: new mongoose.Types.ObjectId(),
+          conversation: directMessageConversation!._id,
+          channels: ['chat'],
+          body: 'Chat message',
+          fromAgent: false,
+          createdAt: chatMsgTime,
+          updatedAt: chatMsgTime,
+          pseudonym: registeredUser.pseudonyms[0].pseudonym,
+          pseudonymId: registeredUser.pseudonyms[0]._id
+        }
+
+        const forumMsgTime = new Date('2024-01-01T10:13:00Z')
+        const forumMessage = {
+          _id: new mongoose.Types.ObjectId(),
+          conversation: directMessageConversation!._id,
+          channels: ['forum'],
+          body: 'Forum message',
+          fromAgent: false,
+          createdAt: forumMsgTime,
+          updatedAt: forumMsgTime,
+          pseudonym: userOne.pseudonyms[0].pseudonym,
+          pseudonymId: userOne.pseudonyms[0]._id
+        }
+
+        await Message.create([chatMessage, forumMessage])
+
+        const response = await request(app)
+          .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+          .query({
+            reportName: 'directMessageResponses',
+            format: 'text',
+            additionalChannels: 'chat,forum'
+          })
+          .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+          .expect(httpStatus.OK)
+
+        expect(response.text).toContain('**Additional Channel: chat**')
+        expect(response.text).toContain('Chat message')
+        expect(response.text).toContain('**Additional Channel: forum**')
+        expect(response.text).toContain('Forum message')
+      })
+
+      test('should include additional channels when specified as array query parameters', async () => {
+        const chatMsgTime = new Date('2024-01-01T10:12:00Z')
+        const chatMessage = {
+          _id: new mongoose.Types.ObjectId(),
+          conversation: directMessageConversation!._id,
+          channels: ['chat'],
+          body: 'Chat message',
+          fromAgent: false,
+          createdAt: chatMsgTime,
+          updatedAt: chatMsgTime,
+          pseudonym: registeredUser.pseudonyms[0].pseudonym,
+          pseudonymId: registeredUser.pseudonyms[0]._id
+        }
+
+        const forumMsgTime = new Date('2024-01-01T10:13:00Z')
+        const forumMessage = {
+          _id: new mongoose.Types.ObjectId(),
+          conversation: directMessageConversation!._id,
+          channels: ['forum'],
+          body: 'Forum message',
+          fromAgent: false,
+          createdAt: forumMsgTime,
+          updatedAt: forumMsgTime,
+          pseudonym: userOne.pseudonyms[0].pseudonym,
+          pseudonymId: userOne.pseudonyms[0]._id
+        }
+
+        await Message.create([chatMessage, forumMessage])
+
+        // Use array format: ?additionalChannels=chat&additionalChannels=forum
+        const response = await request(app)
+          .get(`/v1/experiments/${directMessageExperiment._id}/results?additionalChannels=chat&additionalChannels=forum`)
+          .query({
+            reportName: 'directMessageResponses',
+            format: 'text'
+          })
+          .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+          .expect(httpStatus.OK)
+
+        expect(response.text).toContain('**Additional Channel: chat**')
+        expect(response.text).toContain('Chat message')
+        expect(response.text).toContain('**Additional Channel: forum**')
+        expect(response.text).toContain('Forum message')
+      })
+
+      test('should handle additional channel with no messages', async () => {
+        const response = await request(app)
+          .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+          .query({
+            reportName: 'directMessageResponses',
+            format: 'text',
+            additionalChannels: 'nonexistent'
+          })
+          .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+          .expect(httpStatus.OK)
+
+        // Should not contain the additional channel section if no messages exist
+        expect(response.text).not.toContain('**Additional Channel: nonexistent**')
+      })
+
+      test('should calculate total users correctly for additional channels', async () => {
+        // Create messages from 3 different users in chat channel
+        const chatMsg1Time = new Date('2024-01-01T10:12:00Z')
+        const chatMessage1 = {
+          _id: new mongoose.Types.ObjectId(),
+          conversation: directMessageConversation!._id,
+          channels: ['chat'],
+          body: 'Message from user 1',
+          fromAgent: false,
+          createdAt: chatMsg1Time,
+          updatedAt: chatMsg1Time,
+          pseudonym: registeredUser.pseudonyms[0].pseudonym,
+          pseudonymId: registeredUser.pseudonyms[0]._id
+        }
+
+        const chatMsg2Time = new Date('2024-01-01T10:13:00Z')
+        const chatMessage2 = {
+          _id: new mongoose.Types.ObjectId(),
+          conversation: directMessageConversation!._id,
+          channels: ['chat'],
+          body: 'Message from user 1 again',
+          fromAgent: false,
+          createdAt: chatMsg2Time,
+          updatedAt: chatMsg2Time,
+          pseudonym: registeredUser.pseudonyms[0].pseudonym,
+          pseudonymId: registeredUser.pseudonyms[0]._id
+        }
+
+        const chatMsg3Time = new Date('2024-01-01T10:14:00Z')
+        const chatMessage3 = {
+          _id: new mongoose.Types.ObjectId(),
+          conversation: directMessageConversation!._id,
+          channels: ['chat'],
+          body: 'Message from user 2',
+          fromAgent: false,
+          createdAt: chatMsg3Time,
+          updatedAt: chatMsg3Time,
+          pseudonym: userOne.pseudonyms[0].pseudonym,
+          pseudonymId: userOne.pseudonyms[0]._id
+        }
+
+        await Message.create([chatMessage1, chatMessage2, chatMessage3])
+
+        const response = await request(app)
+          .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+          .query({
+            reportName: 'directMessageResponses',
+            format: 'text',
+            additionalChannels: 'chat'
+          })
+          .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+          .expect(httpStatus.OK)
+
+        expect(response.text).toContain('**Additional Channel: chat**')
+        expect(response.text).toContain('  - chat: 2 user(s)')
+        expect(response.text).toContain('Message from user 1')
+        expect(response.text).toContain('Message from user 1 again')
+        expect(response.text).toContain('Message from user 2')
+      })
+
+      test('should handle whitespace in comma-separated channel names', async () => {
+        const chatMsgTime = new Date('2024-01-01T10:12:00Z')
+        const chatMessage = {
+          _id: new mongoose.Types.ObjectId(),
+          conversation: directMessageConversation!._id,
+          channels: ['chat'],
+          body: 'Chat message',
+          fromAgent: false,
+          createdAt: chatMsgTime,
+          updatedAt: chatMsgTime,
+          pseudonym: registeredUser.pseudonyms[0].pseudonym,
+          pseudonymId: registeredUser.pseudonyms[0]._id
+        }
+
+        await Message.create([chatMessage])
+
+        const response = await request(app)
+          .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+          .query({
+            reportName: 'directMessageResponses',
+            format: 'text',
+            additionalChannels: ' chat , forum '
+          })
+          .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+          .expect(httpStatus.OK)
+
+        expect(response.text).toContain('**Additional Channel: chat**')
+        expect(response.text).toContain('Chat message')
+      })
+
+      describe('feedback reporting', () => {
+        test('should include rating feedback on agent messages in the report', async () => {
+          // Get the agent message IDs from the setup
+          const agentMsg = await Message.findOne({
+            conversation: directMessageConversation._id,
+            fromAgent: true,
+            createdAt: msg2Time
+          })
+
+          // Create a rating feedback message
+          await Message.create({
+            _id: new mongoose.Types.ObjectId(),
+            conversation: directMessageConversation._id,
+            channels: ['feedback'],
+            bodyType: 'json',
+            body: {
+              messageId: agentMsg!._id.toString(),
+              type: 'rating',
+              value: '5'
+            },
+            fromAgent: false,
+            createdAt: new Date('2024-01-01T10:12:00Z'),
+            updatedAt: new Date('2024-01-01T10:12:00Z'),
+            pseudonym: registeredUser.pseudonyms[0].pseudonym,
+            pseudonymId: registeredUser.pseudonyms[0]._id
+          })
+
+          const response = await request(app)
+            .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+            .query({
+              reportName: 'directMessageResponses',
+              format: 'text'
+            })
+            .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+            .expect(httpStatus.OK)
+
+          // Verify feedback is included in the report
+          expect(response.text).toContain('Feedback: Rating - 5')
+        })
+
+        test('should include text feedback on agent messages in the report', async () => {
+          const agentMsg2 = await Message.findOne({
+            conversation: directMessageConversation._id,
+            fromAgent: true,
+            createdAt: msg5Time
+          })
+
+          // Create a text feedback message
+          await Message.create({
+            _id: new mongoose.Types.ObjectId(),
+            conversation: directMessageConversation._id,
+            channels: ['feedback'],
+            bodyType: 'json',
+            body: {
+              messageId: agentMsg2!._id.toString(),
+              type: 'text',
+              value: 'Very helpful response!'
+            },
+            fromAgent: false,
+            createdAt: new Date('2024-01-01T10:13:00Z'),
+            updatedAt: new Date('2024-01-01T10:13:00Z'),
+            pseudonym: userOne.pseudonyms[0].pseudonym,
+            pseudonymId: userOne.pseudonyms[0]._id
+          })
+
+          const response = await request(app)
+            .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+            .query({
+              reportName: 'directMessageResponses',
+              format: 'text'
+            })
+            .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+            .expect(httpStatus.OK)
+
+          // Verify feedback is included in the report
+          expect(response.text).toContain('Feedback: Very helpful response!')
+        })
+
+        test('should include multiple feedback items on a single agent message', async () => {
+          const agentMsg3 = await Message.findOne({
+            conversation: directMessageConversation._id,
+            fromAgent: true,
+            createdAt: msg7Time
+          })
+
+          // Create multiple feedback messages for the same agent message
+          await Message.create([
+            {
+              _id: new mongoose.Types.ObjectId(),
+              conversation: directMessageConversation._id,
+              channels: ['feedback'],
+              bodyType: 'json',
+              body: {
+                messageId: agentMsg3!._id.toString(),
+                type: 'rating',
+                value: '4'
+              },
+              fromAgent: false,
+              createdAt: new Date('2024-01-01T10:14:00Z'),
+              updatedAt: new Date('2024-01-01T10:14:00Z'),
+              pseudonym: registeredUser.pseudonyms[0].pseudonym,
+              pseudonymId: registeredUser.pseudonyms[0]._id
+            },
+            {
+              _id: new mongoose.Types.ObjectId(),
+              conversation: directMessageConversation._id,
+              channels: ['feedback'],
+              bodyType: 'json',
+              body: {
+                messageId: agentMsg3!._id.toString(),
+                type: 'text',
+                value: 'Clear and concise'
+              },
+              fromAgent: false,
+              createdAt: new Date('2024-01-01T10:15:00Z'),
+              updatedAt: new Date('2024-01-01T10:15:00Z'),
+              pseudonym: registeredUser.pseudonyms[0].pseudonym,
+              pseudonymId: registeredUser.pseudonyms[0]._id
+            }
+          ])
+
+          const response = await request(app)
+            .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+            .query({
+              reportName: 'directMessageResponses',
+              format: 'text'
+            })
+            .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+            .expect(httpStatus.OK)
+
+          // Verify both feedback items are included
+          expect(response.text).toContain('Feedback: Rating - 4')
+          expect(response.text).toContain('Feedback: Clear and concise')
+        })
+
+        test('should not include feedback on user messages', async () => {
+          const userMsg = await Message.findOne({
+            conversation: directMessageConversation._id,
+            fromAgent: false,
+            createdAt: msg1Time
+          })
+
+          // Create feedback for a user message (should be ignored)
+          await Message.create({
+            _id: new mongoose.Types.ObjectId(),
+            conversation: directMessageConversation._id,
+            channels: ['feedback'],
+            bodyType: 'json',
+            body: {
+              messageId: userMsg!._id.toString(),
+              type: 'rating',
+              value: '5'
+            },
+            fromAgent: false,
+            createdAt: new Date('2024-01-01T10:16:00Z'),
+            updatedAt: new Date('2024-01-01T10:16:00Z'),
+            pseudonym: registeredUser.pseudonyms[0].pseudonym,
+            pseudonymId: registeredUser.pseudonyms[0]._id
+          })
+
+          const response = await request(app)
+            .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+            .query({
+              reportName: 'directMessageResponses',
+              format: 'text'
+            })
+            .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+            .expect(httpStatus.OK)
+
+          // Verify that the user message text is in the report but not feedback for it
+          expect(response.text).toContain('Hello agent, can you help me?')
+          // The feedback should not appear near the user message
+          const userMessageIndex = response.text.indexOf('Hello agent, can you help me?')
+          const nextAgentMessageIndex = response.text.indexOf('Sure, I can help you with that.')
+          const textBetween = response.text.substring(userMessageIndex, nextAgentMessageIndex)
+          expect(textBetween).not.toContain('Feedback: Rating - 5')
+        })
+
+        test('should handle feedback messages with missing or invalid fields gracefully', async () => {
+          const agentMsg4 = await Message.findOne({
+            conversation: directMessageConversation._id,
+            fromAgent: true,
+            createdAt: msg2Time
+          })
+
+          // Create feedback messages with invalid/missing fields
+          await Message.create([
+            {
+              _id: new mongoose.Types.ObjectId(),
+              conversation: directMessageConversation._id,
+              channels: ['feedback'],
+              bodyType: 'json',
+              body: {
+                // Missing messageId
+                type: 'rating',
+                value: '5'
+              },
+              fromAgent: false,
+              createdAt: new Date('2024-01-01T10:17:00Z'),
+              updatedAt: new Date('2024-01-01T10:17:00Z'),
+              pseudonym: registeredUser.pseudonyms[0].pseudonym,
+              pseudonymId: registeredUser.pseudonyms[0]._id
+            },
+            {
+              _id: new mongoose.Types.ObjectId(),
+              conversation: directMessageConversation._id,
+              channels: ['feedback'],
+              bodyType: 'json',
+              body: {
+                messageId: agentMsg4!._id.toString(),
+                // Missing type
+                value: '5'
+              },
+              fromAgent: false,
+              createdAt: new Date('2024-01-01T10:18:00Z'),
+              updatedAt: new Date('2024-01-01T10:18:00Z'),
+              pseudonym: registeredUser.pseudonyms[0].pseudonym,
+              pseudonymId: registeredUser.pseudonyms[0]._id
+            },
+            {
+              _id: new mongoose.Types.ObjectId(),
+              conversation: directMessageConversation._id,
+              channels: ['feedback'],
+              bodyType: 'text', // Wrong format for feedback (should be json)
+              body: 'Just a string',
+              fromAgent: false,
+              createdAt: new Date('2024-01-01T10:19:00Z'),
+              updatedAt: new Date('2024-01-01T10:19:00Z'),
+              pseudonym: registeredUser.pseudonyms[0].pseudonym,
+              pseudonymId: registeredUser.pseudonyms[0]._id
+            }
+          ])
+
+          // Should not throw an error
+          const response = await request(app)
+            .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+            .query({
+              reportName: 'directMessageResponses',
+              format: 'text'
+            })
+            .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+            .expect(httpStatus.OK)
+
+          // Report should still be generated successfully
+          expect(response.text).toContain('DMTestAgent1')
+        })
+
+        test('should handle experiments with no feedback messages', async () => {
+          // No feedback messages created - just verify report generates normally
+          const response = await request(app)
+            .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+            .query({
+              reportName: 'directMessageResponses',
+              format: 'text'
+            })
+            .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+            .expect(httpStatus.OK)
+
+          // Report should be generated without feedback sections
+          expect(response.text).toContain('DMTestAgent1')
+          expect(response.text).toContain('Sure, I can help you with that.')
+        })
       })
     })
   })

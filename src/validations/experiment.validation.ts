@@ -21,7 +21,8 @@ const getExperimentResults = {
   }),
   query: Joi.object().keys({
     reportName: Joi.string().required(),
-    format: Joi.string().valid('text').default('text')
+    format: Joi.string().valid('text').default('text'),
+    additionalChannels: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional()
   })
 }
 

@@ -17,6 +17,12 @@ Total Users Responded: {{participantCount}}
 Min Engagements Per User: {{minEngagements}}
 Max Engagements Per User: {{maxEngagements}}
 Average Engagements Per User: {{avgEngagements}}
+{{#if additionalChannels}}
+Additional Channels:
+{{#each additionalChannels}}
+  - {{channelName}}: {{totalUsers}} user(s)
+{{/each}}
+{{/if}}
 
 {{#each messages}}
 ---------------------------
@@ -24,9 +30,26 @@ Average Engagements Per User: {{avgEngagements}}
 
 {{#each comments}}
 {{formatTime timestamp}}  {{{user}}}: {{{text}}}
+{{#if feedback}}
+{{#each feedback}}
+  Feedback: {{#if (eq type 'rating')}}Rating - {{value}}{{else}}{{value}}{{/if}}
+{{/each}}
+{{/if}}
 
 {{/each}}
 ---------------------------
 {{/each}}
+{{#if additionalChannels}}
+{{#each additionalChannels}}
+---------------------------
+**Additional Channel: {{channelName}}**
+
+{{#each messages}}
+{{formatTime timestamp}}  {{{user}}}: {{{text}}}
+
+{{/each}}
+---------------------------
+{{/each}}
+{{/if}}
 ===========================
 {{/each}}

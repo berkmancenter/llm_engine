@@ -19,8 +19,20 @@ const getExperiment = catchAsync(async (req, res) => {
 
 const getExperimentResults = catchAsync(async (req, res) => {
   const { experimentId } = req.params
-  const { reportName, format = 'text' } = req.query
-  const report = await experimentService.generateExperimentReport(experimentId, reportName, format)
+  const { reportName, format = 'text', additionalChannels } = req.query
+  const timezone = req.headers['x-timezone'] || 'UTC'
+
+  // Parse additionalChannels - can be a comma-separated string or array
+  let channelsArray: string[] = []
+  if (additionalChannels) {
+    if (Array.isArray(additionalChannels)) {
+      channelsArray = additionalChannels as string[]
+    } else if (typeof additionalChannels === 'string') {
+      channelsArray = additionalChannels.split(',').map((ch) => ch.trim())
+    }
+  }
+
+  const report = await experimentService.generateExperimentReport(experimentId, reportName, format, timezone, channelsArray)
   const contentTypes = {
     text: 'text/plain'
   }
