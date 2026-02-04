@@ -60,7 +60,13 @@ const envVarsSchema = Joi.object()
     BEDROCK_API_KEY: Joi.string().description('Bedrock API key'),
     BEDROCK_BASE_URL: Joi.string().description('Bedrock base url'),
     RECALL_API_KEY: Joi.string().description('API Key for Recall.ai'),
-    RECALL_TOKEN: Joi.string().description('Token for Recall.ai incoming webhook verification'),
+    RECALL_TOKEN: Joi.string().description('Token for Recall.ai incoming webhook verification (deprecated, use secrets)'),
+    RECALL_REALTIME_SECRET: Joi.string().description(
+      'Verification secret for real-time endpoints (chat, join, transcript) - from API keys dashboard'
+    ),
+    RECALL_SVIX_SECRET: Joi.string().description(
+      'Verification secret for Svix webhooks (bot.status_change) - from webhooks dashboard (legacy accounts only)'
+    ),
     RECALL_BASE_URL: Joi.string().description('Base URL of Recall.ai server'),
     RECALL_ENDPOINT_BASE_URL: Joi.string().description('Base URL on this server, used by Recall.ai to invoke webhooks'),
     ZOOM_SECRET_TOKEN: Joi.string().description('Secret token from LLM Engine Zoom app'),
@@ -179,7 +185,8 @@ const config = {
   },
   recall: {
     key: envVars.RECALL_API_KEY,
-    token: envVars.RECALL_TOKEN,
+    realtimeSecret: envVars.RECALL_REALTIME_SECRET,
+    svixSecret: envVars.RECALL_SVIX_SECRET,
     baseUrl: envVars.RECALL_BASE_URL,
     endpointBaseUrl: envVars.RECALL_ENDPOINT_BASE_URL
   },

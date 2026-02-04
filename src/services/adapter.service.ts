@@ -25,6 +25,14 @@ const stop = async (adapter) => {
   await adapter.stop()
 }
 
+const pauseRecording = async (adapter) => {
+  await adapter.pauseTranscript()
+}
+
+const resumeRecording = async (adapter) => {
+  await adapter.resumeTranscript()
+}
+
 const createAdapter = async (adapter, conversation) => {
   if (conversation.scheduledTime) {
     const keys = Adapter.getUniqueKeys(adapter.type)
@@ -79,5 +87,5 @@ const createAdapter = async (adapter, conversation) => {
   return conversationAdapter
 }
 
-const adapterService = { start, stop, createAdapter }
+const adapterService = { start, stop, createAdapter, pauseRecording, resumeRecording }
 export default adapterService

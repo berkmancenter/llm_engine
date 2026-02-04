@@ -1,6 +1,5 @@
 import mongoose from 'mongoose'
 import { Message, Conversation, User } from '../../src/models/index.js'
-import { formatTranscript } from '../../src/agents/helpers/llmInputFormatters.js'
 
 async function saveMessage(message, pseudonym, pseudonymId, createdAt, channels, conversation) {
   const agentMessage = new Message({
@@ -52,7 +51,7 @@ function parseChatTranscript(transcript, delimiter) {
   return chatObjects
 }
 
-export async function loadTranscript(
+export default async function loadTranscript(
   transcript,
   conversation,
   channels: string[] = [],
@@ -80,17 +79,4 @@ export async function loadTranscript(
       messageConversation
     )
   }
-}
-
-export async function generateTranscript(conversation) {
-  let messageConversation = conversation
-  if (typeof conversation === 'string' || conversation instanceof mongoose.Types.ObjectId) {
-    messageConversation = await Conversation.findOne({ _id: conversation })
-  }
-
-  await messageConversation.populate('messages')
-  const transcriptMessages = messageConversation.messages
-    .filter((m) => m.channels.includes('transcript'))
-    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
-  return formatTranscript(transcriptMessages)
 }

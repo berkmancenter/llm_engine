@@ -210,6 +210,38 @@ async function loadTranscriptIntoVectorStore(messages, conversationId) {
   })
 }
 
+async function clearTranscript(conversation) {
+  let transcriptRAG = false
+  for (const agent of conversation.agents) {
+    if (agent.useTranscriptRAGCollection) {
+      transcriptRAG = true
+    }
+  }
+  if (transcriptRAG) {
+    logger.info(`Clearing transcript content from vector store for conversation ${conversation._id}`)
+    try {
+      // Remove only transcript-type documents, preserve event/speaker/moderator metadata
+      await rag.removeFromVectorStore(`${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`, {
+        type: 'transcript'
+      })
+    } catch {
+      logger.warn(`Failed to clear transcript from vector store: ${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`)
+    }
+  }
+  // Find all messages for this conversation in transcript channel
+  const messagesToDelete = await Message.find({
+    conversation,
+    channels: { $in: ['transcript'] }
+  })
+    .select('_id')
+    .lean()
+
+  // Delete transcript messages from Mongo
+  await Message.deleteMany({
+    _id: { $in: messagesToDelete }
+  })
+}
+
 async function deleteTranscript(conversation) {
   let transcriptRAG = false
   for (const agent of conversation.agents) {
@@ -218,8 +250,9 @@ async function deleteTranscript(conversation) {
     }
   }
   if (transcriptRAG) {
-    logger.info(`Deleting transcript of conversation ${conversation._id} from vector store.`)
+    logger.info(`Deleting transcript collection from vector store for conversation ${conversation._id}`)
     try {
+      // Delete the entire collection including all metadata
       await rag.deleteCollection(`${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`)
     } catch {
       logger.warn(`Failed to delete collection from vector store: ${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`)
@@ -243,6 +276,7 @@ export default {
   searchTranscript,
   loadTranscriptIntoVectorStore,
   loadEventMetadataIntoVectorStore,
+  clearTranscript,
   deleteTranscript,
   getTranscriptMessages,
   getTranscript

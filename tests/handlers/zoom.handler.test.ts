@@ -12,6 +12,7 @@ import { insertTopics } from '../fixtures/topic.fixture.js'
 import webhookService from '../../src/services/webhook.service.js'
 import defaultAdapterTypes from '../../src/adapters/index.js'
 import setupIntTest from '../utils/setupIntTest.js'
+import websocketGateway from '../../src/websockets/websocketGateway.js'
 
 setupIntTest()
 
@@ -41,12 +42,14 @@ describe('POST /v1/webhooks/zoom', () => {
   let zoomSecretToken
   let zoomAdapter
   let receiveMessageSpy
+  let broadcastTranscriptStatusChangeSpy
   beforeAll(() => {
     setAdapterTypes(testAdapterTypes)
     zoomSecretToken = config.zoom.secretToken
     config.zoom.secretToken = 'test-zoom-secret'
   })
   beforeEach(async () => {
+    jest.clearAllMocks()
     await insertTopics([publicTopic])
     conversation = new Conversation(conversationAgentsEnabled)
     await conversation.save()
@@ -60,6 +63,7 @@ describe('POST /v1/webhooks/zoom', () => {
     conversation.adapters.push(zoomAdapter)
     await conversation.save()
     receiveMessageSpy = jest.spyOn(webhookService, 'receiveMessage').mockResolvedValue()
+    broadcastTranscriptStatusChangeSpy = jest.spyOn(websocketGateway, 'broadcastTranscriptStatusChange').mockResolvedValue()
     mockZoomGetUniqueKeys.mockReturnValue(['type', 'config.meetingUrl'])
   })
   afterAll(() => {
@@ -67,6 +71,9 @@ describe('POST /v1/webhooks/zoom', () => {
     config.zoom.secretToken = zoomSecretToken
   })
   afterEach(async () => {
+    if (broadcastTranscriptStatusChangeSpy) {
+      broadcastTranscriptStatusChangeSpy.mockRestore()
+    }
     jest.clearAllMocks()
   })
   describe('Signature validation', () => {

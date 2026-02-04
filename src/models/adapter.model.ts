@@ -148,6 +148,18 @@ adapterSchema.method('stop', async function () {
   await this.save()
 })
 
+adapterSchema.method('pauseTranscript', async function () {
+  if (!this.active) throw new Error(`Cannot pause transcript on inactive adapter ${this._id}`)
+  await populateConversation.call(this)
+  await adapterTypes[this.type].pauseTranscript.call(this)
+})
+
+adapterSchema.method('resumeTranscript', async function () {
+  if (!this.active) throw new Error(`Cannot resume transcript on inactive adapter ${this._id}`)
+  await populateConversation.call(this)
+  await adapterTypes[this.type].resumeTranscript.call(this)
+})
+
 adapterSchema.method('receiveMessage', async function (message) {
   if (!this.active) {
     logger.warn(`Inactive adapter: ${this._id} received message`)

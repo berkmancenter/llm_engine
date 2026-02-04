@@ -220,6 +220,14 @@ export interface Profile {
   bio?: string
 }
 
+export interface ITranscript {
+  vectorStore?: {
+    embeddingsPlatform: string
+    embeddingsModelName: string
+  }
+  status: 'active' | 'paused' | 'stopped' | 'deleted'
+}
+
 export interface IConversation {
   _id?: mongoose.Types.ObjectId
   messages: Array<IMessage>
@@ -245,13 +253,7 @@ export interface IConversation {
   enableAgents?: boolean
   owner: IUser
   topic: ITopic
-  // TODO make this a first class object later
-  transcript: {
-    vectorStore: {
-      embeddingsPlatform: string
-      embeddingsModelName: string
-    }
-  }
+  transcript?: ITranscript
   followed?: boolean
   createdAt?: Date
   updatedAt?: Date

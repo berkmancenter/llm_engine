@@ -17,9 +17,10 @@ import { ConversationDocument } from '../models/conversation.model.js'
 import { getConversationType } from '../conversations/index.js'
 import { supportedModels } from '../agents/helpers/getEmbeddings.js'
 import transcript from '../agents/helpers/transcript.js'
+import transcriptService from './transcript.service.js'
 
 const returnFields =
-  'name slug locked owner createdAt active conversationType platforms scheduledTime description moderators presenters'
+  'name slug locked owner createdAt active conversationType platforms scheduledTime description moderators presenters transcript'
 const transcriptBatchInterval = 30
 export const maxScheduledInterval = 10 * 60 * 1000 // 10 minutes in milliseconds
 /**
@@ -119,6 +120,9 @@ const stopConversation = async (conversationOrId, user) => {
   }
 
   conversation.active = false
+  if (conversation.transcript) {
+    await transcriptService.stopTranscript(conversation._id)
+  }
   await conversation.save()
   return conversation
 }
@@ -156,7 +160,10 @@ const createConversation = async (conversationBody, user) => {
     ...(conversationBody.moderators !== undefined && { moderators: conversationBody.moderators }),
     ...(conversationBody.presenters !== undefined && { presenters: conversationBody.presenters }),
     agents: [],
-    transcript: conversationBody.transcript,
+    transcript: {
+      status: 'stopped',
+      vectorStore: conversationBody.transcript?.vectorStore
+    },
     scheduledTime: conversationBody.scheduledTime
   })
   // need to save to get id

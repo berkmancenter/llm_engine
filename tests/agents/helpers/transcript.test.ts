@@ -1,6 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import transcript from '../../../src/agents/helpers/transcript.js'
 import rag, { TRANSCRIPT_COLLECTION_PREFIX } from '../../../src/agents/helpers/rag.js'
 import Conversation from '../../../src/models/conversation.model.js'
+import Message from '../../../src/models/message.model.js'
 
 const { searchTranscript, loadTranscriptIntoVectorStore } = transcript
 
@@ -702,7 +704,8 @@ describe('transcript', () => {
           embeddingsModelName: undefined
         })
       )
-      const { metadataFn } = ragAddToVectorStoreSpy.mock.calls[0][2]; const mockDoc = { pageContent: mockFormattedTranscript } as {
+      const { metadataFn } = ragAddToVectorStoreSpy.mock.calls[0][2]
+      const mockDoc = { pageContent: mockFormattedTranscript } as {
         pageContent: string
         metadata?: Record<string, unknown>
       }
@@ -1060,6 +1063,174 @@ describe('transcript', () => {
       expect(ragRemoveFromVectorStoreSpy).toHaveBeenCalled()
 
       expect(ragAddToVectorStoreSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('clearTranscript', () => {
+    let ragDeleteCollectionSpy
+    let messageFindSpy
+    let messageDeleteManySpy
+
+    beforeEach(() => {
+      ragDeleteCollectionSpy = jest.spyOn(rag, 'deleteCollection').mockResolvedValue()
+      ragRemoveFromVectorStoreSpy = jest.spyOn(rag, 'removeFromVectorStore').mockResolvedValue()
+      messageFindSpy = jest.spyOn(Message, 'find').mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue([{ _id: 'msg1' }, { _id: 'msg2' }])
+        })
+      } as any)
+      messageDeleteManySpy = jest.spyOn(Message, 'deleteMany').mockResolvedValue({} as any)
+    })
+
+    afterEach(() => {
+      ragDeleteCollectionSpy.mockRestore()
+      ragRemoveFromVectorStoreSpy.mockRestore()
+      messageFindSpy.mockRestore()
+      messageDeleteManySpy.mockRestore()
+    })
+
+    it('should clear only transcript content from vector store and preserve metadata', async () => {
+      const conversation = {
+        _id: 'conv123',
+        agents: [{ useTranscriptRAGCollection: true }]
+      }
+
+      await transcript.clearTranscript(conversation)
+
+      // Should remove only transcript-type documents, not delete collection
+      expect(ragRemoveFromVectorStoreSpy).toHaveBeenCalledWith(`${TRANSCRIPT_COLLECTION_PREFIX}-conv123`, {
+        type: 'transcript'
+      })
+      expect(ragDeleteCollectionSpy).not.toHaveBeenCalled()
+
+      // Should delete transcript messages from MongoDB
+      expect(messageFindSpy).toHaveBeenCalledWith({
+        conversation,
+        channels: { $in: ['transcript'] }
+      })
+      expect(messageDeleteManySpy).toHaveBeenCalledWith({
+        _id: { $in: [{ _id: 'msg1' }, { _id: 'msg2' }] }
+      })
+    })
+
+    it('should skip vector store operations when no agents use RAG', async () => {
+      const conversation = {
+        _id: 'conv123',
+        agents: [{ useTranscriptRAGCollection: false }]
+      }
+
+      await transcript.clearTranscript(conversation)
+
+      expect(ragRemoveFromVectorStoreSpy).not.toHaveBeenCalled()
+      expect(ragDeleteCollectionSpy).not.toHaveBeenCalled()
+
+      // Should still delete messages
+      expect(messageFindSpy).toHaveBeenCalled()
+      expect(messageDeleteManySpy).toHaveBeenCalled()
+    })
+
+    it('should handle errors when clearing from vector store', async () => {
+      const conversation = {
+        _id: 'conv123',
+        agents: [{ useTranscriptRAGCollection: true }]
+      }
+
+      ragRemoveFromVectorStoreSpy.mockRejectedValue(new Error('Vector store error'))
+
+      // Should not throw, just log warning
+      await expect(transcript.clearTranscript(conversation)).resolves.not.toThrow()
+
+      // Should still delete messages
+      expect(messageDeleteManySpy).toHaveBeenCalled()
+    })
+  })
+
+  describe('deleteTranscript', () => {
+    let ragDeleteCollectionSpy
+    let messageFindSpy
+    let messageDeleteManySpy
+
+    beforeEach(() => {
+      ragDeleteCollectionSpy = jest.spyOn(rag, 'deleteCollection').mockResolvedValue()
+      messageFindSpy = jest.spyOn(Message, 'find').mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue([{ _id: 'msg1' }, { _id: 'msg2' }])
+        })
+      } as any)
+      messageDeleteManySpy = jest.spyOn(Message, 'deleteMany').mockResolvedValue({} as any)
+    })
+
+    afterEach(() => {
+      ragDeleteCollectionSpy.mockRestore()
+      messageFindSpy.mockRestore()
+      messageDeleteManySpy.mockRestore()
+    })
+
+    it('should delete entire collection from vector store including metadata', async () => {
+      const conversation = {
+        _id: 'conv123',
+        agents: [{ useTranscriptRAGCollection: true }]
+      }
+
+      await transcript.deleteTranscript(conversation)
+
+      // Should delete the entire collection
+      expect(ragDeleteCollectionSpy).toHaveBeenCalledWith(`${TRANSCRIPT_COLLECTION_PREFIX}-conv123`)
+
+      // Should delete transcript messages from MongoDB
+      expect(messageFindSpy).toHaveBeenCalledWith({
+        conversation,
+        channels: { $in: ['transcript'] }
+      })
+      expect(messageDeleteManySpy).toHaveBeenCalledWith({
+        _id: { $in: [{ _id: 'msg1' }, { _id: 'msg2' }] }
+      })
+    })
+
+    it('should skip vector store operations when no agents use RAG', async () => {
+      const conversation = {
+        _id: 'conv123',
+        agents: [{ useTranscriptRAGCollection: false }]
+      }
+
+      await transcript.deleteTranscript(conversation)
+
+      expect(ragDeleteCollectionSpy).not.toHaveBeenCalled()
+
+      // Should still delete messages
+      expect(messageFindSpy).toHaveBeenCalled()
+      expect(messageDeleteManySpy).toHaveBeenCalled()
+    })
+
+    it('should handle errors when deleting collection', async () => {
+      const conversation = {
+        _id: 'conv123',
+        agents: [{ useTranscriptRAGCollection: true }]
+      }
+
+      ragDeleteCollectionSpy.mockRejectedValue(new Error('Collection delete error'))
+
+      // Should not throw, just log warning
+      await expect(transcript.deleteTranscript(conversation)).resolves.not.toThrow()
+
+      // Should still delete messages
+      expect(messageDeleteManySpy).toHaveBeenCalled()
+    })
+
+    it('should handle conversations with multiple agents', async () => {
+      const conversation = {
+        _id: 'conv123',
+        agents: [
+          { useTranscriptRAGCollection: false },
+          { useTranscriptRAGCollection: true },
+          { useTranscriptRAGCollection: false }
+        ]
+      }
+
+      await transcript.deleteTranscript(conversation)
+
+      // Should delete collection if at least one agent uses RAG
+      expect(ragDeleteCollectionSpy).toHaveBeenCalledWith(`${TRANSCRIPT_COLLECTION_PREFIX}-conv123`)
     })
   })
 })

@@ -7,7 +7,7 @@ import { insertTopics } from '../../fixtures/topic.fixture'
 import { insertUsers, registeredUser } from '../../fixtures/user.fixture'
 import defaultAgentTypes from '../../../src/agents/index.js'
 import JobHandlers from '../../../src/jobs/handlers/index.js'
-import { loadTranscript } from '../../utils/transcriptUtils'
+import loadTranscript from '../../utils/transcriptUtils'
 import Job from '../../../src/models/job.model'
 import setupAgentTest from '../../utils/setupAgentTest.js'
 import rag, { TRANSCRIPT_COLLECTION_PREFIX } from '../../../src/agents/helpers/rag'
@@ -141,7 +141,8 @@ describe('transcript handler tests', () => {
           const formatted = timestamp.toLocaleTimeString('en-US', {
             hour: 'numeric',
             minute: '2-digit',
-            second: '2-digit'
+            second: '2-digit',
+            timeZone: 'UTC'
           })
           return `[${formatted}] `
         })

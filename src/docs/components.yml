@@ -631,6 +631,23 @@ components:
           additionalProperties:
             $ref: '#/components/schemas/AdapterConfig'
 
+    Transcript:
+      type: object
+      required:
+        - status
+      properties:
+        vectorStore:
+          type: object
+          properties:
+            embeddingsPlatform:
+              type: string
+            embeddingsModelName:
+              type: string
+        status:
+          type: string
+          enum: [active, paused, stopped]
+          default: stopped
+
     Conversation:
       type: object
       required:
@@ -716,6 +733,8 @@ components:
           format: date-time
         messageCount:
           type: number
+        transcript:
+          $ref: '#/components/schemas/Transcript'
 
     AgentModification:
       type: object
