@@ -515,7 +515,7 @@ describe('zoom adapter tests', () => {
             ],
             retention: {
               type: 'timed',
-              hours: 1
+              hours: 168
             }
           },
           ...(config.zoom?.webinarUserEmail && {

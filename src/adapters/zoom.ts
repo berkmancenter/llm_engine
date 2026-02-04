@@ -6,7 +6,7 @@ import { AdapterMessage, AdapterUser } from '../types/adapter.types.js'
 const defaultBotName = 'LLM Engine'
 const defaultRetention = {
   type: 'timed',
-  hours: 1
+  hours: 168 // 1 week
 }
 
 async function isBotDeployed() {
