@@ -498,12 +498,20 @@
 <ol>
 <li>Complete Step 1 of <a href="https://beta-docs.recall.ai/docs/step-1-create-a-zoom-marketplace-app">these instructions</a> to create a Zoom marketplace app and connect it to Recall.</li>
 <li>In Zoom Marketplace, Set up Zoom event subscriptions in your app to receive meeting started and ended events. Choose Webhook method and set the event notification endpoint URL to [baseUrl]/v1/webhooks/zoom</li>
-<li>Set the four Recall environment variables and Zoom event subscription variable in <code>.env</code></li>
+<li>Create a new Webhook from the Recall.ai dashboard. Use [baseUrl]/v1/webhooks/recall/status as the endpoint. Subscribe to <code>bot.call_ended</code>, <code>bot.in_call_recording</code>, and <code>bot.in_call_not_recording</code> events. Copy the signing secret displayed on the webhook page for setting the <code>RECALL_SVIX_SECRET</code> environment variable.</li>
+<li>Set the Recall environment variables and Zoom event subscription variable in <code>.env</code></li>
 </ol>
 <div class="highlight"><pre><span></span><code>RECALL_API_KEY
 RECALL_BASE_URL: the URL used to connect to your Recall account
-RECALL_TOKEN: can be anything. Sent to Recall to use as a query param for authentication when it calls back to our webhooks
 RECALL_BASE_URL: The URL Recall should use to send events to this server, e.g. a static ngrok domain if running locally
+# Verification secrets for webhook signature validation
+# For legacy accounts (created before Dec 15, 2025), you need TWO secrets:
+# - RECALL_REALTIME_SECRET: from API keys dashboard for real-time endpoints (chat, join, transcript)
+# - RECALL_SVIX_SECRET: from webhooks dashboard for bot.status_change events
+# For newer accounts, only RECALL_REALTIME_SECRET is needed (same for both)
+# Get these from: https://[region].recall.ai/dashboard/developers/api-keys
+RECALL_REALTIME_SECRET=whsec_...
+RECALL_SVIX_SECRET=whsec_...
 ZOOM_SECRET_TOKEN: the secret token found in your app configuration in the Zoom marketplace
 </code></pre></div>
 <h4 id="zoom-webinar-one-time-setup">Zoom Webinar One Time Setup</h4>
