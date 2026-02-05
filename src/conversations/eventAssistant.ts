@@ -38,6 +38,10 @@ const eventAssistant: ConversationType = {
     {
       name: 'eventAssistant',
       properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
+    },
+    {
+      name: 'eventConfusionMonitor',
+      properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
     }
   ],
   enableDMs: ['agents'],
