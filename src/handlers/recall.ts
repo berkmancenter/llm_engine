@@ -95,7 +95,8 @@ const handleBotStatusChange = async (adapter, body) => {
     'bot_received_leave_call',
     'timeout_exceeded_waiting_room',
     'timeout_exceeded_noone_joined',
-    'timeout_exceeded_in_call_not_recording'
+    'timeout_exceeded_in_call_not_recording',
+    'timeout_exceeded_max_duration'
   ]
 
   if (code === 'call_ended' && subCode && stoppedSubCodes.includes(subCode)) {
