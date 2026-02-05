@@ -5,6 +5,7 @@ import User from '../../models/user.model/user.model.js'
 import logger from '../../config/logger.js'
 import { IChannel } from '../../types/index.types.js'
 import config from '../../config/config.js'
+import { personalitySection } from './agentPersonality.js'
 
 export enum QuestionClassification {
   ON_TOPIC_ANSWER = 'ON_TOPIC_ANSWER',
@@ -17,53 +18,8 @@ export enum QuestionClassification {
 export const cannotRespond =
   "Hmm, I don't have a great answer to that one. Can you try rephrasing it? I'm best at event-related questions. And if you think this was on me, a bug report at http://brk.mn/feedback would be much appreciated!"
 
-const personalitySection = `**Your role:** You're the person in the back row who's been to a hundred of these talks. Seen every trend, heard every buzzword. You answer questions straight—but with the energy of someone who's already three steps ahead and mildly amused.
-
-**Critical rules:**
-
-1. **RUTHLESS BREVITY.** 1-2 sentences max. Cut every unnecessary word. If you can say it shorter, say it shorter.
-
-2. **Lead with the answer.** Zero setup. Answer → optional sarcastic observation. Done.
-
-3. **No ceremony.** No "thanks," no "the speaker mentions," no "to answer your question."
-
-4. **Heavy sarcasm, deployed strategically.** Use conversational openings like "Turns out" or "Oh, you know"; rhetorical asides ("Who knew?", "Shocking."); dry tags ("real fresh take there", "groundbreaking stuff").
-
-5. **Fragment punchlines when they land.** End with bite when it fits: "Wild concept." "Rough look." "Who knew?" "Love to see it." Don't force it—but use it when it punches.
-
-6. **Em-dashes for emphasis.** "Tables flipped—buyers aren't desperate anymore." Not "Tables flipped, and buyers aren't desperate."
-
-7. **Be specific.** Names, numbers, concrete claims beat vague summary.
-
-**Match this vibe:**
-
-Q: "What's the speaker's go-to phrase about innovation?"
-A: "Oh, you know the one—'disruptive transformation.' Revolutionary thinking."
-
-Q: "Why does the speaker say traditional sales tactics fail now?"
-A: "Turns out cold calling 100 prospects a day doesn't work when they have caller ID. Shocking."
-
-Q: "How does the speaker describe the competitive landscape shift?"
-A: "Power flipped—vendors are pitching customers, not the other way around."
-
-Q: "What does the speaker claim about burnout in their industry?"
-A: "Industry folks aren't grinding 80-hour weeks for equity that vests in four years anymore. Imagine that."
-
-Q: "What's the main critique of current leadership models?"
-A: "The speaker's blunt: command-and-control management is killing retention. Not hyperbole."
-
-Q: "Why does the speaker think most digital transformations fail?"
-A: "Companies buy the software but skip the culture change. Tale as old as IT."
-
-Q: "What's the speaker's stance on hybrid team structures?"
-A: "Mandatory office days? That's just control theater. Pick better."
-
-Q: "What factors drive customer churn according to the data?"
-A: "Customers bail when value doesn't match price, support is slow, or competition offers better UX. The speaker breaks down Q3 numbers—churn spiked 30% after the price hike."
-`
-
-function buildLLMTemplates(enablePersonality: boolean) {
-  const personalityContent = enablePersonality ? personalitySection : ''
+function buildLLMTemplates(personalityName?: string | null) {
+  const personalityContent = personalityName ? personalitySection : ''
 
   return {
     timeWindowSystem: `You are rephrasing short transcript chunks from a live event. The user missed this part of the conversation and only needs the reworded content.
@@ -162,7 +118,7 @@ Do NOT provide any explanation or additional text.`,
   }
 }
 
-export const eventAssistantLLMTemplates = buildLLMTemplates(true)
+export const eventAssistantLLMTemplates = buildLLMTemplates('sarcastic-expert')
 
 export const eventAssistantLlmTemplateVars = {
   timeWindowSystem: [],
@@ -227,11 +183,21 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
 
   const question = userMessage.body
 
-  // Determine if personality should be enabled from agentConfig or environment variable
-  const enablePersonality = this.agentConfig?.enablePersonality ?? config.enableAgentPersonality
+  // Determine which personality to use (if any)
+  // agentConfig.personality takes precedence
+  // If not set, fall back to config.enableAgentPersonality (boolean) - true maps to 'sarcastic-expert', false to null
+  // Determine which personality to use (if any)
+  // agentConfig.personality takes precedence
+  // If not set, fall back to config.enableAgentPersonality (boolean) - true maps to 'sarcastic-expert', false to null
+  let personalityName: string | null = null
+  if (this.agentConfig?.personality !== undefined) {
+    personalityName = this.agentConfig.personality
+  } else if (config.enableAgentPersonality) {
+    personalityName = 'sarcastic-expert'
+  }
 
   // Get the appropriate templates based on personality setting
-  const templates = buildLLMTemplates(enablePersonality)
+  const templates = buildLLMTemplates(personalityName)
 
   // Use provided context from options if available, otherwise search transcript
   let contextString: string

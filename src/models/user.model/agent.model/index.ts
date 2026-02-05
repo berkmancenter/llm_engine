@@ -171,7 +171,7 @@ agentSchema.plugin(paginate)
 // virtuals
 
 agentSchema.virtual('tokenLimit').get(function () {
-  return agentTypes[this.agentType].tokenLimit
+  return agentTypes[this.agentType].maxTokens
 })
 
 agentSchema.virtual('conversationName').get(function () {

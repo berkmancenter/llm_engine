@@ -2,11 +2,11 @@ import { supportedModels } from '../agents/helpers/getModelChat.js'
 import adapterTypes from '../adapters/config.js'
 import { ConversationType, Direction } from '../types/index.types.js'
 
-const eventAssistant: ConversationType = {
+const eventChannelMediatorPlus: ConversationType = {
   // user-facing
-  name: 'eventAssistant',
-  label: 'Event Assistant',
-  description: 'An assistant to answer questions about an event',
+  name: 'eventChannelMediatorPlus',
+  label: 'Event Channel Mediator Plus',
+  description: 'A mediator agent with moderator escalation capability',
   platforms: adapterTypes,
   properties: [
     {
@@ -22,7 +22,7 @@ const eventAssistant: ConversationType = {
       description: 'The display name for the bot as it will appear in Zoom',
       required: false,
       type: 'string',
-      default: 'Event Assistant'
+      default: 'Event Channel Mediator Plus'
     },
     {
       name: 'llmModel',
@@ -36,12 +36,24 @@ const eventAssistant: ConversationType = {
   // internal
   agents: [
     {
-      name: 'eventAssistant',
+      name: 'eventAssistantPlus',
+      properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
+    },
+    {
+      name: 'eventAssistantChannelMediatorPlus',
+      properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
+    },
+    {
+      name: 'backChannelMetrics',
+      properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
+    },
+    {
+      name: 'backChannelInsights',
       properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
     }
   ],
   enableDMs: ['agents'],
-  channels: [{ name: 'transcript' }, { name: 'chat' }],
+  channels: [{ name: 'transcript' }, { name: 'participant' }, { name: 'moderator' }, { name: 'chat' }],
   adapters: {
     zoom: {
       type: 'zoom',
@@ -52,8 +64,14 @@ const eventAssistant: ConversationType = {
       dmChannels: [
         {
           direct: true,
-          agent: 'eventAssistant',
+          agent: 'eventAssistantPlus',
           direction: Direction.BOTH
+        }
+      ],
+      chatChannels: [
+        {
+          name: 'moderator',
+          direction: Direction.OUTGOING
         }
       ],
       audioChannels: [
@@ -79,4 +97,4 @@ const eventAssistant: ConversationType = {
     }
   }
 }
-export default eventAssistant
+export default eventChannelMediatorPlus

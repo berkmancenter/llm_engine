@@ -1,6 +1,6 @@
 import mongoose from 'mongoose'
 import faker from 'faker'
-import { Agent, Channel, Conversation } from '../../src/models/index.js'
+import { Agent, Channel, Conversation, Message } from '../../src/models/index.js'
 import { insertUsers } from '../fixtures/user.fixture.js'
 import { publicTopic } from '../fixtures/conversation.fixture.js'
 import { insertTopics } from '../fixtures/topic.fixture.js'
@@ -454,7 +454,7 @@ export async function createMessage(
   channels: string[] = [],
   createdAt = new Date()
 ): Promise<IMessage> {
-  return {
+  const messageData = {
     body,
     bodyType: typeof body === 'object' ? 'json' : 'text',
     conversation: conversation._id,
@@ -466,13 +466,20 @@ export async function createMessage(
     pause: false,
     visible: true,
     createdAt,
+    updatedAt: createdAt,
     upVotes: [],
     downVotes: []
   }
+
+  // NOTE: Message is NOT automatically saved to DB or added to conversation
+  // For mediator tests, use prepareMessagesForAgent() after creating all messages
+  // For other tests (eventAssistant), messages are handled differently
+
+  return messageData
 }
 
-export async function createDirectMessage(body, user, conversation) {
-  const msg = await createMessage(body, user, conversation, [`direct-agents-${user._id}`])
+export async function createDirectMessage(body, user, conversation, createdAt = new Date()) {
+  const msg = await createMessage(body, user, conversation, [`direct-agents-${user._id}`], createdAt)
   return msg
 }
 
@@ -586,4 +593,100 @@ export async function createBackChannelConversation(conversationObj, owner, topi
   await agent.initialize()
   await agent.start()
   return conversation
+}
+
+export async function createEventChannelMediatorConversation(
+  conversationObj,
+  owner,
+  topic,
+  startTime,
+  llmPlatform?,
+  llmModel?,
+  additionalUsers: (typeof owner)[] = []
+) {
+  const conversation = await createConversation(conversationObj, owner, topic, startTime)
+  const agent = new Agent({
+    agentType: 'eventAssistantChannelMediator',
+    conversation,
+    llmPlatform,
+    llmModel
+  })
+
+  // Create channels for owner and all additional users
+  const allUsers = [owner, ...additionalUsers]
+  const directChannels = allUsers.map((user) => ({
+    name: `direct-agents-${user._id}`,
+    direct: true,
+    participants: [user, agent]
+  }))
+
+  // Note: Basic mediator does NOT have moderator channel - only Plus version does
+  const channels = await Channel.create([{ name: 'transcript' }, { name: 'chat' }, ...directChannels])
+  conversation.channels.push(...channels)
+  await agent.save()
+  conversation.agents.push(agent)
+  await conversation.save()
+  await agent.initialize()
+  await agent.start()
+  return conversation
+}
+
+export async function createEventChannelMediatorPlusConversation(
+  conversationObj,
+  owner,
+  topic,
+  startTime,
+  llmPlatform?,
+  llmModel?,
+  additionalUsers: (typeof owner)[] = []
+) {
+  const conversation = await createConversation(conversationObj, owner, topic, startTime)
+  const agent = new Agent({
+    agentType: 'eventAssistantChannelMediatorPlus',
+    conversation,
+    llmPlatform,
+    llmModel
+  })
+
+  // Create channels for owner and all additional users
+  const allUsers = [owner, ...additionalUsers]
+  const directChannels = allUsers.map((user) => ({
+    name: `direct-agents-${user._id}`,
+    direct: true,
+    participants: [user, agent]
+  }))
+
+  const channels = await Channel.create([{ name: 'transcript' }, { name: 'chat' }, { name: 'moderator' }, ...directChannels])
+  conversation.channels.push(...channels)
+  await agent.save()
+  conversation.agents.push(agent)
+  await conversation.save()
+  await agent.initialize()
+  await agent.start()
+  return conversation
+}
+
+/**
+ * Prepares messages for mediator agent testing by:
+ * 1. Saving messages to the Message collection in the database
+ * 2. Reloading the agent's conversation from database with populated messages and channels
+ *
+ * This ensures the agent can see all messages when its respond() method is called.
+ * This matches how the agent handler populates the conversation in production.
+ *
+ * @param messages - Array of message objects to add
+ * @param conversation - The conversation to add messages to
+ * @param agent - The agent whose conversation reference needs refreshing
+ * @returns The refreshed conversation with all messages visible to agent
+ */
+export async function prepareMessagesForAgent(messages: IMessage[], conversation, agent) {
+  // 1. Save messages to database (conversation.messages is a virtual field, so we need to insert into Message collection)
+  await Message.insertMany(messages)
+
+  // 2. Reload the agent's conversation reference from database with messages AND channels
+  // This matches the pattern in src/jobs/handlers/agent.ts
+  // eslint-disable-next-line no-param-reassign
+  agent.conversation = await Conversation.findById(conversation._id).populate('messages').populate('channels')
+
+  return agent.conversation
 }

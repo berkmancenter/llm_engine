@@ -16,8 +16,8 @@ import experts from './development/experts/index.js'
 import generic from './development/generic/index.js'
 import config from '../config/config.js'
 import eventAssistantPlus from './eventAssistant/eventAssistantPlus.js'
-import eventConfusionMonitor from './eventAssistant/eventConfusionMonitor.js'
-import eventConfusionMonitorPlus from './eventAssistant/eventConfusionMonitorPlus.js'
+import eventChannelMediator from './eventAssistant/eventChannelMediator.js'
+import eventChannelMediatorPlus from './eventAssistant/eventChannelMediatorPlus.js'
 
 const development = {
   civilityPerMessage,
@@ -37,6 +37,6 @@ export default {
   backChannelInsights,
   eventAssistant,
   eventAssistantPlus,
-  eventAssistantConfusionMonitor: eventConfusionMonitor,
-  eventAssistantConfusionMonitorPlus: eventConfusionMonitorPlus
+  eventAssistantChannelMediator: eventChannelMediator,
+  eventAssistantChannelMediatorPlus: eventChannelMediatorPlus
 }

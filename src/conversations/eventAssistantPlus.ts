@@ -40,10 +40,6 @@ const eventAssistantPlus: ConversationType = {
       properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
     },
     {
-      name: 'eventConfusionMonitorPlus',
-      properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
-    },
-    {
       name: 'backChannelMetrics',
       properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
     },

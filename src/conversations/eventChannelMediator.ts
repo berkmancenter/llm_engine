@@ -2,11 +2,11 @@ import { supportedModels } from '../agents/helpers/getModelChat.js'
 import adapterTypes from '../adapters/config.js'
 import { ConversationType, Direction } from '../types/index.types.js'
 
-const eventAssistant: ConversationType = {
+const eventChannelMediator: ConversationType = {
   // user-facing
-  name: 'eventAssistant',
-  label: 'Event Assistant',
-  description: 'An assistant to answer questions about an event',
+  name: 'eventChannelMediator',
+  label: 'Event Channel Mediator',
+  description: 'A mediator agent that monitors conversations and makes strategic interventions in shared chat',
   platforms: adapterTypes,
   properties: [
     {
@@ -22,7 +22,7 @@ const eventAssistant: ConversationType = {
       description: 'The display name for the bot as it will appear in Zoom',
       required: false,
       type: 'string',
-      default: 'Event Assistant'
+      default: 'Event Channel Mediator'
     },
     {
       name: 'llmModel',
@@ -37,6 +37,10 @@ const eventAssistant: ConversationType = {
   agents: [
     {
       name: 'eventAssistant',
+      properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
+    },
+    {
+      name: 'eventAssistantChannelMediator',
       properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
     }
   ],
@@ -79,4 +83,4 @@ const eventAssistant: ConversationType = {
     }
   }
 }
-export default eventAssistant
+export default eventChannelMediator

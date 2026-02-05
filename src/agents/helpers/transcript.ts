@@ -118,9 +118,14 @@ function getTranscript(conversation, timeWindow?, endTime?) {
 
 async function loadEventMetadataIntoVectorStore(conversation) {
   // Delete old metadata documents if they exist
-  await rag.removeFromVectorStore(`${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`, {
-    type: { $in: ['event', 'presenter', 'moderator'] }
-  })
+  try {
+    await rag.removeFromVectorStore(`${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`, {
+      type: { $in: ['event', 'presenter', 'moderator'] }
+    })
+  } catch (error) {
+    // Collection might not exist yet, which is fine
+    logger.debug(`Could not remove old metadata (collection may not exist): ${error.message}`)
+  }
   const docs: string[] = []
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const metadatas: Record<string, any>[] = []
