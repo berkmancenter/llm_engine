@@ -158,7 +158,7 @@ describe('POST /v1/webhooks/recall', () => {
   })
 
   describe('bot.call_ended event', () => {
-    test('should trigger redeploy and stop transcript when bot times out in waiting room with active transcript', async () => {
+    test('should trigger redeploy and stop transcript when bot times out at max duration with active transcript', async () => {
       // Set conversation as active with active transcript so bot redeploy and transcript stop are triggered
       conversation.active = true
       conversation.transcript = {
@@ -172,8 +172,8 @@ describe('POST /v1/webhooks/recall', () => {
           bot: { id: botId },
           data: {
             code: 'call_ended',
-            sub_code: 'timeout_exceeded_waiting_room',
-            message: 'Bot timed out in waiting room'
+            sub_code: 'timeout_exceeded_max_duration',
+            message: 'Bot timed out at max duration'
           }
         }
       }
@@ -276,8 +276,8 @@ describe('POST /v1/webhooks/recall', () => {
           bot: { id: botId },
           data: {
             code: 'call_ended',
-            sub_code: 'timeout_exceeded_waiting_room',
-            message: 'Bot timed out in waiting room'
+            sub_code: 'timeout_exceeded_max_duration',
+            message: 'Bot timed out at max duration'
           }
         }
       }
