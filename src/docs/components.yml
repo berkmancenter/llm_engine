@@ -228,7 +228,10 @@ components:
         votingAllowed:
           type: boolean
         owner:
-          $ref: '#/components/schemas/User'
+          oneOf:
+            - type: string
+              description: User ObjectId when not populated
+            - $ref: '#/components/schemas/User'
         conversationCreationAllowed:
           type: boolean
         private:
@@ -720,9 +723,15 @@ components:
         enableAgents:
           type: boolean
         owner:
-          $ref: '#/components/schemas/User'
+          oneOf:
+            - type: string
+              description: User ObjectId when not populated
+            - $ref: '#/components/schemas/User'
         topic:
-          $ref: '#/components/schemas/Topic'
+          oneOf:
+            - type: string
+              description: Topic ObjectId when not populated
+            - $ref: '#/components/schemas/Topic'
         followed:
           type: boolean
         createdAt:
@@ -768,9 +777,15 @@ components:
         description:
           type: string
         baseConversation:
-          $ref: '#/components/schemas/Conversation'
+          oneOf:
+            - type: string
+              description: Conversation ObjectId when not populated
+            - $ref: '#/components/schemas/Conversation'
         createdBy:
-          $ref: '#/components/schemas/User'
+          oneOf:
+            - type: string
+              description: User ObjectId when not populated
+            - $ref: '#/components/schemas/User'
         createdAt:
           type: string
           format: date-time
@@ -782,7 +797,10 @@ components:
           items:
             $ref: '#/components/schemas/AgentModification'
         resultConversation:
-          $ref: '#/components/schemas/Conversation'
+          oneOf:
+            - type: string
+              description: Conversation ObjectId when not populated
+            - $ref: '#/components/schemas/Conversation'
         executedAt:
           type: string
           format: date-time
@@ -815,14 +833,20 @@ components:
         locked:
           type: boolean
         owner:
-          $ref: '#/components/schemas/User'
+          oneOf:
+            - type: string
+              description: User ObjectId when not populated
+            - $ref: '#/components/schemas/User'
         threshold:
           type: number
         expirationDate:
           type: string
           format: date-time
         topic:
-          $ref: '#/components/schemas/Topic'
+          oneOf:
+            - type: string
+              description: Topic ObjectId when not populated
+            - $ref: '#/components/schemas/Topic'
         multiSelect:
           type: boolean
         allowNewChoices:
@@ -855,7 +879,10 @@ components:
         text:
           type: string
         poll:
-          $ref: '#/components/schemas/Poll'
+          oneOf:
+            - type: string
+              description: Poll ObjectId when not populated
+            - $ref: '#/components/schemas/Poll'
 
     PollResponse:
       type: object
@@ -868,13 +895,22 @@ components:
         id:
           type: string
         choice:
-          $ref: '#/components/schemas/PollChoice'
+          oneOf:
+            - type: string
+              description: PollChoice ObjectId when not populated
+            - $ref: '#/components/schemas/PollChoice'
         removed:
           type: boolean
         owner:
-          $ref: '#/components/schemas/User'
+          oneOf:
+            - type: string
+              description: User ObjectId when not populated
+            - $ref: '#/components/schemas/User'
         poll:
-          $ref: '#/components/schemas/Poll'
+          oneOf:
+            - type: string
+              description: Poll ObjectId when not populated
+            - $ref: '#/components/schemas/Poll'
 
     GenericAgentAnswer:
       type: object
