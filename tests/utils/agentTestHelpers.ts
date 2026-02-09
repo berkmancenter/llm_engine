@@ -595,7 +595,7 @@ export async function createBackChannelConversation(conversationObj, owner, topi
   return conversation
 }
 
-export async function createEventChannelMediatorConversation(
+export async function createEventMediatorConversation(
   conversationObj,
   owner,
   topic,
@@ -606,7 +606,7 @@ export async function createEventChannelMediatorConversation(
 ) {
   const conversation = await createConversation(conversationObj, owner, topic, startTime)
   const agent = new Agent({
-    agentType: 'eventAssistantChannelMediator',
+    agentType: 'eventMediator',
     conversation,
     llmPlatform,
     llmModel
@@ -631,7 +631,7 @@ export async function createEventChannelMediatorConversation(
   return conversation
 }
 
-export async function createEventChannelMediatorPlusConversation(
+export async function createEventMediatorPlusConversation(
   conversationObj,
   owner,
   topic,
@@ -642,7 +642,7 @@ export async function createEventChannelMediatorPlusConversation(
 ) {
   const conversation = await createConversation(conversationObj, owner, topic, startTime)
   const agent = new Agent({
-    agentType: 'eventAssistantChannelMediatorPlus',
+    agentType: 'eventMediatorPlus',
     conversation,
     llmPlatform,
     llmModel

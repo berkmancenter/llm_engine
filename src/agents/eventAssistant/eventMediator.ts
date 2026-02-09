@@ -1,14 +1,23 @@
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
-import { detectMediationOpportunity, createMediatorTemplates, mediatorLlmTemplateVars } from './mediatorHandler.js'
+import {
+  detectInterventionOpportunity,
+  createMediatorTemplates,
+  mediatorLlmTemplateVars
+} from './mediatorHandler.js'
+import {
+  InterventionCategoriesConfig,
+  defaultCategoriesConfig,
+  shouldFetchPrivateMessages
+} from './interventionCategories.js'
 import logger from '../../config/logger.js'
 import getConversationHistory from '../helpers/getConversationHistory.js'
 
 export default verify({
-  name: 'Event Channel Mediator',
+  name: 'Event Mediator',
   description:
-    'Monitors private and public channels to make strategic interventions in shared chat that help participants feel seen and engaged',
+    'Makes strategic interventions in shared chat based on configurable intervention categories: collective consciousness, engagement, and facilitation',
   priority: 85,
   maxTokens: 3000,
   defaultTriggers: {
@@ -16,8 +25,9 @@ export default verify({
   },
   agentConfig: {
     mediatorMinInterval: 60000, // 1 min between interventions
-    minSignalsForConvergence: 2, // Minimum number of independent signals to surface a private theme
-    personality: 'sarcastic-expert' // Use sarcastic-expert personality (set to null for no personality)
+    personality: 'sarcastic-expert', // Use sarcastic-expert personality (set to null for no personality)
+    // Default: all categories enabled with equal weight
+    interventionCategories: defaultCategoriesConfig
   },
   llmTemplateVars: mediatorLlmTemplateVars,
   defaultLLMTemplates: createMediatorTemplates({ supportsModerator: false }),
@@ -27,7 +37,7 @@ export default verify({
   useTranscriptRAGCollection: true,
   // Get comprehensive conversation history across all channels
   defaultConversationHistorySettings: {
-    count: 100, // Large count for complete context
+    count: 100,
     channels: ['chat']
   },
 
@@ -48,25 +58,31 @@ export default verify({
   async respond(conversationHistory: ConversationHistory) {
     // Ensure conversation is available
     if (!this.conversation) {
-      logger.warn('Event Channel Mediator: No conversation available')
+      logger.warn('Event Mediator: No conversation available')
       return []
     }
 
-    // Get separate conversation histories for different channels
+    // Get category configuration from agentConfig
+    const categoryConfig: InterventionCategoriesConfig =
+      this.agentConfig?.interventionCategories || defaultCategoriesConfig
+
     // Shared chat (already provided as main conversationHistory)
     const sharedChatHistory = conversationHistory
 
-    // Private messages - get all DMs
-    const privateHistory = getConversationHistory(
-      this.conversation.messages,
-      {
-        count: 100,
-        directMessages: true,
-        endTime: conversationHistory.end
-      },
-      null, // includeAgents
-      this.conversation.channels.filter((c) => c.direct).map((c) => c.name) // directChannels
-    )
+    // Only fetch private messages if needed based on category config
+    let privateHistory: ConversationHistory | null = null
+    if (shouldFetchPrivateMessages(categoryConfig)) {
+      privateHistory = getConversationHistory(
+        this.conversation.messages,
+        {
+          count: 100,
+          directMessages: true,
+          endTime: conversationHistory.end
+        },
+        null, // includeAgents
+        this.conversation.channels.filter((c) => c.direct).map((c) => c.name) // directChannels
+      )
+    }
 
     // Moderator context
     const moderatorHistory = getConversationHistory(this.conversation.messages, {
@@ -75,33 +91,34 @@ export default verify({
       endTime: conversationHistory.end
     })
 
-    // Detect mediation opportunity
-    const mediationAnalysis = await detectMediationOpportunity.call(
+    // Detect intervention opportunity with category config
+    const interventionAnalysis = await detectInterventionOpportunity.call(
       this,
       sharedChatHistory,
       privateHistory,
-      moderatorHistory
+      moderatorHistory,
+      categoryConfig
     )
 
-    if (!mediationAnalysis) {
-      logger.debug('Event Channel Mediator: No intervention opportunity detected or rate limited')
+    if (!interventionAnalysis) {
+      logger.debug('Event Mediator: No intervention opportunity detected or rate limited')
       return [] // No opportunity detected, rate limited, or low confidence
     }
 
     logger.info(
-      `Event Channel Mediator: Detected ${mediationAnalysis.interventionType} opportunity - ${mediationAnalysis.detectedPattern}`
+      `Event Mediator: Detected ${interventionAnalysis.interventionType} opportunity - ${interventionAnalysis.detectedPattern}`
     )
 
     // Post to shared chat if we have a message
-    if (mediationAnalysis.sharedChatMessage) {
+    if (interventionAnalysis.sharedChatMessage) {
       return [
         {
           visible: true,
-          message: mediationAnalysis.sharedChatMessage,
+          message: interventionAnalysis.sharedChatMessage,
           channels: this.conversation.channels.filter((c) => c.name === 'chat'),
-          context: `Intervention Type: ${mediationAnalysis.interventionType}\nReasoning: ${
-            mediationAnalysis.reasoning
-          }\nPattern: ${mediationAnalysis.detectedPattern || 'N/A'}`
+          context: `Intervention Type: ${interventionAnalysis.interventionType}\nReasoning: ${
+            interventionAnalysis.reasoning
+          }\nPattern: ${interventionAnalysis.detectedPattern || 'N/A'}`
         }
       ]
     }

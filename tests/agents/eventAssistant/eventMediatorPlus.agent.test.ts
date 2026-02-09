@@ -2,7 +2,7 @@
 import setupAgentTest from '../../utils/setupAgentTest.js'
 import defaultAgentTypes from '../../../src/agents/index.js'
 import {
-  createEventChannelMediatorPlusConversation,
+  createEventMediatorPlusConversation,
   createDirectMessage,
   createPublicTopic,
   createUser,
@@ -14,16 +14,16 @@ import getConversationHistory from '../../../src/agents/helpers/getConversationH
 
 jest.setTimeout(180000)
 
-const testConfig = setupAgentTest('eventAssistantChannelMediatorPlus')
+const testConfig = setupAgentTest('eventMediatorPlus')
 
 const testTimeout = 120000
 
 /**
  * MINIMAL TEST SUITE FOR PLUS VERSION
  *
- * This test suite focuses ONLY on the differences between eventChannelMediator
- * and eventChannelMediatorPlus. The base functionality is already extensively
- * tested in eventChannelMediator.agent.test.ts.
+ * This test suite focuses ONLY on the differences between eventMediator
+ * and eventMediatorPlus. The base functionality is already extensively
+ * tested in eventMediator.agent.test.ts.
  *
  * Key Differences in Plus:
  * 1. Moderator escalation capability (posts to 'moderator' channel)
@@ -41,7 +41,7 @@ const testTimeout = 120000
  * - Edge cases with empty histories
  * - Lifecycle methods (initialize, start, stop, introduce)
  */
-describe(`event channel mediator PLUS agent tests (DIFFERENTIAL ONLY)`, () => {
+describe(`event mediator PLUS agent tests (DIFFERENTIAL ONLY)`, () => {
   let agent
   let conversation
   let topic
@@ -59,7 +59,7 @@ describe(`event channel mediator PLUS agent tests (DIFFERENTIAL ONLY)`, () => {
     user3 = await createUser('Skeptical Owl')
     topic = await createPublicTopic()
 
-    conversation = await createEventChannelMediatorPlusConversation(
+    conversation = await createEventMediatorPlusConversation(
       {
         name: 'Why your company should consider part-time work',
         description: `"No one wants to work anymore." Entrepreneur Jessica Drain believes otherwise—instead it's that businesses aren't structuring jobs to attract and retain the widest number of people possible, including those with a limited number of hours to give to a career.`,
@@ -80,7 +80,7 @@ describe(`event channel mediator PLUS agent tests (DIFFERENTIAL ONLY)`, () => {
     )
 
     // Get the mediator Plus agent
-    agent = conversation.agents.find((a) => a.name === 'Event Channel Mediator Plus')
+    agent = conversation.agents.find((a) => a.name === 'Event Mediator Plus')
     expect(agent).toBeDefined()
 
     await loadPartTimeWorkTranscript(conversation, true)
@@ -88,8 +88,8 @@ describe(`event channel mediator PLUS agent tests (DIFFERENTIAL ONLY)`, () => {
 
   describe('Plus-specific configuration', () => {
     it('has correct agent name and description', () => {
-      expect(agent.name).toBe('Event Channel Mediator Plus')
-      expect(agent.description).toContain('escalate significant themes to moderator')
+      expect(agent.name).toBe('Event Mediator Plus')
+      expect(agent.description).toContain('escalates significant themes to moderator')
     })
 
     it('has moderator channel available', () => {
@@ -98,7 +98,7 @@ describe(`event channel mediator PLUS agent tests (DIFFERENTIAL ONLY)`, () => {
     })
 
     it('has parseOutput function defined in agent type', () => {
-      const agentType = defaultAgentTypes.eventAssistantChannelMediatorPlus
+      const agentType = defaultAgentTypes.eventMediatorPlus
       expect(agentType.parseOutput).toBeDefined()
       expect(typeof agentType.parseOutput).toBe('function')
     })
@@ -144,7 +144,7 @@ describe(`event channel mediator PLUS agent tests (DIFFERENTIAL ONLY)`, () => {
           endTime: new Date(startTime.getTime() + 400 * 1000)
         })
 
-        const responses = await defaultAgentTypes.eventAssistantChannelMediatorPlus.respond.call(agent, conversationHistory)
+        const responses = await defaultAgentTypes.eventMediatorPlus.respond.call(agent, conversationHistory)
 
         // Should have responses
         expect(responses.length).toBeGreaterThan(0)
@@ -222,7 +222,7 @@ describe(`event channel mediator PLUS agent tests (DIFFERENTIAL ONLY)`, () => {
           endTime: new Date(startTime.getTime() + 400 * 1000)
         })
 
-        const responses = await defaultAgentTypes.eventAssistantChannelMediatorPlus.respond.call(agent, conversationHistory)
+        const responses = await defaultAgentTypes.eventMediatorPlus.respond.call(agent, conversationHistory)
 
         // Look for moderator escalation
         const moderatorResponse = responses.find((r) => r.channels?.[0]?.name === 'moderator')
@@ -262,7 +262,7 @@ describe(`event channel mediator PLUS agent tests (DIFFERENTIAL ONLY)`, () => {
 
   describe('parseOutput function (PLUS ONLY)', () => {
     it('handles text messages as-is', () => {
-      const agentType = defaultAgentTypes.eventAssistantChannelMediatorPlus
+      const agentType = defaultAgentTypes.eventMediatorPlus
       const textMsg = {
         bodyType: 'text',
         body: 'This is a test message',
@@ -275,7 +275,7 @@ describe(`event channel mediator PLUS agent tests (DIFFERENTIAL ONLY)`, () => {
     })
 
     it('transforms moderator alerts into formatted text', () => {
-      const agentType = defaultAgentTypes.eventAssistantChannelMediatorPlus
+      const agentType = defaultAgentTypes.eventMediatorPlus
       const moderatorAlert = {
         bodyType: 'json',
         body: {
@@ -300,9 +300,9 @@ describe(`event channel mediator PLUS agent tests (DIFFERENTIAL ONLY)`, () => {
       const result = agentType.parseOutput(moderatorAlert)
 
       expect(result.bodyType).toBe('text')
-      expect(result.body).toContain('💡 MODERATOR REPORT 💡')
-      expect(result.body).toContain('⚫ Multiple questions about healthcare compliance')
-      expect(result.body).toContain('⚫ Strong interest in regulatory framework')
+      expect(result.body).toContain('MODERATOR REPORT')
+      expect(result.body).toContain('* Multiple questions about healthcare compliance')
+      expect(result.body).toContain('* Strong interest in regulatory framework')
     })
   })
 
@@ -328,7 +328,7 @@ describe(`event channel mediator PLUS agent tests (DIFFERENTIAL ONLY)`, () => {
           endTime: new Date(startTime.getTime() + 300 * 1000)
         })
 
-        const responses = await defaultAgentTypes.eventAssistantChannelMediatorPlus.respond.call(agent, conversationHistory)
+        const responses = await defaultAgentTypes.eventMediatorPlus.respond.call(agent, conversationHistory)
 
         // If it intervened (not NONE)
         if (responses.length > 0) {
@@ -361,7 +361,7 @@ describe(`event channel mediator PLUS agent tests (DIFFERENTIAL ONLY)`, () => {
         endTime: new Date(startTime.getTime() + 300 * 1000)
       })
 
-      const responses1 = await defaultAgentTypes.eventAssistantChannelMediatorPlus.respond.call(agent, conversationHistory1)
+      const responses1 = await defaultAgentTypes.eventMediatorPlus.respond.call(agent, conversationHistory1)
 
       if (responses1.length > 0) {
         // Try to respond again immediately
@@ -377,10 +377,7 @@ describe(`event channel mediator PLUS agent tests (DIFFERENTIAL ONLY)`, () => {
           endTime: new Date(startTime.getTime() + 305 * 1000)
         })
 
-        const responses2 = await defaultAgentTypes.eventAssistantChannelMediatorPlus.respond.call(
-          agent,
-          conversationHistory2
-        )
+        const responses2 = await defaultAgentTypes.eventMediatorPlus.respond.call(agent, conversationHistory2)
 
         // Should typically be rate limited, but LLM may override in edge cases
         // The important thing is it doesn't break - rate limiting logic is tested in base version
