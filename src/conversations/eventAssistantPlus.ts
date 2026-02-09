@@ -46,6 +46,10 @@ const eventAssistantPlus: ConversationType = {
     {
       name: 'backChannelInsights',
       properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
+    },
+    {
+      name: 'eventMediatorPlus',
+      properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
     }
   ],
   enableDMs: ['agents'],
