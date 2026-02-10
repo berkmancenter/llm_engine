@@ -91,6 +91,34 @@ const testAgentTypeSpecification = {
     defaultLLMPlatform,
     defaultLLMModel,
     useTranscriptRAGCollection: true
+  },
+  eventMediator: {
+    initialize: mockInitialize,
+    respond: mockRespond,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Event Mediator Test Agent',
+    description: 'Test mediator agent with agentConfig',
+    maxTokens: 2000,
+    defaultTriggers: { periodic: { timerPeriod: 60 } },
+    priority: 85,
+    llmTemplateVars: { contribution: [], voting: [] },
+    defaultLLMTemplates: {
+      contribution: 'You are a mediator agent',
+      voting: 'You should vote on this data {voteData}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel,
+    useTranscriptRAGCollection: true,
+    agentConfig: {
+      mediatorMinInterval: 60000,
+      personality: 'sarcastic-expert',
+      interventionCategories: {
+        collectiveConsciousness: { enabled: true, weight: 1.0 },
+        engagement: { enabled: true, weight: 1.0 },
+        facilitation: { enabled: true, weight: 1.0 }
+      }
+    }
   }
 }
 
@@ -144,7 +172,7 @@ describe('Conversation service methods', () => {
 
         // Verify agents were created
         const agents = await Agent.find({ conversation: conversation._id })
-        expect(agents).toHaveLength(1)
+        expect(agents).toHaveLength(2)
         expect(agents[0].agentType).toBe('eventAssistant')
         expect(agents[0].llmModel).toBe(supportedModels[1].llmModel)
         expect(agents[0].llmPlatform).toBe(supportedModels[1].llmPlatform)
@@ -182,7 +210,7 @@ describe('Conversation service methods', () => {
 
         // Verify agents were created
         const agents = await Agent.find({ conversation: conversation._id })
-        expect(agents).toHaveLength(1)
+        expect(agents).toHaveLength(2)
         expect(agents[0].agentType).toBe('eventAssistant')
         expect(agents[0].llmModel).toBe(supportedModels[1].llmModel)
         expect(agents[0].llmPlatform).toBe(supportedModels[1].llmPlatform)
@@ -327,7 +355,7 @@ describe('Conversation service methods', () => {
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
 
         const agents = await Agent.find({ conversation: conversation._id })
-        expect(agents).toHaveLength(1)
+        expect(agents).toHaveLength(2)
         expect(agents[0].agentType).toBe('eventAssistant')
         // These should be undefined so underlying agent defaults are used
         expect(agents[0].llmModel).toBe(defaultLLMModel) // the agent's default

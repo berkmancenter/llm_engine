@@ -28,8 +28,8 @@ const eventAssistantPlus: ConversationType = {
       name: 'llmModel',
       label: 'Model that your agent will use',
       required: false,
-      type: 'object',
-      enum: supportedModels,
+      type: 'enum',
+      options: supportedModels,
       validationKeys: ['llmModel', 'llmPlatform']
     }
   ],
