@@ -76,14 +76,10 @@ describe(`event mediator agent tests`, () => {
       expect(agent.agentConfig.interventionCategories).toBeDefined()
     })
 
-    it('uses periodic trigger with 60 second interval', () => {
+    it('uses periodic trigger on transcript with 60 second interval', () => {
       expect(agent.triggers.periodic).toBeDefined()
       expect(agent.triggers.periodic.timerPeriod).toBe(60)
-    })
-
-    it('has appropriate conversation history settings', () => {
-      expect(agent.conversationHistorySettings.count).toBe(100)
-      expect(agent.conversationHistorySettings.channels).toContain('chat')
+      expect(agent.triggers.periodic.conversationHistorySettings.channels).toContain('transcript')
     })
   })
 
@@ -93,7 +89,7 @@ describe(`event mediator agent tests`, () => {
       async () => {
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 300 * 1000)
         })
 
@@ -143,7 +139,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 400 * 1000)
         })
 
@@ -177,7 +173,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory1 = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 300 * 1000)
         })
 
@@ -194,7 +190,7 @@ describe(`event mediator agent tests`, () => {
           // Try to respond again immediately (within 1 min)
           const conversationHistory2 = getConversationHistory(conversation.messages, {
             count: 100,
-            channels: ['chat'],
+            channels: ['transcript'],
             endTime: new Date(startTime.getTime() + 305 * 1000) // 5 seconds later
           })
 
@@ -233,7 +229,7 @@ describe(`event mediator agent tests`, () => {
 
       const conversationHistory = getConversationHistory(conversation.messages, {
         count: 100,
-        channels: ['chat'],
+        channels: ['transcript'],
         endTime: new Date(startTime.getTime() + 400 * 1000)
       })
 
@@ -281,7 +277,7 @@ describe(`event mediator agent tests`, () => {
 
       const conversationHistory = getConversationHistory(conversation.messages, {
         count: 100,
-        channels: ['chat'],
+        channels: ['transcript'],
         endTime: new Date(startTime.getTime() + 400 * 1000)
       })
 
@@ -315,7 +311,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 300 * 1000)
         })
 
@@ -350,7 +346,7 @@ describe(`event mediator agent tests`, () => {
 
       const conversationHistory = getConversationHistory(conversation.messages, {
         count: 100,
-        channels: ['chat'],
+        channels: ['transcript'],
         endTime: new Date(startTime.getTime() + 300 * 1000)
       })
 
@@ -383,7 +379,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 300 * 1000)
         })
 
@@ -408,7 +404,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 300 * 1000)
         })
 
@@ -494,7 +490,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 400 * 1000)
         })
 
@@ -578,7 +574,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 400 * 1000)
         })
 
@@ -665,7 +661,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 400 * 1000)
         })
 
@@ -713,7 +709,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 400 * 1000)
         })
 
@@ -776,7 +772,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 400 * 1000)
         })
 
@@ -845,7 +841,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 400 * 1000)
         })
 
@@ -899,7 +895,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 400 * 1000)
         })
 
@@ -965,7 +961,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 400 * 1000)
         })
 
@@ -1019,7 +1015,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 400 * 1000)
         })
 
@@ -1049,7 +1045,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 300 * 1000)
         })
 
@@ -1074,7 +1070,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 300 * 1000)
         })
 
@@ -1107,7 +1103,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 300 * 1000)
         })
 
@@ -1132,7 +1128,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 300 * 1000)
         })
 
@@ -1162,7 +1158,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 300 * 1000)
         })
 
@@ -1187,7 +1183,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 300 * 1000)
         })
 
@@ -1210,7 +1206,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 300 * 1000)
         })
 
@@ -1266,7 +1262,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 500 * 1000)
         })
 
@@ -1320,7 +1316,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 500 * 1000)
         })
 
@@ -1371,7 +1367,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 500 * 1000)
         })
 
@@ -1416,7 +1412,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 400 * 1000)
         })
 
@@ -1467,7 +1463,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 600 * 1000)
         })
 
@@ -1523,7 +1519,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 500 * 1000)
         })
 
@@ -1589,7 +1585,7 @@ describe(`event mediator agent tests`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 450 * 1000)
         })
 
@@ -1678,7 +1674,7 @@ describe(`event mediator agent tests`, () => {
 
           const conversationHistory = getConversationHistory(conversation.messages, {
             count: 100,
-            channels: ['chat'],
+            channels: ['transcript'],
             endTime: new Date(startTime.getTime() + 300 * 1000)
           })
 
@@ -1752,7 +1748,7 @@ describe(`event mediator agent tests`, () => {
 
           const conversationHistory = getConversationHistory(workshopConversation.messages, {
             count: 100,
-            channels: ['chat'],
+            channels: ['transcript'],
             endTime: new Date(startTime.getTime() + 1340 * 1000)
           })
 
@@ -1836,7 +1832,7 @@ describe(`event mediator agent tests`, () => {
           // This is a direct invitation for pushback - the agent should jump in
           const conversationHistory = getConversationHistory(workshopConversation.messages, {
             count: 100,
-            channels: ['chat'],
+            channels: ['transcript'],
             endTime: new Date(startTime.getTime() + 1270 * 1000) // ~21:10 into the workshop
           })
 

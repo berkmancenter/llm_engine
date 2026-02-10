@@ -1,11 +1,7 @@
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
-import {
-  detectInterventionOpportunity,
-  createMediatorTemplates,
-  mediatorLlmTemplateVars
-} from './mediatorHandler.js'
+import { detectInterventionOpportunity, createMediatorTemplates, mediatorLlmTemplateVars } from './mediatorHandler.js'
 import {
   InterventionCategoriesConfig,
   defaultCategoriesConfig,
@@ -21,7 +17,7 @@ export default verify({
   priority: 85,
   maxTokens: 3000,
   defaultTriggers: {
-    periodic: { timerPeriod: 60 }
+    periodic: { timerPeriod: 60, conversationHistorySettings: { channels: ['transcript'] } }
   },
   agentConfig: {
     mediatorMinInterval: 60000, // 1 min between interventions
@@ -35,11 +31,6 @@ export default verify({
   defaultLLMModel,
   ragCollectionName: undefined,
   useTranscriptRAGCollection: true,
-  // Get comprehensive conversation history across all channels
-  defaultConversationHistorySettings: {
-    count: 100,
-    channels: ['chat']
-  },
 
   async initialize() {
     return true
@@ -63,11 +54,14 @@ export default verify({
     }
 
     // Get category configuration from agentConfig
-    const categoryConfig: InterventionCategoriesConfig =
-      this.agentConfig?.interventionCategories || defaultCategoriesConfig
+    const categoryConfig: InterventionCategoriesConfig = this.agentConfig?.interventionCategories || defaultCategoriesConfig
 
-    // Shared chat (already provided as main conversationHistory)
-    const sharedChatHistory = conversationHistory
+    // Shared chat
+    const sharedChatHistory = getConversationHistory(this.conversation.messages, {
+      count: 100,
+      channels: ['chat'],
+      endTime: conversationHistory.end
+    })
 
     // Only fetch private messages if needed based on category config
     let privateHistory: ConversationHistory | null = null

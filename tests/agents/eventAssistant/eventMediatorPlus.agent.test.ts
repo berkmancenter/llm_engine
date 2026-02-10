@@ -140,7 +140,7 @@ describe(`event mediator PLUS agent tests (DIFFERENTIAL ONLY)`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 400 * 1000)
         })
 
@@ -218,7 +218,7 @@ describe(`event mediator PLUS agent tests (DIFFERENTIAL ONLY)`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 400 * 1000)
         })
 
@@ -324,7 +324,7 @@ describe(`event mediator PLUS agent tests (DIFFERENTIAL ONLY)`, () => {
 
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 300 * 1000)
         })
 
@@ -357,7 +357,7 @@ describe(`event mediator PLUS agent tests (DIFFERENTIAL ONLY)`, () => {
 
       const conversationHistory1 = getConversationHistory(conversation.messages, {
         count: 100,
-        channels: ['chat'],
+        channels: ['transcript'],
         endTime: new Date(startTime.getTime() + 300 * 1000)
       })
 
@@ -373,7 +373,7 @@ describe(`event mediator PLUS agent tests (DIFFERENTIAL ONLY)`, () => {
 
         const conversationHistory2 = getConversationHistory(conversation.messages, {
           count: 100,
-          channels: ['chat'],
+          channels: ['transcript'],
           endTime: new Date(startTime.getTime() + 305 * 1000)
         })
 

@@ -37,8 +37,9 @@ export default verify({
     'Makes strategic interventions in shared chat and escalates significant themes to moderator, based on configurable intervention categories',
   priority: 85,
   maxTokens: 3000,
+  // trigger on transcript updates, if any have occurred w/in the timer period
   defaultTriggers: {
-    periodic: { timerPeriod: 60 }
+    periodic: { timerPeriod: 60, conversationHistorySettings: { channels: ['transcript'] } }
   },
   agentConfig: {
     mediatorMinInterval: 60000, // 1 min between interventions
@@ -69,11 +70,6 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
   },
   ragCollectionName: undefined,
   useTranscriptRAGCollection: true,
-  // Get comprehensive conversation history across all channels
-  defaultConversationHistorySettings: {
-    count: 100,
-    channels: ['chat']
-  },
 
   async initialize() {
     return true
@@ -99,8 +95,12 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
     // Get category configuration from agentConfig
     const categoryConfig: InterventionCategoriesConfig = this.agentConfig?.interventionCategories || defaultCategoriesConfig
 
-    // Shared chat (already provided as main conversationHistory)
-    const sharedChatHistory = conversationHistory
+    // Shared chat
+    const sharedChatHistory = getConversationHistory(this.conversation.messages, {
+      count: 100,
+      channels: ['chat'],
+      endTime: conversationHistory.end
+    })
 
     // Only fetch private messages if needed based on category config
     let privateHistory: ConversationHistory | null = null
