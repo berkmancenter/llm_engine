@@ -32,22 +32,22 @@ export interface InterventionCategoriesConfig {
 }
 
 /**
- * Definition of an intervention category
+ * Details about an available intervention category for configuration
  */
-export interface InterventionCategory {
-  name: string
-  description: string
-  interventions: InterventionType[]
+export interface InterventionCategoryDetails {
+  name: string // The key used in InterventionCategoriesConfig
+  label: string // User-facing display name
+  description: string // What this category does
+  interventions: InterventionType[] // Which intervention types it includes
   requiresPrivateMessages: boolean
   defaultWeight: number
+  defaultEnabled: boolean
 }
 
-/**
- * Registry of all intervention categories
- */
-export const interventionCategories: Record<string, InterventionCategory> = {
-  collectiveConsciousness: {
+export const interventionCategories: InterventionCategoryDetails[] = [
+  {
     name: 'collectiveConsciousness',
+    label: 'Collective Consciousness',
     description: 'Bridge individual experience → group awareness',
     interventions: [
       InterventionType.SIGNAL,
@@ -57,32 +57,40 @@ export const interventionCategories: Record<string, InterventionCategory> = {
       InterventionType.MODERATOR_ESCALATION
     ],
     requiresPrivateMessages: true,
-    defaultWeight: 1.0
+    defaultWeight: 1.0,
+    defaultEnabled: true
   },
-  engagement: {
+  {
     name: 'engagement',
+    label: 'Engagement',
     description: 'Generate energy & participation',
     interventions: [InterventionType.PROVOCATION, InterventionType.PLAY],
     requiresPrivateMessages: false,
-    defaultWeight: 1.0
+    defaultWeight: 1.0,
+    defaultEnabled: true
   },
-  facilitation: {
+  {
     name: 'facilitation',
+    label: 'Facilitation',
     description: 'Help people follow along',
     interventions: [InterventionType.STRUCTURE, InterventionType.BRIDGE],
     requiresPrivateMessages: false,
-    defaultWeight: 1.0
+    defaultWeight: 1.0,
+    defaultEnabled: true
   }
-}
+]
 
 /**
- * Default configuration with all categories enabled at weight 1.0
+ * Default configuration with all categories enabled at their default weights
+ * Built from interventionCategories
  */
-export const defaultCategoriesConfig: InterventionCategoriesConfig = {
-  collectiveConsciousness: { enabled: true, weight: 1.0 },
-  engagement: { enabled: true, weight: 1.0 },
-  facilitation: { enabled: true, weight: 1.0 }
-}
+export const defaultCategoriesConfig: InterventionCategoriesConfig = interventionCategories.reduce((acc, cat) => {
+  acc[cat.name as keyof InterventionCategoriesConfig] = {
+    enabled: cat.defaultEnabled,
+    weight: cat.defaultWeight
+  }
+  return acc
+}, {} as InterventionCategoriesConfig)
 
 /**
  * Get list of enabled intervention types based on category configuration
@@ -94,8 +102,8 @@ export function getEnabledInterventions(
 ): InterventionType[] {
   const enabledTypes: Set<InterventionType> = new Set()
 
-  for (const [categoryName, category] of Object.entries(interventionCategories)) {
-    const config = categoryConfig[categoryName as keyof InterventionCategoriesConfig]
+  for (const category of interventionCategories) {
+    const config = categoryConfig[category.name as keyof InterventionCategoriesConfig]
     if (config?.enabled) {
       for (const intervention of category.interventions) {
         // Only include MODERATOR_ESCALATION if moderator is supported
@@ -118,8 +126,8 @@ export function getEnabledInterventions(
  * Returns true if any enabled category requires private messages
  */
 export function shouldFetchPrivateMessages(categoryConfig: InterventionCategoriesConfig = defaultCategoriesConfig): boolean {
-  for (const [categoryName, category] of Object.entries(interventionCategories)) {
-    const config = categoryConfig[categoryName as keyof InterventionCategoriesConfig]
+  for (const category of interventionCategories) {
+    const config = categoryConfig[category.name as keyof InterventionCategoriesConfig]
     if (config?.enabled && category.requiresPrivateMessages) {
       return true
     }
@@ -134,11 +142,11 @@ export function shouldFetchPrivateMessages(categoryConfig: InterventionCategorie
 export function getCategoryWeightGuidance(categoryConfig: InterventionCategoriesConfig = defaultCategoriesConfig): string {
   const enabledCategories: Array<{ name: string; description: string; weight: number; interventions: string[] }> = []
 
-  for (const [categoryName, category] of Object.entries(interventionCategories)) {
-    const config = categoryConfig[categoryName as keyof InterventionCategoriesConfig]
+  for (const category of interventionCategories) {
+    const config = categoryConfig[category.name as keyof InterventionCategoriesConfig]
     if (config?.enabled) {
       enabledCategories.push({
-        name: categoryName,
+        name: category.name,
         description: category.description,
         weight: config.weight,
         interventions: category.interventions.filter((i) => i !== InterventionType.MODERATOR_ESCALATION)
@@ -191,7 +199,9 @@ export function getCategoryWeightGuidance(categoryConfig: InterventionCategories
     lines.push('')
     lines.push('## Engagement Mode')
     lines.push('')
-    lines.push('With engagement highly weighted, you are an **active participant** in this discussion, not just an observer.')
+    lines.push(
+      'With engagement highly weighted, you are an **active participant** in this discussion, not just an observer.'
+    )
     lines.push('You are in the room. Break the fourth wall. Contribute to the energy.')
     lines.push('')
     lines.push('Be active when:')
@@ -199,9 +209,9 @@ export function getCategoryWeightGuidance(categoryConfig: InterventionCategories
     lines.push('- Something funny, ironic, or notable happens — add color commentary')
     lines.push('- The room is too quiet or passive — spark discussion')
     lines.push('- A bold claim goes unchallenged — ask the hard question')
-    lines.push('- There\'s a natural pause or transition — add a witty observation')
+    lines.push("- There's a natural pause or transition — add a witty observation")
     lines.push('')
-    lines.push('Don\'t wait for problems. Participate. The higher the engagement weight, the more present you should be.')
+    lines.push("Don't wait for problems. Participate. The higher the engagement weight, the more present you should be.")
   }
 
   return lines.join('\n')
@@ -211,9 +221,9 @@ export function getCategoryWeightGuidance(categoryConfig: InterventionCategories
  * Get the category that an intervention type belongs to
  */
 export function getCategoryForIntervention(interventionType: InterventionType): string | null {
-  for (const [categoryName, category] of Object.entries(interventionCategories)) {
+  for (const category of interventionCategories) {
     if (category.interventions.includes(interventionType)) {
-      return categoryName
+      return category.name
     }
   }
   return null

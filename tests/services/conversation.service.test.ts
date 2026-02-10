@@ -361,6 +361,41 @@ describe('Conversation service methods', () => {
         expect(agents[0].llmModel).toBe(defaultLLMModel) // the agent's default
         expect(agents[0].llmPlatform).toBe(defaultLLMPlatform)
       })
+
+      test('should set agentConfig values', async () => {
+        const params = {
+          type: 'eventAssistant',
+          name: 'Test Event with AgentConfig',
+          platforms: ['zoom'],
+          topicId: topicOne._id.toString(),
+          properties: {
+            zoomMeetingUrl: 'https://zoom.us/j/123456789',
+            interventionCategories: {
+              collectiveConsciousness: { enabled: false, weight: 0.5 },
+              engagement: { enabled: true, weight: 2.0 },
+              facilitation: { enabled: true, weight: 1.5 }
+            }
+          }
+        }
+
+        const conversation = await conversationService.createConversationFromType(params, registeredUser)
+
+        const agents = await Agent.find({ conversation: conversation._id })
+        expect(agents).toHaveLength(2) // eventAssistant and eventMediator
+
+        const mediatorAgent = agents.find((a) => a.agentType === 'eventMediator')
+        expect(mediatorAgent).toBeDefined()
+
+        expect(mediatorAgent!.agentConfig!.mediatorMinInterval).toBe(60000)
+        expect(mediatorAgent!.agentConfig!.personality).toBe('sarcastic-expert')
+        const categories = mediatorAgent!.agentConfig!.interventionCategories as Record<string, Record<string, unknown>>
+        expect(categories.collectiveConsciousness.enabled as boolean).toBe(false)
+        expect(categories.collectiveConsciousness.weight).toBe(0.5)
+        expect(categories.engagement.enabled).toBe(true)
+        expect(categories.engagement.weight).toBe(2.0)
+        expect(categories.facilitation.enabled).toBe(true)
+        expect(categories.facilitation.weight).toBe(1.5)
+      })
     })
 
     describe('Back Channel', () => {

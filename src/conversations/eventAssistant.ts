@@ -1,4 +1,5 @@
 import { supportedModels } from '../agents/helpers/getModelChat.js'
+import { interventionCategories } from '../agents/eventAssistant/interventionCategories.js'
 import adapterTypes from '../adapters/config.js'
 import { ConversationType, Direction } from '../types/index.types.js'
 
@@ -31,6 +32,15 @@ const eventAssistant: ConversationType = {
       type: 'enum',
       options: supportedModels,
       validationKeys: ['llmModel', 'llmPlatform']
+    },
+    {
+      name: 'interventionCategories',
+      label: 'Intervention Categories',
+      description: 'Configure which intervention types the mediator can use and their priorities',
+      required: false,
+      type: 'object',
+      schema: interventionCategories,
+      itemKey: 'name'
     }
   ],
   // internal
@@ -41,7 +51,28 @@ const eventAssistant: ConversationType = {
     },
     {
       name: 'eventMediator',
-      properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
+      properties: {
+        llmModel: '{{properties.llmModel.llmModel}}',
+        llmPlatform: '{{properties.llmModel.llmPlatform}}',
+        agentConfig: {
+          interventionCategories: {
+            collectiveConsciousness: {
+              enabled: '{{properties.interventionCategories.collectiveConsciousness.enabled}}',
+              weight: '{{properties.interventionCategories.collectiveConsciousness.weight}}'
+            },
+            engagement: {
+              enabled: '{{properties.interventionCategories.engagement.enabled}}',
+              weight: '{{properties.interventionCategories.engagement.weight}}'
+            },
+            facilitation: {
+              enabled: '{{properties.interventionCategories.facilitation.enabled}}',
+              weight: '{{properties.interventionCategories.facilitation.weight}}'
+            }
+          },
+          mediatorMinInterval: 60000,
+          personality: 'sarcastic-expert'
+        }
+      }
     }
   ],
   enableDMs: ['agents'],

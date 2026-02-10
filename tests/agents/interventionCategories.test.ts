@@ -12,30 +12,42 @@ import {
 describe('interventionCategories', () => {
   describe('category definitions', () => {
     it('defines collectiveConsciousness category', () => {
-      const cc = interventionCategories.collectiveConsciousness
-      expect(cc.name).toBe('collectiveConsciousness')
-      expect(cc.requiresPrivateMessages).toBe(true)
-      expect(cc.interventions).toContain(InterventionType.SIGNAL)
-      expect(cc.interventions).toContain(InterventionType.SYNTHESIS)
-      expect(cc.interventions).toContain(InterventionType.MINORITY_VOICE)
-      expect(cc.interventions).toContain(InterventionType.CONFUSION)
-      expect(cc.interventions).toContain(InterventionType.MODERATOR_ESCALATION)
+      const cc = interventionCategories.find((c) => c.name === 'collectiveConsciousness')
+      expect(cc).toBeDefined()
+      expect(cc!.name).toBe('collectiveConsciousness')
+      expect(cc!.label).toBe('Collective Consciousness')
+      expect(cc!.requiresPrivateMessages).toBe(true)
+      expect(cc!.defaultEnabled).toBe(true)
+      expect(cc!.defaultWeight).toBe(1.0)
+      expect(cc!.interventions).toContain(InterventionType.SIGNAL)
+      expect(cc!.interventions).toContain(InterventionType.SYNTHESIS)
+      expect(cc!.interventions).toContain(InterventionType.MINORITY_VOICE)
+      expect(cc!.interventions).toContain(InterventionType.CONFUSION)
+      expect(cc!.interventions).toContain(InterventionType.MODERATOR_ESCALATION)
     })
 
     it('defines engagement category', () => {
-      const { engagement } = interventionCategories
-      expect(engagement.name).toBe('engagement')
-      expect(engagement.requiresPrivateMessages).toBe(false)
-      expect(engagement.interventions).toContain(InterventionType.PROVOCATION)
-      expect(engagement.interventions).toContain(InterventionType.PLAY)
+      const engagement = interventionCategories.find((c) => c.name === 'engagement')
+      expect(engagement).toBeDefined()
+      expect(engagement!.name).toBe('engagement')
+      expect(engagement!.label).toBe('Engagement')
+      expect(engagement!.requiresPrivateMessages).toBe(false)
+      expect(engagement!.defaultEnabled).toBe(true)
+      expect(engagement!.defaultWeight).toBe(1.0)
+      expect(engagement!.interventions).toContain(InterventionType.PROVOCATION)
+      expect(engagement!.interventions).toContain(InterventionType.PLAY)
     })
 
     it('defines facilitation category', () => {
-      const { facilitation } = interventionCategories
-      expect(facilitation.name).toBe('facilitation')
-      expect(facilitation.requiresPrivateMessages).toBe(false)
-      expect(facilitation.interventions).toContain(InterventionType.STRUCTURE)
-      expect(facilitation.interventions).toContain(InterventionType.BRIDGE)
+      const facilitation = interventionCategories.find((c) => c.name === 'facilitation')
+      expect(facilitation).toBeDefined()
+      expect(facilitation!.name).toBe('facilitation')
+      expect(facilitation!.label).toBe('Facilitation')
+      expect(facilitation!.requiresPrivateMessages).toBe(false)
+      expect(facilitation!.defaultEnabled).toBe(true)
+      expect(facilitation!.defaultWeight).toBe(1.0)
+      expect(facilitation!.interventions).toContain(InterventionType.STRUCTURE)
+      expect(facilitation!.interventions).toContain(InterventionType.BRIDGE)
     })
   })
 
