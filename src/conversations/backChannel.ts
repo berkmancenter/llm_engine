@@ -27,8 +27,8 @@ const backChannel: ConversationType = {
       name: 'llmModel',
       label: 'Model that your agent will use',
       required: false,
-      type: 'string',
-      enum: supportedModels,
+      type: 'enum',
+      options: supportedModels,
       validationKeys: ['llmModel', 'llmPlatform']
     }
   ],

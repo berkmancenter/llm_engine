@@ -171,12 +171,14 @@ export interface IExperiment {
 export interface ConversationTypeProperty {
   name: string
   required: boolean
-  type: 'string' | 'number' | 'boolean' | 'object'
+  type: 'string' | 'number' | 'boolean' | 'object' | 'enum'
   label?: string
   default?: string | number | boolean | object
   description?: string
-  enum?: Array<string | number | boolean | object>
+  options?: Array<object>
   validationKeys?: string[]
+  itemKey?: string
+  schema?: Array<object>
 }
 
 export interface ChannelConfig {

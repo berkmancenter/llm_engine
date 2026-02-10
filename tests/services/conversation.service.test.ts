@@ -91,6 +91,34 @@ const testAgentTypeSpecification = {
     defaultLLMPlatform,
     defaultLLMModel,
     useTranscriptRAGCollection: true
+  },
+  eventMediator: {
+    initialize: mockInitialize,
+    respond: mockRespond,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Event Mediator Test Agent',
+    description: 'Test mediator agent with agentConfig',
+    maxTokens: 2000,
+    defaultTriggers: { periodic: { timerPeriod: 60 } },
+    priority: 85,
+    llmTemplateVars: { contribution: [], voting: [] },
+    defaultLLMTemplates: {
+      contribution: 'You are a mediator agent',
+      voting: 'You should vote on this data {voteData}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel,
+    useTranscriptRAGCollection: true,
+    agentConfig: {
+      mediatorMinInterval: 60000,
+      personality: 'sarcastic-expert',
+      interventionCategories: {
+        collectiveConsciousness: { enabled: true, weight: 1.0 },
+        engagement: { enabled: true, weight: 1.0 },
+        facilitation: { enabled: true, weight: 1.0 }
+      }
+    }
   }
 }
 
@@ -144,7 +172,7 @@ describe('Conversation service methods', () => {
 
         // Verify agents were created
         const agents = await Agent.find({ conversation: conversation._id })
-        expect(agents).toHaveLength(1)
+        expect(agents).toHaveLength(2)
         expect(agents[0].agentType).toBe('eventAssistant')
         expect(agents[0].llmModel).toBe(supportedModels[1].llmModel)
         expect(agents[0].llmPlatform).toBe(supportedModels[1].llmPlatform)
@@ -182,7 +210,7 @@ describe('Conversation service methods', () => {
 
         // Verify agents were created
         const agents = await Agent.find({ conversation: conversation._id })
-        expect(agents).toHaveLength(1)
+        expect(agents).toHaveLength(2)
         expect(agents[0].agentType).toBe('eventAssistant')
         expect(agents[0].llmModel).toBe(supportedModels[1].llmModel)
         expect(agents[0].llmPlatform).toBe(supportedModels[1].llmPlatform)
@@ -327,11 +355,46 @@ describe('Conversation service methods', () => {
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
 
         const agents = await Agent.find({ conversation: conversation._id })
-        expect(agents).toHaveLength(1)
+        expect(agents).toHaveLength(2)
         expect(agents[0].agentType).toBe('eventAssistant')
         // These should be undefined so underlying agent defaults are used
         expect(agents[0].llmModel).toBe(defaultLLMModel) // the agent's default
         expect(agents[0].llmPlatform).toBe(defaultLLMPlatform)
+      })
+
+      test('should set agentConfig values', async () => {
+        const params = {
+          type: 'eventAssistant',
+          name: 'Test Event with AgentConfig',
+          platforms: ['zoom'],
+          topicId: topicOne._id.toString(),
+          properties: {
+            zoomMeetingUrl: 'https://zoom.us/j/123456789',
+            interventionCategories: {
+              collectiveConsciousness: { enabled: false, weight: 0.5 },
+              engagement: { enabled: true, weight: 2.0 },
+              facilitation: { enabled: true, weight: 1.5 }
+            }
+          }
+        }
+
+        const conversation = await conversationService.createConversationFromType(params, registeredUser)
+
+        const agents = await Agent.find({ conversation: conversation._id })
+        expect(agents).toHaveLength(2) // eventAssistant and eventMediator
+
+        const mediatorAgent = agents.find((a) => a.agentType === 'eventMediator')
+        expect(mediatorAgent).toBeDefined()
+
+        expect(mediatorAgent!.agentConfig!.mediatorMinInterval).toBe(60000)
+        expect(mediatorAgent!.agentConfig!.personality).toBe('sarcastic-expert')
+        const categories = mediatorAgent!.agentConfig!.interventionCategories as Record<string, Record<string, unknown>>
+        expect(categories.collectiveConsciousness.enabled as boolean).toBe(false)
+        expect(categories.collectiveConsciousness.weight).toBe(0.5)
+        expect(categories.engagement.enabled).toBe(true)
+        expect(categories.engagement.weight).toBe(2.0)
+        expect(categories.facilitation.enabled).toBe(true)
+        expect(categories.facilitation.weight).toBe(1.5)
       })
     })
 
