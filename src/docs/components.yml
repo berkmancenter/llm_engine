@@ -511,7 +511,7 @@ components:
           type: boolean
         type:
           type: string
-          enum: [string, number, boolean, object]
+          enum: [string, number, boolean, object, enum]
         label:
           type: string
         default:
@@ -522,18 +522,20 @@ components:
             - type: object
         description:
           type: string
-        enum:
+        options:
           type: array
           items:
-            oneOf:
-              - type: string
-              - type: number
-              - type: boolean
-              - type: object
+            type: object
         validationKeys:
           type: array
           items:
             type: string
+        itemKey:
+          type: string
+        schema:
+          type: array
+          items:
+            type: object
 
     ChannelConfig:
       type: object

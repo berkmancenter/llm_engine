@@ -175,7 +175,7 @@ export interface ConversationTypeProperty {
   label?: string
   default?: string | number | boolean | object
   description?: string
-  options?: Array<string | number | boolean | object>
+  options?: Array<object>
   validationKeys?: string[]
   itemKey?: string
   schema?: Array<object>
