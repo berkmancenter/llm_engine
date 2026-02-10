@@ -426,6 +426,82 @@ const aliensTranscript = `00:13 - Speaker: I saw a UFO once.
 03:09 - Speaker:  collaborate on a Wikipedia Galactica,
 03:13 - Speaker:  or just shout out to the universe, "We're here"?`
 
+/**
+ * NOTE: This is a fictional workshop transcript for testing engagement interventions
+ * Design Thinking Workshop: Reimagining the Employee Onboarding Experience
+ * Facilitator: Marcus Chen
+ *
+ * This transcript is designed to be participatory with natural pauses,
+ * audience interaction, and moments that invite PROVOCATION and PLAY interventions.
+ */
+const designWorkshopTranscript = `00:15 | Marcus: Alright everyone, welcome to our design thinking workshop on reimagining employee onboarding.
+00:22 | Marcus: Before we dive in, I want to set some ground rules. This is a judgment-free zone.
+00:28 | Marcus: Bad ideas don't exist here - only stepping stones to better ones.
+00:35 | Marcus: So who here has experienced a truly terrible onboarding? Show of hands.
+00:42 | Marcus: Ha! That's about 80% of the room. We've got work to do.
+00:50 | Marcus: Let's start with a quick exercise. Turn to the person next to you.
+00:56 | Marcus: You have 90 seconds to share the worst onboarding experience you've ever had.
+01:03 | Marcus: Go!
+02:35 | Marcus: Alright, time! I heard some real horror stories over there in the back.
+02:42 | Marcus: Let's hear a few. Who wants to share? Don't be shy.
+02:50 | Participant: I once spent my entire first week without a computer login.
+02:56 | Marcus: A week! That's impressive in the worst way. Anyone beat that?
+03:04 | Participant: I didn't meet my manager for three weeks. Found out later they were on vacation.
+03:12 | Marcus: Oh that's painful. These stories are gold for what we're designing against.
+03:20 | Marcus: Now here's the thing - and I want you to really sit with this.
+03:27 | Marcus: The average company spends $4,000 per hire on recruiting and onboarding.
+03:34 | Marcus: But 33% of new hires look for a new job within their first 6 months.
+03:41 | Marcus: That's a third of your investment potentially walking out the door.
+03:48 | Marcus: What do you think is driving that? Shout it out.
+03:54 | Participant: Unclear expectations.
+03:57 | Participant: No sense of belonging.
+04:00 | Participant: Information overload day one.
+04:04 | Marcus: All great observations. Let me add one more that might be controversial.
+04:12 | Marcus: Most onboarding programs are designed for the company, not the employee.
+04:19 | Marcus: We optimize for compliance checkboxes, not human connection.
+04:26 | Marcus: Agree? Disagree? I see some skeptical faces.
+04:33 | Participant: I mean, compliance is important though. You can't skip that.
+04:39 | Marcus: Absolutely! But does it have to be a 4-hour PowerPoint on day one?
+04:46 | Marcus: Or could we find ways to weave it in over the first month?
+04:53 | Marcus: That's a design challenge, not a constraint.
+05:00 | Marcus: Okay, let's move to our empathy mapping exercise.
+05:07 | Marcus: You each have a worksheet. I want you to think about a new hire - day one.
+05:15 | Marcus: What are they thinking? What are they feeling? What are they seeing and hearing?
+05:23 | Marcus: Take 5 minutes. Really put yourself in their shoes.
+10:30 | Marcus: Alright, pens down. Let's hear some insights.
+10:37 | Marcus: What did you put for "feeling"?
+10:42 | Participant: Anxious. Excited but mostly anxious.
+10:47 | Participant: Imposter syndrome kicking in hard.
+10:52 | Marcus: That imposter syndrome point is huge. Everyone feels it, nobody admits it.
+11:00 | Marcus: What if onboarding actually acknowledged that? What would that look like?
+11:08 | Participant: Maybe having new hires meet with people who struggled at first but succeeded?
+11:15 | Marcus: I love that. Normalize the struggle. What else?
+11:22 | Participant: A buddy system where you can ask dumb questions safely.
+11:28 | Marcus: Yes! Permission to be a beginner. Write that down everyone.
+11:35 | Marcus: Now here's where it gets interesting.
+11:40 | Marcus: We're going to do a crazy 8s exercise. Eight ideas in eight minutes.
+11:48 | Marcus: Don't filter yourselves. Quantity over quality right now.
+11:55 | Marcus: The wildest idea might contain the seed of something brilliant.
+12:02 | Marcus: Ready? Your challenge: How might we make a new hire feel like they belong in week one?
+12:12 | Marcus: Go!
+20:15 | Marcus: Time! Let's do a gallery walk. Post your sheets on the wall.
+20:23 | Marcus: I'm seeing some wild ones up here. New hire scavenger hunt - tell me more!
+20:32 | Participant: It's like, they have to find and meet 10 people their first week. Each person gives them a clue to the next.
+20:42 | Marcus: That's actually genius. Gamified networking. The introverts are cringing but admit it works.
+20:52 | Marcus: What about this one - First day failure celebration?
+21:00 | Participant: You intentionally set them up to make a small, safe mistake. Then celebrate that they learned something.
+21:10 | Marcus: Oh that's provocative. Who thinks that's terrible? Be honest.
+21:17 | Participant: It sounds stressful. I wouldn't want to fail on purpose.
+21:23 | Marcus: Fair. But what if it reframes failure as learning? What's the fear we're trying to dissolve?
+21:32 | Participant: The fear that making mistakes will get you fired.
+21:37 | Marcus: Exactly. And if we don't address that fear, when does it go away? Maybe never.
+21:45 | Marcus: Okay, let's vote. Everyone gets three dots. Put them on the ideas you'd want to prototype.
+23:30 | Marcus: Alright, I'm seeing clear winners here. Scavenger hunt, buddy system, and wow, failure celebration got votes!
+23:42 | Marcus: We're going to break into three groups. Each group prototypes one concept.
+23:50 | Marcus: You have 15 minutes to create a rough prototype. Use the supplies on the table.
+23:58 | Marcus: Don't overthink it. Scrappy is good. We're testing concepts, not building products.
+24:06 | Marcus: Go!`
+
 export async function createUser(pseudonym) {
   const user = {
     _id: new mongoose.Types.ObjectId(),
@@ -507,6 +583,10 @@ export async function loadPartTimeWorkTranscript(conversation, rag = false) {
 
 export async function loadAliensTranscript(conversation, rag = false) {
   await loadTestTranscript(conversation, aliensTranscript, rag, '-')
+}
+
+export async function loadDesignWorkshopTranscript(conversation, rag = false) {
+  await loadTestTranscript(conversation, designWorkshopTranscript, rag)
 }
 
 export async function createConversation(conversationObj, owner, topic, startTime = new Date()) {

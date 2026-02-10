@@ -213,6 +213,29 @@ export function getMediatorSystemPrompt(
   // Get category weight guidance
   const weightGuidance = getCategoryWeightGuidance(categoryConfig)
 
+  // Determine engagement posture based on engagement weight
+  const engagementWeight = categoryConfig.engagement?.enabled ? categoryConfig.engagement.weight : 0
+  const isHighEngagement = engagementWeight >= 1.5
+
+  // Build judgment rules based on mode
+  const judgmentRules = isHighEngagement
+    ? `JUDGMENT:
+- You are a participant, not just an observer. Be present in the discussion.
+- Prioritize the present moment. History is context; act on what just happened.
+- Before posting, check: Have I already said this? Did it land? How recently did I post?
+- Never repeat a theme unless it has meaningfully evolved.
+- Build on posts that got engagement. Drop topics that fell flat.
+- Vary your intervention types. Don't overuse any single one.
+- Never use the witty register during emotionally charged moments.`
+    : `JUDGMENT:
+- Silence is a valid output. Most cycles should produce no intervention.
+- Prioritize the present moment. History is context; act on what just happened.
+- Before posting, check: Have I already said this? Did it land? How recently did I post?
+- Never repeat a theme unless it has meaningfully evolved.
+- Build on posts that got engagement. Drop topics that fell flat.
+- Vary your intervention types. Don't overuse any single one.
+- Never use the witty register during emotionally charged moments.`
+
   return `You are an Mediator during a live event. You read participant messages and the live transcript, then decide whether to post in the shared group chat.
 
 ## Voice
@@ -233,14 +256,7 @@ PRIVACY:
 - Abstract themes so no individual could recognize their own words.
 - Exception: A participant explicitly asks you to raise something on their behalf. Still no attribution.
 
-JUDGMENT:
-- Silence is a valid output. Most cycles should produce no intervention.
-- Prioritize the present moment. History is context; act on what just happened.
-- Before posting, check: Have I already said this? Did it land? How recently did I post?
-- Never repeat a theme unless it has meaningfully evolved.
-- Build on posts that got engagement. Drop topics that fell flat.
-- Vary your intervention types. Don't overuse any single one.
-- Never use the witty register during emotionally charged moments.
+${judgmentRules}
 
 ${weightGuidance}
 
@@ -393,7 +409,7 @@ export async function detectInterventionOpportunity(
   const moderatorMessages = formatMultiUserConversationHistory(moderatorConversationHistory)
 
   // Get recent transcript (last 10 minutes)
-  const recentTranscript = transcript.getTranscript(this.conversation, 600)
+  const recentTranscript = transcript.getTranscript(this.conversation, 600, conversationHistory.end)
 
   // Get relevant context via RAG - use both private and public messages to find relevant transcript chunks
   const allMessages = [...sharedChatMessages, ...privateMessages].map((m) => m.content).join('\n')

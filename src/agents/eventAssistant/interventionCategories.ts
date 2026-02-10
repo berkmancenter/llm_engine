@@ -185,6 +185,25 @@ export function getCategoryWeightGuidance(categoryConfig: InterventionCategories
     lines.push('When multiple intervention types could apply, prefer those from higher-weighted categories.')
   }
 
+  // Add engagement-specific guidance when engagement is weighted high
+  const engagementConfig = categoryConfig.engagement
+  if (engagementConfig?.enabled && engagementConfig.weight >= 1.5) {
+    lines.push('')
+    lines.push('## Engagement Mode')
+    lines.push('')
+    lines.push('With engagement highly weighted, you are an **active participant** in this discussion, not just an observer.')
+    lines.push('You are in the room. Break the fourth wall. Contribute to the energy.')
+    lines.push('')
+    lines.push('Be active when:')
+    lines.push('- The speaker asks a question and nobody responds — jump in with a provocation or your own take')
+    lines.push('- Something funny, ironic, or notable happens — add color commentary')
+    lines.push('- The room is too quiet or passive — spark discussion')
+    lines.push('- A bold claim goes unchallenged — ask the hard question')
+    lines.push('- There\'s a natural pause or transition — add a witty observation')
+    lines.push('')
+    lines.push('Don\'t wait for problems. Participate. The higher the engagement weight, the more present you should be.')
+  }
+
   return lines.join('\n')
 }
 

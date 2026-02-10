@@ -7,6 +7,7 @@ import {
   createPublicTopic,
   createUser,
   loadPartTimeWorkTranscript,
+  loadDesignWorkshopTranscript,
   createMessage,
   prepareMessagesForAgent
 } from '../../utils/agentTestHelpers.js'
@@ -1697,6 +1698,164 @@ describe(`event mediator agent tests`, () => {
         } finally {
           // Restore original config
           agent.agentConfig = originalConfig
+        }
+      },
+      testTimeout
+    )
+
+    it(
+      'limits to engagement types when engagement-only config is used',
+      async () => {
+        // When only engagement category is enabled, the agent should only use
+        // PROVOCATION, PLAY, or NONE - never collectiveConsciousness types like SIGNAL.
+        // This test verifies the category filtering works correctly.
+
+        // Create workshop conversation
+        const workshopConversation = await createEventMediatorConversation(
+          {
+            name: 'Design Thinking Workshop: Reimagining Employee Onboarding',
+            description: `An interactive design thinking workshop.`,
+            presenters: [{ name: 'Marcus Chen', bio: 'Design thinking facilitator.' }],
+            moderators: []
+          },
+          user1,
+          topic,
+          startTime,
+          testConfig.llmPlatform,
+          testConfig.llmModel,
+          [user2, user3]
+        )
+
+        const workshopAgent = workshopConversation.agents.find((a) => a.name === 'Event Mediator')!
+        await loadDesignWorkshopTranscript(workshopConversation, true)
+
+        const engagementOnlyConfig = {
+          ...workshopAgent.agentConfig,
+          interventionCategories: {
+            collectiveConsciousness: { enabled: false, weight: 0 },
+            engagement: { enabled: true, weight: 2.0 },
+            facilitation: { enabled: false, weight: 0 }
+          }
+        }
+
+        const originalConfig = workshopAgent.agentConfig
+        workshopAgent.agentConfig = engagementOnlyConfig
+
+        try {
+          // Even with signals that would normally trigger SIGNAL or SYNTHESIS,
+          // the agent should be limited to PROVOCATION, PLAY, or NONE
+          const messages = [
+            await createMessage('Great workshop so far!', user1, workshopConversation, ['chat'], getMessageTime(1300)),
+            await createMessage('Lots of good ideas', user2, workshopConversation, ['chat'], getMessageTime(1320))
+          ]
+          await prepareMessagesForAgent(messages, workshopConversation, workshopAgent)
+
+          const conversationHistory = getConversationHistory(workshopConversation.messages, {
+            count: 100,
+            channels: ['chat'],
+            endTime: new Date(startTime.getTime() + 1340 * 1000)
+          })
+
+          const responses = await defaultAgentTypes.eventMediator.respond.call(workshopAgent, conversationHistory)
+
+          // Whether it intervenes or not, if it does, it must be an engagement type
+          if (responses.length > 0) {
+            const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+            console.log('Engagement-only response type:', interventionType)
+            expect(['PROVOCATION', 'PLAY', 'NONE']).toContain(interventionType)
+
+            // Must NOT be a collectiveConsciousness or facilitation type
+            expect(responses[0].context).not.toContain('SIGNAL')
+            expect(responses[0].context).not.toContain('SYNTHESIS')
+            expect(responses[0].context).not.toContain('MINORITY_VOICE')
+            expect(responses[0].context).not.toContain('CONFUSION')
+            expect(responses[0].context).not.toContain('BRIDGE')
+            expect(responses[0].context).not.toContain('STRUCTURE')
+          }
+        } finally {
+          workshopAgent.agentConfig = originalConfig
+        }
+      },
+      testTimeout
+    )
+
+    it(
+      'actively participates in workshop when engagement is highly weighted',
+      async () => {
+        // With engagement highly weighted (>= 1.5), the agent should be an active participant
+        // in the discussion, not just an observer waiting for problems to solve.
+        //
+        // The agent should:
+        // - Jump in when the speaker asks for feedback and the room is quiet
+        // - Add challenging questions to spark discussion
+        // - Feel like a fellow participant, not a moderator
+
+        // Create a fresh workshop-style conversation
+        const workshopConversation = await createEventMediatorConversation(
+          {
+            name: 'Design Thinking Workshop: Reimagining Employee Onboarding',
+            description: `An interactive design thinking workshop where participants collaborate to reimagine the employee onboarding experience. Facilitator Marcus Chen guides the group through empathy mapping, crazy 8s ideation, and rapid prototyping exercises.`,
+            presenters: [
+              {
+                name: 'Marcus Chen',
+                bio: 'Design thinking facilitator and innovation consultant specializing in employee experience transformation.'
+              }
+            ],
+            moderators: []
+          },
+          user1,
+          topic,
+          startTime,
+          testConfig.llmPlatform,
+          testConfig.llmModel,
+          [user2, user3]
+        )
+
+        // Get the mediator agent from the workshop conversation
+        const workshopAgent = workshopConversation.agents.find((a) => a.name === 'Event Mediator')!
+        expect(workshopAgent).toBeDefined()
+
+        // Load the participatory workshop transcript
+        await loadDesignWorkshopTranscript(workshopConversation, true)
+
+        const engagementOnlyConfig = {
+          ...workshopAgent.agentConfig,
+          interventionCategories: {
+            collectiveConsciousness: { enabled: false, weight: 0 },
+            engagement: { enabled: true, weight: 2.0 }, // High weight = active participant
+            facilitation: { enabled: false, weight: 0 }
+          }
+        }
+
+        // Modify the agent temporarily
+        const originalConfig = workshopAgent.agentConfig
+        workshopAgent.agentConfig = engagementOnlyConfig
+
+        try {
+          // Position at 21:10 where the facilitator just asked "Who thinks that's terrible? Be honest."
+          // This is a direct invitation for pushback - the agent should jump in
+          const conversationHistory = getConversationHistory(workshopConversation.messages, {
+            count: 100,
+            channels: ['chat'],
+            endTime: new Date(startTime.getTime() + 1270 * 1000) // ~21:10 into the workshop
+          })
+
+          const responses = await defaultAgentTypes.eventMediator.respond.call(workshopAgent, conversationHistory)
+
+          // With high engagement weight, the agent should actively participate
+          expect(responses.length).toBeGreaterThan(0)
+          console.log('Workshop engagement response:', responses[0].message)
+          expect(responses[0].message).toBeDefined()
+
+          // Should be an engagement type
+          const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+          expect(['PROVOCATION', 'PLAY']).toContain(interventionType)
+
+          // The response should feel like participation - asking a question or adding perspective
+          expect(responses[0].message).toContain('?')
+        } finally {
+          // Restore original config
+          workshopAgent.agentConfig = originalConfig
         }
       },
       testTimeout
