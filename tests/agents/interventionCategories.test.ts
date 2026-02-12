@@ -33,7 +33,7 @@ describe('interventionCategories', () => {
       expect(engagement!.label).toBe('Engagement')
       expect(engagement!.requiresPrivateMessages).toBe(false)
       expect(engagement!.defaultEnabled).toBe(true)
-      expect(engagement!.defaultWeight).toBe(1.0)
+      expect(engagement!.defaultWeight).toBe(2.0)
       expect(engagement!.interventions).toContain(InterventionType.PROVOCATION)
       expect(engagement!.interventions).toContain(InterventionType.PLAY)
     })
@@ -58,9 +58,9 @@ describe('interventionCategories', () => {
       expect(defaultCategoriesConfig.facilitation?.enabled).toBe(true)
     })
 
-    it('sets default weight of 1.0 for all categories', () => {
+    it('sets default weights for categories', () => {
       expect(defaultCategoriesConfig.collectiveConsciousness?.weight).toBe(1.0)
-      expect(defaultCategoriesConfig.engagement?.weight).toBe(1.0)
+      expect(defaultCategoriesConfig.engagement?.weight).toBe(2.0)
       expect(defaultCategoriesConfig.facilitation?.weight).toBe(1.0)
     })
   })
@@ -220,14 +220,16 @@ describe('interventionCategories', () => {
   })
 
   describe('getCategoryWeightGuidance', () => {
-    it('returns guidance for equal weights', () => {
+    it('returns guidance for default weights', () => {
       const guidance = getCategoryWeightGuidance(defaultCategoriesConfig)
 
       expect(guidance).toContain('## Intervention Priorities')
-      expect(guidance).toContain('equal priority')
-      expect(guidance).toContain('collectiveConsciousness')
       expect(guidance).toContain('engagement')
+      expect(guidance).toContain('collectiveConsciousness')
       expect(guidance).toContain('facilitation')
+      // engagement should be HIGH priority with weight 2.0
+      expect(guidance).toContain('HIGH')
+      expect(guidance).toContain('weight: 2')
     })
 
     it('returns guidance with priority levels for different weights', () => {

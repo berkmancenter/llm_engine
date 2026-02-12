@@ -22,7 +22,6 @@ export default verify({
   agentConfig: {
     mediatorMinInterval: 60000, // 1 min between interventions
     personality: 'sarcastic-expert', // Use sarcastic-expert personality (set to null for no personality)
-    // Default: all categories enabled with equal weight
     interventionCategories: defaultCategoriesConfig
   },
   llmTemplateVars: mediatorLlmTemplateVars,

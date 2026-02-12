@@ -66,7 +66,7 @@ export const interventionCategories: InterventionCategoryDetails[] = [
     description: 'Generate energy & participation',
     interventions: [InterventionType.PROVOCATION, InterventionType.PLAY],
     requiresPrivateMessages: false,
-    defaultWeight: 1.0,
+    defaultWeight: 2.0,
     defaultEnabled: true
   },
   {
