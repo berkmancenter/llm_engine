@@ -1200,6 +1200,10 @@ Max Engagements Per User: 2
 Average Engagements Per User: 1.5
 
 ---------------------------
+Feedback Ratings:
+
+
+---------------------------
 **User: Boring Badger**
 
 ${formatTime(msg1Time)}  Boring Badger: Hello agent, can you help me?
@@ -1225,6 +1229,10 @@ Total Users Responded: 1
 Min Engagements Per User: 1
 Max Engagements Per User: 1
 Average Engagements Per User: 1
+
+---------------------------
+Feedback Ratings:
+
 
 ---------------------------
 **User: Boring Badger**
@@ -1950,6 +1958,128 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
           // Report should be generated without feedback sections
           expect(response.text).toContain('DMTestAgent1')
           expect(response.text).toContain('Sure, I can help you with that.')
+        })
+
+        test('should aggregate and display feedback ratings correctly in the report', async () => {
+          // Get agent messages from the setup
+          const agentMsg1 = await Message.findOne({
+            conversation: directMessageConversation._id,
+            fromAgent: true,
+            createdAt: msg2Time
+          })
+
+          const agentMsg2 = await Message.findOne({
+            conversation: directMessageConversation._id,
+            fromAgent: true,
+            createdAt: msg5Time
+          })
+
+          const agentMsg3 = await Message.findOne({
+            conversation: directMessageConversation._id,
+            fromAgent: true,
+            createdAt: msg7Time
+          })
+
+          // Create multiple rating feedback messages with different values
+          await Message.create([
+            // Two ratings of "5" for Test Agent (DMTestAgent1)
+            {
+              _id: new mongoose.Types.ObjectId(),
+              conversation: directMessageConversation._id,
+              channels: ['feedback'],
+              bodyType: 'json',
+              body: {
+                messageId: agentMsg1!._id.toString(),
+                type: 'rating',
+                value: '5'
+              },
+              fromAgent: false,
+              createdAt: new Date('2024-01-01T10:20:00Z'),
+              updatedAt: new Date('2024-01-01T10:20:00Z'),
+              pseudonym: registeredUser.pseudonyms[0].pseudonym,
+              pseudonymId: registeredUser.pseudonyms[0]._id
+            },
+            {
+              _id: new mongoose.Types.ObjectId(),
+              conversation: directMessageConversation._id,
+              channels: ['feedback'],
+              bodyType: 'json',
+              body: {
+                messageId: agentMsg2!._id.toString(),
+                type: 'rating',
+                value: '5'
+              },
+              fromAgent: false,
+              createdAt: new Date('2024-01-01T10:21:00Z'),
+              updatedAt: new Date('2024-01-01T10:21:00Z'),
+              pseudonym: userOne.pseudonyms[0].pseudonym,
+              pseudonymId: userOne.pseudonyms[0]._id
+            },
+            // One rating of "3" for Test Agent (DMTestAgent1)
+            {
+              _id: new mongoose.Types.ObjectId(),
+              conversation: directMessageConversation._id,
+              channels: ['feedback'],
+              bodyType: 'json',
+              body: {
+                messageId: agentMsg1!._id.toString(),
+                type: 'rating',
+                value: '3'
+              },
+              fromAgent: false,
+              createdAt: new Date('2024-01-01T10:22:00Z'),
+              updatedAt: new Date('2024-01-01T10:22:00Z'),
+              pseudonym: registeredUser.pseudonyms[0].pseudonym,
+              pseudonymId: registeredUser.pseudonyms[0]._id
+            },
+            // One rating of "4" for Test Text Agent (DMTestAgent2)
+            {
+              _id: new mongoose.Types.ObjectId(),
+              conversation: directMessageConversation._id,
+              channels: ['feedback'],
+              bodyType: 'json',
+              body: {
+                messageId: agentMsg3!._id.toString(),
+                type: 'rating',
+                value: '4'
+              },
+              fromAgent: false,
+              createdAt: new Date('2024-01-01T10:23:00Z'),
+              updatedAt: new Date('2024-01-01T10:23:00Z'),
+              pseudonym: registeredUser.pseudonyms[0].pseudonym,
+              pseudonymId: registeredUser.pseudonyms[0]._id
+            }
+          ])
+
+          const response = await request(app)
+            .get(`/v1/experiments/${directMessageExperiment._id}/results`)
+            .query({
+              reportName: 'directMessageResponses',
+              format: 'text'
+            })
+            .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+            .expect(httpStatus.OK)
+
+          // Find the Test Agent section
+          const testAgentMatch = response.text.match(
+            /Agent Name: Test Agent[\s\S]*?Feedback Ratings:\n([\s\S]*?)\n\n/
+          )
+          expect(testAgentMatch).toBeTruthy()
+
+          // Verify Test Agent has aggregated ratings: 3,1 and 5,2 (sorted by rating value)
+          const testAgentRatings = testAgentMatch![1].trim()
+          expect(testAgentRatings).toContain('3,1')
+          expect(testAgentRatings).toContain('5,2')
+
+          // Find the Test Text Agent section
+          const testTextAgentMatch = response.text.match(
+            /Agent Name: Test Text Agent[\s\S]*?Feedback Ratings:\n([\s\S]*?)\n\n/
+          )
+          expect(testTextAgentMatch).toBeTruthy()
+
+          // Verify Test Text Agent has rating: 4,1
+          const testTextAgentRatings = testTextAgentMatch![1].trim()
+          expect(testTextAgentRatings).toContain('4,1')
         })
       })
     })

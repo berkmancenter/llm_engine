@@ -21,8 +21,10 @@ const getExperimentResults = {
   }),
   query: Joi.object().keys({
     reportName: Joi.string().required(),
-    format: Joi.string().valid('text').default('text'),
-    additionalChannels: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional()
+    format: Joi.string().valid('text').valid('csv').default('text'),
+    agent: Joi.string(),
+    additionalChannels: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional(),
+    matomoSegment: Joi.string()
   })
 }
 

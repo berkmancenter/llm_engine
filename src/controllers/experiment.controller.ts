@@ -19,7 +19,7 @@ const getExperiment = catchAsync(async (req, res) => {
 
 const getExperimentResults = catchAsync(async (req, res) => {
   const { experimentId } = req.params
-  const { reportName, format = 'text', additionalChannels } = req.query
+  const { reportName, format = 'text', additionalChannels, agent } = req.query
   const timezone = req.headers['x-timezone'] || 'UTC'
 
   // Parse additionalChannels - can be a comma-separated string or array
@@ -32,11 +32,25 @@ const getExperimentResults = catchAsync(async (req, res) => {
     }
   }
 
-  const report = await experimentService.generateExperimentReport(experimentId, reportName, format, timezone, channelsArray)
+  const report = await experimentService.generateExperimentReport(
+    experimentId,
+    reportName,
+    format,
+    timezone,
+    channelsArray,
+    agent as string | undefined
+  )
   const contentTypes = {
-    text: 'text/plain'
+    text: 'text/plain',
+    csv: 'text/csv'
   }
   res.setHeader('Content-Type', contentTypes[format] || 'text/plain')
+
+  // Set Content-Disposition header for CSV downloads
+  if (format === 'csv') {
+    res.setHeader('Content-Disposition', `attachment; filename="${reportName}_${experimentId}.csv"`)
+  }
+
   res.status(httpStatus.OK).send(report)
 })
 
