@@ -21,6 +21,7 @@ export interface IPseudonym {
 
 export interface IBaseUser {
   _id?: mongoose.Types.ObjectId
+  activePseudonym?: IPseudonym
 }
 
 export interface IUser {

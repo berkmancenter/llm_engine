@@ -56,7 +56,13 @@ interface DirectMessageAgentReport {
   avgEngagements: number
   userCount: number
   additionalChannels?: AdditionalChannelReport[]
+  aggregateMetrics: {
+    feedbackRatings: Record<string, number>
+    directMessagesPerUser: Record<string, number>
+    additionalChannelMessagesPerUser?: Record<string, Record<string, number>>
+  }
 }
+
 async function findComments(createdAtQuery, conversationId) {
   const matchQuery = {
     createdAt: createdAtQuery,
@@ -80,6 +86,121 @@ async function findComments(createdAtQuery, conversationId) {
     }
   })
   return comments
+}
+
+async function generateUserMetricsData(experiment, agentType: string, additionalChannelNames: string[] = []) {
+  await experiment.populate('resultConversation')
+  await experiment.resultConversation.populate('agents')
+
+  // Find the specific agent by name
+  const agent = experiment.resultConversation.agents.find((a) => a.agentType === agentType)
+  if (!agent) {
+    throw new ApiError(httpStatus.NOT_FOUND, `Agent '${agentType}' not found in experiment`)
+  }
+
+  // Only process agents that have perMessage triggers
+  if (!agent.triggers?.perMessage) {
+    throw new ApiError(httpStatus.BAD_REQUEST, `Agent '${agentType}' does not have perMessage triggers`)
+  }
+
+  // Find all the channels in which this agent participates
+  const directChannels = await Channel.find({
+    direct: true,
+    participants: agent._id
+  })
+
+  // Collect all unique pseudonyms from all direct channels using participant IDs
+  const allPseudonyms = new Set<string>()
+  for (const channel of directChannels) {
+    // Populate participants to get User objects
+    await channel.populate('participants')
+    // Filter to get non-agent participants (users)
+    for (const participant of channel.participants!) {
+      // Check if this participant is not the agent
+      if (participant._id!.toString() !== agent._id.toString()) {
+        // Get the active pseudonym from the User
+        const { activePseudonym } = participant
+        if (activePseudonym) {
+          allPseudonyms.add(activePseudonym.pseudonym)
+        }
+      }
+    }
+  }
+
+  // Also collect from additional channels (using messages since they don't have participants)
+  for (const channelName of additionalChannelNames) {
+    const channelMessages = await Message.find({
+      channels: channelName,
+      conversation: experiment.resultConversation._id
+    })
+    for (const msg of channelMessages) {
+      if (msg.pseudonym && !msg.fromAgent) {
+        allPseudonyms.add(msg.pseudonym)
+      }
+    }
+  }
+
+  // Calculate direct messages per user
+  const directMessagesPerUser: Record<string, number> = {}
+  // Initialize all pseudonyms with 0
+  for (const pseudonym of allPseudonyms) {
+    directMessagesPerUser[pseudonym] = 0
+  }
+
+  // Count messages in direct channels
+  for (const channel of directChannels) {
+    const directMessages = await Message.find({
+      channels: channel.name,
+      conversation: experiment.resultConversation._id,
+      fromAgent: false
+    })
+
+    for (const msg of directMessages) {
+      if (msg.pseudonym) {
+        directMessagesPerUser[msg.pseudonym] = (directMessagesPerUser[msg.pseudonym] || 0) + 1
+      }
+    }
+  }
+
+  // 3. Messages on additional channels per user per channel
+  const additionalChannelMessagesPerUser: Record<string, Record<string, number>> = {}
+  if (additionalChannelNames.length > 0) {
+    for (const channelName of additionalChannelNames) {
+      if (!additionalChannelMessagesPerUser[channelName]) {
+        additionalChannelMessagesPerUser[channelName] = {}
+        // Initialize all pseudonyms with 0 for this channel
+        for (const pseudonym of allPseudonyms) {
+          additionalChannelMessagesPerUser[channelName][pseudonym] = 0
+        }
+      }
+
+      const channelMessages = await Message.find({
+        channels: channelName,
+        conversation: experiment.resultConversation._id,
+        fromAgent: false
+      })
+
+      for (const msg of channelMessages) {
+        if (msg.pseudonym) {
+          additionalChannelMessagesPerUser[channelName][msg.pseudonym] =
+            (additionalChannelMessagesPerUser[channelName][msg.pseudonym] || 0) + 1
+        }
+      }
+    }
+  }
+
+  const aggregateMetrics = {
+    directMessagesPerUser,
+    ...(Object.keys(additionalChannelMessagesPerUser).length > 0 && { additionalChannelMessagesPerUser })
+  }
+
+  return {
+    experiment: experiment.toObject(),
+    resultConversation: experiment.resultConversation._id.toString(),
+    baseConversation: experiment.baseConversation._id.toString(),
+    agentName: agent.name,
+    aggregateMetrics
+  }
 }
 
 async function generateDirectMessageAgentsData(experiment, additionalChannelNames: string[] = []) {
@@ -185,6 +306,90 @@ async function generateDirectMessageAgentsData(experiment, additionalChannelName
     // Only include agents that have direct channels to message users on
     if (totalUsers > 0) {
       const userMsgCounts = messages.map((msg) => msg.userMsgCount)
+
+      // Collect all unique pseudonyms from all direct channels using participant IDs
+      const allPseudonyms = new Set<string>()
+      for (const channel of directChannels) {
+        // Populate participants to get User objects
+        await channel.populate('participants')
+        // Filter to get non-agent participants (users)
+        for (const participant of channel.participants!) {
+          // Check if this participant is not the agent
+          if (participant._id!.toString() !== agent._id.toString()) {
+            // Get the active pseudonym from the User
+            const { activePseudonym } = participant
+            if (activePseudonym) {
+              allPseudonyms.add(activePseudonym.pseudonym)
+            }
+          }
+        }
+      }
+
+      // Also collect from additional channels (using messages since they don't have participants)
+      for (const channelName of additionalChannelNames) {
+        const channelMessages = await Message.find({
+          channels: channelName,
+          conversation: experiment.resultConversation._id
+        })
+        for (const msg of channelMessages) {
+          if (msg.pseudonym && !msg.fromAgent) {
+            allPseudonyms.add(msg.pseudonym)
+          }
+        }
+      }
+
+      // Calculate per-agent metrics
+      // 1. Feedback ratings count for this agent
+      const feedbackRatings: Record<string, number> = {}
+      for (const message of messages) {
+        for (const comment of message.comments) {
+          if (comment.feedback) {
+            for (const feedback of comment.feedback) {
+              if (feedback.type === 'rating') {
+                const ratingValue = feedback.value
+                feedbackRatings[ratingValue] = (feedbackRatings[ratingValue] || 0) + 1
+              }
+            }
+          }
+        }
+      }
+
+      // 2. Direct messages per user (non-agent) for this agent
+      const directMessagesPerUser: Record<string, number> = {}
+      // Initialize all pseudonyms with 0
+      for (const pseudonym of allPseudonyms) {
+        directMessagesPerUser[pseudonym] = 0
+      }
+      for (const message of messages) {
+        const { username } = message
+        for (const comment of message.comments) {
+          if (!comment.fromAgent) {
+            directMessagesPerUser[username] = (directMessagesPerUser[username] || 0) + 1
+          }
+        }
+      }
+
+      // 3. Messages on additional channels per user per channel for this agent
+      const additionalChannelMessagesPerUser: Record<string, Record<string, number>> = {}
+      if (additionalChannels.length > 0) {
+        for (const channel of additionalChannels) {
+          if (!additionalChannelMessagesPerUser[channel.channelName]) {
+            additionalChannelMessagesPerUser[channel.channelName] = {}
+            // Initialize all pseudonyms with 0 for this channel
+            for (const pseudonym of allPseudonyms) {
+              additionalChannelMessagesPerUser[channel.channelName][pseudonym] = 0
+            }
+          }
+          for (const message of channel.messages) {
+            if (!message.fromAgent) {
+              const username = message.user
+              additionalChannelMessagesPerUser[channel.channelName][username] =
+                (additionalChannelMessagesPerUser[channel.channelName][username] || 0) + 1
+            }
+          }
+        }
+      }
+
       agents.push({
         name: agent.name,
         messages,
@@ -194,7 +399,12 @@ async function generateDirectMessageAgentsData(experiment, additionalChannelName
         maxEngagements: messages.length > 0 ? Math.max(...userMsgCounts) : 0,
         avgEngagements:
           messages.length > 0 ? userMsgCounts.reduce((acc, count) => acc + count, 0) / userMsgCounts.length : 0,
-        ...(additionalChannels.length > 0 && { additionalChannels })
+        ...(additionalChannels.length > 0 && { additionalChannels }),
+        aggregateMetrics: {
+          feedbackRatings,
+          directMessagesPerUser,
+          ...(Object.keys(additionalChannelMessagesPerUser).length > 0 && { additionalChannelMessagesPerUser })
+        }
       })
     }
   }
@@ -503,7 +713,8 @@ const generateExperimentReport = async (
   reportName,
   format = 'text',
   timezone = 'UTC',
-  additionalChannels: string[] = []
+  additionalChannels: string[] = [],
+  agentName?: string
 ) => {
   const experiment = await Experiment.findOne({ _id: experimentId })
   if (!experiment) throw new ApiError(httpStatus.NOT_FOUND, 'Experiment not found')
@@ -517,6 +728,13 @@ const generateExperimentReport = async (
     case 'directMessageResponses':
       reportData = await generateDirectMessageAgentsData(experiment, additionalChannels)
       break
+    case 'userMetrics': {
+      if (!agentName) {
+        throw new ApiError(httpStatus.BAD_REQUEST, 'Agent name is required for userMetrics report')
+      }
+      reportData = await generateUserMetricsData(experiment, agentName, additionalChannels)
+      break
+    }
     default:
       throw new ApiError(httpStatus.BAD_REQUEST, `Unknown report name: ${reportName}`)
   }
@@ -572,6 +790,64 @@ const generateExperimentReport = async (
       return line
     })
     return processedLines.join('\n')
+  })
+
+  handlebars.registerHelper('formatMessagesCSV', (aggregateMetrics) => {
+    const directMessagesPerUser = (aggregateMetrics.directMessagesPerUser || {}) as Record<string, number>
+    const additionalChannelMessagesPerUser = (aggregateMetrics.additionalChannelMessagesPerUser || {}) as Record<
+      string,
+      Record<string, number>
+    >
+
+    // Get all unique pseudonyms from all sources and sort alphabetically
+    const pseudonyms = Array.from(
+      new Set([
+        ...Object.keys(directMessagesPerUser),
+        ...Object.values(additionalChannelMessagesPerUser).flatMap((channelData) => Object.keys(channelData))
+      ])
+    ).sort()
+
+    // Get channel names sorted
+    const channelNames = Object.keys(additionalChannelMessagesPerUser).sort()
+
+    // Build headers: Pseudonym, Direct Messages, [Additional channels]
+    const headers = ['Pseudonym', 'Direct Messages', ...channelNames]
+    const rows = [headers.join(',')]
+
+    // Build data rows
+    for (const pseudonym of pseudonyms) {
+      const rowValues: (string | number)[] = [pseudonym]
+
+      // Add direct message count
+      const directCount = directMessagesPerUser[pseudonym] ?? ''
+      rowValues.push(directCount)
+
+      // Add additional channel counts
+      const channelCounts = channelNames.map(
+        (channelName) => additionalChannelMessagesPerUser[channelName]?.[pseudonym] ?? ''
+      )
+      rowValues.push(...channelCounts)
+
+      rows.push(rowValues.join(','))
+    }
+
+    return rows.join('\n')
+  })
+
+  handlebars.registerHelper('formatFeedbackCSV', (feedbackRatings) => {
+    if (!feedbackRatings || Object.keys(feedbackRatings).length === 0) {
+      return ''
+    }
+
+    // Get rating types sorted
+    const ratingTypes = Object.keys(feedbackRatings).sort()
+    const rows: string[] = []
+
+    for (const ratingType of ratingTypes) {
+      rows.push(`${ratingType},${feedbackRatings[ratingType]}`)
+    }
+
+    return rows.join('\n')
   })
 
   return template(reportData)
