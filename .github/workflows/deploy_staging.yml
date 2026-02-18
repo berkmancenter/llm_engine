@@ -23,6 +23,7 @@ jobs:
           key: ${{ secrets.PRIVATE_KEY }}
           port: ${{ secrets.PORT }}
           script: |
+            sudo systemctl stop llm_engine-server
             sudo -u llm_engine /home/llm_engine/update_and_build.sh
             echo "Restarting app..."
             sudo systemctl restart llm_engine-server
