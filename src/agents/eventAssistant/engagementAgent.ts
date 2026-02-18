@@ -116,7 +116,7 @@ export default verify({
     periodic: { timerPeriod: 60, conversationHistorySettings: { channels: ['transcript'] } }
   },
   agentConfig: {
-    minInterval: 60000, // 1 min between interventions
+    minInterval: 300000, // 5 min between interventions
     personality: 'sarcastic-expert'
   },
   llmTemplateVars: interventionLlmTemplateVars,

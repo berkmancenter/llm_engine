@@ -70,7 +70,7 @@ describe(`event mediator agent tests`, () => {
     it('has correct default configuration', () => {
       expect(agent.name).toBe('Event Mediator')
       expect(agent.description).toContain('strategic interventions')
-      expect(agent.agentConfig.minInterval).toBe(60000) // 1 min
+      expect(agent.agentConfig.minInterval).toBe(120000) // 2 min
       expect(agent.agentConfig.personality).toBe('sarcastic-expert')
     })
 

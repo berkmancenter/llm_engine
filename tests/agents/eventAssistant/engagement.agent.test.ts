@@ -69,7 +69,7 @@ describe(`engagement agent tests`, () => {
     it('has correct default configuration', () => {
       expect(agent.name).toBe('Engagement Agent')
       expect(agent.description).toContain('energy and participation')
-      expect(agent.agentConfig.minInterval).toBe(60000) // 1 min
+      expect(agent.agentConfig.minInterval).toBe(300000) // 5 min
       expect(agent.agentConfig.personality).toBe('sarcastic-expert')
     })
 
