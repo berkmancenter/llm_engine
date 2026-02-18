@@ -217,6 +217,12 @@ adapterSchema.method('participantJoined', async function (participant) {
     )
     return
   }
+  if (this.dmChannels?.length === 0 && this.chatChannels?.length === 0) {
+    logger.info(
+      `No chat or DM channels configured for adapter ${this._id}, not configuring direct channel for new participant.`
+    )
+    return
+  }
   return await adapterTypes[this.type].participantJoined.call(this, participant)
 })
 

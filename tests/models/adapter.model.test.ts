@@ -172,23 +172,6 @@ describe('adapter tests', () => {
     expect(mockSend).not.toHaveBeenCalled()
   })
 
-  test('should call participantJoined on adapter type', async () => {
-    const adapter = new Adapter({
-      type: 'slack',
-      conversation
-    })
-    await adapter.save()
-    await adapter.start()
-    conversation.enableDMs = ['agents']
-    await conversation.save()
-    const participant = { id: 'participant1', name: 'Participant 1' }
-    const mockUser = { username: 'Participant 1' }
-    mockparticipantJoined.mockResolvedValue(mockUser)
-    const adapterUser = await adapter.participantJoined(participant)
-    expect(mockparticipantJoined).toHaveBeenCalledWith(participant)
-    expect(adapterUser).toBe(mockUser)
-  })
-
   test('should not call participantJoined on adapter type if inactive', async () => {
     const adapter = new Adapter({
       type: 'slack',
@@ -227,5 +210,55 @@ describe('adapter tests', () => {
     mockparticipantJoined.mockResolvedValue(mockUser)
     await adapter.participantJoined(participant)
     expect(mockparticipantJoined).not.toHaveBeenCalled()
+  })
+
+  test('should not call participantJoined when no dmChannels or chatChannels configured', async () => {
+    const adapter = new Adapter({
+      type: 'slack',
+      conversation
+    })
+    await adapter.save()
+    await adapter.start()
+    conversation.enableDMs = ['agents']
+    await conversation.save()
+    const participant = { id: 'participant1', name: 'Participant 1' }
+    await adapter.participantJoined(participant)
+    expect(mockparticipantJoined).not.toHaveBeenCalled()
+  })
+
+  test('should call participantJoined when dmChannels are configured', async () => {
+    const adapter = new Adapter({
+      type: 'slack',
+      conversation
+    })
+    adapter.dmChannels = [{ name: 'dm-channel', direction: Direction.BOTH }]
+    await adapter.save()
+    await adapter.start()
+    conversation.enableDMs = ['agents']
+    await conversation.save()
+    const participant = { id: 'participant1', name: 'Participant 1' }
+    const mockUser = { username: 'Participant 1' }
+    mockparticipantJoined.mockResolvedValue(mockUser)
+    const adapterUser = await adapter.participantJoined(participant)
+    expect(mockparticipantJoined).toHaveBeenCalledWith(participant)
+    expect(adapterUser).toBe(mockUser)
+  })
+
+  test('should call participantJoined when chatChannels are configured', async () => {
+    const adapter = new Adapter({
+      type: 'slack',
+      conversation
+    })
+    adapter.chatChannels = [{ name: 'chat-channel', direction: Direction.BOTH }]
+    await adapter.save()
+    await adapter.start()
+    conversation.enableDMs = ['agents']
+    await conversation.save()
+    const participant = { id: 'participant1', name: 'Participant 1' }
+    const mockUser = { username: 'Participant 1' }
+    mockparticipantJoined.mockResolvedValue(mockUser)
+    const adapterUser = await adapter.participantJoined(participant)
+    expect(mockparticipantJoined).toHaveBeenCalledWith(participant)
+    expect(adapterUser).toBe(mockUser)
   })
 })
