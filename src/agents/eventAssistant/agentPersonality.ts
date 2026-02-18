@@ -3,7 +3,7 @@
  * This provides a flexible system for different agent personalities
  */
 
-import { InterventionType } from './interventionCategories.js'
+import { InterventionType } from './interventionTypes.js'
 
 export interface AgentPersonality {
   name: string

@@ -1,14 +1,9 @@
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
-import { detectInterventionOpportunity, createMediatorTemplates, mediatorLlmTemplateVars } from './mediatorHandler.js'
-import {
-  InterventionCategoriesConfig,
-  defaultCategoriesConfig,
-  shouldFetchPrivateMessages
-} from './interventionCategories.js'
-import logger from '../../config/logger.js'
-import getConversationHistory from '../helpers/getConversationHistory.js'
+import { USER_TEMPLATE, interventionLlmTemplateVars } from './interventionHandler.js'
+
+import buildMediatorResponse, { getMediatorSystemPrompt } from './mediatorHandler.js'
 
 export default verify({
   name: 'Event Mediator',
@@ -20,12 +15,14 @@ export default verify({
     periodic: { timerPeriod: 60, conversationHistorySettings: { channels: ['transcript'] } }
   },
   agentConfig: {
-    mediatorMinInterval: 60000, // 1 min between interventions
-    personality: 'sarcastic-expert', // Use sarcastic-expert personality (set to null for no personality)
-    interventionCategories: defaultCategoriesConfig
+    minInterval: 60000, // 1 min between interventions
+    personality: 'sarcastic-expert' // Use sarcastic-expert personality (set to null for no personality)
   },
-  llmTemplateVars: mediatorLlmTemplateVars,
-  defaultLLMTemplates: createMediatorTemplates({ supportsModerator: false }),
+  llmTemplateVars: interventionLlmTemplateVars,
+  defaultLLMTemplates: {
+    system: getMediatorSystemPrompt(false, 'sarcastic-expert'),
+    user: USER_TEMPLATE
+  },
   defaultLLMPlatform,
   defaultLLMModel,
   ragCollectionName: undefined,
@@ -46,77 +43,12 @@ export default verify({
   },
 
   async respond(conversationHistory: ConversationHistory) {
-    // Ensure conversation is available
-    if (!this.conversation) {
-      logger.warn('Event Mediator: No conversation available')
-      return []
-    }
-
-    // Get category configuration from agentConfig
-    const categoryConfig: InterventionCategoriesConfig = this.agentConfig?.interventionCategories || defaultCategoriesConfig
-
-    // Shared chat
-    const sharedChatHistory = getConversationHistory(this.conversation.messages, {
-      count: 100,
-      channels: ['chat'],
-      endTime: conversationHistory.end
-    })
-
-    // Only fetch private messages if needed based on category config
-    let privateHistory: ConversationHistory | null = null
-    if (shouldFetchPrivateMessages(categoryConfig)) {
-      privateHistory = getConversationHistory(
-        this.conversation.messages,
-        {
-          count: 100,
-          directMessages: true,
-          endTime: conversationHistory.end
-        },
-        null, // includeAgents
-        this.conversation.channels.filter((c) => c.direct).map((c) => c.name) // directChannels
-      )
-    }
-
-    // Moderator context
-    const moderatorHistory = getConversationHistory(this.conversation.messages, {
-      count: 50,
-      channels: ['moderator'],
-      endTime: conversationHistory.end
-    })
-
-    // Detect intervention opportunity with category config
-    const interventionAnalysis = await detectInterventionOpportunity.call(
+    return buildMediatorResponse.call(
       this,
-      sharedChatHistory,
-      privateHistory,
-      moderatorHistory,
-      categoryConfig
+      this.conversation,
+      conversationHistory,
+      false // supportsModerator
     )
-
-    if (!interventionAnalysis) {
-      logger.debug('Event Mediator: No intervention opportunity detected or rate limited')
-      return [] // No opportunity detected, rate limited, or low confidence
-    }
-
-    logger.info(
-      `Event Mediator: Detected ${interventionAnalysis.interventionType} opportunity - ${interventionAnalysis.detectedPattern}`
-    )
-
-    // Post to shared chat if we have a message
-    if (interventionAnalysis.sharedChatMessage) {
-      return [
-        {
-          visible: true,
-          message: interventionAnalysis.sharedChatMessage,
-          channels: this.conversation.channels.filter((c) => c.name === 'chat'),
-          context: `Intervention Type: ${interventionAnalysis.interventionType}\nReasoning: ${
-            interventionAnalysis.reasoning
-          }\nPattern: ${interventionAnalysis.detectedPattern || 'N/A'}`
-        }
-      ]
-    }
-
-    return [] // No message to post
   },
 
   async start() {

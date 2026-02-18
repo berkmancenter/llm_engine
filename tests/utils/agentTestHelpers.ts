@@ -746,6 +746,41 @@ export async function createEventMediatorPlusConversation(
   return conversation
 }
 
+export async function createEngagementAgentConversation(
+  conversationObj,
+  owner,
+  topic,
+  startTime,
+  llmPlatform?,
+  llmModel?,
+  additionalUsers: (typeof owner)[] = []
+) {
+  const conversation = await createConversation(conversationObj, owner, topic, startTime)
+  const agent = new Agent({
+    agentType: 'engagementAgent',
+    conversation,
+    llmPlatform,
+    llmModel
+  })
+
+  // Create channels for owner and all additional users
+  const allUsers = [owner, ...additionalUsers]
+  const directChannels = allUsers.map((user) => ({
+    name: `direct-agents-${user._id}`,
+    direct: true,
+    participants: [user, agent]
+  }))
+
+  const channels = await Channel.create([{ name: 'transcript' }, { name: 'chat' }, ...directChannels])
+  conversation.channels.push(...channels)
+  await agent.save()
+  conversation.agents.push(agent)
+  await conversation.save()
+  await agent.initialize()
+  await agent.start()
+  return conversation
+}
+
 /**
  * Prepares messages for mediator agent testing by:
  * 1. Saving messages to the Message collection in the database

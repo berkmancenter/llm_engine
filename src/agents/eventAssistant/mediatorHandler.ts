@@ -1,240 +1,103 @@
-import { z } from 'zod'
-import { ConversationHistory } from '../../types/index.types.js'
-import { formatMultiUserConversationHistory } from '../helpers/llmInputFormatters.js'
-import transcript from '../helpers/transcript.js'
-import { getChatPromptResponse } from '../helpers/llmChain.js'
-import { buildSystemPromptWithPersonality, getInterventionExamples } from './agentPersonality.js'
-import {
-  InterventionType,
-  InterventionCategoriesConfig,
-  defaultCategoriesConfig,
-  getEnabledInterventions,
-  getCategoryWeightGuidance
-} from './interventionCategories.js'
-import config from '../../config/config.js'
+import { AgentResponse, IConversation, ConversationHistory, IChannel } from '../../types/index.types.js'
 import logger from '../../config/logger.js'
-
-export interface MediatorAnalysis {
-  shouldIntervene: boolean
-  interventionType: InterventionType
-  reasoning: string
-  sharedChatMessage?: string
-  moderatorMessage?: string
-  confidenceScore: number
-  detectedPattern?: string
-  affectedUsers?: number
-}
-
-/**
- * Generate schema based on enabled intervention types
- * @param enabledInterventions - List of enabled intervention types (from getEnabledInterventions)
- * @param supportsModerator - Whether moderator escalation is supported
- */
-export function getMediatorAnalysisSchema(enabledInterventions: InterventionType[], supportsModerator: boolean) {
-  const interventionTypeStrings = enabledInterventions.map((t) => t.toString())
-
-  const baseSchema = {
-    shouldIntervene: z.boolean().describe('Whether an intervention is warranted at this moment'),
-    interventionType: z.enum(interventionTypeStrings as [string, ...string[]]).describe('The type of intervention to make'),
-    reasoning: z.string().describe('Internal analysis of what patterns you see and why you are or are not intervening'),
-    sharedChatMessage: z
-      .string()
-      .nullable()
-      .optional()
-      .describe('The message to post in shared chat, if shouldIntervene is true'),
-    confidenceScore: z.number().min(0).max(100).describe('Confidence in this intervention decision'),
-    detectedPattern: z.string().nullable().optional().describe('Brief description of the pattern detected'),
-    affectedUsers: z.number().nullable().optional().describe('Number of distinct users involved in the pattern')
-  }
-
-  // Only include moderatorMessage field if moderator support is enabled
-  if (supportsModerator) {
-    return z.object({
-      ...baseSchema,
-      moderatorMessage: z
-        .string()
-        .nullable()
-        .optional()
-        .describe('Optional message to forward to moderator with context and suggested question')
-    })
-  }
-
-  return z.object(baseSchema)
-}
+import getConversationHistory from '../helpers/getConversationHistory.js'
+import {
+  detectInterventionOpportunity,
+  getInterventionAnalysisSchema,
+  buildInterventionTypeSection
+} from './interventionHandler.js'
+import { InterventionAnalysis, InterventionType } from './interventionTypes.js'
 
 /**
  * Default examples for each intervention type (used when no personality-specific examples)
  */
-const defaultInterventionExamples: Record<InterventionType, { description: string; register: string; examples: string[] }> =
-  {
-    [InterventionType.SIGNAL]: {
-      description: 'Surfacing what the room is thinking',
-      register: 'Warm register',
-      examples: [
-        '"A number of you are wondering how this translates to smaller teams. You\'re not alone in that — it seems like a real gap between what\'s being presented and where many of you work."',
-        '"That point about ethics is connecting with a lot of people here. There may be more to unpack there than it seems on the surface."',
-        '"Interesting tension in the room right now. Some of you are energized by this framework — it feels actionable. Others feel something important is being flattened."'
-      ]
-    },
-    [InterventionType.SYNTHESIS]: {
-      description: 'Reframing scattered signals into a deeper question',
-      register: 'Warm register',
-      examples: [
-        '"Underneath the questions about cost, change management, and leadership buy-in, there\'s really one question: what happens when a compelling idea meets the reality of Monday morning?"',
-        '"Several threads are converging — tooling, hiring, culture. The real question might be: is this a technical problem or an organizational one? Because the answer changes everything."'
-      ]
-    },
-    [InterventionType.MINORITY_VOICE]: {
-      description: 'Protecting suppressed perspectives',
-      register: 'Always warm',
-      examples: [
-        '"The enthusiasm here is real and well-founded. But there\'s a perspective that hasn\'t fully entered the room yet — around who might be left out by this approach."',
-        '"We\'re converging quickly, which feels good. But I want to make space for a question some of you are sitting with: what if the tradeoffs here are bigger than they appear?"'
-      ]
-    },
-    [InterventionType.CONFUSION]: {
-      description: 'Helping when people are lost',
-      register: 'Warm, can be lightly witty',
-      examples: [
-        '"Quick decoder ring — SRE: Site Reliability Engineering. SLO: Service Level Objective. MTTR: Mean Time To Recovery."',
-        '"A lot just happened in the last few minutes. The key moves: [2-3 sentence summary]."',
-        '"That was dense. Short version: [brief summary]. Worth pausing on before we move on."'
-      ]
-    },
-    [InterventionType.PROVOCATION]: {
-      description: 'Generating participation',
-      register: 'Either register',
-      examples: [
-        '"What would need to be true for this whole approach to be wrong?"',
-        "\"We've been in agreement for a while now. What's the strongest case against what we're converging on?\"",
-        '"If you had to summarize that section in exactly 5 words, what would they be?"',
-        '"Alright — someone\'s going to say it. Who\'s got the hot take?"'
-      ]
-    },
-    [InterventionType.BRIDGE]: {
-      description: 'Connecting across time',
-      register: 'Witty by default',
-      examples: [
-        '"We\'re back at the infrastructure question — told you it wasn\'t done with us."',
-        '"Remember the edge case discussion 20 minutes ago? It just became the main case."',
-        '"Third time scaling has come up. Starting to feel like the actual topic."'
-      ]
-    },
-    [InterventionType.STRUCTURE]: {
-      description: 'Giving the conversation shape',
-      register: 'Witty by default',
-      examples: [
-        '"Plot twist: we\'re talking about compliance now."',
-        '"Act 2: The Revenge of the Edge Cases."',
-        '"What just happened: [summary]. The thing worth holding onto: [one key point]."',
-        '"Noting for the record: a working group on the standards question. Holding everyone to that."'
-      ]
-    },
-    [InterventionType.PLAY]: {
-      description: 'Color commentary, predictions, personality',
-      register: 'Always witty',
-      examples: [
-        '"That 47% number is going to haunt some roadmap discussions."',
-        '"Calling it now — first Q&A question is about budget."',
-        '"I\'ve processed a lot of compliance frameworks and I\'m still not sure anyone enjoys them. Solidarity."',
-        '"Filed under: things I\'ll be thinking about at 2am."'
-      ]
-    },
-    [InterventionType.MODERATOR_ESCALATION]: {
-      description: 'Routing to the moderator',
-      register: 'Warm in chat, functional in moderator message',
-      examples: [
-        'Chat: "A question is forming around the regulatory angle. I\'ve flagged it to the moderator."',
-        'Moderator: "Strong interest in how the framework interacts with recent regulatory changes. ~6 independent signals, energy around compliance for mid-size orgs. Suggested question: \'How do recent regulatory shifts affect adoption for organizations without dedicated compliance teams?\'"'
-      ]
-    },
-    [InterventionType.NONE]: {
-      description: 'Strategic silence',
-      register: 'N/A',
-      examples: []
-    }
+export const defaultInterventionExamples = {
+  [InterventionType.SIGNAL]: {
+    description: 'Surfacing what the room is thinking',
+    register: 'Warm register',
+    examples: [
+      '"A number of you are wondering how this translates to smaller teams. You\'re not alone in that — it seems like a real gap between what\'s being presented and where many of you work."',
+      '"That point about ethics is connecting with a lot of people here. There may be more to unpack there than it seems on the surface."',
+      '"Interesting tension in the room right now. Some of you are energized by this framework — it feels actionable. Others feel something important is being flattened."'
+    ]
+  },
+  [InterventionType.SYNTHESIS]: {
+    description: 'Reframing scattered signals into a deeper question',
+    register: 'Warm register',
+    examples: [
+      '"Underneath the questions about cost, change management, and leadership buy-in, there\'s really one question: what happens when a compelling idea meets the reality of Monday morning?"',
+      '"Several threads are converging — tooling, hiring, culture. The real question might be: is this a technical problem or an organizational one? Because the answer changes everything."'
+    ]
+  },
+  [InterventionType.MINORITY_VOICE]: {
+    description: 'Protecting suppressed perspectives',
+    register: 'Always warm',
+    examples: [
+      '"The enthusiasm here is real and well-founded. But there\'s a perspective that hasn\'t fully entered the room yet — around who might be left out by this approach."',
+      '"We\'re converging quickly, which feels good. But I want to make space for a question some of you are sitting with: what if the tradeoffs here are bigger than they appear?"'
+    ]
+  },
+  [InterventionType.CONFUSION]: {
+    description: 'Helping when people are lost',
+    register: 'Warm, can be lightly witty',
+    examples: [
+      '"Quick decoder ring — SRE: Site Reliability Engineering. SLO: Service Level Objective. MTTR: Mean Time To Recovery."',
+      '"A lot just happened in the last few minutes. The key moves: [2-3 sentence summary]."',
+      '"That was dense. Short version: [brief summary]. Worth pausing on before we move on."'
+    ]
+  },
+  [InterventionType.BRIDGE]: {
+    description: 'Connecting across time',
+    register: 'Witty by default',
+    examples: [
+      '"We\'re back at the infrastructure question — told you it wasn\'t done with us."',
+      '"Remember the edge case discussion 20 minutes ago? It just became the main case."',
+      '"Third time scaling has come up. Starting to feel like the actual topic."'
+    ]
+  },
+  [InterventionType.STRUCTURE]: {
+    description: 'Giving the conversation shape',
+    register: 'Witty by default',
+    examples: [
+      '"Plot twist: we\'re talking about compliance now."',
+      '"Act 2: The Revenge of the Edge Cases."',
+      '"What just happened: [summary]. The thing worth holding onto: [one key point]."',
+      '"Noting for the record: a working group on the standards question. Holding everyone to that."'
+    ]
+  },
+  [InterventionType.MODERATOR_ESCALATION]: {
+    description: 'Routing to the moderator',
+    register: 'Warm in chat, functional in moderator message',
+    examples: [
+      'Chat: "A question is forming around the regulatory angle. I\'ve flagged it to the moderator."',
+      'Moderator: "Strong interest in how the framework interacts with recent regulatory changes. ~6 independent signals, energy around compliance for mid-size orgs. Suggested question: \'How do recent regulatory shifts affect adoption for organizations without dedicated compliance teams?\'"'
+    ]
+  },
+  [InterventionType.NONE]: {
+    description: 'Strategic silence',
+    register: 'N/A',
+    examples: []
   }
-
-/**
- * Build the intervention type section for the system prompt
- */
-function buildInterventionTypeSection(interventionType: InterventionType, personalityName?: string | null): string {
-  if (interventionType === InterventionType.NONE) {
-    return '' // NONE doesn't get a section
-  }
-
-  const defaultInfo = defaultInterventionExamples[interventionType]
-
-  // Try to get personality-specific examples
-  const personalityExamples = getInterventionExamples(interventionType, personalityName)
-  const examples = personalityExamples || defaultInfo.examples
-
-  const lines: string[] = [
-    `### ${interventionType} — ${defaultInfo.description}`,
-    `[${defaultInfo.register}]`,
-    '',
-    'Examples:'
-  ]
-
-  for (const example of examples) {
-    lines.push(`- ${example}`)
-  }
-
-  return lines.join('\n')
 }
 
-/**
- * Generate system prompt based on enabled intervention types and category config
- * @param enabledInterventions - List of enabled intervention types
- * @param categoryConfig - Category configuration for weight guidance
- * @param supportsModerator - Whether moderator escalation is supported
- * @param personalityName - Personality name for custom examples
- */
-export function getMediatorSystemPrompt(
-  enabledInterventions: InterventionType[],
-  categoryConfig: InterventionCategoriesConfig = defaultCategoriesConfig,
-  supportsModerator: boolean = false,
-  personalityName?: string | null
-): string {
-  // Build intervention type sections for enabled types only
-  const interventionSections = enabledInterventions
-    .filter((t) => t !== InterventionType.NONE)
-    .map((t) => buildInterventionTypeSection(t, personalityName))
+export function getMediatorSystemPrompt(supportsModerator: boolean = false, personalityName?: string | null): string {
+  // Build intervention types from defaultInterventionExamples, optionally excluding MODERATOR_ESCALATION
+  const allTypes = Object.keys(defaultInterventionExamples) as InterventionType[]
+  const activeTypes = allTypes.filter((t) => {
+    if (t === InterventionType.NONE) return false
+    if (t === InterventionType.MODERATOR_ESCALATION && !supportsModerator) return false
+    return true
+  })
+
+  const interventionSections = activeTypes
+    .map((t) => buildInterventionTypeSection(t, defaultInterventionExamples[t], personalityName))
     .join('\n\n')
 
-  // Build the intervention types list for output format
-  const interventionTypesList = enabledInterventions.map((t) => `"${t}"`).join('|')
+  const interventionTypesList = [...activeTypes, InterventionType.NONE].map((t) => `"${t}"`).join('|')
 
-  // Moderator message field in output format
   const moderatorMessageField = supportsModerator
     ? '\n  "moderatorMessage": "Message for moderator (null unless escalating)",'
     : ''
-
-  // Get category weight guidance
-  const weightGuidance = getCategoryWeightGuidance(categoryConfig)
-
-  // Determine engagement posture based on engagement weight
-  const engagementWeight = categoryConfig.engagement?.enabled ? categoryConfig.engagement.weight : 0
-  const isHighEngagement = engagementWeight >= 1.5
-
-  // Build judgment rules based on mode
-  const judgmentRules = isHighEngagement
-    ? `JUDGMENT:
-- You are a participant, not just an observer. Be present in the discussion.
-- Prioritize the present moment. History is context; act on what just happened.
-- Before posting, check: Have I already said this? Did it land? How recently did I post?
-- Never repeat a theme unless it has meaningfully evolved.
-- Build on posts that got engagement. Drop topics that fell flat.
-- Vary your intervention types. Don't overuse any single one.
-- Never use the witty register during emotionally charged moments.`
-    : `JUDGMENT:
-- Silence is a valid output. Most cycles should produce no intervention.
-- Prioritize the present moment. History is context; act on what just happened.
-- Before posting, check: Have I already said this? Did it land? How recently did I post?
-- Never repeat a theme unless it has meaningfully evolved.
-- Build on posts that got engagement. Drop topics that fell flat.
-- Vary your intervention types. Don't overuse any single one.
-- Never use the witty register during emotionally charged moments.`
 
   return `You are an Mediator during a live event. You read participant messages and the live transcript, then decide whether to post in the shared group chat.
 
@@ -256,9 +119,14 @@ PRIVACY:
 - Abstract themes so no individual could recognize their own words.
 - Exception: A participant explicitly asks you to raise something on their behalf. Still no attribution.
 
-${judgmentRules}
-
-${weightGuidance}
+JUDGMENT:
+- Silence is a valid output. Most cycles should produce no intervention.
+- Prioritize the present moment. History is context; act on what just happened.
+- Before posting, check: Have I already said this? Did it land? How recently did I post?
+- Never repeat a theme unless it has meaningfully evolved.
+- Build on posts that got engagement. Drop topics that fell flat.
+- Vary your intervention types. Don't overuse any single one.
+- Never use the witty register during emotionally charged moments.
 
 ## Intervention Types
 
@@ -283,203 +151,116 @@ Return a JSON object:
 Return ONLY raw JSON. No markdown, no backticks, no explanation.`
 }
 
-// Shared user template (same for all mediators)
-const MEDIATOR_USER_TEMPLATE = `## Event Topic:
-{topic}
-
-## Recent Transcript (last 10 minutes):
-{recentTranscript}
-
-## Retrieved Relevant Context from Transcript:
-{retrievedChunks}
-
-## Private Messages (Direct Messages):
-{privateMessages}
-
-## Shared Chat History:
-{sharedChatHistory}
-
-## Moderator Context:
-{moderatorContext}
-
-## Your Recent Posts:
-{agentRecentPosts}
-
----
-
-Analyze the current state and determine if an intervention is warranted. Follow the decision framework and output valid JSON only.`
-
-/**
- * Factory function to create mediator templates based on capabilities
- * Note: System prompt is generated dynamically at runtime based on category config
- */
-export function createMediatorTemplates(options: { supportsModerator: boolean }) {
-  const allInterventions = Object.values(InterventionType).filter(
-    (t) => options.supportsModerator || t !== InterventionType.MODERATOR_ESCALATION
-  )
+function formatModeratorAlert(analysis: InterventionAnalysis, conversationHistory: ConversationHistory) {
   return {
-    mediatorSystem: getMediatorSystemPrompt(allInterventions, defaultCategoriesConfig, options.supportsModerator),
-    mediatorUser: MEDIATOR_USER_TEMPLATE
+    timestamp: {
+      start: conversationHistory.start?.getTime() || Date.now(),
+      end: conversationHistory.end?.getTime() || Date.now()
+    },
+    insights: [
+      {
+        value: analysis.moderatorMessage || `Pattern detected: ${analysis.detectedPattern} (${analysis.interventionType})`,
+        type: 'insight'
+      }
+    ]
   }
-}
-
-export const mediatorLlmTemplateVars = {
-  mediatorSystem: [],
-  mediatorUser: [
-    { name: 'topic', description: 'The event topic' },
-    { name: 'recentTranscript', description: 'Recent transcript from the event (last 10 minutes)' },
-    { name: 'retrievedChunks', description: 'Relevant retrieved context from RAG search' },
-    { name: 'privateMessages', description: 'Private/direct messages from participants' },
-    { name: 'sharedChatHistory', description: 'Shared chat history including agent posts' },
-    { name: 'moderatorContext', description: 'Communications with/from moderator' },
-    { name: 'agentRecentPosts', description: "The agent's own recent posts for self-awareness" }
-  ]
-}
-
-// Helper to extract agent's recent posts from conversation history
-function getAgentRecentPosts(conversationHistory: ConversationHistory, agentName: string, count: number = 5): string {
-  const agentPosts = conversationHistory.messages.filter((msg) => msg.pseudonym === agentName && msg.visible).slice(-count)
-
-  if (agentPosts.length === 0) {
-    return 'None yet - this would be your first intervention.'
-  }
-
-  return agentPosts
-    .map((msg) => {
-      const timestamp = msg.createdAt?.toISOString() || 'unknown'
-      const body = typeof msg.body === 'string' ? msg.body : JSON.stringify(msg.body)
-      return `[${timestamp}] ${body}`
-    })
-    .join('\n')
-}
-
-// Helper to check recent agent interventions for rate limiting
-function getRecentAgentInterventions(
-  conversationHistory: ConversationHistory,
-  agentName: string
-): Array<{ timestamp: Date }> {
-  return conversationHistory.messages
-    .filter((msg) => msg.pseudonym === agentName && msg.visible)
-    .map((msg) => ({ timestamp: msg.createdAt! }))
 }
 
 /**
- * Main intervention detection function
- * @param conversationHistory - Shared chat history
- * @param privateConversationHistory - Private/DM history (can be null if not needed based on category config)
- * @param moderatorConversationHistory - Moderator channel history
- * @param categoryConfig - Optional category configuration (defaults to all enabled)
+ * Shared mediator response logic for both eventMediator and eventMediatorPlus
  */
-export async function detectInterventionOpportunity(
+async function buildMediatorResponse(
+  conversation: IConversation | null,
   conversationHistory: ConversationHistory,
-  privateConversationHistory: ConversationHistory | null,
-  moderatorConversationHistory: ConversationHistory,
-  categoryConfig: InterventionCategoriesConfig = defaultCategoriesConfig
-): Promise<MediatorAnalysis | null> {
-  const now = Date.now()
-  const minInterval = this.agentConfig?.mediatorMinInterval || 60000 // 1 min default
-
-  // Get recent interventions from conversation history (stateless rate limiting)
-  const recentInterventions = getRecentAgentInterventions(conversationHistory, this.name)
-
-  // Rate limiting: Check if we intervened recently
-  const lastIntervention = recentInterventions[recentInterventions.length - 1]
-  if (lastIntervention) {
-    const timeSinceLastIntervention = now - lastIntervention.timestamp.getTime()
-    if (timeSinceLastIntervention < minInterval) {
-      return null // Too soon since last intervention
-    }
+  supportsModerator: boolean
+): Promise<AgentResponse<string | Record<string, unknown>>[]> {
+  // Ensure conversation is available
+  if (!conversation) {
+    logger.warn(`${this.name}: No conversation available`)
+    return []
   }
 
-  // Determine if this agent supports moderator escalation based on available channels
-  const hasModeratorChannel = this.conversation.channels.some((c: { name: string }) => c.name === 'moderator')
+  // Shared chat
+  const sharedChatHistory = getConversationHistory(conversation.messages, {
+    count: 100,
+    channels: ['chat'],
+    endTime: conversationHistory.end
+  })
 
-  // Get enabled interventions based on category config
-  const enabledInterventions = getEnabledInterventions(categoryConfig, hasModeratorChannel)
-
-  logger.debug(
-    `Agent ${this.name}: enabledInterventions = ${enabledInterventions.join(
-      ', '
-    )}, hasModeratorChannel = ${hasModeratorChannel}`
-  )
-
-  // Format conversation histories
-  const sharedChatMessages = formatMultiUserConversationHistory(conversationHistory)
-  const privateMessages = privateConversationHistory ? formatMultiUserConversationHistory(privateConversationHistory) : []
-  const moderatorMessages = formatMultiUserConversationHistory(moderatorConversationHistory)
-
-  // Get recent transcript (last 10 minutes)
-  const recentTranscript = transcript.getTranscript(this.conversation, 600, conversationHistory.end)
-
-  // Get relevant context via RAG - use both private and public messages to find relevant transcript chunks
-  const allMessages = [...sharedChatMessages, ...privateMessages].map((m) => m.content).join('\n')
-  const { chunks } = await transcript.searchTranscript(this.conversation, allMessages, conversationHistory.end)
-
-  // Get agent's recent posts for self-awareness
-  const agentRecentPosts = getAgentRecentPosts(conversationHistory, this.name, 5)
-
-  // Determine which personality to use (if any)
-  let personalityName: string | null = null
-  if (this.agentConfig?.personality !== undefined) {
-    personalityName = this.agentConfig.personality
-  } else if (config.enableAgentPersonality) {
-    personalityName = 'sarcastic-expert'
-  }
-
-  // Build system prompt with category config and optional personality
-  const baseSystemPrompt = getMediatorSystemPrompt(
-    enabledInterventions,
-    categoryConfig,
-    hasModeratorChannel,
-    personalityName
-  )
-  const systemPrompt = buildSystemPromptWithPersonality(baseSystemPrompt, personalityName)
-
-  // Get the appropriate schema based on enabled interventions
-  const schema = getMediatorAnalysisSchema(enabledInterventions, hasModeratorChannel)
-
-  // Get the user template (support both old and new template names)
-  const userTemplate = this.llmTemplates.mediatorUser || this.llmTemplates.mediatorUser || MEDIATOR_USER_TEMPLATE
-
-  // Call LLM with structured output
-  const llm = await this.getLLM()
-  const analysis = (await getChatPromptResponse(
-    llm,
-    systemPrompt,
-    userTemplate,
+  const privateHistory = getConversationHistory(
+    conversation.messages,
     {
-      topic: this.conversation.name,
-      recentTranscript,
-      retrievedChunks: chunks,
-      privateMessages: privateMessages.map((m) => m.content).join('\n') || 'No private messages.',
-      sharedChatHistory: sharedChatMessages.map((m) => m.content).join('\n') || 'No shared chat messages yet.',
-      moderatorContext: moderatorMessages.map((m) => m.content).join('\n') || 'No moderator communications.',
-      agentRecentPosts
+      count: 100,
+      directMessages: true,
+      endTime: conversationHistory.end
     },
-    [], // No chat history - we provide full context in the prompt
-    schema
-  )) as z.infer<typeof schema>
+    null, // includeAgents
+    conversation.channels.filter((c: IChannel) => c.direct).map((c: IChannel) => c.name) // directChannels
+  )
 
-  logger.debug(`Intervention opportunity analysis: ${JSON.stringify(analysis, null, 2)}`)
+  // Moderator context (only for Plus version)
+  const moderatorHistory = supportsModerator
+    ? getConversationHistory(conversation.messages, {
+        count: 50,
+        channels: ['moderator'],
+        endTime: conversationHistory.end
+      })
+    : undefined
 
-  // Validate that the chosen intervention type is enabled
-  if (!enabledInterventions.includes(analysis.interventionType as InterventionType)) {
-    logger.warn(`Agent ${this.name} chose disabled intervention type ${analysis.interventionType}. Rejecting intervention.`)
-    return null
+  // Detect intervention opportunity with category config
+  const interventionAnalysis = await detectInterventionOpportunity.call(
+    this,
+    sharedChatHistory,
+    getMediatorSystemPrompt(supportsModerator, this.agentConfig.personality),
+    getInterventionAnalysisSchema(Object.keys(defaultInterventionExamples) as InterventionType[], supportsModerator),
+    privateHistory,
+    moderatorHistory
+  )
+
+  if (!interventionAnalysis) {
+    logger.debug(`${this.name}: No intervention opportunity detected or rate limited`)
+    return [] // No opportunity detected, rate limited, or low confidence
   }
 
-  // Validate that MODERATOR_ESCALATION is not used when moderator channel is not available
-  if (analysis.interventionType === 'MODERATOR_ESCALATION' && !hasModeratorChannel) {
-    logger.warn(
-      `Agent ${this.name} attempted MODERATOR_ESCALATION without moderator channel support. Rejecting intervention.`
-    )
-    return null
+  logger.info(
+    `${this.name}: Detected ${interventionAnalysis.interventionType} opportunity - ${interventionAnalysis.detectedPattern}`
+  )
+
+  const responses: AgentResponse<string | Record<string, unknown>>[] = []
+
+  // Post to shared chat if we have a message
+  if (interventionAnalysis.sharedChatMessage) {
+    responses.push({
+      visible: true,
+      message: interventionAnalysis.sharedChatMessage,
+      channels: conversation.channels.filter((c: IChannel) => c.name === 'chat'),
+      context: `Intervention Type: ${interventionAnalysis.interventionType}\nReasoning: ${
+        interventionAnalysis.reasoning
+      }\nPattern: ${interventionAnalysis.detectedPattern || 'N/A'}`
+    })
   }
 
-  // Return null if shouldn't intervene or confidence too low
-  if (!analysis.shouldIntervene || analysis.confidenceScore < 60) {
-    return null
+  // Escalate to moderator if needed (structured JSON)
+  if (
+    supportsModerator &&
+    interventionAnalysis.interventionType === InterventionType.MODERATOR_ESCALATION &&
+    interventionAnalysis.moderatorMessage
+  ) {
+    const moderatorAlert = formatModeratorAlert(interventionAnalysis, conversationHistory)
+    responses.push({
+      visible: true,
+      message: moderatorAlert,
+      messageType: 'json',
+      channels: conversation.channels.filter((c: IChannel) => c.name === 'moderator'),
+      context: `Intervention Type: ${interventionAnalysis.interventionType}\nReasoning: ${
+        interventionAnalysis.reasoning
+      }\nPattern: ${interventionAnalysis.detectedPattern || 'N/A'}`
+    })
+
+    logger.info(`${this.name}: Escalated to moderator - ${interventionAnalysis.detectedPattern}`)
   }
 
-  return analysis as MediatorAnalysis
+  return responses
 }
+
+export default buildMediatorResponse
