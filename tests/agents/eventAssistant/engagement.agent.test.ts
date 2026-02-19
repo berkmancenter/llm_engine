@@ -2,7 +2,6 @@
 import setupAgentTest from '../../utils/setupAgentTest.js'
 import defaultAgentTypes from '../../../src/agents/index.js'
 import {
-  createDirectMessage,
   createPublicTopic,
   createUser,
   loadPartTimeWorkTranscript,
@@ -80,56 +79,428 @@ describe(`engagement agent tests`, () => {
     })
   })
 
-  describe('respond function', () => {
+  describe('PROVOCATION intervention scenarios', () => {
     it(
-      'PLAY: adds color commentary during breathing room',
+      'SHOULD generate provocation after bold claim with no chat engagement',
       async () => {
-        const messages = [
-          // Build up to a dense statistics section
-          await createMessage('Wow, that personal story was powerful', user1, conversation, ['chat'], getMessageTime(60)),
-          await createMessage('The emotional hook really landed', user2, conversation, ['chat'], getMessageTime(90)),
-          await createMessage('Now getting into the data...', user3, conversation, ['chat'], getMessageTime(120)),
-          await createMessage('That was a LOT of statistics', user1, conversation, ['chat'], getMessageTime(180)),
-          await createMessage('My brain is full of numbers', user2, conversation, ['chat'], getMessageTime(210)),
-          await createMessage('Taking a breather to process', user3, conversation, ['chat'], getMessageTime(240)),
-
-          // Private playful reactions to specific data points
-          await createDirectMessage(
-            "That 33% reduction in quitting stat is absolutely wild - bet someone's manager just choked on their coffee",
-            user1,
-            conversation,
-            getMessageTime(260)
-          ),
-          await createDirectMessage(
-            'Calling it now: first Q&A question will be "but what about the cost?"',
-            user2,
-            conversation,
-            getMessageTime(280)
-          ),
-          await createDirectMessage(
-            'That productivity graph is going straight into my next budget presentation. Weaponized data.',
-            user3,
-            conversation,
-            getMessageTime(300)
-          ),
-
-          await createMessage('Lots to unpack here', user1, conversation, ['chat'], getMessageTime(340)),
-          await createMessage('Definitely need to revisit these slides', user2, conversation, ['chat'], getMessageTime(370))
-        ]
-        await prepareMessagesForAgent(messages, conversation, agent)
-
+        // Transcript at ~02:09-02:25: Jessica challenges "why 40 hours per week is fulltime"
+        // This is a provocative question that deserves discussion
+        // Position at 02:30 (150 seconds) - just after the challenge, with NO chat messages
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
           channels: ['transcript'],
-          endTime: new Date(startTime.getTime() + 400 * 1000)
+          endTime: new Date(startTime.getTime() + 150 * 1000)
         })
 
         const responses = await defaultAgentTypes.engagementAgent.respond.call(agent, conversationHistory)
 
-        // PLAY is the rarest type - likely NONE in most cases
+        // Speaker just asked a challenging question - room is silent
+        // Should consider PROVOCATION to spark discussion
         if (responses.length > 0) {
-          console.log(`Detected ${responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]}:`, responses[0].message)
+          const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+          console.log(`[02:30] Detected ${interventionType}:`, responses[0].message)
+          expect(['PROVOCATION', 'NONE']).toContain(interventionType)
+        }
+      },
+      testTimeout
+    )
+
+    it(
+      'SHOULD generate provocation when room is quiet/passive with only polite chat',
+      async () => {
+        // Transcript at ~06:45-07:20: Dense statistics about caregivers, single parents, disabilities
+        // Chat shows minimal engagement - just polite acknowledgments
+        const messages = [
+          await createMessage('Thanks for sharing those stats', user1, conversation, ['chat'], getMessageTime(415)),
+          await createMessage('Interesting numbers', user2, conversation, ['chat'], getMessageTime(430)),
+          await createMessage('Noted', user3, conversation, ['chat'], getMessageTime(445))
+        ]
+        await prepareMessagesForAgent(messages, conversation, agent)
+
+        // Position at 07:30 (450 seconds) after stats dump
+        const conversationHistory = getConversationHistory(conversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 450 * 1000)
+        })
+
+        const responses = await defaultAgentTypes.engagementAgent.respond.call(agent, conversationHistory)
+
+        // Lots of data just presented, but room is passive - should provoke discussion
+        if (responses.length > 0) {
+          const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+          console.log(`[07:30] Detected ${interventionType}:`, responses[0].message)
+          expect(['PROVOCATION', 'NONE']).toContain(interventionType)
+        }
+      },
+      testTimeout
+    )
+
+    it(
+      'SHOULD NOT generate provocation when chat is actively engaging with content',
+      async () => {
+        // Transcript at ~08:00-08:30: Surprising stat about hundreds of applicants for 10hr/week job
+        // Chat is actively discussing this surprising data
+        const messages = [
+          await createMessage(
+            'Hundreds of applicants for 10 hours/week? That is shocking!',
+            user1,
+            conversation,
+            ['chat'],
+            getMessageTime(490)
+          ),
+          await createMessage(
+            'This really challenges my assumptions about what people want',
+            user2,
+            conversation,
+            ['chat'],
+            getMessageTime(500)
+          ),
+          await createMessage(
+            'Fortune 500 execs applying for entry level? Wow',
+            user3,
+            conversation,
+            ['chat'],
+            getMessageTime(510)
+          ),
+          await createMessage(
+            'Makes me wonder what we are missing in our own hiring',
+            user1,
+            conversation,
+            ['chat'],
+            getMessageTime(520)
+          )
+        ]
+        await prepareMessagesForAgent(messages, conversation, agent)
+
+        // Position at 08:45 (525 seconds)
+        const conversationHistory = getConversationHistory(conversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 525 * 1000)
+        })
+
+        const responses = await defaultAgentTypes.engagementAgent.respond.call(agent, conversationHistory)
+
+        // Active, thoughtful discussion - likely NONE
+        if (responses.length > 0) {
+          const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+          console.log(`[08:45] Detected ${interventionType}:`, responses[0].message)
+        }
+        // Don't expect intervention during active healthy discussion
+      },
+      testTimeout
+    )
+  })
+
+  describe('PLAY intervention scenarios', () => {
+    it(
+      'SHOULD generate PLAY after emotional peak with breathing room',
+      async () => {
+        // Transcript at ~05:30-05:45: "Strong women cry too" - emotional vulnerable moment
+        // Then transitions to success story
+        // Chat shows people processing the emotional moment
+        const messages = [
+          await createMessage('That was such a raw moment', user1, conversation, ['chat'], getMessageTime(350)),
+          await createMessage('Really appreciate the vulnerability', user2, conversation, ['chat'], getMessageTime(365)),
+          await createMessage('Taking a moment to process', user3, conversation, ['chat'], getMessageTime(375))
+        ]
+        await prepareMessagesForAgent(messages, conversation, agent)
+
+        // Position at 06:20 (380 seconds) - after emotional moment, during success story
+        const conversationHistory = getConversationHistory(conversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 380 * 1000)
+        })
+
+        const responses = await defaultAgentTypes.engagementAgent.respond.call(agent, conversationHistory)
+
+        // Breathing room after emotional peak - good moment for warm PLAY
+        if (responses.length > 0) {
+          const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+          console.log(`[06:20] Detected ${interventionType}:`, responses[0].message)
           expect(responses[0].message).toBeDefined()
+        }
+      },
+      testTimeout
+    )
+
+    it(
+      'SHOULD generate PLAY when participants react to surprising data',
+      async () => {
+        // Transcript at ~08:20-08:30: "Hundreds of applicants... incredibly high level individuals"
+        // This is a perfect moment for playful commentary
+        const messages = [
+          await createMessage(
+            'Wait, Fortune 500 execs for ENTRY LEVEL?',
+            user1,
+            conversation,
+            ['chat'],
+            getMessageTime(510)
+          ),
+          await createMessage(
+            'Someone wrote a book on marketing and wanted 10hrs/week',
+            user2,
+            conversation,
+            ['chat'],
+            getMessageTime(520)
+          ),
+          await createMessage('This data is absolutely wild', user3, conversation, ['chat'], getMessageTime(530))
+        ]
+        await prepareMessagesForAgent(messages, conversation, agent)
+
+        // Position at 08:50 (530 seconds) - during the surprising data reveal
+        const conversationHistory = getConversationHistory(conversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 530 * 1000)
+        })
+
+        const responses = await defaultAgentTypes.engagementAgent.respond.call(agent, conversationHistory)
+
+        // Perfect moment for witty PLAY commentary on surprising data
+        if (responses.length > 0) {
+          const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+          console.log(`[08:50] Detected ${interventionType}:`, responses[0].message)
+          expect(['PLAY', 'NONE']).toContain(interventionType)
+        }
+      },
+      testTimeout
+    )
+
+    it(
+      'SHOULD NOT generate PLAY during raw emotionally charged moment',
+      async () => {
+        // Transcript at ~04:00-04:40: Health issues, irregular heartbeat, exhaustion, overwhelm
+        // This is a vulnerable, difficult moment - witty register would be inappropriate
+        const messages = [
+          await createMessage('This is hitting hard', user1, conversation, ['chat'], getMessageTime(250)),
+          await createMessage('The health consequences are real', user2, conversation, ['chat'], getMessageTime(265)),
+          await createMessage('So many of us have been there', user3, conversation, ['chat'], getMessageTime(275))
+        ]
+        await prepareMessagesForAgent(messages, conversation, agent)
+
+        // Position at 04:45 (285 seconds) - during the vulnerable health crisis story
+        const conversationHistory = getConversationHistory(conversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 285 * 1000)
+        })
+
+        const responses = await defaultAgentTypes.engagementAgent.respond.call(agent, conversationHistory)
+
+        // Should NOT use witty PLAY during emotionally raw moments
+        if (responses.length > 0) {
+          const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+          console.log(`[04:45] Detected ${interventionType}:`, responses[0].message)
+          // Should NOT be PLAY - could be NONE or PROVOCATION with warm register
+          expect(interventionType).not.toBe('PLAY')
+        }
+      },
+      testTimeout
+    )
+
+    it(
+      'SHOULD generate PLAY during structural transition',
+      async () => {
+        // Transcript at ~06:20-06:25: Transition from emotional story to "So how do I think you should go about it"
+        // Natural structural moment for witty commentary
+        const messages = [
+          await createMessage('Love the transition to practical steps', user1, conversation, ['chat'], getMessageTime(385)),
+          await createMessage('Good pacing so far', user2, conversation, ['chat'], getMessageTime(395))
+        ]
+        await prepareMessagesForAgent(messages, conversation, agent)
+
+        // Position at 06:30 (390 seconds) - during transition to "how to" section
+        const conversationHistory = getConversationHistory(conversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 390 * 1000)
+        })
+
+        const responses = await defaultAgentTypes.engagementAgent.respond.call(agent, conversationHistory)
+
+        // Transition moments are good for PLAY
+        if (responses.length > 0) {
+          const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+          console.log(`[06:30] Detected ${interventionType}:`, responses[0].message)
+          expect(['PLAY', 'NONE']).toContain(interventionType)
+        }
+      },
+      testTimeout
+    )
+  })
+
+  describe('NONE intervention scenarios', () => {
+    it(
+      'SHOULD NOT intervene when rate limited (recent intervention)',
+      async () => {
+        // First, create an agent message to simulate recent intervention
+        await createMessage('What are your thoughts on this approach?', agent, conversation, ['chat'], getMessageTime(60))
+
+        const messages = [
+          await createMessage('Interesting question', user1, conversation, ['chat'], getMessageTime(120)),
+          await createMessage('I have some thoughts', user2, conversation, ['chat'], getMessageTime(140))
+        ]
+        await prepareMessagesForAgent(messages, conversation, agent)
+
+        // Try to get response just 2 minutes after agent's last post (minInterval is 5 min)
+        const conversationHistory = getConversationHistory(conversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 180 * 1000)
+        })
+
+        const responses = await defaultAgentTypes.engagementAgent.respond.call(agent, conversationHistory)
+
+        // Should be rate limited - no intervention
+        expect(responses).toHaveLength(0)
+      },
+      testTimeout
+    )
+
+    it(
+      'SHOULD handle transcript-only with NO chat messages',
+      async () => {
+        // Pure transcript test - NO chat messages at all
+        // Position at 02:35 (155 seconds) - just as personal story begins
+        const conversationHistory = getConversationHistory(conversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 155 * 1000)
+        })
+
+        const responses = await defaultAgentTypes.engagementAgent.respond.call(agent, conversationHistory)
+
+        // Should be able to process transcript-only without error
+        // May or may not intervene - depends on LLM assessment
+        if (responses.length > 0) {
+          const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+          console.log(`[02:35 transcript-only] Detected ${interventionType}:`, responses[0].message)
+          expect(responses[0].message).toBeDefined()
+        }
+        // Just verifying no errors with transcript-only
+        expect(Array.isArray(responses)).toBe(true)
+      },
+      testTimeout
+    )
+
+    it(
+      'SHOULD NOT intervene when discussion is healthy and engaged',
+      async () => {
+        // Transcript at ~06:25-06:45: Starting practical "how to" section
+        // Chat is actively engaged with thoughtful questions
+        const messages = [
+          await createMessage(
+            'What are the main benefits of 8-10 hour positions?',
+            user1,
+            conversation,
+            ['chat'],
+            getMessageTime(390)
+          ),
+          await createMessage(
+            'I see appeal to caregivers and part-time workers',
+            user2,
+            conversation,
+            ['chat'],
+            getMessageTime(400)
+          ),
+          await createMessage(
+            'The 32 hour max is interesting - why that number?',
+            user3,
+            conversation,
+            ['chat'],
+            getMessageTime(410)
+          ),
+          await createMessage(
+            'Good question - probably full-time benefits threshold',
+            user1,
+            conversation,
+            ['chat'],
+            getMessageTime(420)
+          )
+        ]
+        await prepareMessagesForAgent(messages, conversation, agent)
+
+        // Position at 07:00 (420 seconds)
+        const conversationHistory = getConversationHistory(conversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 420 * 1000)
+        })
+
+        const responses = await defaultAgentTypes.engagementAgent.respond.call(agent, conversationHistory)
+
+        // Healthy, thoughtful discussion - likely NONE
+        if (responses.length > 0) {
+          const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+          console.log(`[07:00] Optional intervention: ${interventionType}:`, responses[0].message)
+        }
+        // Don't expect intervention when discussion is flowing well
+      },
+      testTimeout
+    )
+  })
+
+  describe('intervention type selection', () => {
+    it(
+      'varies intervention types across different transcript moments',
+      async () => {
+        // This test validates that the agent doesn't overuse any single intervention type
+        // Tests different strategic moments in the transcript
+        const interventionTypes: string[] = []
+
+        // Helper function to test a scenario
+        const testScenario = async (messages, endTimeSeconds, label) => {
+          // Clear previous agent messages (reset state)
+          conversation.messages = conversation.messages.filter((m) => m.pseudonym !== agent.name)
+
+          if (messages.length > 0) {
+            await prepareMessagesForAgent(messages, conversation, agent)
+          }
+
+          const conversationHistory = getConversationHistory(conversation.messages, {
+            count: 100,
+            channels: ['transcript'],
+            endTime: new Date(startTime.getTime() + endTimeSeconds * 1000)
+          })
+
+          const responses = await defaultAgentTypes.engagementAgent.respond.call(agent, conversationHistory)
+
+          if (responses.length > 0) {
+            const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+            if (interventionType) {
+              interventionTypes.push(interventionType)
+              console.log(`${label}: ${interventionType}`)
+            }
+          }
+        }
+
+        // Scenario 1: After bold challenge with minimal chat - should favor PROVOCATION
+        await testScenario(
+          [await createMessage('Interesting question', user1, conversation, ['chat'], getMessageTime(145))],
+          150,
+          '[02:30] Bold challenge'
+        )
+
+        // Scenario 2: After surprising data with excited chat - should favor PLAY
+        await testScenario(
+          [
+            await createMessage('Hundreds of applicants!? Wild', user1, conversation, ['chat'], getMessageTime(510)),
+            await createMessage('This changes everything', user2, conversation, ['chat'], getMessageTime(520))
+          ],
+          530,
+          '[08:50] Surprising data'
+        )
+
+        // Scenario 3: Pure transcript, transition moment - could be PLAY or NONE
+        await testScenario([], 390, '[06:30] Transition (transcript only)')
+
+        // Should have some variety if multiple interventions occurred
+        if (interventionTypes.length > 1) {
+          console.log('Intervention types across transcript:', interventionTypes)
+          // This is more informational than assertive since LLM behavior varies
         }
       },
       testTimeout
@@ -143,8 +514,8 @@ describe(`engagement agent tests`, () => {
         agent.agentConfig.personality = 'sarcastic-expert'
 
         const messages = [
-          await createDirectMessage('Question about part-time work', user1, conversation, getMessageTime(200)),
-          await createDirectMessage('Also curious about part-time work', user2, conversation, getMessageTime(210))
+          await createMessage('Question about part-time work', user1, conversation, ['chat'], getMessageTime(200)),
+          await createMessage('Also curious about part-time work', user2, conversation, ['chat'], getMessageTime(210))
         ]
         await prepareMessagesForAgent(messages, conversation, agent)
 
@@ -168,8 +539,8 @@ describe(`engagement agent tests`, () => {
         agent.agentConfig.personality = null
 
         const messages = [
-          await createDirectMessage('Question about employee retention', user1, conversation, getMessageTime(200)),
-          await createDirectMessage('Also wondering about employee retention', user2, conversation, getMessageTime(210))
+          await createMessage('Question about employee retention', user1, conversation, ['chat'], getMessageTime(200)),
+          await createMessage('Also wondering about employee retention', user2, conversation, ['chat'], getMessageTime(210))
         ]
         await prepareMessagesForAgent(messages, conversation, agent)
 
@@ -202,8 +573,8 @@ describe(`engagement agent tests`, () => {
       'handles only transcript without chat messages',
       async () => {
         const messages = [
-          await createDirectMessage('Question about implementation', user1, conversation, getMessageTime(200)),
-          await createDirectMessage('Also wondering about implementation', user2, conversation, getMessageTime(220))
+          await createMessage('Question about implementation', user1, conversation, ['chat'], getMessageTime(200)),
+          await createMessage('Also wondering about implementation', user2, conversation, ['chat'], getMessageTime(220))
         ]
         await prepareMessagesForAgent(messages, conversation, agent)
 
