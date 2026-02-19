@@ -35,6 +35,11 @@ const defaultEngagementExamples = {
       '"I\'ve processed a lot of compliance frameworks and I\'m still not sure anyone enjoys them. Solidarity."',
       '"Filed under: things I\'ll be thinking about at 2am."'
     ]
+  },
+  [InterventionType.NONE]: {
+    description: 'Strategic silence',
+    register: 'N/A',
+    examples: []
   }
 }
 
