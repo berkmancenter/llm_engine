@@ -9,7 +9,7 @@ import Conversation from '../../src/models/conversation.model.js'
 import config from '../../src/config/config.js'
 import { insertTopics } from '../fixtures/topic.fixture.js'
 import webhookService from '../../src/services/webhook.service.js'
-import transcriptService from '../../src/services/transcript.service.js'
+import conversationService from '../../src/services/conversation.service.js'
 import defaultAdapterTypes from '../../src/adapters/index.js'
 import setupIntTest from '../utils/setupIntTest.js'
 import { registeredUser } from '../fixtures/user.fixture.js'
@@ -55,7 +55,6 @@ const testAdapterTypes = {
 describe('POST /v1/webhooks/recall', () => {
   let receiveMessageSpy
   let updateTranscriptStatusSpy
-  let stopTranscriptSpy
   let zoomAdapter
   let realtimeSecret
   let svixSecret
@@ -81,8 +80,7 @@ describe('POST /v1/webhooks/recall', () => {
     conversation.adapters.push(zoomAdapter)
     await conversation.save()
     receiveMessageSpy = jest.spyOn(webhookService, 'receiveMessage').mockResolvedValue()
-    updateTranscriptStatusSpy = jest.spyOn(transcriptService, 'updateTranscriptStatus').mockResolvedValue()
-    stopTranscriptSpy = jest.spyOn(transcriptService, 'stopTranscript').mockResolvedValue(conversation)
+    updateTranscriptStatusSpy = jest.spyOn(conversationService, 'updateTranscriptStatus').mockResolvedValue()
     mockZoomGetUniqueKeys.mockReturnValue(['type', 'config.meetingUrl'])
   })
   afterAll(() => {
@@ -180,7 +178,7 @@ describe('POST /v1/webhooks/recall', () => {
       const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
       await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
 
-      expect(stopTranscriptSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }))
+      expect(updateTranscriptStatusSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }), 'stopped')
       expect(mockZoomStart).toHaveBeenCalled()
     })
 
@@ -206,7 +204,7 @@ describe('POST /v1/webhooks/recall', () => {
       const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
       await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
 
-      expect(stopTranscriptSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }))
+      expect(updateTranscriptStatusSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }), 'stopped')
       expect(mockZoomStart).toHaveBeenCalled()
     })
 
@@ -232,7 +230,7 @@ describe('POST /v1/webhooks/recall', () => {
       const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
       await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
 
-      expect(stopTranscriptSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }))
+      expect(updateTranscriptStatusSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }), 'stopped')
       expect(mockZoomStart).toHaveBeenCalled()
     })
 
@@ -258,7 +256,7 @@ describe('POST /v1/webhooks/recall', () => {
       const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
       await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
 
-      expect(stopTranscriptSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }))
+      expect(updateTranscriptStatusSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }), 'stopped')
       expect(mockZoomStart).toHaveBeenCalled()
     })
 
@@ -284,7 +282,7 @@ describe('POST /v1/webhooks/recall', () => {
       const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
       await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
 
-      expect(stopTranscriptSpy).not.toHaveBeenCalled()
+      expect(updateTranscriptStatusSpy).not.toHaveBeenCalled()
       expect(mockZoomStart).toHaveBeenCalled()
     })
 
@@ -310,7 +308,7 @@ describe('POST /v1/webhooks/recall', () => {
       const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
       await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
 
-      expect(stopTranscriptSpy).not.toHaveBeenCalled()
+      expect(updateTranscriptStatusSpy).not.toHaveBeenCalled()
       expect(mockZoomStart).toHaveBeenCalled()
     })
 
@@ -334,7 +332,7 @@ describe('POST /v1/webhooks/recall', () => {
       const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
       await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
 
-      expect(stopTranscriptSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }))
+      expect(updateTranscriptStatusSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }), 'stopped')
       expect(mockZoomStart).not.toHaveBeenCalled()
     })
 
@@ -358,7 +356,7 @@ describe('POST /v1/webhooks/recall', () => {
       const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
       await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
 
-      expect(stopTranscriptSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }))
+      expect(updateTranscriptStatusSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }), 'stopped')
       expect(mockZoomStart).not.toHaveBeenCalled()
     })
   })

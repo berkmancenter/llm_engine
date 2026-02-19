@@ -17,12 +17,31 @@ import { ConversationDocument } from '../models/conversation.model.js'
 import { getConversationType } from '../conversations/index.js'
 import { supportedModels } from '../agents/helpers/getEmbeddings.js'
 import transcript from '../agents/helpers/transcript.js'
-import transcriptService from './transcript.service.js'
 
 const returnFields =
   'name slug locked owner createdAt active conversationType platforms scheduledTime description moderators presenters transcript'
 const transcriptBatchInterval = 30
 export const maxScheduledInterval = 10 * 60 * 1000 // 10 minutes in milliseconds
+
+/**
+ * Updates transcript status and broadcasts the change
+ * Use this for any transcript status changes (system or user-initiated)
+ */
+export const updateTranscriptStatus = async (conversation, status: 'active' | 'paused' | 'stopped' | 'deleted'): Promise<void> => {
+  if (!conversation.transcript) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'No transcript configured for this conversation')
+  }
+  if (conversation.transcript.status === status) {
+    logger.debug(`Transcript already in status ${status} for conversation ${conversation._id}`)
+    return
+  }
+
+  // eslint-disable-next-line no-param-reassign
+  conversation.transcript.status = status
+  await conversation.save()
+  await websocketGateway.broadcastTranscriptStatusChange(conversation, status)
+  logger.info(`Transcript ${status} for conversation ${conversation._id}`)
+}
 /**
  * Removed messages array property and replaces with messageCount
  * @param {Array} conversations
@@ -121,7 +140,7 @@ const stopConversation = async (conversationOrId, user) => {
 
   conversation.active = false
   if (conversation.transcript) {
-    await transcriptService.stopTranscript(conversation._id)
+    await updateTranscriptStatus(conversation, 'stopped')
   }
   await conversation.save()
   return conversation
@@ -665,6 +684,7 @@ const conversationService = {
   patchConversationAgent,
   startConversation,
   stopConversation,
-  joinConversation
+  joinConversation,
+  updateTranscriptStatus
 }
 export default conversationService

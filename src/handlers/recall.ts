@@ -7,7 +7,7 @@ import logger from '../config/logger.js'
 import Conversation from '../models/conversation.model.js'
 import Adapter from '../models/adapter.model.js'
 import webhookService from '../services/webhook.service.js'
-import transcriptService from '../services/transcript.service.js'
+import conversationService from '../services/conversation.service.js'
 
 const verifyRequestFromRecall = (args: { secret: string; headers: Record<string, string>; payload: string | null }) => {
   const { secret, headers, payload } = args
@@ -70,7 +70,7 @@ const handleBotStatusChange = async (adapter, body) => {
   // Handle bot resuming recording
   if (code === 'in_call_recording') {
     if (wasPaused) {
-      await transcriptService.updateTranscriptStatus(conversation, 'active')
+      await conversationService.updateTranscriptStatus(conversation, 'active')
       logger.info(`Bot resumed recording for adapter ${adapter._id}`)
     }
     return
@@ -79,7 +79,7 @@ const handleBotStatusChange = async (adapter, body) => {
   // Handle paused recording
   if (code === 'in_call_not_recording') {
     if (!wasPaused) {
-      await transcriptService.updateTranscriptStatus(conversation, 'paused')
+      await conversationService.updateTranscriptStatus(conversation, 'paused')
       logger.info(`Bot paused recording for adapter ${adapter._id}`)
     }
     return
@@ -87,7 +87,7 @@ const handleBotStatusChange = async (adapter, body) => {
 
   // Update transcript status if it was active
   if (!wasPaused) {
-    await transcriptService.stopTranscript(conversation)
+    await conversationService.updateTranscriptStatus(conversation, 'stopped')
   }
 
   // Handle bot stopping/leaving (call_ended with specific sub_codes)

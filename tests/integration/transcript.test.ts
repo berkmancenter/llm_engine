@@ -1466,7 +1466,10 @@ describe('Transcript routes', () => {
       expect(response.body.message).toContain('No transcript configured')
     })
 
-    test('should return 400 when trying to resume transcript for an inactive conversation', async () => {
+    test('should start conversation and return 204 when resuming transcript for an inactive conversation', async () => {
+      const conversationService = await import('../../src/services/conversation.service.js')
+      const startConversationSpy = jest.spyOn(conversationService.default, 'startConversation').mockResolvedValue({})
+
       const conversation = new Conversation({
         name: 'Inactive Conversation Resume Test',
         owner: userOne._id,
@@ -1478,17 +1481,19 @@ describe('Transcript routes', () => {
       })
       await conversation.save()
 
-      const response = await request(app)
+      await request(app)
         .post(`/v1/transcript/${conversation._id}/resume`)
         .set('Authorization', `Bearer ${userOneAccessToken}`)
         .send()
-        .expect(httpStatus.BAD_REQUEST)
+        .expect(httpStatus.NO_CONTENT)
 
-      expect(response.body.message).toContain('Cannot resume transcript for an inactive conversation')
+      // Verify startConversation was called to activate the inactive conversation
+      expect(startConversationSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ _id: conversation._id }),
+        expect.anything()
+      )
 
-      // Verify status is still paused
-      const updatedConversation = await Conversation.findById(conversation._id)
-      expect(updatedConversation!.transcript?.status).toBe('paused')
+      startConversationSpy.mockRestore()
     })
 
     test('should successfully resume an already active transcript', async () => {
