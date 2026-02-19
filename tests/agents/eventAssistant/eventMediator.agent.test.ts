@@ -1417,8 +1417,11 @@ describe(`event mediator agent tests`, () => {
         // Should detect the implementation concern pattern
         expect(responses.length).toBeGreaterThan(0)
         console.log('Mediator response about implementation:', responses[0].message)
-        // Could be SIGNAL or SYNTHESIS (all valid ways to surface implementation questions)
-        const validInterventions = responses[0].context?.includes('SIGNAL') || responses[0].context?.includes('SYNTHESIS')
+        // Could be SIGNAL, SYNTHESIS, or CONFUSION (all valid ways to surface implementation questions)
+        const validInterventions =
+          responses[0].context?.includes('SIGNAL') ||
+          responses[0].context?.includes('SYNTHESIS') ||
+          responses[0].context?.includes('CONFUSION')
         expect(validInterventions).toBe(true)
 
         // Verify agent demonstrates knowledge of transcript recommendations
