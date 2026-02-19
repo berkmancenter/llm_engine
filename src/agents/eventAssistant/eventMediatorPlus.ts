@@ -1,35 +1,9 @@
 import verify from '../helpers/verify.js'
-import { AgentMessageActions, AgentResponse, ConversationHistory } from '../../types/index.types.js'
+import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
-import {
-  detectInterventionOpportunity,
-  createMediatorTemplates,
-  mediatorLlmTemplateVars,
-  type MediatorAnalysis
-} from './mediatorHandler.js'
-import {
-  InterventionCategoriesConfig,
-  InterventionType,
-  defaultCategoriesConfig,
-  shouldFetchPrivateMessages
-} from './interventionCategories.js'
-import logger from '../../config/logger.js'
-import getConversationHistory from '../helpers/getConversationHistory.js'
+import { interventionLlmTemplateVars, USER_TEMPLATE } from './interventionHandler.js'
 
-function formatModeratorAlert(analysis: MediatorAnalysis, conversationHistory: ConversationHistory) {
-  return {
-    timestamp: {
-      start: conversationHistory.start?.getTime() || Date.now(),
-      end: conversationHistory.end?.getTime() || Date.now()
-    },
-    insights: [
-      {
-        value: analysis.moderatorMessage || `Pattern detected: ${analysis.detectedPattern} (${analysis.interventionType})`,
-        type: 'insight'
-      }
-    ]
-  }
-}
+import buildMediatorResponse, { getMediatorSystemPrompt } from './mediatorHandler.js'
 
 export default verify({
   name: 'Event Mediator Plus',
@@ -42,12 +16,14 @@ export default verify({
     periodic: { timerPeriod: 60, conversationHistorySettings: { channels: ['transcript'] } }
   },
   agentConfig: {
-    mediatorMinInterval: 60000, // 1 min between interventions
-    personality: 'sarcastic-expert', // Use sarcastic-expert personality (set to null for no personality)
-    interventionCategories: defaultCategoriesConfig
+    minInterval: 120000, // 1 min between interventions
+    personality: 'sarcastic-expert' // Use sarcastic-expert personality (set to null for no personality)
   },
-  llmTemplateVars: mediatorLlmTemplateVars,
-  defaultLLMTemplates: createMediatorTemplates({ supportsModerator: true }),
+  llmTemplateVars: interventionLlmTemplateVars,
+  defaultLLMTemplates: {
+    system: getMediatorSystemPrompt(true, 'sarcastic-expert'),
+    user: USER_TEMPLATE
+  },
   defaultLLMPlatform,
   defaultLLMModel,
   parseOutput: (msg) => {
@@ -85,96 +61,12 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
   },
 
   async respond(conversationHistory: ConversationHistory) {
-    // Ensure conversation is available
-    if (!this.conversation) {
-      logger.warn('Event Mediator Plus: No conversation available')
-      return []
-    }
-
-    // Get category configuration from agentConfig
-    const categoryConfig: InterventionCategoriesConfig = this.agentConfig?.interventionCategories || defaultCategoriesConfig
-
-    // Shared chat
-    const sharedChatHistory = getConversationHistory(this.conversation.messages, {
-      count: 100,
-      channels: ['chat'],
-      endTime: conversationHistory.end
-    })
-
-    // Only fetch private messages if needed based on category config
-    let privateHistory: ConversationHistory | null = null
-    if (shouldFetchPrivateMessages(categoryConfig)) {
-      privateHistory = getConversationHistory(
-        this.conversation.messages,
-        {
-          count: 100,
-          directMessages: true,
-          endTime: conversationHistory.end
-        },
-        null, // includeAgents
-        this.conversation.channels.filter((c) => c.direct).map((c) => c.name) // directChannels
-      )
-    }
-
-    // Moderator context
-    const moderatorHistory = getConversationHistory(this.conversation.messages, {
-      count: 50,
-      channels: ['moderator'],
-      endTime: conversationHistory.end
-    })
-
-    // Detect intervention opportunity with category config
-    const interventionAnalysis = await detectInterventionOpportunity.call(
+    return buildMediatorResponse.call(
       this,
-      sharedChatHistory,
-      privateHistory,
-      moderatorHistory,
-      categoryConfig
+      this.conversation,
+      conversationHistory,
+      true // supportsModerator
     )
-
-    if (!interventionAnalysis) {
-      logger.debug('Event Mediator Plus: No intervention opportunity detected or rate limited')
-      return [] // No opportunity detected, rate limited, or low confidence
-    }
-
-    logger.info(
-      `Event Mediator Plus: Detected ${interventionAnalysis.interventionType} opportunity - ${interventionAnalysis.detectedPattern}`
-    )
-
-    const responses: AgentResponse<string | Record<string, unknown>>[] = []
-
-    // Post to shared chat if we have a message
-    if (interventionAnalysis.sharedChatMessage) {
-      responses.push({
-        visible: true,
-        message: interventionAnalysis.sharedChatMessage,
-        channels: this.conversation.channels.filter((c) => c.name === 'chat'),
-        context: `Intervention Type: ${interventionAnalysis.interventionType}\nReasoning: ${
-          interventionAnalysis.reasoning
-        }\nPattern: ${interventionAnalysis.detectedPattern || 'N/A'}`
-      })
-    }
-
-    // Escalate to moderator if needed (structured JSON)
-    if (
-      interventionAnalysis.interventionType === InterventionType.MODERATOR_ESCALATION &&
-      interventionAnalysis.moderatorMessage
-    ) {
-      const moderatorAlert = formatModeratorAlert(interventionAnalysis, conversationHistory)
-      responses.push({
-        visible: true,
-        message: moderatorAlert,
-        messageType: 'json',
-        channels: this.conversation.channels.filter((c) => c.name === 'moderator'),
-        context: `Intervention Type: ${interventionAnalysis.interventionType}\nReasoning: ${
-          interventionAnalysis.reasoning
-        }\nPattern: ${interventionAnalysis.detectedPattern || 'N/A'}`
-      })
-
-      logger.info(`Event Mediator Plus: Escalated to moderator - ${interventionAnalysis.detectedPattern}`)
-    }
-
-    return responses
   },
 
   async start() {

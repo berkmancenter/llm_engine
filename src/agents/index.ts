@@ -18,6 +18,7 @@ import config from '../config/config.js'
 import eventAssistantPlus from './eventAssistant/eventAssistantPlus.js'
 import eventMediator from './eventAssistant/eventMediator.js'
 import eventMediatorPlus from './eventAssistant/eventMediatorPlus.js'
+import engagementAgent from './eventAssistant/engagementAgent.js'
 
 const development = {
   civilityPerMessage,
@@ -38,5 +39,6 @@ export default {
   eventAssistant,
   eventAssistantPlus,
   eventMediator,
-  eventMediatorPlus
+  eventMediatorPlus,
+  engagementAgent
 }

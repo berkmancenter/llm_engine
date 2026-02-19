@@ -1,11 +1,11 @@
-import { InterventionType } from '../../src/agents/eventAssistant/interventionCategories.js'
 import {
-  getMediatorAnalysisSchema,
-  createMediatorTemplates,
-  mediatorLlmTemplateVars
-} from '../../src/agents/eventAssistant/mediatorHandler.js'
+  getInterventionAnalysisSchema,
+  interventionLlmTemplateVars,
+  USER_TEMPLATE
+} from '../../../src/agents/eventAssistant/interventionHandler.js'
+import { InterventionType } from '../../../src/agents/eventAssistant/interventionTypes.js'
 
-describe('mediatorHandler', () => {
+describe('interventionHandler', () => {
   describe('InterventionType enum', () => {
     it('defines all expected intervention types', () => {
       expect(InterventionType.SIGNAL).toBe('SIGNAL')
@@ -21,11 +21,11 @@ describe('mediatorHandler', () => {
     })
   })
 
-  describe('getMediatorAnalysisSchema', () => {
+  describe('getInterventionAnalysisSchema', () => {
     const allInterventions = Object.values(InterventionType)
-    const schema = getMediatorAnalysisSchema(allInterventions, true)
+    const schema = getInterventionAnalysisSchema(allInterventions, true)
 
-    it('validates a valid mediator analysis with intervention', () => {
+    it('validates a valid intervention analysis with intervention', () => {
       const validAnalysis = {
         shouldIntervene: true,
         interventionType: 'SIGNAL',
@@ -43,7 +43,7 @@ describe('mediatorHandler', () => {
       }
     })
 
-    it('validates a valid mediator analysis without intervention', () => {
+    it('validates a valid intervention analysis without intervention', () => {
       const validAnalysis = {
         shouldIntervene: false,
         interventionType: 'NONE',
@@ -149,7 +149,7 @@ describe('mediatorHandler', () => {
     it('only allows enabled intervention types in schema', () => {
       // Create schema with only engagement interventions
       const engagementOnly = [InterventionType.PROVOCATION, InterventionType.PLAY, InterventionType.NONE]
-      const limitedSchema = getMediatorAnalysisSchema(engagementOnly, false)
+      const limitedSchema = getInterventionAnalysisSchema(engagementOnly, false)
 
       // Should accept enabled types
       const validAnalysis = {
@@ -169,74 +169,49 @@ describe('mediatorHandler', () => {
       }
       expect(limitedSchema.safeParse(invalidAnalysis).success).toBe(false)
     })
-  })
 
-  describe('createMediatorTemplates', () => {
-    it('creates templates with moderator support', () => {
-      const templates = createMediatorTemplates({ supportsModerator: true })
+    it('includes moderatorMessage field when supportsModerator is true', () => {
+      const schemaWithModerator = getInterventionAnalysisSchema(allInterventions, true)
 
-      expect(templates.mediatorSystem).toBeDefined()
-      expect(templates.mediatorUser).toBeDefined()
-      expect(templates.mediatorSystem).toContain('MODERATOR_ESCALATION')
+      const analysisWithModeratorMessage = {
+        shouldIntervene: true,
+        interventionType: 'MODERATOR_ESCALATION',
+        reasoning: 'Test',
+        moderatorMessage: 'Test moderator message',
+        confidenceScore: 75
+      }
+
+      const result = schemaWithModerator.safeParse(analysisWithModeratorMessage)
+      expect(result.success).toBe(true)
     })
 
-    it('creates templates without moderator support', () => {
-      const templates = createMediatorTemplates({ supportsModerator: false })
+    it('schema works without moderatorMessage field when supportsModerator is false', () => {
+      const schemaWithoutModerator = getInterventionAnalysisSchema(
+        [InterventionType.PROVOCATION, InterventionType.NONE],
+        false
+      )
 
-      expect(templates.mediatorSystem).toBeDefined()
-      expect(templates.mediatorUser).toBeDefined()
-      // MODERATOR_ESCALATION should not be in the output format options
-      expect(templates.mediatorSystem).not.toMatch(/"MODERATOR_ESCALATION"/)
-    })
+      const analysisWithoutModeratorMessage = {
+        shouldIntervene: true,
+        interventionType: 'PROVOCATION',
+        reasoning: 'Test',
+        confidenceScore: 75
+      }
 
-    it('system template includes core directives', () => {
-      const templates = createMediatorTemplates({ supportsModerator: true })
-
-      // Check for key sections
-      expect(templates.mediatorSystem).toContain('## Voice')
-      expect(templates.mediatorSystem).toContain('## Rules')
-      expect(templates.mediatorSystem).toContain('PRIVACY:')
-      expect(templates.mediatorSystem).toContain('JUDGMENT:')
-      expect(templates.mediatorSystem).toContain('## Intervention Types')
-      expect(templates.mediatorSystem).toContain('## Output Format')
-    })
-
-    it('system template describes all intervention types when all enabled', () => {
-      const templates = createMediatorTemplates({ supportsModerator: true })
-
-      expect(templates.mediatorSystem).toContain('SIGNAL')
-      expect(templates.mediatorSystem).toContain('SYNTHESIS')
-      expect(templates.mediatorSystem).toContain('MINORITY_VOICE')
-      expect(templates.mediatorSystem).toContain('CONFUSION')
-      expect(templates.mediatorSystem).toContain('PROVOCATION')
-      expect(templates.mediatorSystem).toContain('BRIDGE')
-      expect(templates.mediatorSystem).toContain('STRUCTURE')
-      expect(templates.mediatorSystem).toContain('PLAY')
-      expect(templates.mediatorSystem).toContain('MODERATOR_ESCALATION')
-    })
-
-    it('user template includes all required context sections', () => {
-      const templates = createMediatorTemplates({ supportsModerator: true })
-
-      expect(templates.mediatorUser).toContain('## Event Topic:')
-      expect(templates.mediatorUser).toContain('## Recent Transcript')
-      expect(templates.mediatorUser).toContain('## Retrieved Relevant Context')
-      expect(templates.mediatorUser).toContain('## Private Messages')
-      expect(templates.mediatorUser).toContain('## Shared Chat History:')
-      expect(templates.mediatorUser).toContain('## Moderator Context:')
-      expect(templates.mediatorUser).toContain('## Your Recent Posts:')
+      const result = schemaWithoutModerator.safeParse(analysisWithoutModeratorMessage)
+      expect(result.success).toBe(true)
     })
   })
 
-  describe('mediatorLlmTemplateVars', () => {
+  describe('interventionLlmTemplateVars', () => {
     it('defines expected template variables', () => {
-      expect(mediatorLlmTemplateVars).toBeDefined()
-      expect(mediatorLlmTemplateVars.mediatorSystem).toEqual([])
-      expect(mediatorLlmTemplateVars.mediatorUser).toBeDefined()
+      expect(interventionLlmTemplateVars).toBeDefined()
+      expect(interventionLlmTemplateVars.system).toEqual([])
+      expect(interventionLlmTemplateVars.user).toBeDefined()
     })
 
     it('template vars define expected user variables', () => {
-      const userVars = mediatorLlmTemplateVars.mediatorUser
+      const userVars = interventionLlmTemplateVars.user
       expect(userVars).toBeDefined()
       expect(Array.isArray(userVars)).toBe(true)
 
@@ -251,35 +226,25 @@ describe('mediatorHandler', () => {
     })
   })
 
-  describe('privacy constraints in prompt', () => {
-    it('emphasizes privacy protection in system prompt', () => {
-      const templates = createMediatorTemplates({ supportsModerator: true })
-
-      // Check for privacy-related constraints
-      expect(templates.mediatorSystem).toContain('Never quote')
-      expect(templates.mediatorSystem).toContain('paraphrase closely')
-      expect(templates.mediatorSystem).toContain('aggregate')
-      expect(templates.mediatorSystem).toContain('several of you')
-      expect(templates.mediatorSystem).toContain('PRIVACY:')
+  describe('USER_TEMPLATE', () => {
+    it('includes all required context sections', () => {
+      expect(USER_TEMPLATE).toContain('## Event Topic:')
+      expect(USER_TEMPLATE).toContain('## Recent Transcript')
+      expect(USER_TEMPLATE).toContain('## Retrieved Relevant Context')
+      expect(USER_TEMPLATE).toContain('## Private Messages')
+      expect(USER_TEMPLATE).toContain('## Shared Chat History:')
+      expect(USER_TEMPLATE).toContain('## Moderator Context:')
+      expect(USER_TEMPLATE).toContain('## Your Recent Posts:')
     })
 
-    it('includes protection for individual sources', () => {
-      const templates = createMediatorTemplates({ supportsModerator: true })
-
-      expect(templates.mediatorSystem).toContain('do not surface it')
-      expect(templates.mediatorSystem).toContain('2+ independent signals')
-      expect(templates.mediatorSystem).toContain('no individual could recognize their own words')
-    })
-  })
-
-  describe('strategic silence emphasis', () => {
-    it('emphasizes strategic silence in constraints', () => {
-      const templates = createMediatorTemplates({ supportsModerator: true })
-
-      expect(templates.mediatorSystem).toContain('Silence is a valid output')
-      expect(templates.mediatorSystem).toContain('Most cycles should produce no intervention')
-      expect(templates.mediatorSystem).toContain('Never repeat a theme')
-      expect(templates.mediatorSystem).toContain('JUDGMENT:')
+    it('includes all template variable placeholders', () => {
+      expect(USER_TEMPLATE).toContain('{topic}')
+      expect(USER_TEMPLATE).toContain('{recentTranscript}')
+      expect(USER_TEMPLATE).toContain('{retrievedChunks}')
+      expect(USER_TEMPLATE).toContain('{privateMessages}')
+      expect(USER_TEMPLATE).toContain('{sharedChatHistory}')
+      expect(USER_TEMPLATE).toContain('{moderatorContext}')
+      expect(USER_TEMPLATE).toContain('{agentRecentPosts}')
     })
   })
 })
