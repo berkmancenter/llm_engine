@@ -149,8 +149,10 @@ export async function detectInterventionOpportunity(
   privateConversationHistory?: ConversationHistory | null,
   moderatorConversationHistory?: ConversationHistory
 ): Promise<InterventionAnalysis | null> {
-  const now = Date.now()
-  const minInterval = this.agentConfig?.minInterval || 60000 // 1 min default
+  // Use conversationHistory.end as "now" to maintain consistent time simulation
+  // This allows tests and the system to reason about specific moments in time
+  const now = conversationHistory.end ? conversationHistory.end.getTime() : Date.now()
+  const minInterval = this.agentConfig?.minInterval || 120000 // 1 min default
 
   // Get recent interventions from conversation history (stateless rate limiting)
   const recentInterventions = getRecentAgentInterventions(conversationHistory, this.name)
