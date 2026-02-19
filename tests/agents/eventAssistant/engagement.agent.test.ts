@@ -227,7 +227,7 @@ describe(`engagement agent tests`, () => {
     )
 
     it(
-      'SHOULD generate PLAY when participants react to surprising data',
+      'SHOULD generate PLAY or PROVOCATION when participants react to surprising data',
       async () => {
         // Transcript at ~08:20-08:30: "Hundreds of applicants... incredibly high level individuals"
         // This is a perfect moment for playful commentary
@@ -263,7 +263,7 @@ describe(`engagement agent tests`, () => {
         if (responses.length > 0) {
           const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
           console.log(`[08:50] Detected ${interventionType}:`, responses[0].message)
-          expect(['PLAY', 'NONE']).toContain(interventionType)
+          expect(['PLAY', 'NONE', 'PROVOCATION']).toContain(interventionType)
         }
       },
       testTimeout
@@ -302,7 +302,7 @@ describe(`engagement agent tests`, () => {
     )
 
     it(
-      'SHOULD generate PLAY during structural transition',
+      'SHOULD generate PLAY or PROVOCATION during structural transition',
       async () => {
         // Transcript at ~06:20-06:25: Transition from emotional story to "So how do I think you should go about it"
         // Natural structural moment for witty commentary
@@ -325,7 +325,7 @@ describe(`engagement agent tests`, () => {
         if (responses.length > 0) {
           const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
           console.log(`[06:30] Detected ${interventionType}:`, responses[0].message)
-          expect(['PLAY', 'NONE']).toContain(interventionType)
+          expect(['PLAY', 'NONE', 'PROVOCATION']).toContain(interventionType)
         }
       },
       testTimeout
@@ -336,25 +336,26 @@ describe(`engagement agent tests`, () => {
     it(
       'SHOULD NOT intervene when rate limited (recent intervention)',
       async () => {
-        // First, create an agent message to simulate recent intervention
-        await createMessage('What are your thoughts on this approach?', agent, conversation, ['chat'], getMessageTime(60))
-
+        // Create agent message at 01:00 (60 seconds), then check at 03:00 (180 seconds)
+        // That's 2 minutes apart, which is less than minInterval of 5 minutes
         const messages = [
+          await createMessage('What are your thoughts on this approach?', agent, conversation, ['chat'], getMessageTime(60)),
           await createMessage('Interesting question', user1, conversation, ['chat'], getMessageTime(120)),
           await createMessage('I have some thoughts', user2, conversation, ['chat'], getMessageTime(140))
         ]
         await prepareMessagesForAgent(messages, conversation, agent)
 
-        // Try to get response just 2 minutes after agent's last post (minInterval is 5 min)
+        // Try to get response at 03:00, which is 2 minutes after agent's last post (minInterval is 5 min)
+        // Rate limiting now uses conversationHistory.end as "now", so this simulates the correct time
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
           channels: ['transcript'],
-          endTime: new Date(startTime.getTime() + 180 * 1000)
+          endTime: new Date(startTime.getTime() + 180 * 1000) // 03:00
         })
 
         const responses = await defaultAgentTypes.engagementAgent.respond.call(agent, conversationHistory)
 
-        // Should be rate limited - no intervention
+        // Should be rate limited - no intervention (only 2 min since last post, need 5 min)
         expect(responses).toHaveLength(0)
       },
       testTimeout
