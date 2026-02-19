@@ -70,6 +70,12 @@ const eventAssistant: ConversationType = {
           direction: Direction.BOTH
         }
       ],
+      chatChannels: [
+        {
+          name: 'chat',
+          direction: Direction.BOTH
+        }
+      ],
       audioChannels: [
         {
           name: 'transcript',

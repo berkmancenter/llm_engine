@@ -241,6 +241,106 @@ describe('zoom adapter tests', () => {
       ])
     })
 
+    it('only places group chat messages on channels with INCOMING direction', async () => {
+      await createConversation('Meeting with Directional Chat Channels')
+
+      const chatMessage = {
+        data: {
+          data: {
+            data: {
+              text: 'Hello everyone!',
+              to: 'everyone'
+            },
+            participant: {
+              id: 102,
+              name: 'Alice Smith',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      const incomingChannel = { name: 'chat-incoming', direction: Direction.INCOMING }
+      const outgoingChannel = { name: 'chat-outgoing', direction: Direction.OUTGOING }
+      adapter.chatChannels = [incomingChannel, outgoingChannel]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(chatMessage)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].message).toBe('Hello everyone!')
+      expect(msgs[0].source).toBe('zoom')
+      expect(msgs[0].user).toEqual({ username: 'Alice Smith' })
+      expect(msgs[0].channels).toHaveLength(1)
+      expect(msgs[0].channels[0].name).toBe('chat-incoming')
+      expect(msgs[0].channels[0].direction).toBe(Direction.INCOMING)
+    })
+
+    it('only places group chat messages on channels with BOTH direction', async () => {
+      await createConversation('Meeting with Bidirectional Chat Channel')
+
+      const chatMessage = {
+        data: {
+          data: {
+            data: {
+              text: 'Hello everyone!',
+              to: 'everyone'
+            },
+            participant: {
+              id: 102,
+              name: 'Alice Smith',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      const bothChannel = { name: 'chat-both', direction: Direction.BOTH }
+      const outgoingChannel = { name: 'chat-outgoing', direction: Direction.OUTGOING }
+      adapter.chatChannels = [bothChannel, outgoingChannel]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(chatMessage)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].message).toBe('Hello everyone!')
+      expect(msgs[0].source).toBe('zoom')
+      expect(msgs[0].user).toEqual({ username: 'Alice Smith' })
+      expect(msgs[0].channels).toHaveLength(1)
+      expect(msgs[0].channels[0].name).toBe('chat-both')
+      expect(msgs[0].channels[0].direction).toBe(Direction.BOTH)
+    })
+
+    it('filters out OUTGOING channels from group chat messages', async () => {
+      await createConversation('Meeting with Only Outgoing Channels')
+
+      const chatMessage = {
+        data: {
+          data: {
+            data: {
+              text: 'Hello everyone!',
+              to: 'everyone'
+            },
+            participant: {
+              id: 102,
+              name: 'Alice Smith',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      adapter.chatChannels = [{ name: 'chat-outgoing', direction: Direction.OUTGOING }]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(chatMessage)
+      expect(msgs).toHaveLength(0)
+    })
+
     it('correctly processes DM messages with direct channel when enabled', async () => {
       await createConversation('Meeting with Direct Channel')
 
@@ -283,6 +383,112 @@ describe('zoom adapter tests', () => {
           user: { username: 'Alice Smith', dmConfig: { to: 102 } }
         }
       ])
+    })
+
+    it('only places DM messages on channels with INCOMING direction', async () => {
+      await createConversation('Meeting with Directional DM Channels')
+      conversation.enableDMs = ['agents']
+      await conversation.save()
+
+      const dmMessage = {
+        data: {
+          data: {
+            data: {
+              text: 'Hello bot, can you help me?',
+              to: 'only_bot'
+            },
+            participant: {
+              id: 102,
+              name: 'Alice Smith',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      const incomingChannel = { name: 'dm-incoming', direction: Direction.INCOMING }
+      const outgoingChannel = { name: 'dm-outgoing', direction: Direction.OUTGOING }
+      adapter.dmChannels = [incomingChannel, outgoingChannel]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(dmMessage)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].message).toBe('Hello bot, can you help me?')
+      expect(msgs[0].source).toBe('zoom')
+      expect(msgs[0].user).toEqual({ username: 'Alice Smith', dmConfig: { to: 102 } })
+      expect(msgs[0].channels).toHaveLength(1)
+      expect(msgs[0].channels[0].name).toBe('dm-incoming')
+      expect(msgs[0].channels[0].direction).toBe(Direction.INCOMING)
+    })
+
+    it('only places DM messages on channels with BOTH direction', async () => {
+      await createConversation('Meeting with Bidirectional DM Channel')
+      conversation.enableDMs = ['agents']
+      await conversation.save()
+
+      const dmMessage = {
+        data: {
+          data: {
+            data: {
+              text: 'Hello bot, can you help me?',
+              to: 'only_bot'
+            },
+            participant: {
+              id: 102,
+              name: 'Alice Smith',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      const bothChannel = { name: 'dm-both', direction: Direction.BOTH }
+      const outgoingChannel = { name: 'dm-outgoing', direction: Direction.OUTGOING }
+      adapter.dmChannels = [bothChannel, outgoingChannel]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(dmMessage)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].message).toBe('Hello bot, can you help me?')
+      expect(msgs[0].source).toBe('zoom')
+      expect(msgs[0].user).toEqual({ username: 'Alice Smith', dmConfig: { to: 102 } })
+      expect(msgs[0].channels).toHaveLength(1)
+      expect(msgs[0].channels[0].name).toBe('dm-both')
+      expect(msgs[0].channels[0].direction).toBe(Direction.BOTH)
+    })
+
+    it('filters out OUTGOING channels from DM messages', async () => {
+      await createConversation('Meeting with Only Outgoing DM Channels')
+      conversation.enableDMs = ['agents']
+      await conversation.save()
+
+      const dmMessage = {
+        data: {
+          data: {
+            data: {
+              text: 'Hello bot, can you help me?',
+              to: 'only_bot'
+            },
+            participant: {
+              id: 102,
+              name: 'Alice Smith',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      adapter.dmChannels = [{ name: 'dm-outgoing', direction: Direction.OUTGOING }]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(dmMessage)
+      expect(msgs).toHaveLength(0)
     })
 
     it('does not process chat messages when no chatChannels configured', async () => {

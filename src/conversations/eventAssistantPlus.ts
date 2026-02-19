@@ -22,7 +22,7 @@ const eventAssistantPlus: ConversationType = {
       description: 'The display name for the bot as it will appear in Zoom',
       required: false,
       type: 'string',
-      default: 'Event Assistant Plus'
+      default: 'Event Assistant'
     },
     {
       name: 'llmModel',
@@ -79,6 +79,10 @@ const eventAssistantPlus: ConversationType = {
         {
           name: 'moderator',
           direction: Direction.OUTGOING
+        },
+        {
+          name: 'chat',
+          direction: Direction.BOTH
         }
       ],
       audioChannels: [

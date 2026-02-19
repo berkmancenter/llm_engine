@@ -2,6 +2,7 @@ import httpStatus from 'http-status'
 import config from '../config/config.js'
 import logger from '../config/logger.js'
 import { AdapterMessage, AdapterUser } from '../types/adapter.types.js'
+import { Direction } from '../types/index.types.js'
 
 const defaultBotName = 'LLM Engine'
 const defaultRetention = {
@@ -137,7 +138,9 @@ async function receiveGroupChatMessage(data) {
   const msg: AdapterMessage<string> = {
     message: data.data.data.text,
     source: 'zoom',
-    channels: this.chatChannels,
+    channels: this.chatChannels.filter(
+      (channel) => channel.direction === Direction.INCOMING || channel.direction === Direction.BOTH
+    ),
     user: { username: data.data.participant.name }
   }
   return [msg]
@@ -147,7 +150,9 @@ async function receiveDirectMesssage(data) {
   const msg: AdapterMessage<string> = {
     message: data.data.data.text,
     source: 'zoom',
-    channels: this.dmChannels,
+    channels: this.dmChannels.filter(
+      (channel) => channel.direction === Direction.INCOMING || channel.direction === Direction.BOTH
+    ),
     user: { username: data.data.participant.name, dmConfig: { to: data.data.participant.id } }
   }
   return [msg]
