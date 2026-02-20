@@ -27,7 +27,10 @@ export const maxScheduledInterval = 10 * 60 * 1000 // 10 minutes in milliseconds
  * Updates transcript status and broadcasts the change
  * Use this for any transcript status changes (system or user-initiated)
  */
-export const updateTranscriptStatus = async (conversation, status: 'active' | 'paused' | 'stopped' | 'deleted'): Promise<void> => {
+export const updateTranscriptStatus = async (
+  conversation,
+  status: 'active' | 'paused' | 'stopped' | 'deleted'
+): Promise<void> => {
   if (!conversation.transcript) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'No transcript configured for this conversation')
   }
