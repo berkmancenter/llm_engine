@@ -125,13 +125,10 @@ function getAgentRecentPosts(conversationHistory: ConversationHistory, agentName
     .join('\n')
 }
 
-// Helper to check recent agent interventions for rate limiting
-function getRecentAgentInterventions(
-  conversationHistory: ConversationHistory,
-  agentName: string
-): Array<{ timestamp: Date }> {
+// Helper to check recent agent interventions for rate limiting. Checks for any agent intervention in the conversation
+function getRecentAgentInterventions(conversationHistory: ConversationHistory): Array<{ timestamp: Date }> {
   return conversationHistory.messages
-    .filter((msg) => msg.pseudonym === agentName && msg.visible)
+    .filter((msg) => msg.fromAgent && msg.visible)
     .map((msg) => ({ timestamp: msg.createdAt! }))
 }
 
@@ -152,12 +149,11 @@ export async function detectInterventionOpportunity(
   // Use conversationHistory.end as "now" to maintain consistent time simulation
   // This allows tests and the system to reason about specific moments in time
   const now = conversationHistory.end ? conversationHistory.end.getTime() : Date.now()
-  const minInterval = this.agentConfig?.minInterval || 120000 // 1 min default
-
+  const minInterval = (this.agentConfig?.minInterval || 2) * 60 * 1000 // Convert minutes to milliseconds
   // Get recent interventions from conversation history (stateless rate limiting)
-  const recentInterventions = getRecentAgentInterventions(conversationHistory, this.name)
+  const recentInterventions = getRecentAgentInterventions(conversationHistory)
 
-  // Rate limiting: Check if we intervened recently
+  // Rate limiting: Check if an agent intervened recently
   const lastIntervention = recentInterventions[recentInterventions.length - 1]
   if (lastIntervention) {
     const timeSinceLastIntervention = now - lastIntervention.timestamp.getTime()

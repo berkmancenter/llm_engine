@@ -42,20 +42,6 @@ const eventAssistantPlus: ConversationType = {
     {
       name: 'backChannelInsights',
       properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
-    },
-    {
-      name: 'eventMediatorPlus',
-      properties: {
-        llmModel: '{{properties.llmModel.llmModel}}',
-        llmPlatform: '{{properties.llmModel.llmPlatform}}'
-      }
-    },
-    {
-      name: 'engagementAgent',
-      properties: {
-        llmModel: '{{properties.llmModel.llmModel}}',
-        llmPlatform: '{{properties.llmModel.llmPlatform}}'
-      }
     }
   ],
   enableDMs: ['agents'],
@@ -79,10 +65,6 @@ const eventAssistantPlus: ConversationType = {
         {
           name: 'moderator',
           direction: Direction.OUTGOING
-        },
-        {
-          name: 'chat',
-          direction: Direction.BOTH
         }
       ],
       audioChannels: [

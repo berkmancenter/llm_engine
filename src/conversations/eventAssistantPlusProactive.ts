@@ -2,11 +2,11 @@ import { supportedModels } from '../agents/helpers/getModelChat.js'
 import adapterTypes from '../adapters/config.js'
 import { ConversationType, Direction } from '../types/index.types.js'
 
-const eventAssistant: ConversationType = {
+const eventAssistantPlusProactive: ConversationType = {
   // user-facing
-  name: 'eventAssistant',
-  label: 'Event Assistant',
-  description: 'An assistant to answer questions about an event',
+  name: 'eventAssistantPlusProactive',
+  label: 'Event Assistant Plus Proactive',
+  description: 'A combination of Event Assistant and Back Channel that can proactively intervene in the main chat',
   platforms: adapterTypes,
   properties: [
     {
@@ -31,17 +31,44 @@ const eventAssistant: ConversationType = {
       type: 'enum',
       options: supportedModels,
       validationKeys: ['llmModel', 'llmPlatform']
+    },
+    {
+      name: 'minContributionInterval',
+      label: 'Minimum number of minutes between proactive contributions to the main chat',
+      required: false,
+      type: 'number',
+      default: 5
     }
   ],
   // internal
   agents: [
     {
-      name: 'eventAssistant',
+      name: 'eventAssistantPlus',
       properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
+    },
+    {
+      name: 'backChannelInsights',
+      properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
+    },
+    {
+      name: 'eventMediatorPlus',
+      properties: {
+        llmModel: '{{properties.llmModel.llmModel}}',
+        llmPlatform: '{{properties.llmModel.llmPlatform}}',
+        agentConfig: { minInterval: '{{properties.minContributionInterval}}', personality: 'sarcastic-expert' }
+      }
+    },
+    {
+      name: 'engagementAgent',
+      properties: {
+        llmModel: '{{properties.llmModel.llmModel}}',
+        llmPlatform: '{{properties.llmModel.llmPlatform}}',
+        agentConfig: { minInterval: '{{properties.minContributionInterval}}', personality: 'sarcastic-expert' }
+      }
     }
   ],
   enableDMs: ['agents'],
-  channels: [{ name: 'transcript' }, { name: 'chat' }],
+  channels: [{ name: 'transcript' }, { name: 'participant' }, { name: 'moderator' }, { name: 'chat' }],
   adapters: {
     zoom: {
       type: 'zoom',
@@ -52,7 +79,18 @@ const eventAssistant: ConversationType = {
       dmChannels: [
         {
           direct: true,
-          agent: 'eventAssistant',
+          agent: 'eventAssistantPlus',
+          direction: Direction.BOTH
+        }
+      ],
+
+      chatChannels: [
+        {
+          name: 'moderator',
+          direction: Direction.OUTGOING
+        },
+        {
+          name: 'chat',
           direction: Direction.BOTH
         }
       ],
@@ -79,4 +117,4 @@ const eventAssistant: ConversationType = {
     }
   }
 }
-export default eventAssistant
+export default eventAssistantPlusProactive

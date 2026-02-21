@@ -1,2 +1,3 @@
 yarn lint-staged
-# TODO: enable after this task is complete! yarn audit:critical
+yarn prettier
+yarn audit:critical

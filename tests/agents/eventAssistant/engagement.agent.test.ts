@@ -68,7 +68,7 @@ describe(`engagement agent tests`, () => {
     it('has correct default configuration', () => {
       expect(agent.name).toBe('Engagement Agent')
       expect(agent.description).toContain('energy and participation')
-      expect(agent.agentConfig.minInterval).toBe(300000) // 5 min
+      expect(agent.agentConfig.minInterval).toBe(5) // 5 min
       expect(agent.agentConfig.personality).toBe('sarcastic-expert')
     })
 
@@ -338,8 +338,16 @@ describe(`engagement agent tests`, () => {
       async () => {
         // Create agent message at 01:00 (60 seconds), then check at 03:00 (180 seconds)
         // That's 2 minutes apart, which is less than minInterval of 5 minutes
+        const agentMsg = await createMessage(
+          'What are your thoughts on this approach?',
+          agent,
+          conversation,
+          ['chat'],
+          getMessageTime(60)
+        )
+        agentMsg.fromAgent = true
         const messages = [
-          await createMessage('What are your thoughts on this approach?', agent, conversation, ['chat'], getMessageTime(60)),
+          agentMsg,
           await createMessage('Interesting question', user1, conversation, ['chat'], getMessageTime(120)),
           await createMessage('I have some thoughts', user2, conversation, ['chat'], getMessageTime(140))
         ]
