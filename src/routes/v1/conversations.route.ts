@@ -492,6 +492,82 @@ router.route('/:conversationId/stop').post(auth('stopConversation'), conversatio
  *         description: Unauthorized
  */
 router.route('/:conversationId/join').post(auth('joinConversation'), conversationsController.joinConversation)
+
+/**
+ * @swagger
+ * /conversations/{conversationId}/report:
+ *   get:
+ *     summary: Generate conversation report
+ *     description: Generates and returns a formatted report of conversation data based on the specified report type
+ *     tags: [Conversation]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: conversationId
+ *         in: path
+ *         required: true
+ *         description: ID of the conversation to generate report for
+ *         schema:
+ *           type: string
+ *           example: "6123456789abcdef0123456a"
+ *       - name: reportName
+ *         in: query
+ *         required: true
+ *         description: Type of report to generate
+ *         schema:
+ *           type: string
+ *           enum: [periodicResponses, directMessageResponses, userMetrics]
+ *           example: "directMessageResponses"
+ *       - name: format
+ *         in: query
+ *         required: false
+ *         description: Format of the report output
+ *         schema:
+ *           type: string
+ *           enum: [text, csv]
+ *           default: text
+ *           example: "text"
+ *       - name: agent
+ *         in: query
+ *         required: false
+ *         description: Agent name (required for userMetrics report)
+ *         schema:
+ *           type: string
+ *       - name: additionalChannels
+ *         in: query
+ *         required: false
+ *         description: Additional channel names (comma-separated or array)
+ *         schema:
+ *           oneOf:
+ *             - type: string
+ *             - type: array
+ *               items:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Report generated successfully
+ *         content:
+ *           text/plain:
+ *             schema:
+ *               type: string
+ *           text/csv:
+ *             schema:
+ *               type: string
+ *       400:
+ *         description: Bad request - Invalid report type or missing agent parameter
+ *       404:
+ *         description: Conversation not found
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ */
+router
+  .route('/:conversationId/report')
+  .get(
+    auth('getConversationReport'),
+    validate(conversationValidation.getConversationReport),
+    conversationsController.getConversationReport
+  )
+
 /**
  * @swagger
  * /conversations/topic/{topicId}:

@@ -54,6 +54,26 @@ const testAgentTypeSpecification = {
     defaultLLMModel,
     useTranscriptRAGCollection: true
   },
+  eventAssistantPlus: {
+    initialize: mockInitialize,
+    respond: mockRespond,
+    evaluate: mockEvaluate,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Event Assistant Plus',
+    description: 'A test agent',
+    maxTokens: 2000,
+    defaultTriggers: { perMessage: { minNewMessage: 2 } },
+    priority: 100,
+    llmTemplateVars: { contribution: [], voting: [] },
+    defaultLLMTemplates: {
+      contribution: 'You are an agent that does awesome stuff. Be awesome!',
+      voting: 'You should vote on this data {voteData}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel,
+    useTranscriptRAGCollection: true
+  },
   backChannelInsights: {
     initialize: mockInitialize,
     respond: mockRespond,
@@ -111,13 +131,31 @@ const testAgentTypeSpecification = {
     defaultLLMModel,
     useTranscriptRAGCollection: true,
     agentConfig: {
-      mediatorMinInterval: 60000,
-      personality: 'sarcastic-expert',
-      interventionCategories: {
-        collectiveConsciousness: { enabled: true, weight: 1.0 },
-        engagement: { enabled: true, weight: 1.0 },
-        facilitation: { enabled: true, weight: 1.0 }
-      }
+      mediatorMinInterval: 1,
+      personality: 'sarcastic-expert'
+    }
+  },
+  eventMediatorPlus: {
+    initialize: mockInitialize,
+    respond: mockRespond,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Event Mediator Test Agent',
+    description: 'Test mediator agent with agentConfig',
+    maxTokens: 2000,
+    defaultTriggers: { periodic: { timerPeriod: 60 } },
+    priority: 85,
+    llmTemplateVars: { contribution: [], voting: [] },
+    defaultLLMTemplates: {
+      contribution: 'You are a mediator agent',
+      voting: 'You should vote on this data {voteData}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel,
+    useTranscriptRAGCollection: true,
+    agentConfig: {
+      mediatorMinInterval: 1,
+      personality: 'sarcastic-expert'
     }
   },
   engagementAgent: {
@@ -596,6 +634,267 @@ describe('Conversation service methods', () => {
         const adapters = await Adapter.find({ conversation: conversation._id })
         expect(adapters[0].config.meetingUrl).toBe('https://zoom.us/j/123456789')
         expect(adapters[0].config.botName).toBe('My Custom Bot')
+      })
+    })
+  })
+
+  describe('generateConversationReport()', () => {
+    let periodicConversation
+    let perMessageConversation
+    let mockGenerateReport
+
+    beforeEach(async () => {
+      await insertUsers([registeredUser])
+      await insertTopics([topicOne])
+
+      // Mock reportService.generateReport
+      const reportService = await import('../../src/services/report.service.js')
+      mockGenerateReport = jest.spyOn(reportService.default, 'generateReport').mockResolvedValue('mock report output')
+
+      // Use different scheduled times to prevent adapter conflicts (must be > 10 minutes apart)
+      const periodicTime = new Date(Date.now() + 3600000) // 1 hour in future
+      const perMessageTime = new Date(Date.now() + 7200000) // 2 hours in future (more than 10 min apart)
+
+      // Create conversation with periodic agent (eventMediator)
+      const periodicParams = {
+        type: 'eventAssistantPlusProactive',
+        name: 'Periodic Test Conversation',
+        platforms: ['zoom'],
+        topicId: topicOne._id.toString(),
+        scheduledTime: periodicTime,
+        properties: {
+          zoomMeetingUrl: 'https://zoom.us/j/periodic123report'
+        }
+      }
+      periodicConversation = await conversationService.createConversationFromType(periodicParams, registeredUser)
+
+      // Create conversation with perMessage agent (eventAssistant has perMessage triggers)
+      const perMessageParams = {
+        type: 'eventAssistant',
+        name: 'PerMessage Test Conversation',
+        platforms: ['zoom'],
+        topicId: topicOne._id.toString(),
+        scheduledTime: perMessageTime,
+        properties: {
+          zoomMeetingUrl: 'https://zoom.us/j/permessage123report'
+        }
+      }
+      perMessageConversation = await conversationService.createConversationFromType(perMessageParams, registeredUser)
+    })
+
+    afterEach(() => {
+      mockGenerateReport.mockRestore()
+    })
+
+    describe('periodicResponses report', () => {
+      test('should generate report for conversation with periodic agents', async () => {
+        const result = await conversationService.generateConversationReport(
+          periodicConversation._id.toString(),
+          'periodicResponses',
+          'text',
+          'UTC'
+        )
+
+        expect(result).toBe('mock report output')
+        expect(mockGenerateReport).toHaveBeenCalledWith(
+          expect.objectContaining({ _id: periodicConversation._id }),
+          'periodicResponses',
+          'text',
+          'UTC',
+          [],
+          undefined,
+          {
+            name: periodicConversation.name,
+            description: periodicConversation.description,
+            executedAt: periodicConversation.endTime || periodicConversation.startTime
+          }
+        )
+      })
+
+      test('should throw error if conversation has no periodic agents', async () => {
+        // Create a conversation with only perMessage agents (no periodic)
+        const onlyPerMessageParams = {
+          name: 'Only PerMessage',
+          topicId: topicOne._id.toString(),
+          agentTypes: ['eventAssistant'], // only has perMessage triggers, not periodic
+          scheduledTime: new Date(Date.now() + 3600000) // prevent auto-start
+        }
+        const onlyPerMessageConv = await conversationService.createConversation(onlyPerMessageParams, registeredUser)
+
+        await expect(
+          conversationService.generateConversationReport(onlyPerMessageConv._id.toString(), 'periodicResponses')
+        ).rejects.toThrow(ApiError)
+        await expect(
+          conversationService.generateConversationReport(onlyPerMessageConv._id.toString(), 'periodicResponses')
+        ).rejects.toMatchObject({
+          statusCode: httpStatus.BAD_REQUEST,
+          message: 'Conversation has no periodic agents for periodicResponses report'
+        })
+      })
+    })
+
+    describe('directMessageResponses report', () => {
+      test('should generate report for conversation with perMessage agents', async () => {
+        const additionalChannels = ['moderator', 'participant']
+        const result = await conversationService.generateConversationReport(
+          perMessageConversation._id.toString(),
+          'directMessageResponses',
+          'text',
+          'America/New_York',
+          additionalChannels
+        )
+
+        expect(result).toBe('mock report output')
+        expect(mockGenerateReport).toHaveBeenCalledWith(
+          expect.objectContaining({ _id: perMessageConversation._id }),
+          'directMessageResponses',
+          'text',
+          'America/New_York',
+          additionalChannels,
+          undefined,
+          {
+            name: perMessageConversation.name,
+            description: perMessageConversation.description,
+            executedAt: perMessageConversation.endTime || perMessageConversation.startTime
+          }
+        )
+      })
+
+      test('should throw error if conversation has no perMessage agents', async () => {
+        // Create a conversation with only periodic agents (no perMessage)
+        const onlyPeriodicParams = {
+          name: 'Only Periodic',
+          topicId: topicOne._id.toString(),
+          agentTypes: ['eventMediator'],
+          scheduledTime: new Date(Date.now() + 3600000) // prevent auto-start
+        }
+        const onlyPeriodicConv = await conversationService.createConversation(onlyPeriodicParams, registeredUser)
+
+        await expect(
+          conversationService.generateConversationReport(onlyPeriodicConv._id.toString(), 'directMessageResponses')
+        ).rejects.toThrow(ApiError)
+        await expect(
+          conversationService.generateConversationReport(onlyPeriodicConv._id.toString(), 'directMessageResponses')
+        ).rejects.toMatchObject({
+          statusCode: httpStatus.BAD_REQUEST,
+          message: 'Conversation has no perMessage agents for this report type'
+        })
+      })
+    })
+
+    describe('userMetrics report', () => {
+      test('should generate report for specific agent type', async () => {
+        const additionalChannels = ['moderator']
+        const result = await conversationService.generateConversationReport(
+          perMessageConversation._id.toString(),
+          'userMetrics',
+          'text',
+          'UTC',
+          additionalChannels,
+          'eventAssistant'
+        )
+
+        expect(result).toBe('mock report output')
+        expect(mockGenerateReport).toHaveBeenCalledWith(
+          expect.objectContaining({ _id: perMessageConversation._id }),
+          'userMetrics',
+          'text',
+          'UTC',
+          additionalChannels,
+          'eventAssistant',
+          {
+            name: perMessageConversation.name,
+            description: perMessageConversation.description,
+            executedAt: perMessageConversation.endTime || perMessageConversation.startTime
+          }
+        )
+      })
+
+      test('should throw error if agent type not found in conversation', async () => {
+        await expect(
+          conversationService.generateConversationReport(
+            perMessageConversation._id.toString(),
+            'userMetrics',
+            'text',
+            'UTC',
+            [],
+            'nonExistentAgent'
+          )
+        ).rejects.toThrow(ApiError)
+        await expect(
+          conversationService.generateConversationReport(
+            perMessageConversation._id.toString(),
+            'userMetrics',
+            'text',
+            'UTC',
+            [],
+            'nonExistentAgent'
+          )
+        ).rejects.toMatchObject({
+          statusCode: httpStatus.NOT_FOUND,
+          message: "Agent 'nonExistentAgent' not found in conversation"
+        })
+      })
+
+      test('should throw error if conversation has no perMessage agents', async () => {
+        // Create a conversation with only periodic agents
+        const onlyPeriodicParams = {
+          name: 'Only Periodic UserMetrics',
+          topicId: topicOne._id.toString(),
+          agentTypes: ['eventMediator'],
+          scheduledTime: new Date(Date.now() + 3600000) // prevent auto-start
+        }
+        const onlyPeriodicConv = await conversationService.createConversation(onlyPeriodicParams, registeredUser)
+
+        await expect(
+          conversationService.generateConversationReport(
+            onlyPeriodicConv._id.toString(),
+            'userMetrics',
+            'text',
+            'UTC',
+            [],
+            'eventMediator'
+          )
+        ).rejects.toThrow(ApiError)
+        await expect(
+          conversationService.generateConversationReport(
+            onlyPeriodicConv._id.toString(),
+            'userMetrics',
+            'text',
+            'UTC',
+            [],
+            'eventMediator'
+          )
+        ).rejects.toMatchObject({
+          statusCode: httpStatus.BAD_REQUEST,
+          message: 'Conversation has no perMessage agents for this report type'
+        })
+      })
+    })
+
+    describe('error handling', () => {
+      test('should throw error if conversation not found', async () => {
+        const fakeId = new mongoose.Types.ObjectId().toString()
+
+        await expect(conversationService.generateConversationReport(fakeId, 'periodicResponses')).rejects.toThrow(ApiError)
+        await expect(conversationService.generateConversationReport(fakeId, 'periodicResponses')).rejects.toMatchObject({
+          statusCode: httpStatus.NOT_FOUND,
+          message: 'Conversation not found'
+        })
+      })
+
+      test('should use default parameters when not provided', async () => {
+        await conversationService.generateConversationReport(periodicConversation._id.toString(), 'periodicResponses')
+
+        expect(mockGenerateReport).toHaveBeenCalledWith(
+          expect.anything(),
+          'periodicResponses',
+          'text', // default format
+          'UTC', // default timezone
+          [], // default additionalChannels
+          undefined, // default agentType
+          expect.anything()
+        )
       })
     })
   })

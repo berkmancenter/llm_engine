@@ -260,7 +260,7 @@ export interface IConversation {
   followed?: boolean
   createdAt?: Date
   updatedAt?: Date
-  messageCount?: number
+  messageCount(): number
 }
 
 export interface IPoll {

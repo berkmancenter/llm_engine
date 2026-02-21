@@ -16,6 +16,7 @@ const allRoles = {
     'publicConversations',
     'topicConversations',
     'deleteConversation',
+    'getConversationReport',
     'deleteTranscript',
     'pauseTranscript',
     'resumeTranscript',

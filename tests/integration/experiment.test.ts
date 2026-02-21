@@ -769,9 +769,9 @@ describe('Experiment routes', () => {
         const expectedReport = `Periodic Agent Responses Report
 ===========================
 
-Experiment: Test Experiment
+Name: Test Experiment
 Description: A test experiment to validate functionality
-Experiment Time: ${formatDate(experimentDate)}
+Time: ${formatDate(experimentDate)}
 Base Conversation ID: ${completedExperiment.baseConversation._id}
 Result Conversation ID: ${completedExperiment.resultConversation._id}
 Unique Participants: 2
@@ -1185,9 +1185,9 @@ ${formatTime(msg3Time)}  Fearful Frog: I have something to say
         const expectedReport = `Direct Message Agent Responses Report
 ===========================
 
-Experiment: Direct Message Test Experiment
+Name: Direct Message Test Experiment
 Description: A test experiment for direct message functionality
-Experiment Time: ${formatDate(directMessageExperiment.executedAt)}
+Time: ${formatDate(directMessageExperiment.executedAt)}
 Base Conversation ID: ${directMessageExperiment.baseConversation._id}
 Result Conversation ID: ${directMessageExperiment.resultConversation._id}
 
@@ -2061,9 +2061,7 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
             .expect(httpStatus.OK)
 
           // Find the Test Agent section
-          const testAgentMatch = response.text.match(
-            /Agent Name: Test Agent[\s\S]*?Feedback Ratings:\n([\s\S]*?)\n\n/
-          )
+          const testAgentMatch = response.text.match(/Agent Name: Test Agent[\s\S]*?Feedback Ratings:\n([\s\S]*?)\n\n/)
           expect(testAgentMatch).toBeTruthy()
 
           // Verify Test Agent has aggregated ratings: 3,1 and 5,2 (sorted by rating value)

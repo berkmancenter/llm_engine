@@ -65,6 +65,43 @@ const joinConversation = catchAsync(async (req, res) => {
   res.status(httpStatus.OK).send(conversation)
 })
 
+const getConversationReport = catchAsync(async (req, res) => {
+  const { conversationId } = req.params
+  const { reportName, format = 'text', additionalChannels, agent } = req.query
+  const timezone = req.headers['x-timezone'] || 'UTC'
+
+  // Parse additionalChannels - can be a comma-separated string or array
+  let channelsArray: string[] = []
+  if (additionalChannels) {
+    if (Array.isArray(additionalChannels)) {
+      channelsArray = additionalChannels as string[]
+    } else if (typeof additionalChannels === 'string') {
+      channelsArray = additionalChannels.split(',').map((ch) => ch.trim())
+    }
+  }
+
+  const report = await conversationService.generateConversationReport(
+    conversationId,
+    reportName,
+    format,
+    timezone,
+    channelsArray,
+    agent as string | undefined
+  )
+
+  const contentTypes = {
+    text: 'text/plain',
+    csv: 'text/csv'
+  }
+  res.setHeader('Content-Type', contentTypes[format] || 'text/plain')
+
+  if (format === 'csv') {
+    res.setHeader('Content-Disposition', `attachment; filename="${reportName}_${conversationId}.csv"`)
+  }
+
+  res.status(httpStatus.OK).send(report)
+})
+
 export {
   createConversation,
   createConversationFromType,
@@ -79,5 +116,6 @@ export {
   patchConversationAgent,
   startConversation,
   stopConversation,
-  joinConversation
+  joinConversation,
+  getConversationReport
 }
