@@ -58,9 +58,22 @@ const patchConversationAgent = {
   body: Joi.object().keys(agentAllowedProperties)
 }
 
+const getConversationReport = {
+  params: Joi.object().keys({
+    conversationId: Joi.any().required()
+  }),
+  query: Joi.object().keys({
+    reportName: Joi.string().valid('periodicResponses', 'directMessageResponses', 'userMetrics').required(),
+    format: Joi.string().valid('text', 'csv').default('text'),
+    agent: Joi.string(),
+    additionalChannels: Joi.alternatives().try(Joi.array().items(Joi.string()), Joi.string()).optional()
+  })
+}
+
 const conversationValidation = {
   createConversation,
   updateConversation,
-  patchConversationAgent
+  patchConversationAgent,
+  getConversationReport
 }
 export default conversationValidation

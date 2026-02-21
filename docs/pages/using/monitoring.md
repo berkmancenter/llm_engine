@@ -19,29 +19,17 @@ Traces can be manually annotated with feedback or configured to be automatically
 
 ## LLM Engine reports
 
-LLM Engine offers an endpoint to generate summary reports of a past conversation, including basic statistics like average number of interactions and a detailed history of all user and agent messages. The reporting endpoint is linked to the [experimentation feature](./experiments.md), but it is possible to label a past conversation as an experiment in order to generate a report.
-
-### Creating an experiment from a past conversation
-
-To create an experiment from a conversation, post the following body to the `/experiments` endpoint:
-
-```
-{
-  "name": [conversation name],
-  "baseConversation": [conversation id],
-  "executedAt": [conversation start time in ISO8601 format, e.g. "2025-11-19T17:20:00.000Z" ]
-}
-```
-
-The response will contain the ID of the new experiment, which can be used to generate a report
+LLM Engine offers an endpoint to generate summary reports of a past conversation, including basic statistics like average number of interactions and a detailed history of all user and agent messages.
 
 ### Running a report
 
-There are two types of reports for conversations: direct message and periodic.
+There are three types of reports for conversations: direct message, periodic, and userMetrics. The time zone used in all reports can be customized by setting the x-timezone header to something like `America/New_York`. **Reports can only be run against inactive conversations**.
 
 #### Direct message reports
 
-The direct message report is for agents like the Event Assistant that are used for direct user to agent communication only. The report prints the message history for each user interaction in the conversation. To run the report, make the following GET request: `/experiments/{{experimentId}}/results?reportName=directMessageResponses&format=text`
+The direct message report is for agents like the Event Assistant that are used for direct user to agent communication only. The report prints the message history for each user interaction in the conversation. To run the report, make the following GET request: `/conversations/{{conversationId}}/report?reportName=directMessageResponses&format=text`
+
+You can also specify additional channels to check with the queryParameter additionalChannels. For example, `additionalChannels=chat` will print summary statistics and detailed history of all messages in the group chat channel.
 
 The response should look something like this:
 
@@ -49,8 +37,8 @@ The response should look something like this:
 Direct Message Agent Responses Report
 ===========================
 
-Experiment: My Event
-Experiment Time: 11/19/2025, 5:20:00 PM
+Name: My Event
+Time: 11/19/2025, 5:20:00 PM
 Base Conversation ID: 123456789
 Result Conversation ID: 123456789
 
@@ -61,6 +49,12 @@ Total Users Responded: 32
 Min Engagements Per User: 1
 Max Engagements Per User: 24
 Average Engagements Per User: 4.09375
+
+---------------------------
+Feedback Ratings:
+Meh,2
+OK,1
+WOW!,1
 
 ---------------------------
 **User: Steely Angelfish**
@@ -80,6 +74,20 @@ Average Engagements Per User: 4.09375
 5:42:19 PM  Scholarly Babbler: I just joined. What have I missed?
 
 ...
+```
+
+#### User Metric reports
+
+The User Metrics report provides detailed counts of messages sent per user in CSV format. To run the report, make the following GET request: `/conversations/{{conversationId}}/report?reportName=userMetrics&format=csv`
+
+You can also specify additional channels to check with the queryParameter additionalChannels. For example, `additionalChannels=chat` will include the count of messages sent on the group chat channel.
+
+The response should look something like this:
+
+```
+Pseudonym,Direct Messages,chat
+Abiotic Venus,0,0
+Absolute Tomato,0,0
 ```
 
 #### Periodic reports

@@ -17,6 +17,7 @@ import { ConversationDocument } from '../models/conversation.model.js'
 import { getConversationType } from '../conversations/index.js'
 import { supportedModels } from '../agents/helpers/getEmbeddings.js'
 import transcript from '../agents/helpers/transcript.js'
+import reportService from './report.service.js'
 
 const returnFields =
   'name slug locked owner createdAt active conversationType platforms scheduledTime description moderators presenters transcript'
@@ -672,6 +673,57 @@ const joinConversation = async (conversationOrId, user) => {
   return conversation
 }
 
+function validateReportType(conversation, reportName, agentType?) {
+  if (reportName === 'periodicResponses') {
+    const hasPeriodicAgent = conversation.agents.some((a) => a.triggers?.periodic)
+    if (!hasPeriodicAgent) {
+      throw new ApiError(httpStatus.BAD_REQUEST, 'Conversation has no periodic agents for periodicResponses report')
+    }
+  }
+
+  if (reportName === 'directMessageResponses' || reportName === 'userMetrics') {
+    const hasPerMessageAgent = conversation.agents.some((a) => a.triggers?.perMessage)
+    if (!hasPerMessageAgent) {
+      throw new ApiError(httpStatus.BAD_REQUEST, 'Conversation has no perMessage agents for this report type')
+    }
+  }
+
+  if (reportName === 'userMetrics' && agentType) {
+    const agent = conversation.agents.find((a) => a.agentType === agentType)
+    if (!agent) {
+      throw new ApiError(httpStatus.NOT_FOUND, `Agent '${agentType}' not found in conversation`)
+    }
+  }
+}
+
+const generateConversationReport = async (
+  conversationId,
+  reportName,
+  format = 'text',
+  timezone = 'UTC',
+  additionalChannels: string[] = [],
+  agentType?: string
+) => {
+  const conversation = await Conversation.findOne({ _id: conversationId })
+  if (!conversation) throw new ApiError(httpStatus.NOT_FOUND, 'Conversation not found')
+  if (conversation.active)
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      'Cannot generate a report for an active conversation. Please stop the conversation first.'
+    )
+
+  await conversation.populate('agents')
+
+  // Validate report type matches conversation agents
+  validateReportType(conversation, reportName, agentType)
+
+  return reportService.generateReport(conversation, reportName, format, timezone, additionalChannels, agentType, {
+    name: conversation.name,
+    description: conversation.description,
+    executedAt: conversation.endTime || conversation.startTime
+  })
+}
+
 const conversationService = {
   createConversation,
   createConversationFromType,
@@ -688,6 +740,7 @@ const conversationService = {
   startConversation,
   stopConversation,
   joinConversation,
+  generateConversationReport,
   updateTranscriptStatus
 }
 export default conversationService
