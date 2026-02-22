@@ -537,6 +537,80 @@ describe('adapter service tests', () => {
       expect(newUser!.pseudonyms).toHaveLength(1)
       expect(newUser!.pseudonyms[0].active).toBe(true)
     })
+
+    it('does not create direct channels when adapter has no chat or DM channels configured', async () => {
+      const broadcastMsgSpy = jest.spyOn(websocketGateway, 'broadcastNewMessage').mockResolvedValue()
+
+      await createConversation('Zoom-only Meeting')
+
+      // Enable DMs for agents
+      conversation.enableDMs = ['agents']
+      const agent = new Agent({
+        agentType: 'test',
+        conversation
+      })
+      await agent.save()
+      conversation.agents.push(agent)
+
+      const channel = await Channel.create({ name: 'transcript' })
+      conversation.channels.push(channel)
+      await conversation.save()
+
+      // Configure adapter with NO chat or DM channels (Zoom-only for transcription)
+      adapter.audioChannels = [{ name: 'transcript' }]
+      adapter.chatChannels = []
+      adapter.dmChannels = []
+      await adapter.save()
+
+      const transcriptMessage = {
+        data: {
+          data: {
+            words: [
+              {
+                text: 'Hello from Zoom participant',
+                end_timestamp: {
+                  absolute: '2025-05-16T19:32:54.522382Z'
+                }
+              }
+            ],
+            participant: {
+              id: 888,
+              name: 'Zoom User',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'transcript.data'
+      }
+
+      // Mock receiveMessage to return a transcript message
+      mockAdapterType.receiveMessage.mockResolvedValue([
+        {
+          user: { username: 'Zoom User', pseudonym: null },
+          channels: [{ name: 'transcript', direct: false }],
+          message: 'Hello from Zoom participant',
+          source: 'test',
+          messageType: 'text',
+          createdAt: new Date('2025-05-16T19:32:54.522382Z')
+        }
+      ])
+
+      await webhookService.receiveMessage(adapter, transcriptMessage)
+
+      expect(mockAdapterType.receiveMessage).toHaveBeenCalledWith(transcriptMessage)
+      expect(broadcastMsgSpy).toHaveBeenCalledTimes(1)
+
+      // Verify user was created
+      const newUser = await User.findOne({ username: 'Zoom User' })
+      expect(newUser).toBeDefined()
+      expect(newUser!.pseudonyms).toHaveLength(1)
+
+      // Verify that joinConversation was NOT called (no direct channels created)
+      await conversation.populate('channels')
+      const directChannels = conversation.channels.filter((c) => c.name.includes('direct-'))
+      expect(directChannels).toHaveLength(0)
+    })
   })
 
   describe('participantJoined', () => {

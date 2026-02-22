@@ -44,7 +44,9 @@ async function getOrCreateUser(adapter, adapterUser) {
     await adapter.save()
   }
   // this will create direct channels between the user and all agents in the conversation if they do not already exist
-  await conversationService.joinConversation(adapter.conversation, user)
+  if (adapter.dmChannels?.length > 0 || adapter.chatChannels?.length > 0) {
+    await conversationService.joinConversation(adapter.conversation, user)
+  }
   return user
 }
 
