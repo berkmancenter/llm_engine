@@ -12,8 +12,9 @@ export default verify({
   priority: 85,
   maxTokens: 3000,
   // trigger on transcript updates, if any have occurred w/in the timer period
+  // uses 67 seconds for now to prevent overlap with Engagement Agent (timer set to 60 seconds) - can be adjusted as needed
   defaultTriggers: {
-    periodic: { timerPeriod: 60, conversationHistorySettings: { channels: ['transcript'] } }
+    periodic: { timerPeriod: 67, conversationHistorySettings: { channels: ['transcript'] } }
   },
   agentConfig: {
     minInterval: 2, // 2 min between interventions

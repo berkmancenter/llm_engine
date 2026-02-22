@@ -11,8 +11,9 @@ export default verify({
     'Makes strategic interventions in shared chat based on configurable intervention categories: collective consciousness, engagement, and facilitation',
   priority: 85,
   maxTokens: 3000,
+  // uses 67 seconds for now to prevent overlap with Engagement Agent (timer set to 60 seconds) - can be adjusted as needed
   defaultTriggers: {
-    periodic: { timerPeriod: 60, conversationHistorySettings: { channels: ['transcript'] } }
+    periodic: { timerPeriod: 67, conversationHistorySettings: { channels: ['transcript'] } }
   },
   agentConfig: {
     minInterval: 2, // 2 min between interventions
