@@ -58,6 +58,13 @@ const userSchema = new mongoose.Schema<IUser, UserModel>(
       type: Boolean,
       default: false,
       index: true
+    },
+    preferences: {
+      type: {
+        visualResponse: {
+          type: Boolean
+        }
+      }
     }
   },
   {

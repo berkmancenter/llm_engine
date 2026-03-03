@@ -232,6 +232,115 @@ describe('User routes', () => {
         .expect(httpStatus.CONFLICT)
     })
   })
+
+  describe('GET v1/users/user/:userId/preferences', () => {
+    test('should return 200 and empty object when preferences not set', async () => {
+      await insertUsers([registeredUser])
+      const ret = await request(app)
+        .get(`/v1/users/user/${registeredUser._id}/preferences`)
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send()
+        .expect(httpStatus.OK)
+
+      expect(ret.body).toEqual({})
+    })
+
+    test('should return 200 and user preferences when set', async () => {
+      await insertUsers([registeredUser])
+      // First set a preference
+      await request(app)
+        .put(`/v1/users/user/${registeredUser._id}/preferences`)
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({ visualResponse: true })
+
+      const ret = await request(app)
+        .get(`/v1/users/user/${registeredUser._id}/preferences`)
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send()
+        .expect(httpStatus.OK)
+
+      expect(ret.body).toHaveProperty('visualResponse')
+      expect(ret.body.visualResponse).toBe(true)
+    })
+
+    test("should return 403 when trying to get another user's preferences", async () => {
+      await insertUsers([registeredUser, userOne])
+      await request(app)
+        .get(`/v1/users/user/${userOne._id}/preferences`)
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send()
+        .expect(httpStatus.FORBIDDEN)
+    })
+  })
+
+  describe('PUT v1/users/user/:userId/preferences', () => {
+    beforeEach(async () => {
+      await insertUsers([registeredUser])
+    })
+
+    test('should return 200 and successfully update visualResponse preference', async () => {
+      const ret = await request(app)
+        .put(`/v1/users/user/${registeredUser._id}/preferences`)
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({ visualResponse: true })
+        .expect(httpStatus.OK)
+
+      expect(ret.body.visualResponse).toBe(true)
+
+      const user = await User.findById(registeredUser._id)
+      expect(user!.preferences!.visualResponse).toBe(true)
+    })
+
+    test('should return 200 when updating visualResponse to false', async () => {
+      const ret = await request(app)
+        .put(`/v1/users/user/${registeredUser._id}/preferences`)
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({ visualResponse: false })
+        .expect(httpStatus.OK)
+
+      expect(ret.body.visualResponse).toBe(false)
+
+      const user = await User.findById(registeredUser._id)
+      expect(user!.preferences!.visualResponse).toBe(false)
+    })
+
+    test('should return 200 and persist previous preference values', async () => {
+      // First set visualResponse to true
+      await request(app)
+        .put(`/v1/users/user/${registeredUser._id}/preferences`)
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({ visualResponse: true })
+
+      // Verify it was set
+      const ret = await request(app)
+        .put(`/v1/users/user/${registeredUser._id}/preferences`)
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({ visualResponse: false })
+        .expect(httpStatus.OK)
+
+      expect(ret.body.visualResponse).toBe(false)
+
+      const user = await User.findById(registeredUser._id)
+      expect(user!.preferences!.visualResponse).toBe(false)
+    })
+
+    test("should return 403 when trying to update another user's preferences", async () => {
+      await insertUsers([userOne])
+      await request(app)
+        .put(`/v1/users/user/${userOne._id}/preferences`)
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({ visualResponse: true })
+        .expect(httpStatus.FORBIDDEN)
+    })
+
+    test('should return 400 if invalid preference value is provided', async () => {
+      await request(app)
+        .put(`/v1/users/user/${registeredUser._id}/preferences`)
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({ visualResponse: 'invalid' })
+        .expect(httpStatus.BAD_REQUEST)
+    })
+  })
 })
 
 describe('User service', () => {

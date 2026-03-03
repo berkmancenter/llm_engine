@@ -24,6 +24,10 @@ export interface IBaseUser {
   activePseudonym?: IPseudonym
 }
 
+export interface IUserPreferences {
+  visualResponse?: boolean
+}
+
 export interface IUser {
   goodReputation?: boolean
   role?: string
@@ -32,6 +36,7 @@ export interface IUser {
   username: string
   dataExportOptOut?: boolean
   pseudonyms: mongoose.Types.DocumentArray<IPseudonym>
+  preferences?: IUserPreferences
 }
 
 export interface ITopic {
