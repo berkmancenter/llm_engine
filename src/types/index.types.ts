@@ -344,6 +344,7 @@ export interface AgentResponse<T> {
   messageType?: string
   context?: string
   replyFormat?: MessagePrompt
+  parent?: mongoose.Types.ObjectId
 }
 
 export interface ConversationHistorySettings {
