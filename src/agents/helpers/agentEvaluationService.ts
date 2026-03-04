@@ -3,11 +3,8 @@ import { IChannel } from '../../types/index.types.js'
 
 export default class AgentEvaluationService {
   static async evaluateMessage(agent, userMessage, messageCount) {
-    // do not process your own message
-    if (userMessage.pseudonym === agent.name) return false
-
-    // Temporarily disallow processing messages from other agents until we can define flow
-    if (userMessage.fromAgent) return false
+    // Disallow processing messages from agents (including self) unless explicitly opted in
+    if (userMessage.fromAgent && !agent.triggers?.perMessage?.allowMessagesFromAgents) return false
 
     if (userMessage && !agent.triggers?.perMessage) {
       return false

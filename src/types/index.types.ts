@@ -366,6 +366,7 @@ export interface Triggers {
     directMessages?: boolean
     channels?: string[]
     conversationHistorySettings?: ConversationHistorySettings
+    allowMessagesFromAgents?: boolean
   }
   periodic?: { timerPeriod: number; conversationHistorySettings?: ConversationHistorySettings }
 }
