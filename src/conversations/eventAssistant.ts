@@ -1,6 +1,7 @@
 import { supportedModels } from '../agents/helpers/getModelChat.js'
 import adapterTypes from '../adapters/config.js'
 import { ConversationType, Direction } from '../types/index.types.js'
+import config from '../config/config.js'
 
 const eventAssistant: ConversationType = {
   // user-facing
@@ -22,7 +23,7 @@ const eventAssistant: ConversationType = {
       description: 'The display name for the bot as it will appear in Zoom',
       required: false,
       type: 'string',
-      default: 'Event Assistant'
+      default: config.conversationBotName
     },
     {
       name: 'llmModel',

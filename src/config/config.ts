@@ -84,7 +84,8 @@ const envVarsSchema = Joi.object()
     INFINITY_API_URL: Joi.string().description('The URL of an Infinity OpenAI-compatible server used for inference'),
     INFINITY_API_KEY: Joi.string().description(
       'The API key to access the Infinity OpenAI-compatible server used for inference'
-    )
+    ),
+    CONVERSATION_BOT_NAME: Joi.string().default('Berkie').description('Default bot name for conversations')
   })
   .unknown()
 
@@ -200,6 +201,7 @@ const config = {
   transcriptRetentionPeriod: envVars.TRANSCRIPT_RETENTION_PERIOD,
   appHost: envVars.APP_HOST,
   trulyRandomPseudonyms: envVars.TRULY_RANDOM_PSEUDONYMS,
-  DAYS_FOR_GOOD_REPUTATION: envVars.DAYS_FOR_GOOD_REPUTATION
+  DAYS_FOR_GOOD_REPUTATION: envVars.DAYS_FOR_GOOD_REPUTATION,
+  conversationBotName: envVars.CONVERSATION_BOT_NAME
 }
 export default config

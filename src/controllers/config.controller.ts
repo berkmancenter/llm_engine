@@ -19,7 +19,8 @@ const getConfig = catchAsync(async (req, res) =>
     supportedModels,
     embeddingsPlatforms,
     supportedEmbeddingModels,
-    conversationTypes
+    conversationTypes,
+    conversationBotName: config.conversationBotName
   })
 )
 
