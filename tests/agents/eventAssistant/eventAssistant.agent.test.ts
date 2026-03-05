@@ -1,4 +1,5 @@
 /* eslint-disable no-console */
+import mongoose from 'mongoose'
 import setupAgentTest from '../../utils/setupAgentTest.js'
 import defaultAgentTypes from '../../../src/agents/index.js'
 import {
@@ -11,7 +12,7 @@ import {
 } from '../../utils/agentTestHelpers.js'
 import Channel from '../../../src/models/channel.model.js'
 import { cannotRespond, QuestionClassification } from '../../../src/agents/eventAssistant/eventQuestionHandler.js'
-import { AgentMessageActions } from '../../../src/types/index.types.js'
+import { AgentMessageActions, IChannel } from '../../../src/types/index.types.js'
 
 jest.setTimeout(180000)
 
@@ -41,9 +42,31 @@ describe(`event assistant CI tests`, () => {
   async function validateResponse(responses, channel = `direct-agents-${user1._id}`) {
     expect(responses).toHaveLength(1)
     expect(responses[0].message).toBeDefined()
-    console.log(`A: ${responses[0].message}`)
+    // Handle both string and multimodal messages for logging
+    const messageForLog =
+      typeof responses[0].message === 'string' ? responses[0].message : `[MULTIMODAL] ${responses[0].message.text}`
+    console.log(`A: ${messageForLog}`)
     expect(responses[0].channels).toHaveLength(1)
     expect(responses[0].channels[0].name).toEqual(channel)
+  }
+
+  async function validateVisualGenerationInitiation(responses, channel = `direct-agents-${user1._id}`) {
+    expect(responses).toHaveLength(1)
+    expect(responses[0].message).toBeDefined()
+    expect(typeof responses[0].message).toBe('string')
+    console.log(`A: ${responses[0].message}`)
+
+    // Should have visual generation indicator
+    expect(responses[0].message).toContain('🎨 Generating visual...')
+
+    // Should have 2 channels: user channel and image-gen
+    expect(responses[0].channels).toHaveLength(2)
+    const channelNames = responses[0].channels.map((ch: IChannel) => ch.name)
+    expect(channelNames).toContain(channel)
+    expect(channelNames).toContain('image-gen')
+
+    // Should have parent set to the user's original message
+    expect(responses[0].parent).toBeDefined()
   }
 
   async function createQuestion(body) {
@@ -498,7 +521,8 @@ describe(`event assistant CI tests`, () => {
         // Set agentConfig to explicitly enable personality
         agent.agentConfig = {
           ...agent.agentConfig,
-          enablePersonality: true
+          enablePersonality: true,
+          personality: 'sarcastic-expert'
         }
 
         const msg = await createQuestion('What did she say about part-time work?')
@@ -602,6 +626,287 @@ describe(`event assistant CI tests`, () => {
 
         // Response should be helpful regardless of personality setting
         expect(responses[0].message.length).toBeGreaterThan(10)
+      },
+      testTimeout
+    )
+  })
+
+  // VISUAL GENERATION TESTS
+  describe('visual generation classification and response format', () => {
+    // Note: We're not mocking the actual image generator here.
+    // Instead, we're testing the classification logic and response format.
+    // Some tests may call the real image generator if classification determines
+    // a visual is appropriate, which is the actual behavior we want to test.
+
+    it(
+      'does not generate visuals when user preference is not set',
+      async () => {
+        // user1 by default has no visualResponse preference set
+        const msg = await createQuestion('How does part-time work benefit companies?')
+        agent.conversationHistorySettings = {
+          endTime: new Date(startTime.getTime() + 147 * 1000),
+          count: 100,
+          directMessages: true
+        }
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+
+        await validateResponse(responses)
+        // Should be text-only response when preference not set
+        expect(typeof responses[0].message).toBe('string')
+        expect(responses[0].messageType).toBe('text')
+      },
+      testTimeout
+    )
+
+    it(
+      'does not generate visuals when user preference is false',
+      async () => {
+        // Set user preference to false
+        const User = await import('../../../src/models/user.model/user.model.js')
+        await User.default.findByIdAndUpdate(user1._id, {
+          preferences: { visualResponse: false }
+        })
+
+        const msg = await createQuestion('How does part-time work benefit companies?')
+        agent.conversationHistorySettings = {
+          endTime: new Date(startTime.getTime() + 147 * 1000),
+          count: 100,
+          directMessages: true
+        }
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+
+        await validateResponse(responses)
+        // Should be text-only when preference is explicitly false
+        expect(typeof responses[0].message).toBe('string')
+        expect(responses[0].messageType).toBe('text')
+      },
+      testTimeout
+    )
+
+    it(
+      'does not generate visuals for OFF_TOPIC classification even with preference enabled',
+      async () => {
+        // Set user preference to true
+        const User = await import('../../../src/models/user.model/user.model.js')
+        await User.default.findByIdAndUpdate(user1._id, {
+          preferences: { visualResponse: true }
+        })
+
+        const msg = await createQuestion('What is the weather like in Paris?')
+        agent.conversationHistorySettings = {
+          endTime: new Date(startTime.getTime() + 147 * 1000),
+          count: 100,
+          directMessages: true
+        }
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+
+        await validateResponse(responses)
+        expect(responses[0].classification).toBe(QuestionClassification.OFF_TOPIC)
+        expect(responses[0].message).toBe(cannotRespond)
+        // OFF_TOPIC responses should never have visuals
+        expect(typeof responses[0].message).toBe('string')
+        expect(responses[0].messageType).toBe('text')
+      },
+      testTimeout
+    )
+
+    it(
+      'does not generate visuals for short responses even with preference enabled',
+      async () => {
+        // Set user preference to true
+        const User = await import('../../../src/models/user.model/user.model.js')
+        await User.default.findByIdAndUpdate(user1._id, {
+          preferences: { visualResponse: true }
+        })
+
+        // Simple acknowledgment that results in a short response
+        const msg = await createQuestion('Thanks!')
+        agent.conversationHistorySettings = {
+          endTime: new Date(startTime.getTime() + 147 * 1000),
+          count: 100,
+          directMessages: true
+        }
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+
+        await validateResponse(responses)
+        // Short responses (<50 chars) should not trigger visual generation
+        expect(typeof responses[0].message).toBe('string')
+        expect(responses[0].messageType).toBe('text')
+      },
+      testTimeout
+    )
+
+    it(
+      'initiates visual generation with two-step process when appropriate',
+      async () => {
+        // Set user preference to true
+        const User = await import('../../../src/models/user.model/user.model.js')
+        await User.default.findByIdAndUpdate(user1._id, {
+          preferences: { visualResponse: true }
+        })
+
+        // Question about a process/concept that could benefit from visualization
+        const msg = await createQuestion('What are the steps to create the smallest viable job?')
+        msg._id = new mongoose.Types.ObjectId()
+        agent.conversationHistorySettings = {
+          endTime: new Date(startTime.getTime() + 829 * 1000),
+          count: 100,
+          directMessages: true
+        }
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+
+        // With two-step generation, the first response should be text with visual indicator
+        // OR text-only if LLM classified as not needing a visual
+        expect(typeof responses[0].message).toBe('string')
+        expect(responses[0].messageType).toBe('text')
+        expect(responses[0].message.length).toBeGreaterThan(10)
+
+        // If visual generation was triggered, verify the complete two-step initiation
+        if (responses[0].message.includes('🎨 Generating visual...')) {
+          await validateVisualGenerationInitiation(responses)
+          expect(responses[0].parent).toBe(msg._id)
+        } else {
+          // If not triggered, should be a normal single-channel response
+          await validateResponse(responses)
+        }
+      },
+      testTimeout
+    )
+
+    it(
+      'skips visual generation for text-based questions even with preference enabled',
+      async () => {
+        // Set user preference to true
+        const User = await import('../../../src/models/user.model/user.model.js')
+        await User.default.findByIdAndUpdate(user1._id, {
+          preferences: { visualResponse: true }
+        })
+
+        // Opinion/preference question that should remain text-only
+        const msg = await createQuestion('What do you think about this talk?')
+        agent.conversationHistorySettings = {
+          endTime: new Date(startTime.getTime() + 829 * 1000),
+          count: 100,
+          directMessages: true
+        }
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+
+        await validateResponse(responses)
+
+        // Should be text-only (LLM should classify as TEXT, not VISUAL)
+        expect(typeof responses[0].message).toBe('string')
+        expect(responses[0].messageType).toBe('text')
+      },
+      testTimeout
+    )
+
+    it(
+      'generates text response with visual indicator for two-step process',
+      async () => {
+        // Set user preference to true
+        const User = await import('../../../src/models/user.model/user.model.js')
+        await User.default.findByIdAndUpdate(user1._id, {
+          preferences: { visualResponse: true }
+        })
+
+        const msg = await createQuestion('What are the benefits of working 2 days from home?')
+        msg._id = new mongoose.Types.ObjectId()
+        agent.conversationHistorySettings = {
+          endTime: new Date(startTime.getTime() + 954 * 1000),
+          count: 100,
+          directMessages: true
+        }
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+
+        // First response is always text in the two-step process
+        expect(typeof responses[0].message).toBe('string')
+        expect(responses[0].messageType).toBe('text')
+        expect(responses[0].message.length).toBeGreaterThan(10)
+
+        // If visual generation was triggered, verify the complete setup
+        if (responses[0].message.includes('🎨 Generating visual...')) {
+          await validateVisualGenerationInitiation(responses)
+        } else {
+          // If not triggered, should be a normal single-channel response
+          await validateResponse(responses)
+        }
+      },
+      testTimeout
+    )
+
+    it(
+      'completes two-step visual generation process with image response',
+      async () => {
+        // Set user preference to true
+        const User = await import('../../../src/models/user.model/user.model.js')
+        await User.default.findByIdAndUpdate(user1._id, {
+          preferences: { visualResponse: true }
+        })
+
+        // Question about a process that should trigger visual generation
+        const msg = await createQuestion('What are the key steps in creating a smallest viable job?')
+        msg._id = new mongoose.Types.ObjectId()
+        agent.conversationHistorySettings = {
+          endTime: new Date(startTime.getTime() + 829 * 1000),
+          count: 100,
+          directMessages: true
+        }
+
+        // Step 1: Get the initial text response
+        const initialResponses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+        expect(initialResponses).toHaveLength(1)
+        expect(typeof initialResponses[0].message).toBe('string')
+
+        // If visual generation was triggered, complete the two-step process
+        if (initialResponses[0].message.includes('🎨 Generating visual...')) {
+          // Validate the initial response has the correct setup
+          await validateVisualGenerationInitiation(initialResponses)
+          expect(initialResponses[0].parent).toBe(msg._id)
+
+          // Step 2: Simulate the agent receiving its own message on image-gen channel
+          // This simulates what happens when the message is posted to image-gen
+          const imageGenMessage = await createMessage(
+            initialResponses[0].message,
+            { _id: agent._id, pseudonym: agent.name, pseudonyms: [{ pseudonym: agent.name }] },
+            conversation,
+            ['image-gen', `direct-agents-${user1._id}`]
+          )
+          imageGenMessage.parentMessage = msg._id
+
+          // Agent sees its own message on image-gen and generates the image
+          const imageResponses = await defaultAgentTypes.eventAssistant.respond.call(
+            agent,
+            { messages: [] },
+            imageGenMessage
+          )
+
+          // Should return image response
+          expect(imageResponses).toHaveLength(1)
+          expect(imageResponses[0].messageType).toBe('multimodal')
+          expect(imageResponses[0].message).toBeDefined()
+          expect(imageResponses[0].message.media).toBeDefined()
+          expect(imageResponses[0].message.media).toHaveLength(1)
+          expect(imageResponses[0].message.media[0].type).toBe('image')
+          expect(imageResponses[0].message.media[0].data).toBeDefined()
+          expect(imageResponses[0].message.media[0].data.length).toBeGreaterThan(100)
+          expect(imageResponses[0].message.media[0].mimeType).toMatch(/^image\//)
+
+          // Should NOT include image-gen channel (to avoid infinite loop)
+          const imageChannelNames = imageResponses[0].channels.map((ch: IChannel) => ch.name)
+          expect(imageChannelNames).not.toContain('image-gen')
+          // Should include the user's direct channel
+          expect(imageChannelNames).toContain(`direct-agents-${user1._id}`)
+
+          // Should have same parent as initial response (the user's question)
+          expect(imageResponses[0].parent).toBe(msg._id)
+        }
       },
       testTimeout
     )

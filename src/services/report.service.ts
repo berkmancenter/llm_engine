@@ -18,6 +18,7 @@ interface CommentReport {
   timestamp?: Date
   fromAgent?: boolean
   feedback?: FeedbackReport[]
+  messageType?: string
 }
 
 interface MessageReport {
@@ -82,7 +83,10 @@ async function findComments(createdAtQuery, conversationId) {
     .exec()
 
   const comments = conversation!.messages.map((m) => {
-    const text: string = m.bodyType === 'json' ? ((m.body as Record<string, unknown>).text as string) : (m.body as string)
+    const text: string =
+      m.bodyType === 'json' || m.bodyType === 'multimodal'
+        ? ((m.body as Record<string, unknown>).text as string)
+        : (m.body as string)
     return {
       user: m.pseudonym,
       text,
@@ -266,11 +270,16 @@ async function generateDirectMessageAgentsData(
       }
 
       const comments: CommentReport[] = directMessages.map((msg) => {
+        const text: string =
+          msg.bodyType === 'json' || msg.bodyType === 'multimodal'
+            ? ((msg.body as Record<string, unknown>).text as string)
+            : (msg.body as string)
         const comment: CommentReport = {
           user: msg.pseudonym,
-          text: msg.body as string,
+          text,
           timestamp: msg.createdAt,
-          fromAgent: msg.fromAgent
+          fromAgent: msg.fromAgent,
+          ...((msg.bodyType === 'json' || msg.bodyType === 'multimodal') && { messageType: msg.bodyType })
         }
 
         // Add feedback if this is an agent message and feedback exists
@@ -296,12 +305,19 @@ async function generateDirectMessageAgentsData(
       }).sort({ createdAt: 1 })
 
       if (channelMessages.length > 0) {
-        const comments: CommentReport[] = channelMessages.map((msg) => ({
-          user: msg.pseudonym,
-          text: msg.body as string,
-          timestamp: msg.createdAt,
-          fromAgent: msg.fromAgent
-        }))
+        const comments: CommentReport[] = channelMessages.map((msg) => {
+          const text: string =
+            msg.bodyType === 'json' || msg.bodyType === 'multimodal'
+              ? ((msg.body as Record<string, unknown>).text as string)
+              : (msg.body as string)
+          return {
+            user: msg.pseudonym,
+            text,
+            timestamp: msg.createdAt,
+            fromAgent: msg.fromAgent,
+            ...((msg.bodyType === 'json' || msg.bodyType === 'multimodal') && { messageType: msg.bodyType })
+          }
+        })
 
         // Calculate unique pseudonyms for this channel
         const uniquePseudonyms = new Set(channelMessages.map((msg) => msg.pseudonym))

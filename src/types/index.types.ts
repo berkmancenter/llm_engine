@@ -333,7 +333,7 @@ export interface AgentEvaluation {
 export const AgentResponseZodSchema = z.object({
   visible: z.boolean(),
   message: z.union([z.string(), z.record(z.unknown())]),
-  messageType: z.enum(['text', 'json']).optional(),
+  messageType: z.enum(['text', 'json', 'multimodal']).optional(),
   channels: z.array(ChannelZodSchema).optional()
 })
 

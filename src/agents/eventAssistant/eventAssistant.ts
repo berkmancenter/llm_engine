@@ -8,6 +8,7 @@ import {
 } from './eventQuestionHandler.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import config from '../../config/config.js'
+import generateImageResponse from './imageGenerator.js'
 
 export default verify({
   name: 'Event Assistant',
@@ -15,7 +16,7 @@ export default verify({
   priority: 100,
   maxTokens: 2000,
   defaultTriggers: {
-    perMessage: { directMessages: true, channels: ['chat'] }
+    perMessage: { directMessages: true, channels: ['chat', 'image-gen'], allowMessagesFromAgents: true }
   },
   agentConfig: {
     introMessage:
@@ -36,6 +37,25 @@ export default verify({
     return true
   },
   async evaluate(userMessage) {
+    if (userMessage.pseudonym === this.name) {
+      // Handle image generation requests from self
+      if (userMessage?.channels?.includes('image-gen')) {
+        return {
+          userMessage,
+          action: AgentMessageActions.CONTRIBUTE,
+          userContributionVisible: true,
+          suggestion: undefined
+        }
+      }
+      // do not contribute to your own messages
+      return {
+        userMessage,
+        action: AgentMessageActions.OK,
+        userContributionVisible: true,
+        suggestion: undefined
+      }
+    }
+
     if (userMessage?.channels?.includes('chat') && !userMessage?.body.includes('@Event Assistant')) {
       // regular chat message, no need to process
       return {
@@ -53,6 +73,12 @@ export default verify({
     }
   },
   async respond(conversationHistory: ConversationHistory, userMessage, options?) {
+    // Handle image generation requests from self
+    if (userMessage?.channels?.includes('image-gen')) {
+      const imageResponse = await generateImageResponse(userMessage, this.conversation)
+      return imageResponse ? [imageResponse] : []
+    }
+
     const modifiedMessage = { ...userMessage }
     if (userMessage?.channels?.includes('chat')) {
       // trim the '@Event Assistant' from the message body so it's just a regular question
