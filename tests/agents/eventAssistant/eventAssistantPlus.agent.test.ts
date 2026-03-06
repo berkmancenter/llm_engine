@@ -555,6 +555,103 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
     })
   })
 
+  describe('mind map command', () => {
+    it(
+      'generates a mind map from the transcript',
+      async () => {
+        const msg = await createQuestion('/mindmap create a mind map of the talk')
+
+        const evaluation = await defaultAgentTypes.eventAssistantPlus.evaluate.call(agent, msg)
+
+        agent.conversationHistorySettings = {
+          endTime: new Date(startTime.getTime() + 954 * 1000),
+          count: 100,
+          directMessages: true,
+          channels: ['chat']
+        }
+
+        const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(
+          agent,
+          { messages: [] },
+          evaluation.userMessage
+        )
+
+        await validateResponse(responses)
+        expect(responses).toHaveLength(1)
+        expect(responses[0].message).toBeDefined()
+        expect(typeof responses[0].message).toBe('string')
+
+        // Should contain markmap markdown in code block
+        expect(responses[0].message).toMatch(/```/)
+
+        // Should contain hierarchical markdown structure (## or ###)
+        expect(responses[0].message).toMatch(/##/)
+
+        // Should NOT contain Katex (since we removed it from the prompt)
+        expect(responses[0].message).not.toMatch(/\$.*\$/)
+
+        // Should NOT contain JavaScript code blocks (since we removed the example)
+        expect(responses[0].message).not.toMatch(/```js/)
+        expect(responses[0].message).not.toMatch(/console\.log/)
+
+        // Should have context and topic metadata
+        expect(responses[0].context).toBeDefined()
+        expect(responses[0].topic).toBe('Test Event')
+
+        console.log('Mind map response:', responses[0].message)
+      },
+      testTimeout
+    )
+
+    it(
+      'includes relevant content from the transcript in the mind map',
+      async () => {
+        const msg = await createQuestion('/mindmap')
+
+        agent.conversationHistorySettings = {
+          endTime: new Date(startTime.getTime() + 954 * 1000),
+          count: 100,
+          directMessages: true,
+          channels: ['chat']
+        }
+
+        const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
+
+        await validateResponse(responses)
+
+        // The mind map should reference key topics from the part-time work transcript
+        const responseText = responses[0].message.toLowerCase()
+        expect(responseText).toMatch(/part.?time|work|employee|business|hour/i)
+      },
+      testTimeout
+    )
+
+    it(
+      'handles /mindmap command with various casings',
+      async () => {
+        const variants = ['/mindmap', '/MINDMAP', '/MindMap', '/mindMAP']
+
+        for (const variant of variants) {
+          const msg = await createQuestion(`${variant} please`)
+
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 954 * 1000),
+            count: 100,
+            directMessages: true,
+            channels: ['chat']
+          }
+
+          const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
+
+          await validateResponse(responses)
+          expect(responses).toHaveLength(1)
+          expect(responses[0].message).toMatch(/```/)
+        }
+      },
+      testTimeout
+    )
+  })
+
   it(
     'introduces itself on new DM channels',
     async () => {
