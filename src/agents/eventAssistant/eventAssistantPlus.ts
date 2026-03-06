@@ -1,8 +1,11 @@
+/* eslint-disable no-useless-escape */
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, AgentResponse, ConversationHistory } from '../../types/index.types.js'
 
 import Message from '../../models/message.model.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
+import { getChatPromptResponse } from '../helpers/llmChain.js'
+import transcript from '../helpers/transcript.js'
 import {
   eventAssistantLLMTemplates,
   eventAssistantLlmTemplateVars,
@@ -19,6 +22,52 @@ const submitToModeratorQuestion = 'Would you like to submit this question anonym
 const submitToModeratorReply = 'Your message has been submitted to the moderator.'
 const declineModeratorReply = "OK, I won't submit it. Feel free to ask me anything else!"
 const submitToModeratorCommand = '/mod'
+const mindMapCommand = '/mindmap'
+
+const mindMapSystem = `You are a mind map generator for a live event. Create a concise mind map from the provided transcript that visually organizes the key points.
+
+CONSTRAINTS:
+- Identify 3-5 main topics maximum
+- Use only 3 levels of hierarchy (main topics, subtopics, and key details)
+- Keep each item to one short sentence or phrase
+- Focus on the most important points, not comprehensive coverage
+
+Use Markmap.js code (example below) in a code block to represent the mind map, with branches for each of the main topics and subtopics, without mentioning the cites. The mind map should be easy to navigate and visually clear.
+
+<MarkmapExample>
+---
+markmap:
+---
+
+# Event Topic
+
+## Main Concept 1
+- **Key point A** with *emphasis*
+- **Key point B**
+- [Reference link](https://example.com)
+
+## Main Concept 2
+- \`technical term\` definition
+- [x] Completed milestone
+- [ ] Pending action
+
+## Main Concept 3
+
+| Comparison | Value |
+|-|-|
+| Option A | High |
+| Option B | Low |
+
+## Main Concept 4
+- First takeaway
+- Second takeaway
+- Third takeaway
+</MarkmapExample>`
+const mindMapUser = `## Event topic:
+{topic}
+
+## Recent Transcript:
+{transcript}`
 
 function isAffirmative(text) {
   const normalized = text.trim().toLowerCase()
@@ -155,6 +204,29 @@ export default verify({
         .trim()
       const agentResponse = await answerQuestion.call(this, modifiedMessage, conversationHistory)
       return [agentResponse]
+    }
+
+    // Mind map command
+    if (userMessage.body.trim().toString().toLowerCase().startsWith(mindMapCommand)) {
+      // all the transcript so far
+      const liveTranscript = transcript.getTranscript(this.conversation, this.conversationHistorySettings?.endTime)
+
+      const topic = this.conversation.name
+      const llm = await this.getLLM()
+      const llmResponse = await getChatPromptResponse(llm, mindMapSystem, mindMapUser, {
+        transcript: liveTranscript,
+        topic
+      })
+
+      return [
+        {
+          visible: true,
+          message: llmResponse,
+          channels: this.conversation.channels.filter((channel) => userMessage.channels.includes(channel.name)),
+          context: liveTranscript,
+          topic
+        }
+      ]
     }
 
     // Check if the previous message was asking about submitting to moderator
