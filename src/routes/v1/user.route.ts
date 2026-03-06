@@ -423,4 +423,99 @@ router.route('/user/:userId/preferences/export').get(auth('manageAccount'), user
  */
 router.route('/user/:userId/exports').get(auth('manageAccount'), userController.getExportAuditLog)
 
+/**
+ * @swagger
+ * /users/user/{userId}/preferences:
+ *   get:
+ *     summary: Get user preferences
+ *     description: Retrieve user's preferences including visualResponse settings
+ *     tags: [User]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         description: The ID of the user
+ *         schema:
+ *           type: string
+ *           example: "5ebac534954b54139806c112"
+ *     responses:
+ *       200:
+ *         description: User preferences
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 visualResponse:
+ *                   type: boolean
+ *                   description: Whether visual responses are enabled
+ *                   example: false
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: Cannot get preferences for another user
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router
+  .route('/user/:userId/preferences')
+  .get(auth('manageAccount'), validate(userValidation.getPreferences), userController.getPreferences)
+
+/**
+ * @swagger
+ * /users/user/{userId}/preferences:
+ *   put:
+ *     summary: Update user preferences
+ *     description: Update user's preferences including visualResponse settings
+ *     tags: [User]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         description: The ID of the user
+ *         schema:
+ *           type: string
+ *           example: "5ebac534954b54139806c112"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               visualResponse:
+ *                 type: boolean
+ *                 description: Whether visual responses are enabled
+ *                 example: true
+ *     responses:
+ *       200:
+ *         description: Updated user preferences
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 visualResponse:
+ *                   type: boolean
+ *                   description: Whether visual responses are enabled
+ *                   example: true
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: Cannot update preferences for another user
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router
+  .route('/user/:userId/preferences')
+  .put(auth('manageAccount'), validate(userValidation.updatePreferences), userController.updatePreferences)
+
 export default router

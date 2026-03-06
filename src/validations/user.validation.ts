@@ -43,12 +43,29 @@ const deleteUser = {
   })
 }
 
+const getPreferences = {
+  params: Joi.object().keys({
+    userId: Joi.string().custom(objectId)
+  })
+}
+
+const updatePreferences = {
+  params: Joi.object().keys({
+    userId: Joi.string().custom(objectId)
+  }),
+  body: Joi.object().keys({
+    visualResponse: Joi.boolean()
+  })
+}
+
 const userValidation = {
   createUser,
   updateUser,
   getUsers,
   getUser,
   deleteUser,
-  addPseudonym
+  addPseudonym,
+  getPreferences,
+  updatePreferences
 }
 export default userValidation

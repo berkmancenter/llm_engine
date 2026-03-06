@@ -44,6 +44,7 @@
   "keywords": [],
   "dependencies": {
     "@aws-sdk/client-bedrock": "^3.883.0",
+    "@google/generative-ai": "^0.24.1",
     "@langchain/community": "^0.3.56",
     "@langchain/core": "^0.3.77",
     "@langchain/google-genai": "^2.0.4",

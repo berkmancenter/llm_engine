@@ -291,7 +291,8 @@ agentSchema.method('evaluate', async function (userMessage = null) {
     ) + (userMessage ? 1 : 0)
 
   // do not process if no new messages
-  if (messageCount === this.lastActiveMessageCount) {
+  // Skip this check for perMessage triggers (when userMessage is defined)
+  if (!userMessage && messageCount === this.lastActiveMessageCount) {
     logger.debug(`No new messages to respond to ${this.agentType} ${this._id}`)
     return { action: AgentMessageActions.OK, userContributionVisible: true }
   }
@@ -342,7 +343,8 @@ function createMessages(responses: Array<AgentResponse<unknown>>, channel?) {
       channels: channel ? [channel] : response.channels,
       ...(response.messageType !== undefined && { bodyType: response.messageType }),
       ...(agentTypes[this.agentType].parseOutput !== undefined && { parseOutput: agentTypes[this.agentType].parseOutput }),
-      ...(response.replyFormat !== undefined && { prompt: response.replyFormat })
+      ...(response.replyFormat !== undefined && { prompt: response.replyFormat }),
+      ...(response.parent !== undefined && { parentMessage: response.parent })
     })
   }
   return agentMessages
@@ -417,7 +419,15 @@ agentSchema.method('respond', async function (userMessage = null) {
 
     // Last message in the conversation = userMessage. Do not put in history
     const { messages } = this.conversation as IConversation
-    const messagesToProcess = userMessage && messages.length > 0 ? messages.slice(0, -1) : messages
+    let messagesToProcess = messages
+
+    if (userMessage && messages.length > 0) {
+      // Find and exclude userMessage from history (and anything that was added after it, between evaluate and respond)
+      const userMsgIndex = messages.findIndex((m) => m._id?.equals(userMessage._id))
+      if (userMsgIndex !== -1) {
+        messagesToProcess = messages.slice(0, userMsgIndex)
+      }
+    }
 
     // Get conversation history
     conversationHistory = getConversationHistory(

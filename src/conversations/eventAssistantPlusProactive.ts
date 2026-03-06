@@ -68,7 +68,13 @@ const eventAssistantPlusProactive: ConversationType = {
     }
   ],
   enableDMs: ['agents'],
-  channels: [{ name: 'transcript' }, { name: 'participant' }, { name: 'moderator' }, { name: 'chat' }],
+  channels: [
+    { name: 'transcript' },
+    { name: 'participant' },
+    { name: 'moderator' },
+    { name: 'chat' },
+    { name: 'image-gen' }
+  ],
   adapters: {
     zoom: {
       type: 'zoom',

@@ -107,6 +107,31 @@ Important! When deciding between ON_TOPIC_ASK_SPEAKER and ON_TOPIC_ANSWER, bias 
 **Output Format:**
 **Return ONLY a single string - one of:** CATCHUP, ON_TOPIC_ASK_SPEAKER, ON_TOPIC_ANSWER, OFF_TOPIC, UNANSWERABLE
 Do NOT provide any explanation or additional text.`,
+    visualClassificationSystem: `You classify whether a question/answer pair would benefit from a visual representation (diagram, illustration, chart, etc.).
+
+**Core principle:** Visuals excel at showing relationships between multiple elements. If the answer involves multiple concepts, steps, or components that connect or relate to each other, it likely benefits from visualization.
+
+**Return VISUAL if the answer includes:**
+- Multiple elements with relationships between them (sequences, hierarchies, comparisons, dependencies, cause-effect)
+- Something inherently visual (appearance, layout, physical structure, spatial relationships)
+- Process-oriented questions ("how to", "what are the steps", "what's the process")
+
+**Return TEXT if:**
+- Single simple concept with no relationships to illustrate
+- Pure opinion, philosophy, or subjective experience
+- Very short answer (< 2 sentences) or simple acknowledgment
+- The answer is primarily a quote or summary of what was said
+
+**Output Format:**
+Return ONLY: VISUAL or TEXT
+Do NOT provide any explanation or additional text.`,
+    visualClassificationUser: `## Question:
+{question}
+
+## Answer:
+{answer}
+
+Would this benefit from a visual representation?`,
     user: `## Event topic:
   {topic}
 
@@ -124,6 +149,11 @@ export const eventAssistantLlmTemplateVars = {
   timeWindowSystem: [],
   semanticSystem: [],
   semanticClassificationSystem: [],
+  visualClassificationSystem: [],
+  visualClassificationUser: [
+    { name: 'question', description: 'The user question' },
+    { name: 'answer', description: 'The generated answer' }
+  ],
   user: [
     { name: 'topic', description: 'The topic of the event' },
     {
@@ -152,6 +182,38 @@ async function getResponse(question, context, chatHistory, topic, systemTemplate
     chatHistory
   )
   return llmResponse
+}
+
+async function shouldGenerateVisual(question, classification, llmResponse, templates) {
+  // Auto-reject certain classifications
+  if (classification === QuestionClassification.OFF_TOPIC || classification === QuestionClassification.UNANSWERABLE) {
+    logger.debug('Skipping visual generation: question is off-topic or unanswerable')
+    return false
+  }
+
+  // Auto-reject simple/short responses (acknowledgments, etc.)
+  if (llmResponse.length < 50 || llmResponse === cannotRespond) {
+    logger.debug('Skipping visual generation: response too short or cannot respond')
+    return false
+  }
+
+  // Use LLM to classify if visual would help
+  try {
+    const llm = await this.getLLM()
+    const visualClassification = await getChatPromptResponse(
+      llm,
+      templates.visualClassificationSystem,
+      templates.visualClassificationUser,
+      { question, answer: llmResponse }
+    )
+
+    const result = visualClassification.trim() === 'VISUAL'
+    logger.debug(`Visual classification result: ${visualClassification.trim()} (generating: ${result})`)
+    return result
+  } catch (error) {
+    logger.error(`Failed to classify visual appropriateness: ${error.message}`)
+    return false // Default to no visual on error
+  }
 }
 
 export async function generatePseudonymFunFact(channel) {
@@ -249,10 +311,42 @@ ${chunks}`
       ? cannotRespond
       : await getResponse.call(this, question, contextString, chatHistory, topic, systemTemplate)
 
+  const responseChannels = this.conversation.channels.filter((channel: IChannel) =>
+    userMessage.channels.includes(channel.name)
+  )
+  let parentMessageId
+  let responseMessage = llmResponse
+
+  // Check user's visual response preference and add image-gen channel if appropriate
+  const user = await User.findById(userMessage.owner)
+  if (user?.preferences?.visualResponse) {
+    logger.debug(`User ${user!._id} has visual response preference enabled`)
+
+    // Classify if this question/answer would benefit from a visual
+    const shouldGenerate = await shouldGenerateVisual.call(this, question, classification, llmResponse, templates)
+
+    if (shouldGenerate) {
+      logger.debug(`Adding image-gen channel to response for user ${user!._id}`)
+      // Add image-gen channel to the response
+      const imageGenChannel = this.conversation.channels.find((channel: IChannel) => channel.name === 'image-gen')
+      if (imageGenChannel) {
+        responseChannels.push(imageGenChannel)
+        // Set parent to the original question so imageGenerator can use it
+        parentMessageId = userMessage._id
+        // Add visual generation indicator to the message
+        responseMessage = `${llmResponse}\n\n\n\n**🎨 Generating visual...**`
+      } else {
+        logger.warn('image-gen channel not found on conversation')
+      }
+    }
+  }
+
   const agentResponse = {
     visible: true,
-    message: llmResponse,
-    channels: this.conversation.channels.filter((channel: IChannel) => userMessage.channels.includes(channel.name)),
+    message: responseMessage,
+    messageType: 'text',
+    channels: responseChannels,
+    ...(parentMessageId && { parent: parentMessageId }),
     context: contextString,
     classification,
     promptType,

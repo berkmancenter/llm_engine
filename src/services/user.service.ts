@@ -316,6 +316,40 @@ const goodReputation = async (user) => {
   return reputationScore > -5 && days >= config.DAYS_FOR_GOOD_REPUTATION
 }
 
+/**
+ * Get user preferences
+ * @param {Object} userId
+ * @returns {Promise<Object>}
+ */
+const getPreferences = async (userId) => {
+  const user = await getUserById(userId)
+  if (!user) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'User not found')
+  }
+  return user.preferences || {}
+}
+
+/**
+ * Update user preferences
+ * @param {Object} userId
+ * @param {Object} updateBody
+ * @returns {Promise<Object>}
+ */
+const updatePreferences = async (userId, updateBody) => {
+  const user = await getUserById(userId)
+  if (!user) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'User not found')
+  }
+
+  user.preferences = {
+    ...user.preferences,
+    ...(updateBody.visualResponse !== undefined && { visualResponse: updateBody.visualResponse })
+  }
+  user.markModified('preferences')
+  await user.save()
+  return user.preferences
+}
+
 const userService = {
   createUser,
   updateUser,
@@ -333,6 +367,8 @@ const userService = {
   addPseudonym,
   activatePseudonym,
   deletePseudonym,
-  hashPassword
+  hashPassword,
+  getPreferences,
+  updatePreferences
 }
 export default userService

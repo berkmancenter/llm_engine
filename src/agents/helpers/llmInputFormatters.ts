@@ -39,7 +39,7 @@ function findNearbyTranscriptMessages(participantMsg, transcript, timeWindow = 1
 
 function formatMessage(message, structured = false, transcriptMsgs?) {
   if (structured) {
-    const messageText = message.bodyType === 'json' ? message.body.text : message.body
+    const messageText = message.bodyType === 'json' || message.bodyType === 'multimodal' ? message.body.text : message.body
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const formattedMsg: any = {
       comment: { user: message.pseudonym, timestamp: formatTime(message.createdAt), text: messageText }
@@ -51,6 +51,9 @@ function formatMessage(message, structured = false, transcriptMsgs?) {
   }
   if (message.bodyType === 'json') {
     return `${message.pseudonym}: "${JSON.stringify(message.body)}"`
+  }
+  if (message.bodyType === 'multimodal') {
+    return `${message.pseudonym}: "${message.body.text}"`
   }
   return `${message.pseudonym}: "${message.body}"`
 }
@@ -72,10 +75,10 @@ function formatAndFilterMessages(messages, settings: ConversationHistorySettings
 function formatSingleUserConversationHistory(conversationHistory: ConversationHistory) {
   return conversationHistory.messages?.map((message) => {
     let messageText = message.body
-    // conversation history messsages must be strings. If json, assume it has a 'text' property
-    if (message.bodyType === 'json') {
+    // conversation history messsages must be strings. If json or multimodal, assume it has a 'text' property
+    if (message.bodyType === 'json' || message.bodyType === 'multimodal') {
       if (!(message.body as Record<string, unknown>).text) {
-        logger.warn(`Message with ID ${message._id} has bodyType 'json' but no 'text' property. Defaulting to empty string.`)
+        logger.warn(`Message with ID ${message._id} has bodyType '${message.bodyType}' but no 'text' property. Defaulting to empty string.`)
         messageText = ''
       } else {
         messageText = (message.body as Record<string, unknown>).text as string
@@ -91,10 +94,10 @@ function formatSingleUserConversationHistory(conversationHistory: ConversationHi
 function formatMultiUserConversationHistory(conversationHistory: ConversationHistory) {
   return conversationHistory.messages?.map((message) => {
     let messageText = message.body
-    // conversation history messsages must be strings. If json, assume it has a 'text' property
-    if (message.bodyType === 'json') {
+    // conversation history messsages must be strings. If json or multimodal, assume it has a 'text' property
+    if (message.bodyType === 'json' || message.bodyType === 'multimodal') {
       if (!(message.body as Record<string, unknown>).text) {
-        logger.warn(`Message with ID ${message._id} has bodyType 'json' but no 'text' property. Defaulting to empty string.`)
+        logger.warn(`Message with ID ${message._id} has bodyType '${message.bodyType}' but no 'text' property. Defaulting to empty string.`)
         messageText = ''
       } else {
         messageText = (message.body as Record<string, unknown>).text as string

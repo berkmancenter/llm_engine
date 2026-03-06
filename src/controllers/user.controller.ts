@@ -91,6 +91,24 @@ const getExportAuditLog = catchAsync(async (req, res) => {
   res.status(httpStatus.OK).send({ audits })
 })
 
+const getPreferences = catchAsync(async (req, res) => {
+  if (req.params.userId !== req.user.id) {
+    throw new ApiError(httpStatus.FORBIDDEN, 'Cannot get preferences for another user')
+  }
+
+  const preferences = await userService.getPreferences(req.user.id)
+  res.status(httpStatus.OK).send(preferences)
+})
+
+const updatePreferences = catchAsync(async (req, res) => {
+  if (req.params.userId !== req.user.id) {
+    throw new ApiError(httpStatus.FORBIDDEN, 'Cannot update preferences for another user')
+  }
+
+  const preferences = await userService.updatePreferences(req.user.id, req.body)
+  res.status(httpStatus.OK).send(preferences)
+})
+
 export {
   createUser,
   updateUser,
@@ -101,5 +119,7 @@ export {
   deletePseudonym,
   updateDataExportPreference,
   getDataExportPreference,
-  getExportAuditLog
+  getExportAuditLog,
+  getPreferences,
+  updatePreferences
 }

@@ -3,6 +3,7 @@ import { ChatOllama } from '@langchain/ollama'
 import { BedrockChat } from '@langchain/community/chat_models/bedrock'
 import { google } from 'googleapis'
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 import config from '../../config/config.js'
 import { createClaudeFetchFn } from './claudeHandler.js'
 import { LlmPlatforms, LlmPlatformDetails, LlmModelDetails } from '../../types/index.types.js'
@@ -20,8 +21,8 @@ export const supportedModels: LlmModelDetails[] = [
     // "effort" level is currently in beta only
   },
   {
-    name: 'haiku-4.6',
-    label: 'AWS Bedrock Claude Haiku 4.6',
+    name: 'sonnet-4.6',
+    label: 'AWS Bedrock Claude Sonnet 4.6',
     llmPlatform: 'bedrock',
     llmModel: 'us.anthropic.claude-sonnet-4-6',
     description: "Anthropic's fastest model with near-frontier intelligence"
@@ -50,6 +51,9 @@ export const supportedModels: LlmModelDetails[] = [
 export const defaultLLMPlatform = supportedModels[0].llmPlatform
 export const defaultLLMModel = supportedModels[0].llmModel
 
+// Image generation models (not included in supportedModels as they are not text models)
+export const imageGenerationLLMModel = 'gemini-3-pro-image-preview'
+
 export async function getOpenAIChat(model, modelOptions) {
   const aiConfig = {
     ...modelOptions,
@@ -74,6 +78,16 @@ export async function getGoogleChat(model, modelOptions) {
     }
   }
   return new ChatGoogleGenerativeAI(aiConfig)
+}
+
+export function getGoogleImageModel(model) {
+  const client = new GoogleGenerativeAI(config.llms.google.key)
+  return client.getGenerativeModel(
+    {
+      model
+    },
+    { baseUrl: config.llms.google.baseUrl }
+  )
 }
 
 // vLLM uses OpenAI compatible request formats

@@ -18,7 +18,8 @@ class SocketIO {
       },
       connectionStateRecovery: {},
       // set up the adapter on each worker conversation
-      adapter: createAdapter()
+      adapter: createAdapter(),
+      maxHttpBufferSize: 5e6 // 5 MB - supports base64 images from visual responses
     })
 
     this.io.adapter(createAdapter())

@@ -24,6 +24,10 @@ export interface IBaseUser {
   activePseudonym?: IPseudonym
 }
 
+export interface IUserPreferences {
+  visualResponse?: boolean
+}
+
 export interface IUser {
   goodReputation?: boolean
   role?: string
@@ -32,6 +36,7 @@ export interface IUser {
   username: string
   dataExportOptOut?: boolean
   pseudonyms: mongoose.Types.DocumentArray<IPseudonym>
+  preferences?: IUserPreferences
 }
 
 export interface ITopic {
@@ -328,7 +333,7 @@ export interface AgentEvaluation {
 export const AgentResponseZodSchema = z.object({
   visible: z.boolean(),
   message: z.union([z.string(), z.record(z.unknown())]),
-  messageType: z.enum(['text', 'json']).optional(),
+  messageType: z.enum(['text', 'json', 'multimodal']).optional(),
   channels: z.array(ChannelZodSchema).optional()
 })
 
@@ -339,6 +344,7 @@ export interface AgentResponse<T> {
   messageType?: string
   context?: string
   replyFormat?: MessagePrompt
+  parent?: mongoose.Types.ObjectId
 }
 
 export interface ConversationHistorySettings {
@@ -361,6 +367,7 @@ export interface Triggers {
     directMessages?: boolean
     channels?: string[]
     conversationHistorySettings?: ConversationHistorySettings
+    allowMessagesFromAgents?: boolean
   }
   periodic?: { timerPeriod: number; conversationHistorySettings?: ConversationHistorySettings }
 }

@@ -58,7 +58,7 @@ const messageSchema = new mongoose.Schema<IMessage, MessageModel>(
     bodyType: {
       type: String,
       required: true,
-      enum: ['text', 'json'],
+      enum: ['text', 'json', 'multimodal'],
       default: 'text'
     },
     owner: {
