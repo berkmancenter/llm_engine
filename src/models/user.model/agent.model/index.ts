@@ -552,9 +552,7 @@ agentSchema.pre('validate', function () {
   if (this.triggers === undefined) {
     this.triggers = agentTypes[this.agentType].defaultTriggers
   }
-  if (agentTypes[this.agentType].agentConfig) {
-    this.agentConfig = { ...agentTypes[this.agentType].agentConfig, ...(this.agentConfig || {}) }
-  }
+  this.agentConfig = { ...(agentTypes[this.agentType].agentConfig || {}), ...(this.agentConfig || {}) }
   // ensure a botName exists
   if (!this.agentConfig!.botName) this.agentConfig!.botName = config.conversationBotName
   if (this.conversationHistorySettings === undefined && agentTypes[this.agentType].defaultConversationHistorySettings) {

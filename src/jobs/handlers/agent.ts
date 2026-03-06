@@ -51,7 +51,7 @@ const agentIntroduction = async (job) => {
     const introductions = await agent.introduce(channel)
     logger.debug(`[agentIntroduction] introductions returned: ${introductions.length}`)
     for (const introduction of introductions) {
-      logger.debug(`[agentIntroduction] sending intro message on channels: ${JSON.stringify(introduction.channels?.map(c => c?.name || c))}`)
+      logger.debug(`[agentIntroduction] sending intro message on channels: ${JSON.stringify(introduction.channels)}`)
       await messageService.newMessageHandler(introduction, agent)
     }
   } catch (error) {
