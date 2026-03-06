@@ -552,9 +552,11 @@ agentSchema.pre('validate', function () {
   if (this.triggers === undefined) {
     this.triggers = agentTypes[this.agentType].defaultTriggers
   }
-  if (this.agentConfig === undefined && agentTypes[this.agentType].agentConfig) {
-    this.agentConfig = agentTypes[this.agentType].agentConfig
+  if (agentTypes[this.agentType].agentConfig) {
+    this.agentConfig = { ...agentTypes[this.agentType].agentConfig, ...(this.agentConfig || {}) }
   }
+  // ensure a botName exists
+  if (!this.agentConfig!.botName) this.agentConfig!.botName = config.conversationBotName
   if (this.conversationHistorySettings === undefined && agentTypes[this.agentType].defaultConversationHistorySettings) {
     this.conversationHistorySettings = agentTypes[this.agentType].defaultConversationHistorySettings
   }
@@ -603,12 +605,21 @@ agentSchema.method('deepPatch', function (origPatch) {
 })
 
 agentSchema.method('introduce', async function (channel) {
+  logger.debug(
+    `[agent.introduce] channel: ${channel.name}, direct: ${channel.direct}, participants: ${JSON.stringify(
+      channel.participants?.map((p) => p?.toString())
+    )}, agent._id: ${this._id?.toString()}`
+  )
   if (channel.direct && !channel.participants.includes(this._id)) {
+    logger.debug(`[agent.introduce] skipping - agent not in participants`)
     return [] // do not introduce in direct channels where this agent is not a participant
   }
   const agentType = agentTypes[this.agentType]
   const introductions = agentType.introduce ? await agentType.introduce.call(this, channel) : []
-  return createMessages.call(this, introductions, channel)
+  logger.debug(`[agent.introduce] introductions count: ${introductions.length}`)
+  const messages = createMessages.call(this, introductions, channel)
+  logger.debug(`[agent.introduce] messages count: ${messages.length}`)
+  return messages
 })
 
 export function setAgentTypes(newAgentTypes) {

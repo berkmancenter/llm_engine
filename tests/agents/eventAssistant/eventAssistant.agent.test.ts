@@ -385,10 +385,10 @@ describe(`event assistant CI tests`, () => {
     expect(responses[0].message).not.toEqual(cannotRespond)
   })
 
-  it('responds to an @Event Assistant message on the chat channel', async () => {
+  it('responds to an @<botName> message on the chat channel', async () => {
     const user2 = await createUser('Sleepy Salamander')
     const msg1 = await createMessage('What is up in this chat?', user2, conversation, ['chat'])
-    const msg = await createMessage('@Event Assistant Hey, what did I miss?', user1, conversation, ['chat'])
+    const msg = await createMessage(`@${agent.agentConfig.botName} Hey, what did I miss?`, user1, conversation, ['chat'])
     agent.conversationHistorySettings = {
       endTime: new Date(startTime.getTime() + 829 * 1000),
       count: 100,
@@ -421,8 +421,9 @@ describe(`event assistant CI tests`, () => {
     ])
     const msgs = await agent.introduce(directChannel)
     expect(msgs).toHaveLength(1)
-    // Should start with the intro message
-    expect(msgs[0].body).toContain(agent.agentConfig.introMessage)
+    // Should contain the rendered bot name (template vars resolved)
+    expect(msgs[0].body).toContain(agent.agentConfig.botName)
+    expect(msgs[0].body).not.toContain('{{agentConfig.botName}}')
     // Should contain a fun fact about the pseudonym
     expect(msgs[0].body).toMatch(/fun fact about your pseudonym:/i)
     // Should mention the pseudonym or at least "badger" (the noun part)
@@ -435,9 +436,22 @@ describe(`event assistant CI tests`, () => {
     const [chatChannel] = await Channel.create([{ name: 'chat' }])
     const msgs = await agent.introduce(chatChannel)
     expect(msgs).toHaveLength(1)
-    expect(msgs[0].body).toEqual(agent.agentConfig.chatIntroMessage)
+    // chatIntroMessage is a template — verify the bot name was rendered into it
+    expect(msgs[0].body).toContain(`@${agent.agentConfig.botName}`)
+    expect(msgs[0].body).not.toContain('{{agentConfig.botName}}')
     expect(msgs[0].channels).toHaveLength(1)
     expect(msgs[0].channels[0]).toEqual(chatChannel)
+  })
+
+  it('renders template vars in chatIntroMessage using agent data', async () => {
+    agent.agentConfig = {
+      ...agent.agentConfig,
+      chatIntroMessage: 'Welcome to {{conversation.name}}!'
+    }
+    const [chatChannel] = await Channel.create([{ name: 'chat' }])
+    const msgs = await agent.introduce(chatChannel)
+    expect(msgs).toHaveLength(1)
+    expect(msgs[0].body).toEqual(`Welcome to ${conversation.name}!`)
   })
 
   it('does not introduce itself on non-direct or chat channels', async () => {
@@ -445,6 +459,67 @@ describe(`event assistant CI tests`, () => {
     const [channel] = await Channel.create([{ name: 'testchannel' }])
     const msgs = await agent.introduce(channel)
     expect(msgs).toHaveLength(0)
+  })
+
+  // DYNAMIC BOT NAME TESTS
+
+  describe('dynamic botName support', () => {
+    it('responds to chat mention using the configured botName', async () => {
+      const customBotName = 'MyCustomBot'
+      agent.agentConfig = { ...agent.agentConfig, botName: customBotName }
+
+      const msg = await createMessage(`@${customBotName} what did I miss?`, user1, conversation, ['chat'])
+      const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
+      expect(evaluation.action).toEqual(AgentMessageActions.CONTRIBUTE)
+    })
+
+    it('does not respond to a chat mention of a different name when botName is customized', async () => {
+      const customBotName = 'MyCustomBot'
+      agent.agentConfig = { ...agent.agentConfig, botName: customBotName }
+
+      // Message mentions the old hardcoded name, not the configured botName
+      const msg = await createMessage('@Event Assistant what did I miss?', user1, conversation, ['chat'])
+      const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
+      expect(evaluation.action).toEqual(AgentMessageActions.OK)
+    })
+
+    it('strips custom botName from chat message body before processing', async () => {
+      const customBotName = 'MyCustomBot'
+      agent.agentConfig = { ...agent.agentConfig, botName: customBotName }
+
+      const originalBody = `@${customBotName} what did I miss?`
+      const msg = await createMessage(originalBody, user1, conversation, ['chat'])
+
+      // Simulate what respond() does — botName mention should be stripped
+      const modifiedBody = (msg.body as string).trim().replaceAll(`@${agent.agentConfig.botName}`, '').trim()
+      expect(modifiedBody).toBe('what did I miss?')
+      expect(modifiedBody).not.toContain(customBotName)
+    })
+
+    it('includes custom botName in rendered DM intro message', async () => {
+      const customBotName = 'MyCustomBot'
+      agent.agentConfig = { ...agent.agentConfig, botName: customBotName }
+
+      const [directChannel] = await Channel.create([
+        { name: 'direct-custom-bot', direct: true, participants: [user1._id, agent._id] }
+      ])
+      const msgs = await agent.introduce(directChannel)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].body).toContain(customBotName)
+      expect(msgs[0].body).not.toContain('{{agentConfig.botName}}')
+    })
+
+    it('includes custom botName in rendered chat intro message', async () => {
+      const customBotName = 'MyCustomBot'
+      agent.agentConfig = { ...agent.agentConfig, botName: customBotName }
+
+      // Channel name must be 'chat' to match the introduce() logic
+      const [chatChannel] = await Channel.create([{ name: 'chat' }])
+      const msgs = await agent.introduce(chatChannel)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].body).toContain(`@${customBotName}`)
+      expect(msgs[0].body).not.toContain('{{agentConfig.botName}}')
+    })
   })
 
   it('includes a fun fact about the user pseudonym in DM intro', async () => {
@@ -458,8 +533,9 @@ describe(`event assistant CI tests`, () => {
     expect(msgs).toHaveLength(1)
     const introMessage = msgs[0].body
 
-    // Should contain the intro message
-    expect(introMessage).toContain(agent.agentConfig.introMessage)
+    // Should contain the rendered bot name (template vars resolved)
+    expect(introMessage).toContain(agent.agentConfig.botName)
+    expect(introMessage).not.toContain('{{agentConfig.botName}}')
 
     // Should have the fun fact header
     expect(introMessage).toMatch(/fun fact about your pseudonym:/i)

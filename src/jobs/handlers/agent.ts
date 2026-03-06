@@ -47,8 +47,11 @@ const agentIntroduction = async (job) => {
     if (!channel) {
       throw new Error(`Channel ${channelId} not found on agent conversation`)
     }
+    logger.debug(`[agentIntroduction] found channel: ${channel.name}, direct: ${channel.direct}, calling agent.introduce`)
     const introductions = await agent.introduce(channel)
+    logger.debug(`[agentIntroduction] introductions returned: ${introductions.length}`)
     for (const introduction of introductions) {
+      logger.debug(`[agentIntroduction] sending intro message on channels: ${JSON.stringify(introduction.channels?.map(c => c?.name || c))}`)
       await messageService.newMessageHandler(introduction, agent)
     }
   } catch (error) {

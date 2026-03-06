@@ -668,6 +668,8 @@ async function generateReport(
     return rows.join('\n')
   })
 
+  handlebars.registerHelper('fallback', (value, fallback) => value || fallback)
+
   handlebars.registerHelper('formatFeedbackCSV', (feedbackRatings) => {
     if (!feedbackRatings || Object.keys(feedbackRatings).length === 0) {
       return ''
