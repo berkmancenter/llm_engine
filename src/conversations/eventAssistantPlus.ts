@@ -19,8 +19,8 @@ const eventAssistantPlus: ConversationType = {
     },
     {
       name: 'botName',
-      label: 'Zoom Bot Name',
-      description: 'The display name for the bot as it will appear in Zoom',
+      label: 'Bot Name',
+      description: 'The display name for the bot',
       required: false,
       type: 'string',
       default: config.conversationBotName
@@ -38,7 +38,11 @@ const eventAssistantPlus: ConversationType = {
   agents: [
     {
       name: 'eventAssistantPlus',
-      properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
+      properties: {
+        llmModel: '{{properties.llmModel.llmModel}}',
+        llmPlatform: '{{properties.llmModel.llmPlatform}}',
+        agentConfig: { botName: '{{properties.botName}}' }
+      }
     },
     {
       name: 'backChannelInsights',
