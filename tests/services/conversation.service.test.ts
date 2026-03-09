@@ -12,6 +12,7 @@ import defaultAdapterTypes from '../../src/adapters/index.js'
 import { setAdapterTypes } from '../../src/models/adapter.model.js'
 import { setAgentTypes } from '../../src/models/user.model/agent.model/index.js'
 import defaultAgentTypes from '../../src/agents/index.js'
+import config from '../../src/config/config.js'
 
 jest.setTimeout(10000)
 setupIntTest()
@@ -295,7 +296,7 @@ describe('Conversation service methods', () => {
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
 
         const adapters = await Adapter.find({ conversation: conversation._id })
-        expect(adapters[0].config.botName).toBe('Event Assistant')
+        expect(adapters[0].config.botName).toBe(config.conversationBotName)
       })
 
       test('should use custom botName when provided', async () => {

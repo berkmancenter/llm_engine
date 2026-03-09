@@ -1,6 +1,7 @@
 import { supportedModels } from '../agents/helpers/getModelChat.js'
 import adapterTypes from '../adapters/config.js'
 import { ConversationType, Direction } from '../types/index.types.js'
+import config from '../config/config.js'
 
 const eventAssistantPlusProactive: ConversationType = {
   // user-facing
@@ -18,11 +19,11 @@ const eventAssistantPlusProactive: ConversationType = {
     },
     {
       name: 'botName',
-      label: 'Zoom Bot Name',
-      description: 'The display name for the bot as it will appear in Zoom',
+      label: 'Bot Name',
+      description: 'The display name for the bot',
       required: false,
       type: 'string',
-      default: 'Event Assistant'
+      default: config.conversationBotName
     },
     {
       name: 'llmModel',
@@ -44,7 +45,11 @@ const eventAssistantPlusProactive: ConversationType = {
   agents: [
     {
       name: 'eventAssistantPlus',
-      properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
+      properties: {
+        llmModel: '{{properties.llmModel.llmModel}}',
+        llmPlatform: '{{properties.llmModel.llmPlatform}}',
+        agentConfig: { botName: '{{properties.botName}}' }
+      }
     },
     {
       name: 'backChannelInsights',

@@ -17,8 +17,8 @@ const backChannel: ConversationType = {
     },
     {
       name: 'botName',
-      label: 'Zoom Bot Name',
-      description: 'The display name for the bot as it will appear in Zoom',
+      label: 'Bot Name',
+      description: 'The display name for the bot',
       required: false,
       type: 'string',
       default: 'Suggest to Speaker'

@@ -1,6 +1,7 @@
 /* eslint-disable no-useless-escape */
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, AgentResponse, ConversationHistory } from '../../types/index.types.js'
+import renderAgentTemplate from '../helpers/renderAgentTemplate.js'
 
 import Message from '../../models/message.model.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
@@ -119,9 +120,9 @@ export default verify({
   },
   agentConfig: {
     introMessage:
-      "Hey! I'm the NextSpace Event Assistant. Ask me about what's happening, or use /mod to fast-track a message to the mod.",
+      "Hey! I'm {{agentConfig.botName}}. Ask me about what's happening, or use /mod to fast-track a message to the mod.",
     chatIntroMessage:
-      'Welcome to the chat! This is a space to chat with other event participants. You can also ask me questions with an @Event Assistant mention. Just remember that everyone can see what you ask me here. Use the Event Assistant tab if you want to talk privately. Have fun!',
+      'Welcome to the chat! This is a space to chat with other event participants. You can also ask me questions with an @{{agentConfig.botName}} mention. Just remember that everyone can see what you ask me here. Use the {{agentConfig.botName}} tab if you want to talk privately. Have fun!',
     enablePersonality: config.enableAgentPersonality
   },
   llmTemplateVars: eventAssistantLlmTemplateVars,
@@ -164,7 +165,7 @@ export default verify({
       }
     }
 
-    if (userMessage?.channels?.includes('chat') && !userMessage?.body.includes('@Event Assistant')) {
+    if (userMessage?.channels?.includes('chat') && !userMessage?.body.includes(`@${this.agentConfig.botName}`)) {
       // regular chat message, no need to process
       return {
         userMessage,
@@ -197,11 +198,8 @@ export default verify({
     // Message on chat channel?
     if (userMessage?.channels?.includes('chat')) {
       const modifiedMessage = { ...userMessage }
-      // trim the '@Event Assistant' from the message body so it's just a regular question
-      modifiedMessage.body = modifiedMessage.body
-        .trim()
-        .replace(/@Event Assistant/gi, '')
-        .trim()
+      // trim the '@${this.agentConfig.botName}' from the message body so it's just a regular question
+      modifiedMessage.body = modifiedMessage.body.trim().replaceAll(`@${this.agentConfig.botName}`, '').trim()
       const agentResponse = await answerQuestion.call(this, modifiedMessage, conversationHistory)
       return [agentResponse]
     }
@@ -296,7 +294,7 @@ export default verify({
   async introduce(channel) {
     if (channel.direct) {
       const { introMessage: defaultIntroMessage } = this.agentConfig
-      let introMessage = defaultIntroMessage
+      let introMessage = renderAgentTemplate(defaultIntroMessage, this.toObject())
 
       const funFact = await generatePseudonymFunFact.call(this, channel)
       if (funFact) {
@@ -314,7 +312,7 @@ export default verify({
     if (channel.name === 'chat') {
       return [
         {
-          message: this.agentConfig.chatIntroMessage,
+          message: renderAgentTemplate(this.agentConfig.chatIntroMessage, this.toObject()),
           channels: [channel],
           visible: true
         }
