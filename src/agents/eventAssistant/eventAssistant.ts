@@ -11,6 +11,14 @@ import renderAgentTemplate from '../helpers/renderAgentTemplate.js'
 import config from '../../config/config.js'
 import logger from '../../config/logger.js'
 import generateImageResponse from './imageGenerator.js'
+import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from './slashCommandParser.js'
+import generateMindMap from './mindMapGenerator.js'
+
+// Supported slash commands for Event Assistant
+const supportedCommands: SlashCommand[] = [
+  { command: 'visual', prefix: '/visual ' },
+  { command: 'mindmap', prefix: '/mindmap' }
+]
 
 export default verify({
   name: 'Event Assistant',
@@ -67,8 +75,12 @@ export default verify({
         suggestion: undefined
       }
     }
+
+    // Parse slash commands using shared parser
+    const modifiedMessage = parseSlashCommands(userMessage, supportedCommands)
+
     return {
-      userMessage,
+      userMessage: modifiedMessage,
       action: AgentMessageActions.CONTRIBUTE,
       userContributionVisible: true,
       suggestion: undefined
@@ -81,12 +93,24 @@ export default verify({
       return imageResponse ? [imageResponse] : []
     }
 
+    // Handle mind map command
+    if (hasCommand(userMessage, 'mindmap')) {
+      return await generateMindMap(this, userMessage)
+    }
+
     const modifiedMessage = { ...userMessage }
+
+    // Check for visual command (set in evaluate)
+    const forceVisual = hasCommand(userMessage, 'visual')
+
+    // Extract text from JSON body if present
+    modifiedMessage.body = extractMessageText(userMessage)
+
     if (userMessage?.channels?.includes('chat')) {
       // trim the '@${this.agentConfig.botName}' from the message body so it's just a regular question
       modifiedMessage.body = modifiedMessage.body.trim().replaceAll(`@${this.agentConfig.botName}`, '').trim()
     }
-    const agentResponse = await answerQuestion.call(this, modifiedMessage, conversationHistory, options)
+    const agentResponse = await answerQuestion.call(this, modifiedMessage, conversationHistory, { ...options, forceVisual })
     return [agentResponse]
   },
   async start() {
