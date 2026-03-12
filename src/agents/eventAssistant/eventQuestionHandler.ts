@@ -317,16 +317,26 @@ ${chunks}`
   let parentMessageId
   let responseMessage = llmResponse
 
-  // Check user's visual response preference and add image-gen channel if appropriate
+  // Check if visual generation should happen (either forced via /visual or user preference)
   const user = await User.findById(userMessage.owner)
-  if (user?.preferences?.visualResponse) {
-    logger.debug(`User ${user!._id} has visual response preference enabled`)
+  const forceVisual = options?.forceVisual === true
 
-    // Classify if this question/answer would benefit from a visual
-    const shouldGenerate = await shouldGenerateVisual.call(this, question, classification, llmResponse, templates)
+  if (forceVisual || user?.preferences?.visualResponse) {
+    let shouldGenerate = false
+
+    if (forceVisual) {
+      logger.debug('Visual generation forced via /visual command')
+      // For /visual command, always generate unless it's an error response
+      // User explicitly requested visual, so respect their intent
+      shouldGenerate = llmResponse !== cannotRespond
+    } else {
+      logger.debug(`User ${user!._id} has visual response preference enabled`)
+      // Classify if this question/answer would benefit from a visual
+      shouldGenerate = await shouldGenerateVisual.call(this, question, classification, llmResponse, templates)
+    }
 
     if (shouldGenerate) {
-      logger.debug(`Adding image-gen channel to response for user ${user!._id}`)
+      logger.debug(`Adding image-gen channel to response${forceVisual ? ' (forced)' : ''}`)
       // Add image-gen channel to the response
       const imageGenChannel = this.conversation.channels.find((channel: IChannel) => channel.name === 'image-gen')
       if (imageGenChannel) {

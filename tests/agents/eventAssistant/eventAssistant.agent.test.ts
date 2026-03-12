@@ -714,6 +714,184 @@ describe(`event assistant CI tests`, () => {
     // Some tests may call the real image generator if classification determines
     // a visual is appropriate, which is the actual behavior we want to test.
 
+    // /visual command tests
+    describe('/visual command', () => {
+      it(
+        'triggers visual generation even without user preference when using /visual command',
+        async () => {
+          // user1 by default has no visualResponse preference set
+          const msg = await createQuestion('/visual How does part-time work benefit companies?')
+          msg._id = new mongoose.Types.ObjectId()
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 147 * 1000),
+            count: 100,
+            directMessages: true
+          }
+
+          // Call evaluate first to parse the slash command
+          const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(
+            agent,
+            { messages: [] },
+            evaluation.userMessage
+          )
+
+          // Should initiate visual generation even without user preference
+          await validateVisualGenerationInitiation(responses)
+          expect(responses[0].parent).toBe(msg._id)
+        },
+        testTimeout
+      )
+
+      it(
+        'strips /visual prefix from message before processing',
+        async () => {
+          const msg = await createQuestion('/visual What did she say about part-time work?')
+          msg._id = new mongoose.Types.ObjectId()
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 147 * 1000),
+            count: 100,
+            directMessages: true
+          }
+
+          // Call evaluate first to parse the slash command
+          const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(
+            agent,
+            { messages: [] },
+            evaluation.userMessage
+          )
+
+          // Response should answer the question without mentioning "/visual"
+          expect(responses[0].message).toBeDefined()
+          expect(typeof responses[0].message).toBe('string')
+          expect(responses[0].message.toLowerCase()).not.toContain('/visual')
+          // Should still initiate visual generation
+          await validateVisualGenerationInitiation(responses)
+        },
+        testTimeout
+      )
+
+      it(
+        'does not generate visuals for off-topic questions even with /visual command',
+        async () => {
+          const msg = await createQuestion('/visual What is the weather like in Paris?')
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 147 * 1000),
+            count: 100,
+            directMessages: true
+          }
+
+          // Call evaluate first to parse the slash command
+          const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(
+            agent,
+            { messages: [] },
+            evaluation.userMessage
+          )
+
+          // OFF_TOPIC responses should never have visuals, even with /visual
+          await validateResponse(responses)
+          expect(responses[0].classification).toBe(QuestionClassification.OFF_TOPIC)
+          expect(responses[0].message).toBe(cannotRespond)
+          expect(responses[0].message).not.toContain('🎨 Generating visual...')
+        },
+        testTimeout
+      )
+
+      it(
+        'case insensitive /visual command detection',
+        async () => {
+          const msg = await createQuestion('/VISUAL How does part-time work benefit companies?')
+          msg._id = new mongoose.Types.ObjectId()
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 147 * 1000),
+            count: 100,
+            directMessages: true
+          }
+
+          // Call evaluate first to parse the slash command
+          const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(
+            agent,
+            { messages: [] },
+            evaluation.userMessage
+          )
+
+          // Should work with uppercase /VISUAL
+          await validateVisualGenerationInitiation(responses)
+        },
+        testTimeout
+      )
+
+      it(
+        'completes two-step visual generation process with /visual command',
+        async () => {
+          // Question with /visual command
+          const msg = await createQuestion('/visual What are the key steps in creating a smallest viable job?')
+          msg._id = new mongoose.Types.ObjectId()
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 829 * 1000),
+            count: 100,
+            directMessages: true
+          }
+
+          // Call evaluate first to parse the slash command
+          const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
+
+          // Step 1: Get the initial text response
+          const initialResponses = await defaultAgentTypes.eventAssistant.respond.call(
+            agent,
+            { messages: [] },
+            evaluation.userMessage
+          )
+          expect(initialResponses).toHaveLength(1)
+          expect(typeof initialResponses[0].message).toBe('string')
+
+          // Should trigger visual generation
+          await validateVisualGenerationInitiation(initialResponses)
+          expect(initialResponses[0].parent).toBe(msg._id)
+
+          // Step 2: Simulate the agent receiving its own message on image-gen channel
+          const imageGenMessage = await createMessage(
+            initialResponses[0].message,
+            { _id: agent._id, pseudonym: agent.name, pseudonyms: [{ pseudonym: agent.name }] },
+            conversation,
+            ['image-gen', `direct-agents-${user1._id}`]
+          )
+          imageGenMessage.parentMessage = msg._id
+
+          // Agent sees its own message on image-gen and generates the image
+          const imageResponses = await defaultAgentTypes.eventAssistant.respond.call(
+            agent,
+            { messages: [] },
+            imageGenMessage
+          )
+
+          // Should return image response
+          expect(imageResponses).toHaveLength(1)
+          expect(imageResponses[0].messageType).toBe('multimodal')
+          expect(imageResponses[0].message).toBeDefined()
+          expect(imageResponses[0].message.media).toBeDefined()
+          expect(imageResponses[0].message.media).toHaveLength(1)
+          expect(imageResponses[0].message.media[0].type).toBe('image')
+          expect(imageResponses[0].message.media[0].data).toBeDefined()
+          expect(imageResponses[0].message.media[0].data.length).toBeGreaterThan(100)
+          expect(imageResponses[0].message.media[0].mimeType).toMatch(/^image\//)
+
+          // Should NOT include image-gen channel (to avoid infinite loop)
+          const imageChannelNames = imageResponses[0].channels.map((ch: IChannel) => ch.name)
+          expect(imageChannelNames).not.toContain('image-gen')
+          // Should include the user's direct channel
+          expect(imageChannelNames).toContain(`direct-agents-${user1._id}`)
+
+          // Should have same parent as initial response (the user's question)
+          expect(imageResponses[0].parent).toBe(msg._id)
+        },
+        testTimeout
+      )
+    })
+
     it(
       'does not generate visuals when user preference is not set',
       async () => {

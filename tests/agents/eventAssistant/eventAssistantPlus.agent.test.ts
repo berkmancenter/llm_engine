@@ -433,7 +433,8 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
 
       const evaluation = await defaultAgentTypes.eventAssistantPlus.evaluate.call(agent, modMsg)
 
-      expect(evaluation.userMessage.body).toBe('This is urgent')
+      expect(evaluation.userMessage.body).toEqual({ command: 'mod', text: 'This is urgent' })
+      expect(evaluation.userMessage.bodyType).toBe('json')
       expect(evaluation.userMessage.channels).toContain('participant')
       expect(evaluation.action).toBe(AgentMessageActions.CONTRIBUTE)
     })
@@ -614,8 +615,13 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
           directMessages: true,
           channels: ['chat']
         }
+        const evaluation = await defaultAgentTypes.eventAssistantPlus.evaluate.call(agent, msg)
 
-        const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
+        const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(
+          agent,
+          { messages: [] },
+          evaluation.userMessage
+        )
 
         await validateResponse(responses)
 
@@ -640,8 +646,12 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
             directMessages: true,
             channels: ['chat']
           }
-
-          const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
+          const evaluation = await defaultAgentTypes.eventAssistantPlus.evaluate.call(agent, msg)
+          const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(
+            agent,
+            { messages: [] },
+            evaluation.userMessage
+          )
 
           await validateResponse(responses)
           expect(responses).toHaveLength(1)

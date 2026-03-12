@@ -1,12 +1,9 @@
-/* eslint-disable no-useless-escape */
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, AgentResponse, ConversationHistory } from '../../types/index.types.js'
 import renderAgentTemplate from '../helpers/renderAgentTemplate.js'
 
 import Message from '../../models/message.model.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
-import { getChatPromptResponse } from '../helpers/llmChain.js'
-import transcript from '../helpers/transcript.js'
 import {
   eventAssistantLLMTemplates,
   eventAssistantLlmTemplateVars,
@@ -18,6 +15,8 @@ import {
 import logger from '../../config/logger.js'
 import config from '../../config/config.js'
 import generateImageResponse from './imageGenerator.js'
+import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from './slashCommandParser.js'
+import generateMindMap from './mindMapGenerator.js'
 
 const submitToModeratorQuestion = 'Would you like to submit this question anonymously to the moderator for Q&A?'
 const submitToModeratorReply = 'Your message has been submitted to the moderator.'
@@ -25,50 +24,12 @@ const declineModeratorReply = "OK, I won't submit it. Feel free to ask me anythi
 const submitToModeratorCommand = '/mod'
 const mindMapCommand = '/mindmap'
 
-const mindMapSystem = `You are a mind map generator for a live event. Create a concise mind map from the provided transcript that visually organizes the key points.
-
-CONSTRAINTS:
-- Identify 3-5 main topics maximum
-- Use only 3 levels of hierarchy (main topics, subtopics, and key details)
-- Keep each item to one short sentence or phrase
-- Focus on the most important points, not comprehensive coverage
-
-Use Markmap.js code (example below) in a code block to represent the mind map, with branches for each of the main topics and subtopics, without mentioning the cites. The mind map should be easy to navigate and visually clear.
-
-<MarkmapExample>
----
-markmap:
----
-
-# Event Topic
-
-## Main Concept 1
-- **Key point A** with *emphasis*
-- **Key point B**
-- [Reference link](https://example.com)
-
-## Main Concept 2
-- \`technical term\` definition
-- [x] Completed milestone
-- [ ] Pending action
-
-## Main Concept 3
-
-| Comparison | Value |
-|-|-|
-| Option A | High |
-| Option B | Low |
-
-## Main Concept 4
-- First takeaway
-- Second takeaway
-- Third takeaway
-</MarkmapExample>`
-const mindMapUser = `## Event topic:
-{topic}
-
-## Recent Transcript:
-{transcript}`
+// Supported slash commands for Event Assistant Plus
+const supportedCommands: SlashCommand[] = [
+  { command: 'mod', prefix: submitToModeratorCommand, addToChannels: ['participant'] },
+  { command: 'visual', prefix: '/visual ' },
+  { command: 'mindmap', prefix: mindMapCommand }
+]
 
 function isAffirmative(text) {
   const normalized = text.trim().toLowerCase()
@@ -174,13 +135,10 @@ export default verify({
         suggestion: undefined
       }
     }
-    const modifiedMessage = { ...userMessage }
-    if (modifiedMessage.body.trim().toString().toLowerCase().startsWith(submitToModeratorCommand)) {
-      modifiedMessage!.channels = modifiedMessage!.channels ?? []
-      modifiedMessage!.channels.push('participant')
-      // Remove the '/mod ' command from the message body
-      modifiedMessage.body = modifiedMessage.body.trim().substring(submitToModeratorCommand.length).trim()
-    }
+
+    // Parse slash commands using shared parser
+    const modifiedMessage = parseSlashCommands(userMessage, supportedCommands)
+
     return {
       userMessage: modifiedMessage,
       action: AgentMessageActions.CONTRIBUTE,
@@ -195,6 +153,11 @@ export default verify({
       return imageResponse ? [imageResponse] : []
     }
 
+    // Handle mind map command
+    if (hasCommand(userMessage, 'mindmap')) {
+      return await generateMindMap(this, userMessage)
+    }
+
     // Message on chat channel?
     if (userMessage?.channels?.includes('chat')) {
       const modifiedMessage = { ...userMessage }
@@ -202,29 +165,6 @@ export default verify({
       modifiedMessage.body = modifiedMessage.body.trim().replaceAll(`@${this.agentConfig.botName}`, '').trim()
       const agentResponse = await answerQuestion.call(this, modifiedMessage, conversationHistory)
       return [agentResponse]
-    }
-
-    // Mind map command
-    if (userMessage.body.trim().toString().toLowerCase().startsWith(mindMapCommand)) {
-      // all the transcript so far
-      const liveTranscript = transcript.getTranscript(this.conversation, this.conversationHistorySettings?.endTime)
-
-      const topic = this.conversation.name
-      const llm = await this.getLLM()
-      const llmResponse = await getChatPromptResponse(llm, mindMapSystem, mindMapUser, {
-        transcript: liveTranscript,
-        topic
-      })
-
-      return [
-        {
-          visible: true,
-          message: llmResponse,
-          channels: this.conversation.channels.filter((channel) => userMessage.channels.includes(channel.name)),
-          context: liveTranscript,
-          topic
-        }
-      ]
     }
 
     // Check if the previous message was asking about submitting to moderator
@@ -237,7 +177,9 @@ export default verify({
     ) {
       const originalMessageId = (lastMessage.body as Record<string, unknown>).message
       const message = await Message.findById(originalMessageId)
-      if (isAffirmative(userMessage.body)) {
+      // Get the text from body (handle both string and JSON body types)
+      const responseText = extractMessageText(userMessage)
+      if (isAffirmative(responseText)) {
         if (!message) {
           logger.error(`Could not find original message with ID ${originalMessageId} to submit to moderator`)
           return []
@@ -248,7 +190,7 @@ export default verify({
         return submitToModeratorResponse.call(this, userMessage, message)
       }
 
-      if (isNegative(userMessage.body)) {
+      if (isNegative(responseText)) {
         return declineModeratorResponse.call(this, userMessage, message)
       }
       // If neither affirmative nor negative, fall through to process as a new question
@@ -258,7 +200,14 @@ export default verify({
       return submitToModeratorResponse.call(this, userMessage, userMessage)
     }
 
-    const agentResponse = await answerQuestion.call(this, userMessage, conversationHistory)
+    // Check for visual command (set in evaluate)
+    const forceVisual = hasCommand(userMessage, 'visual')
+
+    // Extract text from JSON body if present for processing
+    const modifiedMessage = { ...userMessage }
+    modifiedMessage.body = extractMessageText(userMessage)
+
+    const agentResponse = await answerQuestion.call(this, modifiedMessage, conversationHistory, { forceVisual })
     const agentResponses: AgentResponse<string | Record<string, unknown>>[] = [agentResponse]
     const { classification } = agentResponse
     if (
