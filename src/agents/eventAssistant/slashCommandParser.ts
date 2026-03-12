@@ -27,9 +27,10 @@ export function parseSlashCommands(userMessage, supportedCommands: SlashCommand[
       const text = userMessage.body.trim().substring(cmdConfig.prefix.length).trim()
 
       // Set body to JSON structure
+      // If text is empty, provide a placeholder to avoid empty user messages in conversation history
       modifiedMessage.body = {
         command: cmdConfig.command,
-        text
+        text: text || `/${cmdConfig.command}`
       }
 
       // Add to channels if specified
