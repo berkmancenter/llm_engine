@@ -179,11 +179,17 @@ export default {
       await new Promise((resolve) => setTimeout(resolve, 100)) // Simulate 100ms API latency
       return
     }
+    // in hybrid envs, need to show message as from participants in the Nextspace group chat, instead of from bot, to avoid confusion
+    let messageBody = message.body
+    if (!channelConfig?.to) {
+      const emoji = message.fromAgent ? '🤖' : '👤'
+      messageBody = `${emoji} ${message.body}`
+    }
     const options = {
       method: 'POST',
       headers: { accept: 'application/json', 'content-type': 'application/json', Authorization: config.recall.key },
       body: JSON.stringify({
-        message: message.body,
+        message: messageBody,
         ...(channelConfig?.to ? { to: channelConfig.to } : {})
       })
     }

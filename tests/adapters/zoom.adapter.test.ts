@@ -617,7 +617,8 @@ describe('zoom adapter tests', () => {
 
       const message = {
         body: 'Hello everyone!',
-        channels: ['participant']
+        channels: ['participant'],
+        pseudonym: 'Tricky Turtle'
       }
 
       await adapter.sendMessage(message)
@@ -631,7 +632,7 @@ describe('zoom adapter tests', () => {
           Authorization: config.recall.key
         },
         body: JSON.stringify({
-          message: 'Hello everyone!'
+          message: '👤 Tricky Turtle: Hello everyone!'
         })
       })
     })
@@ -667,6 +668,144 @@ describe('zoom adapter tests', () => {
       }
 
       await expect(adapter.sendMessage(message)).rejects.toThrow('Network error')
+    })
+
+    it('prepends pseudonym to group chat messages from participants', async () => {
+      await createConversation('Test Meeting with Pseudonyms')
+      const mockResponse = {
+        status: httpStatus.OK,
+        json: jest.fn().mockResolvedValue({ success: true })
+      }
+      ;(fetch as jest.Mock).mockResolvedValue(mockResponse)
+
+      adapter.chatChannels = [{ name: 'participant', direction: Direction.OUTGOING }]
+
+      const message = {
+        body: 'Hello everyone!',
+        pseudonym: 'Busy Beaver',
+        fromAgent: false,
+        channels: ['participant']
+      }
+
+      await adapter.sendMessage(message)
+
+      expect(fetch).toHaveBeenCalledWith(`${config.recall.baseUrl}/test-bot-id-123/send_chat_message/`, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          Authorization: config.recall.key
+        },
+        body: JSON.stringify({
+          message: '👤 Busy Beaver: Hello everyone!'
+        })
+      })
+    })
+
+    it('does not prepend pseudonym to direct messages', async () => {
+      await createConversation('Test Meeting with DM')
+      const mockResponse = {
+        status: httpStatus.OK,
+        json: jest.fn().mockResolvedValue({ success: true })
+      }
+      ;(fetch as jest.Mock).mockResolvedValue(mockResponse)
+
+      const agentId = new mongoose.Types.ObjectId()
+      adapter.dmChannels = [
+        { name: 'participant' },
+        { direct: true, agent: agentId, direction: Direction.BOTH, config: { direct1: { to: 'Alice Smith' } } }
+      ]
+
+      const message = {
+        body: 'Direct message to Alice',
+        pseudonym: 'Busy Beaver',
+        fromAgent: false,
+        channels: ['direct1']
+      }
+
+      await adapter.sendMessage(message, { to: 'Alice Smith' })
+
+      expect(fetch).toHaveBeenCalledWith(`${config.recall.baseUrl}/test-bot-id-123/send_chat_message/`, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          Authorization: config.recall.key
+        },
+        body: JSON.stringify({
+          message: 'Direct message to Alice',
+          to: 'Alice Smith'
+        })
+      })
+    })
+
+    it('prepends robot emoji to messages from agents in group chat', async () => {
+      await createConversation('Test Meeting with Agent Messages')
+      const mockResponse = {
+        status: httpStatus.OK,
+        json: jest.fn().mockResolvedValue({ success: true })
+      }
+      ;(fetch as jest.Mock).mockResolvedValue(mockResponse)
+
+      adapter.chatChannels = [{ name: 'participant', direction: Direction.OUTGOING }]
+
+      const message = {
+        body: 'Hello from the agent!',
+        pseudonym: 'Smart Agent',
+        fromAgent: true,
+        channels: ['participant']
+      }
+
+      await adapter.sendMessage(message)
+
+      expect(fetch).toHaveBeenCalledWith(`${config.recall.baseUrl}/test-bot-id-123/send_chat_message/`, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          Authorization: config.recall.key
+        },
+        body: JSON.stringify({
+          message: '🤖 Hello from the agent!'
+        })
+      })
+    })
+
+    it('does not prepend pseudonym to messages from agents in direct messages', async () => {
+      await createConversation('Test Meeting with Agent DMs')
+      const mockResponse = {
+        status: httpStatus.OK,
+        json: jest.fn().mockResolvedValue({ success: true })
+      }
+      ;(fetch as jest.Mock).mockResolvedValue(mockResponse)
+
+      const agentId = new mongoose.Types.ObjectId()
+      adapter.dmChannels = [
+        { name: 'participant' },
+        { direct: true, agent: agentId, direction: Direction.BOTH, config: { direct1: { to: 'Bob Jones' } } }
+      ]
+
+      const message = {
+        body: 'Agent DM to Bob',
+        pseudonym: 'Smart Agent',
+        fromAgent: true,
+        channels: ['direct1']
+      }
+
+      await adapter.sendMessage(message, { to: 'Bob Jones' })
+
+      expect(fetch).toHaveBeenCalledWith(`${config.recall.baseUrl}/test-bot-id-123/send_chat_message/`, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          Authorization: config.recall.key
+        },
+        body: JSON.stringify({
+          message: 'Agent DM to Bob',
+          to: 'Bob Jones'
+        })
+      })
     })
   })
 
