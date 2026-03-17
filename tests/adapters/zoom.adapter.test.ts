@@ -341,6 +341,214 @@ describe('zoom adapter tests', () => {
       expect(msgs).toHaveLength(0)
     })
 
+    it('filters out chat messages that start with "Reacting to" (emoji reactions)', async () => {
+      await createConversation('Meeting with Emoji Reactions')
+
+      const reactionMessage = {
+        data: {
+          data: {
+            data: {
+              text: 'Reacting to "Great job everyone!" with 👍',
+              to: 'everyone'
+            },
+            participant: {
+              id: 103,
+              name: 'Bob Johnson',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(reactionMessage)
+      expect(msgs).toHaveLength(0)
+    })
+
+    it('strips @ symbols from quoted portion in "Replying to" messages to avoid false mentions', async () => {
+      await createConversation('Meeting with Reply Messages')
+
+      const replyMessage = {
+        data: {
+          data: {
+            data: {
+              text: 'Replying to "@bot please help" I think that\'s wrong',
+              to: 'everyone'
+            },
+            participant: {
+              id: 104,
+              name: 'Charlie Brown',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(replyMessage)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].message).toBe('Replying to "bot please help" I think that\'s wrong')
+      expect(msgs[0].source).toBe('zoom')
+      expect(msgs[0].user).toEqual({ username: 'Charlie Brown' })
+    })
+
+    it('preserves @ symbols in the reply portion (after the quote) of "Replying to" messages', async () => {
+      await createConversation('Meeting with Reply and Mention')
+
+      const replyMessage = {
+        data: {
+          data: {
+            data: {
+              text: 'Replying to "@bot please help" Actually @bot can you explain this?',
+              to: 'everyone'
+            },
+            participant: {
+              id: 105,
+              name: 'Dana White',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(replyMessage)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].message).toBe('Replying to "bot please help" Actually @bot can you explain this?')
+      expect(msgs[0].user).toEqual({ username: 'Dana White' })
+    })
+
+    it('preserves @ symbols in regular messages (not replies)', async () => {
+      await createConversation('Meeting with Regular Mentions')
+
+      const regularMessage = {
+        data: {
+          data: {
+            data: {
+              text: '@bot please help with this task',
+              to: 'everyone'
+            },
+            participant: {
+              id: 106,
+              name: 'Eve Anderson',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(regularMessage)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].message).toBe('@bot please help with this task')
+      expect(msgs[0].user).toEqual({ username: 'Eve Anderson' })
+    })
+
+    it('preserves quotes in regular messages (not replies)', async () => {
+      await createConversation('Meeting with Quoted Text')
+
+      const messageWithQuotes = {
+        data: {
+          data: {
+            data: {
+              text: 'I think the answer is "42" according to the documentation',
+              to: 'everyone'
+            },
+            participant: {
+              id: 107,
+              name: 'Frank Miller',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(messageWithQuotes)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].message).toBe('I think the answer is "42" according to the documentation')
+      expect(msgs[0].user).toEqual({ username: 'Frank Miller' })
+    })
+    it('preserves extra quotes in reply messages', async () => {
+      await createConversation('Meeting with Quoted Text')
+
+      const messageWithQuotes = {
+        data: {
+          data: {
+            data: {
+              text: 'Replying to "please help" I think the answer is "42"',
+              to: 'everyone'
+            },
+            participant: {
+              id: 107,
+              name: 'Frank Miller',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(messageWithQuotes)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].message).toBe('Replying to "please help" I think the answer is "42"')
+      expect(msgs[0].user).toEqual({ username: 'Frank Miller' })
+    })
+
+    it('strips multiple @ symbols from quoted portion in "Replying to" messages', async () => {
+      await createConversation('Meeting with Multiple Mentions in Quote')
+
+      const replyMessage = {
+        data: {
+          data: {
+            data: {
+              text: 'Replying to "@bot and @assistant help" Yes, they should both help',
+              to: 'everyone'
+            },
+            participant: {
+              id: 108,
+              name: 'Grace Lee',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(replyMessage)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].message).toBe('Replying to "bot and assistant help" Yes, they should both help')
+      expect(msgs[0].user).toEqual({ username: 'Grace Lee' })
+    })
+
     it('correctly processes DM messages with direct channel when enabled', async () => {
       await createConversation('Meeting with Direct Channel')
 
