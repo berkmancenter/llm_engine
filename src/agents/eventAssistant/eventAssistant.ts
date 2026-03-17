@@ -66,7 +66,7 @@ export default verify({
       }
     }
 
-    if (userMessage?.channels?.includes('chat') && !userMessage?.body.includes(`@${this.agentConfig.botName}`)) {
+    if (userMessage?.channels?.includes('chat') && !userMessage?.body.toLowerCase().includes(`@${this.agentConfig.botName}`.toLowerCase())) {
       // regular chat message, no need to process
       return {
         userMessage,
@@ -108,7 +108,10 @@ export default verify({
 
     if (userMessage?.channels?.includes('chat')) {
       // trim the '@${this.agentConfig.botName}' from the message body so it's just a regular question
-      modifiedMessage.body = modifiedMessage.body.trim().replaceAll(`@${this.agentConfig.botName}`, '').trim()
+      const escapedBotName = this.agentConfig.botName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      // eslint-disable-next-line security/detect-non-literal-regexp
+      const botMentionRegex = new RegExp(`@${escapedBotName}`, 'gi')
+      modifiedMessage.body = modifiedMessage.body.trim().replace(botMentionRegex, '').trim()
     }
     const agentResponse = await answerQuestion.call(this, modifiedMessage, conversationHistory, { ...options, forceVisual })
     return [agentResponse]
