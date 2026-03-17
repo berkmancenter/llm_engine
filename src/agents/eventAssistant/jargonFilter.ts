@@ -9,6 +9,7 @@ import { formatTranscript } from '../helpers/llmInputFormatters.js'
 import User from '../../models/user.model/user.model.js'
 
 export type JargonFilterResponse = {
+  type: 'jargon_clarification'
   text: string // the clarified text
   sourceText: string // original transcript excerpt
   transcriptWindow: {
@@ -151,6 +152,7 @@ export default verify({
     logger.info(`${this.name}: jargon detected, posting to ${optedInChannels.length} opted-in channel(s)`)
 
     const message: JargonFilterResponse = {
+      type: 'jargon_clarification',
       text: response.text!,
       sourceText: response.sourceText!,
       transcriptWindow: {
