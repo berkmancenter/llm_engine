@@ -19,6 +19,7 @@ import eventAssistantPlus from './eventAssistant/eventAssistantPlus.js'
 import eventMediator from './eventMediator/eventMediator.js'
 import eventMediatorPlus from './eventMediator/eventMediatorPlus.js'
 import engagementAgent from './engagement/engagementAgent.js'
+import jargonFilterAgent from './eventAssistant/jargonFilter.js'
 
 const development = {
   civilityPerMessage,
@@ -40,5 +41,6 @@ export default {
   eventAssistantPlus,
   eventMediator,
   eventMediatorPlus,
-  engagementAgent
+  engagementAgent,
+  jargonFilterAgent
 }
