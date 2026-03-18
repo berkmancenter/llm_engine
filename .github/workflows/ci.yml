@@ -51,10 +51,11 @@ jobs:
         with:
           list-files: shell
           filters: |
+            helpers_src:
+              - 'src/agents/helpers/**'
             agents:
-              - 'src/agents/**'
-              - 'src/models/user.model/agent.model/**'
-              - 'tests/agents/**'
+              - 'src/agents/*/**'
+              - 'tests/agents/*/**'
 
       - name: Setup Node.js 22.x
         uses: actions/setup-node@v4
@@ -136,8 +137,34 @@ jobs:
           DEFAULT_OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
 
       - name: Run agent tests
-        if: steps.changes.outputs.agents == 'true' || github.event_name== 'workflow_dispatch'
-        run: yarn test:agents
+        if: steps.changes.outputs.helpers_src == 'true' || steps.changes.outputs.agents == 'true' || github.event_name == 'workflow_dispatch'
+        run: |
+          # If helper source code changed, run all agent tests
+          if [ "${{ steps.changes.outputs.helpers_src }}" == "true" ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "Helper source code changed or manual trigger - running all agent tests"
+            yarn test:agents
+          else
+            # Extract unique agent folder names from changed files
+            CHANGED_FILES="${{ steps.changes.outputs.agents_files }}"
+            echo "Changed files: $CHANGED_FILES"
+
+            # Extract agent folder names and build unique list
+            AGENT_NAMES=$(echo "$CHANGED_FILES" | tr ' ' '\n' | grep -E '(src|tests)/agents/' | sed -E 's#(src|tests)/agents/([^/]+)/.*#\2#' | sort -u)
+
+            if [ -z "$AGENT_NAMES" ]; then
+              echo "No agent tests to run"
+              exit 0
+            fi
+
+            # Build test paths
+            TEST_PATHS=""
+            for agent in $AGENT_NAMES; do
+              TEST_PATHS="$TEST_PATHS tests/agents/$agent"
+            done
+
+            echo "Running tests for changed agents: $TEST_PATHS"
+            yarn test:agents $TEST_PATHS
+          fi
         env:
           PORT: 3000
           MONGODB_URL: mongodb://127.0.0.1:27017/node-boilerplate
