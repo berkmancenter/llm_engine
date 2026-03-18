@@ -18,7 +18,7 @@ on:
       llmModel:
         description: 'The LLM Model to use for agent testing'
         required: true
-        default: 'us.anthropic.claude-haiku-4-5-20251001-v1:0'
+        default: 'us.anthropic.claude-sonnet-4-6'
         type: string
 
 jobs:
@@ -179,7 +179,7 @@ jobs:
           VLLM_API_URL: ${{ secrets.VLLM_API_URL }}
           VLLM_API_KEY: ${{ secrets.VLLM_API_KEY }}
           TEST_LLM_PLATFORM: ${{ github.event.inputs.llmPlatform || 'bedrock'}}
-          TEST_LLM_MODEL: ${{ github.event.inputs.llmModel || 'us.anthropic.claude-haiku-4-5-20251001-v1:0' }}
+          TEST_LLM_MODEL: ${{ github.event.inputs.llmModel || 'us.anthropic.claude-sonnet-4-6' }}
           ENABLE_AGENT_PERSONALITY: true
 
       - name: Run linting
