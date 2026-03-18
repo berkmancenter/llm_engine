@@ -5,8 +5,8 @@ import {
   detectInterventionOpportunity,
   getInterventionAnalysisSchema,
   buildInterventionTypeSection
-} from './interventionHandler.js'
-import { InterventionAnalysis, InterventionType } from './interventionTypes.js'
+} from '../helpers/interventionHandler.js'
+import { InterventionAnalysis, InterventionType } from '../helpers/interventionTypes.js'
 
 /**
  * Default examples for each intervention type (used when no personality-specific examples)

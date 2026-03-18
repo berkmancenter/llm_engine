@@ -9,8 +9,8 @@ import {
   buildInterventionTypeSection,
   USER_TEMPLATE,
   interventionLlmTemplateVars
-} from './interventionHandler.js'
-import { InterventionType } from './interventionTypes.js'
+} from '../helpers/interventionHandler.js'
+import { InterventionType } from '../helpers/interventionTypes.js'
 
 /**
  * Default examples for engagement intervention types

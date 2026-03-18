@@ -15,7 +15,7 @@ import {
 import logger from '../../config/logger.js'
 import config from '../../config/config.js'
 import generateImageResponse from './imageGenerator.js'
-import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from './slashCommandParser.js'
+import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from '../helpers/slashCommandParser.js'
 import generateMindMap from './mindMapGenerator.js'
 
 const submitToModeratorQuestion = 'Would you like to submit this question anonymously to the moderator for Q&A?'
@@ -126,7 +126,10 @@ export default verify({
       }
     }
 
-    if (userMessage?.channels?.includes('chat') && !userMessage?.body.toLowerCase().includes(`@${this.agentConfig.botName}`.toLowerCase())) {
+    if (
+      userMessage?.channels?.includes('chat') &&
+      !userMessage?.body.toLowerCase().includes(`@${this.agentConfig.botName}`.toLowerCase())
+    ) {
       // regular chat message, no need to process
       return {
         userMessage,

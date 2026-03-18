@@ -5,7 +5,7 @@ import User from '../../models/user.model/user.model.js'
 import logger from '../../config/logger.js'
 import { IChannel } from '../../types/index.types.js'
 import config from '../../config/config.js'
-import { personalitySection } from './agentPersonality.js'
+import { personalitySection } from '../helpers/agentPersonality.js'
 
 export enum QuestionClassification {
   ON_TOPIC_ANSWER = 'ON_TOPIC_ANSWER',

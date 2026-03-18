@@ -11,7 +11,7 @@ import renderAgentTemplate from '../helpers/renderAgentTemplate.js'
 import config from '../../config/config.js'
 import logger from '../../config/logger.js'
 import generateImageResponse from './imageGenerator.js'
-import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from './slashCommandParser.js'
+import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from '../helpers/slashCommandParser.js'
 import generateMindMap from './mindMapGenerator.js'
 
 // Supported slash commands for Event Assistant
@@ -66,7 +66,10 @@ export default verify({
       }
     }
 
-    if (userMessage?.channels?.includes('chat') && !userMessage?.body.toLowerCase().includes(`@${this.agentConfig.botName}`.toLowerCase())) {
+    if (
+      userMessage?.channels?.includes('chat') &&
+      !userMessage?.body.toLowerCase().includes(`@${this.agentConfig.botName}`.toLowerCase())
+    ) {
       // regular chat message, no need to process
       return {
         userMessage,

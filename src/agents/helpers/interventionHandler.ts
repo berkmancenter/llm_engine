@@ -1,12 +1,13 @@
 import { z } from 'zod'
 import { ConversationHistory } from '../../types/index.types.js'
-import { formatMultiUserConversationHistory } from '../helpers/llmInputFormatters.js'
-import transcript from '../helpers/transcript.js'
-import { getChatPromptResponse } from '../helpers/llmChain.js'
-import { buildSystemPromptWithPersonality, getInterventionExamples } from './agentPersonality.js'
-import { InterventionType, type InterventionAnalysis } from './interventionTypes.js'
+import { formatMultiUserConversationHistory } from './llmInputFormatters.js'
+import transcript from './transcript.js'
+import { getChatPromptResponse } from './llmChain.js'
+
 import config from '../../config/config.js'
 import logger from '../../config/logger.js'
+import { InterventionAnalysis, InterventionType } from './interventionTypes.js'
+import { buildSystemPromptWithPersonality, getInterventionExamples } from './agentPersonality.js'
 
 export const USER_TEMPLATE = `## Event Topic:
 {topic}

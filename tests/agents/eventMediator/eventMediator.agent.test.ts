@@ -12,7 +12,7 @@ import {
 } from '../../utils/agentTestHelpers.js'
 
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
-import { InterventionType } from '../../../src/agents/eventAssistant/interventionTypes.js'
+import { InterventionType } from '../../../src/agents/helpers/interventionTypes.js'
 import Agent from '../../../src/models/user.model/agent.model/index.js'
 
 jest.setTimeout(180000)
