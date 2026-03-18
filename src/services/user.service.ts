@@ -343,7 +343,8 @@ const updatePreferences = async (userId, updateBody) => {
 
   user.preferences = {
     ...user.preferences,
-    ...(updateBody.visualResponse !== undefined && { visualResponse: updateBody.visualResponse })
+    ...(updateBody.visualResponse !== undefined && { visualResponse: updateBody.visualResponse }),
+    ...(updateBody.jargonClarification !== undefined && { jargonClarification: updateBody.jargonClarification })
   }
   user.markModified('preferences')
   await user.save()

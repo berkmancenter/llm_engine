@@ -139,6 +139,16 @@ export default verify({
       }
     }
 
+    if (userMessage?.fromAgent && userMessage?.bodyType === 'json') {
+      // structured agent output (e.g. jargon clarification) — not a user command
+      return {
+        userMessage,
+        action: AgentMessageActions.OK,
+        userContributionVisible: true,
+        suggestion: undefined
+      }
+    }
+
     // Parse slash commands using shared parser
     const modifiedMessage = parseSlashCommands(userMessage, supportedCommands)
 

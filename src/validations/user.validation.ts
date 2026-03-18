@@ -54,7 +54,8 @@ const updatePreferences = {
     userId: Joi.string().custom(objectId)
   }),
   body: Joi.object().keys({
-    visualResponse: Joi.boolean()
+    visualResponse: Joi.boolean(),
+    jargonClarification: Joi.boolean()
   })
 }
 

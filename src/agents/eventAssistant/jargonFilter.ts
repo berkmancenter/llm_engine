@@ -133,8 +133,10 @@ export default verify({
     )
     if (!response.jargonFound) return []
 
-    // Find direct channels where the participant has opted in to jargon clarification
-    const directChannels = this.conversation.channels.filter((c: IChannel) => c.direct)
+    // Find direct channels where this agent is a participant and the user has opted in.
+    const directChannels = this.conversation.channels.filter(
+      (c: IChannel) => c.direct && c.participants?.some((p) => p._id?.toString() === this._id.toString())
+    )
     const optedInChannels: IChannel[] = []
 
     for (const channel of directChannels) {

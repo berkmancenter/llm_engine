@@ -487,6 +487,29 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
   })
 
   describe('evaluate function', () => {
+    it('does not crash and returns OK for agent-posted JSON messages (e.g. jargon clarification)', async () => {
+      const agentJsonMsg = {
+        fromAgent: true,
+        bodyType: 'json',
+        body: {
+          type: 'jargon_clarification',
+          text: 'An SLO defines a reliability target.',
+          sourceText: 'Our SLOs are defined in terms of error budget.',
+          transcriptWindow: { start: 1000, end: 2000 }
+        },
+        channels: [`direct-agents-${user1._id}`]
+      }
+
+      let result
+      try {
+        result = await defaultAgentTypes.eventAssistantPlus.evaluate.call(agent, agentJsonMsg)
+      } catch (e) {
+        throw new Error(`evaluate() threw on an agent JSON message — body.trim() called on object? ${e.message}`)
+      }
+
+      expect(result.action).toEqual(AgentMessageActions.OK)
+    })
+
     it(
       'does not modify message without /mod command',
       async () => {

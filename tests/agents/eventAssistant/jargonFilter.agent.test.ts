@@ -143,6 +143,34 @@ describe('jargon filter agent tests', () => {
     )
   })
 
+  describe('posting clarification messages', () => {
+    it(
+      'targets direct channels where the jargon filter agent is authorized to post',
+      async () => {
+        await loadTestTranscript(conversation, jargonTranscript)
+
+        const conversationHistory = getConversationHistory(conversation.messages, {
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 5 * 60 * 1000)
+        })
+
+        const responses = await defaultAgentTypes.jargonFilterAgent.respond.call(jargonFilterAgent, conversationHistory)
+        expect(responses.length).toBeGreaterThan(0)
+
+        // The jargon filter posts via newMessageHandler(response, jargonFilterAgent).
+        // authChannels checks that the posting agent is a participant in each direct channel.
+        // All targeted channels must include the jargon filter agent as a participant.
+        for (const response of responses) {
+          for (const channel of response.channels) {
+            const participantIds = channel.participants?.map((p) => p._id.toString()) ?? []
+            expect(participantIds).toContain(jargonFilterAgent._id.toString())
+          }
+        }
+      },
+      testTimeout
+    )
+  })
+
   describe('jargon agent on meeting start', () => {
     it('does not introduce itself', async () => {
       const [chatChannel] = conversation.channels.filter((c) => c.name === 'chat')
