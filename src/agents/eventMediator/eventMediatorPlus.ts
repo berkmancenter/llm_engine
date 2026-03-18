@@ -1,8 +1,7 @@
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
-import { interventionLlmTemplateVars, USER_TEMPLATE } from './interventionHandler.js'
-
+import { interventionLlmTemplateVars, USER_TEMPLATE } from '../helpers/interventionHandler.js'
 import buildMediatorResponse, { getMediatorSystemPrompt } from './mediatorHandler.js'
 
 export default verify({

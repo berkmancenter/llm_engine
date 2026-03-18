@@ -76,6 +76,10 @@ const eventAssistantPlus: ConversationType = {
         {
           name: 'moderator',
           direction: Direction.OUTGOING
+        },
+        {
+          name: 'chat',
+          direction: Direction.BOTH
         }
       ],
       audioChannels: [

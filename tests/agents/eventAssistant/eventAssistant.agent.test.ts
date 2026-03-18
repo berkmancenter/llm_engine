@@ -496,6 +496,49 @@ describe(`event assistant CI tests`, () => {
       expect(modifiedBody).not.toContain(customBotName)
     })
 
+    it('responds to case-insensitive chat mentions of botName', async () => {
+      const customBotName = 'MyCustomBot'
+      agent.agentConfig = { ...agent.agentConfig, botName: customBotName }
+
+      // Test lowercase mention
+      const msgLower = await createMessage('@mycustombot what did I miss?', user1, conversation, ['chat'])
+      const evalLower = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msgLower)
+      expect(evalLower.action).toEqual(AgentMessageActions.CONTRIBUTE)
+
+      // Test uppercase mention
+      const msgUpper = await createMessage('@MYCUSTOMBOT what did I miss?', user1, conversation, ['chat'])
+      const evalUpper = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msgUpper)
+      expect(evalUpper.action).toEqual(AgentMessageActions.CONTRIBUTE)
+
+      // Test mixed case mention
+      const msgMixed = await createMessage('@mYcUsToMbOt what did I miss?', user1, conversation, ['chat'])
+      const evalMixed = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msgMixed)
+      expect(evalMixed.action).toEqual(AgentMessageActions.CONTRIBUTE)
+    })
+
+    it('strips case-insensitive botName mentions from chat message body', async () => {
+      const customBotName = 'MyCustomBot'
+      agent.agentConfig = { ...agent.agentConfig, botName: customBotName }
+
+      // Test lowercase mention stripping
+      const msgLower = await createMessage('@mycustombot what did I miss?', user1, conversation, ['chat'])
+      agent.conversationHistorySettings = {
+        endTime: new Date(startTime.getTime() + 829 * 1000),
+        count: 100,
+        directMessages: true,
+        channels: ['chat']
+      }
+      const responsesLower = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msgLower)
+      expect(responsesLower).toHaveLength(1)
+      // The internal processing should have stripped the mention regardless of case
+
+      // Test uppercase mention stripping
+      const msgUpper = await createMessage('@MYCUSTOMBOT hey there', user1, conversation, ['chat'])
+      const responsesUpper = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msgUpper)
+      expect(responsesUpper).toHaveLength(1)
+      // Should successfully process without the @MYCUSTOMBOT mention
+    })
+
     it('includes custom botName in rendered DM intro message', async () => {
       const customBotName = 'MyCustomBot'
       agent.agentConfig = { ...agent.agentConfig, botName: customBotName }

@@ -341,6 +341,214 @@ describe('zoom adapter tests', () => {
       expect(msgs).toHaveLength(0)
     })
 
+    it('filters out chat messages that start with "Reacting to" (emoji reactions)', async () => {
+      await createConversation('Meeting with Emoji Reactions')
+
+      const reactionMessage = {
+        data: {
+          data: {
+            data: {
+              text: 'Reacting to "Great job everyone!" with 👍',
+              to: 'everyone'
+            },
+            participant: {
+              id: 103,
+              name: 'Bob Johnson',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(reactionMessage)
+      expect(msgs).toHaveLength(0)
+    })
+
+    it('strips @ symbols from quoted portion in "Replying to" messages to avoid false mentions', async () => {
+      await createConversation('Meeting with Reply Messages')
+
+      const replyMessage = {
+        data: {
+          data: {
+            data: {
+              text: 'Replying to "@bot please help" I think that\'s wrong',
+              to: 'everyone'
+            },
+            participant: {
+              id: 104,
+              name: 'Charlie Brown',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(replyMessage)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].message).toBe('Replying to "bot please help" I think that\'s wrong')
+      expect(msgs[0].source).toBe('zoom')
+      expect(msgs[0].user).toEqual({ username: 'Charlie Brown' })
+    })
+
+    it('preserves @ symbols in the reply portion (after the quote) of "Replying to" messages', async () => {
+      await createConversation('Meeting with Reply and Mention')
+
+      const replyMessage = {
+        data: {
+          data: {
+            data: {
+              text: 'Replying to "@bot please help" Actually @bot can you explain this?',
+              to: 'everyone'
+            },
+            participant: {
+              id: 105,
+              name: 'Dana White',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(replyMessage)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].message).toBe('Replying to "bot please help" Actually @bot can you explain this?')
+      expect(msgs[0].user).toEqual({ username: 'Dana White' })
+    })
+
+    it('preserves @ symbols in regular messages (not replies)', async () => {
+      await createConversation('Meeting with Regular Mentions')
+
+      const regularMessage = {
+        data: {
+          data: {
+            data: {
+              text: '@bot please help with this task',
+              to: 'everyone'
+            },
+            participant: {
+              id: 106,
+              name: 'Eve Anderson',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(regularMessage)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].message).toBe('@bot please help with this task')
+      expect(msgs[0].user).toEqual({ username: 'Eve Anderson' })
+    })
+
+    it('preserves quotes in regular messages (not replies)', async () => {
+      await createConversation('Meeting with Quoted Text')
+
+      const messageWithQuotes = {
+        data: {
+          data: {
+            data: {
+              text: 'I think the answer is "42" according to the documentation',
+              to: 'everyone'
+            },
+            participant: {
+              id: 107,
+              name: 'Frank Miller',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(messageWithQuotes)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].message).toBe('I think the answer is "42" according to the documentation')
+      expect(msgs[0].user).toEqual({ username: 'Frank Miller' })
+    })
+    it('preserves extra quotes in reply messages', async () => {
+      await createConversation('Meeting with Quoted Text')
+
+      const messageWithQuotes = {
+        data: {
+          data: {
+            data: {
+              text: 'Replying to "please help" I think the answer is "42"',
+              to: 'everyone'
+            },
+            participant: {
+              id: 107,
+              name: 'Frank Miller',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(messageWithQuotes)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].message).toBe('Replying to "please help" I think the answer is "42"')
+      expect(msgs[0].user).toEqual({ username: 'Frank Miller' })
+    })
+
+    it('strips multiple @ symbols from quoted portion in "Replying to" messages', async () => {
+      await createConversation('Meeting with Multiple Mentions in Quote')
+
+      const replyMessage = {
+        data: {
+          data: {
+            data: {
+              text: 'Replying to "@bot and @assistant help" Yes, they should both help',
+              to: 'everyone'
+            },
+            participant: {
+              id: 108,
+              name: 'Grace Lee',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(replyMessage)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].message).toBe('Replying to "bot and assistant help" Yes, they should both help')
+      expect(msgs[0].user).toEqual({ username: 'Grace Lee' })
+    })
+
     it('correctly processes DM messages with direct channel when enabled', async () => {
       await createConversation('Meeting with Direct Channel')
 
@@ -617,7 +825,8 @@ describe('zoom adapter tests', () => {
 
       const message = {
         body: 'Hello everyone!',
-        channels: ['participant']
+        channels: ['participant'],
+        pseudonym: 'Tricky Turtle'
       }
 
       await adapter.sendMessage(message)
@@ -631,7 +840,7 @@ describe('zoom adapter tests', () => {
           Authorization: config.recall.key
         },
         body: JSON.stringify({
-          message: 'Hello everyone!'
+          message: '👤 Tricky Turtle: Hello everyone!'
         })
       })
     })
@@ -667,6 +876,144 @@ describe('zoom adapter tests', () => {
       }
 
       await expect(adapter.sendMessage(message)).rejects.toThrow('Network error')
+    })
+
+    it('prepends pseudonym to group chat messages from participants', async () => {
+      await createConversation('Test Meeting with Pseudonyms')
+      const mockResponse = {
+        status: httpStatus.OK,
+        json: jest.fn().mockResolvedValue({ success: true })
+      }
+      ;(fetch as jest.Mock).mockResolvedValue(mockResponse)
+
+      adapter.chatChannels = [{ name: 'participant', direction: Direction.OUTGOING }]
+
+      const message = {
+        body: 'Hello everyone!',
+        pseudonym: 'Busy Beaver',
+        fromAgent: false,
+        channels: ['participant']
+      }
+
+      await adapter.sendMessage(message)
+
+      expect(fetch).toHaveBeenCalledWith(`${config.recall.baseUrl}/test-bot-id-123/send_chat_message/`, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          Authorization: config.recall.key
+        },
+        body: JSON.stringify({
+          message: '👤 Busy Beaver: Hello everyone!'
+        })
+      })
+    })
+
+    it('does not prepend pseudonym to direct messages', async () => {
+      await createConversation('Test Meeting with DM')
+      const mockResponse = {
+        status: httpStatus.OK,
+        json: jest.fn().mockResolvedValue({ success: true })
+      }
+      ;(fetch as jest.Mock).mockResolvedValue(mockResponse)
+
+      const agentId = new mongoose.Types.ObjectId()
+      adapter.dmChannels = [
+        { name: 'participant' },
+        { direct: true, agent: agentId, direction: Direction.BOTH, config: { direct1: { to: 'Alice Smith' } } }
+      ]
+
+      const message = {
+        body: 'Direct message to Alice',
+        pseudonym: 'Busy Beaver',
+        fromAgent: false,
+        channels: ['direct1']
+      }
+
+      await adapter.sendMessage(message, { to: 'Alice Smith' })
+
+      expect(fetch).toHaveBeenCalledWith(`${config.recall.baseUrl}/test-bot-id-123/send_chat_message/`, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          Authorization: config.recall.key
+        },
+        body: JSON.stringify({
+          message: 'Direct message to Alice',
+          to: 'Alice Smith'
+        })
+      })
+    })
+
+    it('prepends robot emoji to messages from agents in group chat', async () => {
+      await createConversation('Test Meeting with Agent Messages')
+      const mockResponse = {
+        status: httpStatus.OK,
+        json: jest.fn().mockResolvedValue({ success: true })
+      }
+      ;(fetch as jest.Mock).mockResolvedValue(mockResponse)
+
+      adapter.chatChannels = [{ name: 'participant', direction: Direction.OUTGOING }]
+
+      const message = {
+        body: 'Hello from the agent!',
+        pseudonym: 'Smart Agent',
+        fromAgent: true,
+        channels: ['participant']
+      }
+
+      await adapter.sendMessage(message)
+
+      expect(fetch).toHaveBeenCalledWith(`${config.recall.baseUrl}/test-bot-id-123/send_chat_message/`, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          Authorization: config.recall.key
+        },
+        body: JSON.stringify({
+          message: '🤖 Hello from the agent!'
+        })
+      })
+    })
+
+    it('does not prepend pseudonym to messages from agents in direct messages', async () => {
+      await createConversation('Test Meeting with Agent DMs')
+      const mockResponse = {
+        status: httpStatus.OK,
+        json: jest.fn().mockResolvedValue({ success: true })
+      }
+      ;(fetch as jest.Mock).mockResolvedValue(mockResponse)
+
+      const agentId = new mongoose.Types.ObjectId()
+      adapter.dmChannels = [
+        { name: 'participant' },
+        { direct: true, agent: agentId, direction: Direction.BOTH, config: { direct1: { to: 'Bob Jones' } } }
+      ]
+
+      const message = {
+        body: 'Agent DM to Bob',
+        pseudonym: 'Smart Agent',
+        fromAgent: true,
+        channels: ['direct1']
+      }
+
+      await adapter.sendMessage(message, { to: 'Bob Jones' })
+
+      expect(fetch).toHaveBeenCalledWith(`${config.recall.baseUrl}/test-bot-id-123/send_chat_message/`, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          Authorization: config.recall.key
+        },
+        body: JSON.stringify({
+          message: 'Agent DM to Bob',
+          to: 'Bob Jones'
+        })
+      })
     })
   })
 

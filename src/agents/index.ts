@@ -16,9 +16,9 @@ import experts from './development/experts/index.js'
 import generic from './development/generic/index.js'
 import config from '../config/config.js'
 import eventAssistantPlus from './eventAssistant/eventAssistantPlus.js'
-import eventMediator from './eventAssistant/eventMediator.js'
-import eventMediatorPlus from './eventAssistant/eventMediatorPlus.js'
-import engagementAgent from './eventAssistant/engagementAgent.js'
+import eventMediator from './eventMediator/eventMediator.js'
+import eventMediatorPlus from './eventMediator/eventMediatorPlus.js'
+import engagementAgent from './engagement/engagementAgent.js'
 
 const development = {
   civilityPerMessage,

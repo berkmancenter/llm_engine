@@ -2,8 +2,8 @@ import {
   getInterventionAnalysisSchema,
   interventionLlmTemplateVars,
   USER_TEMPLATE
-} from '../../../src/agents/eventAssistant/interventionHandler.js'
-import { InterventionType } from '../../../src/agents/eventAssistant/interventionTypes.js'
+} from '../../../src/agents/helpers/interventionHandler.js'
+import { InterventionType } from '../../../src/agents/helpers/interventionTypes.js'
 
 describe('interventionHandler', () => {
   describe('InterventionType enum', () => {

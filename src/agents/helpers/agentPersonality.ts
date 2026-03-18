@@ -1,5 +1,5 @@
 /**
- * Shared personality/tone module for event assistant agents
+ * Shared personality/tone module for agents
  * This provides a flexible system for different agent personalities
  */
 

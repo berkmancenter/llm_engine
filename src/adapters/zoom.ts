@@ -159,6 +159,29 @@ async function receiveDirectMesssage(data) {
 }
 
 async function receiveChatMessage(data) {
+  // Filter out messages that begin with 'Reacting to' (emoji reactions)
+  if (data.data.data.text.startsWith('Reacting to')) {
+    return []
+  }
+
+  // Handle "Replying to" messages - strip @ from quoted portion to avoid false mention processing by agents
+  if (data.data.data.text.startsWith('Replying to "')) {
+    const { text } = data.data.data
+    const prefix = 'Replying to "'
+    const quoteEndIndex = text.indexOf('"', prefix.length)
+    if (quoteEndIndex !== -1) {
+      const quotedPortion = text.substring(prefix.length, quoteEndIndex)
+      const restOfMessage = text.substring(quoteEndIndex) // includes the closing quote and everything after
+
+      // Remove @ symbols from just the quoted portion
+      const cleanedQuote = quotedPortion.replace(/@/g, '')
+
+      // Reconstruct the message
+      // eslint-disable-next-line no-param-reassign
+      data.data.data.text = `${prefix}${cleanedQuote}${restOfMessage}`
+    }
+  }
+
   const isDM = data.data.data.to === 'only_bot'
   let message
   if (isDM) {
@@ -179,11 +202,18 @@ export default {
       await new Promise((resolve) => setTimeout(resolve, 100)) // Simulate 100ms API latency
       return
     }
+    // in hybrid envs, need to show message as from participants in the Nextspace group chat, instead of from bot, to avoid confusion
+    let messageBody = message.body
+    if (!channelConfig?.to) {
+      const emoji = message.fromAgent ? '🤖' : '👤'
+      const pseudonym = message.fromAgent ? '' : `${message.pseudonym}: `
+      messageBody = `${emoji} ${pseudonym}${message.body}`
+    }
     const options = {
       method: 'POST',
       headers: { accept: 'application/json', 'content-type': 'application/json', Authorization: config.recall.key },
       body: JSON.stringify({
-        message: message.body,
+        message: messageBody,
         ...(channelConfig?.to ? { to: channelConfig.to } : {})
       })
     }
