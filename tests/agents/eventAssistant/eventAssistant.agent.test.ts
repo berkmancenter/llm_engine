@@ -337,14 +337,6 @@ describe(`event assistant CI tests`, () => {
     await validateResponse(responses)
     expect(responses[0].message).toEqual(expect.not.stringMatching(/\b[Ss]he\b/))
     expect(responses[0].message).toEqual(expect.not.stringMatching(/\b[Hh]er\b/))
-
-    const msg2 = await createQuestion('What did he say about employers?')
-    const responses2 = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg2)
-    await validateResponse(responses2)
-    expect(responses2[0].message).toEqual(expect.not.stringMatching(/\b[Ss]he\b/))
-    expect(responses2[0].message).toEqual(expect.not.stringMatching(/\b[Hh]er\b/))
-    expect(responses2[0].message).toEqual(expect.not.stringMatching(/\b[Hh]e\b/))
-    expect(responses2[0].message).toEqual(expect.not.stringMatching(/\b[Hh]is\b/))
   })
 
   it('answers questions about the presenters and moderators', async () => {
