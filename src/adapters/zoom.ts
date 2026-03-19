@@ -159,8 +159,8 @@ async function receiveDirectMesssage(data) {
 }
 
 async function receiveChatMessage(data) {
-  // Filter out messages that begin with 'Reacting to' (emoji reactions)
-  if (data.data.data.text.startsWith('Reacting to')) {
+  // Filter out emoji reactions
+  if (data.data.data.text.startsWith('Reacting to') || data.data.data.text.startsWith('Reacted to')) {
     return []
   }
 
