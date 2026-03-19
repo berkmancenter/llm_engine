@@ -369,6 +369,34 @@ describe('zoom adapter tests', () => {
       expect(msgs).toHaveLength(0)
     })
 
+    it('filters out chat messages that start with "Reacted to" (emoji reactions)', async () => {
+      await createConversation('Meeting with Emoji Reactions')
+
+      const reactionMessage = {
+        data: {
+          data: {
+            data: {
+              text: 'Reacted to "Great job everyone!" with 👍',
+              to: 'everyone'
+            },
+            participant: {
+              id: 103,
+              name: 'Bob Johnson',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(reactionMessage)
+      expect(msgs).toHaveLength(0)
+    })
+
     it('strips @ symbols from quoted portion in "Replying to" messages to avoid false mentions', async () => {
       await createConversation('Meeting with Reply Messages')
 
