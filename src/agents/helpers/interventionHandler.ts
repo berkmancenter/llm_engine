@@ -8,6 +8,7 @@ import config from '../../config/config.js'
 import logger from '../../config/logger.js'
 import { InterventionAnalysis, InterventionType } from './interventionTypes.js'
 import { buildSystemPromptWithPersonality, getInterventionExamples } from './agentPersonality.js'
+import validateProfessionalism from './professionalismValidator.js'
 
 export const USER_TEMPLATE = `## Event Topic:
 {topic}
@@ -227,6 +228,24 @@ export async function detectInterventionOpportunity(
   // Return null if shouldn't intervene or confidence too low
   if (!analysis.shouldIntervene || analysis.confidenceScore < 60) {
     return null
+  }
+
+  // Professionalism validation - check if message maintains appropriate professional boundaries
+  if (analysis.sharedChatMessage) {
+    const isAppropriate = await validateProfessionalism(
+      llm,
+      analysis.sharedChatMessage,
+      this.conversation.name,
+      analysis.interventionType,
+      recentTranscript
+    )
+
+    if (!isAppropriate) {
+      logger.warn(
+        `Agent ${this.name} intervention rejected by professionalism guardrail. Type: ${analysis.interventionType}`
+      )
+      return null
+    }
   }
 
   return analysis as InterventionAnalysis
