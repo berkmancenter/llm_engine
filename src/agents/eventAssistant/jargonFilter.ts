@@ -35,8 +35,11 @@ export const JARGON_FILTER_SYSTEM_PROMPT = `You are an assistant monitoring a li
 
 **How to write the clarification:**
 - Cover all jargon found in the window in a single, consolidated response
-- Write in plain language — explain it the way you would to a knowledgeable colleague encountering this field for the first time
-- Be concise: one sentence per term is enough
+- Begin with a plain-language summary of what was just discussed in the transcript. Label it "**Summary:**" on its own line. Write it in first person as if you are the speaker (e.g. "This is an explanation of how our system handles issues") — never start with "The speaker said" or refer to the speaker in third person. Maximum two sentences — do not exceed this limit.
+- After the summary, write each jargon term as its own bullet point on a new line
+- Bold the jargon term or phrase at the start of each bullet (e.g. **SLO** — ...)
+- Explain each term as if to a high school student with no background in the field — use everyday analogies and avoid assuming any prior knowledge
+- Be concise: one or two sentences per term is enough
 - Do not repeat jargon terms in the clarification without immediately defining them
 - Never imply the terms are obvious or easy, or that the reader should already know them
 - Avoid phrases like "simply", "just", "basically", "obviously", or "of course"
@@ -47,7 +50,7 @@ Return a JSON object with the following fields:
 
 {{
   "jargonFound": boolean,
-  "text": "A single plain-language clarification covering all jargon found (null if jargonFound is false)",
+  "text": "A plain-language summary followed by a bullet-point list clarifying each jargon term found (null if jargonFound is false). The summary must be labeled '**Summary:**' and separated from the bullets by \\n\\n. Each bullet must be on its own line separated by \\n. Example: **Summary:**\\n\\nThis is a discussion of how we set reliability targets and recover from outages.\\n\\n- **SLO** — A target for how reliable a system should be.\\n- **MTTR** — How long it takes to fix something after it breaks.",
   "sourceText": "Verbatim quote from the transcript that contains the jargon (null if jargonFound is false)"
 }}
 
@@ -65,7 +68,7 @@ const USER_TEMPLATE = `## Event Topic:
 ## Transcript:
 {transcript}
 
-Analyze the transcript above for technical jargon and return JSON only.`
+Analyze the transcript above for technical jargon and return JSON only. The "text" field must begin with a "**Summary:**" section before the bullet points.`
 
 export default verify({
   name: 'Jargon Filter Agent',
@@ -74,10 +77,10 @@ export default verify({
   priority: 50,
   maxTokens: 500,
   defaultTriggers: {
-    periodic: { timerPeriod: 90, conversationHistorySettings: { channels: ['transcript'] } }
+    periodic: { timerPeriod: 120, conversationHistorySettings: { channels: ['transcript'] } }
   },
   agentConfig: {
-    minInterval: 5 // 5 mins for now, can be adjusted if it's too long
+    minInterval: 2 // 2 mins for now, can be adjusted
   },
   llmTemplateVars: {
     system: [],

@@ -56,12 +56,12 @@ describe('jargon filter agent tests', () => {
   describe('agent configuration', () => {
     it('has correct default configuration', () => {
       expect(jargonFilterAgent.name).toBe('Jargon Filter Agent')
-      expect(jargonFilterAgent.agentConfig.minInterval).toBe(5)
+      expect(jargonFilterAgent.agentConfig.minInterval).toBe(2)
     })
 
-    it('uses periodic trigger on transcript with 90 second interval', () => {
+    it('uses periodic trigger on transcript with 120 second interval', () => {
       expect(jargonFilterAgent.triggers.periodic).toBeDefined()
-      expect(jargonFilterAgent.triggers.periodic.timerPeriod).toBe(90)
+      expect(jargonFilterAgent.triggers.periodic.timerPeriod).toBe(120)
       expect(jargonFilterAgent.triggers.periodic.conversationHistorySettings.channels).toContain('transcript')
     })
   })
@@ -86,6 +86,10 @@ describe('jargon filter agent tests', () => {
         expect(response.visible).toBe(true)
         expect(response.messageType).toBe('json')
         expect(response.message.text).toBeTruthy()
+
+        // text must begin with a summary section followed by bullet points
+        expect(response.message.text).toMatch(/\*\*Summary:\*\*/)
+        expect(response.message.text).toMatch(/- \*\*.+\*\*/)
 
         // sourceText is a verbatim quote from the transcript — assert it contains a known jargon term
         const knownJargonTerms = ['SLO', 'mTLS', 'MTTR', 'write-ahead logging', 'consistent hashing', 'error budget', 'thundering herd', 'exponential backoff']
