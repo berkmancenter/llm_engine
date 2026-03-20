@@ -562,6 +562,70 @@ describe('Conversation routes', () => {
       expect(resp.body.transcript.vectorStore.embeddingsPlatform).toBe('openai')
       expect(resp.body.transcript.vectorStore.embeddingsModelName).toBe('text-embedding-3-small')
     })
+
+    test('should return 201 and persist custom properties', async () => {
+      const customProperties = {
+        customField: 'custom value',
+        nestedObject: { key1: 'value1', key2: 42 },
+        arrayField: ['item1', 'item2'],
+        boolField: true
+      }
+
+      const resp = await request(app)
+        .post(`/v1/conversations`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({
+          name: 'Conversation with Custom Properties',
+          topicId: publicTopic._id.toString(),
+          agentTypes: ['test'],
+          properties: customProperties
+        })
+        .expect(httpStatus.CREATED)
+
+      expect(newConversationSpy).toHaveBeenCalled()
+      expect(resp.body).toHaveProperty('properties')
+      expect(resp.body.properties.customField).toBe('custom value')
+      expect(resp.body.properties.nestedObject).toEqual({ key1: 'value1', key2: 42 })
+      expect(resp.body.properties.arrayField).toEqual(['item1', 'item2'])
+      expect(resp.body.properties.boolField).toBe(true)
+
+      // Verify properties are persisted in database
+      const conversation = await Conversation.findById(resp.body.id)
+      expect(conversation!.properties).toBeDefined()
+      expect(conversation!.properties!.customField).toBe('custom value')
+      expect(conversation!.properties!.nestedObject).toEqual({ key1: 'value1', key2: 42 })
+      expect(conversation!.properties!.arrayField).toEqual(['item1', 'item2'])
+      expect(conversation!.properties!.boolField).toBe(true)
+    })
+
+    test('should return properties when retrieving conversation created with direct endpoint', async () => {
+      const customProperties = {
+        customField: 'test value',
+        numberField: 999
+      }
+
+      const createResp = await request(app)
+        .post(`/v1/conversations`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({
+          name: 'Conversation for Retrieval',
+          topicId: publicTopic._id.toString(),
+          properties: customProperties
+        })
+        .expect(httpStatus.CREATED)
+
+      const conversationId = createResp.body.id
+
+      // Retrieve the conversation
+      const getResp = await request(app)
+        .get(`/v1/conversations/${conversationId}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .expect(httpStatus.OK)
+
+      expect(getResp.body).toHaveProperty('properties')
+      expect(getResp.body.properties.customField).toBe('test value')
+      expect(getResp.body.properties.numberField).toBe(999)
+    })
   })
   describe('POST /v1/conversations/from-type', () => {
     test('should return 201 and create conversation from type with all required fields', async () => {
@@ -775,6 +839,72 @@ describe('Conversation routes', () => {
       expect(resp.body).toHaveProperty('transcript')
       expect(resp.body.transcript).toHaveProperty('status')
       expect(resp.body.transcript.status).toBe('stopped')
+    })
+
+    test('should return 201 and persist custom properties when creating from type', async () => {
+      const customProperties = {
+        meetingUrl: 'https://zoom.us/j/123456789',
+        customField: 'custom value',
+        nestedObject: { key1: 'value1', key2: 42 },
+        arrayField: ['item1', 'item2']
+      }
+
+      const resp = await request(app)
+        .post(`/v1/conversations/from-type`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({
+          type: 'testEventAssistant',
+          name: 'Conversation with Custom Properties',
+          platforms: ['zoom'],
+          topicId: publicTopic._id.toString(),
+          properties: customProperties
+        })
+        .expect(httpStatus.CREATED)
+
+      expect(newConversationSpy).toHaveBeenCalled()
+      expect(resp.body).toHaveProperty('properties')
+      expect(resp.body.properties.customField).toBe('custom value')
+      expect(resp.body.properties.nestedObject).toEqual({ key1: 'value1', key2: 42 })
+      expect(resp.body.properties.arrayField).toEqual(['item1', 'item2'])
+
+      // Verify properties are persisted in database
+      const conversation = await Conversation.findById(resp.body.id)
+      expect(conversation!.properties).toBeDefined()
+      expect(conversation!.properties!.customField).toBe('custom value')
+      expect(conversation!.properties!.nestedObject).toEqual({ key1: 'value1', key2: 42 })
+      expect(conversation!.properties!.arrayField).toEqual(['item1', 'item2'])
+    })
+
+    test('should return properties when retrieving conversation', async () => {
+      const customProperties = {
+        meetingUrl: 'https://zoom.us/j/987654321',
+        customField: 'test value',
+        numberField: 123
+      }
+
+      const createResp = await request(app)
+        .post(`/v1/conversations/from-type`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({
+          type: 'testEventAssistant',
+          name: 'Conversation for Retrieval Test',
+          platforms: ['zoom'],
+          topicId: publicTopic._id.toString(),
+          properties: customProperties
+        })
+        .expect(httpStatus.CREATED)
+
+      const conversationId = createResp.body.id
+
+      // Retrieve the conversation
+      const getResp = await request(app)
+        .get(`/v1/conversations/${conversationId}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .expect(httpStatus.OK)
+
+      expect(getResp.body).toHaveProperty('properties')
+      expect(getResp.body.properties.customField).toBe('test value')
+      expect(getResp.body.properties.numberField).toBe(123)
     })
   })
   describe('POST /v1/conversations/ - Adapter functionality', () => {

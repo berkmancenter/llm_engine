@@ -256,6 +256,7 @@ export interface IConversation {
   enableDMs: string[]
   experimental?: boolean
   experiments: IExperiment[]
+  properties?: Record<string, unknown>
   active?: boolean
   locked?: boolean
   enableAgents?: boolean

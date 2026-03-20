@@ -20,7 +20,7 @@ import transcript from '../agents/helpers/transcript.js'
 import reportService from './report.service.js'
 
 const returnFields =
-  'name slug locked owner createdAt active conversationType platforms scheduledTime description moderators presenters transcript'
+  'name slug locked owner createdAt active conversationType platforms scheduledTime description moderators presenters transcript properties'
 const transcriptBatchInterval = 30
 export const maxScheduledInterval = 10 * 60 * 1000 // 10 minutes in milliseconds
 
@@ -182,6 +182,7 @@ const createConversation = async (conversationBody, user) => {
     ...(conversationBody.description !== undefined && { description: conversationBody.description }),
     ...(conversationBody.moderators !== undefined && { moderators: conversationBody.moderators }),
     ...(conversationBody.presenters !== undefined && { presenters: conversationBody.presenters }),
+    ...(conversationBody.properties !== undefined && { properties: conversationBody.properties }),
     agents: [],
     transcript: {
       status: 'stopped',
@@ -445,7 +446,8 @@ const createConversationFromType = async (params, user) => {
     agentTypes: resolvedAgents,
     adapters: adapterConfigs,
     channels: conversationType.channels || [],
-    enableDMs: conversationType.enableDMs
+    enableDMs: conversationType.enableDMs,
+    properties: resolvedProperties || {}
   }
 
   return createConversation(conversationBody, user)
