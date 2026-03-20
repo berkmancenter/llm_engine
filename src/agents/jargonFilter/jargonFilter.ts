@@ -3,7 +3,6 @@ import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory, IChannel } from '../../types/index.types.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import logger from '../../config/logger.js'
-import getConversationHistory from '../helpers/getConversationHistory.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { formatTranscript } from '../helpers/llmInputFormatters.js'
 import User from '../../models/user.model/user.model.js'
@@ -77,10 +76,7 @@ export default verify({
   priority: 50,
   maxTokens: 500,
   defaultTriggers: {
-    periodic: { timerPeriod: 120, conversationHistorySettings: { channels: ['transcript'] } }
-  },
-  agentConfig: {
-    minInterval: 2 // 2 mins for now, can be adjusted
+    periodic: { timerPeriod: 120, conversationHistorySettings: { channels: ['transcript'], timeWindow: 120 } }
   },
   llmTemplateVars: {
     system: [],
@@ -114,14 +110,7 @@ export default verify({
     const llm = await this.getLLM()
     if (!this.conversation) return []
 
-    // Gets the messages for a given window
-    const transcriptWindow = getConversationHistory(this.conversation.messages, {
-      channels: ['transcript'],
-      timeWindow: 300, // only get the last 5 minutes (300 seconds)
-      endTime: conversationHistory.end
-    })
-
-    const transcript = formatTranscript(transcriptWindow.messages)
+    const transcript = formatTranscript(conversationHistory.messages)
 
     const response = await getChatPromptResponse(
       llm,
@@ -161,8 +150,8 @@ export default verify({
       text: response.text!,
       sourceText: response.sourceText!,
       transcriptWindow: {
-        start: transcriptWindow.start.getTime(),
-        end: transcriptWindow.end.getTime()
+        start: conversationHistory.start.getTime(),
+        end: conversationHistory.end.getTime()
       }
     }
 

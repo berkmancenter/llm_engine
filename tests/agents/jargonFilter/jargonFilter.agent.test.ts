@@ -56,13 +56,13 @@ describe('jargon filter agent tests', () => {
   describe('agent configuration', () => {
     it('has correct default configuration', () => {
       expect(jargonFilterAgent.name).toBe('Jargon Filter Agent')
-      expect(jargonFilterAgent.agentConfig.minInterval).toBe(2)
     })
 
-    it('uses periodic trigger on transcript with 120 second interval', () => {
+    it('uses periodic trigger on transcript with 120 second interval and 120 second time window', () => {
       expect(jargonFilterAgent.triggers.periodic).toBeDefined()
       expect(jargonFilterAgent.triggers.periodic.timerPeriod).toBe(120)
       expect(jargonFilterAgent.triggers.periodic.conversationHistorySettings.channels).toContain('transcript')
+      expect(jargonFilterAgent.triggers.periodic.conversationHistorySettings.timeWindow).toBe(120)
     })
   })
 
@@ -95,16 +95,37 @@ describe('jargon filter agent tests', () => {
         const knownJargonTerms = ['SLO', 'mTLS', 'MTTR', 'write-ahead logging', 'consistent hashing', 'error budget', 'thundering herd', 'exponential backoff']
         expect(knownJargonTerms.some((term) => response.message.sourceText.includes(term))).toBe(true)
 
-        // transcriptWindow covers the 5-minute slice passed to the agent
-        const windowStart = startTime.getTime()
-        const windowEnd = startTime.getTime() + 5 * 60 * 1000
-        expect(response.message.transcriptWindow.start).toBeGreaterThanOrEqual(windowStart)
-        expect(response.message.transcriptWindow.end).toBeLessThanOrEqual(windowEnd)
+        // transcriptWindow reflects the conversationHistory boundaries passed to respond()
+        expect(response.message.transcriptWindow.start).toBe(conversationHistory.start.getTime())
+        expect(response.message.transcriptWindow.end).toBe(conversationHistory.end.getTime())
 
         // Only the opted-in user's direct channel should be targeted
         const channelNames = response.channels.map((c) => c.name)
         expect(channelNames).toContain(`direct-agents-${userOptedIn._id}`)
         expect(channelNames).not.toContain(`direct-agents-${userOptedOut._id}`)
+      },
+      testTimeout
+    )
+
+    it(
+      'uses only the messages passed in conversationHistory, not the full conversation history',
+      async () => {
+        // Load jargon-heavy transcript into the conversation
+        await loadTestTranscript(conversation, jargonTranscript)
+
+        // Pass an empty conversationHistory — simulates the framework providing a pre-filtered
+        // window with no messages (e.g. nothing new in the last 2 minutes).
+        // If respond() were still calling getConversationHistory internally, it would find
+        // messages in conversation.messages and produce a response. It should not.
+        const emptyHistory = getConversationHistory(conversation.messages, {
+          channels: ['transcript'],
+          timeWindow: 0,
+          endTime: startTime // before any messages were loaded
+        })
+
+        const responses = await defaultAgentTypes.jargonFilterAgent.respond.call(jargonFilterAgent, emptyHistory)
+
+        expect(responses).toHaveLength(0)
       },
       testTimeout
     )
