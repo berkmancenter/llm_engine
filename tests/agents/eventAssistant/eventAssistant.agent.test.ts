@@ -992,6 +992,45 @@ describe(`event assistant CI tests`, () => {
       },
       testTimeout
     )
+    it(
+      'does not generate visuals for chat channel messages even with preference enabled',
+      async () => {
+        // Set user preference to true
+
+        await User.findByIdAndUpdate(user1._id, {
+          preferences: { visualResponse: true }
+        })
+
+        // Question on chat channel that might otherwise trigger visual generation
+        const user2 = await createUser('Sleepy Salamander')
+        const msg1 = await createMessage('What is up in this chat?', user2, conversation, ['chat'])
+        const msg = await createMessage(
+          `@${agent.agentConfig.botName} What are the key steps in creating a smallest viable job?`,
+          user1,
+          conversation,
+          ['chat']
+        )
+        agent.conversationHistorySettings = {
+          endTime: new Date(startTime.getTime() + 829 * 1000),
+          count: 100,
+          directMessages: true,
+          channels: ['chat']
+        }
+
+        const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
+        expect(evaluation.action).toEqual(AgentMessageActions.CONTRIBUTE)
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [msg1] }, msg)
+
+        await validateResponse(responses, 'chat')
+        // Should NOT have visual generation indicator on chat channel
+        expect(responses[0].message.text).not.toContain('🎨 Generating visual...')
+        // Should only have 1 channel (chat), NOT image-gen
+        expect(responses[0].channels).toHaveLength(1)
+        expect(responses[0].channels[0].name).toEqual('chat')
+      },
+      testTimeout
+    )
 
     it(
       'does not generate visuals for OFF_TOPIC classification even with preference enabled',

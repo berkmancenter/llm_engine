@@ -321,7 +321,10 @@ ${chunks}`
   const user = await User.findById(userMessage.owner)
   const forceVisual = options?.forceVisual === true
 
-  if (forceVisual || user?.preferences?.visualResponse) {
+  // Only use visual preference is this is on a user's private channel, not e.g. group chat
+  const isDirectChannel = responseChannels.some((channel: IChannel) => channel.direct)
+
+  if (forceVisual || (user?.preferences?.visualResponse && isDirectChannel)) {
     let shouldGenerate = false
 
     if (forceVisual) {
