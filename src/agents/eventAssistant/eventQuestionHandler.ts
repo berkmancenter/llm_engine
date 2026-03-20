@@ -353,8 +353,11 @@ ${chunks}`
 
   const agentResponse = {
     visible: true,
-    message: responseMessage,
-    messageType: 'text',
+    message: {
+      text: responseMessage,
+      type: classification.toLowerCase()
+    },
+    messageType: 'json',
     channels: responseChannels,
     ...(parentMessageId && { parent: parentMessageId }),
     context: contextString,

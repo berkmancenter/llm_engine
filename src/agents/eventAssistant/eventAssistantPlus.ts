@@ -258,7 +258,11 @@ export default verify({
 
       return [
         {
-          message: introMessage,
+          message: {
+            text: introMessage,
+            type: 'intro'
+          },
+          messageType: 'json',
           channels: [channel],
           visible: true
         }
@@ -267,7 +271,11 @@ export default verify({
     if (channel.name === 'chat') {
       return [
         {
-          message: renderAgentTemplate(this.agentConfig.chatIntroMessage, this.toObject()),
+          message: {
+            text: renderAgentTemplate(this.agentConfig.chatIntroMessage, this.toObject()),
+            type: 'intro'
+          },
+          messageType: 'json',
           channels: [channel],
           visible: true
         }

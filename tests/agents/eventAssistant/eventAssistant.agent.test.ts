@@ -13,6 +13,7 @@ import {
 import Channel from '../../../src/models/channel.model.js'
 import { cannotRespond, QuestionClassification } from '../../../src/agents/eventAssistant/eventQuestionHandler.js'
 import { AgentMessageActions, IChannel } from '../../../src/types/index.types.js'
+import { User } from '../../../src/models/index.js'
 
 jest.setTimeout(180000)
 
@@ -42,9 +43,15 @@ describe(`event assistant CI tests`, () => {
   async function validateResponse(responses, channel = `direct-agents-${user1._id}`) {
     expect(responses).toHaveLength(1)
     expect(responses[0].message).toBeDefined()
-    // Handle both string and multimodal messages for logging
-    const messageForLog =
-      typeof responses[0].message === 'string' ? responses[0].message : `[MULTIMODAL] ${responses[0].message.text}`
+    // Handle both json and multimodal messages for logging
+    let messageForLog
+    if (responses[0].messageType === 'json') {
+      messageForLog = responses[0].message.text
+    } else if (responses[0].messageType === 'multimodal') {
+      messageForLog = `[MULTIMODAL] ${responses[0].message.text}`
+    } else {
+      messageForLog = responses[0].message
+    }
     console.log(`A: ${messageForLog}`)
     expect(responses[0].channels).toHaveLength(1)
     expect(responses[0].channels[0].name).toEqual(channel)
@@ -53,11 +60,12 @@ describe(`event assistant CI tests`, () => {
   async function validateVisualGenerationInitiation(responses, channel = `direct-agents-${user1._id}`) {
     expect(responses).toHaveLength(1)
     expect(responses[0].message).toBeDefined()
-    expect(typeof responses[0].message).toBe('string')
-    console.log(`A: ${responses[0].message}`)
+    expect(responses[0].messageType).toBe('json')
+    expect(responses[0].message.text).toBeDefined()
+    console.log(`A: ${responses[0].message.text}`)
 
     // Should have visual generation indicator
-    expect(responses[0].message).toContain('🎨 Generating visual...')
+    expect(responses[0].message.text).toContain('🎨 Generating visual...')
 
     // Should have 2 channels: user channel and image-gen
     expect(responses[0].channels).toHaveLength(2)
@@ -134,7 +142,7 @@ describe(`event assistant CI tests`, () => {
     const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
     await validateResponse(responses)
     expect(responses[0].classification).toBe(QuestionClassification.OFF_TOPIC)
-    expect(responses[0].message).toEqual(cannotRespond)
+    expect(responses[0].message.text).toEqual(cannotRespond)
   })
 
   it(
@@ -319,7 +327,7 @@ describe(`event assistant CI tests`, () => {
       const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
       await validateResponse(responses)
       expect(responses[0].classification).toBe(QuestionClassification.OFF_TOPIC)
-      expect(responses[0].message).toEqual(cannotRespond)
+      expect(responses[0].message.text).toEqual(cannotRespond)
     },
     testTimeout
   )
@@ -335,8 +343,8 @@ describe(`event assistant CI tests`, () => {
     }
     const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
     await validateResponse(responses)
-    expect(responses[0].message).toEqual(expect.not.stringMatching(/\b[Ss]he\b/))
-    expect(responses[0].message).toEqual(expect.not.stringMatching(/\b[Hh]er\b/))
+    expect(responses[0].message.text).toEqual(expect.not.stringMatching(/\b[Ss]he\b/))
+    expect(responses[0].message.text).toEqual(expect.not.stringMatching(/\b[Hh]er\b/))
   })
 
   it('answers questions about the presenters and moderators', async () => {
@@ -349,19 +357,19 @@ describe(`event assistant CI tests`, () => {
     const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
     await validateResponse(responses)
     expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
-    expect(responses[0].message).toEqual(expect.stringMatching('Drain'))
+    expect(responses[0].message.text).toEqual(expect.stringMatching('Drain'))
 
     const msg2 = await createQuestion('Who is the speaker?')
     const responses2 = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg2)
     await validateResponse(responses2)
     expect(responses2[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
-    expect(responses2[0].message).toEqual(expect.stringMatching('Drain'))
+    expect(responses2[0].message.text).toEqual(expect.stringMatching('Drain'))
 
     const msg3 = await createQuestion('Who is the moderator?')
     const responses3 = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg3)
     await validateResponse(responses3)
     expect(responses3[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
-    expect(responses3[0].message).toEqual(expect.stringMatching('Joe Moderator'))
+    expect(responses3[0].message.text).toEqual(expect.stringMatching('Joe Moderator'))
   })
 
   it('correctly answers a time-based inquiry that did not match the time window prompt', async () => {
@@ -374,7 +382,7 @@ describe(`event assistant CI tests`, () => {
     const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
     await validateResponse(responses)
     expect(responses[0].classification).toBe(QuestionClassification.CATCHUP)
-    expect(responses[0].message).not.toEqual(cannotRespond)
+    expect(responses[0].message.text).not.toEqual(cannotRespond)
   })
 
   it('responds to an @<botName> message on the chat channel', async () => {
@@ -392,7 +400,7 @@ describe(`event assistant CI tests`, () => {
     const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [msg1] }, msg)
     await validateResponse(responses, 'chat')
     expect(responses[0].classification).toBe(QuestionClassification.CATCHUP)
-    expect(responses[0].message).not.toEqual(cannotRespond)
+    expect(responses[0].message.text).not.toEqual(cannotRespond)
   })
 
   it('does not respond to a regular message on the chat channel', async () => {
@@ -413,13 +421,15 @@ describe(`event assistant CI tests`, () => {
     ])
     const msgs = await agent.introduce(directChannel)
     expect(msgs).toHaveLength(1)
+    expect(msgs[0].bodyType).toBe('json')
+    expect(msgs[0].body.type).toBe('intro')
     // Should contain the rendered bot name (template vars resolved)
-    expect(msgs[0].body).toContain(agent.agentConfig.botName)
-    expect(msgs[0].body).not.toContain('{{agentConfig.botName}}')
+    expect(msgs[0].body.text).toContain(agent.agentConfig.botName)
+    expect(msgs[0].body.text).not.toContain('{{agentConfig.botName}}')
     // Should contain a fun fact about the pseudonym
-    expect(msgs[0].body).toMatch(/fun fact about your pseudonym:/i)
+    expect(msgs[0].body.text).toMatch(/fun fact about your pseudonym:/i)
     // Should mention the pseudonym or at least "badger" (the noun part)
-    expect(msgs[0].body.toLowerCase()).toMatch(/badger/)
+    expect(msgs[0].body.text.toLowerCase()).toMatch(/badger/)
     expect(msgs[0].channels).toHaveLength(1)
     expect(msgs[0].channels[0]).toEqual(directChannel)
   })
@@ -428,9 +438,11 @@ describe(`event assistant CI tests`, () => {
     const [chatChannel] = await Channel.create([{ name: 'chat' }])
     const msgs = await agent.introduce(chatChannel)
     expect(msgs).toHaveLength(1)
+    expect(msgs[0].bodyType).toBe('json')
+    expect(msgs[0].body.type).toBe('intro')
     // chatIntroMessage is a template — verify the bot name was rendered into it
-    expect(msgs[0].body).toContain(`@${agent.agentConfig.botName}`)
-    expect(msgs[0].body).not.toContain('{{agentConfig.botName}}')
+    expect(msgs[0].body.text).toContain(`@${agent.agentConfig.botName}`)
+    expect(msgs[0].body.text).not.toContain('{{agentConfig.botName}}')
     expect(msgs[0].channels).toHaveLength(1)
     expect(msgs[0].channels[0]).toEqual(chatChannel)
   })
@@ -443,7 +455,9 @@ describe(`event assistant CI tests`, () => {
     const [chatChannel] = await Channel.create([{ name: 'chat' }])
     const msgs = await agent.introduce(chatChannel)
     expect(msgs).toHaveLength(1)
-    expect(msgs[0].body).toEqual(`Welcome to ${conversation.name}!`)
+    expect(msgs[0].bodyType).toBe('json')
+    expect(msgs[0].body.type).toBe('intro')
+    expect(msgs[0].body.text).toEqual(`Welcome to ${conversation.name}!`)
   })
 
   it('does not introduce itself on non-direct or chat channels', async () => {
@@ -540,8 +554,10 @@ describe(`event assistant CI tests`, () => {
       ])
       const msgs = await agent.introduce(directChannel)
       expect(msgs).toHaveLength(1)
-      expect(msgs[0].body).toContain(customBotName)
-      expect(msgs[0].body).not.toContain('{{agentConfig.botName}}')
+      expect(msgs[0].bodyType).toBe('json')
+      expect(msgs[0].body.type).toBe('intro')
+      expect(msgs[0].body.text).toContain(customBotName)
+      expect(msgs[0].body.text).not.toContain('{{agentConfig.botName}}')
     })
 
     it('includes custom botName in rendered chat intro message', async () => {
@@ -552,8 +568,10 @@ describe(`event assistant CI tests`, () => {
       const [chatChannel] = await Channel.create([{ name: 'chat' }])
       const msgs = await agent.introduce(chatChannel)
       expect(msgs).toHaveLength(1)
-      expect(msgs[0].body).toContain(`@${customBotName}`)
-      expect(msgs[0].body).not.toContain('{{agentConfig.botName}}')
+      expect(msgs[0].bodyType).toBe('json')
+      expect(msgs[0].body.type).toBe('intro')
+      expect(msgs[0].body.text).toContain(`@${customBotName}`)
+      expect(msgs[0].body.text).not.toContain('{{agentConfig.botName}}')
     })
   })
 
@@ -566,7 +584,9 @@ describe(`event assistant CI tests`, () => {
     const msgs = await agent.introduce(directChannel)
 
     expect(msgs).toHaveLength(1)
-    const introMessage = msgs[0].body
+    expect(msgs[0].bodyType).toBe('json')
+    expect(msgs[0].body.type).toBe('intro')
+    const introMessage = msgs[0].body.text
 
     // Should contain the rendered bot name (template vars resolved)
     expect(introMessage).toContain(agent.agentConfig.botName)
@@ -649,7 +669,7 @@ describe(`event assistant CI tests`, () => {
         expect(responses[0].message).toBeDefined()
 
         // Response should be relatively concise (personality enforces 1-3 sentences)
-        const sentences = responses[0].message.split(/[.!?]+/).filter((s) => s.trim().length > 0)
+        const sentences = responses[0].message.text.split(/[.!?]+/).filter((s) => s.trim().length > 0)
         expect(sentences.length).toBeLessThanOrEqual(4)
       },
       testTimeout
@@ -677,7 +697,7 @@ describe(`event assistant CI tests`, () => {
         expect(responses[0].message).toBeDefined()
 
         // Response should still be helpful and answer the question
-        expect(responses[0].message.length).toBeGreaterThan(10)
+        expect(responses[0].message.text.length).toBeGreaterThan(10)
       },
       testTimeout
     )
@@ -703,7 +723,7 @@ describe(`event assistant CI tests`, () => {
         expect(responses[0].message).toBeDefined()
 
         // Response should be helpful regardless of personality setting
-        expect(responses[0].message.length).toBeGreaterThan(10)
+        expect(responses[0].message.text.length).toBeGreaterThan(10)
 
         // Verify it used the config value
         expect(config.default.enableAgentPersonality).toBeDefined()
@@ -736,7 +756,7 @@ describe(`event assistant CI tests`, () => {
         expect(responses[0].message).toBeDefined()
 
         // Response should be helpful regardless of personality setting
-        expect(responses[0].message.length).toBeGreaterThan(10)
+        expect(responses[0].message.text.length).toBeGreaterThan(10)
       },
       testTimeout
     )
@@ -799,8 +819,8 @@ describe(`event assistant CI tests`, () => {
 
           // Response should answer the question without mentioning "/visual"
           expect(responses[0].message).toBeDefined()
-          expect(typeof responses[0].message).toBe('string')
-          expect(responses[0].message.toLowerCase()).not.toContain('/visual')
+          expect(responses[0].messageType).toBe('json')
+          expect(responses[0].message.text.toLowerCase()).not.toContain('/visual')
           // Should still initiate visual generation
           await validateVisualGenerationInitiation(responses)
         },
@@ -828,8 +848,8 @@ describe(`event assistant CI tests`, () => {
           // OFF_TOPIC responses should never have visuals, even with /visual
           await validateResponse(responses)
           expect(responses[0].classification).toBe(QuestionClassification.OFF_TOPIC)
-          expect(responses[0].message).toBe(cannotRespond)
-          expect(responses[0].message).not.toContain('🎨 Generating visual...')
+          expect(responses[0].message.text).toBe(cannotRespond)
+          expect(responses[0].message.text).not.toContain('🎨 Generating visual...')
         },
         testTimeout
       )
@@ -881,7 +901,7 @@ describe(`event assistant CI tests`, () => {
             evaluation.userMessage
           )
           expect(initialResponses).toHaveLength(1)
-          expect(typeof initialResponses[0].message).toBe('string')
+          expect(typeof initialResponses[0].message.text).toBe('string')
 
           // Should trigger visual generation
           await validateVisualGenerationInitiation(initialResponses)
@@ -942,8 +962,8 @@ describe(`event assistant CI tests`, () => {
 
         await validateResponse(responses)
         // Should be text-only response when preference not set
-        expect(typeof responses[0].message).toBe('string')
-        expect(responses[0].messageType).toBe('text')
+        expect(responses[0].messageType).toBe('json')
+        expect(responses[0].message.text).toBeDefined()
       },
       testTimeout
     )
@@ -952,8 +972,7 @@ describe(`event assistant CI tests`, () => {
       'does not generate visuals when user preference is false',
       async () => {
         // Set user preference to false
-        const User = await import('../../../src/models/user.model/user.model.js')
-        await User.default.findByIdAndUpdate(user1._id, {
+        await User.findByIdAndUpdate(user1._id, {
           preferences: { visualResponse: false }
         })
 
@@ -968,8 +987,8 @@ describe(`event assistant CI tests`, () => {
 
         await validateResponse(responses)
         // Should be text-only when preference is explicitly false
-        expect(typeof responses[0].message).toBe('string')
-        expect(responses[0].messageType).toBe('text')
+        expect(responses[0].messageType).toBe('json')
+        expect(responses[0].message.text).toBeDefined()
       },
       testTimeout
     )
@@ -978,8 +997,7 @@ describe(`event assistant CI tests`, () => {
       'does not generate visuals for OFF_TOPIC classification even with preference enabled',
       async () => {
         // Set user preference to true
-        const User = await import('../../../src/models/user.model/user.model.js')
-        await User.default.findByIdAndUpdate(user1._id, {
+        await User.findByIdAndUpdate(user1._id, {
           preferences: { visualResponse: true }
         })
 
@@ -994,10 +1012,10 @@ describe(`event assistant CI tests`, () => {
 
         await validateResponse(responses)
         expect(responses[0].classification).toBe(QuestionClassification.OFF_TOPIC)
-        expect(responses[0].message).toBe(cannotRespond)
+        expect(responses[0].message.text).toBe(cannotRespond)
         // OFF_TOPIC responses should never have visuals
-        expect(typeof responses[0].message).toBe('string')
-        expect(responses[0].messageType).toBe('text')
+        expect(responses[0].messageType).toBe('json')
+        expect(responses[0].message.text).toBeDefined()
       },
       testTimeout
     )
@@ -1006,8 +1024,7 @@ describe(`event assistant CI tests`, () => {
       'does not generate visuals for short responses even with preference enabled',
       async () => {
         // Set user preference to true
-        const User = await import('../../../src/models/user.model/user.model.js')
-        await User.default.findByIdAndUpdate(user1._id, {
+        await User.findByIdAndUpdate(user1._id, {
           preferences: { visualResponse: true }
         })
 
@@ -1023,8 +1040,8 @@ describe(`event assistant CI tests`, () => {
 
         await validateResponse(responses)
         // Short responses (<50 chars) should not trigger visual generation
-        expect(typeof responses[0].message).toBe('string')
-        expect(responses[0].messageType).toBe('text')
+        expect(responses[0].messageType).toBe('json')
+        expect(responses[0].message.text).toBeDefined()
       },
       testTimeout
     )
@@ -1033,8 +1050,7 @@ describe(`event assistant CI tests`, () => {
       'initiates visual generation with two-step process when appropriate',
       async () => {
         // Set user preference to true
-        const User = await import('../../../src/models/user.model/user.model.js')
-        await User.default.findByIdAndUpdate(user1._id, {
+        await User.findByIdAndUpdate(user1._id, {
           preferences: { visualResponse: true }
         })
 
@@ -1051,12 +1067,12 @@ describe(`event assistant CI tests`, () => {
 
         // With two-step generation, the first response should be text with visual indicator
         // OR text-only if LLM classified as not needing a visual
-        expect(typeof responses[0].message).toBe('string')
-        expect(responses[0].messageType).toBe('text')
-        expect(responses[0].message.length).toBeGreaterThan(10)
+        expect(responses[0].messageType).toBe('json')
+        expect(responses[0].message.text).toBeDefined()
+        expect(responses[0].message.text.length).toBeGreaterThan(10)
 
         // If visual generation was triggered, verify the complete two-step initiation
-        if (responses[0].message.includes('🎨 Generating visual...')) {
+        if (responses[0].message.text.includes('🎨 Generating visual...')) {
           await validateVisualGenerationInitiation(responses)
           expect(responses[0].parent).toBe(msg._id)
         } else {
@@ -1071,8 +1087,8 @@ describe(`event assistant CI tests`, () => {
       'skips visual generation for text-based questions even with preference enabled',
       async () => {
         // Set user preference to true
-        const User = await import('../../../src/models/user.model/user.model.js')
-        await User.default.findByIdAndUpdate(user1._id, {
+
+        await User.findByIdAndUpdate(user1._id, {
           preferences: { visualResponse: true }
         })
 
@@ -1087,7 +1103,7 @@ describe(`event assistant CI tests`, () => {
         const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
 
         await validateResponse(responses)
-        expect(responses[0].message).not.toContain('Generating visual...')
+        expect(responses[0].message.text).not.toContain('Generating visual...')
       },
       testTimeout
     )
@@ -1096,8 +1112,8 @@ describe(`event assistant CI tests`, () => {
       'generates text response with visual indicator for two-step process',
       async () => {
         // Set user preference to true
-        const User = await import('../../../src/models/user.model/user.model.js')
-        await User.default.findByIdAndUpdate(user1._id, {
+
+        await User.findByIdAndUpdate(user1._id, {
           preferences: { visualResponse: true }
         })
 
@@ -1112,12 +1128,12 @@ describe(`event assistant CI tests`, () => {
         const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
 
         // First response is always text in the two-step process
-        expect(typeof responses[0].message).toBe('string')
-        expect(responses[0].messageType).toBe('text')
-        expect(responses[0].message.length).toBeGreaterThan(10)
+        expect(responses[0].messageType).toBe('json')
+        expect(responses[0].message.text).toBeDefined()
+        expect(responses[0].message.text.length).toBeGreaterThan(10)
 
         // If visual generation was triggered, verify the complete setup
-        if (responses[0].message.includes('🎨 Generating visual...')) {
+        if (responses[0].message.text.includes('🎨 Generating visual...')) {
           await validateVisualGenerationInitiation(responses)
         } else {
           // If not triggered, should be a normal single-channel response
@@ -1131,8 +1147,8 @@ describe(`event assistant CI tests`, () => {
       'completes two-step visual generation process with image response',
       async () => {
         // Set user preference to true
-        const User = await import('../../../src/models/user.model/user.model.js')
-        await User.default.findByIdAndUpdate(user1._id, {
+
+        await User.findByIdAndUpdate(user1._id, {
           preferences: { visualResponse: true }
         })
 
@@ -1148,10 +1164,11 @@ describe(`event assistant CI tests`, () => {
         // Step 1: Get the initial text response
         const initialResponses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
         expect(initialResponses).toHaveLength(1)
-        expect(typeof initialResponses[0].message).toBe('string')
+        expect(initialResponses[0].messageType).toBe('json')
+        expect(initialResponses[0].message.text).toBeDefined()
 
         // If visual generation was triggered, complete the two-step process
-        if (initialResponses[0].message.includes('🎨 Generating visual...')) {
+        if (initialResponses[0].message.text.includes('🎨 Generating visual...')) {
           // Validate the initial response has the correct setup
           await validateVisualGenerationInitiation(initialResponses)
           expect(initialResponses[0].parent).toBe(msg._id)
