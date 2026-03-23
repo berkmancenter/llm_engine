@@ -311,6 +311,14 @@ ${chunks}`
       ? cannotRespond
       : await getResponse.call(this, question, contextString, chatHistory, topic, systemTemplate)
 
+  // Override classification to UNANSWERABLE if the response is cannotRespond
+  // This handles cases where the LLM classified it as on-topic but still returned cannotRespond
+
+  let finalClassification = classification
+  if (llmResponse === cannotRespond) {
+    finalClassification = QuestionClassification.UNANSWERABLE
+  }
+
   const responseChannels = this.conversation.channels.filter((channel: IChannel) =>
     userMessage.channels.includes(channel.name)
   )
@@ -358,7 +366,7 @@ ${chunks}`
     visible: true,
     message: {
       text: responseMessage,
-      type: classification.toLowerCase()
+      type: finalClassification.toLowerCase()
     },
     messageType: 'json',
     channels: responseChannels,
