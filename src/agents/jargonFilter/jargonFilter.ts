@@ -91,6 +91,7 @@ export default verify({
   },
   defaultLLMPlatform,
   defaultLLMModel,
+  defaultLLMModelOptions: { maxTokens: 4000 },
   ragCollectionName: undefined, // earlier transcript context not needed, just analyzes the window
 
   async initialize() {
