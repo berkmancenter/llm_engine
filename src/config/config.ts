@@ -85,7 +85,14 @@ const envVarsSchema = Joi.object()
     INFINITY_API_KEY: Joi.string().description(
       'The API key to access the Infinity OpenAI-compatible server used for inference'
     ),
-    CONVERSATION_BOT_NAME: Joi.string().default('Berkie').description('Default bot name for conversations')
+    CONVERSATION_BOT_NAME: Joi.string().default('Berkie').description('Default bot name for conversations'),
+    CLASSIFICATION_LLM_PLATFORM: Joi.string()
+      .default('bedrock')
+      .description('Platform to use for classification tasks (e.g., bedrock, openai, google)'),
+    CLASSIFICATION_LLM_MODEL: Joi.string().default('sonnet').description('Model to use for classification tasks'),
+    IMAGE_GENERATION_LLM_MODEL: Joi.string()
+      .default('gemini-3-pro-image-preview')
+      .description('Model to use for image generation tasks')
   })
   .unknown()
 
@@ -202,6 +209,9 @@ const config = {
   appHost: envVars.APP_HOST,
   trulyRandomPseudonyms: envVars.TRULY_RANDOM_PSEUDONYMS,
   DAYS_FOR_GOOD_REPUTATION: envVars.DAYS_FOR_GOOD_REPUTATION,
-  conversationBotName: envVars.CONVERSATION_BOT_NAME
+  conversationBotName: envVars.CONVERSATION_BOT_NAME,
+  classificationLLMPlatform: envVars.CLASSIFICATION_LLM_PLATFORM,
+  classificationLLMModel: envVars.CLASSIFICATION_LLM_MODEL,
+  imageGenerationLLMModel: envVars.IMAGE_GENERATION_LLM_MODEL
 }
 export default config

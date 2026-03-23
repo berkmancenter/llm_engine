@@ -51,8 +51,12 @@ export const supportedModels: LlmModelDetails[] = [
 export const defaultLLMPlatform = supportedModels[0].llmPlatform
 export const defaultLLMModel = supportedModels[0].llmModel
 
-// Image generation models (not included in supportedModels as they are not text models)
-export const imageGenerationLLMModel = 'gemini-3-pro-image-preview'
+// Model identifiers for specific use cases - configurable via environment variables
+// These can be model family names (e.g., "sonnet", "haiku") or exact model IDs
+export const { classificationLLMPlatform } = config
+export const { classificationLLMModel } = config
+// No platform specified because only Google is currently supported for image generation
+export const { imageGenerationLLMModel } = config
 
 // Model family aliases - maps friendly names (e.g., "opus", "sonnet") to the latest supported version
 // This allows calling getModelChat with family names instead of exact model IDs
