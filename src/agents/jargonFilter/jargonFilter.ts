@@ -74,7 +74,7 @@ export default verify({
   description:
     'Periodically analyzes the transcript for technical jargon and sends plain-language clarifications to participants who have opted in',
   priority: 50,
-  maxTokens: 500,
+  maxTokens: 2000,
   defaultTriggers: {
     periodic: { timerPeriod: 120, conversationHistorySettings: { channels: ['transcript'], timeWindow: 120 } }
   },
