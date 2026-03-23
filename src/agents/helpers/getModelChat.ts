@@ -54,6 +54,24 @@ export const defaultLLMModel = supportedModels[0].llmModel
 // Image generation models (not included in supportedModels as they are not text models)
 export const imageGenerationLLMModel = 'gemini-3-pro-image-preview'
 
+// Model family aliases - maps friendly names (e.g., "opus", "sonnet") to the latest supported version
+// This allows calling getModelChat with family names instead of exact model IDs
+const modelFamilies: Record<string, string> = {
+  opus: 'us.anthropic.claude-opus-4-6-v1',
+  sonnet: 'us.anthropic.claude-sonnet-4-6',
+  gpt: 'gpt-5.2-2025-12-11',
+  gemini: 'gemini-3-pro-preview'
+}
+
+/**
+ * Resolves a model identifier to its full model ID.
+ * If the input is a family name (e.g., "opus", "sonnet"), returns the latest supported version.
+ * Otherwise returns the input unchanged (assumes it's an exact model ID).
+ */
+function resolveModelId(modelIdentifier: string): string {
+  return modelFamilies[modelIdentifier.toLowerCase()] || modelIdentifier
+}
+
 export async function getOpenAIChat(model, modelOptions) {
   const aiConfig = {
     ...modelOptions,
@@ -135,26 +153,29 @@ export async function getBedrockChat(model, modelOptionss) {
 }
 
 export async function getModelChat(platform: LlmPlatforms, model, modelOptions = {}, platformOptions = {}) {
-  const supportedModel = supportedModels.find((m) => m.llmModel === model)
+  // Resolve model family names (e.g., "opus", "sonnet") to actual model IDs
+  const resolvedModel = resolveModelId(model)
+
+  const supportedModel = supportedModels.find((m) => m.llmModel === resolvedModel)
   const options = { ...(supportedModel?.defaultModelOptions || {}), ...modelOptions }
   if (platform === 'openai') {
-    return getOpenAIChat(model, options)
+    return getOpenAIChat(resolvedModel, options)
   }
   if (platform === 'ollama') {
-    return getOllamaChat(model, options)
+    return getOllamaChat(resolvedModel, options)
   }
   if (platform === 'perspective') {
     return getPerspectiveChat()
   }
   if (platform === 'bedrock') {
-    return getBedrockChat(model, options)
+    return getBedrockChat(resolvedModel, options)
   }
   if (platform === 'google') {
-    return getGoogleChat(model, options)
+    return getGoogleChat(resolvedModel, options)
   }
 
   if (platform === 'vllm') {
-    return getVllmChat(model, options, platformOptions)
+    return getVllmChat(resolvedModel, options, platformOptions)
   }
 
   throw new Error(`Unknown LLM platform: ${platform}`)
