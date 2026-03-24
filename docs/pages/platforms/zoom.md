@@ -18,16 +18,16 @@ We provide a Zoom adapter that saves real-time transcription of a Zoom meeting t
 3. Create a new Webhook from the Recall.ai dashboard. Use [baseUrl]/v1/webhooks/recall/status as the endpoint. Subscribe to `bot.call_ended`, `bot.in_call_recording`, and `bot.in_call_not_recording` events. Copy the signing secret displayed on the webhook page for setting the `RECALL_SVIX_SECRET` environment variable.
 4. Set the Recall environment variables and Zoom event subscription variable in `.env`
 
+- For legacy accounts (created before Dec 15, 2025), you need TWO secrets:
+  - RECALL_REALTIME_SECRET: the Verification Secrent found on (Recall's API keys dashboard) [https://[region].recall.ai/dashboard/developers/api-keys] for real-time endpoints (chat, join, transcript)
+  - RECALL_SVIX_SECRET: the signing secret from webhooks dashboard for bot.status_change events (see Step 3 above)
+- For newer accounts, only RECALL_REALTIME_SECRET is needed
+
 ```
 RECALL_API_KEY
 RECALL_BASE_URL: the URL used to connect to your Recall account
-RECALL_BASE_URL: The URL Recall should use to send events to this server, e.g. a static ngrok domain if running locally
+RECALL_ENDPOINT_BASE_URL: The URL Recall should use to send events to this server, e.g. a static ngrok domain if running locally
 # Verification secrets for webhook signature validation
-# For legacy accounts (created before Dec 15, 2025), you need TWO secrets:
-# - RECALL_REALTIME_SECRET: from API keys dashboard for real-time endpoints (chat, join, transcript)
-# - RECALL_SVIX_SECRET: from webhooks dashboard for bot.status_change events
-# For newer accounts, only RECALL_REALTIME_SECRET is needed (same for both)
-# Get these from: https://[region].recall.ai/dashboard/developers/api-keys
 RECALL_REALTIME_SECRET=whsec_...
 RECALL_SVIX_SECRET=whsec_...
 ZOOM_SECRET_TOKEN: the secret token found in your app configuration in the Zoom marketplace
