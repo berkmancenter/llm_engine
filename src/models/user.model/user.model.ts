@@ -63,6 +63,9 @@ const userSchema = new mongoose.Schema<IUser, UserModel>(
       type: {
         visualResponse: {
           type: Boolean
+        },
+        jargonClarification: {
+          type: Boolean
         }
       }
     }

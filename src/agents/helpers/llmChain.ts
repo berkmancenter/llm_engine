@@ -156,10 +156,22 @@ function getStructuredResponseChain(llm, prompt, responseFormatSchema) {
 
   const parser = StructuredOutputParser.fromZodSchema(responseFormatSchemaNonStructured)
 
+  // BedrockChat (@langchain/community) does not implement bindTools, so withStructuredOutput
+  // is unavailable for Claude/Bedrock. The modern replacement, ChatBedrockConverse
+  // (@langchain/aws), does support it — migrating would eliminate this workaround but it's a larger scoped
+  // infrastructure update. Until then, we strip any "````json```" fences the model occasionally adds around
+  // its JSON output.
   return shouldUseStructuredOutput(llm)
     ? prompt.pipe(llm.withStructuredOutput(responseFormatSchema))
     : prompt
         .pipe(llmWithTool)
+        .pipe(new StringOutputParser())
+        .pipe(async (text: string) =>
+          text
+            .replace(/^```(?:json)?\s*/i, '')
+            .replace(/\s*```\s*$/, '')
+            .trim()
+        )
         .pipe(parser)
         .pipe(async (parsed) => {
           if (Array.isArray(parsed) && arrayKey) {

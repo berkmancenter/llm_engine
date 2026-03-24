@@ -807,3 +807,61 @@ export async function prepareMessagesForAgent(messages: IMessage[], conversation
 
   return agent.conversation
 }
+
+// TODO: refactor createJargonFilterConversation and createEngagementAgentConversation into a shared
+// createAgentConversation helper that accepts agentType as a parameter.
+
+/**
+ * NOTE: Synthetic transcript designed to contain technical jargon for jargon filter agent tests.
+ */
+export const jargonTranscript = `00:10 | Dr. Chen: Today we'll cover how our platform achieves sub-millisecond p99 latency at scale.
+00:18 | Dr. Chen: The key is our use of consistent hashing across the Kafka partitions to avoid hot spots.
+00:26 | Dr. Chen: We also rely heavily on write-ahead logging to ensure durability without sacrificing throughput.
+00:35 | Dr. Chen: Our SLOs are defined in terms of error budget — we allow 0.1% failure rate per rolling 30-day window.
+00:44 | Dr. Chen: The service mesh handles mTLS termination at the sidecar level, so app code never touches certs.
+00:52 | Dr. Chen: We use exponential backoff with jitter for all retry logic to prevent thundering herd after an outage.
+01:01 | Dr. Chen: Our MTTR improved dramatically once we introduced structured logging with correlation IDs across services.`
+
+/**
+ * NOTE: Synthetic transcript with no technical jargon for negative test cases.
+ */
+export const plainLanguageTranscript = `00:10 | Sarah: Welcome everyone, glad you could join us today.
+00:15 | Sarah: We're going to talk about how our team works together to solve problems.
+00:22 | Sarah: The most important thing we've learned is that clear communication saves time.
+00:30 | Sarah: When someone raises a concern early, the whole team benefits.
+00:38 | Sarah: We hold a short meeting each morning to check in and share updates.
+00:45 | Sarah: Anyone can bring a problem to the table — no idea is too small.`
+
+export async function createJargonFilterConversation(
+  conversationObj,
+  owner,
+  topic,
+  startTime,
+  llmPlatform?,
+  llmModel?,
+  additionalUsers: (typeof owner)[] = []
+) {
+  const conversation = await createConversation(conversationObj, owner, topic, startTime)
+  const agent = new Agent({
+    agentType: 'jargonFilterAgent',
+    conversation,
+    llmPlatform,
+    llmModel
+  })
+
+  const allUsers = [owner, ...additionalUsers]
+  const directChannels = allUsers.map((user) => ({
+    name: `direct-agents-${user._id}`,
+    direct: true,
+    participants: [user, agent]
+  }))
+
+  const channels = await Channel.create([{ name: 'transcript' }, { name: 'chat' }, ...directChannels])
+  conversation.channels.push(...channels)
+  await agent.save()
+  conversation.agents.push(agent)
+  await conversation.save()
+  await agent.initialize()
+  await agent.start()
+  return conversation
+}

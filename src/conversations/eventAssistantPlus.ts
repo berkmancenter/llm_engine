@@ -47,6 +47,10 @@ const eventAssistantPlus: ConversationType = {
     {
       name: 'backChannelInsights',
       properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
+    },
+    {
+      name: 'jargonFilterAgent',
+      properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
     }
   ],
   enableDMs: ['agents'],

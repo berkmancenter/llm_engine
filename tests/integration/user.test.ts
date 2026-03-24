@@ -340,6 +340,51 @@ describe('User routes', () => {
         .send({ visualResponse: 'invalid' })
         .expect(httpStatus.BAD_REQUEST)
     })
+
+    test('should return 200 and successfully update jargonClarification preference', async () => {
+      const ret = await request(app)
+        .put(`/v1/users/user/${registeredUser._id}/preferences`)
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({ jargonClarification: true })
+        .expect(httpStatus.OK)
+
+      expect(ret.body.jargonClarification).toBe(true)
+
+      const user = await User.findById(registeredUser._id)
+      expect(user!.preferences!.jargonClarification).toBe(true)
+    })
+
+    test('should return 200 when updating jargonClarification to false', async () => {
+      const ret = await request(app)
+        .put(`/v1/users/user/${registeredUser._id}/preferences`)
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({ jargonClarification: false })
+        .expect(httpStatus.OK)
+
+      expect(ret.body.jargonClarification).toBe(false)
+
+      const user = await User.findById(registeredUser._id)
+      expect(user!.preferences!.jargonClarification).toBe(false)
+    })
+
+    test('should persist visualResponse when updating jargonClarification independently', async () => {
+      await request(app)
+        .put(`/v1/users/user/${registeredUser._id}/preferences`)
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({ visualResponse: true })
+
+      const ret = await request(app)
+        .put(`/v1/users/user/${registeredUser._id}/preferences`)
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({ jargonClarification: true })
+        .expect(httpStatus.OK)
+
+      expect(ret.body.jargonClarification).toBe(true)
+
+      const user = await User.findById(registeredUser._id)
+      expect(user!.preferences!.jargonClarification).toBe(true)
+      expect(user!.preferences!.visualResponse).toBe(true)
+    })
   })
 })
 

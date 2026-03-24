@@ -177,6 +177,25 @@ const testAgentTypeSpecification = {
     defaultLLMPlatform,
     defaultLLMModel,
     useTranscriptRAGCollection: true
+  },
+  jargonFilterAgent: {
+    initialize: mockInitialize,
+    respond: mockRespond,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Jargon Filter Agent',
+    description: 'Test jargon filter agent',
+    maxTokens: 500,
+    defaultTriggers: { periodic: { timerPeriod: 120 } },
+    priority: 50,
+    llmTemplateVars: { system: [], user: [] },
+    defaultLLMTemplates: {
+      system: 'You are a jargon filter agent',
+      user: 'Analyze this transcript: {transcript}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel,
+    useTranscriptRAGCollection: false
   }
 }
 

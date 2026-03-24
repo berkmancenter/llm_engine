@@ -89,8 +89,8 @@ export function transformPayloadForClaude(bodyContent: unknown, defaultLLMModel:
   }
 
   const maxTokens =
-    isObj && typeof (bodyContent as Record<string, unknown>).maxTokens === 'number'
-      ? ((bodyContent as Record<string, unknown>).maxTokens as number)
+    isObj && typeof (bodyContent as Record<string, unknown>).max_tokens === 'number'
+      ? ((bodyContent as Record<string, unknown>).max_tokens as number)
       : 1024
   const temperature =
     isObj && typeof (bodyContent as Record<string, unknown>).temperature === 'number'

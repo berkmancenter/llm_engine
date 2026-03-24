@@ -70,6 +70,10 @@ const eventAssistantPlusProactive: ConversationType = {
         llmPlatform: '{{properties.llmModel.llmPlatform}}',
         agentConfig: { minInterval: '{{properties.minContributionInterval}}', personality: 'sarcastic-expert' }
       }
+    },
+    {
+      name: 'jargonFilterAgent',
+      properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
     }
   ],
   enableDMs: ['agents'],

@@ -308,7 +308,7 @@ describe(`event assistant CI tests`, () => {
   )
 
   test.each(offTopicDataset)(
-    'does not engage with off-topic questions',
+    `does not engage with off-topic question: $inputs.question`,
     async ({ inputs }) => {
       const msg = await createQuestion(inputs.question)
       agent.conversationHistorySettings = {

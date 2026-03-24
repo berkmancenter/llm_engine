@@ -26,6 +26,7 @@ export interface IBaseUser {
 
 export interface IUserPreferences {
   visualResponse?: boolean
+  jargonClarification?: boolean
 }
 
 export interface IUser {
@@ -349,7 +350,7 @@ export interface AgentResponse<T> {
 
 export interface ConversationHistorySettings {
   count?: number
-  timeWindow?: number // in seconds
+  timeWindow?: number // in seconds, going backwards from endTime
   endTime?: Date
   channels?: string[]
   directMessages?: boolean
