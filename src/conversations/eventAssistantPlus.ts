@@ -32,6 +32,14 @@ const eventAssistantPlus: ConversationType = {
       type: 'enum',
       options: supportedModels,
       validationKeys: ['llmModel', 'llmPlatform']
+    },
+    {
+      name: 'feedbackFrequency',
+      label: 'Feedback Request Frequency',
+      description: 'Request feedback every N eligible messages (0 = disabled)',
+      required: false,
+      type: 'number',
+      default: 3
     }
   ],
   // internal

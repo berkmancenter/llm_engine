@@ -35,7 +35,8 @@ describe(`event assistant plus tests`, () => {
   async function validateResponse(responses, channel = `direct-agents-${user1._id}`) {
     expect(responses).not.toHaveLength(0)
     expect(responses[0].message).toBeDefined()
-    console.log(`A: ${responses[0].message}`)
+    const messageForLog = responses[0].messageType === 'json' ? responses[0].message.text : responses[0].message
+    console.log(`A: ${messageForLog}`)
     expect(responses[0].channels).toHaveLength(1)
     expect(responses[0].channels[0].name).toEqual(channel)
   }
@@ -88,8 +89,8 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
 
         // Should only have 1 response, no moderator question
         expect(responses).toHaveLength(1)
-        expect(responses[0].messageType).not.toEqual('json')
-        expect(responses[0].message).not.toEqual(submitToModeratorQuestion.text)
+        expect(responses[0].messageType).toEqual('json')
+        expect(responses[0].message.text).not.toEqual(submitToModeratorQuestion.text)
       },
       testTimeout
     )
@@ -103,8 +104,8 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
 
         // Should only have 1 response, no moderator question
         expect(responses).toHaveLength(1)
-        expect(responses[0].messageType).not.toEqual('json')
-        expect(responses[0].message).not.toEqual(submitToModeratorQuestion.text)
+        expect(responses[0].messageType).toEqual('json')
+        expect(responses[0].message.text).not.toEqual(submitToModeratorQuestion.text)
       },
       testTimeout
     )
@@ -118,8 +119,8 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
 
         // Should only have 1 response, no moderator question
         expect(responses).toHaveLength(1)
-        expect(responses[0].messageType).not.toEqual('json')
-        expect(responses[0].message).not.toEqual(submitToModeratorQuestion.text)
+        expect(responses[0].messageType).toEqual('json')
+        expect(responses[0].message.text).not.toEqual(submitToModeratorQuestion.text)
       },
       testTimeout
     )
@@ -258,8 +259,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
 
         // Should only have 1 response (off-topic message), no moderator question
         expect(responses).toHaveLength(1)
-        expect(responses[0].messageType).not.toEqual('json')
-        expect(responses[0].message).not.toEqual(submitToModeratorQuestion.text)
+        expect(responses[0].message.text).not.toEqual(submitToModeratorQuestion.text)
       },
       testTimeout
     )
@@ -274,8 +274,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
 
         // Should only have 1 response (summary), no moderator question
         expect(responses).toHaveLength(1)
-        expect(responses[0].messageType).not.toEqual('json')
-        expect(responses[0].message).not.toEqual(submitToModeratorQuestion.text)
+        expect(responses[0].message.text).not.toEqual(submitToModeratorQuestion.text)
       },
       testTimeout
     )
@@ -422,7 +421,8 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
       await validateResponse(responses)
       // New question should be processed normally, not treated as yes/no response
       expect(responses.length).toBeGreaterThan(0)
-      expect(responses[0].messageType).not.toBe('json')
+      expect(responses[0].messageType).toBe('json')
+      expect(responses[0].message.text).toBeDefined()
 
       const updatedMessage = await Message.findById(savedQuestion._id)
       expect(updatedMessage!.channels).not.toContain('participant')
@@ -670,13 +670,15 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
       ])
       const msgs = await agent.introduce(directChannel)
       expect(msgs).toHaveLength(1)
+      expect(msgs[0].bodyType).toBe('json')
+      expect(msgs[0].body.type).toBe('intro')
       // Should contain the rendered bot name (template vars resolved)
-      expect(msgs[0].body).toContain(agent.agentConfig.botName)
-      expect(msgs[0].body).not.toContain('{{agentConfig.botName}}')
+      expect(msgs[0].body.text).toContain(agent.agentConfig.botName)
+      expect(msgs[0].body.text).not.toContain('{{agentConfig.botName}}')
       // Should contain a fun fact about the pseudonym
-      expect(msgs[0].body).toMatch(/fun fact about your pseudonym:/i)
+      expect(msgs[0].body.text).toMatch(/fun fact about your pseudonym:/i)
       // Should mention the pseudonym
-      expect(msgs[0].body.toLowerCase()).toMatch(/cat/)
+      expect(msgs[0].body.text.toLowerCase()).toMatch(/cat/)
       expect(msgs[0].channels).toHaveLength(1)
       expect(msgs[0].channels[0]).toEqual(directChannel)
       expect(msgs[0].visible).toBe(true)
@@ -698,9 +700,11 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
     const [chatChannel] = await Channel.create([{ name: 'chat' }])
     const msgs = await agent.introduce(chatChannel)
     expect(msgs).toHaveLength(1)
+    expect(msgs[0].bodyType).toBe('json')
+    expect(msgs[0].body.type).toBe('intro')
     // chatIntroMessage is a template — verify the bot name was rendered into it
-    expect(msgs[0].body).toContain(`@${agent.agentConfig.botName}`)
-    expect(msgs[0].body).not.toContain('{{agentConfig.botName}}')
+    expect(msgs[0].body.text).toContain(`@${agent.agentConfig.botName}`)
+    expect(msgs[0].body.text).not.toContain('{{agentConfig.botName}}')
     expect(msgs[0].channels).toHaveLength(1)
     expect(msgs[0].channels[0]).toEqual(chatChannel)
   })
@@ -713,7 +717,9 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
     const [chatChannel] = await Channel.create([{ name: 'chat' }])
     const msgs = await agent.introduce(chatChannel)
     expect(msgs).toHaveLength(1)
-    expect(msgs[0].body).toEqual(`Welcome to ${conversation.name}!`)
+    expect(msgs[0].bodyType).toBe('json')
+    expect(msgs[0].body.type).toBe('intro')
+    expect(msgs[0].body.text).toEqual(`Welcome to ${conversation.name}!`)
   })
 
   // DYNAMIC BOT NAME TESTS
@@ -803,8 +809,10 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
       ])
       const msgs = await agent.introduce(directChannel)
       expect(msgs).toHaveLength(1)
-      expect(msgs[0].body).toContain(customBotName)
-      expect(msgs[0].body).not.toContain('{{agentConfig.botName}}')
+      expect(msgs[0].bodyType).toBe('json')
+      expect(msgs[0].body.type).toBe('intro')
+      expect(msgs[0].body.text).toContain(customBotName)
+      expect(msgs[0].body.text).not.toContain('{{agentConfig.botName}}')
     })
 
     it('includes custom botName in rendered chat intro message', async () => {
@@ -815,8 +823,10 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
       const [chatChannel] = await Channel.create([{ name: 'chat' }])
       const msgs = await agent.introduce(chatChannel)
       expect(msgs).toHaveLength(1)
-      expect(msgs[0].body).toContain(`@${customBotName}`)
-      expect(msgs[0].body).not.toContain('{{agentConfig.botName}}')
+      expect(msgs[0].bodyType).toBe('json')
+      expect(msgs[0].body.type).toBe('intro')
+      expect(msgs[0].body.text).toContain(`@${customBotName}`)
+      expect(msgs[0].body.text).not.toContain('{{agentConfig.botName}}')
     })
   })
 
@@ -831,7 +841,9 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
       const msgs = await agent.introduce(directChannel)
 
       expect(msgs).toHaveLength(1)
-      const introMessage = msgs[0].body
+      expect(msgs[0].bodyType).toBe('json')
+      expect(msgs[0].body.type).toBe('intro')
+      const introMessage = msgs[0].body.text
 
       // Should contain the rendered bot name (template vars resolved)
       expect(introMessage).toContain(agent.agentConfig.botName)

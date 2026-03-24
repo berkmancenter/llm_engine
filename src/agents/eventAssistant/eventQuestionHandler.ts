@@ -311,6 +311,14 @@ ${chunks}`
       ? cannotRespond
       : await getResponse.call(this, question, contextString, chatHistory, topic, systemTemplate)
 
+  // Override classification to UNANSWERABLE if the response is cannotRespond
+  // This handles cases where the LLM classified it as on-topic but still returned cannotRespond
+
+  let finalClassification = classification
+  if (llmResponse === cannotRespond) {
+    finalClassification = QuestionClassification.UNANSWERABLE
+  }
+
   const responseChannels = this.conversation.channels.filter((channel: IChannel) =>
     userMessage.channels.includes(channel.name)
   )
@@ -321,7 +329,10 @@ ${chunks}`
   const user = await User.findById(userMessage.owner)
   const forceVisual = options?.forceVisual === true
 
-  if (forceVisual || user?.preferences?.visualResponse) {
+  // Only use visual preference is this is on a user's private channel, not e.g. group chat
+  const isDirectChannel = responseChannels.some((channel: IChannel) => channel.direct)
+
+  if (forceVisual || (user?.preferences?.visualResponse && isDirectChannel)) {
     let shouldGenerate = false
 
     if (forceVisual) {
@@ -353,8 +364,11 @@ ${chunks}`
 
   const agentResponse = {
     visible: true,
-    message: responseMessage,
-    messageType: 'text',
+    message: {
+      text: responseMessage,
+      type: finalClassification.toLowerCase()
+    },
+    messageType: 'json',
     channels: responseChannels,
     ...(parentMessageId && { parent: parentMessageId }),
     context: contextString,

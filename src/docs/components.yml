@@ -746,6 +746,9 @@ components:
           type: number
         transcript:
           $ref: '#/components/schemas/Transcript'
+        properties:
+          type: object
+          additionalProperties: true
 
     AgentModification:
       type: object

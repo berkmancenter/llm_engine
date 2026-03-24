@@ -416,6 +416,59 @@ describe('Conversation service methods', () => {
         expect(conversation.presenters![0]).toMatchObject(params.presenters[0])
         expect(conversation.presenters![1]).toMatchObject(params.presenters[1])
       })
+
+      test('should persist and retrieve custom properties', async () => {
+        const params = {
+          type: 'eventAssistant',
+          name: 'Event with Custom Properties',
+          platforms: ['zoom'],
+          topicId: topicOne._id.toString(),
+          properties: {
+            zoomMeetingUrl: 'https://zoom.us/j/123456789',
+            customField: 'custom value',
+            nestedObject: { key1: 'value1', key2: 42 },
+            arrayField: ['item1', 'item2']
+          }
+        }
+
+        const conversation = await conversationService.createConversationFromType(params, registeredUser)
+
+        // Verify properties are set on creation
+        expect(conversation.properties).toBeDefined()
+        expect(conversation.properties!.customField).toBe('custom value')
+        expect(conversation.properties!.nestedObject).toEqual({ key1: 'value1', key2: 42 })
+        expect(conversation.properties!.arrayField).toEqual(['item1', 'item2'])
+
+        // Retrieve the conversation and verify properties are returned
+        const retrieved = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
+        expect(retrieved.properties).toBeDefined()
+        expect(retrieved.properties!.customField).toBe('custom value')
+        expect(retrieved.properties!.nestedObject).toEqual({ key1: 'value1', key2: 42 })
+        expect(retrieved.properties!.arrayField).toEqual(['item1', 'item2'])
+      })
+
+      test('should handle empty properties object', async () => {
+        const params = {
+          type: 'eventAssistant',
+          name: 'Event with Empty Properties',
+          platforms: ['zoom'],
+          topicId: topicOne._id.toString(),
+          properties: {
+            zoomMeetingUrl: 'https://zoom.us/j/123456789'
+          }
+        }
+
+        const conversation = await conversationService.createConversationFromType(params, registeredUser)
+
+        // Properties should be an empty object by default (or contain only non-persisted fields)
+        expect(conversation.properties).toBeDefined()
+        expect(typeof conversation.properties).toBe('object')
+
+        // Retrieve and verify
+        const retrieved = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
+        expect(retrieved.properties).toBeDefined()
+        expect(typeof retrieved.properties).toBe('object')
+      })
       test('should not set llmModel on agents when optional property is omitted', async () => {
         const params = {
           type: 'eventAssistant',

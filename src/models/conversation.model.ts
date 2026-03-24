@@ -109,7 +109,11 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
     followers: [{ type: mongoose.SchemaTypes.ObjectId, ref: 'Follower' }],
     agents: [{ type: mongoose.SchemaTypes.ObjectId, ref: 'Agent' }],
     channels: [{ type: mongoose.SchemaTypes.ObjectId, ref: 'Channel' }],
-    experiments: [{ type: mongoose.SchemaTypes.ObjectId, ref: 'Experiments' }]
+    experiments: [{ type: mongoose.SchemaTypes.ObjectId, ref: 'Experiments' }],
+    properties: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {}
+    }
   },
   {
     timestamps: true
