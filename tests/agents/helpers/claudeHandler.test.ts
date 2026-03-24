@@ -77,7 +77,7 @@ describe('claudeHandler', () => {
       const inputPayload = {
         system: 'You are a helpful assistant',
         messages: [{ role: 'user', content: 'Hello world' }],
-        maxTokens: 2048,
+        max_tokens: 2048,
         temperature: 0.7
       }
 
