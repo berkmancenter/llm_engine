@@ -5,6 +5,8 @@ import User from '../../models/user.model/user.model.js'
 import logger from '../../config/logger.js'
 import { IChannel } from '../../types/index.types.js'
 import config from '../../config/config.js'
+
+import { getModelChat, classificationLLMPlatform, classificationLLMModel } from '../helpers/getModelChat.js'
 import { personalitySection } from '../helpers/agentPersonality.js'
 
 export enum QuestionClassification {
@@ -199,12 +201,18 @@ async function shouldGenerateVisual(question, classification, llmResponse, templ
 
   // Use LLM to classify if visual would help
   try {
-    const llm = await this.getLLM()
+    // Use classification LLM for potential latency benefits
+    const classificationPlatform = this.agentConfig?.classificationPlatform || classificationLLMPlatform
+    const classificationModel = this.agentConfig?.classificationModel || classificationLLMModel
+    const llm = await getModelChat(classificationPlatform, classificationModel)
+
+    // Truncate very long answers to reduce tokens (first 1000 chars usually sufficient for classification)
+    const truncatedAnswer = llmResponse.length > 1000 ? `${llmResponse.substring(0, 1000)}...` : llmResponse
     const visualClassification = await getChatPromptResponse(
       llm,
       templates.visualClassificationSystem,
       templates.visualClassificationUser,
-      { question, answer: llmResponse }
+      { question, answer: truncatedAnswer }
     )
 
     const result = visualClassification.trim() === 'VISUAL'
