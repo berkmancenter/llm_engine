@@ -72,6 +72,9 @@ components:
         parentMessage:
           type: string
           description: Reference to parent Message ID
+        answersPrompt:
+          type: string
+          description: Reference to the Message ID that this message answers (when responding to a prompt)
         prompt:
           $ref: '#/components/schemas/MessagePrompt'
         createdAt:

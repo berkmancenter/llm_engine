@@ -159,6 +159,63 @@ describe('Message service methods', () => {
         expect(msg).toHaveProperty('pseudonymId')
       })
     })
+    test('should include answersPrompt field when message answers a prompt', async () => {
+      // Create a user and conversation
+      const user = await createUser('Prompt Answer Tester')
+
+      const conversationData = {
+        ...conversationOne,
+        owner: user._id
+      }
+      delete conversationData._id
+
+      const conversation = await Conversation.create(conversationData)
+
+      // Create a prompt message
+      const promptMessage = await Message.create({
+        body: 'What is your favorite food?',
+        bodyType: 'text',
+        conversation: conversation._id,
+        owner: user._id,
+        pseudonym: user.pseudonyms[0].pseudonym,
+        pseudonymId: user.pseudonyms[0]._id,
+        channels: [],
+        prompt: {
+          type: 'singleChoice',
+          options: [
+            { value: 'pizza', label: 'Pizza' },
+            { value: 'burger', label: 'Burger' }
+          ]
+        }
+      })
+
+      // Create a message that answers the prompt
+      await Message.create({
+        body: 'pizza',
+        bodyType: 'text',
+        conversation: conversation._id,
+        owner: user._id,
+        pseudonym: user.pseudonyms[0].pseudonym,
+        pseudonymId: user.pseudonyms[0]._id,
+        channels: [],
+        answersPrompt: promptMessage._id
+      })
+
+      // Prepare messageBody for fetchConversation
+      const messageBody = { conversation: conversation._id }
+
+      // Call fetchConversation
+      const result = await messageService.fetchConversation(messageBody, user)
+
+      expect(result).toBeDefined()
+      expect(result.messages).toHaveLength(2)
+
+      // Find the answer message
+      const answerMessage = result.messages.find((msg) => msg.body === 'pizza')
+      expect(answerMessage).toBeDefined()
+      expect(answerMessage!.answersPrompt).toBeDefined()
+      expect(answerMessage!.answersPrompt!.toString()).toBe(promptMessage._id.toString())
+    })
   })
   beforeAll(async () => {
     setAdapterTypes(testAdapterTypes)
@@ -669,6 +726,17 @@ describe('Message service methods', () => {
 
       const savedMessage = await Message.findById(result[0]._id)
       expect(savedMessage!.parentMessage?.toString()).toEqual(parent.toString())
+    })
+    test('should set answersPrompt on created message', async () => {
+      const promptMessage = new mongoose.Types.ObjectId()
+      testMessage.answersPrompt = promptMessage.toString()
+
+      const result = await messageService.newMessageHandler(testMessage, testUser)
+
+      expect(result).toBeDefined()
+
+      const savedMessage = await Message.findById(result[0]._id)
+      expect(savedMessage!.answersPrompt?.toString()).toEqual(promptMessage.toString())
     })
   })
 

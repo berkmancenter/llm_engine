@@ -8,7 +8,8 @@ const createMessage = {
     channels: Joi.array()
       .items(Joi.object({ name: Joi.string(), passcode: Joi.string() }))
       .optional(),
-    parentMessage: Joi.string().optional()
+    parentMessage: Joi.string().optional(),
+    answersPrompt: Joi.string().optional()
   })
 }
 

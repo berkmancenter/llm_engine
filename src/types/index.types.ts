@@ -107,6 +107,7 @@ export interface IMessage {
   upVotes: Vote[]
   downVotes: Vote[]
   parentMessage?: mongoose.Types.ObjectId
+  answersPrompt?: mongoose.Types.ObjectId
   createdAt?: Date
   updatedAt?: Date
   replyCount?: number

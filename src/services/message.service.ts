@@ -74,6 +74,7 @@ const createMessage = async (messageBody, user, conversation) => {
     ...(messageBody.bodyType !== undefined && { bodyType: messageBody.bodyType }),
     ...(messageBody.createdAt !== undefined && { createdAt: messageBody.createdAt }),
     ...(messageBody.prompt !== undefined && { prompt: messageBody.prompt }),
+    ...(messageBody.answersPrompt !== undefined && { answersPrompt: messageBody.answersPrompt }),
     ...(messageBody.parentMessage !== undefined && { parentMessage: messageBody.parentMessage }),
     conversation: conversation._id,
     owner: user,
@@ -114,7 +115,9 @@ const conversationMessages = async (id, channels, user) => {
   }
 
   const messages = await Message.find(query)
-    .select('body bodyType owner upVotes downVotes pseudonym pseudonymId createdAt fromAgent source channels')
+    .select(
+      'body bodyType owner upVotes downVotes pseudonym pseudonymId createdAt fromAgent source channels prompt answersPrompt'
+    )
     .sort({ createdAt: 1 })
     .exec()
 

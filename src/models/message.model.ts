@@ -115,6 +115,10 @@ const messageSchema = new mongoose.Schema<IMessage, MessageModel>(
       type: mongoose.SchemaTypes.ObjectId,
       ref: 'Message'
     },
+    answersPrompt: {
+      type: mongoose.SchemaTypes.ObjectId,
+      ref: 'Message'
+    },
     prompt: {
       type: promptSchema
     }
