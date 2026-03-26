@@ -430,7 +430,7 @@ agentSchema.method('respond', async function (userMessage = null) {
     conversationHistory = getConversationHistory(
       messagesToProcess,
       effectiveSettings,
-      [this.name],
+      effectiveSettings.excludeOtherAgents ? [this.name] : undefined,
       directChannels,
       agentTypes[this.agentType].parseInput
     )

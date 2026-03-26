@@ -328,7 +328,7 @@ describe('Get Conversation History Tests', () => {
     expect(convHistory.start).toEqual(msg1.updatedAt)
   })
 
-  it('should include all messages when includeAgents is not provided', async () => {
+  it('should include all messages when onlyIncludeAgents is not provided', async () => {
     const msg1 = await createMessage('Human message', 'Human User')
     const msg2 = await createMessage('Agent message', 'AI Assistant')
     msg2.fromAgent = true
@@ -338,11 +338,11 @@ describe('Get Conversation History Tests', () => {
 
     const convHistory = getConversationHistory([msg1, msg2, msg3], { count: 10 })
 
-    // All messages should be included when includeAgents is not provided
+    // All messages should be included when onlyIncludeAgents is not provided
     expect(convHistory.messages).toEqual([msg1, msg2, msg3])
   })
 
-  it('should filter out agent messages when includeAgents is empty array', async () => {
+  it('should filter out agent messages when onlyIncludeAgents is empty array', async () => {
     const msg1 = await createMessage('Human message', 'Human User')
     const msg2 = await createMessage('Agent message', 'AI Assistant')
     msg2.fromAgent = true
@@ -360,7 +360,7 @@ describe('Get Conversation History Tests', () => {
     expect(convHistory.messages).toEqual([msg1, msg4])
   })
 
-  it('should include only specified agents when includeAgents contains agent names', async () => {
+  it('should include only specified agents when onlyIncludeAgents contains agent names', async () => {
     const msg1 = await createMessage('Human message', 'Human User')
 
     const msg2 = await createMessage('AI Assistant message', 'AI Assistant')
@@ -387,7 +387,7 @@ describe('Get Conversation History Tests', () => {
     expect(convHistory.messages).not.toContain(msg3) // Bot Helper should be excluded
   })
 
-  it('should include agent messages when agent pseudonym matches includeAgents', async () => {
+  it('should include agent messages when agent pseudonym matches onlyIncludeAgents', async () => {
     const msg1 = await createMessage('Agent message 1', 'Helpful Assistant')
     msg1.fromAgent = true
     msg1.pseudonym = 'Helpful Assistant'
@@ -441,7 +441,7 @@ describe('Get Conversation History Tests', () => {
     expect(convHistory.messages).toEqual([msg1, msg2, msg3])
   })
 
-  it('should work with includeAgents combined with other filters', async () => {
+  it('should work with onlyIncludeAgents combined with other filters', async () => {
     const baseTime = new Date('2024-01-01T12:00:00Z')
 
     const msg1 = await createMessage(
@@ -483,12 +483,12 @@ describe('Get Conversation History Tests', () => {
     )
 
     // Should only include msg3 (recent human message)
-    // msg4 is filtered out by includeAgents (Bot Helper not included)
+    // msg4 is filtered out by onlyIncludeAgents (Bot Helper not included)
     // msg1 and msg2 are filtered out by timeWindow
     expect(convHistory.messages).toEqual([msg3])
   })
 
-  it('should handle case where no agents match includeAgents filter', async () => {
+  it('should handle case where no agents match onlyIncludeAgents filter', async () => {
     const msg1 = await createMessage('Human message', 'Human User')
 
     const msg2 = await createMessage('Agent message', 'AI Assistant')
@@ -505,7 +505,7 @@ describe('Get Conversation History Tests', () => {
     expect(convHistory.messages).toEqual([msg1])
   })
 
-  it('should handle empty messages array with includeAgents', async () => {
+  it('should handle empty messages array with onlyIncludeAgents', async () => {
     const convHistory = getConversationHistory([], { count: 10 }, ['AI Assistant'])
 
     expect(convHistory.messages).toEqual([])

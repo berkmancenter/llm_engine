@@ -4,7 +4,7 @@ import { ConversationHistorySettings } from '../../types/index.types.js'
 export default function getConversationHistory(
   messages,
   settings: ConversationHistorySettings = { count: 10, channels: [] },
-  includeAgents?,
+  onlyIncludeAgents?,
   directChannels?,
   parseInput?
 ) {
@@ -30,9 +30,9 @@ export default function getConversationHistory(
   if (count) {
     filteredMessages = filteredMessages.slice(Math.max(0, filteredMessages.length - count))
   }
-  if (includeAgents) {
+  if (onlyIncludeAgents) {
     filteredMessages = filteredMessages.filter(
-      (message) => !message.fromAgent || (message.fromAgent && includeAgents.includes(message.pseudonym))
+      (message) => !message.fromAgent || (message.fromAgent && onlyIncludeAgents.includes(message.pseudonym))
     )
   }
   if (!start) {

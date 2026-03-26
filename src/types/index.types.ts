@@ -356,6 +356,7 @@ export interface ConversationHistorySettings {
   endTime?: Date
   channels?: string[]
   directMessages?: boolean
+  excludeOtherAgents?: boolean // When true, only include this agent's own messages (not other agents)
 }
 
 export interface ConversationHistory {
