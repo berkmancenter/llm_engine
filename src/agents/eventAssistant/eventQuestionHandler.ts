@@ -330,8 +330,9 @@ ${chunks}`
   const responseChannels = this.conversation.channels.filter((channel: IChannel) =>
     userMessage.channels.includes(channel.name)
   )
-  let parentMessageId
+
   let responseMessage = llmResponse
+  let imageGenResponse
 
   // Check if visual generation should happen (either forced via /visual or user preference)
   const user = await User.findById(userMessage.owner)
@@ -355,15 +356,23 @@ ${chunks}`
     }
 
     if (shouldGenerate) {
-      logger.debug(`Adding image-gen channel to response${forceVisual ? ' (forced)' : ''}`)
-      // Add image-gen channel to the response
+      logger.debug(`Creating separate image-gen message${forceVisual ? ' (forced)' : ''}`)
       const imageGenChannel = this.conversation.channels.find((channel: IChannel) => channel.name === 'image-gen')
       if (imageGenChannel) {
-        responseChannels.push(imageGenChannel)
-        // Set parent to the original question so imageGenerator can use it
-        parentMessageId = userMessage._id
-        // Add visual generation indicator to the message
+        // Add visual generation indicator to the user-facing message
         responseMessage = `${llmResponse}\n\n\n\n**🎨 Generating visual...**`
+
+        // Create separate response for image-gen with structured Q&A body
+        imageGenResponse = {
+          visible: false, // hidden from users, just for processing
+          message: {
+            sourceMessage: userMessage._id.toString(),
+            answer: llmResponse,
+            responseChannels: userMessage.channels
+          },
+          messageType: 'json',
+          channels: [imageGenChannel]
+        }
       } else {
         logger.warn('image-gen channel not found on conversation')
       }
@@ -378,11 +387,11 @@ ${chunks}`
     },
     messageType: 'json',
     channels: responseChannels,
-    ...(parentMessageId && { parent: parentMessageId }),
     context: contextString,
     classification,
     promptType,
     topic
   }
-  return agentResponse
+
+  return imageGenResponse ? [agentResponse, imageGenResponse] : [agentResponse]
 }

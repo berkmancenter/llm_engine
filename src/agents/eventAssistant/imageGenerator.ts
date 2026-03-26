@@ -102,28 +102,25 @@ export async function generateVisualResponse(
 /**
  * Helper function to generate an image response for a message
  * @param userMessage - The message to generate an image for
+ *   Expects structured body: { sourceMessage, answer, responseChannels }
  * @param conversation - The conversation context
  * @param llmModel - The LLM model to use for image generation
  * @returns AgentResponse with the generated image
  */
 export default async function generateImageResponse(userMessage, conversation, llmModel?: string) {
-  // The userMessage body contains the text content to visualize
-  const textContent = typeof userMessage.body === 'string' ? userMessage.body : JSON.stringify(userMessage.body)
+  // Extract ID of original question, text answer, and response channels
+  const { sourceMessage, answer, responseChannels: channelNames } = userMessage.body
 
   // Generate the image using the configured model
-  const imageResult = await generateVisualResponse(textContent, undefined, llmModel || imageGenerationLLMModel)
+  const imageResult = await generateVisualResponse(answer, undefined, llmModel || imageGenerationLLMModel)
 
   if (!imageResult.success) {
     logger.error(`Image generation failed: ${imageResult.error}`)
     return null
   }
 
-  // Filter out 'image-gen' channel to avoid infinite loop
-  const responseChannels = conversation.channels.filter((channel) => {
-    const isOnUserMessageChannel = userMessage.channels?.includes(channel.name)
-    const isNotImageGenChannel = channel.name !== 'image-gen'
-    return isOnUserMessageChannel && isNotImageGenChannel
-  })
+  // Use the channel names from the message body (original userMessage channels)
+  const responseChannels = conversation.channels.filter((channel) => channelNames?.includes(channel.name))
 
   return {
     visible: true,
@@ -134,7 +131,8 @@ export default async function generateImageResponse(userMessage, conversation, l
           data: imageResult.imageData,
           mimeType: imageResult.mimeType || 'image/png'
         }
-      ]
+      ],
+      sourceMessage
     },
     messageType: 'multimodal',
     channels: responseChannels,

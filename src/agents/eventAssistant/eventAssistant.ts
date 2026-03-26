@@ -116,8 +116,8 @@ export default verify({
       const botMentionRegex = new RegExp(`@${escapedBotName}`, 'gi')
       modifiedMessage.body = modifiedMessage.body.trim().replace(botMentionRegex, '').trim()
     }
-    const agentResponse = await answerQuestion.call(this, modifiedMessage, conversationHistory, { ...options, forceVisual })
-    return [agentResponse]
+    const agentResponses = await answerQuestion.call(this, modifiedMessage, conversationHistory, { ...options, forceVisual })
+    return agentResponses
   },
   async start() {
     return true

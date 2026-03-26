@@ -1,5 +1,5 @@
 import verify from '../helpers/verify.js'
-import { AgentMessageActions, AgentResponse, ConversationHistory } from '../../types/index.types.js'
+import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
 import renderAgentTemplate from '../helpers/renderAgentTemplate.js'
 
 import Message from '../../models/message.model.js'
@@ -169,8 +169,8 @@ export default verify({
       // eslint-disable-next-line security/detect-non-literal-regexp
       const botMentionRegex = new RegExp(`@${escapedBotName}`, 'gi')
       modifiedMessage.body = modifiedMessage.body.trim().replace(botMentionRegex, '').trim()
-      const agentResponse = await answerQuestion.call(this, modifiedMessage, conversationHistory)
-      return [agentResponse]
+      const agentResponses = await answerQuestion.call(this, modifiedMessage, conversationHistory)
+      return agentResponses
     }
 
     // Check if the previous message was asking about submitting to moderator
@@ -213,9 +213,8 @@ export default verify({
     const modifiedMessage = { ...userMessage }
     modifiedMessage.body = extractMessageText(userMessage)
 
-    const agentResponse = await answerQuestion.call(this, modifiedMessage, conversationHistory, { forceVisual })
-    const agentResponses: AgentResponse<string | Record<string, unknown>>[] = [agentResponse]
-    const { classification } = agentResponse
+    const agentResponses = await answerQuestion.call(this, modifiedMessage, conversationHistory, { forceVisual })
+    const { classification } = agentResponses[0]
     if (
       classification === QuestionClassification.UNANSWERABLE ||
       classification === QuestionClassification.ON_TOPIC_ASK_SPEAKER

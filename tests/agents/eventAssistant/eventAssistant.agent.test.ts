@@ -58,7 +58,10 @@ describe(`event assistant CI tests`, () => {
   }
 
   async function validateVisualGenerationInitiation(responses, channel = `direct-agents-${user1._id}`) {
-    expect(responses).toHaveLength(1)
+    // Should have 2 responses: text for user and image-gen message
+    expect(responses).toHaveLength(2)
+
+    // First response: Text answer for user with visual indicator
     expect(responses[0].message).toBeDefined()
     expect(responses[0].messageType).toBe('json')
     expect(responses[0].message.text).toBeDefined()
@@ -67,14 +70,23 @@ describe(`event assistant CI tests`, () => {
     // Should have visual generation indicator
     expect(responses[0].message.text).toContain('🎨 Generating visual...')
 
-    // Should have 2 channels: user channel and image-gen
-    expect(responses[0].channels).toHaveLength(2)
-    const channelNames = responses[0].channels.map((ch: IChannel) => ch.name)
-    expect(channelNames).toContain(channel)
-    expect(channelNames).toContain('image-gen')
+    // Should only go to user's channel (not image-gen)
+    expect(responses[0].channels).toHaveLength(1)
+    expect(responses[0].channels[0].name).toBe(channel)
+    expect(responses[0].visible).toBe(true)
 
-    // Should have parent set to the user's original message
-    expect(responses[0].parent).toBeDefined()
+    // Second response: Hidden image-gen message
+    expect(responses[1].message).toBeDefined()
+    expect(responses[1].messageType).toBe('json')
+    expect(responses[1].visible).toBe(false)
+
+    // Should have structured body with sourceMessage and answer
+    expect(responses[1].message.sourceMessage).toBeDefined()
+    expect(responses[1].message.answer).toBeDefined()
+
+    // Should only go to image-gen channel
+    expect(responses[1].channels).toHaveLength(1)
+    expect(responses[1].channels[0].name).toBe('image-gen')
   }
 
   async function createQuestion(body) {
@@ -794,7 +806,6 @@ describe(`event assistant CI tests`, () => {
 
           // Should initiate visual generation even without user preference
           await validateVisualGenerationInitiation(responses)
-          expect(responses[0].parent).toBe(msg._id)
         },
         testTimeout
       )
@@ -895,27 +906,25 @@ describe(`event assistant CI tests`, () => {
           // Call evaluate first to parse the slash command
           const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
 
-          // Step 1: Get the initial text response
+          // Step 1: Get the initial responses (text + image-gen message)
           const initialResponses = await defaultAgentTypes.eventAssistant.respond.call(
             agent,
             { messages: [] },
             evaluation.userMessage
           )
-          expect(initialResponses).toHaveLength(1)
-          expect(typeof initialResponses[0].message.text).toBe('string')
 
-          // Should trigger visual generation
+          // Should trigger visual generation (returns 2 responses)
           await validateVisualGenerationInitiation(initialResponses)
-          expect(initialResponses[0].parent).toBe(msg._id)
 
-          // Step 2: Simulate the agent receiving its own message on image-gen channel
+          // Step 2: Simulate the agent receiving the image-gen message on image-gen channel
+          // Use the second response (the image-gen message) as the body
           const imageGenMessage = await createMessage(
-            initialResponses[0].message,
+            initialResponses[1].message,
             { _id: agent._id, pseudonym: agent.name, pseudonyms: [{ pseudonym: agent.name }] },
             conversation,
-            ['image-gen', `direct-agents-${user1._id}`]
+            ['image-gen']
           )
-          imageGenMessage.parentMessage = msg._id
+          imageGenMessage.bodyType = 'json'
 
           // Agent sees its own message on image-gen and generates the image
           const imageResponses = await defaultAgentTypes.eventAssistant.respond.call(
@@ -935,14 +944,14 @@ describe(`event assistant CI tests`, () => {
           expect(imageResponses[0].message.media[0].data.length).toBeGreaterThan(100)
           expect(imageResponses[0].message.media[0].mimeType).toMatch(/^image\//)
 
+          // Should include sourceMessage at root of message
+          expect(imageResponses[0].message.sourceMessage).toBe(msg._id.toString())
+
           // Should NOT include image-gen channel (to avoid infinite loop)
           const imageChannelNames = imageResponses[0].channels.map((ch: IChannel) => ch.name)
           expect(imageChannelNames).not.toContain('image-gen')
           // Should include the user's direct channel
           expect(imageChannelNames).toContain(`direct-agents-${user1._id}`)
-
-          // Should have same parent as initial response (the user's question)
-          expect(imageResponses[0].parent).toBe(msg._id)
         },
         testTimeout
       )
@@ -1023,12 +1032,10 @@ describe(`event assistant CI tests`, () => {
 
         const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [msg1] }, msg)
 
+        // This validates only one response, which means a second response to image-gen channel was not triggered
         await validateResponse(responses, 'chat')
         // Should NOT have visual generation indicator on chat channel
         expect(responses[0].message.text).not.toContain('🎨 Generating visual...')
-        // Should only have 1 channel (chat), NOT image-gen
-        expect(responses[0].channels).toHaveLength(1)
-        expect(responses[0].channels[0].name).toEqual('chat')
       },
       testTimeout
     )
@@ -1114,7 +1121,6 @@ describe(`event assistant CI tests`, () => {
         // If visual generation was triggered, verify the complete two-step initiation
         if (responses[0].message.text.includes('🎨 Generating visual...')) {
           await validateVisualGenerationInitiation(responses)
-          expect(responses[0].parent).toBe(msg._id)
         } else {
           // If not triggered, should be a normal single-channel response
           await validateResponse(responses)
@@ -1201,27 +1207,23 @@ describe(`event assistant CI tests`, () => {
           directMessages: true
         }
 
-        // Step 1: Get the initial text response
+        // Step 1: Get the initial responses
         const initialResponses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
-        expect(initialResponses).toHaveLength(1)
-        expect(initialResponses[0].messageType).toBe('json')
-        expect(initialResponses[0].message.text).toBeDefined()
 
         // If visual generation was triggered, complete the two-step process
-        if (initialResponses[0].message.text.includes('🎨 Generating visual...')) {
+        if (initialResponses.length === 2 && initialResponses[0].message.text?.includes('🎨 Generating visual...')) {
           // Validate the initial response has the correct setup
           await validateVisualGenerationInitiation(initialResponses)
-          expect(initialResponses[0].parent).toBe(msg._id)
 
-          // Step 2: Simulate the agent receiving its own message on image-gen channel
-          // This simulates what happens when the message is posted to image-gen
+          // Step 2: Simulate the agent receiving the image-gen message on image-gen channel
+          // Use the second response (the image-gen message) as the body
           const imageGenMessage = await createMessage(
-            initialResponses[0].message,
+            initialResponses[1].message,
             { _id: agent._id, pseudonym: agent.name, pseudonyms: [{ pseudonym: agent.name }] },
             conversation,
-            ['image-gen', `direct-agents-${user1._id}`]
+            ['image-gen']
           )
-          imageGenMessage.parentMessage = msg._id
+          imageGenMessage.bodyType = 'json'
 
           // Agent sees its own message on image-gen and generates the image
           const imageResponses = await defaultAgentTypes.eventAssistant.respond.call(
@@ -1241,14 +1243,12 @@ describe(`event assistant CI tests`, () => {
           expect(imageResponses[0].message.media[0].data.length).toBeGreaterThan(100)
           expect(imageResponses[0].message.media[0].mimeType).toMatch(/^image\//)
 
-          // Should NOT include image-gen channel (to avoid infinite loop)
+          // Should include sourceMessage at root of message
+          expect(imageResponses[0].message.sourceMessage).toBe(msg._id.toString())
+
           const imageChannelNames = imageResponses[0].channels.map((ch: IChannel) => ch.name)
-          expect(imageChannelNames).not.toContain('image-gen')
           // Should include the user's direct channel
           expect(imageChannelNames).toContain(`direct-agents-${user1._id}`)
-
-          // Should have same parent as initial response (the user's question)
-          expect(imageResponses[0].parent).toBe(msg._id)
         }
       },
       testTimeout
