@@ -109,7 +109,7 @@ export async function generateVisualResponse(
  */
 export default async function generateImageResponse(userMessage, conversation, llmModel?: string) {
   // Extract ID of original question, text answer, and response channels
-  const { sourceMessage, answer, responseChannels: channelNames } = userMessage.body
+  const { sourceMessage, answer, responseChannels: channelNames, parent } = userMessage.body
 
   // Generate the image using the configured model
   const imageResult = await generateVisualResponse(answer, undefined, llmModel || imageGenerationLLMModel)
@@ -136,6 +136,6 @@ export default async function generateImageResponse(userMessage, conversation, l
     },
     messageType: 'multimodal',
     channels: responseChannels,
-    parent: userMessage.parentMessage
+    parent
   }
 }
