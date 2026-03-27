@@ -491,8 +491,18 @@ describe('back channel agent CI tests', () => {
     const messages = await Promise.all([
       createParticipantMessage(user1, { text: 'Hi' }, conversation, new Date(startDate.getTime() + 1 * 60 * 1000)), // 1 min
       createParticipantMessage(user2, { text: 'Testing' }, conversation, new Date(startDate.getTime() + 90 * 1000)), // 1.5 min
-      createParticipantMessage(user3, { text: 'This is Billy' }, conversation, new Date(startDate.getTime() + 2 * 60 * 1000)), // 2 min
-      createParticipantMessage(user4, { text: "I'm glad we don't have class tomorrow" }, conversation, new Date(startDate.getTime() + 150 * 1000)) // 2.5 min
+      createParticipantMessage(
+        user3,
+        { text: 'This is Billy' },
+        conversation,
+        new Date(startDate.getTime() + 2 * 60 * 1000)
+      ), // 2 min
+      createParticipantMessage(
+        user4,
+        { text: "I'm glad we don't have class tomorrow" },
+        conversation,
+        new Date(startDate.getTime() + 150 * 1000)
+      ) // 2.5 min
     ])
 
     const responses = await defaultAgentTypes.backChannelInsights.respond.call(agent, {
@@ -503,6 +513,69 @@ describe('back channel agent CI tests', () => {
     await validateResponse(responses)
     const { insights } = responses[0].message
     expect(insights.length).toBeGreaterThan(0)
+  }, 120000)
+
+  it('does not duplicate clustered comments as standalone questions', async () => {
+    conversation = await createBackChannelConversation(
+      { name: 'Where are all the aliens?' },
+      user1,
+      topic,
+      startDate,
+      testConfig.llmPlatform,
+      testConfig.llmModel
+    )
+    const [testAgent] = conversation.agents
+    agent = testAgent
+    await loadAliensTranscript(conversation)
+
+    const endTime = new Date(startDate.getTime() + 4 * 60 * 1000) // 4 min after start
+
+    // Three users share the same sentiment — should cluster into one insight
+    // plus one unrelated comment from a fourth user that should pass through as a question
+    const messages = await Promise.all([
+      createParticipantMessage(
+        user1,
+        { text: 'Why have we never detected any alien signals?' },
+        conversation,
+        new Date(startDate.getTime() + 60 * 1000) // 1 min
+      ),
+      createParticipantMessage(
+        user2,
+        { text: "It's strange we haven't heard anything from other civilizations." },
+        conversation,
+        new Date(startDate.getTime() + 75 * 1000) // 1.25 min
+      ),
+      createParticipantMessage(
+        user3,
+        { text: 'The absence of any detectable signals is really puzzling.' },
+        conversation,
+        new Date(startDate.getTime() + 90 * 1000) // 1.5 min
+      ),
+      createParticipantMessage(
+        user4,
+        { text: 'How does the Drake Equation account for civilizations that go silent?' },
+        conversation,
+        new Date(startDate.getTime() + 120 * 1000) // 2 min
+      )
+    ])
+
+    const responses = await defaultAgentTypes.backChannelInsights.respond.call(agent, {
+      start: startDate,
+      end: endTime,
+      messages
+    })
+
+    await validateResponse(responses)
+    const { insights } = responses[0].message
+
+    // Collects all comments included in the insights
+    const allInsightCommentTexts = insights.filter((i) => i.type === 'insight').flatMap((i) => i.comments.map((c) => c.text))
+
+    // No comment that already appears in a clustered insight should also appear as a standalone question
+    const questionCommentTexts = insights.filter((i) => i.type === 'question').flatMap((i) => i.comments.map((c) => c.text))
+
+    const duplicates = questionCommentTexts.filter((text) => allInsightCommentTexts.includes(text))
+    expect(duplicates).toHaveLength(0)
   }, 120000)
 
   it('introduces itself on new DM channels', async () => {
