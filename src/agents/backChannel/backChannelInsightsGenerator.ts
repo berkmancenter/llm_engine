@@ -283,14 +283,7 @@ export async function processParticipantMessages(messages, startTime, endTime) {
     ['user', this.llmTemplates.insightsUser]
   ])
 
-  const questionsPrompt = ChatPromptTemplate.fromMessages([
-    ['system', this.llmTemplates.standaloneQuestionSystem],
-    ['user', this.llmTemplates.standaloneQuestionUser]
-  ])
-
   const insightsChain = getStructuredResponseChain(llm, insightsPrompt, responseFormatSchemas.insights)
-
-  const questionsChain = getStructuredResponseChain(llm, questionsPrompt, responseFormatSchemas.insights)
 
   const insightsLambda = new RunnableLambda({
     func: async (input: { comments: string; topic: string; maxInsights: string; reportingThreshold: string }) => {
@@ -337,16 +330,23 @@ export async function processParticipantMessages(messages, startTime, endTime) {
       maxInsights: string
       reportingThreshold: string
     }) => {
-      const questionsResponse =
-        input.comments === '{}'
-          ? { results: [] }
-          : await questionsChain.invoke({
-              comments: input.comments,
-              topic: input.topic
-            })
-      const questionsInsights = questionsResponse as z.infer<typeof responseFormatSchemas.insights>
-      // add the type property to distinguish insights from standalone questions
-      questionsInsights.results = questionsInsights.results.map((insight) => ({ ...insight, type: 'question' }))
+      /**
+       * Surface remaining comments directly to the moderator without LLM filtering.
+       * Uses `input.comments`, which is pre-filtered by insightsLambda via fuzzy matching.
+       * @remarks A comment that partially overlaps with a clustered insight may be silently
+       * dropped here even if it shouldn't have been consumed by insightsLambda.
+       */
+      type CommentMsg = { comment: { user: string; timestamp: string; text: string }; transcript?: string }
+      const remainingComments: Record<string, CommentMsg[]> = input.comments === '{}' ? {} : JSON.parse(input.comments)
+      const questionsInsights = {
+        results: Object.values(remainingComments).flatMap((userComments) =>
+          userComments.map((commentMsg) => ({
+            value: commentMsg.comment.text,
+            comments: [{ user: commentMsg.comment.user, text: commentMsg.comment.text }],
+            type: 'question'
+          }))
+        )
+      }
 
       return {
         insightsFromInsights: input.insightsFromInsights,

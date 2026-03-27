@@ -476,7 +476,7 @@ describe('back channel agent CI tests', () => {
     expect(responses).toHaveLength(0)
   })
 
-  it('does not respond if only non-substantive messages are found', async () => {
+  it('surfaces non-substantive messages directly to moderator without filtering', async () => {
     conversation = await createBackChannelConversation(
       { name: 'Best Movie Ever' },
       user1,
@@ -487,39 +487,23 @@ describe('back channel agent CI tests', () => {
     )
     const [testAgent] = conversation.agents
     agent = testAgent
-    await createParticipantMessage(
-      user1,
-      {
-        text: 'Hi'
-      },
-      conversation
-    )
-    await createParticipantMessage(
-      user2,
-      {
-        text: 'Testing'
-      },
-      conversation
-    )
-    await createParticipantMessage(
-      user3,
-      {
-        text: 'This is Billy'
-      },
-      conversation
-    )
-    await createParticipantMessage(
-      user4,
-      {
-        text: "I'm glad we don't have class tomorrow"
-      },
-      conversation
-    )
+    const endTime = new Date(startDate.getTime() + 4 * 60 * 1000) // 4 minutes after start
+    const messages = await Promise.all([
+      createParticipantMessage(user1, { text: 'Hi' }, conversation, new Date(startDate.getTime() + 1 * 60 * 1000)), // 1 min
+      createParticipantMessage(user2, { text: 'Testing' }, conversation, new Date(startDate.getTime() + 90 * 1000)), // 1.5 min
+      createParticipantMessage(user3, { text: 'This is Billy' }, conversation, new Date(startDate.getTime() + 2 * 60 * 1000)), // 2 min
+      createParticipantMessage(user4, { text: "I'm glad we don't have class tomorrow" }, conversation, new Date(startDate.getTime() + 150 * 1000)) // 2.5 min
+    ])
 
-    await agent.evaluate()
-    const responses = await agent.respond()
-    expect(responses).toHaveLength(0)
-  })
+    const responses = await defaultAgentTypes.backChannelInsights.respond.call(agent, {
+      start: startDate,
+      end: endTime,
+      messages
+    })
+    await validateResponse(responses)
+    const { insights } = responses[0].message
+    expect(insights.length).toBeGreaterThan(0)
+  }, 120000)
 
   it('introduces itself on new DM channels', async () => {
     conversation = await createBackChannelConversation(
