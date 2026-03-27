@@ -397,7 +397,7 @@ describe('zoom adapter tests', () => {
       expect(msgs).toHaveLength(0)
     })
 
-    it('strips @ symbols from quoted portion in "Replying to" messages to avoid false mentions', async () => {
+    it('removes "Replying to" prefix and saves only the reply portion', async () => {
       await createConversation('Meeting with Reply Messages')
 
       const replyMessage = {
@@ -423,12 +423,12 @@ describe('zoom adapter tests', () => {
 
       const msgs = await adapter.receiveMessage(replyMessage)
       expect(msgs).toHaveLength(1)
-      expect(msgs[0].message).toBe('Replying to "bot please help" I think that\'s wrong')
+      expect(msgs[0].message).toBe("I think that's wrong")
       expect(msgs[0].source).toBe('zoom')
       expect(msgs[0].user).toEqual({ username: 'Charlie Brown' })
     })
 
-    it('preserves @ symbols in the reply portion (after the quote) of "Replying to" messages', async () => {
+    it('preserves @ symbols in the reply portion', async () => {
       await createConversation('Meeting with Reply and Mention')
 
       const replyMessage = {
@@ -454,7 +454,7 @@ describe('zoom adapter tests', () => {
 
       const msgs = await adapter.receiveMessage(replyMessage)
       expect(msgs).toHaveLength(1)
-      expect(msgs[0].message).toBe('Replying to "bot please help" Actually @bot can you explain this?')
+      expect(msgs[0].message).toBe('Actually @bot can you explain this?')
       expect(msgs[0].user).toEqual({ username: 'Dana White' })
     })
 
@@ -517,7 +517,7 @@ describe('zoom adapter tests', () => {
       expect(msgs[0].message).toBe('I think the answer is "42" according to the documentation')
       expect(msgs[0].user).toEqual({ username: 'Frank Miller' })
     })
-    it('preserves extra quotes in reply messages', async () => {
+    it('preserves extra quotes in reply portion', async () => {
       await createConversation('Meeting with Quoted Text')
 
       const messageWithQuotes = {
@@ -543,11 +543,11 @@ describe('zoom adapter tests', () => {
 
       const msgs = await adapter.receiveMessage(messageWithQuotes)
       expect(msgs).toHaveLength(1)
-      expect(msgs[0].message).toBe('Replying to "please help" I think the answer is "42"')
+      expect(msgs[0].message).toBe('I think the answer is "42"')
       expect(msgs[0].user).toEqual({ username: 'Frank Miller' })
     })
 
-    it('strips multiple @ symbols from quoted portion in "Replying to" messages', async () => {
+    it('removes "Replying to" prefix even with @ symbols in quote', async () => {
       await createConversation('Meeting with Multiple Mentions in Quote')
 
       const replyMessage = {
@@ -573,7 +573,7 @@ describe('zoom adapter tests', () => {
 
       const msgs = await adapter.receiveMessage(replyMessage)
       expect(msgs).toHaveLength(1)
-      expect(msgs[0].message).toBe('Replying to "bot and assistant help" Yes, they should both help')
+      expect(msgs[0].message).toBe('Yes, they should both help')
       expect(msgs[0].user).toEqual({ username: 'Grace Lee' })
     })
 
@@ -793,6 +793,922 @@ describe('zoom adapter tests', () => {
       const msgs = await adapter.receiveMessage(chatMessage)
 
       expect(msgs).toHaveLength(0)
+    })
+
+    describe('parent message matching for replies', () => {
+      it('finds parent message when replying with exact quote match', async () => {
+        await createConversation('Meeting with Reply Threading')
+        const Message = (await import('../../src/models/message.model.js')).default
+
+        adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+        await adapter.save()
+
+        // Create the original message
+        const originalMessage = await Message.create({
+          body: 'Can someone help with this task?',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Test User',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true
+        })
+
+        const replyMessage = {
+          data: {
+            data: {
+              data: {
+                text: 'Replying to "Can someone help with this task?" Sure, I can help!',
+                to: 'everyone'
+              },
+              participant: {
+                id: 102,
+                name: 'Alice Smith',
+                is_host: false,
+                platform: 'zoom'
+              }
+            }
+          },
+          event: 'participant_events.chat_message'
+        }
+
+        const msgs = await adapter.receiveMessage(replyMessage)
+        expect(msgs).toHaveLength(1)
+        expect(msgs[0].parentMessage.toString()).toBe(originalMessage._id.toString())
+      })
+
+      it('sets parent to original message when original has no parent', async () => {
+        await createConversation('Meeting with Simple Threading')
+        const Message = (await import('../../src/models/message.model.js')).default
+
+        adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+        await adapter.save()
+
+        const originalMessage = await Message.create({
+          body: 'What is the status of the project?',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Test User',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true
+        })
+
+        const replyMessage = {
+          data: {
+            data: {
+              data: {
+                text: 'Replying to "What is the status of the project?" It is going well',
+                to: 'everyone'
+              },
+              participant: {
+                id: 103,
+                name: 'Bob Johnson',
+                is_host: false,
+                platform: 'zoom'
+              }
+            }
+          },
+          event: 'participant_events.chat_message'
+        }
+
+        const msgs = await adapter.receiveMessage(replyMessage)
+        expect(msgs).toHaveLength(1)
+        expect(msgs[0].parentMessage.toString()).toBe(originalMessage._id.toString())
+      })
+
+      it('sets parent to original message parent when original has a parent', async () => {
+        await createConversation('Meeting with Nested Threading')
+        const Message = (await import('../../src/models/message.model.js')).default
+
+        adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+        await adapter.save()
+
+        // Create the root message
+        const rootMessage = await Message.create({
+          body: 'Let us discuss the proposal',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Test User',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true
+        })
+
+        // Create a reply to the root message
+        const firstReply = await Message.create({
+          body: 'I agree with the proposal',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Test User 2',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true,
+          parentMessage: rootMessage._id
+        })
+
+        // Reply to the first reply - should set parent to root message
+        const secondReplyMessage = {
+          data: {
+            data: {
+              data: {
+                text: 'Replying to "I agree with the proposal" Me too!',
+                to: 'everyone'
+              },
+              participant: {
+                id: 104,
+                name: 'Charlie Brown',
+                is_host: false,
+                platform: 'zoom'
+              }
+            }
+          },
+          event: 'participant_events.chat_message'
+        }
+
+        const msgs = await adapter.receiveMessage(secondReplyMessage)
+        expect(msgs).toHaveLength(1)
+        expect(msgs[0].parentMessage.toString()).toBe(rootMessage._id.toString())
+      })
+
+      it('does not set parent when quote does not match any message', async () => {
+        await createConversation('Meeting with No Match')
+        const Message = (await import('../../src/models/message.model.js')).default
+
+        adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+        await adapter.save()
+
+        await Message.create({
+          body: 'This is a different message',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Test User',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true
+        })
+
+        const replyMessage = {
+          data: {
+            data: {
+              data: {
+                text: 'Replying to "This quote does not exist" I disagree',
+                to: 'everyone'
+              },
+              participant: {
+                id: 105,
+                name: 'Dana White',
+                is_host: false,
+                platform: 'zoom'
+              }
+            }
+          },
+          event: 'participant_events.chat_message'
+        }
+
+        const msgs = await adapter.receiveMessage(replyMessage)
+        expect(msgs).toHaveLength(1)
+        expect(msgs[0].parentMessage).toBeUndefined()
+      })
+
+      it('only searches messages within the last hour', async () => {
+        await createConversation('Meeting with Old Messages')
+        const Message = (await import('../../src/models/message.model.js')).default
+
+        adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+        await adapter.save()
+
+        // Create an old message (2 hours ago)
+        const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000)
+        await Message.create({
+          body: 'This is an old message',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Test User',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true,
+          createdAt: twoHoursAgo
+        })
+
+        const replyMessage = {
+          data: {
+            data: {
+              data: {
+                text: 'Replying to "This is an old message" I found it!',
+                to: 'everyone'
+              },
+              participant: {
+                id: 106,
+                name: 'Eve Anderson',
+                is_host: false,
+                platform: 'zoom'
+              }
+            }
+          },
+          event: 'participant_events.chat_message'
+        }
+
+        const msgs = await adapter.receiveMessage(replyMessage)
+        expect(msgs).toHaveLength(1)
+        // Should not find the old message
+        expect(msgs[0].parentMessage).toBeUndefined()
+      })
+
+      it('only searches messages on the same channels', async () => {
+        await createConversation('Meeting with Multiple Channels')
+        const Message = (await import('../../src/models/message.model.js')).default
+
+        adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+        await adapter.save()
+
+        // Create message on different channel
+        await Message.create({
+          body: 'This is on a different channel',
+          conversation: conversation._id,
+          channels: ['other-channel'],
+          pseudonym: 'Test User',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true
+        })
+
+        const replyMessage = {
+          data: {
+            data: {
+              data: {
+                text: 'Replying to "This is on a different channel" Yes!',
+                to: 'everyone'
+              },
+              participant: {
+                id: 107,
+                name: 'Frank Miller',
+                is_host: false,
+                platform: 'zoom'
+              }
+            }
+          },
+          event: 'participant_events.chat_message'
+        }
+
+        const msgs = await adapter.receiveMessage(replyMessage)
+        expect(msgs).toHaveLength(1)
+        // Should not find message on different channel
+        expect(msgs[0].parentMessage).toBeUndefined()
+      })
+
+      it('finds parent message for DM replies', async () => {
+        await createConversation('Meeting with DM Threading')
+        const Message = (await import('../../src/models/message.model.js')).default
+        conversation.enableDMs = ['agents']
+        await conversation.save()
+
+        const agentId = new mongoose.Types.ObjectId()
+        adapter.dmChannels = [{ name: 'dm-channel', direction: Direction.INCOMING }]
+        await adapter.save()
+
+        const originalMessage = await Message.create({
+          body: 'Can you help me privately?',
+          conversation: conversation._id,
+          channels: ['dm-channel'],
+          pseudonym: 'Test User',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true
+        })
+
+        const replyMessage = {
+          data: {
+            data: {
+              data: {
+                text: 'Replying to "Can you help me privately?" Of course!',
+                to: 'only_bot'
+              },
+              participant: {
+                id: 108,
+                name: 'Grace Lee',
+                is_host: false,
+                platform: 'zoom'
+              }
+            }
+          },
+          event: 'participant_events.chat_message'
+        }
+
+        const msgs = await adapter.receiveMessage(replyMessage)
+        expect(msgs).toHaveLength(1)
+        expect(msgs[0].parentMessage.toString()).toBe(originalMessage._id.toString())
+      })
+
+      it('finds most recent message when multiple matches exist', async () => {
+        await createConversation('Meeting with Multiple Matches')
+        const Message = (await import('../../src/models/message.model.js')).default
+
+        adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+        await adapter.save()
+
+        // Create two messages with similar content
+        await Message.create({
+          body: 'I need help with this',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Test User',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true,
+          createdAt: new Date(Date.now() - 10 * 60 * 1000) // 10 minutes ago
+        })
+
+        const recentMessage = await Message.create({
+          body: 'I need help with this',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Test User 2',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true,
+          createdAt: new Date(Date.now() - 1 * 60 * 1000) // 1 minute ago
+        })
+
+        const replyMessage = {
+          data: {
+            data: {
+              data: {
+                text: 'Replying to "I need help with this" Sure thing!',
+                to: 'everyone'
+              },
+              participant: {
+                id: 109,
+                name: 'Henry Ford',
+                is_host: false,
+                platform: 'zoom'
+              }
+            }
+          },
+          event: 'participant_events.chat_message'
+        }
+
+        const msgs = await adapter.receiveMessage(replyMessage)
+        expect(msgs).toHaveLength(1)
+        // Should match the most recent message
+        expect(msgs[0].parentMessage.toString()).toBe(recentMessage._id.toString())
+      })
+
+      it('finds parent message when quote is truncated at 50 characters by Recall', async () => {
+        await createConversation('Meeting with Truncated Reply')
+        const Message = (await import('../../src/models/message.model.js')).default
+
+        adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+        await adapter.save()
+
+        // Create a long original message (more than 50 characters)
+        const longMessage =
+          'Can someone please help me understand the details of this complicated project requirement and how we should proceed?'
+        const originalMessage = await Message.create({
+          body: longMessage,
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Test User',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true
+        })
+
+        // Recall truncates the quote at ~50 characters
+        const truncatedQuote = 'Can someone please help me understand the details'
+        const replyMessage = {
+          data: {
+            data: {
+              data: {
+                text: `Replying to "${truncatedQuote}" Yes, I can help with that!`,
+                to: 'everyone'
+              },
+              participant: {
+                id: 110,
+                name: 'Isabel Martinez',
+                is_host: false,
+                platform: 'zoom'
+              }
+            }
+          },
+          event: 'participant_events.chat_message'
+        }
+
+        const msgs = await adapter.receiveMessage(replyMessage)
+        expect(msgs).toHaveLength(1)
+        // Should still find the parent message via substring matching
+        expect(msgs[0].parentMessage.toString()).toBe(originalMessage._id.toString())
+      })
+
+      it('handles partial quote with special regex characters', async () => {
+        await createConversation('Meeting with Special Characters')
+        const Message = (await import('../../src/models/message.model.js')).default
+
+        adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+        await adapter.save()
+
+        const originalMessage = await Message.create({
+          body: 'What does the function calculateTotal() do? Can you explain the logic behind it?',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Test User',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true
+        })
+
+        // Truncated quote containing parentheses (special regex chars)
+        const replyMessage = {
+          data: {
+            data: {
+              data: {
+                text: 'Replying to "What does the function calculateTotal() do? Can yo" It calculates the total amount',
+                to: 'everyone'
+              },
+              participant: {
+                id: 111,
+                name: 'Jack Wilson',
+                is_host: false,
+                platform: 'zoom'
+              }
+            }
+          },
+          event: 'participant_events.chat_message'
+        }
+
+        const msgs = await adapter.receiveMessage(replyMessage)
+        expect(msgs).toHaveLength(1)
+        // Should properly escape regex special characters and still find the match
+        expect(msgs[0].parentMessage.toString()).toBe(originalMessage._id.toString())
+      })
+
+      it('strips robot emoji from quoted portion when matching agent messages', async () => {
+        await createConversation('Meeting with Agent Message Reply')
+        const Message = (await import('../../src/models/message.model.js')).default
+
+        adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+        await adapter.save()
+
+        // Create an agent message (what was sent to Zoom with emoji)
+        const originalMessage = await Message.create({
+          body: 'I can help you with that task',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Agent',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          fromAgent: true,
+          source: 'zoom',
+          visible: true
+        })
+
+        // Zoom reply includes the robot emoji in the quote
+        const replyMessage = {
+          data: {
+            data: {
+              data: {
+                text: 'Replying to "🤖 I can help you with that task" Thank you!',
+                to: 'everyone'
+              },
+              participant: {
+                id: 112,
+                name: 'Kelly White',
+                is_host: false,
+                platform: 'zoom'
+              }
+            }
+          },
+          event: 'participant_events.chat_message'
+        }
+
+        const msgs = await adapter.receiveMessage(replyMessage)
+        expect(msgs).toHaveLength(1)
+        expect(msgs[0].message).toBe('Thank you!')
+        // Should match by stripping the emoji
+        expect(msgs[0].parentMessage.toString()).toBe(originalMessage._id.toString())
+      })
+
+      it('strips person emoji and pseudonym from quoted portion when matching user messages', async () => {
+        await createConversation('Meeting with User Message Reply')
+        const Message = (await import('../../src/models/message.model.js')).default
+
+        adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+        await adapter.save()
+
+        // Create a user message (original body without icon/pseudonym)
+        const originalMessage = await Message.create({
+          body: 'This is a great idea',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Fun Frog',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true
+        })
+
+        // Zoom reply includes the person emoji and pseudonym in the quote
+        const replyMessage = {
+          data: {
+            data: {
+              data: {
+                text: 'Replying to "👤 Fun Frog: This is a great idea" I agree!',
+                to: 'everyone'
+              },
+              participant: {
+                id: 113,
+                name: 'Larry King',
+                is_host: false,
+                platform: 'zoom'
+              }
+            }
+          },
+          event: 'participant_events.chat_message'
+        }
+
+        const msgs = await adapter.receiveMessage(replyMessage)
+        expect(msgs).toHaveLength(1)
+        expect(msgs[0].message).toBe('I agree!')
+        // Should match by stripping the emoji and pseudonym
+        expect(msgs[0].parentMessage.toString()).toBe(originalMessage._id.toString())
+      })
+
+      it('strips truncated pseudonym from quoted portion when not ending with ...', async () => {
+        await createConversation('Meeting with Truncated Pseudonym')
+        const Message = (await import('../../src/models/message.model.js')).default
+
+        adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+        await adapter.save()
+
+        // Create a user message with a long body
+        const originalMessage = await Message.create({
+          body: 'Can someone help me understand how this feature works and what the best approach is?',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Very Long Pseudonym Name',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true
+        })
+
+        // Zoom quote is truncated at ~50 chars and includes emoji + pseudonym (no ... yet)
+        const replyMessage = {
+          data: {
+            data: {
+              data: {
+                text: 'Replying to "👤 Very Long Pseudonym Name: Can someone help me un" Sure!',
+                to: 'everyone'
+              },
+              participant: {
+                id: 114,
+                name: 'Mary Johnson',
+                is_host: false,
+                platform: 'zoom'
+              }
+            }
+          },
+          event: 'participant_events.chat_message'
+        }
+
+        const msgs = await adapter.receiveMessage(replyMessage)
+        expect(msgs).toHaveLength(1)
+        expect(msgs[0].message).toBe('Sure!')
+        // Should match by stripping emoji/pseudonym and matching the partial quote
+        expect(msgs[0].parentMessage.toString()).toBe(originalMessage._id.toString())
+      })
+
+      it('matches by pseudonym when quote is severely truncated with ... (only first letter)', async () => {
+        await createConversation('Meeting with Severely Truncated Quote')
+        const Message = (await import('../../src/models/message.model.js')).default
+
+        adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+        await adapter.save()
+
+        // Create a user message
+        const originalMessage = await Message.create({
+          body: 'This is an important message about the project',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Fun Frog',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true
+        })
+
+        // Zoom severely truncates: only first letter after pseudonym, ends with ...
+        const replyMessage = {
+          data: {
+            data: {
+              data: {
+                text: 'Replying to "👤 Fun Frog: T..." I agree!',
+                to: 'everyone'
+              },
+              participant: {
+                id: 115,
+                name: 'Nancy Drew',
+                is_host: false,
+                platform: 'zoom'
+              }
+            }
+          },
+          event: 'participant_events.chat_message'
+        }
+
+        const msgs = await adapter.receiveMessage(replyMessage)
+        expect(msgs).toHaveLength(1)
+        expect(msgs[0].message).toBe('I agree!')
+        // Should match by pseudonym since quote ends with ... and has pseudonym
+        expect(msgs[0].parentMessage.toString()).toBe(originalMessage._id.toString())
+      })
+
+      it('matches most recent message by pseudonym when multiple messages exist', async () => {
+        await createConversation('Meeting with Multiple Messages from Same Pseudonym')
+        const Message = (await import('../../src/models/message.model.js')).default
+
+        adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+        await adapter.save()
+
+        // Create older message from same pseudonym
+        await Message.create({
+          body: 'First message from user',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Cool Cat',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true,
+          createdAt: new Date(Date.now() - 10 * 60 * 1000) // 10 minutes ago
+        })
+
+        // Create more recent message from same pseudonym
+        const recentMessage = await Message.create({
+          body: 'Second message from same user',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Cool Cat',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true,
+          createdAt: new Date(Date.now() - 1 * 60 * 1000) // 1 minute ago
+        })
+
+        // Reply with severely truncated quote
+        const replyMessage = {
+          data: {
+            data: {
+              data: {
+                text: 'Replying to "👤 Cool Cat: S..." Great point!',
+                to: 'everyone'
+              },
+              participant: {
+                id: 116,
+                name: 'Oliver Stone',
+                is_host: false,
+                platform: 'zoom'
+              }
+            }
+          },
+          event: 'participant_events.chat_message'
+        }
+
+        const msgs = await adapter.receiveMessage(replyMessage)
+        expect(msgs).toHaveLength(1)
+        expect(msgs[0].message).toBe('Great point!')
+        // Should match the most recent message from that pseudonym
+        expect(msgs[0].parentMessage.toString()).toBe(recentMessage._id.toString())
+      })
+
+      it('matches by pseudonym only when truncated, not for full quotes', async () => {
+        await createConversation('Meeting with Full vs Truncated Quotes')
+        const Message = (await import('../../src/models/message.model.js')).default
+
+        adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+        await adapter.save()
+
+        // Create two messages from same pseudonym
+        const olderMessage = await Message.create({
+          body: 'This is the first message',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Happy Hippo',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true,
+          createdAt: new Date(Date.now() - 5 * 60 * 1000)
+        })
+
+        await Message.create({
+          body: 'This is a different message',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Happy Hippo',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true,
+          createdAt: new Date(Date.now() - 1 * 60 * 1000)
+        })
+
+        // Reply with full quote (no truncation)
+        const replyMessage = {
+          data: {
+            data: {
+              data: {
+                text: 'Replying to "👤 Happy Hippo: This is the first message" Exactly!',
+                to: 'everyone'
+              },
+              participant: {
+                id: 117,
+                name: 'Patricia Hill',
+                is_host: false,
+                platform: 'zoom'
+              }
+            }
+          },
+          event: 'participant_events.chat_message'
+        }
+
+        const msgs = await adapter.receiveMessage(replyMessage)
+        expect(msgs).toHaveLength(1)
+        expect(msgs[0].message).toBe('Exactly!')
+        // Should match by content, not just pseudonym (picks the specific message)
+        expect(msgs[0].parentMessage.toString()).toBe(olderMessage._id.toString())
+      })
+
+      it('only matches messages that start with the quoted text, not contain', async () => {
+        await createConversation('Meeting with Start vs Contains')
+        const Message = (await import('../../src/models/message.model.js')).default
+
+        adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+        await adapter.save()
+
+        // Create message that contains the text but doesn't start with it
+        await Message.create({
+          body: 'I think the answer is important here',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Test User',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true
+        })
+
+        // Create message that starts with the text
+        const correctMessage = await Message.create({
+          body: 'important here is the key point',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Test User 2',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true
+        })
+
+        const replyMessage = {
+          data: {
+            data: {
+              data: {
+                text: 'Replying to "important here" I agree!',
+                to: 'everyone'
+              },
+              participant: {
+                id: 118,
+                name: 'Quinn Adams',
+                is_host: false,
+                platform: 'zoom'
+              }
+            }
+          },
+          event: 'participant_events.chat_message'
+        }
+
+        const msgs = await adapter.receiveMessage(replyMessage)
+        expect(msgs).toHaveLength(1)
+        // Should match the message that STARTS with the text
+        expect(msgs[0].parentMessage.toString()).toBe(correctMessage._id.toString())
+      })
+
+      it('does not match by pseudonym if truncated text does not match message start', async () => {
+        await createConversation('Meeting with Mismatched Truncated Quote')
+        const Message = (await import('../../src/models/message.model.js')).default
+
+        adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+        await adapter.save()
+
+        // Create message from pseudonym that doesn't match the truncated quote
+        await Message.create({
+          body: 'This is completely different text',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Clever Cat',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true
+        })
+
+        // Reply with truncated quote that doesn't match the actual message start
+        const replyMessage = {
+          data: {
+            data: {
+              data: {
+                text: 'Replying to "👤 Clever Cat: Some other t..." No way!',
+                to: 'everyone'
+              },
+              participant: {
+                id: 119,
+                name: 'Rachel Green',
+                is_host: false,
+                platform: 'zoom'
+              }
+            }
+          },
+          event: 'participant_events.chat_message'
+        }
+
+        const msgs = await adapter.receiveMessage(replyMessage)
+        expect(msgs).toHaveLength(1)
+        expect(msgs[0].message).toBe('No way!')
+        // Should not find a match since "Some other t" doesn't match message start
+        expect(msgs[0].parentMessage).toBeUndefined()
+      })
+
+      it('matches correct message by pseudonym when truncated text matches start', async () => {
+        await createConversation('Meeting with Correct Truncated Match')
+        const Message = (await import('../../src/models/message.model.js')).default
+
+        adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+        await adapter.save()
+
+        // Create older message from same pseudonym
+        await Message.create({
+          body: 'Different message entirely',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Busy Bee',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true,
+          createdAt: new Date(Date.now() - 10 * 60 * 1000)
+        })
+
+        // Create recent message that matches the truncated quote
+        const matchingMessage = await Message.create({
+          body: 'This is the correct message',
+          conversation: conversation._id,
+          channels: ['participant'],
+          pseudonym: 'Busy Bee',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          owner: user1._id,
+          source: 'zoom',
+          visible: true,
+          createdAt: new Date(Date.now() - 1 * 60 * 1000)
+        })
+
+        // Reply with truncated quote that matches the second message start
+        const replyMessage = {
+          data: {
+            data: {
+              data: {
+                text: 'Replying to "👤 Busy Bee: This is the c..." Perfect!',
+                to: 'everyone'
+              },
+              participant: {
+                id: 120,
+                name: 'Sam Wilson',
+                is_host: false,
+                platform: 'zoom'
+              }
+            }
+          },
+          event: 'participant_events.chat_message'
+        }
+
+        const msgs = await adapter.receiveMessage(replyMessage)
+        expect(msgs).toHaveLength(1)
+        expect(msgs[0].message).toBe('Perfect!')
+        // Should match the message where pseudonym AND partial text both match
+        expect(msgs[0].parentMessage.toString()).toBe(matchingMessage._id.toString())
+      })
     })
   })
 

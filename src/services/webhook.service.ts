@@ -71,7 +71,8 @@ const receiveMessage = async (adapter, message) => {
         body: adapterMsg.message,
         source: adapterMsg.source,
         bodyType: adapterMsg.messageType || 'text',
-        ...(adapterMsg.createdAt !== undefined && { createdAt: adapterMsg.createdAt })
+        ...(adapterMsg.createdAt !== undefined && { createdAt: adapterMsg.createdAt }),
+        ...(adapterMsg.parentMessage !== undefined && { parentMessage: adapterMsg.parentMessage })
       }
       await messageService.newMessageHandler(msg, user)
     }
