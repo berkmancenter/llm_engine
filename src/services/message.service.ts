@@ -334,8 +334,12 @@ const newMessageHandler = async (message, user, request = null) => {
     sentMessage.owner = user._id
 
     for (const adapter of conversation.adapters) {
-      const adapterMsg = sentMessage.parseOutput ? sentMessage.parseOutput(sentMessage) : sentMessage
-      await adapter.sendMessage(adapterMsg)
+      try {
+        const adapterMsg = sentMessage.parseOutput ? sentMessage.parseOutput(sentMessage) : sentMessage
+        await adapter.sendMessage(adapterMsg)
+      } catch (err) {
+        logger.error(`Error sending message through adapter ${adapter._id}: ${err.message}`)
+      }
     }
     // TODO websocket should be an adapter, keeping here for now until we require messages to have channels
     websocketGateway.broadcastNewMessage(sentMessage, request)
