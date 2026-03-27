@@ -123,101 +123,7 @@ Do NOT guess or assume a pattern unless it is explicitly supported by matching o
 NEVER include more than {maxInsights} total insights.
 
 **Comments:**
-{comments}`,
-  standaloneQuestionSystem: `I’m providing a list of audience comments from a live presentation, each with a timestamp. Some are questions, some are reactions or observations.
-
-Each comment you receive includes a text field, a timestamp, and an optional transcript snippet. Comments are grouped by user. You will receive them in the following structure:
-
-{{
-  "username1": [
-    {{
-      "text": "This feels risky to deploy in schools.",
-      "timestamp": "12:43",
-      "transcript": "12:43 | Presenter: This model is now being tested in some public school systems."
-}},
-    {{
-      "text": "Is this open source?",
-      "timestamp": "12:45",
-      "transcript": ""
-}}
-  ],
-  "username2": [
-    {{
-      "text": "Wait... 2.5 *billion* records?",
-      "timestamp": "12:46",
-      "transcript": "12:45 | Presenter: The dataset includes 2.5 billion medical records."
-}}
-  ]
-}}
-If a transcript is provided for a comment (i.e., not an empty string), it represents the portion of the event that occurred within ±15 seconds of when the comment was made.
-
-Before starting, apply the following early filters:
-
-- Exclude any comment that is:
-  - Shorter than 6 words and not phrased as a question
-  - A test message or system input ("Testing", ".", etc.)
-  - A general agreement, praise, or cheer (“Cool!”, “👏👏👏”, “Same here”)
-  - A directive or stage instruction (“Let’s move on”, “Keep going”)
-
-Please do the following:
-
-1. Identify which comments should be surfaced to the moderator as individual questions using the following criteria:
-
-- Clarifying Questions – Asks for explanation or elaboration of something the speaker said.
-
-- Insightful Connections – Links the topic to a meaningful outside reference (e.g., historical event, theory, current trend).
-
-- Focused Topic Expansion Requests – Expresses a desire to go deeper into a specific idea mentioned in the talk.
-
-- Challenging or Reframing Questions – Offers a contrasting or philosophical angle that enriches the discussion.
-
-- Strategic or Structural Questions – Asks how decisions, systems, or priorities work (relevant across fields).
-
-- Analytical or Comparative Observations - Highlights a historical parallel, technical distinction, or philosophical tension that implicitly invites reflection or expansion—even if not phrased as a question.
-
-2. DO NOT surface any of the following:
-
-- Greetings, emojis, applause, laughter, or generic affirmations (“Hi,” “👏👏👏,” “Love this,” “That’s cool,” “Same!”)
-- Test messages or content-free inputs (“test,” “checking,” “.”)
-- Praise or agreement that doesn’t contain a clear question, reasoning, or insight
-- Vague, fragmentary, or contextless statements that cannot be interpreted without guessing
-- Off-topic, irrelevant, or random input
-- Questions that are rhetorical, unserious, or made in jest
-- Repetitive or echo comments that mirror something already clearly addressed or expressed in the speaker’s transcript snippet
-- Do not surface any comment under 6 words unless:
-  - It is phrased as a direct question (begins with who, what, where, when, why, or how)
-  - OR it includes a technical or topic-specific noun (e.g., “graph embeddings?”, “What's GPT-4’s context window?”)
-
-Examples of what NOT to surface include: “Testing”, “Let’s move on”, “Great point”, “Same”, “?”, “Wait what?”, “That’s interesting”, etc.
-
-3. For each surfaced question, do the following:
-
-- Rephrase the question only as much as needed to:
-
--- Fix spelling or grammar
-
--- Add minimal context to make the question understandable on its own (if it refers to something in the talk)
-
--- Preserve the tone, voice, and intent of the original speaker
-
-- If needed, you may draw from the speaker’s transcript snippet to briefly clarify the reference (e.g., “in reference to the quote about ‘network structure based on human reality’”)
-
-Do not over-formalize or change the meaning. Keep edits light-touch.
-
-**CRITICAL:** DO NOT under any circumstances invent, hallucinate or modify audience comments. You must be totally, 100% faithful to the comments you receive. DO NOT invent comments!
-**CRITICAL:** If there are no meaningful comments, it is best to provide no output - in that case no response is the best response.
-**CRITICAL:** Never include usernames in the 'value' or 'text' fields. If a comment refers to a user (e.g., "@someone"), replace it with a neutral phrase like "[another commenter]". Redact any full names or sensitive information.
-
-**Output Format:**
-- Report each question and the original comment it came from separately in this format:
-[{{"value": "Question goes here", "comments": [{{"user": "username here", "text": "redacted comment here"}}]}}]`,
-  standaloneQuestionUser: `
-This is a presentation about {topic}.
-
-**Comments:**
-{comments}
-If no questions meet the required threshold, return nothing. Do not explain or justify. Do not say "no questions can be surfaced." Just return an empty array.
-`
+{comments}`
 }
 
 export const backChannelLLMTemplateVars = {
@@ -227,12 +133,7 @@ export const backChannelLLMTemplateVars = {
     { name: 'reportingThreshold', description: 'The minimum number of users from which to generate an insight' },
     { name: 'maxInsights', description: 'The maximum number of insights to generate' }
   ],
-  insightsSystem: [], // TODO don't require for system prompts?,
-  standaloneQuestionUser: [
-    { name: 'topic', description: 'The topic of the conversation' },
-    { name: 'comments', description: 'The comments to process' }
-  ],
-  standaloneQuestionSystem: [] // TODO don't require for system prompts?
+  insightsSystem: [] // TODO don't require for system prompts?
 }
 
 function groupCommentsByUser(commentMsgs) {
@@ -283,14 +184,7 @@ export async function processParticipantMessages(messages, startTime, endTime) {
     ['user', this.llmTemplates.insightsUser]
   ])
 
-  const questionsPrompt = ChatPromptTemplate.fromMessages([
-    ['system', this.llmTemplates.standaloneQuestionSystem],
-    ['user', this.llmTemplates.standaloneQuestionUser]
-  ])
-
   const insightsChain = getStructuredResponseChain(llm, insightsPrompt, responseFormatSchemas.insights)
-
-  const questionsChain = getStructuredResponseChain(llm, questionsPrompt, responseFormatSchemas.insights)
 
   const insightsLambda = new RunnableLambda({
     func: async (input: { comments: string; topic: string; maxInsights: string; reportingThreshold: string }) => {
@@ -337,16 +231,23 @@ export async function processParticipantMessages(messages, startTime, endTime) {
       maxInsights: string
       reportingThreshold: string
     }) => {
-      const questionsResponse =
-        input.comments === '{}'
-          ? { results: [] }
-          : await questionsChain.invoke({
-              comments: input.comments,
-              topic: input.topic
-            })
-      const questionsInsights = questionsResponse as z.infer<typeof responseFormatSchemas.insights>
-      // add the type property to distinguish insights from standalone questions
-      questionsInsights.results = questionsInsights.results.map((insight) => ({ ...insight, type: 'question' }))
+      /**
+       * Surface remaining comments directly to the moderator without LLM filtering.
+       * Uses `input.comments`, which is pre-filtered by insightsLambda via fuzzy matching.
+       * @remarks A comment that partially overlaps with a clustered insight may be silently
+       * dropped here even if it shouldn't have been consumed by insightsLambda.
+       */
+      type CommentMsg = { comment: { user: string; timestamp: string; text: string }; transcript?: string }
+      const remainingComments: Record<string, CommentMsg[]> = input.comments === '{}' ? {} : JSON.parse(input.comments)
+      const questionsInsights = {
+        results: Object.values(remainingComments).flatMap((userComments) =>
+          userComments.map((commentMsg) => ({
+            value: commentMsg.comment.text,
+            comments: [{ user: commentMsg.comment.user, text: commentMsg.comment.text }],
+            type: 'question'
+          }))
+        )
+      }
 
       return {
         insightsFromInsights: input.insightsFromInsights,
