@@ -133,12 +133,7 @@ export const backChannelLLMTemplateVars = {
     { name: 'reportingThreshold', description: 'The minimum number of users from which to generate an insight' },
     { name: 'maxInsights', description: 'The maximum number of insights to generate' }
   ],
-  insightsSystem: [], // TODO don't require for system prompts?,
-  standaloneQuestionUser: [
-    { name: 'topic', description: 'The topic of the conversation' },
-    { name: 'comments', description: 'The comments to process' }
-  ],
-  standaloneQuestionSystem: [] // TODO don't require for system prompts?
+  insightsSystem: [] // TODO don't require for system prompts?
 }
 
 function groupCommentsByUser(commentMsgs) {
