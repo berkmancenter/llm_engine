@@ -78,7 +78,7 @@
     "express-rate-limit": "^7.5.0",
     "fuzzball": "^2.2.2",
     "googleapis": "^144.0.0",
-    "handlebars": "^4.7.8",
+    "handlebars": "^4.7.9",
     "helmet": "^8.0.0",
     "http-status": "^1",
     "joi": "^17.13.3",
@@ -178,7 +178,8 @@
     "zod": "<=3.25.67",
     "fast-xml-parser": ">=5.3.5",
     "basic-ftp": ">=5.2.0",
-    "convict": ">=6.2.5"
+    "convict": ">=6.2.5",
+    "handlebars": ">=4.7.9"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e",
   "config": {
