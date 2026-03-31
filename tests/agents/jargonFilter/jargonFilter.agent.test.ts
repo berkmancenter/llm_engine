@@ -10,6 +10,7 @@ import {
 } from '../../utils/agentTestHelpers.js'
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
 import User from '../../../src/models/user.model/user.model.js'
+import { AgentMessageActions } from '../../../src/types/index.types.js'
 
 jest.setTimeout(180000)
 
@@ -64,6 +65,11 @@ describe('jargon filter agent tests', () => {
       expect(jargonFilterAgent.triggers.periodic.conversationHistorySettings.channels).toContain('transcript')
       expect(jargonFilterAgent.triggers.periodic.conversationHistorySettings.timeWindow).toBe(120)
     })
+
+    it('uses perMessage trigger for direct messages', () => {
+      expect(jargonFilterAgent.triggers.perMessage).toBeDefined()
+      expect(jargonFilterAgent.triggers.perMessage.directMessages).toBe(true)
+    })
   })
 
   describe('jargon detection', () => {
@@ -92,7 +98,16 @@ describe('jargon filter agent tests', () => {
         expect(response.message.text).toMatch(/- \*\*.+\*\*/)
 
         // sourceText is a verbatim quote from the transcript — assert it contains a known jargon term
-        const knownJargonTerms = ['SLO', 'mTLS', 'MTTR', 'write-ahead logging', 'consistent hashing', 'error budget', 'thundering herd', 'exponential backoff']
+        const knownJargonTerms = [
+          'SLO',
+          'mTLS',
+          'MTTR',
+          'write-ahead logging',
+          'consistent hashing',
+          'error budget',
+          'thundering herd',
+          'exponential backoff'
+        ]
         expect(knownJargonTerms.some((term) => response.message.sourceText.includes(term))).toBe(true)
 
         // transcriptWindow reflects the conversationHistory boundaries passed to respond()
@@ -202,6 +217,176 @@ describe('jargon filter agent tests', () => {
       const agentType = defaultAgentTypes.jargonFilterAgent
       const msgs = await agentType.introduce.call(jargonFilterAgent, chatChannel)
       expect(msgs).toEqual([])
+    })
+  })
+
+  describe('interactive mode - direct message handling', () => {
+    describe('evaluate()', () => {
+      it('returns CONTRIBUTE for periodic trigger (no userMessage)', async () => {
+        const evaluation = await defaultAgentTypes.jargonFilterAgent.evaluate.call(jargonFilterAgent, undefined)
+        expect(evaluation.action).toBe(AgentMessageActions.CONTRIBUTE)
+      })
+
+      it('returns CONTRIBUTE when userMessage has parentMessage (threaded reply)', async () => {
+        const userMessage = {
+          _id: 'message123',
+          body: 'Can you explain more about SLO?',
+          parentMessage: 'parent456',
+          channels: [`direct-agents-${userOptedIn._id}`],
+          owner: userOptedIn._id
+        }
+
+        const evaluation = await defaultAgentTypes.jargonFilterAgent.evaluate.call(jargonFilterAgent, userMessage)
+        expect(evaluation.action).toBe(AgentMessageActions.CONTRIBUTE)
+      })
+
+      it('returns OK when userMessage has no parentMessage (non-threaded DM)', async () => {
+        const userMessage = {
+          _id: 'message123',
+          body: 'Hello, what is an API?',
+          channels: [`direct-agents-${userOptedIn._id}`],
+          owner: userOptedIn._id
+        }
+
+        const evaluation = await defaultAgentTypes.jargonFilterAgent.evaluate.call(jargonFilterAgent, userMessage)
+        expect(evaluation.action).toBe(AgentMessageActions.OK)
+      })
+    })
+
+    describe('respond() with userMessage', () => {
+      it(
+        'responds to on-topic jargon question with conversational answer',
+        async () => {
+          // Create a mock direct channel
+          const directChannel = conversation.channels.find((c) => c.name === `direct-agents-${userOptedIn._id}`)
+
+          const userMessage = {
+            _id: 'message123',
+            body: 'Can you explain more about SLO?',
+            parentMessage: 'parent456',
+            channels: [directChannel.name],
+            owner: userOptedIn._id
+          }
+
+          // Create minimal conversation history
+          const conversationHistory = {
+            messages: [],
+            start: new Date(),
+            end: new Date()
+          }
+
+          const responses = await defaultAgentTypes.jargonFilterAgent.respond.call(
+            jargonFilterAgent,
+            conversationHistory,
+            userMessage
+          )
+
+          expect(responses).toHaveLength(1)
+          const response = responses[0]
+
+          expect(response.visible).toBe(true)
+          expect(response.messageType).toBe('json')
+          expect(response.message.type).toBe('jargon_follow_up')
+          expect(response.message.text).toBeTruthy()
+
+          // Should be conversational, not the structured Summary + bullets format
+          expect(response.message.text).not.toMatch(/\*\*Summary:\*\*/)
+
+          // Should thread the response
+          expect(response.parent).toBe(userMessage.parentMessage)
+
+          // Should target the correct channel
+          expect(response.channels.map((c) => c.name)).toContain(directChannel.name)
+        },
+        testTimeout
+      )
+
+      it(
+        'responds to off-topic question with polite decline',
+        async () => {
+          const directChannel = conversation.channels.find((c) => c.name === `direct-agents-${userOptedIn._id}`)
+
+          const userMessage = {
+            _id: 'message123',
+            body: 'What time does the event end?',
+            parentMessage: 'parent456',
+            channels: [directChannel.name],
+            owner: userOptedIn._id
+          }
+
+          const conversationHistory = {
+            messages: [],
+            start: new Date(),
+            end: new Date()
+          }
+
+          const responses = await defaultAgentTypes.jargonFilterAgent.respond.call(
+            jargonFilterAgent,
+            conversationHistory,
+            userMessage
+          )
+
+          expect(responses).toHaveLength(1)
+          const response = responses[0]
+
+          expect(response.visible).toBe(true)
+          expect(response.messageType).toBe('json')
+          expect(response.message.type).toBe('jargon_follow_up')
+          expect(response.message.text).toContain('I can only help clarify jargon')
+
+          // Should thread the response
+          expect(response.parent).toBe(userMessage.parentMessage)
+
+          // Should target the correct channel
+          expect(response.channels.map((c) => c.name)).toContain(directChannel.name)
+        },
+        testTimeout
+      )
+
+      it(
+        'uses conversation history for context when answering',
+        async () => {
+          const directChannel = conversation.channels.find((c) => c.name === `direct-agents-${userOptedIn._id}`)
+
+          // Simulate previous clarification in history
+          const previousMessage = {
+            _id: 'parent456',
+            body: 'Previous clarification about SLO meaning Service Level Objective',
+            pseudonym: 'Jargon Filter Agent',
+            fromAgent: true,
+            channels: [directChannel.name],
+            createdAt: new Date(Date.now() - 2 * 60 * 1000)
+          }
+
+          const userMessage = {
+            _id: 'message123',
+            body: 'Can you give an example?',
+            parentMessage: 'parent456',
+            channels: [directChannel.name],
+            owner: userOptedIn._id
+          }
+
+          const conversationHistory = {
+            messages: [previousMessage],
+            start: new Date(Date.now() - 5 * 60 * 1000),
+            end: new Date()
+          }
+
+          const responses = await defaultAgentTypes.jargonFilterAgent.respond.call(
+            jargonFilterAgent,
+            conversationHistory,
+            userMessage
+          )
+
+          expect(responses).toHaveLength(1)
+          const response = responses[0]
+
+          expect(response.visible).toBe(true)
+          expect(response.message.text).toBeTruthy()
+          // The LLM should provide a contextual answer based on conversation history
+        },
+        testTimeout
+      )
     })
   })
 })
