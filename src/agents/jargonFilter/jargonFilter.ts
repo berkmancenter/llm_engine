@@ -1,10 +1,10 @@
 import { z } from 'zod'
 import verify from '../helpers/verify.js'
-import { AgentMessageActions, ConversationHistory, IChannel } from '../../types/index.types.js'
+import { AgentMessageActions, ConversationHistory, IChannel, IMessage } from '../../types/index.types.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import logger from '../../config/logger.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
-import { formatTranscript } from '../helpers/llmInputFormatters.js'
+import { formatTranscript, formatSingleUserConversationHistory } from '../helpers/llmInputFormatters.js'
 import User from '../../models/user.model/user.model.js'
 
 export type JargonFilterResponse = {
@@ -69,6 +69,54 @@ const USER_TEMPLATE = `## Event Topic:
 
 Analyze the transcript above for technical jargon and return JSON only. The "text" field must begin with a "**Summary:**" section before the bullet points.`
 
+// Interactive mode: Combined classification and answer
+export const JARGON_FOLLOW_UP_SYSTEM_PROMPT = `You are a helpful assistant that answers follow-up questions about technical jargon and terminology from an event.
+
+## Your Task
+
+1. First, determine if the question is about jargon/terminology clarification
+2. If YES: Answer the question about the jargon (include the "text" field in your response)
+3. If NO: Do not include the "text" field in your response
+
+## Questions that ARE about jargon:
+- Technical terms, acronyms, or jargon from the event
+- Definitions or explanations of concepts mentioned
+- Further clarification about previously explained terms
+
+## Questions that are NOT about jargon:
+- General conversation or greetings
+- Event logistics (time, location, etc.)
+- Off-topic personal questions
+- Questions unrelated to terminology or jargon
+
+## Guidelines for answering (when isJargonRelated is true):
+- Use plain language as if explaining to a high school student with no background in the field
+- Be conversational and natural - this is a back-and-forth dialogue
+- Keep responses concise (2-3 sentences unless more detail is needed)
+- Use everyday analogies when helpful
+- If the user asks for more detail about a term, expand on your previous explanation
+- Never imply terms are obvious or that the reader should already know them
+- Avoid phrases like "simply", "just", "basically", "obviously", or "of course"
+
+Return JSON with:
+- isJargonRelated: boolean (true if about jargon, false otherwise)
+- text: string (your answer - ONLY include this field if isJargonRelated is true)
+
+Return ONLY raw JSON. No markdown, no backticks, no explanation.`
+
+const JARGON_FOLLOW_UP_USER_TEMPLATE = `## Event Topic:
+{topic}
+
+## User Question:
+{userQuestion}
+
+Determine if this is about jargon/terminology and answer if so. Return JSON only.`
+
+const jargonFollowUpSchema = z.object({
+  isJargonRelated: z.boolean(),
+  text: z.string().optional()
+})
+
 export default verify({
   name: 'Jargon Filter Agent',
   description:
@@ -76,7 +124,8 @@ export default verify({
   priority: 50,
   maxTokens: 2000,
   defaultTriggers: {
-    periodic: { timerPeriod: 120, conversationHistorySettings: { channels: ['transcript'], timeWindow: 120 } }
+    periodic: { timerPeriod: 120, conversationHistorySettings: { channels: ['transcript'], timeWindow: 120 } },
+    perMessage: { directMessages: true }
   },
   llmTemplateVars: {
     system: [],
@@ -98,19 +147,94 @@ export default verify({
     return true
   },
 
-  async evaluate(userMessage) {
+  async evaluate(userMessage?: IMessage) {
+    // Path A: Periodic trigger (no userMessage)
+    if (!userMessage) {
+      return {
+        action: AgentMessageActions.CONTRIBUTE,
+        userMessage,
+        userContributionVisible: true,
+        suggestion: undefined
+      }
+    }
+
+    // Path B: Per-message trigger (direct channel message)
+    // Only respond to threaded replies (not standalone DMs)
+    if (!userMessage.parentMessage) {
+      logger.info(`${this.name}: Ignoring non-threaded direct message`)
+      return {
+        userMessage,
+        action: AgentMessageActions.OK,
+        userContributionVisible: true,
+        suggestion: undefined
+      }
+    }
+
+    // Threaded reply detected - always contribute
+    // (Off-topic detection happens in respond() to provide helpful decline message)
     return {
-      action: AgentMessageActions.CONTRIBUTE,
       userMessage,
+      action: AgentMessageActions.CONTRIBUTE,
       userContributionVisible: true,
       suggestion: undefined
     }
   },
 
-  async respond(conversationHistory: ConversationHistory) {
+  async respond(conversationHistory: ConversationHistory, userMessage?: IMessage) {
     const llm = await this.getLLM()
     if (!this.conversation) return []
 
+    // Path B: Per-message trigger - interactive clarification
+    if (userMessage) {
+      const chatHistory = formatSingleUserConversationHistory(conversationHistory)
+
+      const response = await getChatPromptResponse(
+        llm,
+        JARGON_FOLLOW_UP_SYSTEM_PROMPT,
+        JARGON_FOLLOW_UP_USER_TEMPLATE,
+        {
+          topic: this.conversation.name,
+          userQuestion: userMessage.body
+        },
+        chatHistory,
+        jargonFollowUpSchema
+      )
+
+      const responseChannels = this.conversation.channels.filter((channel: IChannel) =>
+        userMessage.channels?.includes(channel.name)
+      )
+
+      const parentMessageId = userMessage.parentMessage || userMessage._id
+
+      // If off-topic, send polite decline
+      if (!response.isJargonRelated || !response.text) {
+        return [
+          {
+            visible: true,
+            message: {
+              text: 'I can only help clarify jargon from the event. Please ask event-related questions in the main chat.',
+              type: 'jargon_follow_up'
+            },
+            messageType: 'json',
+            channels: responseChannels,
+            parent: parentMessageId
+          }
+        ]
+      }
+
+      // Send LLM-generated answer
+      return [
+        {
+          visible: true,
+          message: { text: response.text, type: 'jargon_follow_up' },
+          messageType: 'json',
+          channels: responseChannels,
+          parent: parentMessageId
+        }
+      ]
+    }
+
+    // Path A: Periodic trigger - existing proactive jargon detection
     const transcript = formatTranscript(conversationHistory.messages)
 
     const response = await getChatPromptResponse(
