@@ -140,6 +140,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
           ...submitToModeratorQuestion,
           message: msg._id.toString().toString()
         })
+        expect(responses[1].parent).toBeUndefined()
         expect(responses[1].visible).toBe(true)
       },
       testTimeout
@@ -156,6 +157,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         // Should have 2 responses: the answer and the moderator question
         expect(responses).toHaveLength(2)
         expect(responses[1].message).toMatchObject({ ...submitToModeratorQuestion, message: msg._id.toString() })
+        expect(responses[1].parent).toBeUndefined()
         expect(responses[1].visible).toBe(true)
       },
       testTimeout
@@ -173,6 +175,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         // Should have 2 responses: the answer and the moderator question
         expect(responses).toHaveLength(2)
         expect(responses[1].message).toMatchObject({ ...submitToModeratorQuestion, message: msg._id.toString() })
+        expect(responses[1].parent).toBeUndefined()
         expect(responses[1].replyFormat).toMatchObject({
           type: 'singleChoice',
           options: [
@@ -196,6 +199,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         // Should have 2 responses: the answer and the moderator question
         expect(responses).toHaveLength(2)
         expect(responses[1].message).toMatchObject({ ...submitToModeratorQuestion, message: msg._id.toString() })
+        expect(responses[1].parent).toBeUndefined()
         expect(responses[1].visible).toBe(true)
       },
       testTimeout
@@ -212,6 +216,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         // Should have 2 responses: the answer and the moderator question
         expect(responses).toHaveLength(2)
         expect(responses[1].message).toMatchObject({ ...submitToModeratorQuestion, message: msg._id.toString() })
+        expect(responses[1].parent).toBeUndefined()
         expect(responses[1].visible).toBe(true)
       },
       testTimeout
@@ -228,6 +233,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         // Should have 2 responses: the answer and the moderator question
         expect(responses).toHaveLength(2)
         expect(responses[1].message).toMatchObject({ ...submitToModeratorQuestion, message: msg._id.toString() })
+        expect(responses[1].parent).toBeUndefined()
         expect(responses[1].visible).toBe(true)
       },
       testTimeout
@@ -244,6 +250,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         // Should have 2 responses: the answer and the moderator question
         expect(responses).toHaveLength(2)
         expect(responses[1].message).toMatchObject({ ...submitToModeratorQuestion, message: msg._id.toString() })
+        expect(responses[1].parent).toBeUndefined()
         expect(responses[1].visible).toBe(true)
       },
       testTimeout
@@ -303,6 +310,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         type: 'moderator_submitted',
         message: savedQuestion._id.toString()
       })
+      expect(responses[0].parent).toBeUndefined()
 
       const updatedMessage = await Message.findById(savedQuestion._id)
       expect(updatedMessage!.channels).toContain('participant')
@@ -330,6 +338,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         text: "OK, I won't submit it. Feel free to ask me anything else!",
         message: savedQuestion._id.toString()
       })
+      expect(responses[0].parent).toBeUndefined()
 
       const updatedMessage = await Message.findById(savedQuestion._id)
       expect(updatedMessage!.channels).not.toContain('participant')
@@ -372,6 +381,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
           type: 'moderator_submitted',
           message: savedQuestion._id.toString()
         })
+        expect(responses[0].parent).toBeUndefined()
       }
     })
 
@@ -400,6 +410,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
           type: 'moderator_declined',
           message: savedQuestion._id.toString()
         })
+        expect(responses[0].parent).toBeUndefined()
       }
     })
 
@@ -453,6 +464,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         text: 'Your message has been submitted to the moderator.',
         message: participantMsg._id.toString()
       })
+      expect(responses[0].parent).toBeUndefined()
     })
 
     it('should parse backchannel messages to string', async () => {
@@ -483,6 +495,88 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
 
       const translatedMsg = await defaultAgentTypes.eventAssistantPlus.parseOutput(agentMsg)
       expect(translatedMsg).toMatchObject(agentMsg)
+    })
+
+    it(
+      'should propagate parent thread when original message has a parent',
+      async () => {
+        const parentMessageId = new mongoose.Types.ObjectId()
+        const questionMsg = await createQuestion('What percentage of U.S. workers are part-time?')
+        questionMsg._id = new mongoose.Types.ObjectId()
+        questionMsg.parentMessage = parentMessageId
+
+        const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, questionMsg)
+        await validateResponse(responses)
+
+        // Should have 2 responses: the answer and the moderator question
+        expect(responses).toHaveLength(2)
+        expect(responses[1].message).toMatchObject({
+          ...submitToModeratorQuestion,
+          message: questionMsg._id.toString()
+        })
+        // The moderator question should inherit the parent from the original message
+        expect(responses[1].parent).toBe(parentMessageId)
+        expect(responses[1].visible).toBe(true)
+      },
+      testTimeout
+    )
+
+    it('should propagate parent thread when submitting to moderator', async () => {
+      const parentMessageId = new mongoose.Types.ObjectId()
+      const questionMsg = await createQuestion('What is the meaning of life?')
+      questionMsg.parentMessage = parentMessageId
+      const savedQuestion = await Message.create(questionMsg)
+
+      const affirmativeMsg = await createQuestion('yes')
+      affirmativeMsg.parentMessage = parentMessageId
+      const conversationHistory = {
+        messages: [
+          savedQuestion,
+          { body: "I don't have enough information.", fromAgent: true },
+          { body: { ...submitToModeratorQuestion, message: savedQuestion._id }, bodyType: 'json', fromAgent: true }
+        ]
+      }
+
+      const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, conversationHistory, affirmativeMsg)
+
+      await validateResponse(responses)
+      expect(responses).toHaveLength(1)
+      expect(responses[0].message).toMatchObject({
+        text: 'Your message has been submitted to the moderator.',
+        type: 'moderator_submitted',
+        message: savedQuestion._id.toString()
+      })
+      // The submit confirmation should inherit the parent from the affirmative message
+      expect(responses[0].parent).toBe(parentMessageId)
+    })
+
+    it('should propagate parent thread when declining moderator submission', async () => {
+      const parentMessageId = new mongoose.Types.ObjectId()
+      const questionMsg = await createQuestion('What is the meaning of life?')
+      questionMsg.parentMessage = parentMessageId
+      const savedQuestion = await Message.create(questionMsg)
+
+      const negativeMsg = await createQuestion('no')
+      negativeMsg.parentMessage = parentMessageId
+      const conversationHistory = {
+        messages: [
+          savedQuestion,
+          { body: "I don't have enough information.", fromAgent: true },
+          { body: { ...submitToModeratorQuestion, message: savedQuestion._id }, bodyType: 'json', fromAgent: true }
+        ]
+      }
+
+      const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, conversationHistory, negativeMsg)
+
+      await validateResponse(responses)
+      expect(responses).toHaveLength(1)
+      expect(responses[0].message).toMatchObject({
+        text: "OK, I won't submit it. Feel free to ask me anything else!",
+        type: 'moderator_declined',
+        message: savedQuestion._id.toString()
+      })
+      // The decline confirmation should inherit the parent from the negative message
+      expect(responses[0].parent).toBe(parentMessageId)
     })
   })
 

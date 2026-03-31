@@ -53,7 +53,10 @@ function submitToModeratorResponse(userMessage, message) {
       visible: true,
       message: { type: 'moderator_submitted', text: submitToModeratorReply, message: message._id.toString() },
       messageType: 'json',
-      channels: this.conversation.channels.filter((channel) => userMessage.channels.includes(channel.name) && channel.direct)
+      channels: this.conversation.channels.filter(
+        (channel) => userMessage.channels.includes(channel.name) && channel.direct
+      ),
+      parent: userMessage.parentMessage
     }
   ]
 }
@@ -66,7 +69,8 @@ function declineModeratorResponse(userMessage, message) {
       messageType: 'json',
       channels: this.conversation.channels.filter(
         (channel) => userMessage.channels.includes(channel.name) && channel.direct === true
-      )
+      ),
+      parent: userMessage.parentMessage
     }
   ]
 }
@@ -234,7 +238,8 @@ export default verify({
             { value: 'no', label: 'No' },
             { value: 'yes', label: 'Yes' }
           ]
-        }
+        },
+        parent: userMessage.parentMessage
       })
     }
     return agentResponses

@@ -333,6 +333,16 @@ ${chunks}`
 
   let responseMessage = llmResponse
   let imageGenResponse
+  let parentMessageId
+
+  // Set parent for threading
+  if (userMessage?.channels?.includes('chat')) {
+    // For chat: thread under the original message or current message
+    parentMessageId = userMessage.parentMessage || userMessage._id
+  } else if (userMessage.parentMessage) {
+    // For DMs: only set parent if the incoming message is already a reply (user initiated side convo)
+    parentMessageId = userMessage.parentMessage
+  }
 
   // Check if visual generation should happen (either forced via /visual or user preference)
   const user = await User.findById(userMessage.owner)
@@ -368,7 +378,8 @@ ${chunks}`
           message: {
             sourceMessage: userMessage._id.toString(),
             answer: llmResponse,
-            responseChannels: userMessage.channels
+            responseChannels: userMessage.channels,
+            parent: userMessage.parentMessage?.toString()
           },
           messageType: 'json',
           channels: [imageGenChannel]
@@ -390,7 +401,8 @@ ${chunks}`
     context: contextString,
     classification,
     promptType,
-    topic
+    topic,
+    parent: parentMessageId
   }
 
   return imageGenResponse ? [agentResponse, imageGenResponse] : [agentResponse]

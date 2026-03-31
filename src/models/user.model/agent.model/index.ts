@@ -24,6 +24,7 @@ import {
 import { ConversationDocument } from '../../conversation.model.js'
 import { pingLLM } from '../../../agents/helpers/llmChain.js'
 import getConversationHistory from '../../../agents/helpers/getConversationHistory.js'
+import getThreadMessages from '../../../agents/helpers/getThreadMessages.js'
 import AgentEvaluationService from '../../../agents/helpers/agentEvaluationService.js'
 import config from '../../../config/config.js'
 
@@ -417,23 +418,19 @@ agentSchema.method('respond', async function (userMessage = null) {
         .map((c) => c.name)
     }
 
-    // Last message in the conversation = userMessage. Do not put in history
+    // Get messages for conversation history (handles both normal and threaded replies)
     const { messages } = this.conversation as IConversation
-    let messagesToProcess = messages
-
-    if (userMessage && messages.length > 0) {
-      // Find and exclude userMessage from history (and anything that was added after it, between evaluate and respond)
-      const userMsgIndex = messages.findIndex((m) => m._id?.equals(userMessage._id))
-      if (userMsgIndex !== -1) {
-        messagesToProcess = messages.slice(0, userMsgIndex)
-      }
-    }
+    const messagesToProcess = await getThreadMessages(
+      messages,
+      userMessage,
+      (this.conversation as IConversation)._id!.toString()
+    )
 
     // Get conversation history
     conversationHistory = getConversationHistory(
       messagesToProcess,
       effectiveSettings,
-      [this.name],
+      effectiveSettings.excludeOtherAgents ? [this.name] : undefined,
       directChannels,
       agentTypes[this.agentType].parseInput
     )

@@ -3,6 +3,7 @@ import config from '../config/config.js'
 import logger from '../config/logger.js'
 import { AdapterMessage, AdapterUser } from '../types/adapter.types.js'
 import { Direction } from '../types/index.types.js'
+import Message from '../models/message.model.js'
 
 const defaultBotName = 'LLM Engine'
 const defaultRetention = {
@@ -158,37 +159,106 @@ async function receiveDirectMesssage(data) {
   return [msg]
 }
 
+async function findParentMessage(conversationId, quotedText, channels, pseudonym = null) {
+  // Search within the last hour
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000)
+
+  const query = {
+    conversation: conversationId,
+    channels: { $in: channels },
+    createdAt: { $gte: oneHourAgo },
+    visible: true,
+    // Match messages that start with the quoted text
+    body: { $regex: `^${quotedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, $options: 'i' },
+    // If pseudonym provided, also filter by pseudonym
+    ...(pseudonym ? { pseudonym } : {})
+  }
+
+  // Search for messages, filtered by time and channels
+  const messages = await Message.find(query).sort({ createdAt: -1 }).select('_id parentMessage').exec()
+
+  if (messages.length === 0) {
+    return null
+  }
+
+  // Return the first match's parent if it has one, otherwise the message itself
+  const originalMessage = messages[0]
+  return originalMessage.parentMessage || originalMessage._id
+}
+
 async function receiveChatMessage(data) {
   // Filter out emoji reactions
   if (data.data.data.text.startsWith('Reacting to') || data.data.data.text.startsWith('Reacted to')) {
     return []
   }
 
-  // Handle "Replying to" messages - strip @ from quoted portion to avoid false mention processing by agents
+  const isDM = data.data.data.to === 'only_bot'
+  const channels = isDM
+    ? this.dmChannels.filter((channel) => channel.direction === Direction.INCOMING || channel.direction === Direction.BOTH)
+    : this.chatChannels.filter((channel) => channel.direction === Direction.INCOMING || channel.direction === Direction.BOTH)
+
+  let parentMessageId
+
+  // Handle "Replying to" messages
   if (data.data.data.text.startsWith('Replying to "')) {
     const { text } = data.data.data
     const prefix = 'Replying to "'
     const quoteEndIndex = text.indexOf('"', prefix.length)
     if (quoteEndIndex !== -1) {
       const quotedPortion = text.substring(prefix.length, quoteEndIndex)
-      const restOfMessage = text.substring(quoteEndIndex) // includes the closing quote and everything after
+      const replyPortion = text.substring(quoteEndIndex + 1).trim() // Extract just the reply part
 
-      // Remove @ symbols from just the quoted portion
-      const cleanedQuote = quotedPortion.replace(/@/g, '')
-
-      // Reconstruct the message
+      // Set the message body to just the reply portion
       // eslint-disable-next-line no-param-reassign
-      data.data.data.text = `${prefix}${cleanedQuote}${restOfMessage}`
+      data.data.data.text = replyPortion
+
+      const channelNames = channels.map((c) => c.name)
+
+      // Strip icons (🤖 or 👤) and pseudonyms from quoted portion for matching
+      // Format: "🤖 message" or "👤 PseudonymName: message"
+      let cleanedQuoteForMatching = quotedPortion.replace(/^(?:🤖\s+|👤\s+[^:]+:\s+)/, '').replace(/@/g, '')
+
+      // Check if quote is truncated (ends with '...')
+      const isTruncated = cleanedQuoteForMatching.endsWith('...')
+
+      // Extract pseudonym if present (format: "👤 PseudonymName: ...")
+      const pseudonymMatch = quotedPortion.match(/^👤\s+([^:]+):/)
+      const hasPseudonym = !!pseudonymMatch
+
+      // If truncated, remove the '...' to get the partial text for matching
+      if (isTruncated) {
+        cleanedQuoteForMatching = cleanedQuoteForMatching.slice(0, -3).trim()
+      }
+
+      // If truncated with pseudonym, match by pseudonym AND verify text starts with the partial quote
+      // Otherwise, match by message content (starts with)
+      if (isTruncated && hasPseudonym) {
+        const pseudonym = pseudonymMatch[1].trim()
+        parentMessageId = await findParentMessage.call(
+          this,
+          this.conversation._id,
+          cleanedQuoteForMatching,
+          channelNames,
+          pseudonym
+        )
+      } else {
+        parentMessageId = await findParentMessage.call(this, this.conversation._id, cleanedQuoteForMatching, channelNames)
+      }
     }
   }
 
-  const isDM = data.data.data.to === 'only_bot'
   let message
   if (isDM) {
     message = await receiveDirectMesssage.call(this, data)
   } else {
     message = await receiveGroupChatMessage.call(this, data)
   }
+
+  // Set parent message if found
+  if (parentMessageId && message.length > 0) {
+    message[0].parentMessage = parentMessageId
+  }
+
   return message
 }
 

@@ -13,4 +13,5 @@ export interface AdapterMessage<T> {
   user: AdapterUser
   source: string
   createdAt?: Date
+  parentMessage?: string
 }

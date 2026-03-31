@@ -2094,4 +2094,431 @@ describe('agent tests', () => {
       setAgentTypes(testAgentTypes)
     })
   })
+
+  describe('Threaded replies', () => {
+    let testConversation
+    let testChannel
+    let parentMsg
+    let reply1
+    let reply2
+    let newReply
+
+    beforeEach(async () => {
+      // Create a conversation
+      testConversation = new Conversation({
+        ...conversationAgentsEnabled,
+        _id: new mongoose.Types.ObjectId(),
+        enableDMs: ['agents']
+      })
+      await testConversation.save()
+    })
+
+    test('should only include thread messages in conversation history for threaded reply in group chat', async () => {
+      const agent = new Agent({
+        agentType: 'perMessage',
+        conversation: testConversation
+      })
+      await agent.save()
+
+      testChannel = await Channel.create({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'chat',
+        direct: false
+      })
+      testConversation.channels.push(testChannel)
+      await testConversation.save()
+
+      await agent.initialize()
+      await agent.start()
+
+      // Create parent message in chat
+      parentMsg = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Parent message in chat',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['chat']
+      })
+      await parentMsg.save()
+
+      // Create first reply in thread
+      reply1 = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'First reply in chat thread',
+        conversation: testConversation._id,
+        owner: agent._id,
+        pseudonymId: agent.pseudonyms[0]._id,
+        pseudonym: agent.pseudonyms[0].pseudonym,
+        channels: ['chat'],
+        parentMessage: parentMsg._id,
+        fromAgent: true
+      })
+      await reply1.save()
+
+      // Create another regular message (not in thread)
+      const otherMsg = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Other message not in thread',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['chat']
+      })
+      await otherMsg.save()
+
+      // Create second reply in thread
+      reply2 = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Second reply in chat thread',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['chat'],
+        parentMessage: parentMsg._id
+      })
+      await reply2.save()
+
+      // Create new reply to the thread
+      newReply = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'New reply to chat thread',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['chat'],
+        parentMessage: parentMsg._id
+      })
+
+      const expectedEval = {
+        userMessage: newReply,
+        action: AgentMessageActions.CONTRIBUTE,
+        agentContributionVisible: true,
+        userContributionVisible: true,
+        suggestion: undefined
+      }
+
+      const expectedResponse = {
+        visible: true,
+        message: 'Response to chat thread',
+        pause: 0
+      }
+
+      mockEvaluate.mockResolvedValue(expectedEval)
+      mockRespond.mockResolvedValue([expectedResponse])
+
+      await agent.evaluate(newReply)
+      await newReply.save()
+      await testConversation.populate(['messages', 'channels'])
+      await agent.respond(newReply)
+
+      // Conversation history should only include messages from the thread
+      const conversationHistory = mockRespond.mock.calls[0][0]
+      expect(conversationHistory.messages).toHaveLength(3)
+
+      // Should include parent and the two replies in the thread
+      const bodies = conversationHistory.messages.map((m) => m.body)
+      expect(bodies).toContain('Parent message in chat')
+      expect(bodies).toContain('First reply in chat thread')
+      expect(bodies).toContain('Second reply in chat thread')
+
+      // Should NOT include the other message that's not in the thread
+      expect(bodies).not.toContain('Other message not in thread')
+    })
+
+    test('should only include thread messages in conversation history for threaded reply in DM', async () => {
+      const agent = new Agent({
+        agentType: 'perMessage',
+        conversation: testConversation
+      })
+      await agent.save()
+
+      testChannel = await Channel.create({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'dm-user1-agent',
+        participants: [registeredUser._id, agent._id],
+        direct: true
+      })
+      testConversation.channels.push(testChannel)
+      await testConversation.save()
+
+      await agent.initialize()
+      await agent.start()
+
+      // Create parent message
+      parentMsg = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Parent message',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['dm-user1-agent']
+      })
+      await parentMsg.save()
+
+      // Create first reply in thread
+      reply1 = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'First reply in thread',
+        conversation: testConversation._id,
+        owner: agent._id,
+        pseudonymId: agent.pseudonyms[0]._id,
+        pseudonym: agent.pseudonyms[0].pseudonym,
+        channels: ['dm-user1-agent'],
+        parentMessage: parentMsg._id,
+        fromAgent: true
+      })
+      await reply1.save()
+
+      // Create another regular message (not in thread)
+      const otherMsg = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Other message not in thread',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['dm-user1-agent']
+      })
+      await otherMsg.save()
+
+      // Create second reply in thread
+      reply2 = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Second reply in thread',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['dm-user1-agent'],
+        parentMessage: parentMsg._id
+      })
+      await reply2.save()
+
+      // Create new reply to the thread
+      newReply = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'New reply to thread',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['dm-user1-agent'],
+        parentMessage: parentMsg._id
+      })
+
+      const expectedEval = {
+        userMessage: newReply,
+        action: AgentMessageActions.CONTRIBUTE,
+        agentContributionVisible: true,
+        userContributionVisible: true,
+        suggestion: undefined
+      }
+
+      const expectedResponse = {
+        visible: true,
+        message: 'Response to thread',
+        pause: 0
+      }
+
+      mockEvaluate.mockResolvedValue(expectedEval)
+      mockRespond.mockResolvedValue([expectedResponse])
+
+      await agent.evaluate(newReply)
+      await newReply.save()
+      await testConversation.populate(['messages', 'channels'])
+      await agent.respond(newReply)
+
+      // Conversation history should only include messages from the thread
+      const conversationHistory = mockRespond.mock.calls[0][0]
+      expect(conversationHistory.messages).toHaveLength(3)
+
+      // Should include parent and the two replies in the thread
+      const bodies = conversationHistory.messages.map((m) => m.body)
+      expect(bodies).toContain('Parent message')
+      expect(bodies).toContain('First reply in thread')
+      expect(bodies).toContain('Second reply in thread')
+
+      // Should NOT include the other message that's not in the thread
+      expect(bodies).not.toContain('Other message not in thread')
+    })
+
+    test('should include all previous messages in history for non-threaded reply', async () => {
+      const agent = new Agent({
+        agentType: 'perMessage',
+        conversation: testConversation
+      })
+      await agent.save()
+
+      testChannel = await Channel.create({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'dm-user1-agent',
+        participants: [registeredUser._id, agent._id],
+        direct: true
+      })
+      testConversation.channels.push(testChannel)
+      await testConversation.save()
+
+      await agent.initialize()
+      await agent.start()
+
+      // Create some messages
+      const unthreadedMsg1 = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'First message',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['dm-user1-agent']
+      })
+      await unthreadedMsg1.save()
+
+      const unthreadedMsg2 = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Second message',
+        conversation: testConversation._id,
+        owner: agent._id,
+        pseudonymId: agent.pseudonyms[0]._id,
+        pseudonym: agent.pseudonyms[0].pseudonym,
+        channels: ['dm-user1-agent'],
+        fromAgent: true
+      })
+      await unthreadedMsg2.save()
+
+      const unthreadedMsg3 = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Third message',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['dm-user1-agent']
+      })
+
+      const expectedEval = {
+        userMessage: msg3,
+        action: AgentMessageActions.CONTRIBUTE,
+        agentContributionVisible: true,
+        userContributionVisible: true,
+        suggestion: undefined
+      }
+
+      const expectedResponse = {
+        visible: true,
+        message: 'Response',
+        pause: 0
+      }
+
+      mockEvaluate.mockResolvedValue(expectedEval)
+      mockRespond.mockResolvedValue([expectedResponse])
+
+      await agent.evaluate(unthreadedMsg3)
+      await unthreadedMsg3.save()
+      await testConversation.populate(['messages', 'channels'])
+      await agent.respond(unthreadedMsg3)
+
+      // Conversation history should include all previous messages
+      const conversationHistory = mockRespond.mock.calls[0][0]
+      expect(conversationHistory.messages).toHaveLength(2)
+
+      const bodies = conversationHistory.messages.map((m) => m.body)
+      expect(bodies).toContain('First message')
+      expect(bodies).toContain('Second message')
+    })
+
+    test('should handle thread where parent is not in loaded messages', async () => {
+      const agent = new Agent({
+        agentType: 'perMessage',
+        conversation: testConversation
+      })
+      await agent.save()
+
+      testChannel = await Channel.create({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'dm-user1-agent',
+        participants: [registeredUser._id, agent._id],
+        direct: true
+      })
+      testConversation.channels.push(testChannel)
+      await testConversation.save()
+
+      await agent.initialize()
+      await agent.start()
+
+      // Create parent message (saved to DB but not in conversation.messages yet)
+      parentMsg = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Parent message',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['dm-user1-agent']
+      })
+      await parentMsg.save()
+
+      // Create a reply (also saved separately)
+      reply1 = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Existing reply',
+        conversation: testConversation._id,
+        owner: agent._id,
+        pseudonymId: agent.pseudonyms[0]._id,
+        pseudonym: agent.pseudonyms[0].pseudonym,
+        channels: ['dm-user1-agent'],
+        parentMessage: parentMsg._id,
+        fromAgent: true
+      })
+      await reply1.save()
+
+      // Create new reply to the thread (parent not in conversation.messages)
+      newReply = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'New reply to thread',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['dm-user1-agent'],
+        parentMessage: parentMsg._id
+      })
+
+      const expectedEval = {
+        userMessage: newReply,
+        action: AgentMessageActions.CONTRIBUTE,
+        agentContributionVisible: true,
+        userContributionVisible: true,
+        suggestion: undefined
+      }
+
+      const expectedResponse = {
+        visible: true,
+        message: 'Response to thread',
+        pause: 0
+      }
+
+      mockEvaluate.mockResolvedValue(expectedEval)
+      mockRespond.mockResolvedValue([expectedResponse])
+
+      await agent.evaluate(newReply)
+      await newReply.save()
+      // Don't populate messages - simulating case where parent isn't in loaded messages
+      await testConversation.populate('channels')
+      await agent.respond(newReply)
+
+      // Should fetch parent and replies from DB
+      const conversationHistory = mockRespond.mock.calls[0][0]
+      expect(conversationHistory.messages.length).toBeGreaterThan(0)
+
+      const bodies = conversationHistory.messages.map((m) => m.body)
+      expect(bodies).toContain('Parent message')
+      expect(bodies).toContain('Existing reply')
+    })
+  })
 })

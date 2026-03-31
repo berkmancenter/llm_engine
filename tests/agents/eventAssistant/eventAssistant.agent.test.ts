@@ -775,6 +775,104 @@ describe(`event assistant CI tests`, () => {
     )
   })
 
+  // THREADING/PARENT MESSAGE TESTS
+  describe('parentMessageId threading logic', () => {
+    it(
+      'sets parent to userMessage._id for chat message without parent',
+      async () => {
+        const msg = await createMessage(
+          `@${agent.agentConfig.botName} What are the benefits of part-time work?`,
+          user1,
+          conversation,
+          ['chat']
+        )
+        msg._id = new mongoose.Types.ObjectId()
+        // No parentMessage set
+        agent.conversationHistorySettings = {
+          endTime: new Date(startTime.getTime() + 147 * 1000),
+          count: 100,
+          directMessages: true,
+          channels: ['chat']
+        }
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+
+        expect(responses).toHaveLength(1)
+        // For chat without parent, should thread under the current message
+        expect(responses[0].parent).toBe(msg._id)
+      },
+      testTimeout
+    )
+
+    it(
+      'sets parent to userMessage.parentMessage for chat message with parent',
+      async () => {
+        const originalMessageId = new mongoose.Types.ObjectId()
+        const msg = await createMessage(`@${agent.agentConfig.botName} What about the downsides?`, user1, conversation, [
+          'chat'
+        ])
+        msg._id = new mongoose.Types.ObjectId()
+        msg.parentMessage = originalMessageId
+        agent.conversationHistorySettings = {
+          endTime: new Date(startTime.getTime() + 147 * 1000),
+          count: 100,
+          directMessages: true,
+          channels: ['chat']
+        }
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+
+        expect(responses).toHaveLength(1)
+        // For chat with parent, should thread under the original parent
+        expect(responses[0].parent).toBe(originalMessageId)
+      },
+      testTimeout
+    )
+
+    it(
+      'does not set parent for DM message without parent',
+      async () => {
+        const msg = await createQuestion('What are the benefits of part-time work?')
+        msg._id = new mongoose.Types.ObjectId()
+        // No parentMessage set
+        agent.conversationHistorySettings = {
+          endTime: new Date(startTime.getTime() + 147 * 1000),
+          count: 100,
+          directMessages: true
+        }
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+
+        expect(responses).toHaveLength(1)
+        // For DM without parent, should not set parent
+        expect(responses[0].parent).toBeUndefined()
+      },
+      testTimeout
+    )
+
+    it(
+      'sets parent to userMessage.parentMessage for DM message with parent',
+      async () => {
+        const originalMessageId = new mongoose.Types.ObjectId()
+        const msg = await createQuestion('What about the downsides?')
+        msg._id = new mongoose.Types.ObjectId()
+        msg.parentMessage = originalMessageId
+        agent.conversationHistorySettings = {
+          endTime: new Date(startTime.getTime() + 147 * 1000),
+          count: 100,
+          directMessages: true
+        }
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+
+        expect(responses).toHaveLength(1)
+        // For DM with parent, should thread under the parent
+        expect(responses[0].parent).toBe(originalMessageId)
+      },
+      testTimeout
+    )
+  })
+
   // VISUAL GENERATION TESTS
   describe('visual generation classification and response format', () => {
     // Note: We're not mocking the actual image generator here.
@@ -897,6 +995,8 @@ describe(`event assistant CI tests`, () => {
           // Question with /visual command
           const msg = await createQuestion('/visual What are the key steps in creating a smallest viable job?')
           msg._id = new mongoose.Types.ObjectId()
+          const parentId = new mongoose.Types.ObjectId()
+          msg.parentMessage = parentId
           agent.conversationHistorySettings = {
             endTime: new Date(startTime.getTime() + 829 * 1000),
             count: 100,
@@ -943,6 +1043,7 @@ describe(`event assistant CI tests`, () => {
           expect(imageResponses[0].message.media[0].data).toBeDefined()
           expect(imageResponses[0].message.media[0].data.length).toBeGreaterThan(100)
           expect(imageResponses[0].message.media[0].mimeType).toMatch(/^image\//)
+          expect(imageResponses[0].parent).toBe(parentId.toString())
 
           // Should include sourceMessage at root of message
           expect(imageResponses[0].message.sourceMessage).toBe(msg._id.toString())
