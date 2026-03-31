@@ -93,8 +93,8 @@ describe('jargon filter agent tests', () => {
         expect(response.messageType).toBe('json')
         expect(response.message.text).toBeTruthy()
 
-        // text must begin with a summary section followed by bullet points
-        expect(response.message.text).toMatch(/\*\*Summary:\*\*/)
+        // text contains bullet points but no summary section
+        expect(response.message.text).not.toMatch(/\*\*Summary:\*\*/)
         expect(response.message.text).toMatch(/- \*\*.+\*\*/)
 
         // sourceText is a verbatim quote from the transcript — assert it contains a known jargon term
