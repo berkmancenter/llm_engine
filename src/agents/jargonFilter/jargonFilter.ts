@@ -11,6 +11,7 @@ export type JargonFilterResponse = {
   type: 'jargon_clarification'
   text: string // the clarified text
   sourceText: string // original transcript excerpt
+  terms: string[] // flat list of jargon term names explained in this response
   transcriptWindow: {
     // Unix start and end times for the transcript window
     start: number
@@ -50,7 +51,8 @@ Return a JSON object with the following fields:
 {{
   "jargonFound": boolean,
   "text": "A plain-language summary followed by a bullet-point list clarifying each jargon term found (null if jargonFound is false). The summary must be labeled '**Summary:**' and separated from the bullets by \\n\\n. Each bullet must be on its own line separated by \\n. Example: **Summary:**\\n\\nThis is a discussion of how we set reliability targets and recover from outages.\\n\\n- **SLO** — A target for how reliable a system should be.\\n- **MTTR** — How long it takes to fix something after it breaks.",
-  "sourceText": "Verbatim quote from the transcript that contains the jargon (null if jargonFound is false)"
+  "sourceText": "Verbatim quote from the transcript that contains the jargon (null if jargonFound is false)",
+  "terms": "Flat array of jargon term names explained in this response, matching exactly the bolded terms in the text field (null if jargonFound is false). Example: [\\"SLO\\", \\"MTTR\\"]"
 }}
 
 Return ONLY raw JSON. No markdown, no backticks, no explanation.`
@@ -58,11 +60,14 @@ Return ONLY raw JSON. No markdown, no backticks, no explanation.`
 const jargonFilterSchema = z.object({
   jargonFound: z.boolean(),
   text: z.string().nullable(),
-  sourceText: z.string().nullable()
+  sourceText: z.string().nullable(),
+  terms: z.array(z.string()).nullable()
 })
 
 const USER_TEMPLATE = `## Event Topic:
 {topic}
+
+{seenTerms}
 
 ## Transcript:
 {transcript}
@@ -131,6 +136,7 @@ export default verify({
     system: [],
     user: [
       { name: 'topic', description: 'The event topic' },
+      { name: 'seenTerms', description: 'Already-explained terms to skip, or empty string if none' },
       { name: 'transcript', description: 'Transcript window to analyze for jargon' }
     ]
   },
@@ -237,18 +243,35 @@ export default verify({
     // Path A: Periodic trigger - existing proactive jargon detection
     const transcript = formatTranscript(conversationHistory.messages)
 
+    // Collect terms already explained in prior invocations from saved jargon messages
+    const priorMessages = (this.conversation.messages ?? []) as Array<{ fromAgent: boolean; body: unknown }>
+    const alreadyExplained: string[] = priorMessages
+      .filter((m) => m.fromAgent && (m.body as JargonFilterResponse)?.type === 'jargon_clarification')
+      .flatMap((m) => (m.body as JargonFilterResponse).terms ?? [])
+
+    const seenTermsCheck =
+      alreadyExplained.length > 0
+        ? `## Already Explained Terms:\nThe following terms have already been clarified earlier in this event. Do not explain them again:\n${alreadyExplained.map((t) => `- ${t}`).join('\n')}`
+        : ''
+
     const response = await getChatPromptResponse(
       llm,
       this.llmTemplates.system,
       this.llmTemplates.user,
       {
         topic: this.conversation.name,
+        seenTerms: seenTermsCheck,
         transcript
       },
       [], // no chat history needed, only the transcript
       jargonFilterSchema
     )
     if (!response.jargonFound) return []
+
+    if (!Array.isArray(response.terms) || response.terms.length === 0) {
+      logger.warn(`${this.name}: jargon found but LLM returned invalid or empty terms array — skipping response`)
+      return []
+    }
 
     // Find direct channels where this agent is a participant and the user has opted in.
     const directChannels = this.conversation.channels.filter(
@@ -274,6 +297,7 @@ export default verify({
       type: 'jargon_clarification',
       text: response.text!,
       sourceText: response.sourceText!,
+      terms: response.terms!,
       transcriptWindow: {
         start: conversationHistory.start.getTime(),
         end: conversationHistory.end.getTime()

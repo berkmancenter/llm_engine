@@ -10,7 +10,7 @@ import {
 } from '../../utils/agentTestHelpers.js'
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
 import User from '../../../src/models/user.model/user.model.js'
-import { AgentMessageActions } from '../../../src/types/index.types.js'
+import { AgentMessageActions, IMessage } from '../../../src/types/index.types.js'
 
 jest.setTimeout(180000)
 
@@ -206,6 +206,62 @@ describe('jargon filter agent tests', () => {
             expect(participantIds).toContain(jargonFilterAgent._id.toString())
           }
         }
+      },
+      testTimeout
+    )
+  })
+
+  describe('seen terms memory', () => {
+    it(
+      'includes a terms array in the response listing each jargon term explained',
+      async () => {
+        await loadTestTranscript(conversation, jargonTranscript)
+
+        const conversationHistory = getConversationHistory(conversation.messages, {
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 5 * 60 * 1000)
+        })
+
+        const responses = await defaultAgentTypes.jargonFilterAgent.respond.call(jargonFilterAgent, conversationHistory)
+        expect(responses.length).toBeGreaterThan(0)
+
+        const { terms } = responses[0].message
+        expect(Array.isArray(terms)).toBe(true)
+        expect(terms.length).toBeGreaterThan(0)
+        terms.forEach((term) => expect(typeof term).toBe('string'))
+      },
+      testTimeout
+    )
+
+    it(
+      'skips terms already explained in a previous window',
+      async () => {
+        await loadTestTranscript(conversation, jargonTranscript)
+
+        const conversationHistory = getConversationHistory(conversation.messages, {
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 5 * 60 * 1000)
+        })
+
+        // First invocation — agent sees jargon and clarifies it
+        const firstResponses = await defaultAgentTypes.jargonFilterAgent.respond.call(jargonFilterAgent, conversationHistory)
+        expect(firstResponses.length).toBeGreaterThan(0)
+
+        // Simulate the agent's response being saved to the conversation so the next invocation can see it
+        const firstMessage = firstResponses[0].message
+        conversation.messages.push({
+          body: firstMessage,
+          bodyType: 'json',
+          fromAgent: true,
+          channels: firstResponses[0].channels.map((c) => c.name),
+          pseudonym: jargonFilterAgent.pseudonyms[0].pseudonym,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        } as unknown as IMessage)
+
+        // Second invocation with the same transcript window — all terms already seen
+        const secondResponses = await defaultAgentTypes.jargonFilterAgent.respond.call(jargonFilterAgent, conversationHistory)
+        expect(secondResponses).toHaveLength(0)
       },
       testTimeout
     )
