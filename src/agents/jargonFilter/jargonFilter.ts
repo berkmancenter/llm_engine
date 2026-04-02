@@ -51,7 +51,7 @@ Return a JSON object with the following fields:
   "jargonFound": boolean,
   "text": "A bullet-point list clarifying each jargon term found (null if jargonFound is false). Each bullet must be on its own line separated by \\n. Example: - **SLO** — A target for how reliable a system should be.\\n- **MTTR** — How long it takes to fix something after it breaks.",
   "sourceText": "Verbatim quote from the transcript that contains the jargon (null if jargonFound is false)",
-  "terms": "Flat array of jargon term names explained in this response, matching exactly the bolded terms in the text field (null if jargonFound is false). Example: [\\"SLO\\", \\"MTTR\\"]"
+  "terms": "Flat array of jargon term names explained in this response, matching exactly the bolded terms in the text field. Must be a non-empty array when jargonFound is true, or an empty array [] when jargonFound is false. Example: [\\"SLO\\", \\"MTTR\\"]"
 }}
 
 Return ONLY raw JSON. No markdown, no backticks, no explanation.`
@@ -60,7 +60,7 @@ const jargonFilterSchema = z.object({
   jargonFound: z.boolean(),
   text: z.string().nullable(),
   sourceText: z.string().nullable(),
-  terms: z.array(z.string()).nullable()
+  terms: z.array(z.string()).nullable().optional()
 })
 
 const USER_TEMPLATE = `## Event Topic:
@@ -250,7 +250,9 @@ export default verify({
 
     const seenTermsCheck =
       alreadyExplained.length > 0
-        ? `## Already Explained Terms:\nThe following terms have already been clarified earlier in this event. Do not explain them again:\n${alreadyExplained.map((t) => `- ${t}`).join('\n')}`
+        ? `## Already Explained Terms:\nThe following terms have already been clarified earlier in this event. Do not explain them again:\n${alreadyExplained
+            .map((t) => `- ${t}`)
+            .join('\n')}`
         : ''
 
     const response = await getChatPromptResponse(
@@ -267,9 +269,11 @@ export default verify({
     )
     if (!response.jargonFound) return []
 
+    // We will still post clarifications if terms array missing, there will just be duplicates
     if (!Array.isArray(response.terms) || response.terms.length === 0) {
-      logger.warn(`${this.name}: jargon found but LLM returned invalid or empty terms array — skipping response`)
-      return []
+      logger.warn(
+        `${this.name}: jargon found but LLM returned invalid or empty terms array — deduplication will not apply for this response`
+      )
     }
 
     // Find direct channels where this agent is a participant and the user has opted in.
