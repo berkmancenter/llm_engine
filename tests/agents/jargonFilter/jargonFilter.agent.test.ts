@@ -211,6 +211,20 @@ describe('jargon filter agent tests', () => {
     )
   })
 
+  describe('malformed LLM output handling', () => {
+    it.each([
+      ['missing', '{"jargonFound":true,"text":"- **SLO** — A target for reliability.","sourceText":"We need to hit our SLO."}'],
+      ['empty array', '{"jargonFound":true,"text":"- **SLO** — A target for reliability.","sourceText":"We need to hit our SLO.","terms":[]}']
+    ])(
+      'jargon schema accepts a response where terms is %s',
+      (_label, jsonStr) => {
+        const parsed = JSON.parse(jsonStr)
+        expect(parsed.jargonFound).toBe(true)
+        expect(parsed.terms == null || Array.isArray(parsed.terms)).toBe(true)
+      }
+    )
+  })
+
   describe('seen terms memory', () => {
     it(
       'includes a terms array in the response listing each jargon term explained',
