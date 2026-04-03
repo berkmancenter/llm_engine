@@ -145,26 +145,24 @@ function getStructuredResponseChain(llm, prompt, responseFormatSchema) {
   }
 
   const toolSchema = {
-    name: 'structured_response',
-    description: 'Respond with structured data',
-    input_schema: responseFormatSchemaNonStructured
+    type: 'function' as const,
+    function: {
+      name: 'structured_response',
+      description: 'Respond with structured data',
+      parameters: responseFormatSchemaNonStructured
+    }
   }
-
-  const llmWithTool = llm.bind({
-    tools: [toolSchema]
-  })
 
   const parser = StructuredOutputParser.fromZodSchema(responseFormatSchemaNonStructured)
 
-  // BedrockChat (@langchain/community) does not implement bindTools, so withStructuredOutput
-  // is unavailable for Claude/Bedrock. The modern replacement, ChatBedrockConverse
-  // (@langchain/aws), does support it — migrating would eliminate this workaround but it's a larger scoped
-  // infrastructure update. Until then, we strip any "````json```" fences the model occasionally adds around
-  // its JSON output.
+  // BedrockChat (@langchain/community) has a broken withStructuredOutput implementation in LangChain 1.0.
+  // The base class checks for AIMessageChunk, but invoke() returns AIMessage, causing "Input is not an AIMessageChunk" error.
+  // The modern replacement, ChatBedrockConverse (@langchain/aws), properly implements structured output.
+  // For now, we use bindTools + manual parsing for BedrockChat/Anthropic models.
   return shouldUseStructuredOutput(llm)
     ? prompt.pipe(llm.withStructuredOutput(responseFormatSchema))
     : prompt
-        .pipe(llmWithTool)
+        .pipe(llm.bindTools([toolSchema]))
         .pipe(new StringOutputParser())
         .pipe(async (text: string) =>
           text
