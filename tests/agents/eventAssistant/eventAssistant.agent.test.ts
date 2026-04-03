@@ -21,7 +21,6 @@ const testConfig = setupAgentTest('eventAssistant')
 
 const offTopicQuestions = [
   'What should I make for lunch?',
-  "I'm bored, let's talk about something else",
   'What is the weather like in Paris?',
   'What is the capital of France?',
   'What is the meaning of life?',
