@@ -2,7 +2,7 @@ import validateProfessionalism from '../../../src/agents/helpers/professionalism
 import { getModelChat, supportedModels } from '../../../src/agents/helpers/getModelChat.js'
 import { LlmPlatforms } from '../../../src/types/index.types.js'
 
-jest.setTimeout(20000) // Set timeout to 20 seconds for LLM calls
+jest.setTimeout(30000) // Set timeout to 30 seconds for LLM calls
 describe('professionalismValidator', () => {
   let llm
 
@@ -85,7 +85,7 @@ describe('professionalismValidator', () => {
         baseContext.recentTranscript
       )
       expect(result).toBe(false)
-    }, 10000)
+    })
 
     it('should reject dating or attraction comments', async () => {
       const message = "I sense some chemistry between the frontend and backend teams... and I'm not just talking about APIs."
@@ -97,7 +97,7 @@ describe('professionalismValidator', () => {
         baseContext.recentTranscript
       )
       expect(result).toBe(false)
-    }, 10000)
+    })
 
     it('should reject comments about compatibility', async () => {
       const message = "You two have such complementary skillsets, you'd make a great founding team... or couple!"
@@ -109,7 +109,7 @@ describe('professionalismValidator', () => {
         baseContext.recentTranscript
       )
       expect(result).toBe(false)
-    }, 10000)
+    })
   })
 
   describe('inappropriate personal content', () => {
@@ -123,7 +123,7 @@ describe('professionalismValidator', () => {
         baseContext.recentTranscript
       )
       expect(result).toBe(false)
-    }, 10000)
+    })
 
     it('should reject overly personal questions', async () => {
       const message = "Before we discuss architecture, I'm curious - are you single?"
@@ -135,7 +135,7 @@ describe('professionalismValidator', () => {
         baseContext.recentTranscript
       )
       expect(result).toBe(false)
-    }, 10000)
+    })
 
     it('should reject comments crossing into personal territory', async () => {
       const message =
@@ -148,7 +148,7 @@ describe('professionalismValidator', () => {
         baseContext.recentTranscript
       )
       expect(result).toBe(false)
-    }, 10000)
+    })
     it('should reject comments attempting to get participants to discuss personal trauma', async () => {
       const message =
         "I'm sensing some deep personal struggles in this room. Who wants to share about a time they hit rock bottom in their career?"
@@ -161,7 +161,7 @@ describe('professionalismValidator', () => {
         baseContext.recentTranscript
       )
       expect(result).toBe(false)
-    }, 10000)
+    })
   })
 
   describe('edge cases', () => {
