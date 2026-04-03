@@ -153,6 +153,16 @@ components:
             type: string
           description: Array of Conversation IDs
 
+    Profile:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        bio:
+          type: string
+
     BaseUser:
       type: object
       properties:
@@ -680,6 +690,8 @@ components:
           type: string
         name:
           type: string
+        description:
+          type: string
         conversationType:
           type: string
         platforms:
@@ -694,6 +706,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Agent'
+        presenters:
+          type: array
+          items:
+            $ref: '#/components/schemas/Profile'
+        moderators:
+          type: array
+          items:
+            $ref: '#/components/schemas/Profile'
         channels:
           type: array
           items:
