@@ -2,6 +2,12 @@
 import backChannelMetrics from './backChannel/backChannelMetrics.js'
 import backChannelInsights from './backChannel/backChannelInsights.js'
 import eventAssistant from './eventAssistant/eventAssistant.js'
+import librarian from './librarian/librarianAgent.js'
+import eventAssistantPlus from './eventAssistant/eventAssistantPlus.js'
+import eventMediator from './eventMediator/eventMediator.js'
+import eventMediatorPlus from './eventMediator/eventMediatorPlus.js'
+import engagementAgent from './engagement/engagementAgent.js'
+import jargonFilterAgent from './jargonFilter/jargonFilter.js'
 
 // Development agents
 import civilityPerMessage from './development/civilityPerMessage.js'
@@ -15,11 +21,6 @@ import experts from './development/experts/index.js'
 
 import generic from './development/generic/index.js'
 import config from '../config/config.js'
-import eventAssistantPlus from './eventAssistant/eventAssistantPlus.js'
-import eventMediator from './eventMediator/eventMediator.js'
-import eventMediatorPlus from './eventMediator/eventMediatorPlus.js'
-import engagementAgent from './engagement/engagementAgent.js'
-import jargonFilterAgent from './jargonFilter/jargonFilter.js'
 
 const development = {
   civilityPerMessage,
@@ -42,5 +43,6 @@ export default {
   eventMediator,
   eventMediatorPlus,
   engagementAgent,
-  jargonFilterAgent
+  jargonFilterAgent,
+  librarian
 }

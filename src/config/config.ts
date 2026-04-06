@@ -92,7 +92,8 @@ const envVarsSchema = Joi.object()
     CLASSIFICATION_LLM_MODEL: Joi.string().default('sonnet').description('Model to use for classification tasks'),
     IMAGE_GENERATION_LLM_MODEL: Joi.string()
       .default('gemini-3-pro-image-preview')
-      .description('Model to use for image generation tasks')
+      .description('Model to use for image generation tasks'),
+    HARVARD_LIBRARY_API_URL: Joi.string().description('Harvard Library Cloud API base URL')
   })
   .unknown()
 
@@ -212,6 +213,9 @@ const config = {
   conversationBotName: envVars.CONVERSATION_BOT_NAME,
   classificationLLMPlatform: envVars.CLASSIFICATION_LLM_PLATFORM,
   classificationLLMModel: envVars.CLASSIFICATION_LLM_MODEL,
-  imageGenerationLLMModel: envVars.IMAGE_GENERATION_LLM_MODEL
+  imageGenerationLLMModel: envVars.IMAGE_GENERATION_LLM_MODEL,
+  harvardLibrary: {
+    baseUrl: envVars.HARVARD_LIBRARY_API_URL
+  }
 }
 export default config
