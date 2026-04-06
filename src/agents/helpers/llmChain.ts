@@ -1,7 +1,9 @@
 import { ChatPromptTemplate, PromptTemplate } from '@langchain/core/prompts'
 // import { ConsoleCallbackHandler } from 'langchain/callbacks'
-import { StringOutputParser } from '@langchain/core/output_parsers'
+import { StringOutputParser, StructuredOutputParser } from '@langchain/core/output_parsers'
 import { RunnableSequence } from '@langchain/core/runnables'
+import { SystemMessage } from '@langchain/core/messages'
+import { createAgent } from 'langchain'
 import { z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import logger from '../../config/logger.js'
@@ -79,6 +81,124 @@ function ensureAlternatingChat(history: any[]) {
   }
 
   return out
+}
+
+/**
+ * Parses a raw text response into structured output using a Zod schema.
+ *
+ * This helper handles:
+ * - Stripping markdown code fences (```json, ```)
+ * - Parsing with StructuredOutputParser
+ * - Array wrapping/unwrapping based on schema shape
+ *
+ * @param text - The raw text response to parse
+ * @param responseFormatSchema - The Zod schema to parse against
+ * @returns Parsed and validated structured output
+ */
+async function parseAgentStructuredResponse(text: string, responseFormatSchema) {
+  // Deduce the non-structured schema from the structured schema
+  // If structured schema is an object with a single property that's an array, unwrap it
+  // Otherwise, use the structured schema as-is
+  const { shape } = responseFormatSchema
+  const keys = Object.keys(shape)
+
+  let arrayKey
+
+  if (keys.length === 1 && shape[keys[0]] instanceof z.ZodArray) {
+    ;[arrayKey] = keys
+  }
+  const parser = StructuredOutputParser.fromZodSchema(responseFormatSchema)
+
+  // Extract JSON from code fences if present, otherwise just trim
+  let cleanedText = text.trim()
+
+  // Check if text contains code fences
+  if (text.includes('```')) {
+    // Find the LAST code fence (in case there are multiple)
+    const lastClosingFence = text.lastIndexOf('```')
+    if (lastClosingFence > 0) {
+      // Find the opening fence before it
+      const beforeClosing = text.substring(0, lastClosingFence)
+      const lastOpeningFence = beforeClosing.lastIndexOf('```')
+      if (lastOpeningFence !== -1) {
+        // Extract content between the fences
+        let fenceContent = text.substring(lastOpeningFence + 3, lastClosingFence)
+        // Remove optional 'json' marker and leading/trailing whitespace
+        fenceContent = fenceContent.replace(/^json\s*\n?/i, '').trim()
+        cleanedText = fenceContent
+      }
+    }
+  }
+
+  // If the agent returned a bare array but the schema expects a wrapped object, re-wrap it
+  let textToParse = cleanedText
+  if (arrayKey) {
+    try {
+      const parsedJson = JSON.parse(cleanedText)
+      if (Array.isArray(parsedJson)) {
+        textToParse = JSON.stringify({ [arrayKey]: parsedJson })
+        logger.debug(`Re-wrapped bare array as '${arrayKey}' property for parsing`)
+      }
+    } catch (e) {
+      logger.debug(`Failed to pre-parse JSON for re-wrapping: ${e}`)
+    }
+  }
+
+  return parser.parse(textToParse)
+}
+
+/**
+ * Creates a runnable chain that processes agent output with logging and optional structured parsing.
+ *
+ * This chain handles:
+ * - Extracting and logging tool calls from agent messages
+ * - Extracting final text response using StringOutputParser
+ * - Optionally parsing structured output with a Zod schema
+ *
+ * @param responseSchema - Optional Zod schema for structured output parsing
+ * @returns A LangChain runnable that processes agent results
+ */
+function createAgentOutputChain(responseSchema?) {
+  // Step 1: Log tool calls and extract final message
+  const logAndExtractStep = async (agentResult) => {
+    const { messages } = agentResult
+
+    logger.debug(`Agent executed ${messages.length} message exchanges`)
+
+    // Log tool calls for debugging
+    messages.forEach((msg, idx) => {
+      const msgType = msg._getType()
+      if (msgType === 'ai') {
+        // Type guard: check if message has tool_calls property
+        const aiMsg = msg as { tool_calls?: Array<{ name: string; args: unknown; id?: string }> }
+        if (aiMsg.tool_calls && aiMsg.tool_calls.length > 0) {
+          logger.debug(`[${idx}] AIMessage with ${aiMsg.tool_calls.length} tool calls:`)
+          aiMsg.tool_calls.forEach((tc) => {
+            logger.debug(`  - Tool: ${tc.name}`)
+            logger.debug(`    Args: ${JSON.stringify(tc.args)}`)
+          })
+        } else {
+          logger.debug(`[${idx}] AIMessage (final response)`)
+        }
+      }
+    })
+
+    return messages[messages.length - 1]
+  }
+
+  // Step 2: Extract text from message (handles both string and array content)
+  const parseStep = new StringOutputParser()
+
+  // Build the chain based on whether we need structured parsing
+  if (responseSchema) {
+    return RunnableSequence.from([
+      logAndExtractStep,
+      parseStep,
+      async (text: string) => parseAgentStructuredResponse(text, responseSchema)
+    ])
+  }
+
+  return RunnableSequence.from([logAndExtractStep, parseStep])
 }
 
 /**
@@ -332,11 +452,57 @@ async function getRAGAugmentedResponse(
   return answerChain.invoke({ ...inputParams, context: chunks })
 }
 
+/**
+ * Executes an agent with tools and returns a structured or string response.
+ *
+ * This function creates and invokes a LangChain agent with the provided tools,
+ * then extracts and optionally parses the final response. It handles common
+ * post-processing like stripping markdown code fences.
+ *
+ * @param llm - The language model instance to use for generation
+ * @param tools - Array of tools available to the agent
+ * @param systemPrompt - The system prompt to guide the agent's behavior
+ * @param userMessage - The user message to send to the agent
+ * @param responseSchema - Optional Zod schema for structured output. When provided,
+ *   the response will be parsed and validated against this schema.
+ *
+ * @returns A promise that resolves to either a string (default) or structured object (when schema provided)
+ *
+
+ */
+async function getAgentStructuredResponse(llm, tools, systemPrompt, userMessage, responseSchema?) {
+  // Add format instructions to system prompt if schema is provided
+  let finalSystemPrompt = systemPrompt
+  if (responseSchema) {
+    const parser = StructuredOutputParser.fromZodSchema(responseSchema)
+    finalSystemPrompt = `${systemPrompt}
+
+${parser.getFormatInstructions()}`
+  }
+
+  // It would be great if we could pass the responseSchema here as the responseFormat argument
+  // (or include it in tools as we do in getStructuredResponseChain). This would presumably eliminate the
+  // need to extract ONLY the code in the fences in parseStructuredOutput (eliminating the introductory text)
+  // However, BedrockChat complains that 'All tools must be of the same type'.
+  // Potentially another reason to switch to ChatBedrockConverse
+  const agent = createAgent({
+    model: llm,
+    tools,
+    systemPrompt: new SystemMessage(finalSystemPrompt)
+  })
+
+  const agentResult = await agent.invoke({ messages: [{ role: 'user', content: userMessage }] }, { recursionLimit: 20 })
+
+  const outputChain = createAgentOutputChain(responseSchema)
+  return outputChain.invoke(agentResult)
+}
+
 export {
   getSinglePromptResponse,
   getRAGAugmentedResponse,
   getChatPromptResponse,
   shouldUseStructuredOutput,
   pingLLM,
-  getStructuredResponseChain
+  getStructuredResponseChain,
+  getAgentStructuredResponse
 }
