@@ -1,8 +1,9 @@
 import { ChatPromptTemplate, PromptTemplate } from '@langchain/core/prompts'
 // import { ConsoleCallbackHandler } from 'langchain/callbacks'
-import { StringOutputParser, StructuredOutputParser } from '@langchain/core/output_parsers'
+import { StringOutputParser } from '@langchain/core/output_parsers'
 import { RunnableSequence } from '@langchain/core/runnables'
 import { z } from 'zod'
+import { zodToJsonSchema } from 'zod-to-json-schema'
 import logger from '../../config/logger.js'
 import rag from './rag.js'
 
@@ -133,15 +134,18 @@ function getStructuredResponseChain(llm, prompt, responseFormatSchema) {
   // Otherwise, use the structured schema as-is
   const { shape } = responseFormatSchema
   const keys = Object.keys(shape)
-
-  let responseFormatSchemaNonStructured
   let arrayKey
-
   if (keys.length === 1 && shape[keys[0]] instanceof z.ZodArray) {
     ;[arrayKey] = keys
-    responseFormatSchemaNonStructured = shape[keys[0]]
-  } else {
-    responseFormatSchemaNonStructured = responseFormatSchema
+  }
+
+  // Convert Zod schema to JSON Schema and ensure it has type: 'object' for Bedrock compatibility
+  // Always use the original responseFormatSchema (not unwrapped) for tool definition
+  // because Claude requires the tool's input_schema to be type: 'object'
+  const jsonSchema = zodToJsonSchema(responseFormatSchema)
+  const parametersSchema = {
+    ...(typeof jsonSchema === 'object' && jsonSchema !== null ? jsonSchema : {}),
+    type: 'object'
   }
 
   const toolSchema = {
@@ -149,34 +153,39 @@ function getStructuredResponseChain(llm, prompt, responseFormatSchema) {
     function: {
       name: 'structured_response',
       description: 'Respond with structured data',
-      parameters: responseFormatSchemaNonStructured
+      parameters: parametersSchema
     }
   }
-
-  const parser = StructuredOutputParser.fromZodSchema(responseFormatSchemaNonStructured)
 
   // BedrockChat (@langchain/community) has a broken withStructuredOutput implementation in LangChain 1.0.
   // The base class checks for AIMessageChunk, but invoke() returns AIMessage, causing "Input is not an AIMessageChunk" error.
   // The modern replacement, ChatBedrockConverse (@langchain/aws), properly implements structured output.
   // For now, we use bindTools + manual parsing for BedrockChat/Anthropic models.
-  return shouldUseStructuredOutput(llm)
-    ? prompt.pipe(llm.withStructuredOutput(responseFormatSchema))
-    : prompt
-        .pipe(llm.bindTools([toolSchema]))
-        .pipe(new StringOutputParser())
-        .pipe(async (text: string) =>
-          text
-            .replace(/^```(?:json)?\s*/i, '')
-            .replace(/\s*```\s*$/, '')
-            .trim()
-        )
-        .pipe(parser)
-        .pipe(async (parsed) => {
-          if (Array.isArray(parsed) && arrayKey) {
-            return { [arrayKey]: parsed }
-          }
-          return parsed
-        })
+  if (shouldUseStructuredOutput(llm)) {
+    return prompt.pipe(llm.withStructuredOutput(responseFormatSchema))
+  }
+
+  // For Bedrock/Anthropic: use bindTools and extract tool call arguments
+  // This matches LangChain's withStructuredOutput behavior
+  return prompt.pipe(llm.bindTools([toolSchema])).pipe(async (message) => {
+    // Extract tool call from AIMessage
+    const aiMsg = message as { tool_calls?: Array<{ name: string; args: unknown; id?: string }> }
+
+    if (!aiMsg.tool_calls || aiMsg.tool_calls.length === 0) {
+      throw new Error('No tool calls found in the response.')
+    }
+
+    const structuredResponseCall = aiMsg.tool_calls.find((tc) => tc.name === 'structured_response')
+    if (!structuredResponseCall) {
+      throw new Error('No structured_response tool call found.')
+    }
+
+    // If we have an arrayKey, wrap the result
+    if (Array.isArray(structuredResponseCall.args) && arrayKey) {
+      return { [arrayKey]: structuredResponseCall.args }
+    }
+    return structuredResponseCall.args
+  })
 }
 
 /**

@@ -27,20 +27,28 @@ export function buildBedrockClaudePayload({
   systemPrompt,
   userMessages,
   maxTokens = 1024,
-  temperature = 0
+  temperature = 0,
+  tools
 }: {
   systemPrompt: string
   userMessages: Record<string, unknown>[]
   maxTokens?: number
   temperature?: number
+  tools?: unknown[]
 }) {
-  return {
+  const payload: Record<string, unknown> = {
     system: systemPrompt,
     anthropic_version: 'bedrock-2023-05-31',
     max_tokens: maxTokens,
     temperature,
     messages: userMessages
   }
+
+  if (tools && tools.length > 0) {
+    payload.tools = tools
+  }
+
+  return payload
 }
 
 // Transform standard LLM payload to Bedrock Claude format if needed
@@ -73,35 +81,52 @@ export function transformPayloadForClaude(bodyContent: unknown, defaultLLMModel:
     throw new Error('User message content is empty. Bedrock Claude requires a non-empty user message.')
   }
 
-  // For Claude models, remove any structured output instructions from the system prompt
-  // This prevents tool calling attempts that might cause issues
-  let cleanedSystemPrompt = systemPrompt
-  if (useClaudeFormat) {
-    // Remove common structured output patterns
-    cleanedSystemPrompt = systemPrompt
-      .replace(/You must respond with a JSON object that matches the following schema:/gi, '')
-      .replace(/The response must be a valid JSON object with the following structure:/gi, '')
-      .replace(/Return your response as a JSON object with the following format:/gi, '')
-      .replace(/Use the following JSON schema for your response:/gi, '')
-      .replace(/```json\n[\s\S]*?\n```/g, '') // Remove JSON schema blocks
-      .replace(/```\n[\s\S]*?\n```/g, '') // Remove any other code blocks
-      .trim()
+  // Extract maxTokens - check both snake_case (Bedrock API format) and camelCase (LangChain format)
+  let maxTokens = 1024 // Default
+  if (isObj) {
+    const body = bodyContent as Record<string, unknown>
+    if (typeof body.max_tokens === 'number') {
+      maxTokens = body.max_tokens
+    } else if (typeof body.maxTokens === 'number') {
+      maxTokens = body.maxTokens
+    }
   }
-
-  const maxTokens =
-    isObj && typeof (bodyContent as Record<string, unknown>).max_tokens === 'number'
-      ? ((bodyContent as Record<string, unknown>).max_tokens as number)
-      : 1024
   const temperature =
     isObj && typeof (bodyContent as Record<string, unknown>).temperature === 'number'
       ? ((bodyContent as Record<string, unknown>).temperature as number)
       : 0
 
+  // Extract tools if present
+  const tools =
+    isObj && Array.isArray((bodyContent as Record<string, unknown>).tools)
+      ? ((bodyContent as Record<string, unknown>).tools as unknown[])
+      : undefined
+
+  // Deduplicate tool_use blocks in messages to work around LangGraph bug
+  // where tool_use blocks can be duplicated in message history
+  const deduplicatedMessages = messagesArr.map((msg) => {
+    if (Array.isArray(msg.content)) {
+      const toolUseIds = new Set<string>()
+      const deduplicatedContent = msg.content.filter((block) => {
+        if (block.type === 'tool_use') {
+          if (toolUseIds.has(block.id)) {
+            return false
+          }
+          toolUseIds.add(block.id)
+        }
+        return true
+      })
+      return { ...msg, content: deduplicatedContent }
+    }
+    return msg
+  })
+
   return buildBedrockClaudePayload({
-    systemPrompt: cleanedSystemPrompt,
-    userMessages: messagesArr,
+    systemPrompt,
+    userMessages: deduplicatedMessages,
     maxTokens,
-    temperature
+    temperature,
+    tools
   })
 }
 
