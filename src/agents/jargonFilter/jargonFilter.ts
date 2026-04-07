@@ -240,6 +240,11 @@ export default verify({
     }
 
     // Path A: Periodic trigger - existing proactive jargon detection
+    // Return early if no messages in the conversation history window
+    if (!conversationHistory.messages || conversationHistory.messages.length === 0) {
+      return []
+    }
+
     const transcript = formatTranscript(conversationHistory.messages)
 
     // Collect terms already explained in prior invocations from saved jargon messages
