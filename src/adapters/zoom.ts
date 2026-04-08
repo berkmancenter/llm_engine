@@ -188,7 +188,11 @@ async function findParentMessage(conversationId, quotedText, channels, pseudonym
 
 async function receiveChatMessage(data) {
   // Filter out emoji reactions
-  if (data.data.data.text.startsWith('Reacting to') || data.data.data.text.startsWith('Reacted to')) {
+  if (
+    data.data.data.text.startsWith('Reacting to') ||
+    data.data.data.text.startsWith('Reacted to') ||
+    /^Removed a .+ reaction$/.test(data.data.data.text)
+  ) {
     return []
   }
 

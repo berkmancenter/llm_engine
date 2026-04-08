@@ -397,6 +397,34 @@ describe('zoom adapter tests', () => {
       expect(msgs).toHaveLength(0)
     })
 
+    it('filters out chat messages about removing a reaction', async () => {
+      await createConversation('Meeting with Emoji Reactions')
+
+      const reactionMessage = {
+        data: {
+          data: {
+            data: {
+              text: 'Removed a ❤️ reaction',
+              to: 'everyone'
+            },
+            participant: {
+              id: 103,
+              name: 'Bob Johnson',
+              is_host: false,
+              platform: 'zoom'
+            }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      adapter.chatChannels = [{ name: 'participant', direction: Direction.INCOMING }]
+      await adapter.save()
+
+      const msgs = await adapter.receiveMessage(reactionMessage)
+      expect(msgs).toHaveLength(0)
+    })
+
     it('removes "Replying to" prefix and saves only the reply portion', async () => {
       await createConversation('Meeting with Reply Messages')
 
