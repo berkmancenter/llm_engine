@@ -180,7 +180,7 @@ describe('professionalismValidator', () => {
 
     it('should allow references to team dynamics', async () => {
       const message =
-        "The relationship between your sales and engineering teams seems... tense. Anyone want to surface what's really going on?"
+        "I'm noticing your sales and engineering teams have different priorities for the roadmap. Let's get both perspectives on the table - what's the disconnect?"
       const result = await validateProfessionalism(
         llm,
         message,

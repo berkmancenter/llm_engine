@@ -134,7 +134,7 @@ describe('jargon filter agent tests', () => {
         // messages in conversation.messages and produce a response. It should not.
         const emptyHistory = getConversationHistory(conversation.messages, {
           channels: ['transcript'],
-          timeWindow: 0,
+          timeWindow: 120,
           endTime: startTime // before any messages were loaded
         })
 
@@ -213,16 +213,19 @@ describe('jargon filter agent tests', () => {
 
   describe('malformed LLM output handling', () => {
     it.each([
-      ['missing', '{"jargonFound":true,"text":"- **SLO** — A target for reliability.","sourceText":"We need to hit our SLO."}'],
-      ['empty array', '{"jargonFound":true,"text":"- **SLO** — A target for reliability.","sourceText":"We need to hit our SLO.","terms":[]}']
-    ])(
-      'jargon schema accepts a response where terms is %s',
-      (_label, jsonStr) => {
-        const parsed = JSON.parse(jsonStr)
-        expect(parsed.jargonFound).toBe(true)
-        expect(parsed.terms == null || Array.isArray(parsed.terms)).toBe(true)
-      }
-    )
+      [
+        'missing',
+        '{"jargonFound":true,"text":"- **SLO** — A target for reliability.","sourceText":"We need to hit our SLO."}'
+      ],
+      [
+        'empty array',
+        '{"jargonFound":true,"text":"- **SLO** — A target for reliability.","sourceText":"We need to hit our SLO.","terms":[]}'
+      ]
+    ])('jargon schema accepts a response where terms is %s', (_label, jsonStr) => {
+      const parsed = JSON.parse(jsonStr)
+      expect(parsed.jargonFound).toBe(true)
+      expect(parsed.terms == null || Array.isArray(parsed.terms)).toBe(true)
+    })
   })
 
   describe('seen terms memory', () => {
@@ -274,7 +277,10 @@ describe('jargon filter agent tests', () => {
         } as unknown as IMessage)
 
         // Second invocation with the same transcript window — all terms already seen
-        const secondResponses = await defaultAgentTypes.jargonFilterAgent.respond.call(jargonFilterAgent, conversationHistory)
+        const secondResponses = await defaultAgentTypes.jargonFilterAgent.respond.call(
+          jargonFilterAgent,
+          conversationHistory
+        )
         expect(secondResponses).toHaveLength(0)
       },
       testTimeout

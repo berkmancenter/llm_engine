@@ -60,7 +60,7 @@ const jargonFilterSchema = z.object({
   jargonFound: z.boolean(),
   text: z.string().nullable(),
   sourceText: z.string().nullable(),
-  terms: z.array(z.string()).nullable().optional()
+  terms: z.array(z.string()).nullable()
 })
 
 const USER_TEMPLATE = `## Event Topic:
@@ -118,7 +118,7 @@ Determine if this is about jargon/terminology and answer if so. Return JSON only
 
 const jargonFollowUpSchema = z.object({
   isJargonRelated: z.boolean(),
-  text: z.string().optional()
+  text: z.string().nullable()
 })
 
 export default verify({
@@ -240,6 +240,11 @@ export default verify({
     }
 
     // Path A: Periodic trigger - existing proactive jargon detection
+    // Return early if no messages in the conversation history window
+    if (!conversationHistory.messages || conversationHistory.messages.length === 0) {
+      return []
+    }
+
     const transcript = formatTranscript(conversationHistory.messages)
 
     // Collect terms already explained in prior invocations from saved jargon messages
