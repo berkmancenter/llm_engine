@@ -79,6 +79,61 @@ async function deleteAllCollections() {
   }
 }
 
+async function getContextChunksForQuestionMulti(
+  collectionNames: string[],
+  question: string,
+  formatFn?,
+  filter?,
+  k = 5,
+  embeddingsPlatform?,
+  embeddingsModelName?,
+  scoreThreshold?
+) {
+  // Run searches in parallel across collections
+  const resultsPerCollection = await Promise.all(
+    collectionNames.map(async (collectionName) => {
+      const vectorStore = getVectorStore(collectionName, embeddingsPlatform, embeddingsModelName)
+
+      try {
+        const docsWithScores = await vectorStore.similaritySearchWithScore(question, k, filter)
+
+        return docsWithScores.map(([doc, score]) => ({
+          ...doc,
+          score,
+          collectionName
+        }))
+      } catch (err) {
+        logger.warn(`Error querying collection ${getFullCollectionName(collectionName)}: ${err.message}`)
+        return []
+      }
+    })
+  )
+
+  // Flatten results
+  let allDocs = resultsPerCollection.flat()
+
+  if (!allDocs.length) {
+    logger.warn(`No relevant RAG docs found across collections: ${collectionNames.join(', ')}`)
+  }
+
+  // Filter by score threshold (lower is better)
+  if (scoreThreshold !== undefined) {
+    allDocs = allDocs.filter((doc) => doc.score < scoreThreshold)
+  }
+
+  // Sort globally by score
+  allDocs.sort((a, b) => a.score - b.score)
+
+  // Take top k overall (not per collection)
+  const topDocs = allDocs.slice(0, k)
+
+  const chunks = formatFn
+    ? topDocs.map((doc, idx) => formatFn(doc, idx)).join('\n\n')
+    : topDocs.map((doc) => doc.pageContent).join('\n\n')
+
+  return { chunks, retrievedDocs: topDocs }
+}
+
 async function getContextChunksForQuestion(
   collectionName,
   question,
@@ -187,6 +242,7 @@ async function addPDFToVectorStore(collectionName, file, metadataFn?, embeddings
 
 export default {
   getContextChunksForQuestion,
+  getContextChunksForQuestionMulti,
   addTextsToVectorStore,
   addPDFToVectorStore,
   removeFromVectorStore,

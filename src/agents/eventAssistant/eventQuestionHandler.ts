@@ -281,7 +281,8 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
     const searchResult = await transcript.searchTranscript(
       this.conversation,
       question,
-      this.conversationHistorySettings?.endTime
+      this.conversationHistorySettings?.endTime,
+      this.agentConfig?.ragTopic
     )
     const { chunks, timeWindow } = searchResult
 

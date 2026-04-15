@@ -60,7 +60,7 @@ async function buildTimeQuery(timeQuery: TimeReference, startTime: Date, endTime
   }
 }
 
-async function searchTranscript(conversation, question, endTime?) {
+async function searchTranscript(conversation, question, endTime?, regex?) {
   const timeQuery = detectTimeQuery(question, conversation.startTime, endTime)
   const k = 10
   if (timeQuery) {
@@ -81,14 +81,38 @@ async function searchTranscript(conversation, question, endTime?) {
       logger.warn(`Error building time query: ${e.message}. Ignoring...`)
     }
   }
+
   const filter = endTime
     ? {
-        $or: [
-          { start: { $lte: endTime.getTime() } }, // Transcript chunks within time range
-          { type: { $in: ['event', 'presenter', 'moderator'] } } // Always include metadata
-        ]
+        $or: [{ start: { $lte: endTime.getTime() } }, { type: { $in: ['event', 'presenter', 'moderator'] } }]
       }
     : undefined
+
+  // NEW LOGIC: handle regex search across multiple conversations
+  if (regex) {
+    const conversations = await Conversation.find({
+      name: { $regex: regex, $options: 'i' }
+    }).select('_id')
+
+    const collectionNames = conversations.map((c) => `${TRANSCRIPT_COLLECTION_PREFIX}-${c._id}`)
+
+    logger.debug(`Searching for regex "${regex}" across conversations: ${collectionNames.join(', ')}`)
+
+    const { chunks } = await rag.getContextChunksForQuestionMulti(
+      collectionNames,
+      question,
+      undefined,
+      filter,
+      k,
+      conversation.transcript?.vectorStore?.embeddingsPlatform,
+      conversation.transcript?.vectorStore?.embeddingsModelName,
+      0.8
+    )
+
+    return { chunks, timeWindow: false }
+  }
+
+  // EXISTING SINGLE-CONVERSATION LOGIC
   const { chunks } = await rag.getContextChunksForQuestion(
     `${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`,
     question,
