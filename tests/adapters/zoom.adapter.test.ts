@@ -404,7 +404,7 @@ describe('zoom adapter tests', () => {
         data: {
           data: {
             data: {
-              text: 'Removed a ❤️ reaction',
+              text: 'Removed a ❤️ reaction from "Becca, the sound was..."',
               to: 'everyone'
             },
             participant: {

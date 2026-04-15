@@ -191,7 +191,7 @@ async function receiveChatMessage(data) {
   if (
     data.data.data.text.startsWith('Reacting to') ||
     data.data.data.text.startsWith('Reacted to') ||
-    /^Removed a .+ reaction$/.test(data.data.data.text)
+    /^Removed a .+ reaction/.test(data.data.data.text)
   ) {
     return []
   }
