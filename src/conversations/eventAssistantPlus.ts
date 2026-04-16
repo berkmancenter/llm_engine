@@ -27,7 +27,7 @@ const eventAssistantPlus: ConversationType = {
     },
     {
       name: 'llmModel',
-      label: 'Model that your agent will use',
+      label: 'Model that your agents will use',
       required: false,
       type: 'enum',
       options: supportedModels,
@@ -42,23 +42,77 @@ const eventAssistantPlus: ConversationType = {
       default: 3
     }
   ],
+  features: [
+    {
+      name: 'collectiveVoice',
+      label: 'Collective Voice',
+      description:
+        'Contributes to the group chat by surfacing what participants are privately thinking, connecting threads across the conversation, and giving the discussion shape and continuity.',
+      default: true,
+      properties: [
+        {
+          name: 'minContributionInterval',
+          label: 'Minimum Minutes Between Contributions',
+          required: false,
+          type: 'number',
+          default: 10
+        }
+      ],
+      agents: [
+        {
+          name: 'eventMediatorPlus',
+          properties: [
+            { $ref: 'llmModel.llmModel' },
+            { $ref: 'llmModel.llmPlatform' },
+            { $ref: 'collectiveVoice.minContributionInterval', as: 'agentConfig.minInterval' }
+          ]
+        }
+      ]
+    },
+    {
+      name: 'catalyst',
+      label: 'Catalyst',
+      description:
+        'Participates in the group chat as an active voice — jumping into silences, responding to speakers, challenging unexamined claims, and adding witty observations to encourage participation.',
+      default: true,
+      properties: [
+        {
+          name: 'minContributionInterval',
+          label: 'Minimum Minutes Between Contributions',
+          required: false,
+          type: 'number',
+          default: 10
+        }
+      ],
+      agents: [
+        {
+          name: 'engagementAgent',
+          properties: [
+            { $ref: 'llmModel.llmModel' },
+            { $ref: 'llmModel.llmPlatform' },
+            { $ref: 'catalyst.minContributionInterval', as: 'agentConfig.minInterval' }
+          ]
+        }
+      ]
+    }
+  ],
   // internal
   agents: [
     {
       name: 'eventAssistantPlus',
-      properties: {
-        llmModel: '{{properties.llmModel.llmModel}}',
-        llmPlatform: '{{properties.llmModel.llmPlatform}}',
-        agentConfig: { botName: '{{properties.botName}}' }
-      }
+      properties: [
+        { $ref: 'llmModel.llmModel' },
+        { $ref: 'llmModel.llmPlatform' },
+        { $ref: 'botName', as: 'agentConfig.botName' }
+      ]
     },
     {
       name: 'backChannelInsights',
-      properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
+      properties: [{ $ref: 'llmModel.llmModel' }, { $ref: 'llmModel.llmPlatform' }]
     },
     {
       name: 'jargonFilterAgent',
-      properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
+      properties: [{ $ref: 'llmModel.llmModel' }, { $ref: 'llmModel.llmPlatform' }]
     }
   ],
   enableDMs: ['agents'],

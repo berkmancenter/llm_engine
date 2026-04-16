@@ -514,7 +514,7 @@ components:
         useTranscriptRAGCollection:
           type: boolean
 
-    ConversationTypeProperty:
+    ConfigProperty:
       type: object
       required:
         - name
@@ -553,6 +553,20 @@ components:
           items:
             type: object
 
+    PropertyRef:
+      type: object
+      required:
+        - $ref
+      properties:
+        $ref:
+          type: string
+          description: Dot-notation path into resolved properties (including feature sub-objects)
+
+    AgentProperty:
+      oneOf:
+        - $ref: '#/components/schemas/ConfigProperty'
+        - $ref: '#/components/schemas/PropertyRef'
+
     ChannelConfig:
       type: object
       required:
@@ -574,8 +588,46 @@ components:
         name:
           type: string
         properties:
-          type: object
-          additionalProperties: true
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentProperty'
+
+    FeatureAgentConfig:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Agent type name
+
+    FeatureConfig:
+      type: object
+      required:
+        - name
+        - label
+        - agents
+        - default
+      properties:
+        name:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+        agents:
+          type: array
+          description: Agents to create when the feature is enabled
+          items:
+            $ref: '#/components/schemas/FeatureAgentConfig'
+        default:
+          type: boolean
+          description: Whether the feature is enabled by default
+        properties:
+          type: array
+          description: User-configurable sub-properties shown in the form
+          items:
+            $ref: '#/components/schemas/ConfigProperty'
 
     PlatformConfig:
       type: object
@@ -631,7 +683,11 @@ components:
         properties:
           type: array
           items:
-            $ref: '#/components/schemas/ConversationTypeProperty'
+            $ref: '#/components/schemas/ConfigProperty'
+        features:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeatureConfig'
         agents:
           type: array
           items:
@@ -772,6 +828,18 @@ components:
         properties:
           type: object
           additionalProperties: true
+        features:
+          type: array
+          items:
+            type: object
+            required:
+              - name
+            properties:
+              name:
+                type: string
+              config:
+                type: object
+                additionalProperties: true
 
     AgentModification:
       type: object

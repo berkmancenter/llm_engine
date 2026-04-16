@@ -1,6 +1,5 @@
 import mongoose from 'mongoose'
 import httpStatus from 'http-status'
-import handlebars from 'handlebars'
 import { Conversation, Topic, Follower, Message, Channel, Agent } from '../models/index.js'
 import updateDocument from '../utils/updateDocument.js'
 import ApiError from '../utils/ApiError.js'
@@ -15,12 +14,13 @@ import adapterService from './adapter.service.js'
 import channelService from './channel.service.js'
 import { ConversationDocument } from '../models/conversation.model.js'
 import { getConversationType } from '../conversations/index.js'
+import resolveConversationType from '../conversations/resolver.js'
 import { supportedModels } from '../agents/helpers/getEmbeddings.js'
 import transcript from '../agents/helpers/transcript.js'
 import reportService from './report.service.js'
 
 const returnFields =
-  'name slug locked owner createdAt active conversationType platforms scheduledTime description moderators presenters transcript properties'
+  'name slug locked owner createdAt active conversationType platforms scheduledTime description moderators presenters transcript properties features'
 const transcriptBatchInterval = 30
 export const maxScheduledInterval = 10 * 60 * 1000 // 10 minutes in milliseconds
 
@@ -183,6 +183,7 @@ const createConversation = async (conversationBody, user) => {
     ...(conversationBody.moderators !== undefined && { moderators: conversationBody.moderators }),
     ...(conversationBody.presenters !== undefined && { presenters: conversationBody.presenters }),
     ...(conversationBody.properties !== undefined && { properties: conversationBody.properties }),
+    ...(conversationBody.features !== undefined && { features: conversationBody.features }),
     agents: [],
     transcript: {
       status: 'stopped',
@@ -233,94 +234,13 @@ const createConversation = async (conversationBody, user) => {
 }
 
 /**
- * Remove empty values from an object recursively
- * @param {any} obj
- * @returns {any}
- */
-const removeEmptyValues = (obj) => {
-  if (Array.isArray(obj)) {
-    const arr = obj.map(removeEmptyValues).filter((item) => item !== null && item !== undefined && item !== '')
-    return arr.length ? arr : undefined
-  }
-
-  if (obj && typeof obj === 'object') {
-    const result = {}
-    for (const [key, value] of Object.entries(obj)) {
-      const cleanedValue = removeEmptyValues(value)
-      if (cleanedValue !== undefined && cleanedValue !== null && cleanedValue !== '') {
-        result[key] = cleanedValue
-      }
-    }
-    return Object.keys(result).length ? result : undefined
-  }
-
-  if (obj === null || obj === undefined || obj === '') return undefined
-
-  return obj
-}
-
-/**
- * Resolve property references in an object
- * @param {any} obj - Object containing property references like {{properties.propertyName}}
- * @param {Object} properties - Property values to substitute
- * @returns {any} Object with resolved references
- */
-const resolvePropertyReferences = (obj, properties) => {
-  const template = handlebars.compile(JSON.stringify(obj))
-  const resolved = template({ properties })
-  const parsed = JSON.parse(resolved)
-
-  // Recursive function to coerce strings to correct JS types
-  const coerceValues = (node) => {
-    if (typeof node === 'string') {
-      const trimmed = node.trim()
-
-      if (trimmed === 'true') return true
-      if (trimmed === 'false') return false
-
-      const num = Number(trimmed)
-      if (!Number.isNaN(num) && trimmed !== '') return num
-
-      // Try parsing JSON objects/arrays
-      if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
-        try {
-          return coerceValues(JSON.parse(trimmed))
-        } catch {
-          return node
-        }
-      }
-
-      return node
-    }
-
-    if (Array.isArray(node)) return node.map(coerceValues)
-
-    if (node && typeof node === 'object') {
-      const result = {}
-      // eslint-disable-next-line guard-for-in
-      for (const key in node) {
-        result[key] = coerceValues(node[key])
-      }
-      return result
-    }
-
-    return node
-  }
-
-  // First remove empty values (undefined/null), then coerce types
-  const cleaned = removeEmptyValues(parsed)
-  const coerced = coerceValues(cleaned)
-  return coerced
-}
-
-/**
  * Create a conversation from a conversation type specification
- * @param {Object} params - { type, name, platforms, topicId, properties, scheduledTime }
+ * @param {Object} params - { type, name, platforms, topicId, properties, features, scheduledTime }
  * @param {Object} user
  * @returns {Promise<Conversation>}
  */
 const createConversationFromType = async (params, user) => {
-  const { type, platforms, properties = {} } = params
+  const { type, platforms } = params
 
   const conversationType = getConversationType(type)
   if (!conversationType) {
@@ -328,129 +248,12 @@ const createConversationFromType = async (params, user) => {
   }
 
   const invalidPlatforms = platforms?.filter((p) => !conversationType.platforms.some((cp) => cp.name === p))
-
-  if (invalidPlatforms && invalidPlatforms.length) {
+  if (invalidPlatforms?.length) {
     throw new ApiError(httpStatus.NOT_FOUND, `Invalid platform(s): ${invalidPlatforms.join(', ')}`)
   }
 
-  // Validate required properties
-  for (const prop of conversationType.properties) {
-    if (prop.required && !(prop.name in properties)) {
-      throw new ApiError(httpStatus.BAD_REQUEST, `Required property '${prop.name}' is missing`)
-    }
-
-    // Validate enum constraints (single-choice selections)
-    if (prop.type === 'enum' && prop.options && prop.name in properties) {
-      const value = properties[prop.name]
-      const isAllowed = prop.options.some((item) => {
-        if (typeof item === 'object') {
-          if (typeof value !== 'object' || value === null) return false
-          // Use validationKeys if specified, otherwise use all keys from option item
-          const keysToValidate = prop.validationKeys || Object.keys(item)
-          // Check if all validation keys match
-          return keysToValidate.every((k) => value[k] === item[k])
-        }
-        return item === value
-      })
-
-      if (!isAllowed) {
-        const allowedValues = prop.options
-          .map((item) => {
-            if (typeof item === 'object') {
-              const keysToShow = prop.validationKeys || Object.keys(item)
-              const filteredItem = Object.fromEntries(keysToShow.map((k) => [k, item[k]]))
-              return JSON.stringify(filteredItem)
-            }
-            return item
-          })
-          .join(', ')
-        throw new ApiError(httpStatus.BAD_REQUEST, `Invalid value for '${prop.name}'. Must be one of: ${allowedValues}`)
-      }
-    }
-
-    // Validate object schema (multi-item configurations like interventionCategories)
-    if (prop.type === 'object' && prop.schema && prop.name in properties) {
-      const value = properties[prop.name]
-
-      if (typeof value !== 'object' || value === null) {
-        throw new ApiError(httpStatus.BAD_REQUEST, `Property '${prop.name}' must be an object`)
-      }
-
-      const itemKey = prop.itemKey || 'name'
-      const allowedKeys = prop.schema.map((item) => item[itemKey])
-
-      // Validate that all keys in the value object correspond to valid schema items
-      for (const key of Object.keys(value)) {
-        if (!allowedKeys.includes(key)) {
-          throw new ApiError(
-            httpStatus.BAD_REQUEST,
-            `Invalid key '${key}' in '${prop.name}'. Allowed keys: ${allowedKeys.join(', ')}`
-          )
-        }
-      }
-    }
-  }
-
-  // Apply defaults for missing optional properties
-  const resolvedProperties = { ...properties }
-  for (const prop of conversationType.properties) {
-    if (!prop.required && !(prop.name in resolvedProperties)) {
-      if (prop.default !== undefined) {
-        // Simple default value
-        resolvedProperties[prop.name] = prop.default
-      } else if (prop.type === 'object' && prop.schema) {
-        // For object schemas, build default from schema items
-        const itemKey = prop.itemKey || 'name'
-        const defaultObject = {}
-
-        for (const schemaItem of prop.schema) {
-          const key = schemaItem[itemKey]
-          const itemDefaults = {}
-
-          // Extract all default* fields
-          for (const [k, v] of Object.entries(schemaItem)) {
-            if (k.startsWith('default')) {
-              const fieldName = k.replace('default', '').charAt(0).toLowerCase() + k.replace('default', '').slice(1)
-              itemDefaults[fieldName] = v
-            }
-          }
-
-          defaultObject[key] = itemDefaults
-        }
-
-        resolvedProperties[prop.name] = defaultObject
-      }
-    }
-  }
-
-  const adapters = conversationType.adapters || {}
-  const matched = (platforms || []).map((p) => adapters[p]).filter(Boolean)
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let adapterConfigs: any = []
-
-  if (matched.length > 0) {
-    adapterConfigs = matched.map((a) => resolvePropertyReferences(a, resolvedProperties))
-  } else if (adapters.default) {
-    adapterConfigs = [resolvePropertyReferences(adapters.default, resolvedProperties)]
-  }
-
-  // Resolve property references in agents
-  const resolvedAgents = conversationType.agents
-    ? resolvePropertyReferences(conversationType.agents, resolvedProperties)
-    : []
-
-  const conversationBody = {
-    ...params,
-    conversationType: type,
-    agentTypes: resolvedAgents,
-    adapters: adapterConfigs,
-    channels: conversationType.channels || [],
-    enableDMs: conversationType.enableDMs,
-    properties: resolvedProperties || {}
-  }
-
-  return createConversation(conversationBody, user)
+  const resolved = resolveConversationType(params, conversationType)
+  return createConversation({ ...params, conversationType: type, ...resolved }, user)
 }
 /**
  * Update a conversation

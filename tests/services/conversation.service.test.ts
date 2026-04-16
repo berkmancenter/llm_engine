@@ -709,6 +709,126 @@ describe('Conversation service methods', () => {
         expect(adapters[0].config.botName).toBe('My Custom Bot')
       })
     })
+
+    describe('feature agent inclusion and property resolution', () => {
+      const baseParams = {
+        type: 'eventAssistantPlus',
+        name: 'Test Proactive Event',
+        platforms: ['zoom'],
+        scheduledTime: new Date(Date.now() + 3600000)
+      }
+
+      test('should include feature agent when listed in features array', async () => {
+        const params = {
+          ...baseParams,
+          topicId: topicOne._id.toString(),
+          properties: { zoomMeetingUrl: 'https://zoom.us/j/123456789' },
+          features: [{ name: 'collectiveVoice' }]
+        }
+
+        const conversation = await conversationService.createConversationFromType(params, registeredUser)
+
+        const agents = await Agent.find({ conversation: conversation._id })
+        expect(agents.map((a) => a.agentType)).toContain('eventMediatorPlus')
+      })
+
+      test('should exclude feature agent when not listed in features array', async () => {
+        const params = {
+          ...baseParams,
+          topicId: topicOne._id.toString(),
+          properties: { zoomMeetingUrl: 'https://zoom.us/j/123456789' },
+          features: [{ name: 'catalyst' }]
+        }
+
+        const conversation = await conversationService.createConversationFromType(params, registeredUser)
+
+        const agents = await Agent.find({ conversation: conversation._id })
+        expect(agents.map((a) => a.agentType)).not.toContain('eventMediatorPlus')
+      })
+
+      test('should include no feature agents when features array is omitted', async () => {
+        const params = {
+          ...baseParams,
+          topicId: topicOne._id.toString(),
+          properties: { zoomMeetingUrl: 'https://zoom.us/j/123456789' }
+        }
+
+        const conversation = await conversationService.createConversationFromType(params, registeredUser)
+
+        const agents = await Agent.find({ conversation: conversation._id })
+        const agentTypes = agents.map((a) => a.agentType)
+        expect(agentTypes).not.toContain('eventMediatorPlus')
+        expect(agentTypes).not.toContain('engagementAgent')
+      })
+
+      test('should resolve $ref with "as" into nested agentConfig path', async () => {
+        const params = {
+          ...baseParams,
+          topicId: topicOne._id.toString(),
+          properties: { zoomMeetingUrl: 'https://zoom.us/j/123456789' },
+          features: [{ name: 'collectiveVoice', config: { minContributionInterval: 10 } }]
+        }
+
+        const conversation = await conversationService.createConversationFromType(params, registeredUser)
+
+        const agents = await Agent.find({ conversation: conversation._id })
+        const mediator = agents.find((a) => a.agentType === 'eventMediatorPlus')
+        expect(mediator).toBeDefined()
+        expect(mediator!.agentConfig?.minInterval).toBe(10)
+      })
+
+      test('should use feature sub-property default when not provided', async () => {
+        const params = {
+          ...baseParams,
+          topicId: topicOne._id.toString(),
+          properties: { zoomMeetingUrl: 'https://zoom.us/j/123456789' },
+          features: [{ name: 'collectiveVoice' }]
+          // minContributionInterval not provided — feature default is 5
+        }
+
+        const conversation = await conversationService.createConversationFromType(params, registeredUser)
+
+        const agents = await Agent.find({ conversation: conversation._id })
+        const mediator = agents.find((a) => a.agentType === 'eventMediatorPlus')
+        expect(mediator).toBeDefined()
+        expect(mediator!.agentConfig?.minInterval).toBe(10)
+      })
+
+      test('should use provided feature sub-property value', async () => {
+        const params = {
+          ...baseParams,
+          topicId: topicOne._id.toString(),
+          properties: { zoomMeetingUrl: 'https://zoom.us/j/123456789' },
+          features: [{ name: 'catalyst', config: { minContributionInterval: 7 } }]
+        }
+
+        const conversation = await conversationService.createConversationFromType(params, registeredUser)
+
+        const agents = await Agent.find({ conversation: conversation._id })
+        const engagement = agents.find((a) => a.agentType === 'engagementAgent')
+        expect(engagement).toBeDefined()
+        expect(engagement!.agentConfig?.minInterval).toBe(7)
+      })
+
+      test('should not set llmModel on agents when llmModel property is omitted', async () => {
+        const params = {
+          ...baseParams,
+          topicId: topicOne._id.toString(),
+          properties: {
+            zoomMeetingUrl: 'https://zoom.us/j/123456789'
+            // llmModel intentionally omitted
+          }
+        }
+
+        const conversation = await conversationService.createConversationFromType(params, registeredUser)
+
+        const agents = await Agent.find({ conversation: conversation._id })
+        agents.forEach((agent) => {
+          expect(agent.llmModel).toBe(defaultLLMModel)
+          expect(agent.llmPlatform).toBe(defaultLLMPlatform)
+        })
+      })
+    })
   })
 
   describe('generateConversationReport()', () => {
@@ -730,7 +850,7 @@ describe('Conversation service methods', () => {
 
       // Create conversation with periodic agent (eventMediator)
       const periodicParams = {
-        type: 'eventAssistantPlusProactive',
+        type: 'eventAssistantPlus',
         name: 'Periodic Test Conversation',
         platforms: ['zoom'],
         topicId: topicOne._id.toString(),

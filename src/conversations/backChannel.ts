@@ -25,7 +25,7 @@ const backChannel: ConversationType = {
     },
     {
       name: 'llmModel',
-      label: 'Model that your agent will use',
+      label: 'Model that your agents will use',
       required: false,
       type: 'enum',
       options: supportedModels,
@@ -36,11 +36,11 @@ const backChannel: ConversationType = {
   agents: [
     {
       name: 'backChannelMetrics',
-      properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
+      properties: [{ $ref: 'llmModel.llmModel' }, { $ref: 'llmModel.llmPlatform' }]
     },
     {
       name: 'backChannelInsights',
-      properties: { llmModel: '{{properties.llmModel.llmModel}}', llmPlatform: '{{properties.llmModel.llmPlatform}}' }
+      properties: [{ $ref: 'llmModel.llmModel' }, { $ref: 'llmModel.llmPlatform' }]
     }
   ],
   enableDMs: ['agents'],

@@ -2,13 +2,11 @@ import eventAssistant from './eventAssistant.js'
 import backChannel from './backChannel.js'
 import eventAssistantPlus from './eventAssistantPlus.js'
 import type { ConversationType } from '../types/index.types.js'
-import eventAssistantPlusProactive from './eventAssistantPlusProactive.js'
 
 const defaultConversationTypes: Record<string, ConversationType> = {
   eventAssistant,
   backChannel,
-  eventAssistantPlus,
-  eventAssistantPlusProactive
+  eventAssistantPlus
 }
 
 let conversationTypes: Record<string, ConversationType> = { ...defaultConversationTypes }

@@ -27,7 +27,7 @@ const eventAssistant: ConversationType = {
     },
     {
       name: 'llmModel',
-      label: 'Model that your agent will use',
+      label: 'Model that your agents will use',
       required: false,
       type: 'enum',
       options: supportedModels,
@@ -46,11 +46,11 @@ const eventAssistant: ConversationType = {
   agents: [
     {
       name: 'eventAssistant',
-      properties: {
-        llmModel: '{{properties.llmModel.llmModel}}',
-        llmPlatform: '{{properties.llmModel.llmPlatform}}',
-        agentConfig: { botName: '{{properties.botName}}' }
-      }
+      properties: [
+        { $ref: 'llmModel.llmModel' },
+        { $ref: 'llmModel.llmPlatform' },
+        { $ref: 'botName', as: 'agentConfig.botName' }
+      ]
     }
   ],
   enableDMs: ['agents'],

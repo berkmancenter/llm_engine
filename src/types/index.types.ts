@@ -176,8 +176,9 @@ export interface IExperiment {
   executedAt?: Date
 }
 
-export interface ConversationTypeProperty {
+export interface ConfigProperty {
   name: string
+  as?: string // destination key (supports dot notation for nesting); defaults to name
   required: boolean
   type: 'string' | 'number' | 'boolean' | 'object' | 'enum'
   label?: string
@@ -189,6 +190,13 @@ export interface ConversationTypeProperty {
   schema?: Array<object>
 }
 
+export interface PropertyRef {
+  $ref: string // dot-notation path into resolved properties (including feature sub-objects)
+  as?: string // destination key in agent params (supports dot notation for nesting); defaults to last segment of $ref
+}
+
+export type AgentProperty = ConfigProperty | PropertyRef
+
 export interface ChannelConfig {
   name: string
   passcode?: string | null
@@ -197,7 +205,26 @@ export interface ChannelConfig {
 
 export interface AgentConfig {
   name: string
-  properties?: Record<string, unknown>
+  properties?: AgentProperty[]
+}
+
+export interface FeatureAgentConfig {
+  name: string // agent type name
+  properties?: AgentProperty[] // wiring from resolved properties into agent config
+}
+
+export interface Feature {
+  name: string
+  config?: Record<string, unknown>
+}
+
+export interface FeatureConfig {
+  name: string
+  label: string
+  description?: string
+  agents: FeatureAgentConfig[] // agents to create when the feature is enabled
+  default: boolean // whether the feature is enabled by default
+  properties?: ConfigProperty[] // user-configurable sub-properties shown in the form
 }
 
 export interface PlatformConfig {
@@ -218,7 +245,8 @@ export interface ConversationType {
   label?: string
   description: string
   platforms: PlatformConfig[]
-  properties: ConversationTypeProperty[]
+  properties: ConfigProperty[]
+  features?: FeatureConfig[]
   agents?: AgentConfig[]
   channels?: ChannelConfig[]
   enableDMs?: string[]
@@ -259,6 +287,7 @@ export interface IConversation {
   experimental?: boolean
   experiments: IExperiment[]
   properties?: Record<string, unknown>
+  features?: Feature[]
   active?: boolean
   locked?: boolean
   enableAgents?: boolean
