@@ -113,6 +113,10 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
     properties: {
       type: mongoose.Schema.Types.Mixed,
       default: {}
+    },
+    features: {
+      type: [mongoose.Schema.Types.Mixed],
+      default: []
     }
   },
   {
