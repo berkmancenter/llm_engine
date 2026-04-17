@@ -126,6 +126,19 @@ jobs:
           DEFAULT_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DEFAULT_OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
 
+      - name: Run linting
+        run: yarn lint
+
+      - name: Check code formatting
+        run: yarn prettier
+
+      - name: Security audit (critical vulnerabilities)
+        run: yarn audit:critical
+
+      - name: Security audit (high vulnerabilities)
+        run: yarn audit:high
+        continue-on-error: true
+
       - name: Run tests
         run: yarn test
         env:
@@ -181,16 +194,3 @@ jobs:
           TEST_LLM_PLATFORM: ${{ github.event.inputs.llmPlatform || 'bedrock'}}
           TEST_LLM_MODEL: ${{ github.event.inputs.llmModel || 'us.anthropic.claude-sonnet-4-6' }}
           ENABLE_AGENT_PERSONALITY: true
-
-      - name: Run linting
-        run: yarn lint
-
-      - name: Check code formatting
-        run: yarn prettier
-
-      - name: Security audit (critical vulnerabilities)
-        run: yarn audit:critical
-
-      - name: Security audit (high vulnerabilities)
-        run: yarn audit:high
-        continue-on-error: true
