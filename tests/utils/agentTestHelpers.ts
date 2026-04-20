@@ -427,6 +427,249 @@ const aliensTranscript = `00:13 - Speaker: I saw a UFO once.
 03:13 - Speaker:  or just shout out to the universe, "We're here"?`
 
 /**
+ * NOTE: this video transcript is excerpted from
+ * the TED YouTube channel
+ * 'How forgiveness can create a more just legal system' by Martha Minow
+ * Available at: https://www.youtube.com/watch?v=quDwQ7W9eKc
+ */
+
+const forgivenessTranscript = `00:13 - Speaker: Would you ever forgive a person who kills a member of your family?
+00:19 - Speaker:  In September of 2019,
+00:22 - Speaker:  Dallas police officer Amber Guyger was sentenced for murder,
+00:28 - Speaker:  and then the brother of the victim
+00:31 - Speaker:  forgave her.
+00:34 - Speaker:  Brandt Jean was 18 years old,
+00:37 - Speaker:  and I joined the rest of the country watching on television in awe
+00:42 - Speaker:  at that act of grace.
+00:45 - Speaker:  But I also worried.
+00:47 - Speaker:  I worried that people who are African American like Brandt Jean
+00:52 - Speaker:  are expected to forgive more often than other people.
+00:57 - Speaker:  And I worried that a white police officer like Amber Guyger
+01:01 - Speaker:  receives a lesser sentence
+01:03 - Speaker:  than other people who commit wrongful killings.
+01:07 - Speaker:  But because I'm a law professor,
+01:10 - Speaker:  I also worried about the law itself.
+01:14 - Speaker:  The law leans so severely towards punishment these days
+01:19 - Speaker:  that it's part of the problem.
+01:22 - Speaker:  And that's what I want to talk about here.
+01:25 - Speaker:  The powerful example of one individual's forgiveness
+01:30 - Speaker:  makes me worry that lawyers and officials too often overlook the tools
+01:35 - Speaker:  that law itself creates to allow forgiveness,
+01:40 - Speaker:  when the principle should be the cornerstone of a thriving society.
+01:46 - Speaker:  I worry that lawyers and officials do not adequately use the tools of forgiveness,
+01:52 - Speaker:  by which I mean letting go of justified grievance.
+01:57 - Speaker:  And those tools are many.
+01:58 - Speaker:  They include pardons, commutations, expungement,
+02:03 - Speaker:  bankruptcy for debt
+02:05 - Speaker:  and the discretion that's held by police and prosecutors and judges.
+02:11 - Speaker:  But I also worry -- I worry a lot --
+02:14 - Speaker:  I worry that these tools, when used, replicate the disparities,
+02:21 - Speaker:  the inequities along the lines of race and class and other markers
+02:25 - Speaker:  of advantage and disadvantage.
+02:27 - Speaker:  Biases or privileged access are at work
+02:31 - Speaker:  when United States presidents pardon people charged with crimes.
+02:37 - Speaker:  Historically, white people are pardoned four times as often
+02:41 - Speaker:  as members of minority groups for the same crime, same sentence.
+02:48 - Speaker:  Forgiveness between individuals is supported by every religious tradition,
+02:53 - Speaker:  every philosophic tradition.
+02:56 - Speaker:  And medical evidence now shows
+02:58 - Speaker:  the health benefits of letting go of grievances and resentments.
+03:04 - Speaker:  As Nelson Mandela led South Africa's transition
+03:09 - Speaker:  from apartheid to democracy,
+03:11 - Speaker:  he explained,
+03:12 - Speaker:  "Resentment is like drinking a poison and hoping it will kill your enemies."
+03:20 - Speaker:  Law can remove the penalties for those who apologize and seek forgiveness.
+03:25 - Speaker:  For example, in 39 states in the United States
+03:29 - Speaker:  and the District of Columbia,
+03:31 - Speaker:  there are laws that allow medical professionals to apologize
+03:34 - Speaker:  when something goes wrong
+03:35 - Speaker:  and not fear that that statement could later be used against them
+03:40 - Speaker:  in an action for damages.
+03:43 - Speaker:  More actively, bankruptcy law offers debtors, under some conditions,
+03:48 - Speaker:  the chance to start anew.
+03:50 - Speaker:  Pardons and expungements sealing criminal records can, too.
+03:56 - Speaker:  I have been teaching law for almost 40 years, hard to believe,
+04:02 - Speaker:  but recently, I realized
+04:05 - Speaker:  that we don't teach law students about the tools of forgiveness
+04:09 - Speaker:  that are within the legal system,
+04:11 - Speaker:  and nor do law schools usually explore
+04:14 - Speaker:  the potential for new avenues for forgiveness
+04:18 - Speaker:  that law can adopt or assist.
+04:21 - Speaker:  These are lost opportunities.
+04:23 - Speaker:  These are lost obligations, even,
+04:25 - Speaker:  because the students that I teach
+04:29 - Speaker:  will become prosecutors, judges, governors, presidents.
+04:35 - Speaker:  Barack Obama, my former student,
+04:38 - Speaker:  used his power as the President of the United States to give pardons.
+04:44 - Speaker:  That released several hundred people from prison after the law changed
+04:49 - Speaker:  to provide shorter sentences for the same drug crimes
+04:52 - Speaker:  for which they had been convicted.
+04:54 - Speaker:  But if he hadn't used his pardon power, they would still be in prison.
+04:59 - Speaker:  Legal tools of forgiveness should be used more,
+05:02 - Speaker:  but not without reason and not with bias.
+05:06 - Speaker:  A "New Yorker" cartoon shows a judge with a big nose and a big mustache
+05:10 - Speaker:  looking down at a defendant with the exact same nose
+05:14 - Speaker:  and exact same mustache
+05:15 - Speaker:  and says, "Obviously not guilty."
+05:19 - Speaker:  Forgiveness could undermine the commitment that law has
+05:24 - Speaker:  to treat people the same under the same circumstances,
+05:28 - Speaker:  to apply rules evenly.
+05:30 - Speaker:  In this age of resentment, mass incarceration,
+05:34 - Speaker:  widespread consumer debt,
+05:37 - Speaker:  we need more forgiveness, but we need a philosophy of forgiveness.
+05:41 - Speaker:  We need to forgive fairly.
+05:45 - Speaker:  Contrast the treatment globally of child soldiers
+05:49 - Speaker:  with the treatment of juvenile offenders in the United States.
+05:54 - Speaker:  International human rights condemn and punish adults
+05:58 - Speaker:  who involve children in armed conflict
+06:00 - Speaker:  as those most responsible,
+06:02 - Speaker:  but treat the children themselves quite differently.
+06:07 - Speaker:  The International Criminal Court,
+06:09 - Speaker:  now with 122 member nations,
+06:12 - Speaker:  convicted Thomas Lubanga, warlord in the [Democratic Republic of the] Congo,
+06:17 - Speaker:  for enlisting, recruiting and deploying children, teens, as soldiers.
+06:24 - Speaker:  Many nations commit to ensuring that people under the age of 15
+06:29 - Speaker:  do not become child soldiers,
+06:31 - Speaker:  and most nations treat those who do become soldiers
+06:35 - Speaker:  not as objects of punishment
+06:38 - Speaker:  but as people deserving a fresh start.
+06:41 - Speaker:  Compare and contrast how the United States treats juvenile offenders,
+06:47 - Speaker:  where we severely punish minors,
+06:49 - Speaker:  often moving them to adult courts, even adult prisons.
+06:53 - Speaker:  And yet, like child soldiers,
+06:56 - Speaker:  teens and children are drawn into violent activity in the United States
+07:01 - Speaker:  when there are few options,
+07:03 - Speaker:  when they are threatened
+07:04 - Speaker:  or when adults induce them with money or ideology.
+07:09 - Speaker:  The rhetoric of innocence is resonant when we talk about child soldiers,
+07:16 - Speaker:  but not when we talk about teen gang members in the United States.
+07:21 - Speaker:  Yet in both settings, youth are caught in worlds that are made by adults,
+07:25 - Speaker:  and forgiveness can offer both accountability and fresh starts.
+07:30 - Speaker:  What if, instead, young people caught in criminal activity and violence
+07:35 - Speaker:  could have chances to accept responsibility
+07:39 - Speaker:  while learning and rebuilding their lives and their own communities?
+07:44 - Speaker:  Legal frameworks inviting youth to describe their conduct
+07:48 - Speaker:  could also involve community members to hear and forgive.
+07:52 - Speaker:  Called "restorative justice,"
+07:54 - Speaker:  such efforts emphasize accountability and service
+07:58 - Speaker:  rather than punishment.
+08:01 - Speaker:  Many schools in the United States have turned to use restorative justice methods
+08:06 - Speaker:  to resolve conflicts and to prevent them,
+08:10 - Speaker:  and to disrupt the school-to-prison pipeline.
+08:13 - Speaker:  Some American high schools have replaced automatic suspensions
+08:17 - Speaker:  with opportunities for victims to narrate their experiences
+08:21 - Speaker:  and for offenders to take responsibility for their actions.
+08:25 - Speaker:  As they describe their experiences and feelings about a theft
+08:29 - Speaker:  or hateful graffiti or a verbal or physical assault,
+08:34 - Speaker:  the victims and offenders often express strong emotions.
+08:38 - Speaker:  And other members of the community take turns
+08:41 - Speaker:  describing the impact of the offense on them.
+08:45 - Speaker:  The leader is often a student peer, who is trained to deescalate the conflict
+08:51 - Speaker:  and orchestrate a conversation about what the offender can do
+08:55 - Speaker:  that would help the victim.
+08:57 - Speaker:  Together, they come to an agreement about how to move forward,
+09:01 - Speaker:  what the wrongdoer can do to repair the injury
+09:04 - Speaker:  and what all could do to better avoid future conflicts.
+09:08 - Speaker:  Consider this example, recently in a publication.
+09:12 - Speaker:  A young woman named Mercedes M. transferred, in California,
+09:17 - Speaker:  from one high school to another
+09:19 - Speaker:  after she was so repeatedly suspended in her old high school
+09:22 - Speaker:  for getting into fights.
+09:24 - Speaker:  And here in her new high school,
+09:27 - Speaker:  two other young women accused her of lying
+09:32 - Speaker:  and called her the b-word.
+09:35 - Speaker:  A counselor came over and talked to her and earned enough trust
+09:39 - Speaker:  that she acknowledged she had stolen the shoes of one of the other classmates.
+09:45 - Speaker:  Turns out, the three of them had known each other for a long time,
+09:48 - Speaker:  and they didn't know any other way to deal with each other
+09:51 - Speaker:  other than to fight.
+09:53 - Speaker:  The facilitator invited them to participate in a circle,
+09:58 - Speaker:  a confidential conversation about what happened,
+09:60 - Speaker:  and they agreed.
+10:01 - Speaker:  And initially, each of them expressed a lot of emotion.
+10:07 - Speaker:  And then Mercedes apologized.
+10:11 - Speaker:  And she said she had stolen the shoes,
+10:13 - Speaker:  but she did so because she wanted to sell them
+10:17 - Speaker:  and take the money to pay for a drug test
+10:21 - Speaker:  so that her mother could show she was clean
+10:24 - Speaker:  and try to regain custody of two younger children
+10:28 - Speaker:  who were then in state protective care.
+10:33 - Speaker:  The other girls heard this,
+10:35 - Speaker:  saw Mercedes crying
+10:37 - Speaker:  and they hugged her.
+10:39 - Speaker:  They did not ask her to return what she'd stolen,
+10:42 - Speaker:  but they did say they wanted a restart.
+10:44 - Speaker:  They wanted a reason they could trust her.
+10:47 - Speaker:  Later, Mercedes explained
+10:49 - Speaker:  that she was sure she would have been suspended
+10:51 - Speaker:  if they hadn't had this process.
+10:53 - Speaker:  And her high school has reduced suspensions by more than half
+10:57 - Speaker:  through the use of this kind of restorative justice method.
+11:01 - Speaker:  Restorative justice alternatives involve offenders and victims
+11:05 - Speaker:  in communicating in ways
+11:07 - Speaker:  that an adversarial and defensive process does not allow,
+11:10 - Speaker:  and it's become the go-to method
+11:13 - Speaker:  in places like the District of Columbia juvenile justice system
+11:17 - Speaker:  and innovations like Los Angeles's Teen Court.
+11:22 - Speaker:  If tuned to fairness,
+11:25 - Speaker:  forgiveness methods like bankruptcy would be available
+11:29 - Speaker:  not only for the for-profit college that goes belly-up
+11:33 - Speaker:  but also for the students stuck with the loans;
+11:37 - Speaker:  pardons would not be given to campaign contributors;
+11:40 - Speaker:  and black men would no longer have 20 percent longer criminal sentences
+11:45 - Speaker:  than do white men,
+11:46 - Speaker:  due to how judges exercise discretion.
+11:50 - Speaker:  Forgiveness across the board is one way to avoid such biases.
+11:56 - Speaker:  Sometimes, a society just needs a reset
+12:00 - Speaker:  when it comes to punishment and debt.
+12:03 - Speaker:  The Bible calls for periodic forgiveness of debts
+12:08 - Speaker:  and freeing prisoners,
+12:11 - Speaker:  and it recently helped to inspire a global movement.
+12:15 - Speaker:  Jubilee 2000 joined Pope John Paul II
+12:19 - Speaker:  and rock star Bono and over 60 nations
+12:22 - Speaker:  in an effort to seek the cancellation and succeed in canceling
+12:27 - Speaker:  the debt of developing countries,
+12:29 - Speaker:  amounting to over 100 billion dollars of debt canceled,
+12:36 - Speaker:  resulting in measurable reduction in poverty.
+12:41 - Speaker:  In a similar spirit, there are people who are copying the techniques
+12:44 - Speaker:  of commercial debt collectors
+12:46 - Speaker:  who purchase debt for pennies on the dollar
+12:49 - Speaker:  and then seek to enforce it.
+12:52 - Speaker:  Late-night television host John Oliver partnered with a nonprofit group
+12:56 - Speaker:  called RIP Medical Debt,
+12:60 - Speaker:  and for only 60,000 dollars,
+13:02 - Speaker:  they purchased 15 million dollars' worth of medical debt,
+13:07 - Speaker:  and then they forgave it.
+13:16 - Speaker:  That allowed nearly 9,000 people to have a restart in their lives.
+13:23 - Speaker:  This kind of precedent should trigger and encourage more such actions.
+13:28 - Speaker:  It's time for a reset,
+13:30 - Speaker:  given mass incarceration,
+13:31 - Speaker:  medical and consumer debt
+13:34 - Speaker:  and given indigent criminal defendants
+13:36 - Speaker:  who are charged and put in debt
+13:39 - Speaker:  because they're expected to pay for their own probation officers
+13:43 - Speaker:  and their own electronic monitors.
+13:46 - Speaker:  Forgiving violations of law
+13:49 - Speaker:  or promises to pay back loans
+13:51 - Speaker:  does pose risks.
+13:53 - Speaker:  Forgiveness may encourage more violations.
+13:56 - Speaker:  Economists even have a name for it.
+13:58 - Speaker:  They call it "moral hazard."
+14:02 - Speaker:  Should there be amnesty for immigration violations?
+14:05 - Speaker:  Should a president offer pardons to protect himself
+14:09 - Speaker:  or to induce lawbreaking?
+14:11 - Speaker:  These are tough questions for our time.
+14:15 - Speaker:  But escalating resentments hold their own dangers.
+14:19 - Speaker:  So does attributing blame to individuals
+14:22 - Speaker:  for circumstances largely outside their own control.
+14:26 - Speaker:  To ask how law may forgive is not to deny the fact of wrongdoing.
+14:33 - Speaker:  Rather, it's to widen the lens
+14:37 - Speaker:  to enable glimpses of the larger patterns
+14:40 - Speaker:  and to enable new choices that can go forward
+14:44 - Speaker:  if we can wipe the slate clean.
+14:47 - Speaker:  Thank you.`
+
+/**
  * NOTE: This is a fictional workshop transcript for testing engagement interventions
  * Design Thinking Workshop: Reimagining the Employee Onboarding Experience
  * Facilitator: Marcus Chen
@@ -587,6 +830,10 @@ export async function loadAliensTranscript(conversation, rag = false) {
 
 export async function loadDesignWorkshopTranscript(conversation, rag = false) {
   await loadTestTranscript(conversation, designWorkshopTranscript, rag)
+}
+
+export async function loadForgivenessTranscript(conversation, rag = false) {
+  await loadTestTranscript(conversation, forgivenessTranscript, rag, '-')
 }
 
 export async function createConversation(conversationObj, owner, topic, startTime = new Date()) {
