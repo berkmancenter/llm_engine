@@ -191,6 +191,7 @@ jobs:
           BEDROCK_BASE_URL: ${{ secrets.BEDROCK_BASE_URL }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           GOOGLE_BASE_URL: ${{ secrets.GOOGLE_BASE_URL }}
+          SEMANTIC_SCHOLAR_API_KEY: ${{ secrets.SEMANTIC_SCHOLAR_API_KEY }}
           VLLM_API_URL: ${{ secrets.VLLM_API_URL }}
           VLLM_API_KEY: ${{ secrets.VLLM_API_KEY }}
           TEST_LLM_PLATFORM: ${{ github.event.inputs.llmPlatform || 'bedrock'}}
