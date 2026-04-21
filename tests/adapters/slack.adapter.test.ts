@@ -1,15 +1,15 @@
 import faker from 'faker'
 import mongoose from 'mongoose'
-import setupIntTest from '../../utils/setupIntTest.js'
-import { Conversation } from '../../../src/models/index.js'
-import { insertUsers } from '../../fixtures/user.fixture.js'
-import { publicTopic } from '../../fixtures/conversation.fixture.js'
-import { insertTopics } from '../../fixtures/topic.fixture.js'
-import Adapter from '../../../src/models/adapter.model.js'
-import websocketGateway from '../../../src/websockets/websocketGateway.js'
-import slackClientPool from '../../../src/adapters/development/slack/slackClientPool.js'
+import setupIntTest from '../utils/setupIntTest.js'
+import { Conversation } from '../../src/models/index.js'
+import { insertUsers } from '../fixtures/user.fixture.js'
+import { publicTopic } from '../fixtures/conversation.fixture.js'
+import { insertTopics } from '../fixtures/topic.fixture.js'
+import Adapter from '../../src/models/adapter.model.js'
+import websocketGateway from '../../src/websockets/websocketGateway.js'
+import slackClientPool from '../../src/adapters/slack/slackClientPool.js'
 
-import { Direction } from '../../../src/types/index.types.js'
+import { Direction } from '../../src/types/index.types.js'
 
 setupIntTest()
 jest.setTimeout(120000)

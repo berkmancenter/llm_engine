@@ -1,7 +1,7 @@
 import { ChatPostMessageResponse } from '@slack/web-api'
-import logger from '../../../config/logger.js'
+import logger from '../../config/logger.js'
 import slackClientPool from './slackClientPool.js'
-import { AdapterMessage } from '../../../types/adapter.types.js'
+import { AdapterMessage } from '../../types/adapter.types.js'
 
 async function receiveGroupChatMessage(event) {
   const msg: AdapterMessage<string> = {
