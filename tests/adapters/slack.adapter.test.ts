@@ -266,6 +266,130 @@ describe('slack adapter tests', () => {
       ])
     })
 
+    describe('bot mention normalization', () => {
+      async function createConversationWithBot(name) {
+        const conversationConfig = {
+          name,
+          owner: user1._id,
+          topic: publicTopic._id,
+          enableAgents: true,
+          enableDMs: ['agents'],
+          agents: [],
+          messages: []
+        }
+        const conv = new Conversation(conversationConfig)
+        await conv.save()
+        const adapterWithBot = await Adapter.create({
+          type: 'slack',
+          conversation: conv,
+          config: {
+            channel: '#test-channel',
+            botToken: 'xoxb-test-token',
+            workspace: 'T123456789',
+            botUserId: 'U99999BOT',
+            botName: 'Berkie'
+          },
+          active: true
+        })
+        adapterWithBot.chatChannels = [{ name: 'general', direction: Direction.BOTH }]
+        adapterWithBot.dmChannels = [{ direct: true, agent: new mongoose.Types.ObjectId(), direction: Direction.BOTH }]
+        return adapterWithBot
+      }
+
+      it('replaces &lt;@botUserId&gt; with @botName in group chat messages', async () => {
+        const adapterWithBot = await createConversationWithBot('Bot Mention Test')
+        const slackEvent = {
+          user: 'U123456',
+          team: 'T123456789',
+          text: 'hey &lt;@U99999BOT&gt; what is the weather?',
+          channel: '#test-channel',
+          ts: '1234567890.123456'
+        }
+        const msgs = await adapterWithBot.receiveMessage(slackEvent)
+        expect(msgs[0].message).toBe('hey @Berkie what is the weather?')
+      })
+
+      it('replaces &lt;@botUserId> (closing bracket not encoded) with @botName', async () => {
+        const adapterWithBot = await createConversationWithBot('Bot Mention Test 2')
+        const slackEvent = {
+          user: 'U123456',
+          team: 'T123456789',
+          text: 'hello &lt;@U99999BOT> how are you?',
+          channel: '#test-channel',
+          ts: '1234567890.123456'
+        }
+        const msgs = await adapterWithBot.receiveMessage(slackEvent)
+        expect(msgs[0].message).toBe('hello @Berkie how are you?')
+      })
+
+      it('replaces <@botUserId> (neither bracket encoded) with @botName', async () => {
+        const adapterWithBot = await createConversationWithBot('Bot Mention Test 3')
+        const slackEvent = {
+          user: 'U123456',
+          team: 'T123456789',
+          text: 'hi <@U99999BOT> can you help?',
+          channel: '#test-channel',
+          ts: '1234567890.123456'
+        }
+        const msgs = await adapterWithBot.receiveMessage(slackEvent)
+        expect(msgs[0].message).toBe('hi @Berkie can you help?')
+      })
+
+      it('replaces multiple bot mentions in a single message', async () => {
+        const adapterWithBot = await createConversationWithBot('Bot Mention Test 4')
+        const slackEvent = {
+          user: 'U123456',
+          team: 'T123456789',
+          text: '&lt;@U99999BOT> said hi, then &lt;@U99999BOT> said bye',
+          channel: '#test-channel',
+          ts: '1234567890.123456'
+        }
+        const msgs = await adapterWithBot.receiveMessage(slackEvent)
+        expect(msgs[0].message).toBe('@Berkie said hi, then @Berkie said bye')
+      })
+
+      it('does not modify other user mentions', async () => {
+        const adapterWithBot = await createConversationWithBot('Bot Mention Test 5')
+        const slackEvent = {
+          user: 'U123456',
+          team: 'T123456789',
+          text: '&lt;@U999OTHER> said hi to &lt;@U99999BOT>',
+          channel: '#test-channel',
+          ts: '1234567890.123456'
+        }
+        const msgs = await adapterWithBot.receiveMessage(slackEvent)
+        expect(msgs[0].message).toBe('&lt;@U999OTHER> said hi to @Berkie')
+      })
+
+      it('does not normalize when botUserId is not configured', async () => {
+        const slackEvent = {
+          user: 'U123456',
+          team: 'T123456789',
+          text: 'hey &lt;@U99999BOT> help?',
+          channel: '#test-channel',
+          ts: '1234567890.123456'
+        }
+        await createConversation('No Bot Config')
+        adapter.chatChannels = [{ name: 'general' }]
+        const msgs = await adapter.receiveMessage(slackEvent)
+        expect(msgs[0].message).toBe('hey &lt;@U99999BOT> help?')
+      })
+
+      it('normalizes bot mention in DM messages', async () => {
+        const adapterWithBot = await createConversationWithBot('Bot Mention DM Test')
+        const slackEvent = {
+          user: 'U123456',
+          team: 'T123456789',
+          text: '&lt;@U99999BOT> help me',
+          channel: 'D123456789',
+          channel_type: 'im',
+          ts: '1234567890.123456'
+        }
+        const msgs = await adapterWithBot.receiveMessage(slackEvent)
+        expect(msgs[0].message).toBe('@Berkie help me')
+      })
+    })
+
     it('ignores group chat messages when no chat channels are configured', async () => {
       await createConversation('Test Slack Conversation')
       adapter.chatChannels = [] // No chat channels configured
