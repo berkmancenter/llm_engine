@@ -3,9 +3,17 @@ import logger from '../../config/logger.js'
 import slackClientPool from './slackClientPool.js'
 import { AdapterMessage } from '../../types/adapter.types.js'
 
+function normalizeBotMention(text: string, botUserId: string, botName: string): string {
+  if (!botUserId || !botName) return text
+  // Slack HTML-encodes angle brackets in event payloads: &lt;@USER_ID&gt;
+  const escapedId = botUserId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // eslint-disable-next-line security/detect-non-literal-regexp
+  return text.replace(new RegExp(`(?:&lt;|<)@${escapedId}(?:&gt;|>)`, 'g'), `@${botName}`)
+}
+
 async function receiveGroupChatMessage(event) {
   const msg: AdapterMessage<string> = {
-    message: event.text,
+    message: normalizeBotMention(event.text, this.config.botUserId, this.config.botName),
     source: 'slack',
     channels: this.chatChannels,
     user: { username: `${event.team}-${event.user}`, pseudonym: event.user }
@@ -15,7 +23,7 @@ async function receiveGroupChatMessage(event) {
 
 async function receiveDirectMesssage(event) {
   const msg: AdapterMessage<string> = {
-    message: event.text,
+    message: normalizeBotMention(event.text, this.config.botUserId, this.config.botName),
     source: 'slack',
     channels: this.dmChannels,
     user: { username: `${event.team}-${event.user}`, pseudonym: event.user, dmConfig: { channel: event.channel } }
