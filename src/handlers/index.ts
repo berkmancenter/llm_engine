@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from 'express'
 import recall from './recall.js'
-import slack from './development/slack.js'
+import slack from './slack.js'
 import zoom from './zoom.js'
 import config from '../config/config.js'
 
@@ -9,11 +9,10 @@ export interface Handler {
   middleware(request: Request, response: Response, next: NextFunction)
 }
 
-const development = {
-  slack
-}
+const development = {}
 export default {
   ...(config.enableDevelopmentAdapters ? development : {}),
   recall,
-  zoom
+  zoom,
+  slack
 }

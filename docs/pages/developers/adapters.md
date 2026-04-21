@@ -1,6 +1,6 @@
 ## Adapters
 
-LLM Engine can be connected to external systems through the use of adapters and their associated webhooks. We currently provide two adapters: [Zoom](../platforms/zoom.md) and [Slack](platforms/slack.md). This guide explains how to add more!
+LLM Engine can be connected to external systems through the use of adapters and their associated webhooks. We currently provide two adapters: [Zoom](../platforms/zoom.md) and [Slack](../platforms/slack.md). This guide explains how to add more!
 
 There are two components to an adapter: the adapter itself and the webhook handler that routes communication to the adapter.
 
@@ -13,7 +13,7 @@ Adapters contain the core functionality for sending messages to and receiving me
 Follow the steps below to add a new adapter.
 
 1. Create the file `src/handlers/[adapterName].ts`
-2. Implement the following methods, specific to the external system's data formats. See our [Zoom](../platforms/zoom.md) and [Slack](platforms/slack.md) adapters for examples.
+2. Implement the following methods, specific to the external system's data formats. See our [Zoom](../platforms/zoom.md) and [Slack](../platforms/slack.md) adapters for examples.
 
 NOTE: any properties specific to an individual `Conversation` can be stored in the Adapter's `config` property for reuse.
 

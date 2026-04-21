@@ -4,7 +4,7 @@ LLM Engine integrates with Slack to allow agents to participate in Channel discu
 
 ### One Time Setup - Create the app in Slack
 
-These instructions roughly follow the steps outlined in Slack's [Getting Started Guide](https://api.slack.com/quickstart).
+These instructions roughly follow the steps outlined in Slack's Quickstart Guide [Creating an app from app settings](https://docs.slack.dev/app-management/quickstart-app-settings).
 
 Get a free Slack Developer sandbox and then complete Step 1 in the Guide, `Create an App`. We named our app LLM Engine, but you can name yours anything.
 
