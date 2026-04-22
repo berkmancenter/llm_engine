@@ -45,13 +45,33 @@ async function receiveDirectMesssage(event) {
   return [msg]
 }
 
+function markdownToMrkdwn(text: string): string {
+  return (
+    text
+      // Bold+italic first: ***text*** or ___text___ → *_text_*
+      .replace(/\*\*\*(.+?)\*\*\*/gs, '*_$1_*')
+      .replace(/___(.+?)___/gs, '*_$1_*')
+      // Italic: *text* → _text_ (single asterisk only, won't match ** or *_..._*)
+      .replace(/(?<!\*)\*(?![_*])(.+?)(?<![_*])\*(?!\*)/gs, '_$1_')
+      // Bold: **text** or __text__ → *text*
+      .replace(/\*\*(.+?)\*\*/gs, '*$1*')
+      .replace(/__(.+?)__/gs, '*$1*')
+      // Strikethrough: ~~text~~ → ~text~
+      .replace(/~~(.+?)~~/gs, '~$1~')
+      // Headings: # Heading → *Heading* (bold, since Slack has no headings)
+      .replace(/^#{1,6}\s+(.+)$/gm, '*$1*')
+      // Links: [text](url) → <url|text>
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<$2|$1>')
+  )
+}
+
 export default {
   name: 'slack',
   label: 'Slack',
   async sendMessage(message, channelConfig?) {
     const channel = channelConfig?.channel ? channelConfig?.channel : this.config.channel
-    // usernames are IDs in Slack, enclose in brackets for the proper display name to show in Slack
-    const text = message.body.replace(/@(\w+)/g, '<@$1>')
+    // Convert markdown to Slack mrkdwn format, then convert @username mentions to Slack format
+    const text = markdownToMrkdwn(message.body).replace(/@(\w+)/g, '<@$1>')
     const slackWebClient = slackClientPool.getClient(this.config.workspace, this.config.botToken)
 
     let threadTs: string | undefined
