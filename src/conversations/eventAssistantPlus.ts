@@ -42,12 +42,30 @@ const eventAssistantPlus: ConversationType = {
       default: 3
     }
   ],
+  /*
+   * Each entry drives: the Features section in the event creation form,
+   * the Quick Guide panel shown during live events, and slash command
+   * autocomplete (for entries where slashCommand is set).
+   *
+   * tab and audience are required — omitting either is a compile error.
+   *
+   * tab:                    "assistant", "chat", or "transcript"
+   * audience:               "participant", "moderator", or "both"
+   * slashCommand:           command text without the slash. Omit for passive features.
+   * participantDescription: shown in the Quick Guide. Falls back to description if absent.
+   * agents:                 backend agents to start when enabled. Empty for user-triggered features.
+   * properties:             sub-properties shown in the event creation form.
+   */
   features: [
     {
       name: 'collectiveVoice',
       label: 'Collective Voice',
       description:
         'Contributes to the group chat by surfacing what participants are privately thinking, connecting threads across the conversation, and giving the discussion shape and continuity.',
+      participantDescription: 'Surfaces what participants are privately thinking in the group chat.',
+      tab: 'group-chat',
+      audience: 'participant',
+      userControlled: false,
       default: true,
       properties: [
         {
@@ -73,7 +91,11 @@ const eventAssistantPlus: ConversationType = {
       name: 'catalyst',
       label: 'Catalyst',
       description:
-        'Participates in the group chat as an active voice — jumping into silences, responding to speakers, challenging unexamined claims, and adding witty observations to encourage participation.',
+        'Participates in the group chat as an active voice, jumping into silences, responding to speakers, challenging unexamined claims, and adding witty observations to encourage participation.',
+      participantDescription: 'Jumps into silences and encourages participation in the group chat.',
+      tab: 'group-chat',
+      audience: 'participant',
+      userControlled: false,
       default: true,
       properties: [
         {
@@ -99,6 +121,9 @@ const eventAssistantPlus: ConversationType = {
       name: 'librarian',
       label: 'Reading Recommendations',
       description: 'Periodically recommends relevant reading during the event',
+      tab: 'resources',
+      audience: 'participant',
+      userControlled: false,
       default: true,
       properties: [
         {
@@ -119,6 +144,59 @@ const eventAssistantPlus: ConversationType = {
           ]
         }
       ]
+    },
+    {
+      name: 'mod',
+      label: 'Submit to Moderator',
+      description: 'Allows participants to submit a private question to the moderator.',
+      participantDescription: 'Submit a private question to the moderator.',
+      tab: 'group-chat',
+      audience: 'participant',
+      userControlled: true,
+      slashCommand: 'mod',
+      default: true,
+      agents: [],
+      properties: []
+    },
+    {
+      name: 'mindmap',
+      label: 'Mind Map',
+      description: 'Creates a visual mind map of the key topics discussed in the event.',
+      participantDescription: 'Generate a visual mind map of the key topics discussed so far.',
+      tab: 'assistant',
+      audience: 'participant',
+      userControlled: true,
+      slashCommand: 'mindmap',
+      default: true,
+      agents: [],
+      properties: []
+    },
+    {
+      name: 'visual',
+      label: 'Visual Response',
+      description: 'Generates an image in response to a participant question.',
+      participantDescription:
+        'Ask for a visual (image) response to a question. Requires "Visuals" to be enabled in your settings.',
+      tab: 'assistant',
+      audience: 'participant',
+      userControlled: true,
+      slashCommand: 'visual',
+      default: true,
+      agents: [],
+      properties: []
+    },
+    {
+      name: 'jargonFilter',
+      label: 'Jargon Filter',
+      description: 'Automatically explains jargon and technical terms used by speakers.',
+      participantDescription:
+        'Automatically explains jargon and technical terms used by speakers. Enable it by turning on "Jargon Clarification" in your event settings.',
+      tab: 'assistant',
+      audience: 'participant',
+      userControlled: true,
+      default: true,
+      agents: [],
+      properties: []
     }
   ],
 

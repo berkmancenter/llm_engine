@@ -29,3 +29,4 @@ src/types/openapi.d.ts
 
 # k6
 k6/*.json
+REVIEW.md

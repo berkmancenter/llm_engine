@@ -8,12 +8,28 @@ export default Object.keys(conversationTypes).map((conversationType) => {
     label: ct.label,
     platforms: ct.platforms,
     properties: ct.properties,
-    features: ct.features?.map(({ name, label, description, default: defaultVal, properties }) => ({
-      name,
-      label,
-      description,
-      default: defaultVal,
-      properties
-    }))
+    features: ct.features?.map(
+      ({
+        name,
+        label,
+        description,
+        participantDescription,
+        default: defaultVal,
+        properties,
+        tab,
+        audience,
+        slashCommand
+      }) => ({
+        name,
+        label,
+        description,
+        participantDescription,
+        default: defaultVal,
+        properties,
+        tab,
+        audience,
+        slashCommand
+      })
+    )
   }
 })

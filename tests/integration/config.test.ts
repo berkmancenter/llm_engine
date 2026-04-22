@@ -73,5 +73,25 @@ describe('Config routes', () => {
 
       expect(resp.body.llmPlatforms).toEqual(llmPlatforms)
     })
+
+    test('should serialize tab, audience, slashCommand, and participantDescription on each feature', async () => {
+      await insertUsers([registeredUser])
+      const resp = await request(app).get(`/v1/config`).send().expect(httpStatus.OK)
+
+      /* Every feature from every conversation type must carry the four new fields.
+       * slashCommand and participantDescription are optional, so we only check type when present. */
+      for (const ct of resp.body.conversationTypes) {
+        for (const feature of ct.features ?? []) {
+          expect(['assistant', 'group-chat', 'transcript']).toContain(feature.tab)
+          expect(['moderator', 'participant', 'both']).toContain(feature.audience)
+          if (feature.slashCommand !== undefined) {
+            expect(typeof feature.slashCommand).toBe('string')
+          }
+          if (feature.participantDescription !== undefined) {
+            expect(typeof feature.participantDescription).toBe('string')
+          }
+        }
+      }
+    })
   })
 })

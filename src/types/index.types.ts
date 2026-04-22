@@ -222,9 +222,19 @@ export interface FeatureConfig {
   name: string
   label: string
   description?: string
-  agents: FeatureAgentConfig[] // agents to create when the feature is enabled
-  default: boolean // whether the feature is enabled by default
-  properties?: ConfigProperty[] // user-configurable sub-properties shown in the form
+  agents: FeatureAgentConfig[]
+  default: boolean
+  properties?: ConfigProperty[]
+  // Which nav tab this surfaces in. Omitting it is a compile error.
+  tab: 'assistant' | 'group-chat' | 'transcript' | 'resources'
+  // Who can see this feature. Omitting it is a compile error.
+  audience: 'moderator' | 'participant' | 'both'
+  // Slash command without the leading slash (e.g. "mindmap"). Omit for passive features.
+  slashCommand?: string
+  // Shown in the Quick Guide. Falls back to description if absent.
+  participantDescription?: string
+  // Whether the participant can control this feature (toggle or slash command). false = runs automatically.
+  userControlled: boolean
 }
 
 export interface PlatformConfig {
