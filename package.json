@@ -52,7 +52,7 @@
     "@langchain/ollama": "^1.0.0",
     "@langchain/openai": "^1.0.0",
     "@langchain/textsplitters": "^1.0.0",
-    "@slack/web-api": "^7.9.2",
+    "@slack/web-api": "^7.15.1",
     "@smithy/eventstream-codec": "^4.1.0",
     "@socket.io/cluster-adapter": "^0.2.2",
     "@socket.io/sticky": "^1.0.4",
