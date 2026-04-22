@@ -70,8 +70,11 @@ export default {
   label: 'Slack',
   async sendMessage(message, channelConfig?) {
     const channel = channelConfig?.channel ? channelConfig?.channel : this.config.channel
-    // Convert markdown to Slack mrkdwn format, then convert @username mentions to Slack format
-    const text = markdownToMrkdwn(message.body).replace(/@(\w+)/g, '<@$1>')
+    // Convert markdown to Slack mrkdwn format, then convert Slack user ID mentions to Slack format.
+    // Handles bare IDs (U123ABC) and @-prefixed IDs (@U123ABC), but not already-wrapped <@...> or non-ID @names.
+    const text = markdownToMrkdwn(message.body)
+      .replace(/(?<![<@\w])(U[A-Z0-9]{6,})\b/g, '<@$1>')
+      .replace(/(?<!<)@(U[A-Z0-9]{6,})\b/g, '<@$1>')
     const slackWebClient = slackClientPool.getClient(this.config.workspace, this.config.botToken)
 
     let threadTs: string | undefined

@@ -204,27 +204,29 @@ describe('slack adapter tests', () => {
       })
     })
 
-    it('transforms @username mentions to Slack format', async () => {
-      await createConversation('Test Slack Conversation')
-
-      adapter.chatChannels = [{ name: 'general', direction: Direction.OUTGOING }]
-
-      const mockResponse = {
-        ok: true,
-        ts: '1234567890.123456',
-        channel: '#test-channel'
+    describe('Slack user ID mention formatting', () => {
+      async function sendAndGetText(body: string): Promise<string> {
+        await createConversation('Mention Test Conversation')
+        adapter.chatChannels = [{ name: 'general', direction: Direction.OUTGOING }]
+        mockWebClient.chat.postMessage.mockResolvedValue({ ok: true, ts: '1234567890.123456', channel: '#test-channel' })
+        await adapter.sendMessage({ body, channels: ['general'] })
+        return mockWebClient.chat.postMessage.mock.calls[0][0].text
       }
-      mockWebClient.chat.postMessage.mockResolvedValue(mockResponse)
 
-      const message = {
-        body: 'Hello @john123 and @mary456!',
-        channels: ['general']
-      }
-      await adapter.sendMessage(message)
+      it('wraps @-prefixed Slack user IDs in <@...>', async () => {
+        expect(await sendAndGetText('Hello @U123456 and @UABC789XYZ!')).toBe('Hello <@U123456> and <@UABC789XYZ>!')
+      })
 
-      expect(mockWebClient.chat.postMessage).toHaveBeenCalledWith({
-        channel: '#test-channel',
-        text: 'Hello <@john123> and <@mary456>!'
+      it('wraps bare Slack user IDs (no @ prefix) in <@...>', async () => {
+        expect(await sendAndGetText('Hello U123456 and UABC789XYZ!')).toBe('Hello <@U123456> and <@UABC789XYZ>!')
+      })
+
+      it('does not double-wrap already-formatted <@USER_ID> mentions', async () => {
+        expect(await sendAndGetText('Hello <@U123456>!')).toBe('Hello <@U123456>!')
+      })
+
+      it('leaves non-ID @mentions unchanged', async () => {
+        expect(await sendAndGetText('Hello @john and @mary!')).toBe('Hello @john and @mary!')
       })
     })
 
