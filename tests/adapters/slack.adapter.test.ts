@@ -1,7 +1,7 @@
 import faker from 'faker'
 import mongoose from 'mongoose'
 import setupIntTest from '../utils/setupIntTest.js'
-import { Conversation } from '../../src/models/index.js'
+import { Conversation, Message } from '../../src/models/index.js'
 import { insertUsers } from '../fixtures/user.fixture.js'
 import { publicTopic } from '../fixtures/conversation.fixture.js'
 import { insertTopics } from '../fixtures/topic.fixture.js'
@@ -235,7 +235,7 @@ describe('slack adapter tests', () => {
       expect(msgs).toEqual([
         {
           message: 'Hello from Slack!',
-          source: 'slack',
+          source: { type: 'slack', id: slackEvent.ts },
           channels: adapter.chatChannels,
           user: { username: `${slackEvent.team}-${slackEvent.user}`, pseudonym: slackEvent.user }
         }
@@ -259,7 +259,7 @@ describe('slack adapter tests', () => {
       expect(msgs).toEqual([
         {
           message: 'Hello <@U123456> and <#C789012|general>! Check out <https://example.com|this link>',
-          source: 'slack',
+          source: { type: 'slack', id: slackEvent.ts },
           channels: adapter.chatChannels,
           user: { username: `${slackEvent.team}-${slackEvent.user}`, pseudonym: slackEvent.user }
         }
@@ -428,7 +428,7 @@ describe('slack adapter tests', () => {
       expect(msgs).toEqual([
         {
           message: 'Hello via DM!',
-          source: 'slack',
+          source: { type: 'slack', id: slackEvent.ts },
           channels: adapter.dmChannels,
           user: {
             username: `${slackEvent.team}-${slackEvent.user}`,
@@ -476,7 +476,7 @@ describe('slack adapter tests', () => {
       expect(msgs).toEqual([
         {
           message: 'Hello via non-direct DM!',
-          source: 'slack',
+          source: { type: 'slack', id: slackEvent.ts },
           channels: adapter.dmChannels,
           user: {
             username: `${slackEvent.team}-${slackEvent.user}`,
@@ -485,6 +485,142 @@ describe('slack adapter tests', () => {
           }
         }
       ])
+    })
+  })
+
+  describe('threading', () => {
+    const threadRootId = new mongoose.Types.ObjectId()
+
+    beforeEach(async () => {
+      await createConversation('Threading Test Conversation')
+      adapter.chatChannels = [{ name: 'general' }]
+      adapter.dmChannels = [{ direct: true, agent: new mongoose.Types.ObjectId(), direction: Direction.BOTH }]
+      mockWebClient.chat.postMessage.mockResolvedValue({ ok: true, ts: '9999999999.000000', channel: '#test-channel' })
+    })
+
+    describe('receiveMessage', () => {
+      it('sets parentMessage on a threaded group chat reply', async () => {
+        jest.spyOn(Message, 'findOne').mockReturnValue({ select: () => ({ exec: async () => ({ _id: threadRootId }) }) })
+        const slackEvent = {
+          user: 'U123456',
+          team: 'T123456789',
+          text: 'This is a reply',
+          channel: '#test-channel',
+          ts: '2222222222.222222',
+          thread_ts: '1111111111.111111'
+        }
+        const msgs = await adapter.receiveMessage(slackEvent)
+        expect(msgs[0].parentMessage).toBe(threadRootId.toString())
+      })
+
+      it('sets parentMessage on a threaded DM reply', async () => {
+        jest.spyOn(Message, 'findOne').mockReturnValue({ select: () => ({ exec: async () => ({ _id: threadRootId }) }) })
+        const slackEvent = {
+          user: 'U123456',
+          team: 'T123456789',
+          text: 'DM reply in thread',
+          channel: 'D123456789',
+          channel_type: 'im',
+          ts: '2222222222.222222',
+          thread_ts: '1111111111.111111'
+        }
+        const msgs = await adapter.receiveMessage(slackEvent)
+        expect(msgs[0].parentMessage).toBe(threadRootId.toString())
+      })
+
+      it('does not set parentMessage when thread_ts equals ts (root message)', async () => {
+        const slackEvent = {
+          user: 'U123456',
+          team: 'T123456789',
+          text: 'Starting a thread',
+          channel: '#test-channel',
+          ts: '3333333333.333333',
+          thread_ts: '3333333333.333333'
+        }
+        const msgs = await adapter.receiveMessage(slackEvent)
+        expect(msgs[0].parentMessage).toBeUndefined()
+      })
+
+      it('does not set parentMessage when thread_ts is absent', async () => {
+        const slackEvent = {
+          user: 'U123456',
+          team: 'T123456789',
+          text: 'Regular message',
+          channel: '#test-channel',
+          ts: '3333333333.333333'
+        }
+        const msgs = await adapter.receiveMessage(slackEvent)
+        expect(msgs[0].parentMessage).toBeUndefined()
+      })
+
+      it('does not set parentMessage when thread_ts does not match any stored message', async () => {
+        jest.spyOn(Message, 'findOne').mockReturnValue({ select: () => ({ exec: async () => null }) })
+        const slackEvent = {
+          user: 'U123456',
+          team: 'T123456789',
+          text: 'Reply to unknown thread',
+          channel: '#test-channel',
+          ts: '2222222222.222222',
+          thread_ts: '9999999999.999999'
+        }
+        const msgs = await adapter.receiveMessage(slackEvent)
+        expect(msgs[0].parentMessage).toBeUndefined()
+      })
+    })
+
+    describe('sendMessage', () => {
+      let findByIdAndUpdateMock
+
+      beforeEach(() => {
+        findByIdAndUpdateMock = jest.spyOn(Message, 'findByIdAndUpdate').mockReturnValue({ exec: jest.fn() })
+      })
+
+      it('sends with thread_ts when message has a parentMessage', async () => {
+        jest.spyOn(Message, 'findById').mockReturnValue({
+          select: () => ({ exec: async () => ({ source: { type: 'slack', id: '1111111111.111111' } }) })
+        })
+        const message = { body: 'Bot reply in thread', channels: ['general'], parentMessage: threadRootId }
+        await adapter.sendMessage(message)
+        expect(mockWebClient.chat.postMessage).toHaveBeenCalledWith({
+          channel: '#test-channel',
+          text: 'Bot reply in thread',
+          thread_ts: '1111111111.111111'
+        })
+      })
+
+      it('sends without thread_ts when message has no parentMessage', async () => {
+        const message = { body: 'Top-level bot message', channels: ['general'] }
+        await adapter.sendMessage(message)
+        expect(mockWebClient.chat.postMessage).toHaveBeenCalledWith({
+          channel: '#test-channel',
+          text: 'Top-level bot message'
+        })
+      })
+
+      it('sends without thread_ts when parent has no source id', async () => {
+        jest
+          .spyOn(Message, 'findById')
+          .mockReturnValue({ select: () => ({ exec: async () => ({ source: { type: 'zoom' } }) }) })
+        const message = { body: 'Reply to non-slack parent', channels: ['general'], parentMessage: threadRootId }
+        await adapter.sendMessage(message)
+        expect(mockWebClient.chat.postMessage).toHaveBeenCalledWith({
+          channel: '#test-channel',
+          text: 'Reply to non-slack parent'
+        })
+      })
+
+      it('updates source.id with Slack ts after successful send', async () => {
+        const messageId = new mongoose.Types.ObjectId()
+        const message = { _id: messageId, body: 'Agent message', channels: ['general'] }
+        await adapter.sendMessage(message)
+        expect(findByIdAndUpdateMock).toHaveBeenCalledWith(messageId, { $set: { 'source.id': '9999999999.000000' } })
+      })
+
+      it('does not update source.id when message has no _id', async () => {
+        const message = { body: 'Transient message', channels: ['general'] }
+        await adapter.sendMessage(message)
+        expect(findByIdAndUpdateMock).not.toHaveBeenCalled()
+      })
     })
   })
 })

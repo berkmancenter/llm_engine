@@ -87,8 +87,8 @@ export default verify({
 
     const responseChannels = this.conversation.channels.filter((channel) => channel.name === 'assistant')
 
-    // Thread reply under the triggering message
-    const parentMessageId = userMessage.parentMessage // TODO || userMessage._id
+    // If question is already part of a thread, reply in the thread. Otherwise, reply in the main channel.
+    const parentMessageId = userMessage.parentMessage
 
     return [
       {

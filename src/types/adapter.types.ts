@@ -11,7 +11,7 @@ export interface AdapterMessage<T> {
   channels: AdapterChannelConfig[]
   messageType?: string
   user: AdapterUser
-  source: string
+  source: { type: string; id?: string }
   createdAt?: Date
   parentMessage?: string
 }

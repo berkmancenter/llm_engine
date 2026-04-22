@@ -95,9 +95,9 @@ const messageSchema = new mongoose.Schema<IMessage, MessageModel>(
       type: Boolean,
       index: true
     },
-    // when injected from external source
+    // when injected from external source; stored as object to allow external ID lookups (e.g. threading)
     source: {
-      type: String
+      type: mongoose.SchemaTypes.Mixed
     },
     // optional channel(s) designation
     channels: {
