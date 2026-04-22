@@ -361,10 +361,11 @@ async function getChatPromptResponse(
   userTemplate,
   inputParams,
   inputChatHistory?,
-  structuredOutputSchema?
+  structuredOutputSchema?,
+  platform?: string
 ) {
-  // a requirement for vLLM over OpenAI compatible API
-  const chatHistory = ensureAlternatingChat(inputChatHistory || [])
+  // vLLM requires strict alternating human/ai turns; other platforms support consecutive same-role messages
+  const chatHistory = platform === 'vllm' ? ensureAlternatingChat(inputChatHistory || []) : (inputChatHistory || [])
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any = [

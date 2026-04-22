@@ -20,8 +20,9 @@ export enum QuestionClassification {
 export const cannotRespond =
   "Hmm, I don't have a great answer to that one. Can you try rephrasing it? I'm best at event-related questions. And if you think this was on me, a bug report at http://brk.mn/feedback would be much appreciated!"
 
-function buildLLMTemplates(personalityName?: string | null) {
+function buildLLMTemplates(personalityName?: string | null, botName?: string) {
   const personalityContent = personalityName ? personalitySection : ''
+  const botIdentity = botName ? `You are ${botName}, an` : 'You are an'
 
   return {
     timeWindowSystem: `You are rephrasing short transcript chunks from a live event. The user missed this part of the conversation and only needs the reworded content.
@@ -39,7 +40,7 @@ ${personalityContent}
 - Natural, clear English.
 - Contain only the essential rephrased content, nothing extra.
 `,
-    semanticSystem: `You are an AI assistant that answers questions about a live event.
+    semanticSystem: `${botIdentity} AI assistant that answers questions about a live event.
 
 ${personalityContent}
 
@@ -267,7 +268,7 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
   }
 
   // Get the appropriate templates based on personality setting
-  const templates = buildLLMTemplates(personalityName)
+  const templates = buildLLMTemplates(personalityName, this.agentConfig?.botName)
 
   // Use provided context from options if available, otherwise search transcript
   let contextString: string
