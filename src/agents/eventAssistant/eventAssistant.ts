@@ -109,13 +109,8 @@ export default verify({
     // Extract text from JSON body if present
     modifiedMessage.body = extractMessageText(userMessage)
 
-    if (userMessage?.channels?.includes('chat')) {
-      // trim the '@${this.agentConfig.botName}' from the message body so it's just a regular question
-      const escapedBotName = this.agentConfig.botName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      // eslint-disable-next-line security/detect-non-literal-regexp
-      const botMentionRegex = new RegExp(`@${escapedBotName}`, 'gi')
-      modifiedMessage.body = modifiedMessage.body.trim().replace(botMentionRegex, '').trim()
-    }
+    // Keep the @BotName mention in the question so the LLM can see it is addressed directly,
+    // consistent with how bot-directed messages appear in conversation history.
     const agentResponses = await answerQuestion.call(this, modifiedMessage, conversationHistory, { ...options, forceVisual })
     return agentResponses
   },
