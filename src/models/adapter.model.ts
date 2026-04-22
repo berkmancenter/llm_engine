@@ -182,7 +182,7 @@ adapterSchema.method('sendMessage', async function (message) {
     return
   }
   // do not send messages back out to the source they arrived from
-  if (message.source === this.type) {
+  if (message.source?.type === this.type) {
     return
   }
   if (!message.channels) {

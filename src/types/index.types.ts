@@ -93,7 +93,7 @@ export interface IMessage {
   owner?: IBaseUser
   body: string | Record<string, unknown>
   bodyType?: string
-  source?: string
+  source?: { type: string; id?: string }
   channels?: string[]
   conversation: IConversation
   fromAgent: boolean

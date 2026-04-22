@@ -834,7 +834,7 @@ describe('Message service methods', () => {
         pseudonymId: testUser.pseudonyms[0]._id,
         channels: ['participant'],
         fromAgent: true,
-        source: 'test-source'
+        source: { type: 'test-source' }
       }
 
       await insertMessages([complexMessage])
@@ -847,7 +847,7 @@ describe('Message service methods', () => {
       const duplicatedComplexMessage = await Message.findOne({
         conversation: targetConversation._id,
         bodyType: 'json',
-        source: 'test-source'
+        'source.type': 'test-source'
       })
 
       // Verify properties were preserved
@@ -856,7 +856,7 @@ describe('Message service methods', () => {
       expect(duplicatedComplexMessage?.bodyType).toBe(complexMessage.bodyType)
       expect(duplicatedComplexMessage?.channels).toEqual(complexMessage.channels)
       expect(duplicatedComplexMessage?.fromAgent).toBe(complexMessage.fromAgent)
-      expect(duplicatedComplexMessage?.source).toBe(complexMessage.source)
+      expect(duplicatedComplexMessage?.source).toEqual(complexMessage.source)
       expect(duplicatedComplexMessage?.pseudonym).toBe(complexMessage.pseudonym)
       expect(duplicatedComplexMessage?.owner?.toString()).toBe(testUser._id.toString())
     })
@@ -871,7 +871,7 @@ describe('Message service methods', () => {
         pseudonym: testUser.pseudonyms[0].pseudonym,
         pseudonymId: testUser.pseudonyms[0]._id,
         channels: ['participant'],
-        source: 'source1'
+        source: { type: 'source1' }
       }
 
       const message2 = {
@@ -882,19 +882,21 @@ describe('Message service methods', () => {
         pseudonym: testUser.pseudonyms[0].pseudonym,
         pseudonymId: testUser.pseudonyms[0]._id,
         channels: ['participant'],
-        source: 'source2'
+        source: { type: 'source2' }
       }
 
       await insertMessages([message1, message2])
       sourceConversation = await Conversation.findById(sourceConversation._id).populate(['channels', 'messages'])
 
       // Duplicate only messages with source1
-      await messageService.duplicateConversationMessages(sourceConversation, targetConversation, { source: 'source1' })
+      await messageService.duplicateConversationMessages(sourceConversation, targetConversation, {
+        'source.type': 'source1'
+      })
 
       // Verify only messages with source1 were duplicated
       const duplicatedMessages = await Message.find({ conversation: targetConversation._id })
-      const source1Messages = duplicatedMessages.filter((msg) => msg.source === 'source1')
-      const source2Messages = duplicatedMessages.filter((msg) => msg.source === 'source2')
+      const source1Messages = duplicatedMessages.filter((msg) => msg.source?.type === 'source1')
+      const source2Messages = duplicatedMessages.filter((msg) => msg.source?.type === 'source2')
 
       expect(source1Messages.length).toBeGreaterThan(0)
       expect(source2Messages).toHaveLength(0)
@@ -913,7 +915,7 @@ describe('Message service methods', () => {
         pseudonym: testUser.pseudonyms[0].pseudonym,
         pseudonymId: testUser.pseudonyms[0]._id,
         channels: ['participant'],
-        source: 'source1'
+        source: { type: 'source1' }
       }
 
       const message2 = {
@@ -924,7 +926,7 @@ describe('Message service methods', () => {
         pseudonym: testUser.pseudonyms[0].pseudonym,
         pseudonymId: testUser.pseudonyms[0]._id,
         channels: ['participant'],
-        source: 'source2'
+        source: { type: 'source2' }
       }
 
       await insertMessages([message1, message2])
@@ -941,8 +943,8 @@ describe('Message service methods', () => {
       expect(duplicatedMessageCount).toBe(sourceMessageCount)
 
       // Verify both source types are present
-      const source1Count = await Message.countDocuments({ conversation: targetConversation._id, source: 'source1' })
-      const source2Count = await Message.countDocuments({ conversation: targetConversation._id, source: 'source2' })
+      const source1Count = await Message.countDocuments({ conversation: targetConversation._id, 'source.type': 'source1' })
+      const source2Count = await Message.countDocuments({ conversation: targetConversation._id, 'source.type': 'source2' })
       expect(source1Count).toBeGreaterThan(0)
       expect(source2Count).toBeGreaterThan(0)
     })
@@ -1002,7 +1004,7 @@ describe('Message service methods', () => {
             pseudonymId: user2.pseudonyms[0]._id,
             channels: ['participant'],
             parentMessage: parentMessage._id,
-            source: 'test-source',
+            source: { type: 'test-source' },
             createdAt: new Date(Date.now() - 1000)
           }
         ],
@@ -1029,12 +1031,12 @@ describe('Message service methods', () => {
 
     test('should filter replies using messageQuery parameter', async () => {
       // Get only replies with a specific source
-      const filteredReplies = await messageService.getMessageReplies(parentMessage._id, { source: 'test-source' })
+      const filteredReplies = await messageService.getMessageReplies(parentMessage._id, { 'source.type': 'test-source' })
 
       expect(filteredReplies).toBeDefined()
       expect(filteredReplies).toHaveLength(1)
       expect(filteredReplies[0].body).toBe('Reply with source')
-      expect(filteredReplies[0].source).toBe('test-source')
+      expect(filteredReplies[0].source).toEqual({ type: 'test-source' })
 
       // Get only replies from a specific user
       const userReplies = await messageService.getMessageReplies(parentMessage._id, { owner: user1._id })
