@@ -150,6 +150,60 @@ describe('slack adapter tests', () => {
       })
     })
 
+    describe('markdown to mrkdwn conversion', () => {
+      async function sendAndGetText(body: string): Promise<string> {
+        await createConversation('Markdown Test Conversation')
+        adapter.chatChannels = [{ name: 'general', direction: Direction.OUTGOING }]
+        mockWebClient.chat.postMessage.mockResolvedValue({ ok: true, ts: '1234567890.123456', channel: '#test-channel' })
+        await adapter.sendMessage({ body, channels: ['general'] })
+        return mockWebClient.chat.postMessage.mock.calls[0][0].text
+      }
+
+      it('converts **bold** to *bold*', async () => {
+        expect(await sendAndGetText('**hello**')).toBe('*hello*')
+      })
+
+      it('converts __bold__ to *bold*', async () => {
+        expect(await sendAndGetText('__hello__')).toBe('*hello*')
+      })
+
+      it('converts *italic* to _italic_', async () => {
+        expect(await sendAndGetText('*hello*')).toBe('_hello_')
+      })
+
+      it('converts ~~strikethrough~~ to ~strikethrough~', async () => {
+        expect(await sendAndGetText('~~hello~~')).toBe('~hello~')
+      })
+
+      it('converts # heading to *heading*', async () => {
+        expect(await sendAndGetText('# My Heading')).toBe('*My Heading*')
+      })
+
+      it('converts [text](url) links to <url|text>', async () => {
+        expect(await sendAndGetText('[click here](https://example.com)')).toBe('<https://example.com|click here>')
+      })
+
+      it('converts ***bold italic*** to *_bold italic_*', async () => {
+        expect(await sendAndGetText('***hello***')).toBe('*_hello_*')
+      })
+
+      it('converts ___bold italic___ to *_bold italic_*', async () => {
+        expect(await sendAndGetText('___hello___')).toBe('*_hello_*')
+      })
+
+      it('does not double-convert — bold is not re-processed as italic', async () => {
+        expect(await sendAndGetText('**word**')).toBe('*word*')
+      })
+
+      it('leaves backtick code spans unchanged', async () => {
+        expect(await sendAndGetText('use `console.log`')).toBe('use `console.log`')
+      })
+
+      it('handles mixed formatting in a single message', async () => {
+        expect(await sendAndGetText('**bold** and *italic* and ~~strike~~')).toBe('*bold* and _italic_ and ~strike~')
+      })
+    })
+
     it('transforms @username mentions to Slack format', async () => {
       await createConversation('Test Slack Conversation')
 
