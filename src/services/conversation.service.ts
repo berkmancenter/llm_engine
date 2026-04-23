@@ -334,9 +334,9 @@ const findByIdFull = async (id, user) => {
         return ret
       }
       const { _id, ...cleanRet } = ret
-      // display channel passcodes only to conversation owner
+      // display channel passcodes only to conversation owner or admin user
       let { channels } = cleanRet
-      if (channels && user._id.toString() !== conversation.owner.toString()) {
+      if (channels && user._id.toString() !== conversation.owner.toString() && user.role !== 'admin') {
         channels = channels.map((channel) => {
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const { passcode, ...channelWithoutPasscode } = channel
