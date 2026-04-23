@@ -130,9 +130,10 @@ export default verify({
       }
     }
 
+    const messageText = userMessage?.bodyType === 'json' ? userMessage?.body?.text : userMessage?.body
     if (
       userMessage?.channels?.includes('chat') &&
-      !userMessage?.body.toLowerCase().includes(`@${this.agentConfig.botName}`.toLowerCase())
+      !messageText?.toLowerCase().includes(`@${this.agentConfig.botName}`.toLowerCase())
     ) {
       // regular chat message, no need to process
       return {
