@@ -49,10 +49,14 @@ Return a JSON object with the following fields:
 
 {{
   "jargonFound": boolean,
-  "text": "A bullet-point list clarifying each jargon term found (null if jargonFound is false). Each bullet must be on its own line separated by \\n. Example: - **SLO** — A target for how reliable a system should be.\\n- **MTTR** — How long it takes to fix something after it breaks.",
+  "text": "A bullet-point list clarifying each jargon term found, with each bullet on its own line (null if jargonFound is false)",
   "sourceText": "Verbatim quote from the transcript that contains the jargon (null if jargonFound is false)",
   "terms": "Flat array of jargon term names explained in this response, matching exactly the bolded terms in the text field. Must be a non-empty array when jargonFound is true, or an empty array [] when jargonFound is false. Example: [\\"SLO\\", \\"MTTR\\"]"
 }}
+
+Example text field value:
+- **SLO** — A target for how reliable a system should be.
+- **MTTR** — How long it takes to fix something after it breaks.
 
 Return ONLY raw JSON. No markdown, no backticks, no explanation.`
 
