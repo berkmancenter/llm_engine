@@ -8,7 +8,7 @@ import {
   createMessage,
   createConversation
 } from '../../utils/agentTestHelpers.js'
-import { Agent, Channel } from '../../../src/models/index.js'
+import { Agent, Channel, Message } from '../../../src/models/index.js'
 
 import { AgentMessageActions } from '../../../src/types/index.types.js'
 import { QuestionClassification } from '../../../src/agents/eventAssistant/eventQuestionHandler.js'
@@ -331,4 +331,48 @@ describe('voice assistant CI tests', () => {
     },
     testTimeout
   )
+})
+
+describe('voiceAssistant parseOutput', () => {
+  function makeVoiceMessage(text: string, sourceMessage: string, sourcePseudonym?: string) {
+    return new Message({
+      body: { text, source: 'voice', sourceMessage, ...(sourcePseudonym ? { sourcePseudonym } : {}) },
+      bodyType: 'json',
+      fromAgent: true,
+      pseudonym: 'Voice Assistant'
+    })
+  }
+
+  it('prefixes response with 🔊 and the question in quotes', () => {
+    const msg = makeVoiceMessage('Part-time work is fewer hours.', 'What is part-time work?')
+    const result = defaultAgentTypes.voiceAssistant.parseOutput(msg)
+    expect(result.bodyType).toBe('text')
+    expect(result.body).toBe('🔊 "What is part-time work?"\nPart-time work is fewer hours.')
+  })
+
+  it('truncates questions longer than 25 chars with ellipsis', () => {
+    const longQuestion = 'What exactly does the speaker mean when they talk about flexible working arrangements?'
+    const msg = makeVoiceMessage('They mean employees can choose their hours.', longQuestion)
+    const result = defaultAgentTypes.voiceAssistant.parseOutput(msg)
+    expect(result.body).toBe('🔊 "What exactly does the spe..."\nThey mean employees can choose their hours.')
+  })
+
+  it('does not add ellipsis when question is exactly 25 chars', () => {
+    const twentyFiveChars = 'A'.repeat(25)
+    const msg = makeVoiceMessage('Answer.', twentyFiveChars)
+    const result = defaultAgentTypes.voiceAssistant.parseOutput(msg)
+    expect(result.body).toBe(`🔊 "${twentyFiveChars}"\nAnswer.`)
+  })
+
+  it('returns non-voice json messages unchanged', () => {
+    const msg = new Message({ body: { text: 'Some response', type: 'on_topic_answer' }, bodyType: 'json', fromAgent: true })
+    const result = defaultAgentTypes.voiceAssistant.parseOutput(msg)
+    expect(result).toBe(msg)
+  })
+
+  it('returns text messages unchanged', () => {
+    const msg = new Message({ body: 'Plain text response', bodyType: 'text', fromAgent: true })
+    const result = defaultAgentTypes.voiceAssistant.parseOutput(msg)
+    expect(result).toBe(msg)
+  })
 })

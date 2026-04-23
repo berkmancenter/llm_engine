@@ -50,6 +50,17 @@ export default verify({
   ragCollectionName: undefined,
   useTranscriptRAGCollection: true,
   defaultConversationHistorySettings: { count: 10, channels: ['transcript'] },
+  parseOutput: (msg) => {
+    if (msg.bodyType !== 'json' || msg.body?.source !== 'voice') {
+      return msg
+    }
+    const translatedMsg = msg.toObject()
+    const sourceMessage = msg.body.sourceMessage as string
+    const truncated = sourceMessage.length > 25 ? `${sourceMessage.slice(0, 25)}...` : sourceMessage
+    translatedMsg.bodyType = 'text'
+    translatedMsg.body = `🔊 "${truncated}"\n${msg.body.text}`
+    return translatedMsg
+  },
 
   async initialize() {
     return true
