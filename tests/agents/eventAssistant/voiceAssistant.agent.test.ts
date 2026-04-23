@@ -350,18 +350,18 @@ describe('voiceAssistant parseOutput', () => {
     expect(result.body).toBe('🔊 "What is part-time work?"\nPart-time work is fewer hours.')
   })
 
-  it('truncates questions longer than 25 chars with ellipsis', () => {
+  it('truncates questions longer than 40 chars with ellipsis', () => {
     const longQuestion = 'What exactly does the speaker mean when they talk about flexible working arrangements?'
     const msg = makeVoiceMessage('They mean employees can choose their hours.', longQuestion)
     const result = defaultAgentTypes.voiceAssistant.parseOutput(msg)
-    expect(result.body).toBe('🔊 "What exactly does the spe..."\nThey mean employees can choose their hours.')
+    expect(result.body).toBe('🔊 "What exactly does the speaker mean when ..."\nThey mean employees can choose their hours.')
   })
 
-  it('does not add ellipsis when question is exactly 25 chars', () => {
-    const twentyFiveChars = 'A'.repeat(25)
-    const msg = makeVoiceMessage('Answer.', twentyFiveChars)
+  it('does not add ellipsis when question is exactly 40 chars', () => {
+    const fortyChars = 'A'.repeat(40)
+    const msg = makeVoiceMessage('Answer.', fortyChars)
     const result = defaultAgentTypes.voiceAssistant.parseOutput(msg)
-    expect(result.body).toBe(`🔊 "${twentyFiveChars}"\nAnswer.`)
+    expect(result.body).toBe(`🔊 "${fortyChars}"\nAnswer.`)
   })
 
   it('returns non-voice json messages unchanged', () => {
