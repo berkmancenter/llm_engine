@@ -80,10 +80,6 @@ userSchema.plugin(paginate)
 userSchema.virtual('activePseudonym').get(function () {
   return this.pseudonyms.find((x) => x.active)
 })
-userSchema.pre('validate', function (next) {
-  this.role = 'user'
-  next()
-})
 /**
  * @typedef User
  */
