@@ -92,7 +92,7 @@ function formatSingleUserConversationHistory(conversationHistory: ConversationHi
 }
 
 function formatMultiUserConversationHistory(conversationHistory: ConversationHistory) {
-  return conversationHistory.messages?.map((message) => {
+  return conversationHistory.messages?.flatMap((message) => {
     let messageText = message.body
     // conversation history messsages must be strings. If json or multimodal, assume it has a 'text' property
     if (message.bodyType === 'json' || message.bodyType === 'multimodal') {
@@ -104,6 +104,16 @@ function formatMultiUserConversationHistory(conversationHistory: ConversationHis
       }
     }
     if (message.fromAgent) {
+      // For voice assistant responses, prepend the original question so other agents
+      // see the full exchange rather than an unexplained answer
+      const body = message.body as Record<string, unknown>
+      if (body?.source === 'voice' && body?.sourceMessage) {
+        const asker = (body.sourcePseudonym as string) || 'User'
+        return [
+          { role: 'user', content: `${asker}: ${body.sourceMessage}` },
+          { role: 'assistant', content: messageText }
+        ]
+      }
       return { role: 'assistant', content: messageText }
     }
     // For multi-user environments, include the pseudonym in the content
