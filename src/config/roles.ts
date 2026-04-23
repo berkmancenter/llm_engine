@@ -11,11 +11,11 @@ const allRoles = {
     'ping',
     'followConversation',
     'followTopic',
-    'getConversation',
     'allTopics',
     'publicConversations',
     'topicConversations',
     'deleteConversation',
+    'getConversation',
     'getConversationReport',
     'deleteTranscript',
     'pauseTranscript',
@@ -43,7 +43,7 @@ const allRoles = {
     'getExperiment',
     'getExperimentResults'
   ],
-  admin: ['getUsers', 'manageUsers']
+  admin: ['getConversation', 'getUsers', 'manageUsers', 'publicConversations']
 }
 const roles = Object.keys(allRoles)
 const roleRights = new Map(Object.entries(allRoles))
