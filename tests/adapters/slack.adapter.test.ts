@@ -16,6 +16,9 @@ jest.setTimeout(120000)
 
 // Create a mock WebClient class
 const mockWebClient = {
+  auth: {
+    test: jest.fn()
+  },
   chat: {
     postMessage: jest.fn()
   }
@@ -80,6 +83,7 @@ describe('slack adapter tests', () => {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     jest.spyOn(slackClientPool, 'getClient').mockReturnValue(mockWebClient as any)
+    mockWebClient.auth.test.mockResolvedValue({ ok: true, user_id: 'U_AUTO_RESOLVED' })
   })
 
   it('throws an error if channel is missing from Slack config', async () => {
@@ -98,6 +102,82 @@ describe('slack adapter tests', () => {
     await createConversation('The Future of Social Media')
     adapter.config = { workspace: 'T123456789', channel: 'C12345' }
     await expect(adapter.save()).rejects.toThrow()
+  })
+
+  describe('botUserId auto-resolution', () => {
+    it('calls auth.test() and persists botUserId when not provided in config', async () => {
+      await createConversation('Auto Resolve Bot User ID')
+      expect(mockWebClient.auth.test).toHaveBeenCalled()
+      expect(adapter.config.botUserId).toBe('U_AUTO_RESOLVED')
+    })
+
+    it('does not call auth.test() when botUserId is already provided', async () => {
+      const conversationConfig = {
+        name: 'Explicit Bot User ID',
+        owner: user1._id,
+        topic: publicTopic._id,
+        enableAgents: true,
+        enableDMs: [],
+        agents: [],
+        messages: []
+      }
+      const conv = new Conversation(conversationConfig)
+      await conv.save()
+      jest.clearAllMocks()
+      mockWebClient.auth.test.mockResolvedValue({ ok: true, user_id: 'U_SHOULD_NOT_BE_USED' })
+      const adapterWithId = await Adapter.create({
+        type: 'slack',
+        conversation: conv,
+        config: { channel: '#test', botToken: 'xoxb-test-token', workspace: 'T123456789', botUserId: 'U_EXPLICIT' },
+        active: true
+      })
+      expect(mockWebClient.auth.test).not.toHaveBeenCalled()
+      expect(adapterWithId.config.botUserId).toBe('U_EXPLICIT')
+    })
+
+    it('throws when auth.test() returns ok: false', async () => {
+      mockWebClient.auth.test.mockResolvedValue({ ok: false, error: 'invalid_auth' })
+      const conv = new Conversation({
+        name: 'Auth Test Failure',
+        owner: user1._id,
+        topic: publicTopic._id,
+        enableAgents: true,
+        enableDMs: [],
+        agents: [],
+        messages: []
+      })
+      await conv.save()
+      await expect(
+        Adapter.create({
+          type: 'slack',
+          conversation: conv,
+          config: { channel: '#test', botToken: 'xoxb-bad-token', workspace: 'T123456789' },
+          active: true
+        })
+      ).rejects.toThrow('Failed to look up Slack bot user ID: invalid_auth')
+    })
+
+    it('throws when auth.test() returns no user_id', async () => {
+      mockWebClient.auth.test.mockResolvedValue({ ok: true })
+      const conv = new Conversation({
+        name: 'Auth No User ID',
+        owner: user1._id,
+        topic: publicTopic._id,
+        enableAgents: true,
+        enableDMs: [],
+        agents: [],
+        messages: []
+      })
+      await conv.save()
+      await expect(
+        Adapter.create({
+          type: 'slack',
+          conversation: conv,
+          config: { channel: '#test', botToken: 'xoxb-test-token', workspace: 'T123456789' },
+          active: true
+        })
+      ).rejects.toThrow('Failed to look up Slack bot user ID')
+    })
   })
 
   describe('sendMessage', () => {
@@ -548,8 +628,8 @@ describe('slack adapter tests', () => {
     const threadRootId = new mongoose.Types.ObjectId()
 
     beforeEach(async () => {
-      await createConversation('Threading Test Conversation')
-      adapter.chatChannels = [{ name: 'general' }]
+      await createConversation('Threading Test Conversation', ['agents'])
+      adapter.chatChannels = [{ name: 'general', direction: Direction.BOTH }]
       adapter.dmChannels = [{ direct: true, agent: new mongoose.Types.ObjectId(), direction: Direction.BOTH }]
       mockWebClient.chat.postMessage.mockResolvedValue({ ok: true, ts: '9999999999.000000', channel: '#test-channel' })
     })

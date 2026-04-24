@@ -13,18 +13,18 @@ Get a free Slack Developer sandbox and then complete Step 1 in the Guide, `Creat
 Follow Step 2 `Requesting Scopes` to request the following Bot Token Scopes:
 
 - chat:write
-- chat:write.public
+- chat:write.public (if using in public channels)
 - channels:read
 
-#### Enable Messaging from Messages Tab
+#### Enable Direct Messaging from Messages Tab
 
-Check the `Allow users to send Slash commands and messages from the messages tab` box under the `App Home` tab to allow users to DM the app.
+If you want to allow users to direct message the app, check the `Allow users to send Slash commands and messages from the messages tab` box under the `App Home` tab.
 
 #### Install and Authorize the App in your Workspace
 
 Follow Step 3 `Installing and Authorizing the App`
 
-NOTE: currently you do need to invite the app to a channel in order for agents to participate
+NOTE: you must invite the app to a channel in order for agents to participate
 
 `/invite @LLM Engine` (or whatever you named the app when you created it)`
 
@@ -37,7 +37,7 @@ Subscribe to the following bot events
 
 - message.channels
 - message.groups
-- message.im
+- message.im (if using direct messages)
 
 #### Add environment variables
 
@@ -53,7 +53,7 @@ SLACK_SIGNING_SECRET - found under Basic Information in your Slack app configura
 2. Determine your workspace ID. It is the last part of the URL when you select the workspace, starting with T.
 3. Determine the Slack Channel ID. It is the last part of the URL when you select the channel in Slack.
 4. Copy your Bot User OAuth Token under OAuth & Permissions in your Slack app configuration for your workspace. Each workspace has a unique bot token. NOTE: make sure you copy the _Bot_ token and not the _User_ token.
-5. Create a `Conversation` with the desired channels and provide the Slack Channel ID, Workspace ID, and Bot Token in the Slack `adapter config`
+5. Create a `Conversation` with the desired channels and provide the Slack Channel ID, Workspace ID, Bot Token, and Bot Name/App Display Name in the Slack `adapter config`
 
 Example conversation body:
 
@@ -62,8 +62,8 @@ Example conversation body:
     "name": "Should plastic water bottles be banned?",
     "topicId": "{{defaultTopic}}",
     "channels": [ { "name": "moderator"}, { "name": "participant"}],
-    "adapters": [ {"type": "slack", "config" : {"channel": "C08US6FL6DV", "workspace: "T123494", botToken:[token],
-        "chatChannels": [ { "name": "playfulSlack", "direction": "both"}]}}]
+    "adapters": [ {"type": "slack", "config" : {"channel": "C08US6FL6DV", "workspace: "T123494", "botToken":"[token]", "botName": "Berkie"},
+        "chatChannels": [ { "name": "playfulSlack", "direction": "both"}]}]
 }
 ```
 
@@ -81,7 +81,7 @@ Example conversation body:
     "topicId": "{{defaultTopic}}",
     "enableDMs": ['agents'],
     "agentTypes": [agents],
-    "adapters": [ {"type": "slack", "config" : {"channel": "direct", "workspace: "T123494", botToken:[token],
-        "dmChannels": [{ "direct": true, "agent": "playfulPerMessage", "direction": "both"}]}}]
+    "adapters": [ {"type": "slack", "config" : {"channel": "direct", "workspace: "T123494",  "botToken":"[token]", "botName": "Berkie"},
+        "dmChannels": [{ "direct": true, "agent": "playfulPerMessage", "direction": "both"}]}]
 }
 ```

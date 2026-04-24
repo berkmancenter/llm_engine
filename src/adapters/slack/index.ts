@@ -114,6 +114,15 @@ export default {
         throw Error(`Slack ${key} required in adapter config`)
       }
     })
+    if (!this.config.botUserId) {
+      const slackWebClient = slackClientPool.getClient(this.config.workspace, this.config.botToken)
+      const authResult = await slackWebClient.auth.test()
+      if (!authResult.ok || !authResult.user_id) {
+        throw new Error(`Failed to look up Slack bot user ID: ${authResult.error}`)
+      }
+      this.config.botUserId = authResult.user_id
+      logger.info(`Resolved Slack botUserId: ${this.config.botUserId}`)
+    }
   },
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async participantJoined(participant) {
