@@ -62,12 +62,17 @@ function getPreviousRecommendations(conversationHistory: ConversationHistory, ag
   return titles
 }
 
+const formatPreviousRecs = (titles: string[]): string => {
+  if (titles.length === 0) return 'None yet.'
+  return titles.map((t, i) => `  ${i + 1}. ${t}`).join('\n')
+}
+
 const buildPrompt = (
   conversationName: string,
   speakerNames: string,
   moderatorNames: string,
   transcript: string,
-  previousRecsText: string,
+  previousRecs: string[],
   count: number
 ): string => `You are a research librarian helping participants in an academic event discover relevant readings.
 
@@ -75,9 +80,15 @@ Event: ${conversationName}
 Speakers: ${speakerNames}
 Moderators: ${moderatorNames}
 
-Recent discussion transcript:
+## Already Recommended — DO NOT suggest these again
+${formatPreviousRecs(previousRecs)}
+
+If a tool returns any of the above titles, discard it and keep searching until you have ${count} titles not on this list.
+
+## Recent discussion transcript
 ${transcript}
 
+## Instructions
 You have two tools:
   - search_semantic_scholar: search by keyword, author, or title
   - get_semantic_scholar_recommendations: get recommendations seeded by known papers
@@ -90,7 +101,6 @@ then use those as seed papers for Semantic Scholar recommendations — but use y
 - Prioritize relevance to the specific topics raised in the transcript over general subject area.
 - Aim for diverse, complementary recommendations.
 - Always include the URL from search results in your recommendations when one is available.
-- CRITICAL: Never recommend any of these previously recommended items: ${previousRecsText}
 
 Provide exactly ${count} recommendations with their relevance reasons.`
 
@@ -154,11 +164,10 @@ export default verify({
       messages: this.conversation.messages // Access all messages
     }
     const previousRecs = getPreviousRecommendations(fullHistory, this.name)
-    const previousRecsText = previousRecs.length > 0 ? previousRecs.join('; ') : 'None yet'
 
     // 3. Build prompt
     const count = this.agentConfig.recommendationsPerInterval
-    const promptText = buildPrompt(this.conversation.name, speakerNames, moderatorNames, transcript, previousRecsText, count)
+    const promptText = buildPrompt(this.conversation.name, speakerNames, moderatorNames, transcript, previousRecs, count)
 
     // 4. Invoke agent with structured output
     let result
@@ -178,7 +187,18 @@ export default verify({
       return []
     }
 
-    // 5. Return formatted response
+    // 5. Filter out any duplicates the LLM may have returned despite being instructed not to
+    const previousRecsLower = new Set(previousRecs.map((t) => t.toLowerCase()))
+    const deduped = result.recommendations.filter((r) => {
+      if (previousRecsLower.has(r.title.toLowerCase())) {
+        logger.warn(`Librarian Agent returned a previously recommended item, skipping: "${r.title}"`)
+        return false
+      }
+      return true
+    })
+    result.recommendations = deduped
+
+    // 6. Return formatted response
     const resourcesChannel = this.conversation.channels.find((c: { name: string }) => c.name === 'resources')
     if (!resourcesChannel) {
       logger.warn('No resources channel found')
@@ -191,7 +211,7 @@ export default verify({
         message: { content: result.recommendations, type: 'reading' },
         messageType: 'json',
         channels: [resourcesChannel],
-        context: `Speakers: ${speakerNames}\nModerators: ${moderatorNames}\nPrevious recommendations: ${previousRecsText}\n\nTranscript:\n${transcript}`
+        context: `Speakers: ${speakerNames}\nModerators: ${moderatorNames}\nPrevious recommendations: ${previousRecs.join('; ') || 'None yet'}\n\nTranscript:\n${transcript}`
       }
     ]
   },
