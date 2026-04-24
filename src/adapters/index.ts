@@ -4,8 +4,10 @@ import config from '../config/config.js'
 
 const development = {}
 
+export const internalAdapterTypes = ['slack']
+
 export default {
   ...(config.enableDevelopmentAdapters ? development : {}),
-  zoom,
-  slack
+  slack,
+  zoom
 }

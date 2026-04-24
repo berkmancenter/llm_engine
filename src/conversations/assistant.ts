@@ -1,4 +1,3 @@
-import adapterTypes from '../adapters/config.js'
 import { supportedModels } from '../agents/helpers/getModelChat.js'
 import { ConversationType, Direction } from '../types/index.types.js'
 import config from '../config/config.js'
@@ -7,7 +6,7 @@ const assistant: ConversationType = {
   name: 'assistant',
   label: 'Assistant',
   description: 'A general-purpose AI assistant chatbot accessible via a shared Slack channel',
-  platforms: adapterTypes,
+  platforms: [{ name: 'slack', label: 'Slack' }],
   properties: [
     {
       name: 'slackChannel',
