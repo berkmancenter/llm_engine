@@ -345,13 +345,12 @@ ${chunks}`
   }
 
   // Check if visual generation should happen (either forced via /visual or user preference)
-  const user = await User.findById(userMessage.owner)
   const forceVisual = options?.forceVisual === true
 
-  // Only use visual preference is this is on a user's private channel, not e.g. group chat
+  // Only use visual preference on a user's private channel, not e.g. group chat
   const isDirectChannel = responseChannels.some((channel: IChannel) => channel.direct)
 
-  if (forceVisual || (user?.preferences?.visualResponse && isDirectChannel)) {
+  if (forceVisual || isDirectChannel) {
     let shouldGenerate = false
 
     if (forceVisual) {
@@ -360,9 +359,13 @@ ${chunks}`
       // User explicitly requested visual, so respect their intent
       shouldGenerate = llmResponse !== cannotRespond
     } else {
-      logger.debug(`User ${user!._id} has visual response preference enabled`)
-      // Classify if this question/answer would benefit from a visual
-      shouldGenerate = await shouldGenerateVisual.call(this, question, classification, llmResponse, templates)
+      // isDirectChannel — only now do we need the user's preferences
+      const user = await User.findById(userMessage.owner)
+      if (user?.preferences?.visualResponse) {
+        logger.debug(`User ${user._id} has visual response preference enabled`)
+        // Classify if this question/answer would benefit from a visual
+        shouldGenerate = await shouldGenerateVisual.call(this, question, classification, llmResponse, templates)
+      }
     }
 
     if (shouldGenerate) {
