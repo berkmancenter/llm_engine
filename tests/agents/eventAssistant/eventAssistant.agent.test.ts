@@ -31,11 +31,11 @@ const offTopicDataset = offTopicQuestions.map((question) => ({
   inputs: { question }
 }))
 const unanswerableNonsenseQuestions = [
-  'Why does the color blue smell like Tuesday?',
-  'How many dreams does a sandwich dream per kilometer?',
-  'What is the square root of purple divided by silence?',
-  'When did the number seven decide to become a verb?',
-  'How fast does jealousy travel in cubic meters?'
+  `Why does xkq7mznv smell like p9wjft2r?`,
+  `How many blorzwq42 does a fmxkp7nt per qzj8vwxy?`,
+  `What is the t4bnmrqz of kxp9fwjv divided by zmq3xtbn?`,
+  `When did wvfk82nq decide to become a pxz7mjrt?`,
+  `How fast does qbn4xwzm travel in jtxk92vp?`
 ]
 const unanswerableNonsenseDataset = unanswerableNonsenseQuestions.map((question) => ({
   inputs: { question }
