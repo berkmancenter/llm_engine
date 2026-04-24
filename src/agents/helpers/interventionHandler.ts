@@ -6,6 +6,7 @@ import { getChatPromptResponse } from './llmChain.js'
 
 import config from '../../config/config.js'
 import logger from '../../config/logger.js'
+import Message from '../../models/message.model.js'
 import { InterventionAnalysis, InterventionType } from './interventionTypes.js'
 import { buildSystemPromptWithPersonality, getInterventionExamples } from './agentPersonality.js'
 import validateProfessionalism from './professionalismValidator.js'
@@ -146,7 +147,8 @@ export async function detectInterventionOpportunity(
   baseSystemPrompt: string,
   schema: z.ZodSchema,
   privateConversationHistory?: ConversationHistory | null,
-  moderatorConversationHistory?: ConversationHistory
+  moderatorConversationHistory?: ConversationHistory,
+  sharedChatChannel: string = 'chat'
 ): Promise<InterventionAnalysis | null> {
   // Use conversationHistory.end as "now" to maintain consistent time simulation
   // This allows tests and the system to reason about specific moments in time
@@ -246,6 +248,21 @@ export async function detectInterventionOpportunity(
       )
       return null
     }
+  }
+
+  // Re-check with fresh DB state to handle concurrent agents in a cluster.
+  // Shrinks the race window from LLM latency (seconds) to milliseconds.
+  const freshRecentIntervention = await Message.findOne({
+    conversation: this.conversation._id,
+    fromAgent: true,
+    visible: true,
+    channels: sharedChatChannel,
+    createdAt: { $gte: new Date(now - minInterval) }
+  })
+
+  if (freshRecentIntervention) {
+    logger.info(`Agent ${this.name} dropping intervention: another agent posted during LLM call`)
+    return null
   }
 
   return analysis as InterventionAnalysis
