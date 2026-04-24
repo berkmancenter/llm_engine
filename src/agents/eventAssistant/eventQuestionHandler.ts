@@ -16,10 +16,6 @@ export enum QuestionClassification {
   OFF_TOPIC = 'OFF_TOPIC',
   CATCHUP = 'CATCHUP'
 }
-
-export const cannotRespond =
-  "Hmm, I don't have a great answer to that one. Can you try rephrasing it? I'm best at event-related questions. And if you think this was on me, a bug report at http://brk.mn/feedback would be much appreciated!"
-
 function buildLLMTemplates(personalityName?: string | null) {
   const personalityContent = personalityName ? personalitySection : ''
 
@@ -320,7 +316,7 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
     if (!promptType) {
       promptType = timeWindow ? 'timeWindow' : 'semantic'
     }
-   
+
     if (timeWindow) {
       // For time window searches, use only the chunks
       contextString = chunks
@@ -339,8 +335,8 @@ ${chunks}`
   const isTimeWindow = promptType === 'timeWindow'
   let systemTemplate = isTimeWindow ? templates.timeWindowSystem : templates.semanticSystem
 
-  // Skip visual generation if question is skipped because off-topic or unanswerable 
-  let allowGenerateVisual = true;
+  // Skip visual generation if question is skipped because off-topic or unanswerable
+  let allowGenerateVisual = true
 
   const topic = options?.topic || this.conversation.name
 
@@ -394,17 +390,16 @@ ${chunks}`
   // Only use visual preference on a user's private channel, not e.g. group chat
   const isDirectChannel = responseChannels.some((channel: IChannel) => channel.direct)
 
-  if(!allowGenerateVisual)
-    logger.debug('Visual generation skipped due to off-topic or unanswerable question')
+  if (!allowGenerateVisual) logger.debug('Visual generation skipped due to off-topic or unanswerable question')
 
   if ((forceVisual || isDirectChannel) && allowGenerateVisual) {
     let shouldGenerate = false
 
     if (forceVisual) {
       logger.debug('Visual generation forced via /visual command')
-      // For /visual command, always generate unless it's an error response
+      // For /visual command, always generate
       // User explicitly requested visual, so respect their intent
-      shouldGenerate = llmResponse !== cannotRespond
+      shouldGenerate = true
     } else {
       // isDirectChannel — only now do we need the user's preferences
       const user = await User.findById(userMessage.owner)
