@@ -113,6 +113,10 @@ const eventAssistantPlus: ConversationType = {
     {
       name: 'jargonFilterAgent',
       properties: [{ $ref: 'llmModel.llmModel' }, { $ref: 'llmModel.llmPlatform' }]
+    },
+    {
+      name: 'voiceAssistant',
+      properties: [{ $ref: 'llmModel.llmModel' }, { $ref: 'llmModel.llmPlatform' }]
     }
   ],
   enableDMs: ['agents'],

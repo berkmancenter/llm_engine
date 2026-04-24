@@ -155,6 +155,57 @@ describe('LLM Input Formatter Tests', () => {
     ])
   })
 
+  it('should expand a voice assistant response into a question/answer pair in multi-user history', async () => {
+    const msg1 = await createMessage('I think AI should have rights.', 'Pro AI Urban Woman')
+    const msg2 = await createMessage(
+      { text: 'Part-time work is working fewer hours than a full-time schedule.', source: 'voice', sourceMessage: 'What is part-time work?', sourcePseudonym: 'Curious Corgi' },
+      'Voice Assistant',
+      undefined,
+      true,
+      'json'
+    )
+    const msg3 = await createMessage('Interesting!', 'Pro AI Urban Woman')
+    const convHistory = getConversationHistory([msg1, msg2, msg3], { count: 100 })
+    const formattedMessages = formatMultiUserConversationHistory(convHistory)
+    expect(formattedMessages).toEqual([
+      { role: 'user', content: 'Pro AI Urban Woman: I think AI should have rights.' },
+      { role: 'user', content: 'Curious Corgi: What is part-time work?' },
+      { role: 'assistant', content: 'Part-time work is working fewer hours than a full-time schedule.' },
+      { role: 'user', content: 'Pro AI Urban Woman: Interesting!' }
+    ])
+  })
+
+  it('should fall back to "User" as asking pseudonym when sourcePseudonym is absent from voice response', async () => {
+    const msg1 = await createMessage(
+      { text: 'Part-time work is working fewer hours than a full-time schedule.', source: 'voice', sourceMessage: 'What is part-time work?' },
+      'Voice Assistant',
+      undefined,
+      true,
+      'json'
+    )
+    const convHistory = getConversationHistory([msg1], { count: 100 })
+    const formattedMessages = formatMultiUserConversationHistory(convHistory)
+    expect(formattedMessages).toEqual([
+      { role: 'user', content: 'User: What is part-time work?' },
+      { role: 'assistant', content: 'Part-time work is working fewer hours than a full-time schedule.' }
+    ])
+  })
+
+  it('should not expand agent json messages that are not voice responses', async () => {
+    const msg1 = await createMessage(
+      { text: 'Some agent response', type: 'on_topic_answer' },
+      'BOT',
+      undefined,
+      true,
+      'json'
+    )
+    const convHistory = getConversationHistory([msg1], { count: 100 })
+    const formattedMessages = formatMultiUserConversationHistory(convHistory)
+    expect(formattedMessages).toEqual([
+      { role: 'assistant', content: 'Some agent response' }
+    ])
+  })
+
   it('should format multi-user conversation history with json body type', async () => {
     const msg1 = await createMessage('I think AI should have rights if it demonstrates consciousness.', 'Pro AI Urban Woman')
     const msg2 = await createMessage(

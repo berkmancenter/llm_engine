@@ -196,6 +196,26 @@ const testAgentTypeSpecification = {
     defaultLLMPlatform,
     defaultLLMModel,
     useTranscriptRAGCollection: false
+  },
+  voiceAssistant: {
+    initialize: mockInitialize,
+    respond: mockRespond,
+    evaluate: mockEvaluate,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Voice Assistant',
+    description: 'Test voice assistant agent',
+    maxTokens: 2000,
+    defaultTriggers: { perMessage: { channels: ['transcript'] } },
+    priority: 100,
+    llmTemplateVars: { contribution: [], voting: [] },
+    defaultLLMTemplates: {
+      contribution: 'You are a voice assistant agent',
+      voting: 'You should vote on this data {voteData}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel,
+    useTranscriptRAGCollection: true
   }
 }
 
