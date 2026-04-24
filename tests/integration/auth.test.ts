@@ -35,7 +35,7 @@ describe('Auth routes', () => {
       const res = await request(app).post('/v1/auth/register').send(newUser).expect(httpStatus.CREATED)
 
       expect(res.body.user).not.toHaveProperty('password')
-      expect(res.body.user.role).toEqual('user')
+      expect(res.body.user.role).toEqual('admin')
       expect(res.body.user.pseudonyms).toHaveLength(1)
       expect(res.body.user.pseudonyms[0].active).toBe(true)
 

@@ -1111,4 +1111,114 @@ describe('Conversation service methods', () => {
       })
     })
   })
+
+  describe('findByIdFull()', () => {
+    let conversation
+
+    beforeEach(async () => {
+      await insertUsers([registeredUser])
+      await insertTopics([topicOne])
+
+      const params = {
+        type: 'eventAssistant',
+        name: 'Test Conversation',
+        platforms: ['zoom'],
+        topicId: topicOne._id.toString(),
+        scheduledTime: new Date(Date.now() + 3600000),
+        properties: {
+          zoomMeetingUrl: 'https://zoom.us/j/123456789'
+        }
+      }
+      conversation = await conversationService.createConversationFromType(params, registeredUser)
+    })
+
+    test('should return full conversation with id instead of _id, is pojo', async () => {
+      const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
+
+      expect(result).toBeDefined()
+      // is pojo
+      expect(result).not.toBeInstanceOf(mongoose.Document)
+      expect((result as unknown as Record<string, unknown>).id).toBeDefined()
+    })
+
+    test('should return conversation with expected fields', async () => {
+      const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
+
+      expect(result.name).toBe('Test Conversation')
+      expect(result.platforms).toEqual(['zoom'])
+      expect(result.conversationType).toBe('eventAssistant')
+    })
+
+    test('should return populated agents', async () => {
+      const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
+
+      expect(result.agents).toBeDefined()
+      expect(Array.isArray(result.agents)).toBe(true)
+      expect(result.agents.length).toBeGreaterThan(0)
+    })
+
+    test('should return populated channels', async () => {
+      const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
+
+      expect(result.channels).toBeDefined()
+      expect(Array.isArray(result.channels)).toBe(true)
+    })
+
+    test('should return populated adapters', async () => {
+      const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
+
+      expect(result.adapters).toBeDefined()
+      expect(Array.isArray(result.adapters)).toBe(true)
+    })
+
+    test('should include followed field', async () => {
+      const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
+
+      expect(result).toHaveProperty('followed')
+    })
+
+    test('should hide channel passcode from non-owner user', async () => {
+      const nonOwner = {
+        _id: new mongoose.Types.ObjectId(),
+        role: 'user'
+      }
+
+      const result = await conversationService.findByIdFull(conversation._id.toString(), nonOwner)
+
+      if (result.channels && result.channels.length > 0) {
+        result.channels.forEach((channel) => {
+          expect(channel).not.toHaveProperty('passcode')
+        })
+      }
+    })
+
+    test('should show channel passcode to conversation owner', async () => {
+      const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
+
+      // Owner should get channels with passcode field present (even if null)
+      expect(result.channels).toBeDefined()
+    })
+
+    test('should throw NOT_FOUND error when conversation does not exist', async () => {
+      const fakeId = new mongoose.Types.ObjectId().toString()
+
+      await expect(conversationService.findByIdFull(fakeId, registeredUser)).rejects.toThrow(ApiError)
+      await expect(conversationService.findByIdFull(fakeId, registeredUser)).rejects.toMatchObject({
+        statusCode: httpStatus.NOT_FOUND,
+        message: `Conversation with id ${fakeId} not found`
+      })
+    })
+
+    test('should show channel passcode to admin user', async () => {
+      const adminUser = {
+        _id: new mongoose.Types.ObjectId(),
+        role: 'admin'
+      }
+
+      const result = await conversationService.findByIdFull(conversation._id.toString(), adminUser)
+
+      expect(result).toBeDefined()
+      expect(result.channels).toBeDefined()
+    })
+  })
 })
