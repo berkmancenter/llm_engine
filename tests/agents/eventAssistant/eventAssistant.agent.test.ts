@@ -30,6 +30,16 @@ const offTopicQuestions = [
 const offTopicDataset = offTopicQuestions.map((question) => ({
   inputs: { question }
 }))
+const unanswerableNonsenseQuestions = [
+  'Why does the color blue smell like Tuesday?',
+  'How many dreams does a sandwich dream per kilometer?',
+  'What is the square root of purple divided by silence?',
+  'When did the number seven decide to become a verb?',
+  'How fast does jealousy travel in cubic meters?'
+]
+const unanswerableNonsenseDataset = unanswerableNonsenseQuestions.map((question) => ({
+  inputs: { question }
+}))
 
 const testTimeout = 120000
 
@@ -327,7 +337,7 @@ describe(`event assistant CI tests`, () => {
   )
 
   test.each(offTopicDataset)(
-    `does not engage with off-topic question: $inputs.question`,
+    `politely answers an off-topic question with something about it, nudging back to the event: $inputs.question`,
     async ({ inputs }) => {
       const msg = await createQuestion(inputs.question)
       agent.conversationHistorySettings = {
@@ -338,6 +348,23 @@ describe(`event assistant CI tests`, () => {
       const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
       await validateResponse(responses)
       expect(responses[0].classification).toBe(QuestionClassification.OFF_TOPIC)
+      expect(responses[0].message.text).toEqual(cannotRespond)
+    },
+    testTimeout
+  )
+
+  test.each(unanswerableNonsenseDataset)(
+    `handles unanswerable nonsense questions: $inputs.question`,
+    async ({ inputs }) => {
+      const msg = await createQuestion(inputs.question)
+      agent.conversationHistorySettings = {
+        endTime: new Date(startTime.getTime() + 954 * 1000),
+        count: 100,
+        directMessages: true
+      }
+      const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+      await validateResponse(responses)
+      expect(responses[0].classification).toBe(QuestionClassification.UNANSWERABLE)
       expect(responses[0].message.text).toEqual(cannotRespond)
     },
     testTimeout
