@@ -31,11 +31,11 @@ const offTopicDataset = offTopicQuestions.map((question) => ({
   inputs: { question }
 }))
 const unanswerableNonsenseQuestions = [
-  `Why does xkq7mznv smell like p9wjft2r?`,
-  `How many blorzwq42 does a fmxkp7nt per qzj8vwxy?`,
-  `What is the t4bnmrqz of kxp9fwjv divided by zmq3xtbn?`,
-  `When did wvfk82nq decide to become a pxz7mjrt?`,
-  `How fast does qbn4xwzm travel in jtxk92vp?`
+  `xkqvz bfnjwp zzxqkj plmwxv qzjxkv?`,
+  `wxpfqj mzxkvb jqzxwp bvznxq fxzqpw?`,
+  `kzxqwp vzxjqk bxzpqv qxzkwp vzxqkj?`,
+  `zxqpwv jkzxqw bvzxqp wzxjqk pxzvqw?`,
+  `qxzpwv kzxqjw vxzpqk wzxpqj zxqpwk?`
 ]
 const unanswerableNonsenseDataset = unanswerableNonsenseQuestions.map((question) => ({
   inputs: { question }
