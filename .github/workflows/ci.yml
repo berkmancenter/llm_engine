@@ -53,6 +53,8 @@ jobs:
           filters: |
             helpers_src:
               - 'src/agents/helpers/**'
+            tools_src:
+              - 'src/agents/tools/**'
             agents:
               - 'src/agents/*/**'
               - 'tests/agents/*/**'
@@ -150,11 +152,11 @@ jobs:
           DEFAULT_OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
 
       - name: Run agent tests
-        if: steps.changes.outputs.helpers_src == 'true' || steps.changes.outputs.agents == 'true' || github.event_name == 'workflow_dispatch'
+        if: steps.changes.outputs.helpers_src == 'true' || steps.changes.outputs.tools_src == 'true' || steps.changes.outputs.agents == 'true' || github.event_name == 'workflow_dispatch'
         run: |
-          # If helper source code changed, run all agent tests
-          if [ "${{ steps.changes.outputs.helpers_src }}" == "true" ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "Helper source code changed or manual trigger - running all agent tests"
+          # If helper or tools source code changed, run all agent tests
+          if [ "${{ steps.changes.outputs.helpers_src }}" == "true" ] || [ "${{ steps.changes.outputs.tools_src }}" == "true" ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "Helper/tools source code changed or manual trigger - running all agent tests"
             yarn test:agents
           else
             # Extract unique agent folder names from changed files
@@ -189,6 +191,7 @@ jobs:
           BEDROCK_BASE_URL: ${{ secrets.BEDROCK_BASE_URL }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           GOOGLE_BASE_URL: ${{ secrets.GOOGLE_BASE_URL }}
+          SEMANTIC_SCHOLAR_API_KEY: ${{ secrets.SEMANTIC_SCHOLAR_API_KEY }}
           VLLM_API_URL: ${{ secrets.VLLM_API_URL }}
           VLLM_API_KEY: ${{ secrets.VLLM_API_KEY }}
           TEST_LLM_PLATFORM: ${{ github.event.inputs.llmPlatform || 'bedrock'}}

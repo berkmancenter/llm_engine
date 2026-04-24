@@ -94,8 +94,34 @@ const eventAssistantPlus: ConversationType = {
           ]
         }
       ]
+    },
+    {
+      name: 'librarian',
+      label: 'Reading Recommendations',
+      description: 'Periodically recommends relevant reading during the event',
+      default: true,
+      properties: [
+        {
+          name: 'recommendationsPerInterval',
+          label: 'Number of Reading Recommendations per Interval',
+          required: false,
+          type: 'number',
+          default: 2
+        }
+      ],
+      agents: [
+        {
+          name: 'librarian',
+          properties: [
+            { $ref: 'llmModel.llmModel' },
+            { $ref: 'llmModel.llmPlatform' },
+            { $ref: 'librarian.recommendationsPerInterval', as: 'agentConfig.recommendationsPerInterval' }
+          ]
+        }
+      ]
     }
   ],
+
   // internal
   agents: [
     {
@@ -125,7 +151,8 @@ const eventAssistantPlus: ConversationType = {
     { name: 'participant' },
     { name: 'moderator' },
     { name: 'chat' },
-    { name: 'image-gen' }
+    { name: 'image-gen' },
+    { name: 'resources' }
   ],
   adapters: {
     zoom: {
