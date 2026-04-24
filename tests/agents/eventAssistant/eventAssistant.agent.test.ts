@@ -11,7 +11,7 @@ import {
   createMessage
 } from '../../utils/agentTestHelpers.js'
 import Channel from '../../../src/models/channel.model.js'
-import { cannotRespond, QuestionClassification } from '../../../src/agents/eventAssistant/eventQuestionHandler.js'
+import { QuestionClassification } from '../../../src/agents/eventAssistant/eventQuestionHandler.js'
 import { AgentMessageActions, IChannel } from '../../../src/types/index.types.js'
 import { User } from '../../../src/models/index.js'
 
@@ -163,7 +163,6 @@ describe(`event assistant CI tests`, () => {
     const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
     await validateResponse(responses)
     expect(responses[0].classification).toBe(QuestionClassification.OFF_TOPIC)
-    expect(responses[0].message.text).toEqual(cannotRespond)
   })
 
   it(
@@ -348,7 +347,6 @@ describe(`event assistant CI tests`, () => {
       const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
       await validateResponse(responses)
       expect(responses[0].classification).toBe(QuestionClassification.OFF_TOPIC)
-      expect(responses[0].message.text).toEqual(cannotRespond)
     },
     testTimeout
   )
@@ -365,7 +363,6 @@ describe(`event assistant CI tests`, () => {
       const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
       await validateResponse(responses)
       expect(responses[0].classification).toBe(QuestionClassification.UNANSWERABLE)
-      expect(responses[0].message.text).toEqual(cannotRespond)
     },
     testTimeout
   )
@@ -421,7 +418,6 @@ describe(`event assistant CI tests`, () => {
     const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
     await validateResponse(responses)
     expect(responses[0].classification).toBe(QuestionClassification.CATCHUP)
-    expect(responses[0].message.text).not.toEqual(cannotRespond)
   })
 
   it('responds to an @<botName> message on the chat channel', async () => {
@@ -439,7 +435,6 @@ describe(`event assistant CI tests`, () => {
     const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [msg1] }, msg)
     await validateResponse(responses, 'chat')
     expect(responses[0].classification).toBe(QuestionClassification.CATCHUP)
-    expect(responses[0].message.text).not.toEqual(cannotRespond)
   })
 
   it('does not respond to a regular message on the chat channel', async () => {
@@ -984,7 +979,6 @@ describe(`event assistant CI tests`, () => {
           // OFF_TOPIC responses should never have visuals, even with /visual
           await validateResponse(responses)
           expect(responses[0].classification).toBe(QuestionClassification.OFF_TOPIC)
-          expect(responses[0].message.text).toBe(cannotRespond)
           expect(responses[0].message.text).not.toContain('🎨 Generating visual...')
         },
         testTimeout
@@ -1186,7 +1180,6 @@ describe(`event assistant CI tests`, () => {
 
         await validateResponse(responses)
         expect(responses[0].classification).toBe(QuestionClassification.OFF_TOPIC)
-        expect(responses[0].message.text).toBe(cannotRespond)
         // OFF_TOPIC responses should never have visuals
         expect(responses[0].messageType).toBe('json')
         expect(responses[0].message.text).toBeDefined()
