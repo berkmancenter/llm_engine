@@ -34,7 +34,7 @@ const assistant: ConversationType = {
       name: 'slackBotUserId',
       label: 'Slack Bot User ID',
       description: 'The user ID for the bot in Slack (starts with U-), used for routing incoming messages',
-      required: true,
+      required: false,
       type: 'string'
     },
     {
