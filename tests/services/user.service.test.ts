@@ -12,6 +12,62 @@ const createVote = () => ({
 })
 
 describe('User service methods', () => {
+  describe('createUser()', () => {
+    test('should create a user with hashed password and pseudonym with admin role', async () => {
+      const userBody = {
+      username: 'testuser',
+      password: 'password123',
+      token: 'sometoken',
+      pseudonym: 'Bold Aardvark',
+      email: 'test@example.com',
+      role: 'admin'
+      }
+
+      const user = await userService.createUser(userBody)
+
+      expect(user).toBeDefined()
+      expect(user.username).toBe(userBody.username)
+      expect(user.email).toBe(userBody.email)
+      expect(user.password).not.toBe(userBody.password)
+      expect(user.pseudonyms).toHaveLength(1)
+      expect(user.pseudonyms[0].token).toBe(userBody.token)
+      expect(user.pseudonyms[0].pseudonym).toBe(userBody.pseudonym)
+      expect(user.pseudonyms[0].active).toBe(true)
+      expect(user.role).toBe('admin')
+    })
+
+    test('should create a user without email if not provided', async () => {
+      const userBody = {
+      username: 'testuser2',
+      password: 'password123',
+      token: 'sometoken2',
+      pseudonym: 'Brave Beaver'
+      }
+
+      const user = await userService.createUser(userBody)
+
+      expect(user).toBeDefined()
+      expect(user.username).toBe(userBody.username)
+      expect(user.email).toBeUndefined()
+      expect(user.role).toBe('admin')
+    })
+
+    test('should create a user without password if not provided', async () => {
+      const userBody = {
+      username: 'testuser3',
+      token: 'sometoken3',
+      pseudonym: 'Calm Cobra'
+      }
+
+      const user = await userService.createUser(userBody)
+
+      expect(user).toBeDefined()
+      expect(user.username).toBe(userBody.username)
+      expect(user.password).toBeUndefined()
+      expect(user.role).toBe('admin')
+    })
+    })
+  
   describe('goodReputation()', () => {
     beforeEach(() => {
       // Add five upvotes
