@@ -102,6 +102,21 @@ const getConversationReport = catchAsync(async (req, res) => {
   res.status(httpStatus.OK).send(report)
 })
 
+const VALID_AUDIENCES = ['participant', 'moderator'] as const
+type GuideAudience = (typeof VALID_AUDIENCES)[number]
+
+const getGuide = catchAsync(async (req, res) => {
+  const { audience } = req.query
+  if (typeof audience !== 'string' || !VALID_AUDIENCES.includes(audience as GuideAudience)) {
+    res.status(httpStatus.BAD_REQUEST).send({
+      message: `audience query param is required and must be one of: ${VALID_AUDIENCES.join(', ')}`
+    })
+    return
+  }
+  const guide = await conversationService.getGuide(req.params.conversationId, audience as GuideAudience)
+  res.status(httpStatus.OK).send(guide)
+})
+
 export {
   createConversation,
   createConversationFromType,
@@ -117,5 +132,6 @@ export {
   startConversation,
   stopConversation,
   joinConversation,
-  getConversationReport
+  getConversationReport,
+  getGuide
 }

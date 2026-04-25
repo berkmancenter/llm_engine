@@ -2422,4 +2422,95 @@ describe('Conversation routes', () => {
       expect(res.body.name).toBe(updateBody.name)
     })
   })
+
+  describe('GET /v1/conversations/:conversationId/guide', () => {
+    /*
+     * Owners enable a subset of the type's features per conversation, so the guide
+     * must filter to `conversation.features` rather than showing every feature the
+     * type defines. No production feature uses `audience: 'moderator'` yet, so that
+     * path is only used in the empty-result test case below.
+     */
+    let guideConversation
+
+    beforeEach(async () => {
+      // eventAssistantPlus isn't in the test type set — swap in the real types
+      setConversationTypes(defaultConversationTypes)
+      guideConversation = new Conversation({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'guide-test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        conversationType: 'eventAssistantPlus',
+        properties: { botName: 'Berkie' },
+        features: [{ name: 'mindmap' }, { name: 'mod' }, { name: 'jargonFilter' }],
+        agents: [],
+        messages: [],
+        transcript: { status: 'stopped' }
+      })
+      await guideConversation.save()
+    })
+
+    afterEach(() => {
+      setConversationTypes(testConversationTypes)
+    })
+
+    test('returns 200 with conversationType, bot name, and features — no auth required', async () => {
+      const url = `/v1/conversations/${guideConversation._id.toString()}/guide?audience=participant`
+      const resp = await request(app).get(url).expect(httpStatus.OK)
+
+      expect(resp.body.conversationType).toBe('eventAssistantPlus')
+      expect(resp.body.conversationBotName).toBe('Berkie')
+      expect(Array.isArray(resp.body.features)).toBe(true)
+    })
+
+    test('audience=participant returns only features enabled on the conversation', async () => {
+      const url = `/v1/conversations/${guideConversation._id.toString()}/guide?audience=participant`
+      const resp = await request(app).get(url).expect(httpStatus.OK)
+
+      const names = resp.body.features.map((f) => f.name)
+      expect(names).toEqual(expect.arrayContaining(['mindmap', 'mod', 'jargonFilter']))
+      expect(names).not.toContain('visual')
+      expect(names).not.toContain('collectiveVoice')
+      expect(names).not.toContain('catalyst')
+      expect(resp.body.features).toHaveLength(3)
+    })
+
+    test('audience=moderator returns empty array when no moderator-audience features exist on the type', async () => {
+      const url = `/v1/conversations/${guideConversation._id.toString()}/guide?audience=moderator`
+      const resp = await request(app).get(url).expect(httpStatus.OK)
+
+      expect(resp.body.features).toEqual([])
+    })
+
+    test('each feature includes display metadata (label, tab, audience, slashCommand, userControlled)', async () => {
+      const url = `/v1/conversations/${guideConversation._id.toString()}/guide?audience=participant`
+      const resp = await request(app).get(url).expect(httpStatus.OK)
+
+      const mindmap = resp.body.features.find((f) => f.name === 'mindmap')
+      expect(mindmap).toMatchObject({
+        name: 'mindmap',
+        label: 'Mind Map',
+        tab: 'assistant',
+        audience: 'participant',
+        slashCommand: 'mindmap',
+        userControlled: true
+      })
+    })
+
+    test('returns 400 when audience query param is missing', async () => {
+      const url = `/v1/conversations/${guideConversation._id.toString()}/guide`
+      await request(app).get(url).expect(httpStatus.BAD_REQUEST)
+    })
+
+    test('returns 400 when audience query param is invalid', async () => {
+      const url = `/v1/conversations/${guideConversation._id.toString()}/guide?audience=everyone`
+      await request(app).get(url).expect(httpStatus.BAD_REQUEST)
+    })
+
+    test('returns 404 when conversation does not exist', async () => {
+      const missingId = new mongoose.Types.ObjectId().toString()
+      const url = `/v1/conversations/${missingId}/guide?audience=participant`
+      await request(app).get(url).expect(httpStatus.NOT_FOUND)
+    })
+  })
 })

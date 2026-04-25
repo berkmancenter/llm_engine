@@ -349,6 +349,48 @@ router.route('/:conversationId').get(auth('getConversation'), conversationsContr
 
 /**
  * @swagger
+ * /conversations/{conversationId}/guide:
+ *   get:
+ *     summary: Get the Quick Guide reference for a conversation
+ *     description: Returns the conversation type, bot name, and feature list filtered by audience. Public — no auth required.
+ *     tags: [Conversation]
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: audience
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [participant, moderator]
+ *     responses:
+ *       200:
+ *         description: Guide reference for the conversation
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 conversationType:
+ *                   type: string
+ *                 conversationBotName:
+ *                   type: string
+ *                 features:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/FeatureConfig'
+ *       400:
+ *         description: audience query param missing or invalid
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ */
+router.route('/:conversationId/guide').get(conversationsController.getGuide)
+
+/**
+ * @swagger
  * /conversations/{conversationId}/agent/{agentId}:
  *   patch:
  *     summary: Update conversation agent
