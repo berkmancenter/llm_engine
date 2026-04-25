@@ -18,7 +18,8 @@ export default Object.keys(conversationTypes).map((conversationType) => {
         properties,
         tab,
         audience,
-        slashCommand
+        slashCommand,
+        userControlled
       }) => ({
         name,
         label,
@@ -28,7 +29,8 @@ export default Object.keys(conversationTypes).map((conversationType) => {
         properties,
         tab,
         audience,
-        slashCommand
+        slashCommand,
+        userControlled
       })
     )
   }
