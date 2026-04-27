@@ -125,10 +125,6 @@ const agentSchema = new mongoose.Schema<IAgent, AgentModel>(
     ragCollectionName: {
       type: String
     },
-    useTranscriptRAGCollection: {
-      type: Boolean,
-      default: undefined
-    },
     triggers: {
       type: mongoose.Schema.Types.Mixed,
       default: undefined
@@ -561,9 +557,6 @@ agentSchema.pre('validate', function () {
   }
   if (this.ragCollectionName === undefined) {
     this.ragCollectionName = agentTypes[this.agentType].ragCollectionName
-  }
-  if (this.useTranscriptRAGCollection === undefined) {
-    this.useTranscriptRAGCollection = agentTypes[this.agentType].useTranscriptRAGCollection
   }
   // custom preValidate call when needed
   const { preValidate } = agentTypes[this.agentType]

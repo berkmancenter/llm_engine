@@ -104,7 +104,6 @@ export default verify({
     return translatedMsg
   },
   ragCollectionName: undefined,
-  useTranscriptRAGCollection: true,
   defaultConversationHistorySettings: { count: 100, directMessages: true, channels: ['chat'] },
 
   async initialize() {

@@ -71,7 +71,6 @@ export default verify({
   defaultLLMPlatform,
   defaultLLMModel,
   ragCollectionName: undefined,
-  useTranscriptRAGCollection: true,
   defaultConversationHistorySettings: { count: 10, channels: ['transcript'] },
   parseOutput: (msg) => {
     if (msg.bodyType !== 'json' || msg.body?.source !== 'voice') {

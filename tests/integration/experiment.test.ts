@@ -2415,7 +2415,6 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         maxTokens: 2000,
         defaultTriggers: { perMessage: { channels: ['transcript'] } },
         priority: 100,
-        useTranscriptRAGCollection: true,
         llmTemplateVars: { main: [] },
         defaultLLMTemplates: {
           main: 'You respond using transcript data. Message: {lastMessage}'

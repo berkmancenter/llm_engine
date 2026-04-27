@@ -31,8 +31,7 @@ const testAgentTypeSpecification = {
       voting: 'You should vote on this data {voteData}'
     },
     defaultLLMPlatform,
-    defaultLLMModel,
-    useTranscriptRAGCollection: true
+    defaultLLMModel
   }
 }
 

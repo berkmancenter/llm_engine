@@ -40,8 +40,7 @@ const testAgentTypes = {
     defaultLLMPlatform,
     defaultLLMModel,
     defaultLLMModelOptions: { prop: 'value' },
-    defaultConversationHistorySettings: { timeWindow: 45 },
-    useTranscriptRAGCollection: true
+    defaultConversationHistorySettings: { timeWindow: 45 }
   },
   periodic: {
     initialize: mockInitialize,
@@ -204,7 +203,6 @@ describe('agent tests', () => {
     expect(agent.llmModelOptions!.prop).toBe('value')
     expect(agent.triggers).toBe(testAgentTypes.perMessageWithMin.defaultTriggers)
     expect(agent.conversationHistorySettings).toBe(testAgentTypes.perMessageWithMin.defaultConversationHistorySettings)
-    expect(agent.useTranscriptRAGCollection).toBe(true)
   })
 
   test('should introduce itself on a specified channel', async () => {

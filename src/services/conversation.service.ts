@@ -87,18 +87,12 @@ const startConversation = async (conversationOrId, user) => {
   logger.debug(`Start conversation: ${conversation._id}`)
 
   conversation.startTime = Date.now()
-  let transcriptRAG = false
   for (const agent of conversation.agents) {
     // needed so agent has all conversation info for activation
     agent.conversation = conversation
     await agentService.startAgent(agent)
-    if (agent.useTranscriptRAGCollection) {
-      transcriptRAG = true
-    }
   }
-  if (transcriptRAG) {
-    await scheduleTranscriptBatching(conversation)
-  }
+  await scheduleTranscriptBatching(conversation)
   for (const adapter of conversation.adapters) {
     adapter.conversation = conversation
     await adapterService.start(adapter)
@@ -124,18 +118,12 @@ const stopConversation = async (conversationOrId, user) => {
   logger.debug(`Stop conversation: ${conversation._id}`)
 
   conversation.endTime = new Date(Date.now())
-  let transcriptRAG = false
   for (const agent of conversation.agents) {
     // needed so agent has all conversation info for activation
     agent.conversation = conversation
     await agentService.stopAgent(agent)
-    if (agent.useTranscriptRAGCollection) {
-      transcriptRAG = true
-    }
   }
-  if (transcriptRAG) {
-    await schedule.cancelBatchTranscript(conversation._id)
-  }
+  await schedule.cancelBatchTranscript(conversation._id)
 
   for (const adapter of conversation.adapters) {
     adapter.conversation = conversation
@@ -194,17 +182,12 @@ const createConversation = async (conversationBody, user) => {
   // need to save to get id
   await conversation.save()
 
-  let transcriptRAG = false
-
   for (const agentType of conversationBody.agentTypes || []) {
     let agent
     if (typeof agentType === 'string') {
       agent = await agentService.createAgent(agentType, conversation)
     } else {
       agent = await agentService.createAgent(agentType.name, conversation, agentType.properties)
-    }
-    if (agent.useTranscriptRAGCollection) {
-      transcriptRAG = true
     }
     conversation.agents.push(agent)
   }
@@ -220,9 +203,7 @@ const createConversation = async (conversationBody, user) => {
 
   topic.conversations.push(conversation.toObject())
   await Promise.all([conversation.save(), topic.save()])
-  if (transcriptRAG) {
-    await transcript.loadEventMetadataIntoVectorStore(conversation)
-  }
+  await transcript.loadEventMetadataIntoVectorStore(conversation)
 
   websocketGateway.broadcastNewConversation(conversation)
 
@@ -273,15 +254,7 @@ const updateConversation = async (conversationBody, user) => {
   }
   conversationDoc = updateDocument(conversationBody, conversationDoc)
   await conversationDoc!.save()
-  let transcriptRAG = false
-  for (const agent of conversationDoc!.agents) {
-    if (agent.useTranscriptRAGCollection) {
-      transcriptRAG = true
-    }
-  }
-  if (transcriptRAG) {
-    await transcript.loadEventMetadataIntoVectorStore(conversationDoc!)
-  }
+  await transcript.loadEventMetadataIntoVectorStore(conversationDoc!)
   websocketGateway.broadcastConversationUpdate(conversationDoc)
   return conversationDoc
 }

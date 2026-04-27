@@ -27,7 +27,6 @@ export default verify({
   defaultLLMPlatform,
   defaultLLMModel,
   ragCollectionName: undefined,
-  useTranscriptRAGCollection: true,
 
   async initialize() {
     return true

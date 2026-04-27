@@ -76,8 +76,7 @@ const testAgentTypeSpecification = {
       voting: 'You should vote on this data {voteData}'
     },
     defaultLLMPlatform,
-    defaultLLMModel,
-    useTranscriptRAGCollection: true
+    defaultLLMModel
   },
   testManual: {
     initialize: mockInitialize,
@@ -96,8 +95,7 @@ const testAgentTypeSpecification = {
       voting: 'You should vote on this data {voteData}'
     },
     defaultLLMPlatform,
-    defaultLLMModel,
-    useTranscriptRAGCollection: true
+    defaultLLMModel
   }
 }
 
@@ -1963,8 +1961,7 @@ describe('Conversation routes', () => {
       // Create test agents for the conversation
       const testAgent = new Agent({
         agentType: 'test',
-        conversation: activeConversation._id,
-        useTranscriptRAGCollection: true
+        conversation: activeConversation._id
       })
       await testAgent.save()
       activeConversation.agents = [testAgent]
@@ -1998,8 +1995,7 @@ describe('Conversation routes', () => {
 
       const ragAgent = new Agent({
         agentType: 'test',
-        conversation: ragConversation._id,
-        useTranscriptRAGCollection: true
+        conversation: ragConversation._id
       })
       await ragAgent.save()
       ragConversation.agents = [ragAgent]
@@ -2202,8 +2198,7 @@ describe('Conversation routes', () => {
 
       const ragAgent = new Agent({
         agentType: 'test',
-        conversation: ragConversation._id,
-        useTranscriptRAGCollection: true
+        conversation: ragConversation._id
       })
       await ragAgent.save()
       ragConversation.agents = [ragAgent]
@@ -2221,24 +2216,6 @@ describe('Conversation routes', () => {
         .expect(httpStatus.OK)
 
       expect(transcriptSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: ragConversation._id }))
-      transcriptSpy.mockRestore()
-    })
-
-    test('should not update transcript RAG when conversation has no RAG-enabled agents', async () => {
-      const transcriptSpy = jest.spyOn(transcript, 'loadEventMetadataIntoVectorStore').mockResolvedValue()
-
-      const updateBody = {
-        id: conversationOne._id,
-        name: 'Updated No RAG Conversation'
-      }
-
-      await request(app)
-        .put('/v1/conversations')
-        .set('Authorization', `Bearer ${userOneAccessToken}`)
-        .send(updateBody)
-        .expect(httpStatus.OK)
-
-      expect(transcriptSpy).not.toHaveBeenCalled()
       transcriptSpy.mockRestore()
     })
 

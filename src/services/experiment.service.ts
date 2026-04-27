@@ -41,13 +41,11 @@ async function runPeriodicExperiment(agent, experiment, simulatedStartTime?) {
 }
 
 async function runPerMessageExperiment(agent, experiment) {
-  if (agent.useTranscriptRAGCollection) {
-    await transcript.loadEventMetadataIntoVectorStore(experiment.resultConversation)
-    const transcriptMsgs = experiment.resultConversation.messages.filter((message) =>
-      message.channels.some((channel) => channel === 'transcript')
-    )
-    await transcript.loadTranscriptIntoVectorStore(transcriptMsgs, experiment.resultConversation._id)
-  }
+  await transcript.loadEventMetadataIntoVectorStore(experiment.resultConversation)
+  const transcriptMsgs = experiment.resultConversation.messages.filter((message) =>
+    message.channels.some((channel) => channel === 'transcript')
+  )
+  await transcript.loadTranscriptIntoVectorStore(transcriptMsgs, experiment.resultConversation._id)
   let filteredMessages = experiment.resultConversation.messages
 
   if (agent.triggers.perMessage.directMessages || agent.triggers.perMessage.channels) {

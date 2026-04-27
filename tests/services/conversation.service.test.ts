@@ -52,8 +52,7 @@ const testAgentTypeSpecification = {
       voting: 'You should vote on this data {voteData}'
     },
     defaultLLMPlatform,
-    defaultLLMModel,
-    useTranscriptRAGCollection: true
+    defaultLLMModel
   },
   eventAssistantPlus: {
     initialize: mockInitialize,
@@ -72,8 +71,7 @@ const testAgentTypeSpecification = {
       voting: 'You should vote on this data {voteData}'
     },
     defaultLLMPlatform,
-    defaultLLMModel,
-    useTranscriptRAGCollection: true
+    defaultLLMModel
   },
   backChannelInsights: {
     initialize: mockInitialize,
@@ -91,8 +89,7 @@ const testAgentTypeSpecification = {
       voting: 'You should vote on this data {voteData}'
     },
     defaultLLMPlatform,
-    defaultLLMModel,
-    useTranscriptRAGCollection: true
+    defaultLLMModel
   },
   backChannelMetrics: {
     initialize: mockInitialize,
@@ -110,8 +107,7 @@ const testAgentTypeSpecification = {
       voting: 'You should vote on this data {voteData}'
     },
     defaultLLMPlatform,
-    defaultLLMModel,
-    useTranscriptRAGCollection: true
+    defaultLLMModel
   },
   eventMediator: {
     initialize: mockInitialize,
@@ -130,7 +126,6 @@ const testAgentTypeSpecification = {
     },
     defaultLLMPlatform,
     defaultLLMModel,
-    useTranscriptRAGCollection: true,
     agentConfig: {
       mediatorMinInterval: 1,
       personality: 'sarcastic-expert'
@@ -153,7 +148,6 @@ const testAgentTypeSpecification = {
     },
     defaultLLMPlatform,
     defaultLLMModel,
-    useTranscriptRAGCollection: true,
     agentConfig: {
       mediatorMinInterval: 1,
       personality: 'sarcastic-expert'
@@ -175,8 +169,7 @@ const testAgentTypeSpecification = {
       voting: 'You should vote on this data {voteData}'
     },
     defaultLLMPlatform,
-    defaultLLMModel,
-    useTranscriptRAGCollection: true
+    defaultLLMModel
   },
   jargonFilterAgent: {
     initialize: mockInitialize,
@@ -194,8 +187,7 @@ const testAgentTypeSpecification = {
       user: 'Analyze this transcript: {transcript}'
     },
     defaultLLMPlatform,
-    defaultLLMModel,
-    useTranscriptRAGCollection: false
+    defaultLLMModel
   },
   voiceAssistant: {
     initialize: mockInitialize,
@@ -214,8 +206,7 @@ const testAgentTypeSpecification = {
       voting: 'You should vote on this data {voteData}'
     },
     defaultLLMPlatform,
-    defaultLLMModel,
-    useTranscriptRAGCollection: true
+    defaultLLMModel
   }
 }
 
