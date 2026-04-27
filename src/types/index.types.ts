@@ -481,5 +481,4 @@ export interface IAgent {
   triggers?: Triggers
   active?: boolean
   conversationHistorySettings?: ConversationHistorySettings
-  useTranscriptRAGCollection?: boolean
 }

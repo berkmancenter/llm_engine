@@ -61,8 +61,7 @@ const testAgentTypes = {
     },
     defaultLLMPlatform,
     defaultLLMModel,
-    defaultLLMModelOptions: { prop: 'value' },
-    useTranscriptRAGCollection: true
+    defaultLLMModelOptions: { prop: 'value' }
   }
 }
 

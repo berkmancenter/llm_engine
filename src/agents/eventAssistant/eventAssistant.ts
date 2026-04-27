@@ -40,7 +40,6 @@ export default verify({
   defaultLLMPlatform,
   defaultLLMModel,
   ragCollectionName: undefined,
-  useTranscriptRAGCollection: true,
   defaultConversationHistorySettings: { count: 100, directMessages: true, channels: ['chat'] },
 
   async initialize() {

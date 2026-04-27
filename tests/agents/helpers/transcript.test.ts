@@ -1090,10 +1090,7 @@ describe('transcript', () => {
     })
 
     it('should clear only transcript content from vector store and preserve metadata', async () => {
-      const conversation = {
-        _id: 'conv123',
-        agents: [{ useTranscriptRAGCollection: true }]
-      }
+      const conversation = { _id: 'conv123' }
 
       await transcript.clearTranscript(conversation)
 
@@ -1113,27 +1110,8 @@ describe('transcript', () => {
       })
     })
 
-    it('should skip vector store operations when no agents use RAG', async () => {
-      const conversation = {
-        _id: 'conv123',
-        agents: [{ useTranscriptRAGCollection: false }]
-      }
-
-      await transcript.clearTranscript(conversation)
-
-      expect(ragRemoveFromVectorStoreSpy).not.toHaveBeenCalled()
-      expect(ragDeleteCollectionSpy).not.toHaveBeenCalled()
-
-      // Should still delete messages
-      expect(messageFindSpy).toHaveBeenCalled()
-      expect(messageDeleteManySpy).toHaveBeenCalled()
-    })
-
     it('should handle errors when clearing from vector store', async () => {
-      const conversation = {
-        _id: 'conv123',
-        agents: [{ useTranscriptRAGCollection: true }]
-      }
+      const conversation = { _id: 'conv123' }
 
       ragRemoveFromVectorStoreSpy.mockRejectedValue(new Error('Vector store error'))
 
@@ -1167,10 +1145,7 @@ describe('transcript', () => {
     })
 
     it('should delete entire collection from vector store including metadata', async () => {
-      const conversation = {
-        _id: 'conv123',
-        agents: [{ useTranscriptRAGCollection: true }]
-      }
+      const conversation = { _id: 'conv123' }
 
       await transcript.deleteTranscript(conversation)
 
@@ -1187,26 +1162,8 @@ describe('transcript', () => {
       })
     })
 
-    it('should skip vector store operations when no agents use RAG', async () => {
-      const conversation = {
-        _id: 'conv123',
-        agents: [{ useTranscriptRAGCollection: false }]
-      }
-
-      await transcript.deleteTranscript(conversation)
-
-      expect(ragDeleteCollectionSpy).not.toHaveBeenCalled()
-
-      // Should still delete messages
-      expect(messageFindSpy).toHaveBeenCalled()
-      expect(messageDeleteManySpy).toHaveBeenCalled()
-    })
-
     it('should handle errors when deleting collection', async () => {
-      const conversation = {
-        _id: 'conv123',
-        agents: [{ useTranscriptRAGCollection: true }]
-      }
+      const conversation = { _id: 'conv123' }
 
       ragDeleteCollectionSpy.mockRejectedValue(new Error('Collection delete error'))
 
@@ -1215,22 +1172,6 @@ describe('transcript', () => {
 
       // Should still delete messages
       expect(messageDeleteManySpy).toHaveBeenCalled()
-    })
-
-    it('should handle conversations with multiple agents', async () => {
-      const conversation = {
-        _id: 'conv123',
-        agents: [
-          { useTranscriptRAGCollection: false },
-          { useTranscriptRAGCollection: true },
-          { useTranscriptRAGCollection: false }
-        ]
-      }
-
-      await transcript.deleteTranscript(conversation)
-
-      // Should delete collection if at least one agent uses RAG
-      expect(ragDeleteCollectionSpy).toHaveBeenCalledWith(`${TRANSCRIPT_COLLECTION_PREFIX}-conv123`)
     })
   })
 })
