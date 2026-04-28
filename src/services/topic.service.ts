@@ -7,6 +7,7 @@ import Token from '../models/token.model.js'
 import ApiError from '../utils/ApiError.js'
 import config from '../config/config.js'
 import updateDocument from '../utils/updateDocument.js'
+import transcript from '../agents/helpers/transcript.js'
 import User from '../models/user.model/user.model.js'
 import { ITopic } from '../types/index.types.js'
 import { ConversationDocument } from '../models/conversation.model.js'
@@ -89,6 +90,7 @@ const createTopic = async (topicBody, user) => {
     passcode,
     owner: user
   })
+  await transcript.loadTopicMetadataIntoVectorStore(topic)
   return topic
 }
 /**
@@ -103,6 +105,7 @@ const updateTopic = async (topicBody) => {
   }
   topicDoc = updateDocument(topicBody, topicDoc)
   await topicDoc!.save()
+  await transcript.loadTopicMetadataIntoVectorStore(topicDoc)
   return topicDoc
 }
 const userTopics = async (user) => {
@@ -152,6 +155,7 @@ const deleteTopic = async (id) => {
   if (!topic) throw new ApiError(httpStatus.NOT_FOUND, 'Channel does not exist')
   topic.isDeleted = true
   await topic.save()
+  await transcript.deleteTopicCollection(topic)
 }
 const verifyPasscode = async (topicId, passcode) => {
   const topic = await Topic.findById(topicId)
