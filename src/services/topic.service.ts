@@ -26,7 +26,7 @@ const topicsWithSortData = async (topicQuery) => {
       select: 'id',
       populate: [{ path: 'messages', select: ['id', 'createdAt'], match: { visible: true } }]
     })
-    .select('name slug private votingAllowed conversationCreationAllowed archiveEmail owner')
+    .select('name slug description private votingAllowed conversationCreationAllowed archiveEmail owner archived')
     .exec()
 
   const topics: Array<ITopic> = await Promise.all(
@@ -82,6 +82,7 @@ const createTopic = async (topicBody, user) => {
 
   const topic = await Topic.create({
     name: topicBody.name,
+    description: topicBody.description,
     votingAllowed: topicBody.votingAllowed,
     conversationCreationAllowed: topicBody.conversationCreationAllowed,
     private: config.enablePublicChannelCreation ? topicBody.private : true,
@@ -141,7 +142,7 @@ const allTopicsByUser = async (user) => {
 const findById = async (id) => {
   const topic = await Topic.findOne({ _id: id })
     .populate('followers')
-    .select('name slug private votingAllowed conversationCreationAllowed owner')
+    .select('name slug description private votingAllowed conversationCreationAllowed owner')
     .exec()
   return topic
 }

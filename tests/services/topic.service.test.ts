@@ -8,6 +8,7 @@ import { Token } from '../../src/models/index.js'
 import { conversationOne, insertConversations } from '../fixtures/conversation.fixture.js'
 import { messageOne, invisibleMessage, insertMessages } from '../fixtures/message.fixture.js'
 import Conversation from '../../src/models/conversation.model.js'
+import transcript from '../../src/agents/helpers/transcript.js'
 
 setupIntTest()
 
@@ -20,6 +21,76 @@ beforeEach(() => {
 })
 
 describe('Topic service methods', () => {
+  describe('createTopic()', () => {
+    let loadTopicMetadataSpy
+
+    beforeEach(async () => {
+      await insertUsers([userOne])
+      loadTopicMetadataSpy = jest.spyOn(transcript, 'loadTopicMetadataIntoVectorStore').mockResolvedValue()
+    })
+
+    afterEach(() => {
+      loadTopicMetadataSpy.mockRestore()
+    })
+
+    test('should persist description and call loadTopicMetadataIntoVectorStore', async () => {
+      const topicBody = {
+        name: 'Test Series',
+        description: 'A series about testing distributed systems',
+        votingAllowed: true,
+        conversationCreationAllowed: true,
+        private: false,
+        archivable: true
+      }
+
+      const topic = await topicService.createTopic(topicBody, userOne)
+
+      expect(topic.description).toBe(topicBody.description)
+      expect(loadTopicMetadataSpy).toHaveBeenCalledWith(expect.objectContaining({ description: topicBody.description }))
+    })
+
+    test('should call loadTopicMetadataIntoVectorStore even when no description provided', async () => {
+      const topicBody = {
+        name: 'No Description Series',
+        votingAllowed: true,
+        conversationCreationAllowed: true,
+        private: false,
+        archivable: true
+      }
+
+      await topicService.createTopic(topicBody, userOne)
+
+      expect(loadTopicMetadataSpy).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('deleteTopic()', () => {
+    let deleteTopicCollectionSpy
+
+    beforeEach(async () => {
+      await insertUsers([userOne])
+      await insertTopics([publicTopic])
+      deleteTopicCollectionSpy = jest.spyOn(transcript, 'deleteTopicCollection').mockResolvedValue()
+    })
+
+    afterEach(() => {
+      deleteTopicCollectionSpy.mockRestore()
+    })
+
+    test('should soft delete the topic and call deleteTopicCollection', async () => {
+      await topicService.deleteTopic(publicTopic._id)
+
+      const dbTopic = await Topic.findById(publicTopic._id)
+      expect(dbTopic!.isDeleted).toBe(true)
+      expect(deleteTopicCollectionSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: publicTopic._id }))
+    })
+
+    test('should throw if topic does not exist', async () => {
+      await expect(topicService.deleteTopic(newPublicTopic()._id)).rejects.toThrow('Channel does not exist')
+      expect(deleteTopicCollectionSpy).not.toHaveBeenCalled()
+    })
+  })
+
   describe('deleteOldTopics()', () => {
     // Set created date to 98 days ago
     let oldDate = ''
