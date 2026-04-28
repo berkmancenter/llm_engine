@@ -10,6 +10,10 @@ const topicSchema = new mongoose.Schema<ITopic>(
       required: true,
       trim: true
     },
+    description: {
+      type: String,
+      trim: true
+    },
     slug: {
       type: String,
       required: true,

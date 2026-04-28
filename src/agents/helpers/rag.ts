@@ -151,9 +151,9 @@ async function addTextsToVectorStore(
   const docsWithMetadata = options?.metadataFn ? docs.map((doc) => options.metadataFn!(doc)) : docs
 
   // TODO use Hash to see if chunk stored previously?
-  logger.debug(`Adding docs to vector store: ${docs.length}...`)
+  logger.debug(`Adding ${docs.length} docs to vector store ${collectionName}...`)
   await vectorStore.addDocuments(docsWithMetadata)
-  logger.debug(`Added docs to vector store: ${docs.length}`)
+  logger.debug(`Added docs to vector store`)
 }
 
 async function addPDFToVectorStore(collectionName, file, metadataFn?, embeddingsPlatform?, embeddingsModelName?) {

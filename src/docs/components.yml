@@ -230,6 +230,9 @@ components:
           type: string
         name:
           type: string
+        description:
+          type: string
+          description: Optional description of the topic
         defaultSortAverage:
           type: number
         followed:

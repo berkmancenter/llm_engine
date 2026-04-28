@@ -45,6 +45,7 @@ export interface ITopic {
   id?: string
   slug?: string
   name: string
+  description?: string
   defaultSortAverage?: number
   followed?: boolean
   conversations: IConversation[]

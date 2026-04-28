@@ -15,6 +15,7 @@ import Token from '../../src/models/token.model.js'
 import { insertFollowers } from '../fixtures/follower.fixture.js'
 import { conversationThree, insertConversations } from '../fixtures/conversation.fixture.js'
 import { messageFour, invisibleMessage, insertMessages } from '../fixtures/message.fixture.js'
+import transcript from '../../src/agents/helpers/transcript.js'
 
 setupIntTest()
 
@@ -22,6 +23,19 @@ const publicTopic = newPublicTopic()
 const privateTopic = newPrivateTopic()
 
 describe('Topic routes', () => {
+  let loadTopicMetadataSpy
+  let deleteTopicCollectionSpy
+
+  beforeEach(() => {
+    loadTopicMetadataSpy = jest.spyOn(transcript, 'loadTopicMetadataIntoVectorStore').mockResolvedValue()
+    deleteTopicCollectionSpy = jest.spyOn(transcript, 'deleteTopicCollection').mockResolvedValue()
+  })
+
+  afterEach(() => {
+    loadTopicMetadataSpy.mockRestore()
+    deleteTopicCollectionSpy.mockRestore()
+  })
+
   describe('POST /v1/topics/', () => {
     test('should return 201 and create a topic', async () => {
       await insertUsers([registeredUser])
@@ -30,6 +44,18 @@ describe('Topic routes', () => {
         .set('Authorization', `Bearer ${registeredUserAccessToken}`)
         .send(topicPost)
         .expect(httpStatus.CREATED)
+    })
+
+    test('should return 201 and include description in response', async () => {
+      await insertUsers([registeredUser])
+
+      const resp = await request(app)
+        .post(`/v1/topics`)
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({ ...topicPost, description: 'A series about distributed systems' })
+        .expect(httpStatus.CREATED)
+
+      expect(resp.body.description).toBe('A series about distributed systems')
     })
 
     test('should return 400 if missing a required field', async () => {
@@ -105,6 +131,19 @@ describe('Topic routes', () => {
       expect(topicDoc!.conversationCreationAllowed).toEqual(publicTopic.conversationCreationAllowed)
     })
 
+    test('should return 200 and include description in response', async () => {
+      await insertUsers([registeredUser])
+      await insertTopics([publicTopic])
+
+      const resp = await request(app)
+        .put(`/v1/topics/`)
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({ id: publicTopic._id, description: 'A weekly panel on tech trends' })
+        .expect(httpStatus.OK)
+
+      expect(resp.body.description).toBe('A weekly panel on tech trends')
+    })
+
     test('should return 400 if missing topic id', async () => {
       await insertUsers([registeredUser])
       const topicBody = { name: 'favorite dogs' }
@@ -123,6 +162,17 @@ describe('Topic routes', () => {
         .set('Authorization', `Bearer ${registeredUserAccessToken}`)
         .send({ id: publicTopic._id, name: 'favorite dogs', isArchiveNotified: true })
         .expect(httpStatus.BAD_REQUEST)
+    })
+  })
+
+  describe('GET /v1/topics/:topicId', () => {
+    test('should return 200 and include description', async () => {
+      const topicWithDesc = { ...newPublicTopic(), description: 'A series about open source software' }
+      await insertTopics([topicWithDesc])
+
+      const resp = await request(app).get(`/v1/topics/${topicWithDesc._id}`).send().expect(httpStatus.OK)
+
+      expect(resp.body.description).toBe('A series about open source software')
     })
   })
 
@@ -216,6 +266,22 @@ describe('Topic routes', () => {
         .expect(httpStatus.OK)
 
       expect(resp.body).toHaveLength(2)
+    })
+
+    test('should include description in userTopics response', async () => {
+      await insertUsers([userOne])
+      const topicWithDesc = { ...newPublicTopic(), description: 'A series about machine learning' }
+      await insertTopics([topicWithDesc])
+
+      const resp = await request(app)
+        .get(`/v1/topics/userTopics`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.OK)
+
+      const found = resp.body.find((t) => t.id === topicWithDesc._id.toString())
+      expect(found).toBeDefined()
+      expect(found.description).toBe('A series about machine learning')
     })
 
     test('should return 200 and conversations should include followed', async () => {

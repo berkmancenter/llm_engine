@@ -3,6 +3,7 @@ import Joi from 'joi'
 const createTopic = {
   body: Joi.object().keys({
     name: Joi.string().required(),
+    description: Joi.string().allow(null, ''),
     votingAllowed: Joi.boolean().required(),
     conversationCreationAllowed: Joi.boolean().required(),
     private: Joi.boolean().required(),
@@ -14,6 +15,7 @@ const updateTopic = {
   body: Joi.object().keys({
     id: Joi.string().required(),
     name: Joi.string(),
+    description: Joi.string().allow(null, ''),
     slug: Joi.string(),
     votingAllowed: Joi.boolean(),
     conversationCreationAllowed: Joi.boolean(),

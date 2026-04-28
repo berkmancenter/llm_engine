@@ -257,7 +257,7 @@ async function loadTranscriptIntoVectorStore(messages, conversationId) {
 async function loadTopicMetadataIntoVectorStore(topic) {
   const topicId = topic._id.toString()
   const collectionName = `${TOPIC_TRANSCRIPT_COLLECTION_PREFIX}-${topicId}`
-  const doc = `Series: ${topic.name}`
+  const doc = topic.description ? `Series: ${topic.name}. ${topic.description}` : `Series: ${topic.name}`
 
   try {
     await rag.removeFromVectorStore(collectionName, { type: 'series' })
