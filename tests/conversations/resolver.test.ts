@@ -158,14 +158,14 @@ describe('resolveConversationType', () => {
       ]
     }
 
-    test('feature is absent from result when not requested', () => {
+    test('feature is stored as disabled when not requested', () => {
       const result = resolveConversationType({ features: [] }, typeWithFeature)
-      expect(result.features.find((f) => f.name === 'myFeature')).toBeUndefined()
+      expect(result.features).toContainEqual({ name: 'myFeature', enabled: false })
     })
 
     test('enables feature with defaults when requested without config', () => {
       const result = resolveConversationType({ features: [{ name: 'myFeature' }] }, typeWithFeature)
-      expect(result.features).toContainEqual({ name: 'myFeature', config: { interval: 5 } })
+      expect(result.features).toContainEqual({ name: 'myFeature', enabled: true, config: { interval: 5 } })
     })
 
     test('enables feature and merges provided config over defaults', () => {
@@ -173,12 +173,12 @@ describe('resolveConversationType', () => {
         { features: [{ name: 'myFeature', config: { interval: 10 } }] },
         typeWithFeature
       )
-      expect(result.features).toContainEqual({ name: 'myFeature', config: { interval: 10 } })
+      expect(result.features).toContainEqual({ name: 'myFeature', enabled: true, config: { interval: 10 } })
     })
 
     test('omits config when feature has no properties and none provided', () => {
       const result = resolveConversationType({ features: [{ name: 'simpleFeature' }] }, typeWithFeature)
-      expect(result.features).toContainEqual({ name: 'simpleFeature' })
+      expect(result.features).toContainEqual({ name: 'simpleFeature', enabled: true })
       expect(result.features.find((f) => f.name === 'simpleFeature')).not.toHaveProperty('config')
     })
 

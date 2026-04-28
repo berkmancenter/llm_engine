@@ -82,7 +82,7 @@ describe('Config routes', () => {
        * slashCommand and participantDescription are optional, so we only check type when present. */
       for (const ct of resp.body.conversationTypes) {
         for (const feature of ct.features ?? []) {
-          expect(['assistant', 'group-chat', 'transcript']).toContain(feature.tab)
+          expect(['assistant', 'group-chat', 'transcript', 'resources']).toContain(feature.tab)
           expect(['moderator', 'participant', 'both']).toContain(feature.audience)
           expect(typeof feature.userControlled).toBe('boolean')
           if (feature.slashCommand !== undefined) {

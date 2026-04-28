@@ -2425,10 +2425,11 @@ describe('Conversation routes', () => {
 
   describe('GET /v1/conversations/:conversationId/guide', () => {
     /*
-     * Owners enable a subset of the type's features per conversation, so the guide
-     * must filter to `conversation.features` rather than showing every feature the
-     * type defines. No production feature uses `audience: 'moderator'` yet, so that
-     * path is only used in the empty-result test case below.
+     * The guide shows all features that are either default on the conversation type
+     * or explicitly enabled on the conversation — so pre-existing conversations that
+     * pre-date a feature's introduction still get the full guide without a DB migration.
+     * No production feature uses `audience: 'moderator'` yet, so that path is only
+     * used in the empty-result test case below.
      */
     let guideConversation
 
@@ -2463,16 +2464,18 @@ describe('Conversation routes', () => {
       expect(Array.isArray(resp.body.features)).toBe(true)
     })
 
-    test('audience=participant returns only features enabled on the conversation', async () => {
+    test('audience=participant returns all default features regardless of conv.features', async () => {
       const url = `/v1/conversations/${guideConversation._id.toString()}/guide?audience=participant`
       const resp = await request(app).get(url).expect(httpStatus.OK)
 
       const names = resp.body.features.map((f) => f.name)
-      expect(names).toEqual(expect.arrayContaining(['mindmap', 'mod', 'jargonFilter']))
-      expect(names).not.toContain('visual')
-      expect(names).not.toContain('collectiveVoice')
-      expect(names).not.toContain('catalyst')
-      expect(resp.body.features).toHaveLength(3)
+      // All seven eventAssistantPlus participant features are default:true, so all appear
+      // even though conv.features only lists three — pre-existing conversations get the
+      // full guide without a DB migration.
+      expect(names).toEqual(
+        expect.arrayContaining(['mindmap', 'visual', 'jargonFilter', 'mod', 'collectiveVoice', 'catalyst', 'librarian'])
+      )
+      expect(resp.body.features).toHaveLength(7)
     })
 
     test('audience=moderator returns empty array when no moderator-audience features exist on the type', async () => {
@@ -2511,6 +2514,30 @@ describe('Conversation routes', () => {
       const missingId = new mongoose.Types.ObjectId().toString()
       const url = `/v1/conversations/${missingId}/guide?audience=participant`
       await request(app).get(url).expect(httpStatus.NOT_FOUND)
+    })
+
+    test('hides a feature explicitly disabled with enabled:false even when it is default on the type', async () => {
+      const conv = new Conversation({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'guide-disabled-feature-test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        conversationType: 'eventAssistantPlus',
+        properties: { botName: 'Berkie' },
+        features: [{ name: 'mindmap', enabled: false }],
+        agents: [],
+        messages: [],
+        transcript: { status: 'stopped' }
+      })
+      await conv.save()
+
+      const url = `/v1/conversations/${conv._id.toString()}/guide?audience=participant`
+      const resp = await request(app).get(url).expect(httpStatus.OK)
+
+      const names = resp.body.features.map((f) => f.name)
+      expect(names).not.toContain('mindmap')
+      // other default features still appear
+      expect(names).toContain('visual')
     })
   })
 })

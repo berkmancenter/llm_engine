@@ -546,11 +546,16 @@ const getGuide = async (conversationId: string, audience: 'participant' | 'moder
   const enabledFeatures = conv.features
   const allFeatures = convType.features
 
-  const featuresToShow = allFeatures.filter(
-    (feature) =>
-      enabledFeatures?.some((enabledFeature) => enabledFeature.name === feature.name) &&
-      (feature.audience === audience || feature.audience === 'both')
-  )
+  /* For each feature, check the stored record first:
+     - record present with enabled:false → explicitly disabled, hide
+     - record present with enabled:true or no enabled field → show
+     - no record → fall back to feature.default (backward compat for pre-existing conversations) */
+  const featuresToShow = allFeatures.filter((feature) => {
+    if (feature.audience !== audience && feature.audience !== 'both') return false
+    const record = enabledFeatures?.find((ef) => ef.name === feature.name)
+    if (record !== undefined) return record.enabled !== false
+    return feature.default
+  })
   const guide = {
     conversationType: conv.conversationType,
     conversationBotName: botName,

@@ -1,7 +1,7 @@
 import conversationTypes from '../../src/conversations/index.js'
 import { FeatureConfig } from '../../src/types/index.types.js'
 
-const VALID_TABS = ['assistant', 'group-chat', 'transcript'] as const
+const VALID_TABS = ['assistant', 'group-chat', 'transcript', 'resources'] as const
 const VALID_AUDIENCES = ['moderator', 'participant', 'both'] as const
 
 const allFeatures: Array<{ typeName: string; feature: FeatureConfig }> = Object.values(conversationTypes).flatMap((ct) =>

@@ -213,8 +213,20 @@ export interface FeatureAgentConfig {
   properties?: AgentProperty[] // wiring from resolved properties into agent config
 }
 
+/**
+ * A feature instance stored on a conversation document.
+ *
+ * `enabled` is tri-state:
+ *   true      = organizer turned this on
+ *   false     = organizer turned this off
+ *   undefined = conversation predates this feature; guide falls back to FeatureConfig.default
+ *
+ * New records should always set `enabled` explicitly. A missing `enabled` field
+ * just means the record was written before this field existed.
+ */
 export interface Feature {
   name: string
+  enabled?: boolean
   config?: Record<string, unknown>
 }
 

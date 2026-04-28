@@ -857,6 +857,9 @@ components:
             properties:
               name:
                 type: string
+              enabled:
+                type: boolean
+                description: Whether this feature is active for this conversation. Absent means fall back to the type's default.
               config:
                 type: object
                 additionalProperties: true
