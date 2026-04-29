@@ -139,8 +139,7 @@ describe('resolveConversationType', () => {
         {
           name: 'myFeature',
           label: 'My Feature',
-          tab: 'assistant',
-          audience: 'participant',
+          category: 'assistant',
           userControlled: false,
           default: true,
           agents: [{ name: 'featureAgent' }],
@@ -149,8 +148,7 @@ describe('resolveConversationType', () => {
         {
           name: 'simpleFeature',
           label: 'Simple Feature',
-          tab: 'group-chat',
-          audience: 'participant',
+          category: 'group-chat',
           userControlled: false,
           default: false,
           agents: [{ name: 'simpleAgent' }]

@@ -2423,13 +2423,11 @@ describe('Conversation routes', () => {
     })
   })
 
-  describe('GET /v1/conversations/:conversationId/guide', () => {
+  describe('GET /v1/conversations/:conversationId/features', () => {
     /*
-     * The guide shows all features that are either default on the conversation type
-     * or explicitly enabled on the conversation — so pre-existing conversations that
-     * pre-date a feature's introduction still get the full guide without a DB migration.
-     * No production feature uses `audience: 'moderator'` yet, so that path is only
-     * used in the empty-result test case below.
+     * The features endpoint shows all features that are either default on the conversation
+     * type or explicitly enabled on the conversation — so pre-existing conversations that
+     * pre-date a feature's introduction still get the full list without a DB migration.
      */
     let guideConversation
 
@@ -2456,7 +2454,7 @@ describe('Conversation routes', () => {
     })
 
     test('returns 200 with conversationType, bot name, and features — no auth required', async () => {
-      const url = `/v1/conversations/${guideConversation._id.toString()}/guide?audience=participant`
+      const url = `/v1/conversations/${guideConversation._id.toString()}/features`
       const resp = await request(app).get(url).expect(httpStatus.OK)
 
       expect(resp.body.conversationType).toBe('eventAssistantPlus')
@@ -2464,55 +2462,37 @@ describe('Conversation routes', () => {
       expect(Array.isArray(resp.body.features)).toBe(true)
     })
 
-    test('audience=participant returns all default features regardless of conv.features', async () => {
-      const url = `/v1/conversations/${guideConversation._id.toString()}/guide?audience=participant`
+    test('returns all default features regardless of conv.features', async () => {
+      const url = `/v1/conversations/${guideConversation._id.toString()}/features`
       const resp = await request(app).get(url).expect(httpStatus.OK)
 
       const names = resp.body.features.map((f) => f.name)
-      // All seven eventAssistantPlus participant features are default:true, so all appear
+      // All seven eventAssistantPlus features are default:true, so all appear
       // even though conv.features only lists three — pre-existing conversations get the
-      // full guide without a DB migration.
+      // full list without a DB migration.
       expect(names).toEqual(
         expect.arrayContaining(['mindmap', 'visual', 'jargonFilter', 'mod', 'collectiveVoice', 'catalyst', 'librarian'])
       )
       expect(resp.body.features).toHaveLength(7)
     })
 
-    test('audience=moderator returns empty array when no moderator-audience features exist on the type', async () => {
-      const url = `/v1/conversations/${guideConversation._id.toString()}/guide?audience=moderator`
-      const resp = await request(app).get(url).expect(httpStatus.OK)
-
-      expect(resp.body.features).toEqual([])
-    })
-
-    test('each feature includes display metadata (label, tab, audience, slashCommand, userControlled)', async () => {
-      const url = `/v1/conversations/${guideConversation._id.toString()}/guide?audience=participant`
+    test('each feature includes display metadata (label, category, slashCommand, userControlled)', async () => {
+      const url = `/v1/conversations/${guideConversation._id.toString()}/features`
       const resp = await request(app).get(url).expect(httpStatus.OK)
 
       const mindmap = resp.body.features.find((f) => f.name === 'mindmap')
       expect(mindmap).toMatchObject({
         name: 'mindmap',
         label: 'Mind Map',
-        tab: 'assistant',
-        audience: 'participant',
+        category: 'assistant',
         slashCommand: 'mindmap',
         userControlled: true
       })
     })
 
-    test('returns 400 when audience query param is missing', async () => {
-      const url = `/v1/conversations/${guideConversation._id.toString()}/guide`
-      await request(app).get(url).expect(httpStatus.BAD_REQUEST)
-    })
-
-    test('returns 400 when audience query param is invalid', async () => {
-      const url = `/v1/conversations/${guideConversation._id.toString()}/guide?audience=everyone`
-      await request(app).get(url).expect(httpStatus.BAD_REQUEST)
-    })
-
     test('returns 404 when conversation does not exist', async () => {
       const missingId = new mongoose.Types.ObjectId().toString()
-      const url = `/v1/conversations/${missingId}/guide?audience=participant`
+      const url = `/v1/conversations/${missingId}/features`
       await request(app).get(url).expect(httpStatus.NOT_FOUND)
     })
 
@@ -2531,7 +2511,7 @@ describe('Conversation routes', () => {
       })
       await conv.save()
 
-      const url = `/v1/conversations/${conv._id.toString()}/guide?audience=participant`
+      const url = `/v1/conversations/${conv._id.toString()}/features`
       const resp = await request(app).get(url).expect(httpStatus.OK)
 
       const names = resp.body.features.map((f) => f.name)

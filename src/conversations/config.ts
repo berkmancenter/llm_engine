@@ -13,22 +13,20 @@ export default Object.keys(conversationTypes).map((conversationType) => {
         name,
         label,
         description,
-        participantDescription,
+        prerequisite,
         default: defaultVal,
         properties,
-        tab,
-        audience,
+        category,
         slashCommand,
         userControlled
       }) => ({
         name,
         label,
         description,
-        participantDescription,
+        prerequisite,
         default: defaultVal,
         properties,
-        tab,
-        audience,
+        category,
         slashCommand,
         userControlled
       })

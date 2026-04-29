@@ -608,8 +608,7 @@ components:
         - label
         - agents
         - default
-        - tab
-        - audience
+        - category
         - userControlled
       properties:
         name:
@@ -631,20 +630,16 @@ components:
           description: User-configurable sub-properties shown in the form
           items:
             $ref: '#/components/schemas/ConfigProperty'
-        tab:
+        category:
           type: string
           enum: [assistant, group-chat, transcript, resources]
-          description: Which nav tab this feature surfaces in
-        audience:
-          type: string
-          enum: [moderator, participant, both]
-          description: Who can see this feature
+          description: Platform area this feature belongs to
         slashCommand:
           type: string
           description: Slash command text without the leading slash (e.g. "mindmap"). Omit for passive features.
-        participantDescription:
+        prerequisite:
           type: string
-          description: Description shown in the Quick Guide. Falls back to description if absent.
+          description: Optional setup instruction shown alongside the description (e.g. how to enable the feature).
         userControlled:
           type: boolean
           description: Whether the participant can control this feature (toggle or slash command). false = runs automatically.

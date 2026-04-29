@@ -529,7 +529,7 @@ const generateConversationReport = async (
   })
 }
 
-const getGuide = async (conversationId: string, audience: 'participant' | 'moderator') => {
+const getFeatures = async (conversationId: string) => {
   const conv = await Conversation.findOne({ _id: conversationId }).select('conversationType properties features').exec()
   if (!conv || !conv.conversationType) {
     throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${conversationId} not found`)
@@ -537,7 +537,7 @@ const getGuide = async (conversationId: string, audience: 'participant' | 'moder
   const convType = getConversationType(conv.conversationType)
 
   if (!convType || !convType.features) {
-    throw new ApiError(httpStatus.BAD_REQUEST, `Guide details not found for this conversation`)
+    throw new ApiError(httpStatus.BAD_REQUEST, `Features not found for this conversation`)
   }
 
   // defaults to the conversation type's bot name if the conversation's bot name was not found
@@ -551,17 +551,15 @@ const getGuide = async (conversationId: string, audience: 'participant' | 'moder
      - record present with enabled:true or no enabled field → show
      - no record → fall back to feature.default (backward compat for pre-existing conversations) */
   const featuresToShow = allFeatures.filter((feature) => {
-    if (feature.audience !== audience && feature.audience !== 'both') return false
     const record = enabledFeatures?.find((ef) => ef.name === feature.name)
     if (record !== undefined) return record.enabled !== false
     return feature.default
   })
-  const guide = {
+  return {
     conversationType: conv.conversationType,
     conversationBotName: botName,
     features: featuresToShow
   }
-  return guide
 }
 
 const conversationService = {
@@ -582,6 +580,6 @@ const conversationService = {
   joinConversation,
   generateConversationReport,
   updateTranscriptStatus,
-  getGuide
+  getFeatures
 }
 export default conversationService

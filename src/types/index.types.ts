@@ -219,7 +219,7 @@ export interface FeatureAgentConfig {
  * `enabled` is tri-state:
  *   true      = organizer turned this on
  *   false     = organizer turned this off
- *   undefined = conversation predates this feature; guide falls back to FeatureConfig.default
+ *   undefined = conversation predates this feature; falls back to FeatureConfig.default
  *
  * New records should always set `enabled` explicitly. A missing `enabled` field
  * just means the record was written before this field existed.
@@ -237,14 +237,12 @@ export interface FeatureConfig {
   agents: FeatureAgentConfig[]
   default: boolean
   properties?: ConfigProperty[]
-  // Which nav tab this surfaces in. Omitting it is a compile error.
-  tab: 'assistant' | 'group-chat' | 'transcript' | 'resources'
-  // Who can see this feature. Omitting it is a compile error.
-  audience: 'moderator' | 'participant' | 'both'
+  // Which platform area this feature belongs to. Omitting it is a compile error.
+  category: 'assistant' | 'group-chat' | 'transcript' | 'resources'
   // Slash command without the leading slash (e.g. "mindmap"). Omit for passive features.
   slashCommand?: string
-  // Shown in the Quick Guide. Falls back to description if absent.
-  participantDescription?: string
+  // Setup instruction (e.g. how to enable the feature).
+  prerequisite?: string
   // Whether the participant can control this feature (toggle or slash command). false = runs automatically.
   userControlled: boolean
 }

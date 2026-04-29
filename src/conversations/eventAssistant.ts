@@ -47,23 +47,20 @@ const eventAssistant: ConversationType = {
    * the Quick Guide panel shown during live events, and slash command
    * autocomplete (for entries where slashCommand is set).
    *
-   * tab and audience are required — omitting either is a compile error.
+   * category is required — omitting it is a compile error.
    *
-   * tab:                    "assistant", "chat", or "transcript"
-   * audience:               "participant", "moderator", or "both"
-   * slashCommand:           command text without the slash. Omit for passive features.
-   * participantDescription: shown in the Quick Guide. Falls back to description if absent.
-   * agents:                 backend agents to start when enabled. Empty for user-triggered features.
-   * properties:             sub-properties shown in the event creation form.
+   * category:     functional area this feature corresponds to, such as "assistant", "group-chat", "transcript", or "resources"
+   * slashCommand: command text without the slash. Omit for passive features.
+   * prerequisite: optional setup instruction shown alongside the description.
+   * agents:       backend agents to start when enabled. Empty for user-triggered features.
+   * properties:   sub-properties shown in the event creation form.
    */
   features: [
     {
       name: 'mindmap',
       label: 'Mind Map',
       description: 'Creates a visual mind map of the key topics discussed in the event.',
-      participantDescription: 'Generate a visual mind map of the key topics discussed so far.',
-      tab: 'assistant',
-      audience: 'participant',
+      category: 'assistant',
       userControlled: true,
       slashCommand: 'mindmap',
       default: true,
@@ -73,11 +70,9 @@ const eventAssistant: ConversationType = {
     {
       name: 'visual',
       label: 'Visual Response',
-      description: 'Generates an image in response to a participant question.',
-      participantDescription:
-        'Ask for a visual (image) response to a question. Requires "Visuals" to be enabled in your settings.',
-      tab: 'assistant',
-      audience: 'participant',
+      description: 'Ask for a visual (image) response to a question.',
+      prerequisite: 'Requires "Visuals" to be enabled in your settings.',
+      category: 'assistant',
       userControlled: true,
       slashCommand: 'visual',
       default: true,
@@ -88,10 +83,8 @@ const eventAssistant: ConversationType = {
       name: 'jargonFilter',
       label: 'Jargon Filter',
       description: 'Automatically explains jargon and technical terms used by speakers.',
-      participantDescription:
-        'Automatically explains jargon and technical terms used by speakers. Enable it by turning on "Jargon Clarification" in your event settings.',
-      tab: 'assistant',
-      audience: 'participant',
+      prerequisite: 'Enable it by turning on "Jargon Clarification" in your event settings.',
+      category: 'assistant',
       userControlled: true,
       default: true,
       agents: [],
