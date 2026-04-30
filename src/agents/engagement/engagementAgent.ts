@@ -167,7 +167,7 @@ export default verify({
       this,
       sharedChatHistory,
       getEngagementSystemPrompt(this.agentConfig?.personality),
-      getInterventionAnalysisSchema(Object.keys(defaultEngagementExamples) as InterventionType[], false)
+      getInterventionAnalysisSchema(Object.keys(defaultEngagementExamples) as InterventionType[])
     )
 
     if (!interventionAnalysis) {

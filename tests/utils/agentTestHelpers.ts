@@ -956,7 +956,7 @@ export async function createEventMediatorConversation(
   return conversation
 }
 
-export async function createEventMediatorPlusConversation(
+export async function createModeratorNotifierConversation(
   conversationObj,
   owner,
   topic,
@@ -967,7 +967,7 @@ export async function createEventMediatorPlusConversation(
 ) {
   const conversation = await createConversation(conversationObj, owner, topic, startTime)
   const agent = new Agent({
-    agentType: 'eventMediatorPlus',
+    agentType: 'moderatorNotifier',
     conversation,
     llmPlatform,
     llmModel
