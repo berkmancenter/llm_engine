@@ -4,7 +4,7 @@ import backChannelInsights from './backChannel/backChannelInsights.js'
 import eventAssistant from './eventAssistant/eventAssistant.js'
 import eventAssistantPlus from './eventAssistant/eventAssistantPlus.js'
 import eventMediator from './eventMediator/eventMediator.js'
-import eventMediatorPlus from './eventMediator/eventMediatorPlus.js'
+import moderatorNotifier from './moderatorNotifier/moderatorNotifier.js'
 import engagementAgent from './engagement/engagementAgent.js'
 import jargonFilterAgent from './jargonFilter/jargonFilter.js'
 import librarian from './librarian/librarianAgent.js'
@@ -45,7 +45,7 @@ export default {
   chatbot,
   eventAssistantPlus,
   eventMediator,
-  eventMediatorPlus,
+  moderatorNotifier,
   engagementAgent,
   jargonFilterAgent,
   voiceAssistant,

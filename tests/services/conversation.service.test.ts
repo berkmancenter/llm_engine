@@ -129,27 +129,7 @@ const testAgentTypeSpecification = {
       personality: 'sarcastic-expert'
     }
   },
-  eventMediatorPlus: {
-    respond: mockRespond,
-    start: mockStart,
-    stop: mockStop,
-    name: 'Event Mediator Test Agent',
-    description: 'Test mediator agent with agentConfig',
-    maxTokens: 2000,
-    defaultTriggers: { periodic: { timerPeriod: 60 } },
-    priority: 85,
-    llmTemplateVars: { contribution: [], voting: [] },
-    defaultLLMTemplates: {
-      contribution: 'You are a mediator agent',
-      voting: 'You should vote on this data {voteData}'
-    },
-    defaultLLMPlatform,
-    defaultLLMModel,
-    agentConfig: {
-      mediatorMinInterval: 1,
-      personality: 'sarcastic-expert'
-    }
-  },
+
   engagementAgent: {
     respond: mockRespond,
     start: mockStart,
@@ -746,7 +726,7 @@ describe('Conversation service methods', () => {
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
 
         const agents = await Agent.find({ conversation: conversation._id })
-        expect(agents.map((a) => a.agentType)).toContain('eventMediatorPlus')
+        expect(agents.map((a) => a.agentType)).toContain('eventMediator')
       })
 
       test('should exclude feature agent when not listed in features array', async () => {
@@ -760,7 +740,7 @@ describe('Conversation service methods', () => {
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
 
         const agents = await Agent.find({ conversation: conversation._id })
-        expect(agents.map((a) => a.agentType)).not.toContain('eventMediatorPlus')
+        expect(agents.map((a) => a.agentType)).not.toContain('eventMediator')
       })
 
       test('should include no feature agents when features array is omitted', async () => {
@@ -774,7 +754,7 @@ describe('Conversation service methods', () => {
 
         const agents = await Agent.find({ conversation: conversation._id })
         const agentTypes = agents.map((a) => a.agentType)
-        expect(agentTypes).not.toContain('eventMediatorPlus')
+        expect(agentTypes).not.toContain('eventMediator')
         expect(agentTypes).not.toContain('engagementAgent')
       })
 
@@ -789,7 +769,7 @@ describe('Conversation service methods', () => {
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
 
         const agents = await Agent.find({ conversation: conversation._id })
-        const mediator = agents.find((a) => a.agentType === 'eventMediatorPlus')
+        const mediator = agents.find((a) => a.agentType === 'eventMediator')
         expect(mediator).toBeDefined()
         expect(mediator!.agentConfig?.minInterval).toBe(10)
       })
@@ -806,7 +786,7 @@ describe('Conversation service methods', () => {
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
 
         const agents = await Agent.find({ conversation: conversation._id })
-        const mediator = agents.find((a) => a.agentType === 'eventMediatorPlus')
+        const mediator = agents.find((a) => a.agentType === 'eventMediator')
         expect(mediator).toBeDefined()
         expect(mediator!.agentConfig?.minInterval).toBe(10)
       })

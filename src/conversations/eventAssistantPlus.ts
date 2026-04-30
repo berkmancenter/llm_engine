@@ -75,7 +75,7 @@ const eventAssistantPlus: ConversationType = {
       ],
       agents: [
         {
-          name: 'eventMediatorPlus',
+          name: 'eventMediator',
           properties: [
             { $ref: 'llmModel.llmModel' },
             { $ref: 'llmModel.llmPlatform' },

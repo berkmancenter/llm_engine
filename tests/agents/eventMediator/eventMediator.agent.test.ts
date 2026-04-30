@@ -357,94 +357,6 @@ describe(`event mediator agent tests`, () => {
       )
     })
 
-    it('does not post to moderator channel (basic version)', async () => {
-      // Create a strong pattern that might warrant escalation
-      const messages = [
-        // Active chat
-        await createMessage('Great talk so far', user1, conversation, ['chat'], getMessageTime(100)),
-        await createMessage('Very informative', user2, conversation, ['chat'], getMessageTime(150)),
-        await createMessage('Lots to think about', user3, conversation, ['chat'], getMessageTime(200)),
-
-        await createDirectMessage(
-          'Can the speaker address regulatory compliance for part-time workers?',
-          user1,
-          conversation,
-          getMessageTime(250)
-        ),
-        await createDirectMessage('Yes, regulations are a big concern for us', user2, conversation, getMessageTime(260)),
-        await createDirectMessage(
-          'Would love to hear about regulatory implications',
-          user3,
-          conversation,
-          getMessageTime(270)
-        )
-      ]
-      await prepareMessagesForAgent(messages, conversation, agent)
-
-      const conversationHistory = getConversationHistory(conversation.messages, {
-        count: 100,
-        channels: ['transcript'],
-        endTime: new Date(startTime.getTime() + 400 * 1000)
-      })
-
-      const responses = await defaultAgentTypes.eventMediator.respond.call(agent, conversationHistory)
-
-      // Basic mediator should never use MODERATOR_ESCALATION intervention type
-      if (responses.length > 0) {
-        responses.forEach((response) => {
-          expect(response.channels.every((c) => c.name !== 'moderator')).toBe(true)
-          expect(response.context).not.toContain('MODERATOR_ESCALATION')
-        })
-      }
-    })
-
-    it('NEVER uses MODERATOR_ESCALATION intervention type', async () => {
-      // Create a strong pattern that would normally warrant escalation in Plus version
-      const messages = [
-        await createMessage('This is fascinating', user1, conversation, ['chat'], getMessageTime(100)),
-        await createMessage('Really valuable information', user2, conversation, ['chat'], getMessageTime(150)),
-
-        // Multiple people asking complex question that would warrant moderator attention in Plus
-        await createDirectMessage(
-          'How does this interact with recent Department of Labor regulatory changes?',
-          user1,
-          conversation,
-          getMessageTime(220)
-        ),
-        await createDirectMessage(
-          'What about the new overtime rules from DOL? That affects this',
-          user2,
-          conversation,
-          getMessageTime(240)
-        ),
-        await createDirectMessage('Recent federal regulations seem relevant here', user3, conversation, getMessageTime(260)),
-        await createDirectMessage(
-          'The compliance landscape just shifted - how does that impact this?',
-          user1,
-          conversation,
-          getMessageTime(280)
-        ),
-
-        await createMessage('Great talk', user2, conversation, ['chat'], getMessageTime(350))
-      ]
-      await prepareMessagesForAgent(messages, conversation, agent)
-
-      const conversationHistory = getConversationHistory(conversation.messages, {
-        count: 100,
-        channels: ['transcript'],
-        endTime: new Date(startTime.getTime() + 400 * 1000)
-      })
-
-      const responses = await defaultAgentTypes.eventMediator.respond.call(agent, conversationHistory)
-
-      // Basic version MUST NOT use MODERATOR_ESCALATION - should use SIGNAL, SYNTHESIS, etc instead
-      if (responses.length > 0) {
-        responses.forEach((response) => {
-          expect(response.context).toBeDefined()
-          expect(response.context).not.toContain('MODERATOR_ESCALATION')
-        })
-      }
-    })
   })
 
   describe('privacy protection', () => {
@@ -661,10 +573,8 @@ describe(`event mediator agent tests`, () => {
           console.warn('WARNING: Agent did not detect strong convergence pattern (4 users asking about healthcare)')
         }
 
-        // If it intervenes, verify it's the right type and follows rules
+        // If it intervenes, verify it follows rules
         if (responses.length > 0) {
-          expect(responses[0].context).not.toContain('MODERATOR_ESCALATION')
-
           console.log(`Detected ${responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]}:`, responses[0].message)
           const { message } = responses[0]
           // Should surface the pattern without quoting individuals
@@ -1022,61 +932,6 @@ describe(`event mediator agent tests`, () => {
             message.toLowerCase().includes('chapter') ||
             message.toLowerCase().includes('part')
           expect(hasStructure).toBe(true)
-        }
-      },
-      testTimeout
-    )
-
-    it(
-      'MODERATOR_ESCALATION: routes complex questions to moderator',
-      async () => {
-        const messages = [
-          await createMessage('This is fascinating', user1, conversation, ['chat'], getMessageTime(100)),
-          await createMessage('Really valuable information', user2, conversation, ['chat'], getMessageTime(150)),
-
-          // Multiple people asking complex question that needs expert/moderator response
-          await createDirectMessage(
-            'How does this interact with the recent Department of Labor regulatory changes?',
-            user1,
-            conversation,
-            getMessageTime(220)
-          ),
-          await createDirectMessage(
-            'What about the new overtime rules from DOL? That affects this',
-            user2,
-            conversation,
-            getMessageTime(240)
-          ),
-          await createDirectMessage(
-            'Recent federal regulations seem relevant here',
-            user3,
-            conversation,
-            getMessageTime(260)
-          ),
-          await createDirectMessage(
-            'The compliance landscape just shifted - how does that impact this?',
-            user1,
-            conversation,
-            getMessageTime(280)
-          ),
-
-          await createMessage('Great talk', user2, conversation, ['chat'], getMessageTime(350))
-        ]
-        await prepareMessagesForAgent(messages, conversation, agent)
-
-        const conversationHistory = getConversationHistory(conversation.messages, {
-          count: 100,
-          channels: ['transcript'],
-          endTime: new Date(startTime.getTime() + 400 * 1000)
-        })
-
-        const responses = await defaultAgentTypes.eventMediator.respond.call(agent, conversationHistory)
-
-        if (responses.length > 0 && responses[0].context?.includes('MODERATOR_ESCALATION')) {
-          console.log('Detected MODERATOR_ESCALATION:', responses[0].message)
-          // Should post to chat AND have moderator message (but basic version doesn't post to moderator)
-          expect(responses[0].message).toBeDefined()
-          expect(responses[0].channels[0].name).toBe('chat')
         }
       },
       testTimeout

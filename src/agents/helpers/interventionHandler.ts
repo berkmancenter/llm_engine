@@ -26,9 +26,6 @@ export const USER_TEMPLATE = `## Event Topic:
 ## Shared Chat History:
 {sharedChatHistory}
 
-## Moderator Context:
-{moderatorContext}
-
 ## Your Recent Posts:
 {agentRecentPosts}
 
@@ -44,19 +41,17 @@ export const interventionLlmTemplateVars = {
     { name: 'retrievedChunks', description: 'Relevant retrieved context from RAG search' },
     { name: 'privateMessages', description: 'Private/direct messages from participants' },
     { name: 'sharedChatHistory', description: 'Shared chat history including agent posts' },
-    { name: 'moderatorContext', description: 'Communications with/from moderator' },
     { name: 'agentRecentPosts', description: "The agent's own recent posts for self-awareness" }
   ]
 }
 /**
  * Generate schema based on enabled intervention types
  * @param enabledInterventions - List of enabled intervention types (from getEnabledInterventions)
- * @param supportsModerator - Whether moderator escalation is supported
  */
-export function getInterventionAnalysisSchema(enabledInterventions: InterventionType[], supportsModerator: boolean) {
+export function getInterventionAnalysisSchema(enabledInterventions: InterventionType[]) {
   const interventionTypeStrings = enabledInterventions.map((t) => t.toString())
 
-  const baseSchema = {
+  return z.object({
     shouldIntervene: z.boolean().describe('Whether an intervention is warranted at this moment'),
     interventionType: z.enum(interventionTypeStrings as [string, ...string[]]).describe('The type of intervention to make'),
     reasoning: z.string().describe('Internal analysis of what patterns you see and why you are or are not intervening'),
@@ -68,21 +63,7 @@ export function getInterventionAnalysisSchema(enabledInterventions: Intervention
     confidenceScore: z.number().min(0).max(100).describe('Confidence in this intervention decision'),
     detectedPattern: z.string().nullable().optional().describe('Brief description of the pattern detected'),
     affectedUsers: z.number().nullable().optional().describe('Number of distinct users involved in the pattern')
-  }
-
-  // Only include moderatorMessage field if moderator support is enabled
-  if (supportsModerator) {
-    return z.object({
-      ...baseSchema,
-      moderatorMessage: z
-        .string()
-        .nullable()
-        .optional()
-        .describe('Optional message to forward to moderator with context and suggested question')
-    })
-  }
-
-  return z.object(baseSchema)
+  })
 }
 
 /**
@@ -139,7 +120,6 @@ function getRecentAgentInterventions(conversationHistory: ConversationHistory): 
  * Main intervention detection function
  * @param conversationHistory - Shared chat history
  * @param privateConversationHistory - Private/DM history (can be null if not needed based on category config)
- * @param moderatorConversationHistory - Moderator channel history
  * @param categoryConfig - Optional category configuration (defaults to all enabled)
  */
 export async function detectInterventionOpportunity(
@@ -147,7 +127,6 @@ export async function detectInterventionOpportunity(
   baseSystemPrompt: string,
   schema: z.ZodSchema,
   privateConversationHistory?: ConversationHistory | null,
-  moderatorConversationHistory?: ConversationHistory,
   sharedChatChannel: string = 'chat'
 ): Promise<InterventionAnalysis | null> {
   // Use conversationHistory.end as "now" to maintain consistent time simulation
@@ -166,15 +145,9 @@ export async function detectInterventionOpportunity(
     }
   }
 
-  // Determine if this agent supports moderator escalation based on available channels
-  const hasModeratorChannel = this.conversation.channels.some((c: { name: string }) => c.name === 'moderator')
-
   // Format conversation histories
   const sharedChatMessages = formatMultiUserConversationHistory(conversationHistory)
   const privateMessages = privateConversationHistory ? formatMultiUserConversationHistory(privateConversationHistory) : []
-  const moderatorMessages = moderatorConversationHistory
-    ? formatMultiUserConversationHistory(moderatorConversationHistory)
-    : []
 
   // Get recent transcript (last 10 minutes)
   const recentTranscript = transcript.getTranscript(this.conversation, 600, conversationHistory.end)
@@ -210,7 +183,6 @@ export async function detectInterventionOpportunity(
       retrievedChunks: chunks,
       privateMessages: privateMessages.map((m) => m.content).join('\n') || 'No private messages.',
       sharedChatHistory: sharedChatMessages.map((m) => m.content).join('\n') || 'No shared chat messages yet.',
-      moderatorContext: moderatorMessages.map((m) => m.content).join('\n') || 'No moderator communications.',
       agentRecentPosts
     },
     [], // No chat history - we provide full context in the prompt
@@ -218,14 +190,6 @@ export async function detectInterventionOpportunity(
   )) as z.infer<typeof schema>
 
   logger.debug(`Intervention opportunity analysis: ${JSON.stringify(analysis, null, 2)}`)
-
-  // Validate that MODERATOR_ESCALATION is not used when moderator channel is not available
-  if (analysis.interventionType === 'MODERATOR_ESCALATION' && !hasModeratorChannel) {
-    logger.warn(
-      `Agent ${this.name} attempted MODERATOR_ESCALATION without moderator channel support. Rejecting intervention.`
-    )
-    return null
-  }
 
   // Return null if shouldn't intervene or confidence too low
   if (!analysis.shouldIntervene || analysis.confidenceScore < 60) {

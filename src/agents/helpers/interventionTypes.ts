@@ -10,7 +10,6 @@ export enum InterventionType {
   BRIDGE = 'BRIDGE',
   STRUCTURE = 'STRUCTURE',
   PLAY = 'PLAY',
-  MODERATOR_ESCALATION = 'MODERATOR_ESCALATION',
   NONE = 'NONE'
 }
 
@@ -22,7 +21,6 @@ export interface InterventionAnalysis {
   interventionType: InterventionType
   reasoning: string
   sharedChatMessage?: string
-  moderatorMessage?: string
   confidenceScore: number
   detectedPattern?: string
   affectedUsers?: number

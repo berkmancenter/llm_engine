@@ -11,8 +11,7 @@ The Event Mediator chooses from among these intervention types when evaluating w
 - **SIGNAL** — Surfaces what the room is privately thinking. Convergence, divergence, or resonance with what's being said on stage. The core function: making invisible patterns visible.
 - **SYNTHESIS** — Goes deeper than SIGNAL. Reframes scattered private reactions into a single, richer question nobody individually asked.
 - **MINORITY_VOICE** — Protects dissent. When the room appears to agree but private channels say otherwise, creates space for the suppressed perspective without exposing anyone.
-- **CONFUSION** — Detects when people are lost. Drops jargon definitions, pace summaries, or flags to the moderator that things are moving too fast.
-- **MODERATOR_ESCALATION** — Routes high-interest themes to the moderator with a synthesized question and lets the room know it's been done.
+- **CONFUSION** — Detects when people are lost. Drops jargon definitions and pace summaries.
 - **BRIDGE** — Connects the present to an earlier moment. Callbacks that create the feeling of an attentive companion: "Told you the infrastructure question wasn't done with us."
 - **STRUCTURE** — Chapter markers, section summaries, decision capture. Gives the conversation narrative shape so people can orient.
 
