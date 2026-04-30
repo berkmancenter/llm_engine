@@ -2,16 +2,16 @@ import { supportedModels } from '../agents/helpers/getModelChat.js'
 import { ConversationType, Direction } from '../types/index.types.js'
 import config from '../config/config.js'
 
-const assistant: ConversationType = {
-  name: 'assistant',
-  label: 'Assistant',
+const chatbot: ConversationType = {
+  name: 'chatbot',
+  label: 'Chatbot',
   description: 'A general-purpose AI assistant chatbot accessible via a shared Slack channel',
   platforms: [{ name: 'slack', label: 'Slack' }],
   properties: [
     {
       name: 'slackChannel',
       label: 'Slack Channel ID',
-      description: 'The ID of the Slack Channel the assistant participates in (starts with C- or G-)',
+      description: 'The ID of the Slack Channel the chatbot participates in (starts with C- or G-)',
       required: true,
       type: 'string'
     },
@@ -56,7 +56,7 @@ const assistant: ConversationType = {
   // internal
   agents: [
     {
-      name: 'assistant',
+      name: 'chatbot',
       properties: [
         { $ref: 'llmModel.llmModel' },
         { $ref: 'llmModel.llmPlatform' },
@@ -64,7 +64,7 @@ const assistant: ConversationType = {
       ]
     }
   ],
-  channels: [{ name: 'assistant' }],
+  channels: [{ name: 'chatbot' }],
   adapters: {
     slack: {
       type: 'slack',
@@ -77,7 +77,7 @@ const assistant: ConversationType = {
       },
       chatChannels: [
         {
-          name: 'assistant',
+          name: 'chatbot',
           direction: Direction.BOTH
         }
       ]
@@ -85,4 +85,4 @@ const assistant: ConversationType = {
   }
 }
 
-export default assistant
+export default chatbot

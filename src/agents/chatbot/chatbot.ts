@@ -19,12 +19,12 @@ const BASE_SYSTEM_PROMPT = `You are {botName}, a helpful, knowledgeable AI assis
 - The message you are being asked to respond to is labeled **## Question:**`
 
 export default verify({
-  name: 'Assistant',
-  description: 'A general-purpose AI assistant that engages with any inquiry in the assistant channel',
+  name: 'Chatbot',
+  description: 'A general-purpose AI assistant that engages with any inquiry in the chatbot channel',
   priority: 100,
   maxTokens: 2000,
   defaultTriggers: {
-    perMessage: { channels: ['assistant'] }
+    perMessage: { channels: ['chatbot'] }
   },
   agentConfig: {
     enablePersonality: config.enableAgentPersonality
@@ -38,7 +38,7 @@ export default verify({
   defaultLLMPlatform,
   defaultLLMModel,
   ragCollectionName: undefined,
-  defaultConversationHistorySettings: { count: 100, channels: ['assistant'] },
+  defaultConversationHistorySettings: { count: 100, channels: ['chatbot'] },
 
   async initialize() {
     return true
@@ -94,7 +94,7 @@ export default verify({
       this.llmPlatform
     )
 
-    const responseChannels = this.conversation.channels.filter((channel) => channel.name === 'assistant')
+    const responseChannels = this.conversation.channels.filter((channel) => channel.name === 'chatbot')
 
     // If question is already part of a thread, reply in the thread. Otherwise, reply in the main channel.
     const parentMessageId = userMessage.parentMessage

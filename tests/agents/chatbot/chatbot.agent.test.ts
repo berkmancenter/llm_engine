@@ -8,11 +8,11 @@ import { ConversationHistory } from '../../../src/types/index.types.js'
 
 jest.setTimeout(120000)
 
-const testConfig = setupAgentTest('Assistant')
+const testConfig = setupAgentTest('chatbot')
 
 const BOT_NAME = 'Berkie'
 
-describe('assistant agent tests', () => {
+describe('chatbot agent tests', () => {
   let agent
   let conversation
   let topic
@@ -20,16 +20,16 @@ describe('assistant agent tests', () => {
   let user2
   let user3
 
-  async function createAssistantConversation() {
-    const conv = await createConversation({ name: 'Assistant Test Conversation' }, user1, topic)
+  async function createChatbotConversation() {
+    const conv = await createConversation({ name: 'Chatbot Test Conversation' }, user1, topic)
     const testAgent = new Agent({
-      agentType: 'assistant',
+      agentType: 'chatbot',
       conversation: conv,
       llmPlatform: testConfig.llmPlatform,
       llmModel: testConfig.llmModel,
       agentConfig: { botName: BOT_NAME }
     })
-    const channels = await Channel.create([{ name: 'assistant' }])
+    const channels = await Channel.create([{ name: 'chatbot' }])
     conv.channels.push(...channels)
     await testAgent.save()
     conv.agents.push(testAgent)
@@ -44,7 +44,7 @@ describe('assistant agent tests', () => {
     user1 = await createUser('Alice')
     user2 = await createUser('Bob')
     user3 = await createUser('Carol')
-    const result = await createAssistantConversation()
+    const result = await createChatbotConversation()
     conversation = result.conv
     agent = result.testAgent
   })
@@ -59,11 +59,11 @@ describe('assistant agent tests', () => {
 
   async function ask(body, user = user1) {
     console.log(`Q (${user.pseudonyms[0].pseudonym}): ${body}`)
-    return createMessage(body, user, conversation, ['assistant'])
+    return createMessage(body, user, conversation, ['chatbot'])
   }
 
   async function respond(history: ConversationHistory, userMessage) {
-    const responses = await defaultAgentTypes.assistant.respond.call(agent, history, userMessage)
+    const responses = await defaultAgentTypes.chatbot.respond.call(agent, history, userMessage)
     console.log(`A: ${responses[0]?.message}`)
     return responses
   }
@@ -87,29 +87,23 @@ describe('assistant agent tests', () => {
         'Anyone know a good way to learn TypeScript?',
         user1,
         conversation,
-        ['assistant'],
+        ['chatbot'],
         new Date(t - 5000)
       ),
-      await createMessage(
-        'I found the official docs really helpful',
-        user2,
-        conversation,
-        ['assistant'],
-        new Date(t - 4000)
-      ),
+      await createMessage('I found the official docs really helpful', user2, conversation, ['chatbot'], new Date(t - 4000)),
       await createMessage(
         'Same, plus the TS playground is great for experimenting',
         user3,
         conversation,
-        ['assistant'],
+        ['chatbot'],
         new Date(t - 3000)
       ),
-      await createMessage('What about books?', user2, conversation, ['assistant'], new Date(t - 2000)),
+      await createMessage('What about books?', user2, conversation, ['chatbot'], new Date(t - 2000)),
       await createMessage(
         'Programming TypeScript by Boris Cherny is solid',
         user1,
         conversation,
-        ['assistant'],
+        ['chatbot'],
         new Date(t - 1000)
       )
     ])
@@ -133,7 +127,7 @@ describe('assistant agent tests', () => {
       pseudonym: BOT_NAME,
       pseudonymId: new mongoose.Types.ObjectId(),
       owner: agent._id,
-      channels: ['assistant'],
+      channels: ['chatbot'],
       fromAgent: true,
       visible: true,
       createdAt: new Date(t - 2000),
@@ -144,9 +138,9 @@ describe('assistant agent tests', () => {
     }
 
     const history = buildHistory([
-      await createMessage(`@${BOT_NAME} where is the Eiffel Tower?`, user1, conversation, ['assistant'], new Date(t - 3000)),
+      await createMessage(`@${BOT_NAME} where is the Eiffel Tower?`, user1, conversation, ['chatbot'], new Date(t - 3000)),
       agentPriorResponse,
-      await createMessage('Interesting!', user2, conversation, ['assistant'], new Date(t - 1000))
+      await createMessage('Interesting!', user2, conversation, ['chatbot'], new Date(t - 1000))
     ])
 
     const msg = await ask(`@${BOT_NAME} how tall is it?`)
