@@ -3,10 +3,12 @@ import backChannel from './backChannel.js'
 import eventAssistantPlus from './eventAssistantPlus.js'
 import type { ConversationType } from '../types/index.types.js'
 import chatbot from './chatbot.js'
+import eventHistorian from './eventHistorian.js'
 
 // Internal conversation types are usable by the service but not exposed via the config API
 const internal: Record<string, ConversationType> = {
-  chatbot
+  chatbot,
+  eventHistorian
 }
 
 const defaultConversationTypes: Record<string, ConversationType> = {
