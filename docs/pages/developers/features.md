@@ -1,6 +1,6 @@
 ## Adding a feature to the Quick Guide
 
-Features are the capabilities listed in the participant-facing Quick Guide. Each maps to a tab in the Nextspace UI ("Berkie", "Group Chat", "Resources") and shows up in one of three tiers: slash commands, user-controlled settings, or always-on features.
+Features are the capabilities listed in the participant-facing Quick Guide. Each maps to a platform area in the Nextspace UI ("Berkie", "Group Chat", "Resources") and shows up in one of three tiers: slash commands, user-controlled settings, or always-on features.
 
 ### Define the feature
 
@@ -10,14 +10,13 @@ Add your feature to the `features` array in the relevant conversation type file,
 |---|---|---|
 | `name` | Yes | Unique camelCase identifier. |
 | `label` | Yes | Display name shown in organizer-facing UIs. |
-| `description` | Yes | What the feature does. |
-| `tab` | Yes | Which guide section to put it in: `"assistant"`, `"group-chat"`, `"transcript"`, or `"resources"`. |
-| `audience` | Yes | Who sees it in the guide: `"participant"`, `"moderator"`, or `"both"`. |
+| `description` | Yes | What the feature does. Shown in both the event creation form and the Quick Guide. |
+| `category` | Yes | Which guide section to put it in: `"assistant"`, `"group-chat"`, `"transcript"`, or `"resources"`. |
 | `default` | Yes | Whether the feature is on by default. Also used as a fallback for conversations that predate this feature. |
 | `userControlled` | Yes | `true` if the participant can toggle or activate it; `false` if it runs automatically. |
 | `agents` | Yes | Backend agents to start when the feature is enabled. Use `[]` for user-triggered features that don't need an agent. |
 | `slashCommand` | No | The command participants type, without the `/`. Omit for passive features. |
-| `participantDescription` | No | What participants see in the guide. Falls back to `description` if you leave this out. |
+| `prerequisite` | No | Setup instruction shown as a hint in the Quick Guide (e.g. "Enable it by turning on X in your settings"). |
 | `properties` | No | Sub-properties shown in the event creation form. |
 
 Example:
@@ -27,9 +26,7 @@ Example:
   name: 'mindmap',
   label: 'Mind Map',
   description: 'Creates a visual mind map of the key topics discussed in the event.',
-  participantDescription: 'Generate a visual mind map of the key topics discussed so far.',
-  tab: 'assistant',
-  audience: 'participant',
+  category: 'assistant',
   userControlled: true,
   slashCommand: 'mindmap',
   default: true,
@@ -40,7 +37,7 @@ Example:
 
 ### How it appears in the guide
 
-The `tab` field controls which section the feature lands in. Within a section, features are grouped into tiers based on `slashCommand` and `userControlled`:
+The `category` field controls which section the feature lands in. Within a section, features are grouped into tiers based on `slashCommand` and `userControlled`:
 
 - Commands: features with a `slashCommand`, shown as `/command` in the guide.
 - Your settings: features with `userControlled: true` and no slash command.
