@@ -430,7 +430,7 @@
   <h1>Adapters</h1>
 
 <h2 id="adapters">Adapters</h2>
-<p>LLM Engine can be connected to external systems through the use of adapters and their associated webhooks. We currently provide two adapters: <a href="../../platforms/zoom/">Zoom</a> and <a href="../platforms/slack/">Slack</a>. This guide explains how to add more!</p>
+<p>LLM Engine can be connected to external systems through the use of adapters and their associated webhooks. We currently provide two adapters: <a href="../../platforms/zoom/">Zoom</a> and <a href="../../platforms/slack/">Slack</a>. This guide explains how to add more!</p>
 <p>There are two components to an adapter: the adapter itself and the webhook handler that routes communication to the adapter.</p>
 <blockquote>
 <p>While we have a WebSocket interface to LLM Engine, we do not yet support using it to communicate with external systems through adapters.</p>
@@ -440,7 +440,7 @@
 <p>Follow the steps below to add a new adapter.</p>
 <ol>
 <li>Create the file <code>src/handlers/[adapterName].ts</code></li>
-<li>Implement the following methods, specific to the external system's data formats. See our <a href="../../platforms/zoom/">Zoom</a> and <a href="../platforms/slack/">Slack</a> adapters for examples.</li>
+<li>Implement the following methods, specific to the external system's data formats. See our <a href="../../platforms/zoom/">Zoom</a> and <a href="../../platforms/slack/">Slack</a> adapters for examples.</li>
 </ol>
 <p>NOTE: any properties specific to an individual <code>Conversation</code> can be stored in the Adapter's <code>config</code> property for reuse.</p>
 <div class="highlight"><pre><span></span><code>  start()  // optional logic to execute when conversation starts
