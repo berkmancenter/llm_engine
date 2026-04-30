@@ -71,7 +71,6 @@ const eventAssistant: ConversationType = {
       name: 'visual',
       label: 'Visual Response',
       description: 'Ask for a visual (image) response to a question.',
-      prerequisite: 'Requires "Visuals" to be enabled in your settings.',
       category: 'assistant',
       userControlled: true,
       slashCommand: 'visual',
