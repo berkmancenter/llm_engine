@@ -2,7 +2,7 @@ import { ChatPostMessageResponse } from '@slack/web-api'
 import logger from '../../config/logger.js'
 import slackClientPool from './slackClientPool.js'
 import { AdapterMessage } from '../../types/adapter.types.js'
-import { Message } from '../../models/index.js'
+import Message from '../../models/message.model.js'
 
 function normalizeBotMention(text: string, botUserId: string, botName: string): string {
   if (!botUserId || !botName) return text
