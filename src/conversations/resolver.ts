@@ -229,7 +229,7 @@ export default function resolveConversationType(
 
   // Merge feature configs into a working object keyed by feature name for $ref resolution
   const workingProperties = { ...resolvedProperties }
-  for (const { name, config } of features) workingProperties[name] = config
+  for (const { name, config, enabled } of features) if (enabled) workingProperties[name] = config ?? true
 
   const adapterDefs = conversationType.adapters || {}
   const matched = (platforms || []).map((p) => adapterDefs[p]).filter(Boolean)
