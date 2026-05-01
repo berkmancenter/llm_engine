@@ -164,6 +164,40 @@ const testAgentTypeSpecification = {
     },
     defaultLLMPlatform,
     defaultLLMModel
+  },
+  moderatorNotifier: {
+    respond: mockRespond,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Moderator Notifier',
+    description: 'Test moderator notifier agent',
+    maxTokens: 500,
+    defaultTriggers: { periodic: { timerPeriod: 60 } },
+    priority: 50,
+    llmTemplateVars: { system: [], user: [] },
+    defaultLLMTemplates: {
+      system: 'You are a moderator notifier agent',
+      user: 'Analyze this transcript: {transcript}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel
+  },
+  librarian: {
+    respond: mockRespond,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Librarian',
+    description: 'Test librarian agent',
+    maxTokens: 500,
+    defaultTriggers: { periodic: { timerPeriod: 120 } },
+    priority: 50,
+    llmTemplateVars: { system: [], user: [] },
+    defaultLLMTemplates: {
+      system: 'You are a librarian agent',
+      user: 'Recommend readings for: {transcript}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel
   }
 }
 

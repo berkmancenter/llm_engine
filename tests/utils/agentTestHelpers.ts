@@ -1070,7 +1070,6 @@ export async function createEventAssistantWithModSupportConversation(
   await agent.save()
   conversation.agents.push(agent)
   await conversation.save()
-  await agent.initialize()
   await agent.start()
   return conversation
 }

@@ -55,7 +55,111 @@ const eventAssistant: ConversationType = {
    * agents:       backend agents to start when enabled. Empty for user-triggered features.
    * properties:   sub-properties shown in the event creation form.
    */
+
   features: [
+    {
+      name: 'moderatorSupport',
+      label: 'Moderator Support',
+      description:
+        'Enables participants to submit questions to the moderator, surfaces insights from messages, and alerts the moderator when significant themes emerge.',
+      default: true,
+      category: 'assistant',
+      userControlled: false,
+      slashCommand: 'mod',
+      agents: [
+        {
+          name: 'backChannelInsights',
+          properties: [{ $ref: 'llmModel.llmModel' }, { $ref: 'llmModel.llmPlatform' }]
+        },
+        {
+          name: 'moderatorNotifier',
+          properties: [{ $ref: 'llmModel.llmModel' }, { $ref: 'llmModel.llmPlatform' }]
+        }
+      ]
+    },
+    {
+      name: 'collectiveVoice',
+      label: 'Collective Voice',
+      description:
+        'Contributes to the group chat by surfacing what participants are privately thinking, connecting threads across the conversation, and giving the discussion shape and continuity.',
+      default: true,
+      category: 'group-chat',
+      userControlled: false,
+      properties: [
+        {
+          name: 'minContributionInterval',
+          label: 'Minimum Minutes Between Contributions',
+          required: false,
+          type: 'number',
+          default: 10
+        }
+      ],
+      agents: [
+        {
+          name: 'eventMediator',
+          properties: [
+            { $ref: 'llmModel.llmModel' },
+            { $ref: 'llmModel.llmPlatform' },
+            { $ref: 'collectiveVoice.minContributionInterval', as: 'agentConfig.minInterval' }
+          ]
+        }
+      ]
+    },
+    {
+      name: 'catalyst',
+      label: 'Catalyst',
+      description:
+        'Participates in the group chat as an active voice — jumping into silences, responding to speakers, challenging unexamined claims, and adding witty observations to encourage participation.',
+      default: true,
+      category: 'group-chat',
+      userControlled: false,
+      properties: [
+        {
+          name: 'minContributionInterval',
+          label: 'Minimum Minutes Between Contributions',
+          required: false,
+          type: 'number',
+          default: 10
+        }
+      ],
+      agents: [
+        {
+          name: 'engagementAgent',
+          properties: [
+            { $ref: 'llmModel.llmModel' },
+            { $ref: 'llmModel.llmPlatform' },
+            { $ref: 'catalyst.minContributionInterval', as: 'agentConfig.minInterval' }
+          ]
+        }
+      ]
+    },
+    {
+      name: 'librarian',
+      label: 'Reading Recommendations',
+      description: 'Periodically recommends relevant reading during the event',
+      default: true,
+      category: 'assistant',
+      userControlled: false,
+      properties: [
+        {
+          name: 'recommendationsPerInterval',
+          label: 'Number of Reading Recommendations per Interval',
+          required: false,
+          type: 'number',
+          default: 2
+        }
+      ],
+      agents: [
+        {
+          name: 'librarian',
+          properties: [
+            { $ref: 'llmModel.llmModel' },
+            { $ref: 'llmModel.llmPlatform' },
+            { $ref: 'librarian.recommendationsPerInterval', as: 'agentConfig.recommendationsPerInterval' }
+          ]
+        }
+      ]
+    },
     {
       name: 'mindmap',
       label: 'Mind Map',
@@ -101,6 +205,7 @@ const eventAssistant: ConversationType = {
       properties: []
     }
   ],
+
   // internal
   agents: [
     {
@@ -108,12 +213,28 @@ const eventAssistant: ConversationType = {
       properties: [
         { $ref: 'llmModel.llmModel' },
         { $ref: 'llmModel.llmPlatform' },
-        { $ref: 'botName', as: 'agentConfig.botName' }
+        { $ref: 'botName', as: 'agentConfig.botName' },
+        { $ref: 'moderatorSupport', as: 'agentConfig.moderatorSupport' }
       ]
+    },
+    {
+      name: 'jargonFilterAgent',
+      properties: [{ $ref: 'llmModel.llmModel' }, { $ref: 'llmModel.llmPlatform' }]
+    },
+    {
+      name: 'voiceAssistant',
+      properties: [{ $ref: 'llmModel.llmModel' }, { $ref: 'llmModel.llmPlatform' }]
     }
   ],
   enableDMs: ['agents'],
-  channels: [{ name: 'transcript' }, { name: 'chat' }, { name: 'image-gen' }],
+  channels: [
+    { name: 'transcript' },
+    { name: 'participant' },
+    { name: 'moderator' },
+    { name: 'chat' },
+    { name: 'image-gen' },
+    { name: 'resources' }
+  ],
   adapters: {
     zoom: {
       type: 'zoom',
@@ -129,6 +250,10 @@ const eventAssistant: ConversationType = {
         }
       ],
       chatChannels: [
+        {
+          name: 'moderator',
+          direction: Direction.OUTGOING
+        },
         {
           name: 'chat',
           direction: Direction.BOTH

@@ -192,6 +192,28 @@ const testConversationTypes = {
         ]
       }
     }
+  } as ConversationType,
+  testFeatures: {
+    name: 'testFeatures',
+    label: 'Test Features',
+    description: 'A test conversation type with features for testing the /features endpoint',
+    platforms: [{ name: 'zoom' }],
+    properties: [{ name: 'botName', required: false, type: 'string', default: 'TestBot' }],
+    agents: [],
+    channels: [],
+    features: [
+      {
+        name: 'featureA',
+        label: 'Feature A',
+        category: 'assistant',
+        slashCommand: 'featureA',
+        userControlled: true,
+        default: true,
+        agents: []
+      },
+      { name: 'featureB', label: 'Feature B', category: 'group-chat', userControlled: false, default: true, agents: [] },
+      { name: 'featureC', label: 'Feature C', category: 'transcript', userControlled: true, default: true, agents: [] }
+    ]
   } as ConversationType
 }
 
@@ -2403,74 +2425,57 @@ describe('Conversation routes', () => {
      * type or explicitly enabled on the conversation — so pre-existing conversations that
      * pre-date a feature's introduction still get the full list without a DB migration.
      */
-    let guideConversation
+    let featuresConversation
 
     beforeEach(async () => {
-      // eventAssistantPlus isn't in the test type set — swap in the real types
-      setConversationTypes(defaultConversationTypes)
-      guideConversation = new Conversation({
+      featuresConversation = new Conversation({
         _id: new mongoose.Types.ObjectId(),
         name: 'guide-test',
         owner: userOne._id,
         topic: publicTopic._id,
-        conversationType: 'eventAssistantPlus',
+        conversationType: 'testFeatures',
         properties: { botName: 'Berkie' },
-        features: [{ name: 'mindmap' }, { name: 'mod' }, { name: 'jargonFilter' }],
+        features: [{ name: 'featureA' }],
         agents: [],
         messages: [],
         transcript: { status: 'stopped' }
       })
-      await guideConversation.save()
-    })
-
-    afterEach(() => {
-      setConversationTypes(testConversationTypes)
+      await featuresConversation.save()
     })
 
     test('returns 200 with conversationType, bot name, and features — no auth required', async () => {
-      const url = `/v1/conversations/${guideConversation._id.toString()}/features`
+      const url = `/v1/conversations/${featuresConversation._id.toString()}/features`
       const resp = await request(app).get(url).expect(httpStatus.OK)
 
-      expect(resp.body.conversationType).toBe('eventAssistantPlus')
+      expect(resp.body.conversationType).toBe('testFeatures')
       expect(resp.body.conversationBotName).toBe('Berkie')
       expect(Array.isArray(resp.body.features)).toBe(true)
     })
 
     test('returns all default features regardless of conv.features', async () => {
-      const url = `/v1/conversations/${guideConversation._id.toString()}/features`
+      const url = `/v1/conversations/${featuresConversation._id.toString()}/features`
       const resp = await request(app).get(url).expect(httpStatus.OK)
 
       const names = resp.body.features.map((f) => f.name)
-      // All eight eventAssistantPlus features are default:true, so all appear
-      // even though conv.features only lists three — pre-existing conversations get the
+      // All three testFeatures features are default:true, so all appear
+      // even though conv.features only lists one — pre-existing conversations get the
       // full list without a DB migration.
-      expect(names).toEqual(
-        expect.arrayContaining([
-          'mindmap',
-          'visual',
-          'visualPreference',
-          'jargonFilter',
-          'mod',
-          'collectiveVoice',
-          'catalyst',
-          'librarian'
-        ])
-      )
-      expect(resp.body.features).toHaveLength(8)
+      expect(names).toEqual(expect.arrayContaining(['featureA', 'featureB', 'featureC']))
+      expect(resp.body.features).toHaveLength(3)
       // every feature must carry an enabled flag
       expect(resp.body.features.every((f) => typeof f.enabled === 'boolean')).toBe(true)
     })
 
     test('each feature includes display metadata (label, category, slashCommand, userControlled, enabled)', async () => {
-      const url = `/v1/conversations/${guideConversation._id.toString()}/features`
+      const url = `/v1/conversations/${featuresConversation._id.toString()}/features`
       const resp = await request(app).get(url).expect(httpStatus.OK)
 
-      const mindmap = resp.body.features.find((f) => f.name === 'mindmap')
-      expect(mindmap).toMatchObject({
-        name: 'mindmap',
-        label: 'Mind Map',
+      const featureA = resp.body.features.find((f) => f.name === 'featureA')
+      expect(featureA).toMatchObject({
+        name: 'featureA',
+        label: 'Feature A',
         category: 'assistant',
-        slashCommand: 'mindmap',
+        slashCommand: 'featureA',
         userControlled: true,
         enabled: true
       })
@@ -2488,9 +2493,9 @@ describe('Conversation routes', () => {
         name: 'guide-disabled-feature-test',
         owner: userOne._id,
         topic: publicTopic._id,
-        conversationType: 'eventAssistantPlus',
+        conversationType: 'testFeatures',
         properties: { botName: 'Berkie' },
-        features: [{ name: 'mindmap', enabled: false }],
+        features: [{ name: 'featureA', enabled: false }],
         agents: [],
         messages: [],
         transcript: { status: 'stopped' }
@@ -2501,12 +2506,12 @@ describe('Conversation routes', () => {
       const resp = await request(app).get(url).expect(httpStatus.OK)
 
       // disabled feature still appears in the list (so the guide can grey it out)
-      const mindmap = resp.body.features.find((f) => f.name === 'mindmap')
-      expect(mindmap).toBeDefined()
-      expect(mindmap.enabled).toBe(false)
+      const featureA = resp.body.features.find((f) => f.name === 'featureA')
+      expect(featureA).toBeDefined()
+      expect(featureA.enabled).toBe(false)
       // other default features still appear as enabled
-      const visual = resp.body.features.find((f) => f.name === 'visual')
-      expect(visual.enabled).toBe(true)
+      const featureB = resp.body.features.find((f) => f.name === 'featureB')
+      expect(featureB.enabled).toBe(true)
     })
   })
 })
