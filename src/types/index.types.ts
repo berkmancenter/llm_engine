@@ -214,8 +214,20 @@ export interface FeatureAgentConfig {
   properties?: AgentProperty[] // wiring from resolved properties into agent config
 }
 
+/**
+ * A feature instance stored on a conversation document.
+ *
+ * `enabled` is tri-state:
+ *   true      = organizer turned this on
+ *   false     = organizer turned this off
+ *   undefined = conversation predates this feature; falls back to FeatureConfig.default
+ *
+ * New records should always set `enabled` explicitly. A missing `enabled` field
+ * just means the record was written before this field existed.
+ */
 export interface Feature {
   name: string
+  enabled?: boolean
   config?: Record<string, unknown>
 }
 
@@ -223,9 +235,19 @@ export interface FeatureConfig {
   name: string
   label: string
   description?: string
-  agents: FeatureAgentConfig[] // agents to create when the feature is enabled
-  default: boolean // whether the feature is enabled by default
-  properties?: ConfigProperty[] // user-configurable sub-properties shown in the form
+  agents: FeatureAgentConfig[]
+  default: boolean
+  properties?: ConfigProperty[]
+  // Which platform area this feature belongs to. Omitting it is a compile error.
+  category: 'assistant' | 'group-chat' | 'transcript' | 'resources'
+  // Slash command without the leading slash (e.g. "mindmap"). Omit for passive features.
+  slashCommand?: string
+  // Setup instruction (e.g. how to enable the feature).
+  prerequisite?: string
+  // Whether the participant can control this feature (toggle or slash command). false = runs automatically.
+  userControlled: boolean
+  // Present in /features responses. Absent in static type definitions.
+  enabled?: boolean
 }
 
 export interface PlatformConfig {

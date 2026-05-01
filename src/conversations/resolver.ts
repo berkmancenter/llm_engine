@@ -181,17 +181,19 @@ const resolveFeatures = (
   requestedFeatures: Array<{ name: string; config?: Record<string, unknown> }> | undefined,
   featureDefs: FeatureConfig[] | undefined
 ): Feature[] => {
-  const enabled: Feature[] = []
-  for (const feature of featureDefs ?? []) {
-    const requested = (requestedFeatures ?? []).find((f) => f.name === feature.name)
-    if (!requested) continue
+  /* When no features array is provided, return empty. The guide falls back to
+     feature.default, which covers pre-existing conversations without a DB migration. */
+  if (requestedFeatures === undefined) return []
+
+  return (featureDefs ?? []).map((feature) => {
+    const requested = requestedFeatures.find((f) => f.name === feature.name)
+    if (!requested) return { name: feature.name, enabled: false }
     const config: Record<string, unknown> = { ...requested.config }
     for (const prop of feature.properties ?? []) {
       if (!(prop.name in config) && prop.default !== undefined) config[prop.name] = prop.default
     }
-    enabled.push({ name: feature.name, ...(Object.keys(config).length && { config }) })
-  }
-  return enabled
+    return { name: feature.name, enabled: true, ...(Object.keys(config).length && { config }) }
+  })
 }
 
 const resolveAgents = (

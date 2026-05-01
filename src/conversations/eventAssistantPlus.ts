@@ -42,12 +42,27 @@ const eventAssistantPlus: ConversationType = {
       default: 3
     }
   ],
+  /*
+   * Each entry drives: the Features section in the event creation form,
+   * the Quick Guide panel shown during live events, and slash command
+   * autocomplete (for entries where slashCommand is set).
+   *
+   * category is required — omitting it is a compile error.
+   *
+   * category:     platform area — "assistant", "group-chat", "transcript", or "resources"
+   * slashCommand: command text without the slash. Omit for passive features.
+   * prerequisite: optional setup instruction shown alongside the description.
+   * agents:       backend agents to start when enabled. Empty for user-triggered features.
+   * properties:   sub-properties shown in the event creation form.
+   */
   features: [
     {
       name: 'collectiveVoice',
       label: 'Collective Voice',
       description:
         'Contributes to the group chat by surfacing what participants are privately thinking, connecting threads across the conversation, and giving the discussion shape and continuity.',
+      category: 'group-chat',
+      userControlled: false,
       default: true,
       properties: [
         {
@@ -73,7 +88,9 @@ const eventAssistantPlus: ConversationType = {
       name: 'catalyst',
       label: 'Catalyst',
       description:
-        'Participates in the group chat as an active voice — jumping into silences, responding to speakers, challenging unexamined claims, and adding witty observations to encourage participation.',
+        'Participates in the group chat as an active voice, jumping into silences, responding to speakers, challenging unexamined claims, and adding witty observations to encourage participation.',
+      category: 'group-chat',
+      userControlled: false,
       default: true,
       properties: [
         {
@@ -99,6 +116,8 @@ const eventAssistantPlus: ConversationType = {
       name: 'librarian',
       label: 'Reading Recommendations',
       description: 'Periodically recommends relevant reading during the event',
+      category: 'resources',
+      userControlled: false,
       default: true,
       properties: [
         {
@@ -119,6 +138,61 @@ const eventAssistantPlus: ConversationType = {
           ]
         }
       ]
+    },
+    {
+      name: 'mod',
+      label: 'Submit to Moderator',
+      description: 'Submit a private question to the moderator.',
+      category: 'assistant',
+      userControlled: true,
+      slashCommand: 'mod',
+      default: true,
+      agents: [],
+      properties: []
+    },
+    {
+      name: 'mindmap',
+      label: 'Mind Map',
+      description: 'Creates a visual mind map of the key topics discussed in the event.',
+      category: 'assistant',
+      userControlled: true,
+      slashCommand: 'mindmap',
+      default: true,
+      agents: [],
+      properties: []
+    },
+    {
+      name: 'visual',
+      label: 'Visual Response',
+      description: 'Ask for a visual (image) response to a question.',
+      category: 'assistant',
+      userControlled: true,
+      slashCommand: 'visual',
+      default: true,
+      agents: [],
+      properties: []
+    },
+    {
+      name: 'visualPreference',
+      label: 'Visuals',
+      description: 'Automatically generates a visual when it would help explain a concept.',
+      prerequisite: 'Enable it by turning on "Visuals" in your event settings.',
+      category: 'assistant',
+      userControlled: true,
+      default: true,
+      agents: [],
+      properties: []
+    },
+    {
+      name: 'jargonFilter',
+      label: 'Jargon Filter',
+      description: 'Automatically explains jargon and technical terms used by speakers.',
+      prerequisite: 'Enable it by turning on "Jargon Clarification" in your event settings.',
+      category: 'assistant',
+      userControlled: true,
+      default: true,
+      agents: [],
+      properties: []
     }
   ],
 

@@ -502,6 +502,38 @@ const generateConversationReport = async (
   })
 }
 
+const getFeatures = async (conversationId: string) => {
+  const conv = await Conversation.findOne({ _id: conversationId }).select('conversationType properties features').exec()
+  if (!conv || !conv.conversationType) {
+    throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${conversationId} not found`)
+  }
+  const convType = getConversationType(conv.conversationType)
+
+  if (!convType || !convType.features) {
+    throw new ApiError(httpStatus.BAD_REQUEST, `Features not found for this conversation`)
+  }
+
+  // defaults to the conversation type's bot name if the conversation's bot name was not found
+  const botName = conv.properties?.botName || convType.properties?.find((prop) => prop.name === 'botName')?.default
+
+  const storedFeatures = conv.features
+  const allFeatures = convType.features
+
+  /* Merge enabled state onto every feature definition:
+     - stored record present → use record.enabled (defaults to true if field absent)
+     - no record → fall back to feature.default (backward compat for pre-existing conversations) */
+  const featuresWithState = allFeatures.map((feature) => {
+    const record = storedFeatures?.find((sf) => sf.name === feature.name)
+    const enabled = record !== undefined ? record.enabled !== false : feature.default
+    return { ...feature, enabled }
+  })
+  return {
+    conversationType: conv.conversationType,
+    conversationBotName: botName,
+    features: featuresWithState
+  }
+}
+
 const conversationService = {
   createConversation,
   createConversationFromType,
@@ -519,6 +551,7 @@ const conversationService = {
   stopConversation,
   joinConversation,
   generateConversationReport,
-  updateTranscriptStatus
+  updateTranscriptStatus,
+  getFeatures
 }
 export default conversationService
