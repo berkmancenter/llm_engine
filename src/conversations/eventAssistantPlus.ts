@@ -173,6 +173,17 @@ const eventAssistantPlus: ConversationType = {
       properties: []
     },
     {
+      name: 'visualPreference',
+      label: 'Visuals',
+      description: 'Automatically generates a visual when it would help explain a concept.',
+      prerequisite: 'Enable it by turning on "Visuals" in your event settings.',
+      category: 'assistant',
+      userControlled: true,
+      default: true,
+      agents: [],
+      properties: []
+    },
+    {
       name: 'jargonFilter',
       label: 'Jargon Filter',
       description: 'Automatically explains jargon and technical terms used by speakers.',
