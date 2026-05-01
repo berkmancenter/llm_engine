@@ -543,22 +543,21 @@ const getFeatures = async (conversationId: string) => {
   // defaults to the conversation type's bot name if the conversation's bot name was not found
   const botName = conv.properties?.botName || convType.properties?.find((prop) => prop.name === 'botName')?.default
 
-  const enabledFeatures = conv.features
+  const storedFeatures = conv.features
   const allFeatures = convType.features
 
-  /* For each feature, check the stored record first:
-     - record present with enabled:false → explicitly disabled, hide
-     - record present with enabled:true or no enabled field → show
+  /* Merge enabled state onto every feature definition:
+     - stored record present → use record.enabled (defaults to true if field absent)
      - no record → fall back to feature.default (backward compat for pre-existing conversations) */
-  const featuresToShow = allFeatures.filter((feature) => {
-    const record = enabledFeatures?.find((ef) => ef.name === feature.name)
-    if (record !== undefined) return record.enabled !== false
-    return feature.default
+  const featuresWithState = allFeatures.map((feature) => {
+    const record = storedFeatures?.find((sf) => sf.name === feature.name)
+    const enabled = record !== undefined ? record.enabled !== false : feature.default
+    return { ...feature, enabled }
   })
   return {
     conversationType: conv.conversationType,
     conversationBotName: botName,
-    features: featuresToShow
+    features: featuresWithState
   }
 }
 

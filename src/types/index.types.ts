@@ -245,6 +245,8 @@ export interface FeatureConfig {
   prerequisite?: string
   // Whether the participant can control this feature (toggle or slash command). false = runs automatically.
   userControlled: boolean
+  // Present in /features responses. Absent in static type definitions.
+  enabled?: boolean
 }
 
 export interface PlatformConfig {

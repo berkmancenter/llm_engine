@@ -643,6 +643,9 @@ components:
         userControlled:
           type: boolean
           description: Whether the participant can control this feature (toggle or slash command). false = runs automatically.
+        enabled:
+          type: boolean
+          description: Whether this feature is active for this conversation. Present in /features responses; absent means fall back to the type's default.
 
     PlatformConfig:
       type: object

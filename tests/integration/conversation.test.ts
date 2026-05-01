@@ -2467,16 +2467,27 @@ describe('Conversation routes', () => {
       const resp = await request(app).get(url).expect(httpStatus.OK)
 
       const names = resp.body.features.map((f) => f.name)
-      // All seven eventAssistantPlus features are default:true, so all appear
+      // All eight eventAssistantPlus features are default:true, so all appear
       // even though conv.features only lists three — pre-existing conversations get the
       // full list without a DB migration.
       expect(names).toEqual(
-        expect.arrayContaining(['mindmap', 'visual', 'jargonFilter', 'mod', 'collectiveVoice', 'catalyst', 'librarian'])
+        expect.arrayContaining([
+          'mindmap',
+          'visual',
+          'visualPreference',
+          'jargonFilter',
+          'mod',
+          'collectiveVoice',
+          'catalyst',
+          'librarian'
+        ])
       )
-      expect(resp.body.features).toHaveLength(7)
+      expect(resp.body.features).toHaveLength(8)
+      // every feature must carry an enabled flag
+      expect(resp.body.features.every((f) => typeof f.enabled === 'boolean')).toBe(true)
     })
 
-    test('each feature includes display metadata (label, category, slashCommand, userControlled)', async () => {
+    test('each feature includes display metadata (label, category, slashCommand, userControlled, enabled)', async () => {
       const url = `/v1/conversations/${guideConversation._id.toString()}/features`
       const resp = await request(app).get(url).expect(httpStatus.OK)
 
@@ -2486,7 +2497,8 @@ describe('Conversation routes', () => {
         label: 'Mind Map',
         category: 'assistant',
         slashCommand: 'mindmap',
-        userControlled: true
+        userControlled: true,
+        enabled: true
       })
     })
 
@@ -2496,7 +2508,7 @@ describe('Conversation routes', () => {
       await request(app).get(url).expect(httpStatus.NOT_FOUND)
     })
 
-    test('hides a feature explicitly disabled with enabled:false even when it is default on the type', async () => {
+    test('marks a feature enabled:false when explicitly disabled on the conversation', async () => {
       const conv = new Conversation({
         _id: new mongoose.Types.ObjectId(),
         name: 'guide-disabled-feature-test',
@@ -2514,10 +2526,13 @@ describe('Conversation routes', () => {
       const url = `/v1/conversations/${conv._id.toString()}/features`
       const resp = await request(app).get(url).expect(httpStatus.OK)
 
-      const names = resp.body.features.map((f) => f.name)
-      expect(names).not.toContain('mindmap')
-      // other default features still appear
-      expect(names).toContain('visual')
+      // disabled feature still appears in the list (so the guide can grey it out)
+      const mindmap = resp.body.features.find((f) => f.name === 'mindmap')
+      expect(mindmap).toBeDefined()
+      expect(mindmap.enabled).toBe(false)
+      // other default features still appear as enabled
+      const visual = resp.body.features.find((f) => f.name === 'visual')
+      expect(visual.enabled).toBe(true)
     })
   })
 })
