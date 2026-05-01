@@ -1,6 +1,5 @@
 import eventAssistant from './eventAssistant.js'
 import backChannel from './backChannel.js'
-import eventAssistantPlus from './eventAssistantPlus.js'
 import type { ConversationType } from '../types/index.types.js'
 import chatbot from './chatbot.js'
 import eventHistorian from './eventHistorian.js'
@@ -13,8 +12,7 @@ const internal: Record<string, ConversationType> = {
 
 const defaultConversationTypes: Record<string, ConversationType> = {
   eventAssistant,
-  backChannel,
-  eventAssistantPlus
+  backChannel
 }
 
 let conversationTypes: Record<string, ConversationType> = { ...defaultConversationTypes, ...internal }
