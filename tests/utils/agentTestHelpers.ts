@@ -873,36 +873,6 @@ export async function createEventAssistantConversation(conversationObj, owner, t
   return conversation
 }
 
-export async function createEventAssistantPlusConversation(
-  conversationObj,
-  owner,
-  topic,
-  startTime,
-  llmPlatform?,
-  llmModel?
-) {
-  const conversation = await createConversation(conversationObj, owner, topic, startTime)
-  const agent = new Agent({
-    agentType: 'eventAssistantPlus',
-    conversation,
-    llmPlatform,
-    llmModel
-  })
-  const channels = await Channel.create([
-    { name: 'transcript' },
-    { name: `direct-agents-${owner._id}`, direct: true, participants: [owner, agent] },
-    { name: 'participant' },
-    { name: 'chat' },
-    { name: 'image-gen' }
-  ])
-  conversation.channels.push(...channels)
-  await agent.save()
-  conversation.agents.push(agent)
-  await conversation.save()
-  await await agent.start()
-  return conversation
-}
-
 export async function createBackChannelConversation(conversationObj, owner, topic, startTime, llmPlatform, llmModel) {
   const conversation = await createConversation(conversationObj, owner, topic, startTime)
   const channels = await Channel.create([{ name: 'moderator' }, { name: 'participant' }])
@@ -1072,6 +1042,38 @@ export const plainLanguageTranscript = `00:10 | Sarah: Welcome everyone, glad yo
 00:30 | Sarah: When someone raises a concern early, the whole team benefits.
 00:38 | Sarah: We hold a short meeting each morning to check in and share updates.
 00:45 | Sarah: Anyone can bring a problem to the table — no idea is too small.`
+
+export async function createEventAssistantWithModSupportConversation(
+  conversationObj,
+  owner,
+  topic,
+  startTime,
+  llmPlatform?,
+  llmModel?
+) {
+  const conversation = await createConversation(conversationObj, owner, topic, startTime)
+  const agent = new Agent({
+    agentType: 'eventAssistant',
+    conversation,
+    llmPlatform,
+    llmModel,
+    agentConfig: { moderatorSupport: true }
+  })
+  const channels = await Channel.create([
+    { name: 'transcript' },
+    { name: 'participant' },
+    { name: 'chat' },
+    { name: 'image-gen' },
+    { name: `direct-agents-${owner._id}`, direct: true, participants: [owner, agent] }
+  ])
+  conversation.channels.push(...channels)
+  await agent.save()
+  conversation.agents.push(agent)
+  await conversation.save()
+  await agent.initialize()
+  await agent.start()
+  return conversation
+}
 
 export async function createJargonFilterConversation(
   conversationObj,

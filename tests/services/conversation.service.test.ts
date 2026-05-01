@@ -56,24 +56,7 @@ const testAgentTypeSpecification = {
     defaultLLMPlatform,
     defaultLLMModel
   },
-  eventAssistantPlus: {
-    respond: mockRespond,
-    evaluate: mockEvaluate,
-    start: mockStart,
-    stop: mockStop,
-    name: 'Event Assistant Plus',
-    description: 'A test agent',
-    maxTokens: 2000,
-    defaultTriggers: { perMessage: { minNewMessage: 2 } },
-    priority: 100,
-    llmTemplateVars: { contribution: [], voting: [] },
-    defaultLLMTemplates: {
-      contribution: 'You are an agent that does awesome stuff. Be awesome!',
-      voting: 'You should vote on this data {voteData}'
-    },
-    defaultLLMPlatform,
-    defaultLLMModel
-  },
+
   backChannelInsights: {
     respond: mockRespond,
     start: mockStart,
@@ -257,7 +240,7 @@ describe('Conversation service methods', () => {
         expect(adapters[0].config.meetingUrl).toBe('https://zoom.us/j/123456789?pwd=12345')
 
         // Verify channels were created
-        expect(conversation.channels).toHaveLength(3)
+        expect(conversation.channels).toHaveLength(6)
       })
 
       test('should create conversation with only validation keys specified', async () => {
@@ -295,7 +278,7 @@ describe('Conversation service methods', () => {
         expect(adapters[0].config.meetingUrl).toBe('https://zoom.us/j/123456789?pwd=12345')
 
         // Verify channels were created
-        expect(conversation.channels).toHaveLength(3)
+        expect(conversation.channels).toHaveLength(6)
       })
 
       test('should use default botName when not provided', async () => {
@@ -709,7 +692,7 @@ describe('Conversation service methods', () => {
 
     describe('feature agent inclusion and property resolution', () => {
       const baseParams = {
-        type: 'eventAssistantPlus',
+        type: 'eventAssistant',
         name: 'Test Proactive Event',
         platforms: ['zoom'],
         scheduledTime: new Date(Date.now() + 3600000)
@@ -847,7 +830,7 @@ describe('Conversation service methods', () => {
 
       // Create conversation with periodic agent (eventMediator)
       const periodicParams = {
-        type: 'eventAssistantPlus',
+        type: 'eventAssistant',
         name: 'Periodic Test Conversation',
         platforms: ['zoom'],
         topicId: topicOne._id.toString(),

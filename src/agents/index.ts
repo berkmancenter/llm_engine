@@ -2,7 +2,6 @@
 import backChannelMetrics from './backChannel/backChannelMetrics.js'
 import backChannelInsights from './backChannel/backChannelInsights.js'
 import eventAssistant from './eventAssistant/eventAssistant.js'
-import eventAssistantPlus from './eventAssistant/eventAssistantPlus.js'
 import eventMediator from './eventMediator/eventMediator.js'
 import moderatorNotifier from './moderatorNotifier/moderatorNotifier.js'
 import engagementAgent from './engagement/engagementAgent.js'
@@ -43,7 +42,6 @@ export default {
   backChannelInsights,
   eventAssistant,
   chatbot,
-  eventAssistantPlus,
   eventMediator,
   moderatorNotifier,
   engagementAgent,
