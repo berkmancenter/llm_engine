@@ -45,6 +45,7 @@ export default tseslint.config(
     ignores: ['dist/**', 'node_modules/**'],
     rules: {
       'import/extensions': 'off',
+      'import/no-cycle': 'error',
       'no-console': 'error',
       'func-names': 'off',
       'no-underscore-dangle': 'off',
