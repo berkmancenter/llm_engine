@@ -1,24 +1,136 @@
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
+import renderAgentTemplate from '../helpers/renderAgentTemplate.js'
+
+import Message from '../../models/message.model.js'
+import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import {
   eventAssistantLLMTemplates,
   eventAssistantLlmTemplateVars,
   answerQuestion,
+  QuestionClassification,
   generatePseudonymFunFact
 } from './eventQuestionHandler.js'
-import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
-import renderAgentTemplate from '../helpers/renderAgentTemplate.js'
-import config from '../../config/config.js'
+
 import logger from '../../config/logger.js'
+import config from '../../config/config.js'
 import generateImageResponse from './imageGenerator.js'
 import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from '../helpers/slashCommandParser.js'
 import generateMindMap from './mindMapGenerator.js'
 
-// Supported slash commands for Event Assistant
+const submitToModeratorQuestion = 'Would you like to submit this question anonymously to the moderator for Q&A?'
+const submitToModeratorReply = 'Your message has been submitted to the moderator.'
+const declineModeratorReply = "OK, I won't submit it. Feel free to ask me anything else!"
+const submitToModeratorCommand = '/mod'
+const mindMapCommand = '/mindmap'
+
+// Supported slash commands for Event Assistant Plus
 const supportedCommands: SlashCommand[] = [
+  { command: 'mod', prefix: submitToModeratorCommand, addToChannels: ['participant'] },
   { command: 'visual', prefix: '/visual ' },
-  { command: 'mindmap', prefix: '/mindmap' }
+  { command: 'mindmap', prefix: mindMapCommand }
 ]
+
+function isAffirmative(text) {
+  const normalized = text.trim().toLowerCase()
+  const affirmativePatterns =
+    /^(yes|yeah|yep|yup|sure|okay|ok|absolutely|definitely|certainly|affirmative|correct|right|indeed|of course|you bet|sounds good)/
+
+  return affirmativePatterns.test(normalized)
+}
+
+function isNegative(text) {
+  const normalized = text.trim().toLowerCase()
+  const negativePatterns =
+    /^(no|nah|nope|naw|not really|don't|dont|never mind|nevermind|no thanks|no thank you|negative|not now|maybe later|i'm good|im good)/
+
+  return negativePatterns.test(normalized)
+}
+
+function submitToModeratorResponse(userMessage, message) {
+  return [
+    {
+      visible: true,
+      message: { type: 'moderator_submitted', text: submitToModeratorReply, message: message._id.toString() },
+      messageType: 'json',
+      channels: this.conversation.channels.filter(
+        (channel) => userMessage.channels.includes(channel.name) && channel.direct
+      ),
+      parent: userMessage.parentMessage
+    }
+  ]
+}
+
+function declineModeratorResponse(userMessage, message) {
+  return [
+    {
+      visible: true,
+      message: { type: 'moderator_declined', text: declineModeratorReply, message: message._id.toString() },
+      messageType: 'json',
+      channels: this.conversation.channels.filter(
+        (channel) => userMessage.channels.includes(channel.name) && channel.direct === true
+      ),
+      parent: userMessage.parentMessage
+    }
+  ]
+}
+
+async function handleModeratorReply(conversationHistory, userMessage) {
+  const lastMessage = conversationHistory.messages[conversationHistory.messages.length - 1]
+  if (
+    conversationHistory.messages.length > 1 &&
+    lastMessage.bodyType === 'json' &&
+    (lastMessage.body as Record<string, unknown>).text === submitToModeratorQuestion
+  ) {
+    const originalMessageId = (lastMessage.body as Record<string, unknown>).message
+    const message = await Message.findById(originalMessageId)
+    const responseText = extractMessageText(userMessage)
+
+    if (isAffirmative(responseText)) {
+      if (!message) {
+        logger.error(`Could not find original message with ID ${originalMessageId} to submit to moderator`)
+        return []
+      }
+      message.channels = message.channels ?? []
+      message.channels.push('participant')
+      await message.save()
+      return submitToModeratorResponse.call(this, userMessage, message)
+    }
+
+    if (isNegative(responseText)) {
+      return declineModeratorResponse.call(this, userMessage, message)
+    }
+    // Neither affirmative nor negative — fall through to process as a new question
+  }
+  return null
+}
+
+function offerModeratorSubmission(userMessage, agentResponses, conversation) {
+  const { classification } = agentResponses[0]
+  if (
+    classification === QuestionClassification.UNANSWERABLE ||
+    classification === QuestionClassification.ON_TOPIC_ASK_SPEAKER
+  ) {
+    agentResponses.push({
+      visible: true,
+      message: {
+        type: 'moderator_offered',
+        text: submitToModeratorQuestion,
+        message: userMessage._id.toString()
+      },
+      messageType: 'json',
+      channels: conversation.channels.filter((channel) => userMessage.channels.includes(channel.name)),
+      replyFormat: {
+        type: 'singleChoice',
+        options: [
+          { value: 'no', label: 'No' },
+          { value: 'yes', label: 'Yes' }
+        ]
+      },
+      parent: userMessage.parentMessage
+    })
+  }
+}
 
 export default verify({
   name: 'Event Assistant',
@@ -39,6 +151,15 @@ export default verify({
   defaultLLMTemplates: eventAssistantLLMTemplates,
   defaultLLMPlatform,
   defaultLLMModel,
+  parseOutput: (msg) => {
+    if (msg.bodyType === 'text') {
+      return msg
+    }
+    const translatedMsg = msg.toObject()
+    translatedMsg.bodyType = 'text'
+    translatedMsg.body = msg.body.text
+    return translatedMsg
+  },
   ragCollectionName: undefined,
   defaultConversationHistorySettings: { count: 100, directMessages: true, channels: ['chat'] },
 
@@ -62,9 +183,10 @@ export default verify({
       }
     }
 
+    const messageText = userMessage?.bodyType === 'json' ? userMessage?.body?.text : userMessage?.body
     if (
       userMessage?.channels?.includes('chat') &&
-      !userMessage?.body.toLowerCase().includes(`@${this.agentConfig.botName}`.toLowerCase())
+      !messageText?.toLowerCase().includes(`@${this.agentConfig.botName}`.toLowerCase())
     ) {
       // regular chat message, no need to process
       return {
@@ -76,7 +198,10 @@ export default verify({
     }
 
     // Parse slash commands using shared parser
-    const modifiedMessage = parseSlashCommands(userMessage, supportedCommands)
+    const activeCommands = this.agentConfig?.moderatorSupport
+      ? supportedCommands
+      : supportedCommands.filter((c) => c.command !== 'mod')
+    const modifiedMessage = parseSlashCommands(userMessage, activeCommands)
 
     return {
       userMessage: modifiedMessage,
@@ -85,7 +210,7 @@ export default verify({
       suggestion: undefined
     }
   },
-  async respond(conversationHistory: ConversationHistory, userMessage, options?) {
+  async respond(conversationHistory: ConversationHistory, userMessage) {
     // Handle image generation requests from self
     if (userMessage?.channels?.includes('image-gen')) {
       const imageResponse = await generateImageResponse(userMessage, this.conversation)
@@ -97,17 +222,34 @@ export default verify({
       return await generateMindMap(this, userMessage)
     }
 
-    const modifiedMessage = { ...userMessage }
+    // Message on chat channel?
+    if (userMessage?.channels?.includes('chat')) {
+      const agentResponses = await answerQuestion.call(this, userMessage, conversationHistory)
+      return agentResponses
+    }
+
+    if (this.agentConfig?.moderatorSupport) {
+      const moderatorReply = await handleModeratorReply.call(this, conversationHistory, userMessage)
+      if (moderatorReply !== null) return moderatorReply
+
+      if (userMessage.channels?.includes('participant')) {
+        return submitToModeratorResponse.call(this, userMessage, userMessage)
+      }
+    }
 
     // Check for visual command (set in evaluate)
     const forceVisual = hasCommand(userMessage, 'visual')
 
-    // Extract text from JSON body if present
+    // Extract text from JSON body if present for processing
+    const modifiedMessage = { ...userMessage }
     modifiedMessage.body = extractMessageText(userMessage)
 
-    // Keep the @BotName mention in the question so the LLM can see it is addressed directly,
-    // consistent with how bot-directed messages appear in conversation history.
-    const agentResponses = await answerQuestion.call(this, modifiedMessage, conversationHistory, { ...options, forceVisual })
+    const agentResponses = await answerQuestion.call(this, modifiedMessage, conversationHistory, { forceVisual })
+
+    if (this.agentConfig?.moderatorSupport) {
+      offerModeratorSubmission(userMessage, agentResponses, this.conversation)
+    }
+
     return agentResponses
   },
   async start() {
