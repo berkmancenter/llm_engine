@@ -299,7 +299,7 @@ const findByIdFull = async (id, user) => {
   if (!conversation) {
     throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${id} not found`)
   }
-  const followed = Follower.findOne({ conversation, user }).select('_id').exec() !== null
+  const followed = (await Follower.findOne({ conversation, user }).select('_id').exec()) !== null
   const conversationPojo = conversation.toObject({
     transform: (doc, ret: ConversationDocument) => {
       // Only transform the top-level conversation document

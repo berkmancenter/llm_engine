@@ -13,8 +13,12 @@ import { setAdapterTypes } from '../../src/models/adapter.model.js'
 import { setAgentTypes } from '../../src/models/user.model/agent.model/index.js'
 import defaultAgentTypes from '../../src/agents/index.js'
 import config from '../../src/config/config.js'
+import schedule from '../../src/jobs/schedule.js'
+import defineJob from '../../src/jobs/define.js'
+import transcript from '../../src/agents/helpers/transcript.js'
 
 jest.setTimeout(10000)
+jest.mock('agenda')
 setupIntTest()
 const topicOne = newPublicTopic()
 
@@ -218,6 +222,18 @@ describe('Conversation service methods', () => {
 
   beforeEach(async () => {
     jest.spyOn(websocketGateway, 'broadcastNewConversation').mockResolvedValue()
+    jest.spyOn(transcript, 'loadEventMetadataIntoVectorStore').mockResolvedValue()
+    jest.spyOn(transcript, 'deleteTranscript').mockResolvedValue()
+    jest.spyOn(schedule, 'cancelBatchTranscript').mockResolvedValue()
+    jest.spyOn(schedule, 'batchTranscript').mockResolvedValue()
+    jest.spyOn(schedule, 'cancelPeriodicAgent').mockResolvedValue()
+    jest.spyOn(schedule, 'periodicAgent').mockResolvedValue()
+    jest.spyOn(schedule, 'agentResponse').mockResolvedValue()
+    jest.spyOn(schedule, 'agentIntroduction').mockResolvedValue()
+    jest.spyOn(defineJob, 'batchTranscript').mockResolvedValue()
+    jest.spyOn(defineJob, 'periodicAgent').mockResolvedValue()
+    jest.spyOn(defineJob, 'agentResponse').mockResolvedValue()
+    jest.spyOn(defineJob, 'agentIntroduction').mockResolvedValue()
     mockGetUniqueKeys.mockReturnValue([])
   })
 
