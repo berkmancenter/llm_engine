@@ -84,9 +84,7 @@ export default verify({
   defaultLLMModel,
   defaultConversationHistorySettings: { count: 10 },
   ragCollectionName: undefined,
-  async initialize() {
-    return true
-  },
+
   async start() {
     await saveMessage.call(
       this,

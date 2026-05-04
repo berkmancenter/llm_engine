@@ -152,10 +152,6 @@ export default verify({
   defaultLLMModelOptions: { maxTokens: 4000 },
   ragCollectionName: undefined, // earlier transcript context not needed, just analyzes the window
 
-  async initialize() {
-    return true
-  },
-
   async evaluate(userMessage?: IMessage) {
     // Path A: Periodic trigger (no userMessage)
     if (!userMessage) {

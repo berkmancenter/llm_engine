@@ -19,7 +19,6 @@ jest.setTimeout(120000)
 
 const testAgentTypeSpecification = {
   test: {
-    initialize: jest.fn(),
     respond: jest.fn(),
     evaluate: jest.fn(),
     isWithinTokenLimit: jest.fn(),

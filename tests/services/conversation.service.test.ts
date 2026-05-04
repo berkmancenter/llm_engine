@@ -24,7 +24,6 @@ const topicOne = newPublicTopic()
 
 const mockEvaluate = jest.fn()
 const mockRespond = jest.fn()
-const mockInitialize = jest.fn()
 const mockStart = jest.fn()
 const mockStop = jest.fn()
 const mockAdapterStart = jest.fn()
@@ -40,7 +39,6 @@ const testAdapterTypes = {
 
 const testAgentTypeSpecification = {
   eventAssistant: {
-    initialize: mockInitialize,
     respond: mockRespond,
     evaluate: mockEvaluate,
     start: mockStart,
@@ -59,7 +57,6 @@ const testAgentTypeSpecification = {
     defaultLLMModel
   },
   eventAssistantPlus: {
-    initialize: mockInitialize,
     respond: mockRespond,
     evaluate: mockEvaluate,
     start: mockStart,
@@ -78,7 +75,6 @@ const testAgentTypeSpecification = {
     defaultLLMModel
   },
   backChannelInsights: {
-    initialize: mockInitialize,
     respond: mockRespond,
     start: mockStart,
     stop: mockStop,
@@ -96,7 +92,6 @@ const testAgentTypeSpecification = {
     defaultLLMModel
   },
   backChannelMetrics: {
-    initialize: mockInitialize,
     respond: mockRespond,
     start: mockStart,
     stop: mockStop,
@@ -114,7 +109,6 @@ const testAgentTypeSpecification = {
     defaultLLMModel
   },
   eventMediator: {
-    initialize: mockInitialize,
     respond: mockRespond,
     start: mockStart,
     stop: mockStop,
@@ -136,7 +130,6 @@ const testAgentTypeSpecification = {
     }
   },
   eventMediatorPlus: {
-    initialize: mockInitialize,
     respond: mockRespond,
     start: mockStart,
     stop: mockStop,
@@ -158,7 +151,6 @@ const testAgentTypeSpecification = {
     }
   },
   engagementAgent: {
-    initialize: mockInitialize,
     respond: mockRespond,
     start: mockStart,
     stop: mockStop,
@@ -176,7 +168,6 @@ const testAgentTypeSpecification = {
     defaultLLMModel
   },
   jargonFilterAgent: {
-    initialize: mockInitialize,
     respond: mockRespond,
     start: mockStart,
     stop: mockStop,
@@ -194,7 +185,6 @@ const testAgentTypeSpecification = {
     defaultLLMModel
   },
   voiceAssistant: {
-    initialize: mockInitialize,
     respond: mockRespond,
     evaluate: mockEvaluate,
     start: mockStart,

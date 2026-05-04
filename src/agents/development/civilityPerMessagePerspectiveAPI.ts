@@ -18,9 +18,6 @@ export default verify({
   defaultLLMModel: 'default',
   ragCollectionName: undefined,
 
-  async initialize() {
-    return true
-  },
   async evaluate(userMessage) {
     const googleClient = await this.getLLM()
     const analyzeRequest = {

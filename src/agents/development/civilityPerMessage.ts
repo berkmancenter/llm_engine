@@ -37,9 +37,6 @@ export default verify({
   defaultLLMModel,
   ragCollectionName: undefined,
 
-  async initialize() {
-    return true
-  },
   async evaluate(userMessage) {
     const topic = this.conversation.name
     const llm = await this.getLLM()

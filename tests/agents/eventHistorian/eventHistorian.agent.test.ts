@@ -42,7 +42,7 @@ describe('eventHistorian agent tests', () => {
     await testAgent.save()
     conv.agents.push(testAgent)
     await conv.save()
-    await testAgent.initialize()
+    await test
     await testAgent.start()
     return { conv, testAgent }
   }
@@ -229,7 +229,6 @@ A single mom of two children with primary custody, she is passionate about findi
       await eventHistorian.save()
       eventConversation.agents.push(eventHistorian)
       await eventConversation.save()
-      await eventHistorian.initialize()
       await eventHistorian.start()
     })
 
@@ -332,7 +331,6 @@ A single mom of two children with primary custody, she is passionate about findi
       await eventHistorianNoTopicIds.save()
       eventConversation.agents.push(eventHistorianNoTopicIds)
       await eventConversation.save()
-      await eventHistorianNoTopicIds.initialize()
       await eventHistorianNoTopicIds.start()
     })
 

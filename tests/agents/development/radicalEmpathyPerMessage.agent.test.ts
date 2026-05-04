@@ -67,7 +67,6 @@ describe('radicalEmpathyPerMessage agent tests', () => {
       llmModel: testConfig.llmModel
     })
     await agent.save()
-    await agent.initialize()
     await agent.start()
   })
 

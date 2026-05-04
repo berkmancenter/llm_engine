@@ -83,7 +83,6 @@ describe('generic agent tests', () => {
       ...agentProperties
     })
     await agent.save()
-    await agent.initialize()
     await agent.start()
   }
 

@@ -225,9 +225,6 @@ export default verify({
     }
   },
 
-  async initialize() {
-    return true
-  },
   async start() {
     await saveMessage.call(
       this,

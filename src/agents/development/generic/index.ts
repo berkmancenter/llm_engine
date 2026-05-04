@@ -71,9 +71,6 @@ export default verify({
   },
   defaultConversationHistorySettings: { timeWindow: 300 },
 
-  async initialize() {
-    return true
-  },
   async evaluate(userMessage) {
     return {
       action: AgentMessageActions.CONTRIBUTE,

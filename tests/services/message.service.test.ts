@@ -42,13 +42,12 @@ const testAdapterTypes = {
 }
 
 const mockEvaluate = jest.fn()
-const mockInitialize = jest.fn()
 const mockStart = jest.fn()
 
 const testAgentTypes = {
   perMessage: {
     evaluate: mockEvaluate,
-    initialize: mockInitialize,
+
     start: mockStart,
     name: 'Test Per Message Agent',
     description: 'An agent that responds per message after a certain number reached',

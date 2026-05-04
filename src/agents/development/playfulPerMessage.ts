@@ -31,9 +31,6 @@ export default verify({
   defaultConversationHistorySettings: { count: 10 },
   ragCollectionName: undefined,
 
-  async initialize() {
-    return true
-  },
   async evaluate(userMessage) {
     return {
       userMessage,

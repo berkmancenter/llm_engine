@@ -5,10 +5,7 @@ import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { formatTranscript } from '../helpers/llmInputFormatters.js'
 import { getAgentStructuredResponse } from '../helpers/llmChain.js'
 import verify from '../helpers/verify.js'
-import {
-  getSemanticScholarRecommendationsTool,
-  searchSemanticScholarTool
-} from '../tools/semanticScholar.js'
+import { getSemanticScholarRecommendationsTool, searchSemanticScholarTool } from '../tools/semanticScholar.js'
 
 const buildRecommendationSchema = (count: number) =>
   z.object({
@@ -130,10 +127,6 @@ export default verify({
   },
   ragCollectionName: undefined,
 
-  async initialize() {
-    return true
-  },
-
   async evaluate(userMessage?: IMessage) {
     return {
       action: AgentMessageActions.CONTRIBUTE,
@@ -211,7 +204,9 @@ export default verify({
         message: { content: result.recommendations, type: 'reading' },
         messageType: 'json',
         channels: [resourcesChannel],
-        context: `Speakers: ${speakerNames}\nModerators: ${moderatorNames}\nPrevious recommendations: ${previousRecs.join('; ') || 'None yet'}\n\nTranscript:\n${transcript}`
+        context: `Speakers: ${speakerNames}\nModerators: ${moderatorNames}\nPrevious recommendations: ${
+          previousRecs.join('; ') || 'None yet'
+        }\n\nTranscript:\n${transcript}`
       }
     ]
   },

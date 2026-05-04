@@ -31,7 +31,6 @@ async function createVoiceAssistantConversation(conversationObj, owner, topic, s
   await agent.save()
   conversation.agents.push(agent)
   await conversation.save()
-  await agent.initialize()
   await agent.start()
   return conversation
 }

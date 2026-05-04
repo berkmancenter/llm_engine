@@ -34,7 +34,6 @@ describe('chatbot agent tests', () => {
     await testAgent.save()
     conv.agents.push(testAgent)
     await conv.save()
-    await testAgent.initialize()
     await testAgent.start()
     return { conv, testAgent }
   }

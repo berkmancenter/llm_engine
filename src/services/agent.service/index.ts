@@ -18,7 +18,6 @@ async function schedulePeriodicAgent(agent) {
 }
 async function initialize(agent) {
   try {
-    await agent.initialize()
     if (!agent.triggers || agent.triggers?.perMessage) {
       // Define the job used to retrieve response async during per-message or manual activation
       await defineJob.agentResponse(agent._id)
