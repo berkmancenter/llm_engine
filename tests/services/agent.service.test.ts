@@ -12,14 +12,12 @@ import { defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/ge
 
 const mockEvaluate = jest.fn()
 const mockRespond = jest.fn()
-const mockInitialize = jest.fn()
 const mockTokenLimit = jest.fn()
 const mockStart = jest.fn()
 const mockStop = jest.fn()
 
 const testAgentTypes = {
   manual: {
-    initialize: mockInitialize,
     respond: mockRespond,
     evaluate: mockEvaluate,
     isWithinTokenLimit: mockTokenLimit,
@@ -39,7 +37,6 @@ const testAgentTypes = {
     defaultLLMModelOptions: { prop: 'value' }
   },
   periodic: {
-    initialize: mockInitialize,
     respond: mockRespond,
     evaluate: mockEvaluate,
     isWithinTokenLimit: mockTokenLimit,
@@ -56,7 +53,6 @@ const testAgentTypes = {
     defaultLLMModel
   },
   perMessage: {
-    initialize: mockInitialize,
     respond: mockRespond,
     evaluate: mockEvaluate,
     isWithinTokenLimit: mockTokenLimit,
@@ -104,7 +100,6 @@ describe('agent tests', () => {
   test('should create and initialize agent with no triggers', async () => {
     const agent = await agentService.createAgent('manual', conversation)
     expect(agent.conversation).toEqual(conversation)
-    expect(mockInitialize).toHaveBeenCalled()
     expect(scheduleSpy).not.toHaveBeenCalled()
     expect(definePeriodicSpy).not.toHaveBeenCalled()
     expect(defineResponseSpy).toHaveBeenCalledTimes(1)
@@ -112,7 +107,6 @@ describe('agent tests', () => {
   test('should create and initialize agent with per message triggers', async () => {
     const agent = await agentService.createAgent('perMessage', conversation)
     expect(agent.conversation).toEqual(conversation)
-    expect(mockInitialize).toHaveBeenCalled()
     expect(scheduleSpy).not.toHaveBeenCalled()
     expect(definePeriodicSpy).not.toHaveBeenCalled()
     expect(defineResponseSpy).toHaveBeenCalledTimes(1)
@@ -120,7 +114,6 @@ describe('agent tests', () => {
   test('should create and initialize agent with periodic triggers', async () => {
     const agent = await agentService.createAgent('periodic', conversation)
     expect(agent.conversation).toEqual(conversation)
-    expect(mockInitialize).toHaveBeenCalled()
 
     // don't schedule yet because agent is inactive by default
     expect(scheduleSpy).not.toHaveBeenCalled()
@@ -134,8 +127,7 @@ describe('agent tests', () => {
       conversation
     })
     await agent.save()
-    await agent.initialize()
-    await agentService.startAgent(agent)
+    await await agentService.startAgent(agent)
 
     expect(mockStart).toHaveBeenCalled()
     expect(scheduleSpy).not.toHaveBeenCalled()
@@ -149,8 +141,7 @@ describe('agent tests', () => {
       conversation
     })
     await agent.save()
-    await agent.initialize()
-    await agentService.startAgent(agent)
+    await await agentService.startAgent(agent)
 
     expect(mockStart).toHaveBeenCalled()
     expect(scheduleSpy).toHaveBeenCalledTimes(1)
@@ -163,8 +154,7 @@ describe('agent tests', () => {
       conversation
     })
     await agent.save()
-    await agent.initialize()
-    await agentService.stopAgent(agent)
+    await await agentService.stopAgent(agent)
 
     expect(mockStop).toHaveBeenCalled()
     expect(cancelSpy).not.toHaveBeenCalled()
@@ -176,8 +166,7 @@ describe('agent tests', () => {
       conversation
     })
     await agent.save()
-    await agent.initialize()
-    await agentService.stopAgent(agent)
+    await await agentService.stopAgent(agent)
 
     expect(mockStop).toHaveBeenCalled()
     expect(cancelSpy).toHaveBeenCalledTimes(1)

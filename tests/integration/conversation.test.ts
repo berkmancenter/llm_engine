@@ -49,7 +49,6 @@ Error.stackTraceLimit = Infinity
 
 const mockEvaluate = jest.fn()
 const mockRespond = jest.fn()
-const mockInitialize = jest.fn()
 const mockTokenLimit = jest.fn()
 const mockStart = jest.fn()
 const mockStop = jest.fn()
@@ -59,7 +58,6 @@ const mockGetUniqueKeys = jest.fn()
 
 const testAgentTypeSpecification = {
   test: {
-    initialize: mockInitialize,
     respond: mockRespond,
     evaluate: mockEvaluate,
     isWithinTokenLimit: mockTokenLimit,
@@ -79,7 +77,6 @@ const testAgentTypeSpecification = {
     defaultLLMModel
   },
   testManual: {
-    initialize: mockInitialize,
     respond: mockRespond,
     isWithinTokenLimit: mockTokenLimit,
     start: mockStart,

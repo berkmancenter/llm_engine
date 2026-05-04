@@ -45,10 +45,6 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
   },
   ragCollectionName: undefined,
 
-  async initialize() {
-    return true
-  },
-
   async evaluate(userMessage) {
     // Periodic trigger only
     return {

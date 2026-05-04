@@ -139,10 +139,6 @@ export default verify({
   defaultLLMModel,
   ragCollectionName: undefined,
 
-  async initialize() {
-    return true
-  },
-
   async evaluate(userMessage) {
     // Periodic trigger only
     return {

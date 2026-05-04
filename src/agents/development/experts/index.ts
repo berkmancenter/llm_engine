@@ -87,9 +87,7 @@ export default verify({
       if (!delegate._id) delegate._id = new mongoose.Types.ObjectId()
     }
   },
-  async initialize() {
-    return true
-  },
+
   async start() {
     await saveMessage.call(
       this,

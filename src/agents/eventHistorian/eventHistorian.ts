@@ -62,10 +62,6 @@ export default verify({
   ragCollectionName: undefined,
   defaultConversationHistorySettings: { count: 100, channels: ['historian'] },
 
-  async initialize() {
-    return true
-  },
-
   async evaluate(userMessage) {
     // Only respond when explicitly mentioned with @BotName
     if (!userMessage?.body?.toLowerCase().includes(`@${this.agentConfig.botName}`.toLowerCase())) {

@@ -13,7 +13,6 @@ import { defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/ge
 jest.setTimeout(120000)
 const mockEvaluate = jest.fn()
 const mockRespond = jest.fn()
-const mockInitialize = jest.fn()
 // const mockTokenLimit = jest.fn()
 const mockStart = jest.fn()
 const mockStop = jest.fn()
@@ -21,7 +20,6 @@ const mockIntroduce = jest.fn()
 
 const testAgentTypes = {
   perMessageWithMin: {
-    initialize: mockInitialize,
     respond: mockRespond,
     evaluate: mockEvaluate,
     start: mockStart,
@@ -43,7 +41,6 @@ const testAgentTypes = {
     defaultConversationHistorySettings: { timeWindow: 45 }
   },
   periodic: {
-    initialize: mockInitialize,
     respond: mockRespond,
     evaluate: mockEvaluate,
     start: mockStart,
@@ -59,7 +56,6 @@ const testAgentTypes = {
     defaultLLMModel
   },
   perMessage: {
-    initialize: mockInitialize,
     respond: mockRespond,
     evaluate: mockEvaluate,
     start: mockStart,
@@ -77,7 +73,6 @@ const testAgentTypes = {
   },
 
   withParsers: {
-    initialize: mockInitialize,
     respond: mockRespond,
     evaluate: mockEvaluate,
     start: mockStart,
@@ -108,7 +103,6 @@ const testAgentTypes = {
     }
   },
   withParsersPerMessage: {
-    initialize: mockInitialize,
     respond: mockRespond,
     evaluate: mockEvaluate,
     start: mockStart,
@@ -219,7 +213,6 @@ describe('agent tests', () => {
       direct: true
     })
     await agent.save()
-    await agent.initialize()
 
     const expectedResponse = {
       visible: true,
@@ -255,7 +248,6 @@ describe('agent tests', () => {
       direct: true
     })
     await agent.save()
-    await agent.initialize()
 
     const introductions = await agent.introduce(directChannel)
     expect(mockIntroduce).toHaveBeenCalled()
@@ -274,7 +266,6 @@ describe('agent tests', () => {
       direct: true
     })
     await agent.save()
-    await agent.initialize()
 
     const introductions = await agent.introduce(directChannel)
     expect(introductions).toHaveLength(0)
@@ -287,11 +278,7 @@ describe('agent tests', () => {
       active: true
     })
     await agent.save()
-    await agent.initialize()
-
-    expect(mockInitialize).toHaveBeenCalled()
-
-    // stop the agent and ensure no processing
+    await // stop the agent and ensure no processing
     await agent.stop()
     expect(agent.active).toBe(false)
     expect(mockStop).toHaveBeenCalled()
@@ -351,11 +338,7 @@ describe('agent tests', () => {
       conversation
     })
     await agent.save()
-    await agent.initialize()
-
-    expect(mockInitialize).toHaveBeenCalled()
-
-    expect(agent.active).toBe(false)
+    await expect(agent.active).toBe(false)
 
     // Ensure no processing with inactive agent
     const evalNoOp = await agent.evaluate(msg1)
@@ -414,10 +397,7 @@ describe('agent tests', () => {
       conversation
     })
     await agent.save()
-    await agent.initialize()
-    await agent.start()
-
-    expect(mockInitialize).toHaveBeenCalled()
+    await await agent.start()
 
     const evaluation = await agent.evaluate(msg1)
 
@@ -475,9 +455,7 @@ describe('agent tests', () => {
       conversation
     })
     await agent.save()
-    await agent.initialize()
-    await agent.start()
-    expect(mockInitialize).toHaveBeenCalled()
+    await await agent.start()
 
     await msg1.save()
 
@@ -532,9 +510,7 @@ describe('agent tests', () => {
       conversation
     })
     await agent.save()
-    await agent.initialize()
-    await agent.start()
-    expect(mockInitialize).toHaveBeenCalled()
+    await await agent.start()
 
     const mockEval = {
       userMessage: msg1,
@@ -565,9 +541,7 @@ describe('agent tests', () => {
       conversation
     })
     await agent.save()
-    await agent.initialize()
-    await agent.start()
-    expect(mockInitialize).toHaveBeenCalled()
+    await await agent.start()
 
     const expectedEval = {
       userMessage: msg1,
@@ -595,7 +569,7 @@ describe('agent tests', () => {
   //   await agent.save()
   //   mockTokenLimit.mockResolvedValue(true)
 
-  //   await agent.initialize()
+  //   await
 
   //   const inLimit = await agent.isWithinTokenLimit('Hello')
   //   expect(inLimit).toBe(true)
@@ -607,10 +581,7 @@ describe('agent tests', () => {
       conversation
     })
     await agent.save()
-    await agent.initialize()
-    await agent.start()
-
-    expect(mockInitialize).toHaveBeenCalled()
+    await await agent.start()
 
     const expectedEval = {
       userMessage: msg1,
@@ -652,8 +623,7 @@ describe('agent tests', () => {
       conversation
     })
     await agent.save()
-    await agent.initialize()
-    await agent.start()
+    await await agent.start()
 
     const expectedEval = {
       userMessage: null,
@@ -694,8 +664,7 @@ describe('agent tests', () => {
     })
     conversation.channels.push(directChannel2)
     await conversation.save()
-    await agent.initialize()
-    await agent.start()
+    await await agent.start()
 
     const expectedResponse = {
       visible: true,
@@ -760,8 +729,7 @@ describe('agent tests', () => {
     })
     conversation.channels.push(directChannel2)
     await conversation.save()
-    await agent.initialize()
-    await agent.start()
+    await await agent.start()
 
     const expectedResponse = {
       visible: true,
@@ -803,8 +771,7 @@ describe('agent tests', () => {
       conversation
     })
     await agent.save()
-    await agent.initialize()
-    await agent.start()
+    await await agent.start()
 
     const msg = new Message({
       _id: new mongoose.Types.ObjectId(),
@@ -845,8 +812,7 @@ describe('agent tests', () => {
       conversation
     })
     await agent.save()
-    await agent.initialize()
-    await agent.start()
+    await await agent.start()
 
     const msg = new Message({
       _id: new mongoose.Types.ObjectId(),
@@ -960,8 +926,7 @@ describe('agent tests', () => {
         }
       })
       await agent.save()
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       const expectedEval = {
         userMessage: msgWithChannels,
@@ -989,8 +954,7 @@ describe('agent tests', () => {
         }
       })
       await agent.save()
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       const expectedEval = {
         userMessage: msgWithChannels, // Has both 'general' and 'random', should match
@@ -1018,8 +982,7 @@ describe('agent tests', () => {
         }
       })
       await agent.save()
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       const expectedEval = {
         action: AgentMessageActions.OK,
@@ -1050,8 +1013,7 @@ describe('agent tests', () => {
         direct: true
       })
 
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
       channelEnabledConversation.channels.push(directChannel)
       channelEnabledConversation.enableDMs = ['agents']
       await channelEnabledConversation.save()
@@ -1101,8 +1063,7 @@ describe('agent tests', () => {
         direct: true
       })
 
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
       channelEnabledConversation.channels.push(directChannel)
       channelEnabledConversation.enableDMs = ['agents']
       await channelEnabledConversation.save()
@@ -1123,8 +1084,7 @@ describe('agent tests', () => {
         }
       })
       await agent.save()
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       const expectedEval = {
         action: AgentMessageActions.OK,
@@ -1148,8 +1108,7 @@ describe('agent tests', () => {
         }
       })
       await agent.save()
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       const expectedEval = {
         userMessage: msgWithMixedChannels, // Has both 'general' and DM channel
@@ -1178,8 +1137,7 @@ describe('agent tests', () => {
         }
       })
       await agent.save()
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       const expectedEval = {
         action: AgentMessageActions.OK,
@@ -1202,8 +1160,7 @@ describe('agent tests', () => {
         }
       })
       await agent.save()
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       const expectedEval = {
         action: AgentMessageActions.OK,
@@ -1224,8 +1181,7 @@ describe('agent tests', () => {
         }
       })
       await agent.save()
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       const msgWithoutChannels = new Message({
         _id: new mongoose.Types.ObjectId(),
@@ -1263,8 +1219,7 @@ describe('agent tests', () => {
         }
       })
       await agent.save()
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       // Message without channels property
       const msgWithoutChannels = new Message({
@@ -1303,8 +1258,7 @@ describe('agent tests', () => {
         }
       })
       await agent.save()
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       // Message with empty channels array
       const msgWithEmptyChannels = new Message({
@@ -1343,8 +1297,7 @@ describe('agent tests', () => {
         }
       })
       await agent.save()
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       const expectedEval = {
         action: AgentMessageActions.OK,
@@ -1372,8 +1325,7 @@ describe('agent tests', () => {
         conversation: channelEnabledConversation
       })
       await agent.save()
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       const msgFromOtherAgent = new Message({
         _id: new mongoose.Types.ObjectId(),
@@ -1439,8 +1391,7 @@ describe('agent tests', () => {
         }
       })
       await agent.save()
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       // Create messages on different channels
       const msgGeneral = new Message({
@@ -1532,8 +1483,7 @@ describe('agent tests', () => {
         }
       })
       await agent.save()
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       // Create messages on different channels
       const msgGeneral = new Message({
@@ -1631,8 +1581,7 @@ describe('agent tests', () => {
       testConversation.channels.push(directChannel1, directChannel2)
       await testConversation.save()
 
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       // Create messages on different direct channels
       const msgDirect1 = new Message({
@@ -1713,8 +1662,7 @@ describe('agent tests', () => {
       testConversation.channels.push(directChannel1, directChannel2)
       await testConversation.save()
 
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       // Create messages on different direct channels
       const msgDirect1 = new Message({
@@ -1809,8 +1757,7 @@ describe('agent tests', () => {
         llmPlatform: 'openai'
       })
       await agent.save()
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       const expectedResponse = {
         visible: true,
@@ -1861,8 +1808,7 @@ describe('agent tests', () => {
         conversation
       })
       await agent.save()
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       const expectedResponse = {
         visible: true,
@@ -1918,8 +1864,7 @@ describe('agent tests', () => {
         conversation
       })
       await agent.save()
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       const expectedResponse = {
         visible: true,
@@ -1970,8 +1915,7 @@ describe('agent tests', () => {
         conversation
       })
       await agent.save()
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       const expectedResponse = {
         visible: true,
@@ -2009,8 +1953,7 @@ describe('agent tests', () => {
         conversation
       })
       await agent.save()
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       const expectedResponse = {
         visible: true,
@@ -2061,8 +2004,7 @@ describe('agent tests', () => {
         conversation
       })
       await agent.save()
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       const expectedResponse = {
         visible: true,
@@ -2126,8 +2068,7 @@ describe('agent tests', () => {
       testConversation.channels.push(testChannel)
       await testConversation.save()
 
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       // Create parent message in chat
       parentMsg = new Message({
@@ -2244,8 +2185,7 @@ describe('agent tests', () => {
       testConversation.channels.push(testChannel)
       await testConversation.save()
 
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       // Create parent message
       parentMsg = new Message({
@@ -2362,8 +2302,7 @@ describe('agent tests', () => {
       testConversation.channels.push(testChannel)
       await testConversation.save()
 
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       // Create some messages
       const unthreadedMsg1 = new Message({
@@ -2446,8 +2385,7 @@ describe('agent tests', () => {
       testConversation.channels.push(testChannel)
       await testConversation.save()
 
-      await agent.initialize()
-      await agent.start()
+      await await agent.start()
 
       // Create parent message (saved to DB but not in conversation.messages yet)
       parentMsg = new Message({

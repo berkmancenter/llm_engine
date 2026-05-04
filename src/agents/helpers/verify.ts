@@ -3,7 +3,6 @@ const PROPERTIES = [
   'description',
   'maxTokens',
   'defaultTriggers',
-  'initialize',
   'start',
   'stop',
   // 'isWithinTokenLimit',

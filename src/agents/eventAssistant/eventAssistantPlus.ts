@@ -106,9 +106,6 @@ export default verify({
   ragCollectionName: undefined,
   defaultConversationHistorySettings: { count: 100, directMessages: true, channels: ['chat'] },
 
-  async initialize() {
-    return true
-  },
   async evaluate(userMessage) {
     if (userMessage.pseudonym === this.name) {
       // Handle image generation requests from self

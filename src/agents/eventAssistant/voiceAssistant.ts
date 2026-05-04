@@ -84,10 +84,6 @@ export default verify({
     return translatedMsg
   },
 
-  async initialize() {
-    return true
-  },
-
   async evaluate(userMessage) {
     const botName = this.agentConfig.botName as string
     const questionText = extractVoiceQuestion(userMessage, this.conversation.messages as Array<IMessage>, botName)

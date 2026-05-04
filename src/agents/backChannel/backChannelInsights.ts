@@ -47,9 +47,6 @@ ${msg.body.insights.map((insight) => `⚫ ${insight.value}`).join('\n')}`
     return translatedMsg
   },
   defaultConversationHistorySettings: { timeWindow: 120, channels: ['participant'] },
-  async initialize() {
-    return true
-  },
   async evaluate(userMessage) {
     return {
       action: AgentMessageActions.CONTRIBUTE,

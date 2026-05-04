@@ -869,8 +869,7 @@ export async function createEventAssistantConversation(conversationObj, owner, t
   await agent.save()
   conversation.agents.push(agent)
   await conversation.save()
-  await agent.initialize()
-  await agent.start()
+  await await agent.start()
   return conversation
 }
 
@@ -900,8 +899,7 @@ export async function createEventAssistantPlusConversation(
   await agent.save()
   conversation.agents.push(agent)
   await conversation.save()
-  await agent.initialize()
-  await agent.start()
+  await await agent.start()
   return conversation
 }
 
@@ -919,8 +917,7 @@ export async function createBackChannelConversation(conversationObj, owner, topi
   await agent.save()
   conversation.agents.push(agent)
   await conversation.save()
-  await agent.initialize()
-  await agent.start()
+  await await agent.start()
   return conversation
 }
 
@@ -955,8 +952,7 @@ export async function createEventMediatorConversation(
   await agent.save()
   conversation.agents.push(agent)
   await conversation.save()
-  await agent.initialize()
-  await agent.start()
+  await await agent.start()
   return conversation
 }
 
@@ -990,8 +986,7 @@ export async function createEventMediatorPlusConversation(
   await agent.save()
   conversation.agents.push(agent)
   await conversation.save()
-  await agent.initialize()
-  await agent.start()
+  await await agent.start()
   return conversation
 }
 
@@ -1025,8 +1020,7 @@ export async function createEngagementAgentConversation(
   await agent.save()
   conversation.agents.push(agent)
   await conversation.save()
-  await agent.initialize()
-  await agent.start()
+  await await agent.start()
   return conversation
 }
 
@@ -1108,7 +1102,6 @@ export async function createJargonFilterConversation(
   await agent.save()
   conversation.agents.push(agent)
   await conversation.save()
-  await agent.initialize()
-  await agent.start()
+  await await agent.start()
   return conversation
 }

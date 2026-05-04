@@ -82,9 +82,6 @@ export default verify({
   defaultConversationHistorySettings: { timeWindow: 120, channels: ['participant'] },
   ragCollectionName: undefined,
 
-  async initialize() {
-    return true
-  },
   async evaluate(userMessage) {
     return {
       action: AgentMessageActions.CONTRIBUTE,

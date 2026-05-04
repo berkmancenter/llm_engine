@@ -46,7 +46,6 @@ export interface AgentMethods {
   respond(message?: IMessage): Promise<Array<IMessage>>
   evaluate(message?: IMessage): Promise<AgentEvaluation>
   deepPatch(patch: Record<string, unknown>)
-  initialize()
   start()
   stop()
   introduce(channel: IChannel): Array<IMessage>
@@ -243,23 +242,6 @@ agentSchema.method('stop', async function () {
   await agentTypes[this.agentType].stop.call(this)
 })
 
-agentSchema.method('initialize', async function () {
-  logger.debug(`Agent model initialize: ${this._id}`)
-  if (!this._id) throw new Error('Cannot invoke initialize without an _id')
-
-  if (!this.populated('conversation')) await this.populate('conversation')
-
-  if (!this.conversation) {
-    logger.warn(`No conversation found for agent ${this._id}. Deleting this agent as outdated`)
-    await mongoose.model('Agent').deleteOne({ _id: this._id })
-    return
-  }
-  const agentType = agentTypes[this.agentType]
-  if (!agentType) throw new Error(`No such agentType: ${this.agentType} for agent ${this._id}`)
-  // see if this agent type has specific other initialization required
-  await agentType.initialize.call(this)
-})
-
 // agentSchema.method('isWithinTokenLimit', async function (promptText) {
 //   return agentTypes[this.agentType].isWithinTokenLimit.call(this, promptText)
 // })
@@ -274,7 +256,7 @@ agentSchema.method('evaluate', async function (userMessage = null) {
   if (!this.active) return
   logger.debug(`Agent model evaluate: ${this._id}`)
 
-  if (!this.populated('conversation')) throw new Error(`Conversation must be populated for agent ${this._id}`)
+  if (!this.populated('conversation')) await this.populate('conversation')
   if (!this.conversation) throw new Error(`Missing conversation for agent ${this._id}`)
 
   // ensure messages are populated for owner comparison

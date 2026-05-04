@@ -13,7 +13,6 @@ import setupAgentTest from '../../utils/setupAgentTest.js'
 jest.setTimeout(120000)
 const mockEvaluate = jest.fn()
 const mockRespond = jest.fn()
-const mockInitialize = jest.fn()
 const mockTokenLimit = jest.fn()
 const mockStart = jest.fn()
 const mockStop = jest.fn()
@@ -21,7 +20,6 @@ const mockIntroduce = jest.fn()
 
 const testAgentTypes = {
   perMessageWithMin: {
-    initialize: mockInitialize,
     respond: mockRespond,
     evaluate: mockEvaluate,
     isWithinTokenLimit: mockTokenLimit,
