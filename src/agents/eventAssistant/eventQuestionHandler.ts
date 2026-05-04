@@ -86,6 +86,7 @@ Important! When deciding between ON_TOPIC_ASK_SPEAKER and ON_TOPIC_ANSWER, bias 
 - User feedback, criticism, or reactions about the talk (e.g. "boring", "disagree", "interesting")
 - Personal questions about the speaker's views or preferences related to the topic
 - If it's about the event topic and NOT one of the categories below, use this
+- Do not classify as this if it's a simple acknowledgment ("thanks", "got it")
 
 **ON_TOPIC_ANSWER**: Can be answered authoritatively and exhaustively WITHOUT speaker input from available context and clearly NOT helpful for the speaker to understand audience sentiment.
 - Help writing/formulating a question for the speaker
