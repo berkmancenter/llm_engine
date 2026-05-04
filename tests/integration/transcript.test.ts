@@ -36,8 +36,7 @@ const testAgentTypeSpecification = {
       voting: 'You should vote on this data {voteData}'
     },
     defaultLLMPlatform,
-    defaultLLMModel,
-    useTranscriptRAGCollection: true
+    defaultLLMModel
   }
 }
 
@@ -201,11 +200,7 @@ describe('Transcript routes', () => {
       })
       await conversation.save()
 
-      const ragAgent = new Agent({
-        agentType: 'test',
-        conversation: conversation._id,
-        useTranscriptRAGCollection: true
-      })
+      const ragAgent = new Agent({ agentType: 'test', conversation: conversation._id })
       await ragAgent.save()
 
       conversation.agents = [ragAgent]
@@ -236,63 +231,6 @@ describe('Transcript routes', () => {
       })
 
       // Verify messages are deleted
-      const transcriptMessagesAfter = await Message.find({
-        conversation: conversation._id,
-        channels: { $in: ['transcript'] }
-      })
-      expect(transcriptMessagesAfter).toHaveLength(0)
-
-      removeFromVectorStoreSpy.mockRestore()
-    })
-
-    test('should return 204 and not touch RAG when conversation has no RAG-enabled agents', async () => {
-      const removeFromVectorStoreSpy = jest.spyOn(rag, 'removeFromVectorStore').mockResolvedValue()
-
-      // Create conversation without RAG-enabled agents
-      const conversation = new Conversation({
-        name: 'No RAG Conversation',
-        owner: userOne._id,
-        topic: publicTopic._id,
-        agents: [],
-        messages: [],
-        transcript: { status: 'stopped' }
-      })
-      await conversation.save()
-
-      // Create agent without RAG
-      const agent = new Agent({
-        agentType: 'test',
-        conversation: conversation._id,
-        useTranscriptRAGCollection: false
-      })
-      await agent.save()
-
-      conversation.agents = [agent]
-      await conversation.save()
-
-      // Create transcript message
-      const transcriptMessage = new Message({
-        conversation: conversation._id,
-        body: 'Non-RAG transcript message',
-        channels: ['transcript'],
-        owner: registeredUser._id,
-        pseudonymId: registeredUser.pseudonyms[0]._id,
-        pseudonym: registeredUser.pseudonyms[0].pseudonym,
-        createdAt: new Date()
-      })
-      await transcriptMessage.save()
-
-      // Delete transcript
-      await request(app)
-        .delete(`/v1/transcript/${conversation._id}`)
-        .set('Authorization', `Bearer ${userOneAccessToken}`)
-        .send()
-        .expect(httpStatus.NO_CONTENT)
-
-      // Verify RAG was not touched
-      expect(removeFromVectorStoreSpy).not.toHaveBeenCalled()
-
-      // Verify messages are still deleted
       const transcriptMessagesAfter = await Message.find({
         conversation: conversation._id,
         channels: { $in: ['transcript'] }
@@ -377,11 +315,7 @@ describe('Transcript routes', () => {
       })
       await conversation.save()
 
-      const ragAgent = new Agent({
-        agentType: 'test',
-        conversation: conversation._id,
-        useTranscriptRAGCollection: true
-      })
+      const ragAgent = new Agent({ agentType: 'test', conversation: conversation._id })
       await ragAgent.save()
 
       conversation.agents = [ragAgent]

@@ -44,7 +44,6 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
     return translatedMsg
   },
   ragCollectionName: undefined,
-  useTranscriptRAGCollection: true,
 
   async initialize() {
     return true

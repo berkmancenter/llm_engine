@@ -162,12 +162,7 @@ describe('transcript handler tests', () => {
       fourMonthsAgo.setMonth(fourMonthsAgo.getMonth() - 4)
       conversation.startTime = fourMonthsAgo
 
-      // Create an agent with transcript RAG enabled
-      const agent = new Agent({
-        agentType: 'perMessageWithMin',
-        conversation,
-        useTranscriptRAGCollection: true
-      })
+      const agent = new Agent({ agentType: 'perMessageWithMin', conversation })
       await agent.save()
 
       // Add agent to conversation
@@ -202,12 +197,7 @@ describe('transcript handler tests', () => {
       await expect(rag.getCollection(collectionName)).rejects.toThrow()
     })
     test('should not delete recent transcript messages', async () => {
-      // Create an agent with transcript RAG enabled
-      const agent = new Agent({
-        agentType: 'perMessageWithMin',
-        conversation,
-        useTranscriptRAGCollection: true
-      })
+      const agent = new Agent({ agentType: 'perMessageWithMin', conversation })
       await agent.save()
 
       // Add agent to conversation
@@ -243,38 +233,6 @@ describe('transcript handler tests', () => {
       const collAfter = await rag.getCollection(collectionName)
       expect(collAfter).toBeDefined()
     })
-    test('should handle conversations without RAG-enabled agents', async () => {
-      const fourMonthsAgo = new Date()
-      fourMonthsAgo.setMonth(fourMonthsAgo.getMonth() - 4)
-      conversation.startTime = fourMonthsAgo
-      // Create agent without transcript RAG
-      const agent = new Agent({
-        agentType: 'perMessageWithMin',
-        conversation,
-        useTranscriptRAGCollection: false
-      })
-      await agent.save()
-
-      conversation.agents.push(agent)
-      await conversation.save()
-
-      await loadTestTranscript(conversation, `${transcript1}\n${transcript2}\n${transcript3}`, false)
-      // Verify messages exist before cleanup
-      const messagesBeforeCleanup = await Message.find({
-        conversation: conversation._id,
-        channels: { $in: ['transcript'] }
-      })
-      expect(messagesBeforeCleanup).not.toHaveLength(0)
-      // Run cleanup
-      await JobHandlers.cleanUpTranscripts()
-
-      // Verify messages are still deleted even without RAG
-      const messagesAfterCleanup = await Message.find({
-        conversation: conversation._id,
-        channels: { $in: ['transcript'] }
-      })
-      expect(messagesAfterCleanup).toHaveLength(0)
-    })
     test('should handle empty result gracefully', async () => {
       // Run cleanup when there are no old transcripts
       await expect(JobHandlers.cleanUpTranscripts()).resolves.not.toThrow()
@@ -287,11 +245,7 @@ describe('transcript handler tests', () => {
       const conv1 = new Conversation({ ...conversationAgentsEnabled, _id: new mongoose.Types.ObjectId() })
       conv1.startTime = fourMonthsAgo
 
-      const agent = new Agent({
-        agentType: 'perMessageWithMin',
-        conversation,
-        useTranscriptRAGCollection: true
-      })
+      const agent = new Agent({ agentType: 'perMessageWithMin', conversation })
       await agent.save()
 
       // Add agent to conversation

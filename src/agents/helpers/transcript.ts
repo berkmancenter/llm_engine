@@ -5,6 +5,9 @@ import getConversationHistory from './getConversationHistory.js'
 import { formatTime, formatTranscript } from './llmInputFormatters.js'
 import rag, { TRANSCRIPT_COLLECTION_PREFIX } from './rag.js'
 import Conversation from '../../models/conversation.model.js'
+import Topic from '../../models/topic.model.js'
+
+export const TOPIC_TRANSCRIPT_COLLECTION_PREFIX = 'topic-transcript'
 
 /**
  * Convert time string into a Date object, inferring from the startTime
@@ -117,51 +120,68 @@ function getTranscript(conversation, timeWindow?, endTime?) {
 }
 
 async function loadEventMetadataIntoVectorStore(conversation) {
-  // Delete old metadata documents if they exist
+  const conversationId = conversation._id.toString()
+  const topicId = conversation.topic?._id?.toString() ?? conversation.topic?.toString()
+  const metadataTypeFilter = { type: { $in: ['event', 'presenter', 'moderator'] } }
+
+  // Remove stale metadata from per-conversation collection
   try {
-    await rag.removeFromVectorStore(`${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`, {
-      type: { $in: ['event', 'presenter', 'moderator'] }
-    })
+    await rag.removeFromVectorStore(`${TRANSCRIPT_COLLECTION_PREFIX}-${conversationId}`, metadataTypeFilter)
   } catch (error) {
     // Collection might not exist yet, which is fine
     logger.debug(`Could not remove old metadata (collection may not exist): ${error.message}`)
   }
+
+  // Remove stale metadata for this conversation from the topic collection
+  if (topicId) {
+    try {
+      await rag.removeFromVectorStore(`${TOPIC_TRANSCRIPT_COLLECTION_PREFIX}-${topicId}`, {
+        $and: [{ conversationId }, metadataTypeFilter]
+      })
+    } catch (error) {
+      logger.debug(`Could not remove old topic metadata (collection may not exist): ${error.message}`)
+    }
+  }
+
   const docs: string[] = []
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const metadatas: Record<string, any>[] = []
 
-  if (conversation.description) {
-    docs.push(`Event (Meeting Conversation Presentation) Description: ${conversation.description}`)
-    metadatas.push({
-      type: 'event'
-    })
-  }
+  const eventDoc = conversation.description
+    ? `Event: ${conversation.name}. ${conversation.description}`
+    : `Event: ${conversation.name}`
+  docs.push(eventDoc)
+  metadatas.push({ type: 'event' })
+
   if (conversation.presenters?.length) {
     conversation.presenters.forEach((presenter) => {
       const bioText = presenter.bio || 'No bio provided.'
       docs.push(`${presenter.name} is a speaker, presenter, and panelist at this event. ${bioText}`)
-      metadatas.push({
-        type: 'presenter',
-        presenterName: presenter.name
-      })
+      metadatas.push({ type: 'presenter', presenterName: presenter.name })
     })
   }
-
-  // Add moderator bios if provided
   if (conversation.moderators?.length) {
     conversation.moderators.forEach((moderator) => {
       const bioText = moderator.bio || 'No bio provided.'
       docs.push(`${moderator.name} is the moderator, facilitator, and host of this event. ${bioText}`)
-      metadatas.push({
-        type: 'moderator',
-        moderatorName: moderator.name
-      })
+      metadatas.push({ type: 'moderator', moderatorName: moderator.name })
     })
   }
 
-  // Only add to vector store if we have documents
-  if (docs.length > 0) {
-    await rag.addTextsToVectorStore(`${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`, docs, { metadatas })
+  const conversationIdentifierMetadatas = metadatas.map((m) => ({
+    ...m,
+    conversationId,
+    conversationName: conversation.name
+  }))
+
+  await rag.addTextsToVectorStore(`${TRANSCRIPT_COLLECTION_PREFIX}-${conversationId}`, docs, {
+    metadatas: conversationIdentifierMetadatas
+  })
+
+  if (topicId) {
+    await rag.addTextsToVectorStore(`${TOPIC_TRANSCRIPT_COLLECTION_PREFIX}-${topicId}`, docs, {
+      metadatas: conversationIdentifierMetadatas
+    })
   }
 }
 
@@ -170,6 +190,8 @@ async function loadTranscriptIntoVectorStore(messages, conversationId) {
     logger.warn('No messages to load')
     return
   }
+  const conversation = await Conversation.findById(conversationId).select('name topic transcript').lean()
+
   // Create a simple lookup map: formatted time -> original message
   const timeToMessageMap = new Map()
   messages.forEach((msg) => {
@@ -177,60 +199,147 @@ async function loadTranscriptIntoVectorStore(messages, conversationId) {
     timeToMessageMap.set(formattedTime, msg)
   })
 
-  const metadataFn = (doc) => {
-    const chunkLines = doc.pageContent.split('\n').filter((line) => line.trim())
-    // Extract timestamps from this chunk and map back to original ISO timestamps
-    const chunkTimestamps = chunkLines
-      .map((line) => {
-        const timeMatch = line.match(/^\[(.*?)\]/)
-        if (timeMatch) {
-          const formattedTime = timeMatch[1] // e.g., "14:30:25"
-          const originalMsg = timeToMessageMap.get(formattedTime)
-          return originalMsg ? originalMsg.createdAt : null
+  const formattedTranscript = formatTranscript(messages)
+  const embeddingsPlatform = conversation?.transcript?.vectorStore?.embeddingsPlatform
+  const embeddingsModelName = conversation?.transcript?.vectorStore?.embeddingsModelName
+
+  const makeMetadataFn =
+    (extraMetadata: Record<string, unknown> = {}) =>
+    (doc) => {
+      const chunkLines = doc.pageContent.split('\n').filter((line) => line.trim())
+      // Extract timestamps from this chunk and map back to original ISO timestamps
+      const chunkTimestamps = chunkLines
+        .map((line) => {
+          const timeMatch = line.match(/^\[(.*?)\]/)
+          if (timeMatch) {
+            const formattedTime = timeMatch[1] // e.g., "14:30:25"
+            const originalMsg = timeToMessageMap.get(formattedTime)
+            return originalMsg ? originalMsg.createdAt : null
+          }
+          return null
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.getTime() - b.getTime())
+      return {
+        ...doc,
+        metadata: {
+          ...extraMetadata,
+          start: chunkTimestamps[0]?.getTime(),
+          end:
+            chunkTimestamps.length > 1
+              ? chunkTimestamps[chunkTimestamps.length - 1]?.getTime()
+              : chunkTimestamps[0]?.getTime(),
+          type: 'transcript'
         }
-        return null
-      })
-      .filter(Boolean)
-      .sort((a, b) => a.getTime() - b.getTime())
-    return {
-      ...doc,
-      metadata: {
-        start: chunkTimestamps[0]?.getTime(),
-        end:
-          chunkTimestamps.length > 1
-            ? chunkTimestamps[chunkTimestamps.length - 1]?.getTime()
-            : chunkTimestamps[0]?.getTime(),
-        type: 'transcript'
       }
     }
-  }
-  const formattedTranscript = formatTranscript(messages)
 
-  const conversation = await Conversation.findById(conversationId).select('transcript').lean()
+  const conversationIdentifierMetadata = { conversationId: conversationId.toString(), conversationName: conversation?.name }
 
+  // Always write to the per-conversation collection
   await rag.addTextsToVectorStore(`${TRANSCRIPT_COLLECTION_PREFIX}-${conversationId}`, [formattedTranscript], {
-    metadataFn,
-    embeddingsPlatform: conversation?.transcript?.vectorStore?.embeddingsPlatform,
-    embeddingsModelName: conversation?.transcript?.vectorStore?.embeddingsModelName
+    metadataFn: makeMetadataFn(conversationIdentifierMetadata),
+    embeddingsPlatform,
+    embeddingsModelName
+  })
+
+  // Also write to the topic collection if the conversation belongs to one.
+  // Always use default embeddings for the topic collection so all conversations
+  // in a topic are embedded consistently, regardless of per-conversation overrides.
+  if (conversation?.topic) {
+    const topicId = conversation.topic._id?.toString() ?? conversation.topic.toString()
+    await rag.addTextsToVectorStore(`${TOPIC_TRANSCRIPT_COLLECTION_PREFIX}-${topicId}`, [formattedTranscript], {
+      metadataFn: makeMetadataFn(conversationIdentifierMetadata)
+    })
+  }
+}
+
+async function loadTopicMetadataIntoVectorStore(topic) {
+  const topicId = topic._id.toString()
+  const collectionName = `${TOPIC_TRANSCRIPT_COLLECTION_PREFIX}-${topicId}`
+  const doc = topic.description ? `Series: ${topic.name}. ${topic.description}` : `Series: ${topic.name}`
+
+  try {
+    await rag.removeFromVectorStore(collectionName, { type: 'series' })
+  } catch (error) {
+    logger.debug(`Could not remove old series metadata (collection may not exist): ${error.message}`)
+  }
+
+  await rag.addTextsToVectorStore(collectionName, [doc], {
+    metadatas: [{ type: 'series', topicId }]
   })
 }
 
-async function clearTranscript(conversation) {
-  let transcriptRAG = false
-  for (const agent of conversation.agents) {
-    if (agent.useTranscriptRAGCollection) {
-      transcriptRAG = true
-    }
+async function loadTopicTranscriptsIntoVectorStore(topicId) {
+  const topic = await Topic.findById(topicId).select('_id name description').lean()
+  if (topic) {
+    await loadTopicMetadataIntoVectorStore(topic)
   }
-  if (transcriptRAG) {
-    logger.info(`Clearing transcript content from vector store for conversation ${conversation._id}`)
+
+  const conversations = await Conversation.find({ topic: topicId })
+    .select('_id name description presenters moderators transcript')
+    .lean()
+
+  let loaded = 0
+  let skipped = 0
+  const collectionName = `${TOPIC_TRANSCRIPT_COLLECTION_PREFIX}-${topicId}`
+
+  for (const conversation of conversations) {
+    // Check if this conversation is already present in the topic collection
     try {
-      // Remove only transcript-type documents, preserve event/speaker/moderator metadata
-      await rag.removeFromVectorStore(`${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`, {
-        type: 'transcript'
+      const collection = await rag.getCollection(collectionName)
+      const existing = await collection.get({ where: { conversationId: conversation._id.toString() }, limit: 1 })
+      if (existing.ids.length > 0) {
+        logger.debug(`Topic transcript: skipping already-loaded conversation ${conversation._id}`)
+        skipped++
+        continue
+      }
+    } catch {
+      // Collection doesn't exist yet — proceed to load
+    }
+
+    const messages = await Message.find({
+      conversation: conversation._id,
+      channels: { $in: ['transcript'] }
+    })
+      .sort({ createdAt: 1 })
+      .lean()
+
+    await loadEventMetadataIntoVectorStore({ ...conversation, topic: topicId })
+
+    // loadTranscriptIntoVectorStore writes to both the per-conversation and topic collections
+    if (messages.length > 0) {
+      await loadTranscriptIntoVectorStore(messages, conversation._id)
+    } else {
+      logger.warn(`Topic transcript: no transcript messages found for conversation ${conversation._id}`)
+    }
+
+    logger.info(`Topic transcript: loaded conversation ${conversation._id} (${conversation.name}) into topic ${topicId}`)
+    loaded++
+  }
+
+  return { loaded, skipped }
+}
+
+async function clearTranscript(conversation) {
+  logger.info(`Clearing transcript content from vector store for conversation ${conversation._id}`)
+  const conversationId = conversation._id.toString()
+  const transcriptTypeFilter = { type: 'transcript' }
+  try {
+    // Remove only transcript-type documents, preserve event/speaker/moderator metadata
+    await rag.removeFromVectorStore(`${TRANSCRIPT_COLLECTION_PREFIX}-${conversationId}`, transcriptTypeFilter)
+  } catch {
+    logger.warn(`Failed to clear transcript from vector store: ${TRANSCRIPT_COLLECTION_PREFIX}-${conversationId}`)
+  }
+
+  const topicId = conversation.topic?._id?.toString() ?? conversation.topic?.toString()
+  if (topicId) {
+    try {
+      await rag.removeFromVectorStore(`${TOPIC_TRANSCRIPT_COLLECTION_PREFIX}-${topicId}`, {
+        $and: [{ conversationId }, transcriptTypeFilter]
       })
     } catch {
-      logger.warn(`Failed to clear transcript from vector store: ${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`)
+      logger.warn(`Failed to clear transcript from topic collection ${TOPIC_TRANSCRIPT_COLLECTION_PREFIX}-${topicId}`)
     }
   }
   // Find all messages for this conversation in transcript channel
@@ -248,19 +357,25 @@ async function clearTranscript(conversation) {
 }
 
 async function deleteTranscript(conversation) {
-  let transcriptRAG = false
-  for (const agent of conversation.agents) {
-    if (agent.useTranscriptRAGCollection) {
-      transcriptRAG = true
-    }
+  logger.info(`Deleting transcript collection from vector store for conversation ${conversation._id}`)
+  try {
+    // Delete the entire per-conversation collection including all metadata
+    await rag.deleteCollection(`${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`)
+  } catch {
+    logger.warn(`Failed to delete collection from vector store: ${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`)
   }
-  if (transcriptRAG) {
-    logger.info(`Deleting transcript collection from vector store for conversation ${conversation._id}`)
+
+  // Remove this conversation's documents from the topic collection
+  const topicId = conversation.topic?._id?.toString() ?? conversation.topic?.toString()
+  if (topicId) {
     try {
-      // Delete the entire collection including all metadata
-      await rag.deleteCollection(`${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`)
+      await rag.removeFromVectorStore(`${TOPIC_TRANSCRIPT_COLLECTION_PREFIX}-${topicId}`, {
+        conversationId: conversation._id.toString()
+      })
     } catch {
-      logger.warn(`Failed to delete collection from vector store: ${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`)
+      logger.warn(
+        `Failed to remove conversation ${conversation._id} from topic collection ${TOPIC_TRANSCRIPT_COLLECTION_PREFIX}-${topicId}`
+      )
     }
   }
   // Find all messages for this conversation in transcript channel
@@ -277,12 +392,26 @@ async function deleteTranscript(conversation) {
   })
 }
 
+async function deleteTopicCollection(topic) {
+  const topicId = topic._id.toString()
+  const collectionName = `${TOPIC_TRANSCRIPT_COLLECTION_PREFIX}-${topicId}`
+  try {
+    await rag.deleteCollection(collectionName)
+    logger.info(`Deleted RAG collection for topic ${topicId}`)
+  } catch (error) {
+    logger.warn(`Failed to delete RAG collection for topic ${topicId}: ${error.message}`)
+  }
+}
+
 export default {
   searchTranscript,
   loadTranscriptIntoVectorStore,
+  loadTopicTranscriptsIntoVectorStore,
+  loadTopicMetadataIntoVectorStore,
   loadEventMetadataIntoVectorStore,
   clearTranscript,
   deleteTranscript,
+  deleteTopicCollection,
   getTranscriptMessages,
   getTranscript
 }

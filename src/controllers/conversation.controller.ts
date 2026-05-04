@@ -102,6 +102,11 @@ const getConversationReport = catchAsync(async (req, res) => {
   res.status(httpStatus.OK).send(report)
 })
 
+const getFeatures = catchAsync(async (req, res) => {
+  const result = await conversationService.getFeatures(req.params.conversationId)
+  res.status(httpStatus.OK).send(result)
+})
+
 export {
   createConversation,
   createConversationFromType,
@@ -117,5 +122,6 @@ export {
   startConversation,
   stopConversation,
   joinConversation,
-  getConversationReport
+  getConversationReport,
+  getFeatures
 }

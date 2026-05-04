@@ -230,6 +230,9 @@ components:
           type: string
         name:
           type: string
+        description:
+          type: string
+          description: Optional description of the topic
         defaultSortAverage:
           type: number
         followed:
@@ -511,8 +514,6 @@ components:
           type: boolean
         conversationHistorySettings:
           $ref: '#/components/schemas/ConversationHistorySettings'
-        useTranscriptRAGCollection:
-          type: boolean
 
     ConfigProperty:
       type: object
@@ -608,6 +609,8 @@ components:
         - label
         - agents
         - default
+        - category
+        - userControlled
       properties:
         name:
           type: string
@@ -628,6 +631,22 @@ components:
           description: User-configurable sub-properties shown in the form
           items:
             $ref: '#/components/schemas/ConfigProperty'
+        category:
+          type: string
+          enum: [assistant, group-chat, transcript, resources]
+          description: Platform area this feature belongs to
+        slashCommand:
+          type: string
+          description: Slash command text without the leading slash (e.g. "mindmap"). Omit for passive features.
+        prerequisite:
+          type: string
+          description: Optional setup instruction shown alongside the description (e.g. how to enable the feature).
+        userControlled:
+          type: boolean
+          description: Whether the participant can control this feature (toggle or slash command). false = runs automatically.
+        enabled:
+          type: boolean
+          description: Whether this feature is active for this conversation. Present in /features responses; absent means fall back to the type's default.
 
     PlatformConfig:
       type: object
@@ -837,6 +856,9 @@ components:
             properties:
               name:
                 type: string
+              enabled:
+                type: boolean
+                description: Whether this feature is active for this conversation. Absent means fall back to the type's default.
               config:
                 type: object
                 additionalProperties: true

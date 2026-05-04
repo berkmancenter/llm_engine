@@ -76,8 +76,7 @@ const testAgentTypeSpecification = {
       voting: 'You should vote on this data {voteData}'
     },
     defaultLLMPlatform,
-    defaultLLMModel,
-    useTranscriptRAGCollection: true
+    defaultLLMModel
   },
   testManual: {
     initialize: mockInitialize,
@@ -96,8 +95,7 @@ const testAgentTypeSpecification = {
       voting: 'You should vote on this data {voteData}'
     },
     defaultLLMPlatform,
-    defaultLLMModel,
-    useTranscriptRAGCollection: true
+    defaultLLMModel
   }
 }
 
@@ -1963,8 +1961,7 @@ describe('Conversation routes', () => {
       // Create test agents for the conversation
       const testAgent = new Agent({
         agentType: 'test',
-        conversation: activeConversation._id,
-        useTranscriptRAGCollection: true
+        conversation: activeConversation._id
       })
       await testAgent.save()
       activeConversation.agents = [testAgent]
@@ -1998,8 +1995,7 @@ describe('Conversation routes', () => {
 
       const ragAgent = new Agent({
         agentType: 'test',
-        conversation: ragConversation._id,
-        useTranscriptRAGCollection: true
+        conversation: ragConversation._id
       })
       await ragAgent.save()
       ragConversation.agents = [ragAgent]
@@ -2202,8 +2198,7 @@ describe('Conversation routes', () => {
 
       const ragAgent = new Agent({
         agentType: 'test',
-        conversation: ragConversation._id,
-        useTranscriptRAGCollection: true
+        conversation: ragConversation._id
       })
       await ragAgent.save()
       ragConversation.agents = [ragAgent]
@@ -2221,24 +2216,6 @@ describe('Conversation routes', () => {
         .expect(httpStatus.OK)
 
       expect(transcriptSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: ragConversation._id }))
-      transcriptSpy.mockRestore()
-    })
-
-    test('should not update transcript RAG when conversation has no RAG-enabled agents', async () => {
-      const transcriptSpy = jest.spyOn(transcript, 'loadEventMetadataIntoVectorStore').mockResolvedValue()
-
-      const updateBody = {
-        id: conversationOne._id,
-        name: 'Updated No RAG Conversation'
-      }
-
-      await request(app)
-        .put('/v1/conversations')
-        .set('Authorization', `Bearer ${userOneAccessToken}`)
-        .send(updateBody)
-        .expect(httpStatus.OK)
-
-      expect(transcriptSpy).not.toHaveBeenCalled()
       transcriptSpy.mockRestore()
     })
 
@@ -2420,6 +2397,119 @@ describe('Conversation routes', () => {
       // The response should include conversation data
       expect(res.body).toHaveProperty('name')
       expect(res.body.name).toBe(updateBody.name)
+    })
+  })
+
+  describe('GET /v1/conversations/:conversationId/features', () => {
+    /*
+     * The features endpoint shows all features that are either default on the conversation
+     * type or explicitly enabled on the conversation — so pre-existing conversations that
+     * pre-date a feature's introduction still get the full list without a DB migration.
+     */
+    let guideConversation
+
+    beforeEach(async () => {
+      // eventAssistantPlus isn't in the test type set — swap in the real types
+      setConversationTypes(defaultConversationTypes)
+      guideConversation = new Conversation({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'guide-test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        conversationType: 'eventAssistantPlus',
+        properties: { botName: 'Berkie' },
+        features: [{ name: 'mindmap' }, { name: 'mod' }, { name: 'jargonFilter' }],
+        agents: [],
+        messages: [],
+        transcript: { status: 'stopped' }
+      })
+      await guideConversation.save()
+    })
+
+    afterEach(() => {
+      setConversationTypes(testConversationTypes)
+    })
+
+    test('returns 200 with conversationType, bot name, and features — no auth required', async () => {
+      const url = `/v1/conversations/${guideConversation._id.toString()}/features`
+      const resp = await request(app).get(url).expect(httpStatus.OK)
+
+      expect(resp.body.conversationType).toBe('eventAssistantPlus')
+      expect(resp.body.conversationBotName).toBe('Berkie')
+      expect(Array.isArray(resp.body.features)).toBe(true)
+    })
+
+    test('returns all default features regardless of conv.features', async () => {
+      const url = `/v1/conversations/${guideConversation._id.toString()}/features`
+      const resp = await request(app).get(url).expect(httpStatus.OK)
+
+      const names = resp.body.features.map((f) => f.name)
+      // All eight eventAssistantPlus features are default:true, so all appear
+      // even though conv.features only lists three — pre-existing conversations get the
+      // full list without a DB migration.
+      expect(names).toEqual(
+        expect.arrayContaining([
+          'mindmap',
+          'visual',
+          'visualPreference',
+          'jargonFilter',
+          'mod',
+          'collectiveVoice',
+          'catalyst',
+          'librarian'
+        ])
+      )
+      expect(resp.body.features).toHaveLength(8)
+      // every feature must carry an enabled flag
+      expect(resp.body.features.every((f) => typeof f.enabled === 'boolean')).toBe(true)
+    })
+
+    test('each feature includes display metadata (label, category, slashCommand, userControlled, enabled)', async () => {
+      const url = `/v1/conversations/${guideConversation._id.toString()}/features`
+      const resp = await request(app).get(url).expect(httpStatus.OK)
+
+      const mindmap = resp.body.features.find((f) => f.name === 'mindmap')
+      expect(mindmap).toMatchObject({
+        name: 'mindmap',
+        label: 'Mind Map',
+        category: 'assistant',
+        slashCommand: 'mindmap',
+        userControlled: true,
+        enabled: true
+      })
+    })
+
+    test('returns 404 when conversation does not exist', async () => {
+      const missingId = new mongoose.Types.ObjectId().toString()
+      const url = `/v1/conversations/${missingId}/features`
+      await request(app).get(url).expect(httpStatus.NOT_FOUND)
+    })
+
+    test('marks a feature enabled:false when explicitly disabled on the conversation', async () => {
+      const conv = new Conversation({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'guide-disabled-feature-test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        conversationType: 'eventAssistantPlus',
+        properties: { botName: 'Berkie' },
+        features: [{ name: 'mindmap', enabled: false }],
+        agents: [],
+        messages: [],
+        transcript: { status: 'stopped' }
+      })
+      await conv.save()
+
+      const url = `/v1/conversations/${conv._id.toString()}/features`
+      const resp = await request(app).get(url).expect(httpStatus.OK)
+
+      // disabled feature still appears in the list (so the guide can grey it out)
+      const mindmap = resp.body.features.find((f) => f.name === 'mindmap')
+      expect(mindmap).toBeDefined()
+      expect(mindmap.enabled).toBe(false)
+      // other default features still appear as enabled
+      const visual = resp.body.features.find((f) => f.name === 'visual')
+      expect(visual.enabled).toBe(true)
     })
   })
 })

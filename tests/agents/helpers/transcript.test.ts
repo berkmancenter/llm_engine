@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import transcript from '../../../src/agents/helpers/transcript.js'
+import transcript, { TOPIC_TRANSCRIPT_COLLECTION_PREFIX } from '../../../src/agents/helpers/transcript.js'
 import rag, { TRANSCRIPT_COLLECTION_PREFIX } from '../../../src/agents/helpers/rag.js'
 import Conversation from '../../../src/models/conversation.model.js'
 import Message from '../../../src/models/message.model.js'
@@ -226,6 +226,7 @@ describe('transcript', () => {
   let ragAddToVectorStoreSpy
   let ragRemoveFromVectorStoreSpy
   const localHour = new Date('2024-01-15T10:00:00Z').getHours()
+  const utcHour = new Date('2024-01-15T10:00:00Z').getUTCHours()
 
   beforeEach(() => {
     // Create spies on the rag module methods
@@ -685,16 +686,23 @@ describe('transcript', () => {
         channels: ['transcript']
       }
     ]
-    const mockFormattedTranscript = `[${localHour}:05:30 AM] Hello everyone
-[${localHour}:06:15 AM] Let's start the meeting
-[${localHour}:07:00 AM] First item on the agenda`
+    const mockFormattedTranscript = `[${utcHour}:05:30 AM] Hello everyone
+[${utcHour}:06:15 AM] Let's start the meeting
+[${utcHour}:07:00 AM] First item on the agenda`
 
     beforeEach(() => {
       ragAddToVectorStoreSpy.mockResolvedValue()
     })
 
-    it('should load transcript into vector store with proper metadata', async () => {
+    it('should load transcript into per-conversation vector store with proper metadata', async () => {
+      jest.spyOn(Conversation, 'findById').mockReturnValue({
+        select() {
+          return { lean: async () => ({ name: 'Test Conversation', topic: null, transcript: {} }) }
+        }
+      } as any)
+
       await transcript.loadTranscriptIntoVectorStore(mockMessages, mockConversationId)
+
       expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
         'event-transcript-conversation456',
         [mockFormattedTranscript],
@@ -713,8 +721,78 @@ describe('transcript', () => {
       expect(newDoc.metadata!).toEqual({
         start: new Date('2024-01-15T10:05:30Z').getTime(),
         end: new Date('2024-01-15T10:07:00Z').getTime(),
-        type: 'transcript'
+        type: 'transcript',
+        conversationId: 'conversation456',
+        conversationName: 'Test Conversation'
       })
+    })
+
+    it('should also write to topic collection when conversation belongs to a topic', async () => {
+      jest.spyOn(Conversation, 'findById').mockReturnValue({
+        select() {
+          return { lean: async () => ({ name: 'Test Conversation', topic: 'topic789', transcript: {} }) }
+        }
+      } as any)
+
+      await transcript.loadTranscriptIntoVectorStore(mockMessages, mockConversationId)
+
+      expect(ragAddToVectorStoreSpy).toHaveBeenCalledTimes(2)
+      expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
+        'event-transcript-conversation456',
+        [mockFormattedTranscript],
+        expect.objectContaining({ metadataFn: expect.any(Function) })
+      )
+      expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
+        `${TOPIC_TRANSCRIPT_COLLECTION_PREFIX}-topic789`,
+        [mockFormattedTranscript],
+        expect.objectContaining({ metadataFn: expect.any(Function) })
+      )
+    })
+
+    it('should use per-conversation embeddings for per-conv collection but default embeddings for topic collection', async () => {
+      jest.spyOn(Conversation, 'findById').mockReturnValue({
+        select() {
+          return {
+            lean: async () => ({
+              name: 'Test Conversation',
+              topic: 'topic789',
+              transcript: { vectorStore: { embeddingsPlatform: 'openai', embeddingsModelName: 'text-embedding-3-large' } }
+            })
+          }
+        }
+      } as any)
+
+      await transcript.loadTranscriptIntoVectorStore(mockMessages, mockConversationId)
+
+      // Per-conversation collection gets custom embeddings
+      expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
+        'event-transcript-conversation456',
+        expect.any(Array),
+        expect.objectContaining({ embeddingsPlatform: 'openai', embeddingsModelName: 'text-embedding-3-large' })
+      )
+      // Topic collection always uses default embeddings (no platform/model passed)
+      expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
+        `${TOPIC_TRANSCRIPT_COLLECTION_PREFIX}-topic789`,
+        expect.any(Array),
+        expect.not.objectContaining({ embeddingsPlatform: expect.anything() })
+      )
+    })
+
+    it('should not write to topic collection when conversation has no topic', async () => {
+      jest.spyOn(Conversation, 'findById').mockReturnValue({
+        select() {
+          return { lean: async () => ({ name: 'Test Conversation', topic: null, transcript: {} }) }
+        }
+      } as any)
+
+      await transcript.loadTranscriptIntoVectorStore(mockMessages, mockConversationId)
+
+      expect(ragAddToVectorStoreSpy).toHaveBeenCalledTimes(1)
+      expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
+        'event-transcript-conversation456',
+        expect.any(Array),
+        expect.any(Object)
+      )
     })
 
     it('should handle empty messages array', async () => {
@@ -840,12 +918,18 @@ describe('transcript', () => {
     })
   })
   describe('loadEventMetadataIntoVectorStore', () => {
+    const convId = 'test-conversation-id'
+    const convName = 'Test Event'
+
     beforeEach(() => {
       ragAddToVectorStoreSpy.mockResolvedValue()
+      ragRemoveFromVectorStoreSpy.mockResolvedValue()
     })
+
     it('should load all event metadata when all parameters provided', async () => {
       const conversation = {
-        _id: 'test-conversation-id',
+        _id: convId,
+        name: convName,
         description: 'This is a test event description about AI and machine learning.',
         presenters: [
           { name: 'Jane Doe', bio: 'Jane is a leading researcher in AI with 10 years of experience.' },
@@ -857,83 +941,103 @@ describe('transcript', () => {
       await transcript.loadEventMetadataIntoVectorStore(conversation)
 
       expect(ragRemoveFromVectorStoreSpy).toHaveBeenCalled()
-
       expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
-        `${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`,
+        `${TRANSCRIPT_COLLECTION_PREFIX}-${convId}`,
         [
-          'Event (Meeting Conversation Presentation) Description: This is a test event description about AI and machine learning.',
+          'Event: Test Event. This is a test event description about AI and machine learning.',
           'Jane Doe is a speaker, presenter, and panelist at this event. Jane is a leading researcher in AI with 10 years of experience.',
           'John Smith is a speaker, presenter, and panelist at this event. John specializes in machine learning applications.',
           'Alice Johnson is the moderator, facilitator, and host of this event. Alice has moderated tech panels for 5 years.'
         ],
         {
           metadatas: [
-            { type: 'event' },
-            { type: 'presenter', presenterName: 'Jane Doe' },
-            { type: 'presenter', presenterName: 'John Smith' },
-            { type: 'moderator', moderatorName: 'Alice Johnson' }
+            { type: 'event', conversationId: convId, conversationName: convName },
+            { type: 'presenter', presenterName: 'Jane Doe', conversationId: convId, conversationName: convName },
+            { type: 'presenter', presenterName: 'John Smith', conversationId: convId, conversationName: convName },
+            { type: 'moderator', moderatorName: 'Alice Johnson', conversationId: convId, conversationName: convName }
           ]
         }
       )
     })
 
-    it('should load only event description when only that is provided', async () => {
-      const conversation = { _id: 'test-conversation-id', description: 'This is a test event description.' }
+    it('should include event name and description in event doc', async () => {
+      const conversation = { _id: convId, name: convName, description: 'This is a test event description.' }
 
       await transcript.loadEventMetadataIntoVectorStore(conversation)
 
-      expect(ragRemoveFromVectorStoreSpy).toHaveBeenCalled()
-
       expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
-        `${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`,
-        ['Event (Meeting Conversation Presentation) Description: This is a test event description.'],
+        `${TRANSCRIPT_COLLECTION_PREFIX}-${convId}`,
+        ['Event: Test Event. This is a test event description.'],
         {
-          metadatas: [{ type: 'event' }]
+          metadatas: [{ type: 'event', conversationId: convId, conversationName: convName }]
         }
       )
     })
 
-    it('should load only presenters when only those are provided', async () => {
+    it('should always write event name doc even with no description or presenters', async () => {
+      const conversation = { _id: convId, name: convName }
+
+      await transcript.loadEventMetadataIntoVectorStore(conversation)
+
+      expect(ragRemoveFromVectorStoreSpy).toHaveBeenCalled()
+      expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
+        `${TRANSCRIPT_COLLECTION_PREFIX}-${convId}`,
+        ['Event: Test Event'],
+        {
+          metadatas: [{ type: 'event', conversationId: convId, conversationName: convName }]
+        }
+      )
+    })
+
+    it('should write event name doc plus presenters when only presenters provided', async () => {
       const conversation = {
-        _id: 'test-conversation-id',
+        _id: convId,
+        name: convName,
         presenters: [{ name: 'Jane Doe', bio: 'Jane is a leading researcher.' }]
       }
 
       await transcript.loadEventMetadataIntoVectorStore(conversation)
 
-      expect(ragRemoveFromVectorStoreSpy).toHaveBeenCalled()
-
       expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
-        `${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`,
-        ['Jane Doe is a speaker, presenter, and panelist at this event. Jane is a leading researcher.'],
+        `${TRANSCRIPT_COLLECTION_PREFIX}-${convId}`,
+        ['Event: Test Event', 'Jane Doe is a speaker, presenter, and panelist at this event. Jane is a leading researcher.'],
         {
-          metadatas: [{ type: 'presenter', presenterName: 'Jane Doe' }]
+          metadatas: [
+            { type: 'event', conversationId: convId, conversationName: convName },
+            { type: 'presenter', presenterName: 'Jane Doe', conversationId: convId, conversationName: convName }
+          ]
         }
       )
     })
 
-    it('should load only moderators when only those are provided', async () => {
+    it('should write event name doc plus moderators when only moderators provided', async () => {
       const conversation = {
-        _id: 'test-conversation-id',
+        _id: convId,
+        name: convName,
         moderators: [{ name: 'Alice Johnson', bio: 'Alice has moderated panels.' }]
       }
 
       await transcript.loadEventMetadataIntoVectorStore(conversation)
 
-      expect(ragRemoveFromVectorStoreSpy).toHaveBeenCalled()
-
       expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
-        `${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`,
-        ['Alice Johnson is the moderator, facilitator, and host of this event. Alice has moderated panels.'],
+        `${TRANSCRIPT_COLLECTION_PREFIX}-${convId}`,
+        [
+          'Event: Test Event',
+          'Alice Johnson is the moderator, facilitator, and host of this event. Alice has moderated panels.'
+        ],
         {
-          metadatas: [{ type: 'moderator', moderatorName: 'Alice Johnson' }]
+          metadatas: [
+            { type: 'event', conversationId: convId, conversationName: convName },
+            { type: 'moderator', moderatorName: 'Alice Johnson', conversationId: convId, conversationName: convName }
+          ]
         }
       )
     })
 
     it('should handle presenters without bios', async () => {
       const conversation = {
-        _id: 'test-conversation-id',
+        _id: convId,
+        name: convName,
         presenters: [
           { name: 'Jane Doe', bio: null },
           { name: 'John Smith' } // no bio property
@@ -942,18 +1046,18 @@ describe('transcript', () => {
 
       await transcript.loadEventMetadataIntoVectorStore(conversation)
 
-      expect(ragRemoveFromVectorStoreSpy).toHaveBeenCalled()
-
       expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
-        `${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`,
+        `${TRANSCRIPT_COLLECTION_PREFIX}-${convId}`,
         [
+          'Event: Test Event',
           'Jane Doe is a speaker, presenter, and panelist at this event. No bio provided.',
           'John Smith is a speaker, presenter, and panelist at this event. No bio provided.'
         ],
         {
           metadatas: [
-            { type: 'presenter', presenterName: 'Jane Doe' },
-            { type: 'presenter', presenterName: 'John Smith' }
+            { type: 'event', conversationId: convId, conversationName: convName },
+            { type: 'presenter', presenterName: 'Jane Doe', conversationId: convId, conversationName: convName },
+            { type: 'presenter', presenterName: 'John Smith', conversationId: convId, conversationName: convName }
           ]
         }
       )
@@ -961,24 +1065,25 @@ describe('transcript', () => {
 
     it('should handle moderators without bios', async () => {
       const conversation = {
-        _id: 'test-conversation-id',
+        _id: convId,
+        name: convName,
         moderators: [{ name: 'Alice Johnson', bio: '' }, { name: 'Bob Wilson' }]
       }
 
       await transcript.loadEventMetadataIntoVectorStore(conversation)
 
-      expect(ragRemoveFromVectorStoreSpy).toHaveBeenCalled()
-
       expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
-        `${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`,
+        `${TRANSCRIPT_COLLECTION_PREFIX}-${convId}`,
         [
+          'Event: Test Event',
           'Alice Johnson is the moderator, facilitator, and host of this event. No bio provided.',
           'Bob Wilson is the moderator, facilitator, and host of this event. No bio provided.'
         ],
         {
           metadatas: [
-            { type: 'moderator', moderatorName: 'Alice Johnson' },
-            { type: 'moderator', moderatorName: 'Bob Wilson' }
+            { type: 'event', conversationId: convId, conversationName: convName },
+            { type: 'moderator', moderatorName: 'Alice Johnson', conversationId: convId, conversationName: convName },
+            { type: 'moderator', moderatorName: 'Bob Wilson', conversationId: convId, conversationName: convName }
           ]
         }
       )
@@ -986,7 +1091,8 @@ describe('transcript', () => {
 
     it('should handle multiple presenters and moderators', async () => {
       const conversation = {
-        _id: 'test-conversation-id',
+        _id: convId,
+        name: convName,
         presenters: [
           { name: 'Presenter 1', bio: 'Bio 1' },
           { name: 'Presenter 2', bio: 'Bio 2' },
@@ -1000,11 +1106,10 @@ describe('transcript', () => {
 
       await transcript.loadEventMetadataIntoVectorStore(conversation)
 
-      expect(ragRemoveFromVectorStoreSpy).toHaveBeenCalled()
-
       expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
-        `${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`,
+        `${TRANSCRIPT_COLLECTION_PREFIX}-${convId}`,
         [
+          'Event: Test Event',
           'Presenter 1 is a speaker, presenter, and panelist at this event. Bio 1',
           'Presenter 2 is a speaker, presenter, and panelist at this event. Bio 2',
           'Presenter 3 is a speaker, presenter, and panelist at this event. Bio 3',
@@ -1013,56 +1118,71 @@ describe('transcript', () => {
         ],
         {
           metadatas: [
-            { type: 'presenter', presenterName: 'Presenter 1' },
-            { type: 'presenter', presenterName: 'Presenter 2' },
-            { type: 'presenter', presenterName: 'Presenter 3' },
-            { type: 'moderator', moderatorName: 'Moderator 1' },
-            { type: 'moderator', moderatorName: 'Moderator 2' }
+            { type: 'event', conversationId: convId, conversationName: convName },
+            { type: 'presenter', presenterName: 'Presenter 1', conversationId: convId, conversationName: convName },
+            { type: 'presenter', presenterName: 'Presenter 2', conversationId: convId, conversationName: convName },
+            { type: 'presenter', presenterName: 'Presenter 3', conversationId: convId, conversationName: convName },
+            { type: 'moderator', moderatorName: 'Moderator 1', conversationId: convId, conversationName: convName },
+            { type: 'moderator', moderatorName: 'Moderator 2', conversationId: convId, conversationName: convName }
           ]
         }
       )
     })
 
-    it('should handle empty presenters array', async () => {
-      const conversation = { _id: 'test-conversation-id', description: 'Test event', presenters: [] }
+    it('should also write to topic collection when conversation has a topic', async () => {
+      const topicId = 'topic-abc'
+      const conversation = {
+        _id: convId,
+        name: convName,
+        topic: topicId,
+        description: 'An event about AI.',
+        presenters: [{ name: 'Jane Doe', bio: 'AI researcher.' }]
+      }
+      const expectedDocs = [
+        'Event: Test Event. An event about AI.',
+        'Jane Doe is a speaker, presenter, and panelist at this event. AI researcher.'
+      ]
+      const expectedMetadatas = [
+        { type: 'event', conversationId: convId, conversationName: convName },
+        { type: 'presenter', presenterName: 'Jane Doe', conversationId: convId, conversationName: convName }
+      ]
 
       await transcript.loadEventMetadataIntoVectorStore(conversation)
 
-      expect(ragRemoveFromVectorStoreSpy).toHaveBeenCalled()
-
-      expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
-        `${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`,
-        ['Event (Meeting Conversation Presentation) Description: Test event'],
-        {
-          metadatas: [{ type: 'event' }]
-        }
-      )
+      expect(ragAddToVectorStoreSpy).toHaveBeenCalledTimes(2)
+      expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(`${TRANSCRIPT_COLLECTION_PREFIX}-${convId}`, expectedDocs, {
+        metadatas: expectedMetadatas
+      })
+      expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(`${TOPIC_TRANSCRIPT_COLLECTION_PREFIX}-${topicId}`, expectedDocs, {
+        metadatas: expectedMetadatas
+      })
     })
 
-    it('should handle empty moderators array', async () => {
-      const conversation = { _id: 'test-conversation-id', description: 'Test event', moderators: [] }
+    it('should remove stale metadata from topic collection using $and filter', async () => {
+      const topicId = 'topic-abc'
+      const conversation = { _id: convId, name: convName, topic: topicId }
 
       await transcript.loadEventMetadataIntoVectorStore(conversation)
 
-      expect(ragRemoveFromVectorStoreSpy).toHaveBeenCalled()
-
-      expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
-        `${TRANSCRIPT_COLLECTION_PREFIX}-${conversation._id}`,
-        ['Event (Meeting Conversation Presentation) Description: Test event'],
-        {
-          metadatas: [{ type: 'event' }]
-        }
-      )
+      expect(ragRemoveFromVectorStoreSpy).toHaveBeenCalledWith(`${TRANSCRIPT_COLLECTION_PREFIX}-${convId}`, {
+        type: { $in: ['event', 'presenter', 'moderator'] }
+      })
+      expect(ragRemoveFromVectorStoreSpy).toHaveBeenCalledWith(`${TOPIC_TRANSCRIPT_COLLECTION_PREFIX}-${topicId}`, {
+        $and: [{ conversationId: convId }, { type: { $in: ['event', 'presenter', 'moderator'] } }]
+      })
     })
 
-    it('should not call addTextsToVectorStore when no metadata provided', async () => {
-      const conversation = { _id: 'test-conversation-id' }
+    it('should not write to topic collection when conversation has no topic', async () => {
+      const conversation = { _id: convId, name: convName }
 
       await transcript.loadEventMetadataIntoVectorStore(conversation)
 
-      expect(ragRemoveFromVectorStoreSpy).toHaveBeenCalled()
-
-      expect(ragAddToVectorStoreSpy).not.toHaveBeenCalled()
+      expect(ragAddToVectorStoreSpy).toHaveBeenCalledTimes(1)
+      expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
+        `${TRANSCRIPT_COLLECTION_PREFIX}-${convId}`,
+        expect.any(Array),
+        expect.any(Object)
+      )
     })
   })
 
@@ -1090,10 +1210,7 @@ describe('transcript', () => {
     })
 
     it('should clear only transcript content from vector store and preserve metadata', async () => {
-      const conversation = {
-        _id: 'conv123',
-        agents: [{ useTranscriptRAGCollection: true }]
-      }
+      const conversation = { _id: 'conv123' }
 
       await transcript.clearTranscript(conversation)
 
@@ -1113,27 +1230,32 @@ describe('transcript', () => {
       })
     })
 
-    it('should skip vector store operations when no agents use RAG', async () => {
-      const conversation = {
-        _id: 'conv123',
-        agents: [{ useTranscriptRAGCollection: false }]
-      }
+    it('should also clear transcript from topic collection using $and filter', async () => {
+      const conversation = { _id: 'conv123', topic: { _id: 'topic456' } }
 
       await transcript.clearTranscript(conversation)
 
-      expect(ragRemoveFromVectorStoreSpy).not.toHaveBeenCalled()
-      expect(ragDeleteCollectionSpy).not.toHaveBeenCalled()
+      expect(ragRemoveFromVectorStoreSpy).toHaveBeenCalledWith(`${TRANSCRIPT_COLLECTION_PREFIX}-conv123`, {
+        type: 'transcript'
+      })
+      expect(ragRemoveFromVectorStoreSpy).toHaveBeenCalledWith(`${TOPIC_TRANSCRIPT_COLLECTION_PREFIX}-topic456`, {
+        $and: [{ conversationId: 'conv123' }, { type: 'transcript' }]
+      })
+    })
 
-      // Should still delete messages
-      expect(messageFindSpy).toHaveBeenCalled()
-      expect(messageDeleteManySpy).toHaveBeenCalled()
+    it('should not remove from topic collection when conversation has no topic', async () => {
+      const conversation = { _id: 'conv123' }
+
+      await transcript.clearTranscript(conversation)
+
+      expect(ragRemoveFromVectorStoreSpy).toHaveBeenCalledTimes(1)
+      expect(ragRemoveFromVectorStoreSpy).toHaveBeenCalledWith(`${TRANSCRIPT_COLLECTION_PREFIX}-conv123`, {
+        type: 'transcript'
+      })
     })
 
     it('should handle errors when clearing from vector store', async () => {
-      const conversation = {
-        _id: 'conv123',
-        agents: [{ useTranscriptRAGCollection: true }]
-      }
+      const conversation = { _id: 'conv123' }
 
       ragRemoveFromVectorStoreSpy.mockRejectedValue(new Error('Vector store error'))
 
@@ -1147,11 +1269,13 @@ describe('transcript', () => {
 
   describe('deleteTranscript', () => {
     let ragDeleteCollectionSpy
+    let ragRemoveFromVectorStoreDeleteSpy
     let messageFindSpy
     let messageDeleteManySpy
 
     beforeEach(() => {
       ragDeleteCollectionSpy = jest.spyOn(rag, 'deleteCollection').mockResolvedValue()
+      ragRemoveFromVectorStoreDeleteSpy = jest.spyOn(rag, 'removeFromVectorStore').mockResolvedValue()
       messageFindSpy = jest.spyOn(Message, 'find').mockReturnValue({
         select: jest.fn().mockReturnValue({
           lean: jest.fn().mockResolvedValue([{ _id: 'msg1' }, { _id: 'msg2' }])
@@ -1162,15 +1286,13 @@ describe('transcript', () => {
 
     afterEach(() => {
       ragDeleteCollectionSpy.mockRestore()
+      ragRemoveFromVectorStoreDeleteSpy.mockRestore()
       messageFindSpy.mockRestore()
       messageDeleteManySpy.mockRestore()
     })
 
-    it('should delete entire collection from vector store including metadata', async () => {
-      const conversation = {
-        _id: 'conv123',
-        agents: [{ useTranscriptRAGCollection: true }]
-      }
+    it('should delete entire per-conversation collection from vector store including metadata', async () => {
+      const conversation = { _id: 'conv123' }
 
       await transcript.deleteTranscript(conversation)
 
@@ -1187,26 +1309,28 @@ describe('transcript', () => {
       })
     })
 
-    it('should skip vector store operations when no agents use RAG', async () => {
-      const conversation = {
-        _id: 'conv123',
-        agents: [{ useTranscriptRAGCollection: false }]
-      }
+    it('should also remove conversation documents from topic collection', async () => {
+      const conversation = { _id: 'conv123', topic: { _id: 'topic456' } }
 
       await transcript.deleteTranscript(conversation)
 
-      expect(ragDeleteCollectionSpy).not.toHaveBeenCalled()
+      expect(ragDeleteCollectionSpy).toHaveBeenCalledWith(`${TRANSCRIPT_COLLECTION_PREFIX}-conv123`)
+      expect(ragRemoveFromVectorStoreDeleteSpy).toHaveBeenCalledWith(`${TOPIC_TRANSCRIPT_COLLECTION_PREFIX}-topic456`, {
+        conversationId: 'conv123'
+      })
+    })
 
-      // Should still delete messages
-      expect(messageFindSpy).toHaveBeenCalled()
-      expect(messageDeleteManySpy).toHaveBeenCalled()
+    it('should not remove from topic collection when conversation has no topic', async () => {
+      const conversation = { _id: 'conv123' }
+
+      await transcript.deleteTranscript(conversation)
+
+      expect(ragDeleteCollectionSpy).toHaveBeenCalledWith(`${TRANSCRIPT_COLLECTION_PREFIX}-conv123`)
+      expect(ragRemoveFromVectorStoreDeleteSpy).not.toHaveBeenCalled()
     })
 
     it('should handle errors when deleting collection', async () => {
-      const conversation = {
-        _id: 'conv123',
-        agents: [{ useTranscriptRAGCollection: true }]
-      }
+      const conversation = { _id: 'conv123' }
 
       ragDeleteCollectionSpy.mockRejectedValue(new Error('Collection delete error'))
 
@@ -1215,22 +1339,6 @@ describe('transcript', () => {
 
       // Should still delete messages
       expect(messageDeleteManySpy).toHaveBeenCalled()
-    })
-
-    it('should handle conversations with multiple agents', async () => {
-      const conversation = {
-        _id: 'conv123',
-        agents: [
-          { useTranscriptRAGCollection: false },
-          { useTranscriptRAGCollection: true },
-          { useTranscriptRAGCollection: false }
-        ]
-      }
-
-      await transcript.deleteTranscript(conversation)
-
-      // Should delete collection if at least one agent uses RAG
-      expect(ragDeleteCollectionSpy).toHaveBeenCalledWith(`${TRANSCRIPT_COLLECTION_PREFIX}-conv123`)
     })
   })
 })

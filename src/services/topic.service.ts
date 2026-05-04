@@ -7,6 +7,7 @@ import Token from '../models/token.model.js'
 import ApiError from '../utils/ApiError.js'
 import config from '../config/config.js'
 import updateDocument from '../utils/updateDocument.js'
+import transcript from '../agents/helpers/transcript.js'
 import User from '../models/user.model/user.model.js'
 import { ITopic } from '../types/index.types.js'
 import { ConversationDocument } from '../models/conversation.model.js'
@@ -25,7 +26,7 @@ const topicsWithSortData = async (topicQuery) => {
       select: 'id',
       populate: [{ path: 'messages', select: ['id', 'createdAt'], match: { visible: true } }]
     })
-    .select('name slug private votingAllowed conversationCreationAllowed archiveEmail owner')
+    .select('name slug description private votingAllowed conversationCreationAllowed archiveEmail owner archived')
     .exec()
 
   const topics: Array<ITopic> = await Promise.all(
@@ -81,6 +82,7 @@ const createTopic = async (topicBody, user) => {
 
   const topic = await Topic.create({
     name: topicBody.name,
+    description: topicBody.description,
     votingAllowed: topicBody.votingAllowed,
     conversationCreationAllowed: topicBody.conversationCreationAllowed,
     private: config.enablePublicChannelCreation ? topicBody.private : true,
@@ -89,6 +91,7 @@ const createTopic = async (topicBody, user) => {
     passcode,
     owner: user
   })
+  await transcript.loadTopicMetadataIntoVectorStore(topic)
   return topic
 }
 /**
@@ -103,6 +106,7 @@ const updateTopic = async (topicBody) => {
   }
   topicDoc = updateDocument(topicBody, topicDoc)
   await topicDoc!.save()
+  await transcript.loadTopicMetadataIntoVectorStore(topicDoc)
   return topicDoc
 }
 const userTopics = async (user) => {
@@ -138,7 +142,7 @@ const allTopicsByUser = async (user) => {
 const findById = async (id) => {
   const topic = await Topic.findOne({ _id: id })
     .populate('followers')
-    .select('name slug private votingAllowed conversationCreationAllowed owner')
+    .select('name slug description private votingAllowed conversationCreationAllowed owner')
     .exec()
   return topic
 }
@@ -152,6 +156,7 @@ const deleteTopic = async (id) => {
   if (!topic) throw new ApiError(httpStatus.NOT_FOUND, 'Channel does not exist')
   topic.isDeleted = true
   await topic.save()
+  await transcript.deleteTopicCollection(topic)
 }
 const verifyPasscode = async (topicId, passcode) => {
   const topic = await Topic.findById(topicId)

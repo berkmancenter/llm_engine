@@ -1,6 +1,6 @@
 import * as fuzzball from 'fuzzball'
 import verify from '../helpers/verify.js'
-import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
+import { AgentMessageActions, ConversationHistory, IMessage } from '../../types/index.types.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { eventAssistantLLMTemplates, eventAssistantLlmTemplateVars, answerQuestion } from './eventQuestionHandler.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
@@ -34,6 +34,29 @@ function matchHeyDirective(text: string, botName: string): { matched: boolean; q
   return { matched: false, question: '' }
 }
 
+// Returns the extracted question text if the voice assistant should respond, or null otherwise.
+// Called from both evaluate (to gate) and respond (to extract the question), since respond runs
+// asynchronously in a job with a freshly loaded agent and cannot rely on in-memory state from evaluate.
+function extractVoiceQuestion(userMessage, conversationMessages, botName: string) {
+  const messageText = extractMessageText(userMessage)
+  const { matched, question } = matchHeyDirective(messageText, botName)
+
+  if (matched && question) return question
+  if (matched && !question) return null // bare trigger, wait for next message
+
+  // No trigger in current message — check if the previous transcript message was a bare "hey botName"
+  const prevTranscriptMessage = [...conversationMessages]
+    .reverse()
+    .find((msg) => msg.channels?.some((c) => c === 'transcript'))
+  if (prevTranscriptMessage) {
+    const prevText = extractMessageText(prevTranscriptMessage)
+    const prev = matchHeyDirective(prevText, botName)
+    if (prev.matched && !prev.question) return messageText
+  }
+
+  return null
+}
+
 export default verify({
   name: 'Voice Assistant',
   description:
@@ -48,7 +71,6 @@ export default verify({
   defaultLLMPlatform,
   defaultLLMModel,
   ragCollectionName: undefined,
-  useTranscriptRAGCollection: true,
   defaultConversationHistorySettings: { count: 10, channels: ['transcript'] },
   parseOutput: (msg) => {
     if (msg.bodyType !== 'json' || msg.body?.source !== 'voice') {
@@ -67,47 +89,31 @@ export default verify({
   },
 
   async evaluate(userMessage) {
-    return { userMessage, action: AgentMessageActions.CONTRIBUTE, userContributionVisible: true, suggestion: undefined }
+    const botName = this.agentConfig.botName as string
+    const questionText = extractVoiceQuestion(userMessage, this.conversation.messages as Array<IMessage>, botName)
+
+    if (questionText) {
+      logger.debug(`Voice trigger matched, question: "${questionText}"`)
+      return { userMessage, action: AgentMessageActions.CONTRIBUTE, userContributionVisible: true, suggestion: undefined }
+    }
+
+    const messageText = extractMessageText(userMessage)
+    const { matched } = matchHeyDirective(messageText, botName)
+    if (matched) logger.debug(`Voice trigger matched (bare), waiting for next message`)
+
+    return { userMessage, action: AgentMessageActions.OK, userContributionVisible: true, suggestion: undefined }
   },
 
   async respond(conversationHistory: ConversationHistory, userMessage) {
     const chatChannel = this.conversation.channels.find((channel) => channel.name === 'chat')
     if (!chatChannel) return []
 
-    const messageText = extractMessageText(userMessage)
     const botName = this.agentConfig.botName as string
-
-    const { matched, question } = matchHeyDirective(messageText, botName)
-
-    let questionText
-
-    if (matched && question) {
-      // "hey botName <question>" - answer immediately
-      logger.debug(`Voice trigger matched with inline question: "${question}"`)
-      questionText = question
-    } else if (matched && !question) {
-      // bare "hey botName" - wait for next message
-      logger.debug(`Voice trigger matched (bare), waiting for next message`)
-    } else if (!matched) {
-      // No trigger in current message - check if the previous transcript message was a bare "hey [botName]"
-      const { messages } = conversationHistory
-      if (messages.length > 0) {
-        const prevMessage = messages[messages.length - 1]
-        const prevText = extractMessageText(prevMessage)
-        const prev = matchHeyDirective(prevText, botName)
-        if (prev.matched && !prev.question) {
-          // Previous transcript message was a bare "hey botName" - treat current as the question
-          logger.debug(`Voice trigger processing deferred question: "${messageText}"`)
-          questionText = messageText
-        }
-      }
-    }
-
+    const questionText = extractVoiceQuestion(userMessage, conversationHistory.messages, botName)
     if (!questionText) return []
 
-    // Pass to answerQuestion with modified body and empty history - conversationHistory here contains
-    // transcript messages, but answerQuestion expects chat/DM history; transcript is handled internally via RAG
     logger.debug(`Voice assistant answering question: "${questionText}"`)
+    // answerQuestion expects chat/DM history; transcript is handled internally via RAG
     const questionMessage = { ...userMessage, body: questionText }
     const responses = await answerQuestion.call(this, questionMessage, { messages: [] })
 
@@ -140,7 +146,7 @@ export default verify({
   },
 
   formatTraceOutput(responses) {
-    return responses[0]?.message
+    return responses[0]?.message.text
   },
 
   getTraceMetadata(conversationHistory, userMessage, responses) {

@@ -167,28 +167,28 @@ describe('zoom adapter tests', () => {
       }
       const expectedMsg1 = {
         message: 'Welcome to the meeting!',
-        source: 'zoom',
+        source: { type: 'zoom' },
         user: { username: 'Jennifer Hickey' },
         channels: adapter.audioChannels,
         createdAt: new Date('2025-05-16T19:32:54.522382Z')
       }
       const expectedMsg2 = {
         message: 'Great to see everyone!',
-        source: 'zoom',
+        source: { type: 'zoom' },
         user: { username: 'Jennifer Hickey' },
         channels: adapter.audioChannels,
         createdAt: new Date('2025-05-16T19:33:20.522382Z')
       }
       const expectedMsg3 = {
         message: 'Welcome to our special guest!',
-        source: 'zoom',
+        source: { type: 'zoom' },
         user: { username: 'Jennifer Hickey' },
         channels: adapter.audioChannels,
         createdAt: new Date('2025-05-16T19:33:55.522382Z')
       }
       const expectedMsg4 = {
         message: 'Happy to be here!',
-        source: 'zoom',
+        source: { type: 'zoom' },
         user: { username: 'John Doe' },
         channels: adapter.audioChannels,
         createdAt: new Date('2025-05-16T19:34:43.522382Z')
@@ -234,7 +234,7 @@ describe('zoom adapter tests', () => {
       expect(msgs).toEqual([
         {
           message: 'Hello everyone!',
-          source: 'zoom',
+          source: { type: 'zoom' },
           user: { username: 'Alice Smith' },
           channels: adapter.chatChannels
         }
@@ -270,7 +270,7 @@ describe('zoom adapter tests', () => {
       const msgs = await adapter.receiveMessage(chatMessage)
       expect(msgs).toHaveLength(1)
       expect(msgs[0].message).toBe('Hello everyone!')
-      expect(msgs[0].source).toBe('zoom')
+      expect(msgs[0].source).toEqual({ type: 'zoom' })
       expect(msgs[0].user).toEqual({ username: 'Alice Smith' })
       expect(msgs[0].channels).toHaveLength(1)
       expect(msgs[0].channels[0].name).toBe('chat-incoming')
@@ -306,7 +306,7 @@ describe('zoom adapter tests', () => {
       const msgs = await adapter.receiveMessage(chatMessage)
       expect(msgs).toHaveLength(1)
       expect(msgs[0].message).toBe('Hello everyone!')
-      expect(msgs[0].source).toBe('zoom')
+      expect(msgs[0].source).toEqual({ type: 'zoom' })
       expect(msgs[0].user).toEqual({ username: 'Alice Smith' })
       expect(msgs[0].channels).toHaveLength(1)
       expect(msgs[0].channels[0].name).toBe('chat-both')
@@ -452,7 +452,7 @@ describe('zoom adapter tests', () => {
       const msgs = await adapter.receiveMessage(replyMessage)
       expect(msgs).toHaveLength(1)
       expect(msgs[0].message).toBe("I think that's wrong")
-      expect(msgs[0].source).toBe('zoom')
+      expect(msgs[0].source).toEqual({ type: 'zoom' })
       expect(msgs[0].user).toEqual({ username: 'Charlie Brown' })
     })
 
@@ -642,7 +642,7 @@ describe('zoom adapter tests', () => {
       expect(msgs).toEqual([
         {
           message: 'Hello bot, can you help me?',
-          source: 'zoom',
+          source: { type: 'zoom' },
           channels: adapter.dmChannels,
           user: { username: 'Alice Smith', dmConfig: { to: 102 } }
         }
@@ -680,7 +680,7 @@ describe('zoom adapter tests', () => {
       const msgs = await adapter.receiveMessage(dmMessage)
       expect(msgs).toHaveLength(1)
       expect(msgs[0].message).toBe('Hello bot, can you help me?')
-      expect(msgs[0].source).toBe('zoom')
+      expect(msgs[0].source).toEqual({ type: 'zoom' })
       expect(msgs[0].user).toEqual({ username: 'Alice Smith', dmConfig: { to: 102 } })
       expect(msgs[0].channels).toHaveLength(1)
       expect(msgs[0].channels[0].name).toBe('dm-incoming')
@@ -718,7 +718,7 @@ describe('zoom adapter tests', () => {
       const msgs = await adapter.receiveMessage(dmMessage)
       expect(msgs).toHaveLength(1)
       expect(msgs[0].message).toBe('Hello bot, can you help me?')
-      expect(msgs[0].source).toBe('zoom')
+      expect(msgs[0].source).toEqual({ type: 'zoom' })
       expect(msgs[0].user).toEqual({ username: 'Alice Smith', dmConfig: { to: 102 } })
       expect(msgs[0].channels).toHaveLength(1)
       expect(msgs[0].channels[0].name).toBe('dm-both')
@@ -839,7 +839,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Test User',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true
         })
 
@@ -880,7 +880,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Test User',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true
         })
 
@@ -922,19 +922,19 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Test User',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true
         })
 
         // Create a reply to the root message
-        const firstReply = await Message.create({
+        await Message.create({
           body: 'I agree with the proposal',
           conversation: conversation._id,
           channels: ['participant'],
           pseudonym: 'Test User 2',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true,
           parentMessage: rootMessage._id
         })
@@ -977,7 +977,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Test User',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true
         })
 
@@ -1020,7 +1020,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Test User',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true,
           createdAt: twoHoursAgo
         })
@@ -1064,7 +1064,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Test User',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true
         })
 
@@ -1098,7 +1098,6 @@ describe('zoom adapter tests', () => {
         conversation.enableDMs = ['agents']
         await conversation.save()
 
-        const agentId = new mongoose.Types.ObjectId()
         adapter.dmChannels = [{ name: 'dm-channel', direction: Direction.INCOMING }]
         await adapter.save()
 
@@ -1109,7 +1108,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Test User',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true
         })
 
@@ -1151,7 +1150,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Test User',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true,
           createdAt: new Date(Date.now() - 10 * 60 * 1000) // 10 minutes ago
         })
@@ -1163,7 +1162,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Test User 2',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true,
           createdAt: new Date(Date.now() - 1 * 60 * 1000) // 1 minute ago
         })
@@ -1209,7 +1208,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Test User',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true
         })
 
@@ -1253,7 +1252,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Test User',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true
         })
 
@@ -1297,7 +1296,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Agent',
           pseudonymId: new mongoose.Types.ObjectId(),
           fromAgent: true,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true
         })
 
@@ -1342,7 +1341,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Fun Frog',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true
         })
 
@@ -1387,7 +1386,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Very Long Pseudonym Name',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true
         })
 
@@ -1432,7 +1431,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Fun Frog',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true
         })
 
@@ -1477,7 +1476,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Cool Cat',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true,
           createdAt: new Date(Date.now() - 10 * 60 * 1000) // 10 minutes ago
         })
@@ -1490,7 +1489,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Cool Cat',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true,
           createdAt: new Date(Date.now() - 1 * 60 * 1000) // 1 minute ago
         })
@@ -1536,7 +1535,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Happy Hippo',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true,
           createdAt: new Date(Date.now() - 5 * 60 * 1000)
         })
@@ -1548,7 +1547,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Happy Hippo',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true,
           createdAt: new Date(Date.now() - 1 * 60 * 1000)
         })
@@ -1594,7 +1593,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Test User',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true
         })
 
@@ -1606,7 +1605,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Test User 2',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true
         })
 
@@ -1649,7 +1648,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Clever Cat',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true
         })
 
@@ -1694,7 +1693,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Busy Bee',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true,
           createdAt: new Date(Date.now() - 10 * 60 * 1000)
         })
@@ -1707,7 +1706,7 @@ describe('zoom adapter tests', () => {
           pseudonym: 'Busy Bee',
           pseudonymId: new mongoose.Types.ObjectId(),
           owner: user1._id,
-          source: 'zoom',
+          source: { type: 'zoom' },
           visible: true,
           createdAt: new Date(Date.now() - 1 * 60 * 1000)
         })

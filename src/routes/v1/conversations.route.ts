@@ -349,6 +349,40 @@ router.route('/:conversationId').get(auth('getConversation'), conversationsContr
 
 /**
  * @swagger
+ * /conversations/{conversationId}/features:
+ *   get:
+ *     summary: Get the enabled features for a conversation
+ *     description: Returns the conversation type, bot name, and enabled feature list. Public — no auth required.
+ *     tags: [Conversation]
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Feature list for the conversation
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 conversationType:
+ *                   type: string
+ *                 conversationBotName:
+ *                   type: string
+ *                 features:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/FeatureConfig'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ */
+router.route('/:conversationId/features').get(conversationsController.getFeatures)
+
+/**
+ * @swagger
  * /conversations/{conversationId}/agent/{agentId}:
  *   patch:
  *     summary: Update conversation agent

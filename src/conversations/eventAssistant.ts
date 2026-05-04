@@ -42,6 +42,65 @@ const eventAssistant: ConversationType = {
       default: 3
     }
   ],
+  /*
+   * Each entry determines 3 things: the Features section in the event creation form,
+   * the Quick Guide panel shown during live events, and slash command
+   * autocomplete (for entries where slashCommand is set).
+   *
+   * category is required — omitting it is a compile error.
+   *
+   * category:     functional area this feature corresponds to, such as "assistant", "group-chat", "transcript", or "resources"
+   * slashCommand: command text without the slash. Omit for passive features.
+   * prerequisite: optional setup instruction shown alongside the description.
+   * agents:       backend agents to start when enabled. Empty for user-triggered features.
+   * properties:   sub-properties shown in the event creation form.
+   */
+  features: [
+    {
+      name: 'mindmap',
+      label: 'Mind Map',
+      description: 'Creates a visual mind map of the key topics discussed in the event.',
+      category: 'assistant',
+      userControlled: true,
+      slashCommand: 'mindmap',
+      default: true,
+      agents: [],
+      properties: []
+    },
+    {
+      name: 'visual',
+      label: 'Visual Response',
+      description: 'Ask for a visual (image) response to a question.',
+      category: 'assistant',
+      userControlled: true,
+      slashCommand: 'visual',
+      default: true,
+      agents: [],
+      properties: []
+    },
+    {
+      name: 'visualPreference',
+      label: 'Visuals',
+      description: 'Automatically generates a visual when it would help explain a concept.',
+      prerequisite: 'Enable it by turning on "Visuals" in your event settings.',
+      category: 'assistant',
+      userControlled: true,
+      default: true,
+      agents: [],
+      properties: []
+    },
+    {
+      name: 'jargonFilter',
+      label: 'Jargon Filter',
+      description: 'Automatically explains jargon and technical terms used by speakers.',
+      prerequisite: 'Enable it by turning on "Jargon Clarification" in your event settings.',
+      category: 'assistant',
+      userControlled: true,
+      default: true,
+      agents: [],
+      properties: []
+    }
+  ],
   // internal
   agents: [
     {

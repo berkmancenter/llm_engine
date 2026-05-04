@@ -163,8 +163,6 @@ function createAgentOutputChain(responseSchema?) {
   const logAndExtractStep = async (agentResult) => {
     const { messages } = agentResult
 
-    logger.debug(`Agent executed ${messages.length} message exchanges`)
-
     // Log tool calls for debugging
     messages.forEach((msg, idx) => {
       const msgType = msg._getType()
@@ -177,8 +175,6 @@ function createAgentOutputChain(responseSchema?) {
             logger.debug(`  - Tool: ${tc.name}`)
             logger.debug(`    Args: ${JSON.stringify(tc.args)}`)
           })
-        } else {
-          logger.debug(`[${idx}] AIMessage (final response)`)
         }
       }
     })
@@ -361,10 +357,11 @@ async function getChatPromptResponse(
   userTemplate,
   inputParams,
   inputChatHistory?,
-  structuredOutputSchema?
+  structuredOutputSchema?,
+  platform?: string
 ) {
-  // a requirement for vLLM over OpenAI compatible API
-  const chatHistory = ensureAlternatingChat(inputChatHistory || [])
+  // vLLM requires strict alternating human/ai turns; other platforms support consecutive same-role messages
+  const chatHistory = platform === 'vllm' ? ensureAlternatingChat(inputChatHistory || []) : inputChatHistory || []
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any = [
@@ -470,7 +467,15 @@ async function getRAGAugmentedResponse(
  *
 
  */
-async function getAgentStructuredResponse(llm, tools, systemPrompt, userMessage, responseSchema?) {
+async function getAgentStructuredResponse(
+  llm,
+  tools,
+  systemPrompt,
+  userMessage,
+  responseSchema?,
+  chatHistory?,
+  recursionLimit = 20
+) {
   // Add format instructions to system prompt if schema is provided
   let finalSystemPrompt = systemPrompt
   if (responseSchema) {
@@ -491,7 +496,18 @@ ${parser.getFormatInstructions()}`
     systemPrompt: new SystemMessage(finalSystemPrompt)
   })
 
-  const agentResult = await agent.invoke({ messages: [{ role: 'user', content: userMessage }] }, { recursionLimit: 20 })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const messages: any = [
+    ...(chatHistory && chatHistory.length > 0 ? chatHistory : []),
+    { role: 'user', content: userMessage }
+  ]
+
+  const agentResult = await agent.invoke(
+    {
+      messages
+    },
+    { recursionLimit }
+  )
 
   const outputChain = createAgentOutputChain(responseSchema)
   return outputChain.invoke(agentResult)

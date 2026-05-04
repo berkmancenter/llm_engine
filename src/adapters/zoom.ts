@@ -127,7 +127,7 @@ async function processTranscript(msgChunks, participantName) {
     msgs.push({
       channels: this.audioChannels,
       message: msgChunk.text,
-      source: 'zoom',
+      source: { type: 'zoom' },
       createdAt: new Date(msgChunk.end_timestamp.absolute),
       user: { username: participantName }
     })
@@ -138,7 +138,7 @@ async function processTranscript(msgChunks, participantName) {
 async function receiveGroupChatMessage(data) {
   const msg: AdapterMessage<string> = {
     message: data.data.data.text,
-    source: 'zoom',
+    source: { type: 'zoom' },
     channels: this.chatChannels.filter(
       (channel) => channel.direction === Direction.INCOMING || channel.direction === Direction.BOTH
     ),
@@ -150,7 +150,7 @@ async function receiveGroupChatMessage(data) {
 async function receiveDirectMesssage(data) {
   const msg: AdapterMessage<string> = {
     message: data.data.data.text,
-    source: 'zoom',
+    source: { type: 'zoom' },
     channels: this.dmChannels.filter(
       (channel) => channel.direction === Direction.INCOMING || channel.direction === Direction.BOTH
     ),

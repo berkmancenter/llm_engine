@@ -8,6 +8,8 @@ import eventMediatorPlus from './eventMediator/eventMediatorPlus.js'
 import engagementAgent from './engagement/engagementAgent.js'
 import jargonFilterAgent from './jargonFilter/jargonFilter.js'
 import librarian from './librarian/librarianAgent.js'
+import chatbot from './chatbot/chatbot.js'
+import eventHistorian from './eventHistorian/eventHistorian.js'
 
 // Development agents
 import civilityPerMessage from './development/civilityPerMessage.js'
@@ -40,11 +42,13 @@ export default {
   backChannelMetrics,
   backChannelInsights,
   eventAssistant,
+  chatbot,
   eventAssistantPlus,
   eventMediator,
   eventMediatorPlus,
   engagementAgent,
   jargonFilterAgent,
   voiceAssistant,
-  librarian
+  librarian,
+  eventHistorian
 }

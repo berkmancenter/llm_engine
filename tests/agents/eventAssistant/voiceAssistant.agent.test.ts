@@ -67,12 +67,42 @@ describe('voice assistant CI tests', () => {
 
   // EVALUATE TESTS
 
-  it('contributes to transcript messages from other users', async () => {
+  it('contributes when message contains an inline hey trigger with a question', async () => {
     const msg = await createMessage(`hey ${agent.agentConfig.botName} what is going on?`, user1, conversation, [
       'transcript'
     ])
     const evaluation = await defaultAgentTypes.voiceAssistant.evaluate.call(agent, msg)
     expect(evaluation.action).toEqual(AgentMessageActions.CONTRIBUTE)
+  })
+
+  it('returns OK when no hey trigger is present', async () => {
+    const msg = await createMessage('part-time work is interesting', user1, conversation, ['transcript'])
+    const evaluation = await defaultAgentTypes.voiceAssistant.evaluate.call(agent, msg)
+    expect(evaluation.action).toEqual(AgentMessageActions.OK)
+  })
+
+  it('returns OK for a bare hey trigger with no question, waiting for next message', async () => {
+    const msg = await createMessage(`hey ${agent.agentConfig.botName}`, user1, conversation, ['transcript'])
+    const evaluation = await defaultAgentTypes.voiceAssistant.evaluate.call(agent, msg)
+    expect(evaluation.action).toEqual(AgentMessageActions.OK)
+  })
+
+  it('contributes for a deferred question when previous transcript message was a bare hey trigger', async () => {
+    const prevMsg = await createMessage(`hey ${agent.agentConfig.botName}`, user1, conversation, ['transcript'])
+    agent.conversation.messages.push(prevMsg)
+    const currMsg = await createMessage('what did Jessica say about flexible work?', user1, conversation, ['transcript'])
+    const evaluation = await defaultAgentTypes.voiceAssistant.evaluate.call(agent, currMsg)
+    expect(evaluation.action).toEqual(AgentMessageActions.CONTRIBUTE)
+  })
+
+  it('returns OK when previous transcript message had an inline question (not a bare trigger)', async () => {
+    const prevMsg = await createMessage(`hey ${agent.agentConfig.botName} what is part-time work?`, user1, conversation, [
+      'transcript'
+    ])
+    agent.conversation.messages.push(prevMsg)
+    const currMsg = await createMessage('tell me more', user1, conversation, ['transcript'])
+    const evaluation = await defaultAgentTypes.voiceAssistant.evaluate.call(agent, currMsg)
+    expect(evaluation.action).toEqual(AgentMessageActions.OK)
   })
 
   // RESPOND TESTS - TRIGGER DETECTION

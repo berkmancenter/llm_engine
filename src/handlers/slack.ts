@@ -1,10 +1,10 @@
 import httpStatus from 'http-status'
-import ApiError from '../../utils/ApiError.js'
-import Adapter from '../../models/adapter.model.js'
-import config from '../../config/config.js'
-import logger from '../../config/logger.js'
-import validateSignature from '../helpers/validateSignature.js'
-import webhookService from '../../services/webhook.service.js'
+import ApiError from '../utils/ApiError.js'
+import Adapter from '../models/adapter.model.js'
+import config from '../config/config.js'
+import logger from '../config/logger.js'
+import validateSignature from './helpers/validateSignature.js'
+import webhookService from '../services/webhook.service.js'
 
 const handleEvent = async (req, res) => {
   const payload = req.body

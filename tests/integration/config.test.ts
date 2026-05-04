@@ -73,5 +73,22 @@ describe('Config routes', () => {
 
       expect(resp.body.llmPlatforms).toEqual(llmPlatforms)
     })
+
+    test('should serialize category, slashCommand, and userControlled on each feature', async () => {
+      await insertUsers([registeredUser])
+      const resp = await request(app).get(`/v1/config`).send().expect(httpStatus.OK)
+
+      /* Every feature from every conversation type must carry the metadata fields.
+       * slashCommand is optional, so we only check type when present. */
+      for (const ct of resp.body.conversationTypes) {
+        for (const feature of ct.features ?? []) {
+          expect(['assistant', 'group-chat', 'transcript', 'resources']).toContain(feature.category)
+          expect(typeof feature.userControlled).toBe('boolean')
+          if (feature.slashCommand !== undefined) {
+            expect(typeof feature.slashCommand).toBe('string')
+          }
+        }
+      }
+    })
   })
 })
