@@ -167,7 +167,7 @@ agentSchema.plugin(paginate)
 // virtuals
 
 agentSchema.virtual('tokenLimit').get(function () {
-  return agentTypes[this.agentType].maxTokens
+  return agentTypes[this.agentType]?.maxTokens
 })
 
 agentSchema.virtual('conversationName').get(function () {
@@ -176,16 +176,16 @@ agentSchema.virtual('conversationName').get(function () {
 })
 
 agentSchema.virtual('priority').get(function () {
-  return agentTypes[this.agentType].priority
+  return agentTypes[this.agentType]?.priority
 })
 
 // allow for a custom instance name for this agent (e.g. if multiple instances). Can use for pseudonym, etc.
 agentSchema.virtual('instanceName').get(function () {
-  return agentTypes[this.agentType].instanceNameFn?.call(this) || this.name
+  return agentTypes[this.agentType]?.instanceNameFn?.call(this) || this.name
 })
 
 agentSchema.virtual('llmTemplateVars').get(function () {
-  return agentTypes[this.agentType].llmTemplateVars
+  return agentTypes[this.agentType]?.llmTemplateVars
 })
 
 agentSchema.virtual('activePseudonym').get(function () {
