@@ -5,7 +5,6 @@ import jestPlugin from 'eslint-plugin-jest'
 import securityPlugin from 'eslint-plugin-security'
 import prettierPlugin from 'eslint-plugin-prettier'
 import eslintConfigPrettier from 'eslint-config-prettier'
-import importPlugin from 'eslint-plugin-import'
 import globals from 'globals'
 import { FlatCompat } from '@eslint/eslintrc'
 import { createTypeScriptImportResolver } from 'eslint-import-resolver-typescript'
@@ -39,8 +38,7 @@ export default tseslint.config(
     plugins: {
       '@typescript-eslint': tseslint.plugin,
       security: securityPlugin,
-      prettier: prettierPlugin,
-      import: importPlugin
+      prettier: prettierPlugin
     },
     ignores: ['dist/**', 'node_modules/**'],
     rules: {
