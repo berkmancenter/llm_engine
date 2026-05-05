@@ -9,6 +9,7 @@ import {
   createMessage,
   prepareMessagesForAgent
 } from '../../utils/agentTestHelpers.js'
+import { Conversation, Message } from '../../../src/models/index.js'
 
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
 
@@ -356,6 +357,140 @@ describe('moderator agent tests', () => {
       testTimeout
     )
   })
+  describe('repeat escalation suppression', () => {
+    const injectPriorAlert = async (alertMessage: string, alertTime: Date) => {
+      const moderatorChannel = agent.conversation.channels.find((c) => c.name === 'moderator')
+      const priorAlert = new Message({
+        conversation: conversation._id,
+        channel: moderatorChannel._id,
+        pseudonymId: agent.pseudonyms[0]._id,
+        pseudonym: agent.name,
+        fromAgent: true,
+        visible: true,
+        bodyType: 'json',
+        body: {
+          timestamp: { start: alertTime.getTime() - 120000, end: alertTime.getTime() },
+          insights: [{ value: alertMessage, type: 'insight' }]
+        },
+        createdAt: alertTime
+      })
+      await priorAlert.save()
+      agent.conversation = await Conversation.findById(conversation._id).populate('messages').populate('channels')
+    }
+
+    it(
+      'does not re-escalate a pattern that was already alerted with no new signals',
+      async () => {
+        // Seed 3 private messages about regulatory concerns
+        const messages = [
+          await createDirectMessage(
+            'How does this interact with the recent Department of Labor regulatory changes?',
+            user1,
+            conversation,
+            getMessageTime(220)
+          ),
+          await createDirectMessage(
+            'What about the new overtime rules from DOL? That affects this',
+            user2,
+            conversation,
+            getMessageTime(240)
+          ),
+          await createDirectMessage(
+            'Recent federal regulations seem relevant here — is the speaker aware?',
+            user3,
+            conversation,
+            getMessageTime(260)
+          )
+        ]
+        await prepareMessagesForAgent(messages, conversation, agent)
+
+        // Inject a prior alert that already reported this exact pattern
+        await injectPriorAlert(
+          'Multiple participants privately asking about Department of Labor regulatory changes and overtime rules — 3 signals. Suggested action: ask speaker to address recent DOL regulatory changes.',
+          getMessageTime(270)
+        )
+
+        const conversationHistory = getConversationHistory(agent.conversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 400 * 1000)
+        })
+
+        const responses = await defaultAgentTypes.moderatorNotifier.respond.call(agent, conversationHistory)
+        assertNotEscalated(responses)
+      },
+      testTimeout
+    )
+
+    it(
+      're-escalates when the same pattern has meaningfully grown since the prior alert',
+      async () => {
+        // Seed initial private messages about regulatory concerns
+        const initialMessages = [
+          await createDirectMessage(
+            'How does this interact with the recent Department of Labor regulatory changes?',
+            user1,
+            conversation,
+            getMessageTime(220)
+          ),
+          await createDirectMessage(
+            'What about the new overtime rules from DOL? That affects this',
+            user2,
+            conversation,
+            getMessageTime(240)
+          )
+        ]
+        await prepareMessagesForAgent(initialMessages, conversation, agent)
+
+        // Inject prior alert — 2 signals at that time
+        await injectPriorAlert(
+          '2 participants privately asking about DOL regulatory changes. Suggested action: ask speaker to address.',
+          getMessageTime(250)
+        )
+
+        // Now add significantly more signals — pattern has grown
+        const grownMessages = [
+          await createDirectMessage(
+            'Still no answer on the regulatory question — this seems like a significant compliance risk',
+            user3,
+            conversation,
+            getMessageTime(310)
+          ),
+          await createDirectMessage(
+            'Six of us are now asking about the overtime rules, can the moderator step in?',
+            user1,
+            conversation,
+            getMessageTime(330)
+          ),
+          await createDirectMessage(
+            'The DOL question is really important for my org — any chance of getting it addressed?',
+            user2,
+            conversation,
+            getMessageTime(350)
+          ),
+          await createMessage(
+            'Has anyone gotten clarity on the federal regulation side? Seems like a major gap in this talk',
+            user3,
+            conversation,
+            ['chat'],
+            getMessageTime(360)
+          )
+        ]
+        await prepareMessagesForAgent(grownMessages, conversation, agent)
+
+        const conversationHistory = getConversationHistory(agent.conversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 420 * 1000)
+        })
+
+        const responses = await defaultAgentTypes.moderatorNotifier.respond.call(agent, conversationHistory)
+        assertEscalated(responses)
+      },
+      testTimeout
+    )
+  })
+
   describe('parseOutput function', () => {
     it('handles text messages as-is', () => {
       const agentType = defaultAgentTypes.moderatorNotifier
