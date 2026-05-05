@@ -25,12 +25,18 @@ Escalate when you detect any of the following:
 - Things already being handled visibly in the public chat
 - Low-confidence patterns with only one or two signals
 - Routine Q&A the speaker is already handling
+- Patterns you have already escalated (see Previous Alerts) unless there are significant new signals or clear evolution
+
+## Previous Alerts
+
+You will be given a list of alerts you have already sent to the moderator, with their timestamps (UTC ISO 8601). Do not re-escalate the same pattern unless it has meaningfully grown — more participants signaling, significantly higher intensity, or a clear new dimension to the issue. Assume the moderator has seen and is handling any pattern you have already reported.
 
 ## Output format
 
 Return a JSON object:
 {{
   "shouldEscalate": boolean,
+  "isNewPattern": boolean,
   "reasoning": "Internal analysis of what you see and why you are or are not escalating",
   "moderatorMessage": "Concise briefing for the moderator (null if not escalating). Include: what is happening, how many signals, and a suggested question or action.",
   "detectedPattern": "Brief description of the pattern (null if none)",
@@ -42,6 +48,9 @@ Return ONLY raw JSON. No markdown, no backticks, no explanation.`
 
 const USER_TEMPLATE = `## Event Topic:
 {topic}
+
+## Previous Alerts Sent to Moderator (UTC timestamps):
+{previousAlerts}
 
 ## Recent Transcript (last 10 minutes):
 {recentTranscript}
@@ -61,12 +70,29 @@ Assess whether the moderator should be alerted. Output valid JSON only.`
 
 const MODERATOR_SCHEMA = z.object({
   shouldEscalate: z.boolean(),
+  isNewPattern: z.boolean(),
   reasoning: z.string(),
   moderatorMessage: z.string().nullable().optional(),
   detectedPattern: z.string().nullable().optional(),
   affectedUsers: z.number().nullable().optional(),
   confidenceScore: z.number().min(0).max(100)
 })
+
+function getPreviousAlerts(messages, agentName) {
+  const alerts = messages.filter(
+    (msg) => msg.pseudonym === agentName && msg.fromAgent && msg.bodyType === 'json' && msg.body?.insights
+  )
+
+  if (alerts.length === 0) return 'None yet.'
+
+  return alerts
+    .map((msg) => {
+      const ts = (msg.createdAt ?? new Date()).toISOString()
+      const { insights } = msg.body as { insights: { value: string }[] }
+      return insights.map((i) => `[${ts}] ${i.value}`).join('\n')
+    })
+    .join('\n')
+}
 
 export default verify({
   name: 'Moderator Notifier',
@@ -81,6 +107,7 @@ export default verify({
     system: [],
     user: [
       { name: 'topic', description: 'The event topic' },
+      { name: 'previousAlerts', description: 'Previously escalated alerts sent to the moderator this session' },
       { name: 'recentTranscript', description: 'Recent transcript (last 10 minutes)' },
       { name: 'retrievedChunks', description: 'Relevant retrieved context from RAG search' },
       { name: 'privateMessages', description: 'Private/direct messages from participants' },
@@ -159,6 +186,8 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
     const allMessages = [...sharedChatMessages, ...privateMessages].map((m) => m.content).join('\n')
     const { chunks } = await transcript.searchTranscript(this.conversation, allMessages, conversationHistory.end)
 
+    const previousAlerts = getPreviousAlerts(this.conversation.messages, this.name)
+
     const llm = await this.getLLM()
     const analysis = (await getChatPromptResponse(
       llm,
@@ -166,6 +195,7 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
       this.llmTemplates.user || USER_TEMPLATE,
       {
         topic: this.conversation.name,
+        previousAlerts,
         recentTranscript,
         retrievedChunks: chunks,
         privateMessages: privateMessages.map((m) => m.content).join('\n') || 'No private messages.',
@@ -180,7 +210,7 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
       return []
     }
 
-    logger.info(`${this.name}: Escalating to moderator — ${analysis.detectedPattern}`)
+    logger.info(`${this.name}: Escalating to moderator — ${analysis.detectedPattern} (new: ${analysis.isNewPattern})`)
 
     const moderatorAlert = {
       timestamp: {
