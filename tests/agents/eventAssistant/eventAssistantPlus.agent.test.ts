@@ -83,6 +83,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
       'does not ask to submit for simple acknowledgments (ON_TOPIC_ANSWER)',
       async () => {
         const msg = await createQuestion('Thanks for this presentation')
+        msg._id = new mongoose.Types.ObjectId()
 
         const responses = await defaultAgentTypes.eventAssistantPlus.respond.call(agent, { messages: [] }, msg)
         await validateResponse(responses)

@@ -17,9 +17,6 @@ export enum QuestionClassification {
   CATCHUP = 'CATCHUP'
 }
 
-export const cannotRespond =
-  "Hmm, I don't have a great answer to that one. Can you try rephrasing it? I'm best at event-related questions. And if you think this was on me, a bug report at http://brk.mn/feedback would be much appreciated!"
-
 function buildLLMTemplates(personalityName?: string | null, botName?: string) {
   const personalityContent = personalityName ? personalitySection : ''
   const botIdentity = botName ? `You are ${botName}, an` : 'You are an'
@@ -63,7 +60,7 @@ When information isn't in the context:
 - If appropriate, suggest they ask the speaker for event-specific insights.
 - **For questions about speakers/moderators without available bio data:** Acknowledge you don't have their background information in the current context, but focus on what they've discussed in the event if relevant.
 
-**Failsafe:** If you cannot provide any substantive answer, respond with exactly: "${cannotRespond}"
+**Failsafe:** If you cannot provide any substantive answer, explain why.
 
 Output Style:
 - 1-3 sentences maximum.
@@ -89,6 +86,7 @@ Important! When deciding between ON_TOPIC_ASK_SPEAKER and ON_TOPIC_ANSWER, bias 
 - User feedback, criticism, or reactions about the talk (e.g. "boring", "disagree", "interesting")
 - Personal questions about the speaker's views or preferences related to the topic
 - If it's about the event topic and NOT one of the categories below, use this
+- Do not classify as this if it's a simple acknowledgment ("thanks", "got it")
 
 **ON_TOPIC_ANSWER**: Can be answered authoritatively and exhaustively WITHOUT speaker input from available context and clearly NOT helpful for the speaker to understand audience sentiment.
 - Help writing/formulating a question for the speaker
@@ -110,6 +108,35 @@ Important! When deciding between ON_TOPIC_ASK_SPEAKER and ON_TOPIC_ANSWER, bias 
 **Output Format:**
 **Return ONLY a single string - one of:** CATCHUP, ON_TOPIC_ASK_SPEAKER, ON_TOPIC_ANSWER, OFF_TOPIC, UNANSWERABLE
 Do NOT provide any explanation or additional text.`,
+    offTopicSystem: `You are an AI assistant for a live event. The user has asked something unrelated to the event topic.
+
+${personalityContent}
+
+**Your task:** Politely redirect the user back to the event topic. Let them know you're here to help with event-related questions.
+
+**Output Style:**
+- 1-2 sentences maximum.
+- Friendly but brief.
+- Mention that you're best at event-related questions.
+
+- Do not attempt to answer the off-topic question, even partially.
+- Do not explain why the question is off-topic in a judgmental way.
+- Do not suggest the user go elsewhere for the answer (e.g., "try Google").
+- Mention the event topic or the general subject area if it is clear from the context.
+- Don't end with questions like "What can I help you with?"
+`,
+    unanswerableSystem: `You are an AI assistant for a live event. You cannot provide a good answer to the user's question.
+
+${personalityContent}
+
+**Your task:** Let the user know you don't have a great answer and suggest they rephrase or try a different question. Mention you're best at event-related questions.
+
+**Output Style:**
+- 1-2 sentences maximum.
+- Friendly but brief.
+- Encourage them to try rephrasing.
+- Don't end with questions like "What can I help you with?"
+`,
     visualClassificationSystem: `You classify whether a question/answer pair would benefit from a visual representation (diagram, illustration, chart, etc.).
 
 **Core principle:** Visuals excel at showing relationships between multiple elements. If the answer involves multiple concepts, steps, or components that connect or relate to each other, it likely benefits from visualization.
@@ -137,7 +164,7 @@ Do NOT provide any explanation or additional text.`,
 Would this benefit from a visual representation?`,
     user: `## Event topic:
   {topic}
-
+  
   ## Context:
   {context}
 
@@ -149,6 +176,8 @@ Would this benefit from a visual representation?`,
 export const eventAssistantLLMTemplates = buildLLMTemplates('sarcastic-expert')
 
 export const eventAssistantLlmTemplateVars = {
+  offTopicSystem: [],
+  unanswerableSystem: [],
   timeWindowSystem: [],
   semanticSystem: [],
   semanticClassificationSystem: [],
@@ -195,7 +224,7 @@ async function shouldGenerateVisual(question, classification, llmResponse, templ
   }
 
   // Auto-reject simple/short responses (acknowledgments, etc.)
-  if (llmResponse.length < 50 || llmResponse === cannotRespond) {
+  if (llmResponse.length < 50) {
     logger.debug('Skipping visual generation: response too short or cannot respond')
     return false
   }
@@ -307,27 +336,40 @@ ${chunks}`
 
   // Default to semantic if no prompt type specified
   const isTimeWindow = promptType === 'timeWindow'
-  const systemTemplate = isTimeWindow ? templates.timeWindowSystem : templates.semanticSystem
+  let systemTemplate = isTimeWindow ? templates.timeWindowSystem : templates.semanticSystem
+
+  // Skip visual generation if question is skipped because off-topic or unanswerable
+  let allowGenerateVisual = true
 
   const topic = options?.topic || this.conversation.name
+
+  // If question is off-topic or unanswerable, use matching template for systemTemplate
+  if (!isTimeWindow) {
+    // Get pre-classification
+    const preClassification = await getResponse.call(
+      this,
+      question,
+      contextString,
+      chatHistory,
+      topic,
+      templates.semanticClassificationSystem
+    )
+    if (preClassification === QuestionClassification.OFF_TOPIC) {
+      logger.debug('Question classified as off-topic')
+      systemTemplate = templates.offTopicSystem
+      allowGenerateVisual = false
+    } else if (preClassification === QuestionClassification.UNANSWERABLE) {
+      logger.debug('Question classified as unanswerable')
+      systemTemplate = templates.unanswerableSystem
+      allowGenerateVisual = false
+    }
+  }
 
   const classification = isTimeWindow
     ? QuestionClassification.CATCHUP
     : await getResponse.call(this, question, contextString, chatHistory, topic, templates.semanticClassificationSystem)
 
-  const llmResponse =
-    classification === QuestionClassification.OFF_TOPIC || classification === QuestionClassification.UNANSWERABLE
-      ? cannotRespond
-      : await getResponse.call(this, question, contextString, chatHistory, topic, systemTemplate)
-
-  // Override classification to UNANSWERABLE if the response is cannotRespond
-  // This handles cases where the LLM classified it as on-topic but still returned cannotRespond
-
-  let finalClassification = classification
-  if (llmResponse === cannotRespond) {
-    finalClassification = QuestionClassification.UNANSWERABLE
-  }
-
+  const llmResponse = await getResponse.call(this, question, contextString, chatHistory, topic, systemTemplate)
   const responseChannels = this.conversation.channels.filter((channel: IChannel) =>
     userMessage.channels.includes(channel.name)
   )
@@ -351,14 +393,16 @@ ${chunks}`
   // Only use visual preference on a user's private channel, not e.g. group chat
   const isDirectChannel = responseChannels.some((channel: IChannel) => channel.direct)
 
-  if (forceVisual || isDirectChannel) {
+  if (!allowGenerateVisual) logger.debug('Visual generation skipped due to off-topic or unanswerable question')
+
+  if ((forceVisual || isDirectChannel) && allowGenerateVisual) {
     let shouldGenerate = false
 
     if (forceVisual) {
       logger.debug('Visual generation forced via /visual command')
-      // For /visual command, always generate unless it's an error response
+      // For /visual command, always generate
       // User explicitly requested visual, so respect their intent
-      shouldGenerate = llmResponse !== cannotRespond
+      shouldGenerate = true
     } else {
       // isDirectChannel — only now do we need the user's preferences
       const user = await User.findById(userMessage.owner)
@@ -398,7 +442,7 @@ ${chunks}`
     visible: true,
     message: {
       text: responseMessage,
-      type: finalClassification.toLowerCase()
+      type: classification.toLowerCase()
     },
     messageType: 'json',
     channels: responseChannels,

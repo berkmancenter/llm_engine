@@ -11,7 +11,7 @@ import {
   createMessage
 } from '../../utils/agentTestHelpers.js'
 import Channel from '../../../src/models/channel.model.js'
-import { cannotRespond, QuestionClassification } from '../../../src/agents/eventAssistant/eventQuestionHandler.js'
+import { QuestionClassification } from '../../../src/agents/eventAssistant/eventQuestionHandler.js'
 import { AgentMessageActions, IChannel } from '../../../src/types/index.types.js'
 import { User } from '../../../src/models/index.js'
 
@@ -28,6 +28,16 @@ const offTopicQuestions = [
   'What is the best way to learn a new language?'
 ]
 const offTopicDataset = offTopicQuestions.map((question) => ({
+  inputs: { question }
+}))
+const unanswerableNonsenseQuestions = [
+  `xkqvz bfnjwp zzxqkj plmwxv qzjxkv?`,
+  `wxpfqj mzxkvb jqzxwp bvznxq fxzqpw?`,
+  `kzxqwp vzxjqk bxzpqv qxzkwp vzxqkj?`,
+  `zxqpwv jkzxqw bvzxqp wzxjqk pxzvqw?`,
+  `qxzpwv kzxqjw vxzpqk wzxpqj zxqpwk?`
+]
+const unanswerableNonsenseDataset = unanswerableNonsenseQuestions.map((question) => ({
   inputs: { question }
 }))
 
@@ -153,7 +163,6 @@ describe(`event assistant CI tests`, () => {
     const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
     await validateResponse(responses)
     expect(responses[0].classification).toBe(QuestionClassification.OFF_TOPIC)
-    expect(responses[0].message.text).toEqual(cannotRespond)
   })
 
   it(
@@ -327,7 +336,7 @@ describe(`event assistant CI tests`, () => {
   )
 
   test.each(offTopicDataset)(
-    `does not engage with off-topic question: $inputs.question`,
+    `politely answers an off-topic question with something about it, nudging back to the event: $inputs.question`,
     async ({ inputs }) => {
       const msg = await createQuestion(inputs.question)
       agent.conversationHistorySettings = {
@@ -338,7 +347,22 @@ describe(`event assistant CI tests`, () => {
       const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
       await validateResponse(responses)
       expect(responses[0].classification).toBe(QuestionClassification.OFF_TOPIC)
-      expect(responses[0].message.text).toEqual(cannotRespond)
+    },
+    testTimeout
+  )
+
+  test.each(unanswerableNonsenseDataset)(
+    `handles unanswerable nonsense questions: $inputs.question`,
+    async ({ inputs }) => {
+      const msg = await createQuestion(inputs.question)
+      agent.conversationHistorySettings = {
+        endTime: new Date(startTime.getTime() + 954 * 1000),
+        count: 100,
+        directMessages: true
+      }
+      const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+      await validateResponse(responses)
+      expect(responses[0].classification).toBe(QuestionClassification.UNANSWERABLE)
     },
     testTimeout
   )
@@ -394,7 +418,6 @@ describe(`event assistant CI tests`, () => {
     const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
     await validateResponse(responses)
     expect(responses[0].classification).toBe(QuestionClassification.CATCHUP)
-    expect(responses[0].message.text).not.toEqual(cannotRespond)
   })
 
   it('responds to an @<botName> message on the chat channel', async () => {
@@ -412,7 +435,6 @@ describe(`event assistant CI tests`, () => {
     const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [msg1] }, msg)
     await validateResponse(responses, 'chat')
     expect(responses[0].classification).toBe(QuestionClassification.CATCHUP)
-    expect(responses[0].message.text).not.toEqual(cannotRespond)
   })
 
   it('does not respond to a regular message on the chat channel', async () => {
@@ -957,7 +979,6 @@ describe(`event assistant CI tests`, () => {
           // OFF_TOPIC responses should never have visuals, even with /visual
           await validateResponse(responses)
           expect(responses[0].classification).toBe(QuestionClassification.OFF_TOPIC)
-          expect(responses[0].message.text).toBe(cannotRespond)
           expect(responses[0].message.text).not.toContain('🎨 Generating visual...')
         },
         testTimeout
@@ -1159,7 +1180,6 @@ describe(`event assistant CI tests`, () => {
 
         await validateResponse(responses)
         expect(responses[0].classification).toBe(QuestionClassification.OFF_TOPIC)
-        expect(responses[0].message.text).toBe(cannotRespond)
         // OFF_TOPIC responses should never have visuals
         expect(responses[0].messageType).toBe('json')
         expect(responses[0].message.text).toBeDefined()
