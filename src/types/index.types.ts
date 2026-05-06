@@ -303,6 +303,7 @@ export interface IConversation {
   agents: Array<IAgent>
   channels: Array<IChannel>
   scheduledTime?: Date
+  scheduledEndTime?: Date
   startTime?: Date
   endTime?: Date
   adapters: Array<IAdapter>

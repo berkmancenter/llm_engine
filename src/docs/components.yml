@@ -796,6 +796,9 @@ components:
         scheduledTime:
           type: string
           format: date-time
+        scheduledEndTime:
+          type: string
+          format: date-time
         startTime:
           type: string
           format: date-time

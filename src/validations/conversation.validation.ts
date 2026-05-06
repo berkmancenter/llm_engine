@@ -26,6 +26,7 @@ const createConversation = {
     name: Joi.string(),
     topicId: Joi.string().required(),
     scheduledTime: Joi.date(),
+    scheduledEndTime: Joi.date(),
     channels: Joi.any(),
     agentTypes: Joi.any(),
     transcript: Joi.object(),
