@@ -24,7 +24,6 @@ const declineModeratorReply = "OK, I won't submit it. Feel free to ask me anythi
 const submitToModeratorCommand = '/mod'
 const mindMapCommand = '/mindmap'
 
-// Supported slash commands for Event Assistant Plus
 const supportedCommands: SlashCommand[] = [
   { command: 'mod', prefix: submitToModeratorCommand, addToChannels: ['participant'] },
   { command: 'visual', prefix: '/visual ' },
@@ -98,6 +97,10 @@ async function handleModeratorReply(conversationHistory, userMessage) {
     }
 
     if (isNegative(responseText)) {
+      if (!message) {
+        logger.error(`Could not find original message with ID ${originalMessageId} to send acknowledgement of decline`)
+        return []
+      }
       return declineModeratorResponse.call(this, userMessage, message)
     }
     // Neither affirmative nor negative — fall through to process as a new question
