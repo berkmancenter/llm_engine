@@ -136,6 +136,74 @@ export async function detectInterventionOpportunity(
   // Get recent interventions from conversation history (stateless rate limiting)
   const recentInterventions = getRecentAgentInterventions(conversationHistory)
 
+  // LLM-as-a-judge: Check if agent is monopolizing conversation or chilling human participation
+  if (recentInterventions.length > 0) {
+    const recentWindowMs = 10 * 60 * 1000 // 10 minutes
+    const windowStart = now - recentWindowMs
+    const recentMessages = conversationHistory.messages.filter(
+      (msg) => msg.visible && msg.createdAt && msg.createdAt.getTime() >= windowStart
+    )
+    const totalRecentMessages = recentMessages.length
+    const agentRecentMessages = recentMessages.filter((msg) => msg.fromAgent).length
+    const humanRecentMessages = totalRecentMessages - agentRecentMessages
+
+    if (totalRecentMessages > 0) {
+      const agentSharePct = (agentRecentMessages / totalRecentMessages) * 100
+
+      // Quick heuristic pre-check before calling LLM
+      const likelyMonopolizing = agentSharePct > 40 || (humanRecentMessages < 3 && agentRecentMessages >= 2)
+
+      if (likelyMonopolizing) {
+        const llm = await this.getLLM()
+        const monitorSchema = z.object({
+          isMonopolizing: z.boolean(),
+          reasoning: z.string()
+        })
+
+        const recentMessagesFormatted = recentMessages
+          .map((msg) => {
+            const speaker = msg.fromAgent ? `[AGENT: ${msg.pseudonym}]` : `[HUMAN: ${msg.pseudonym}]`
+            const body = typeof msg.body === 'string' ? msg.body : JSON.stringify(msg.body)
+            return `${speaker}: ${body}`
+          })
+          .join('\n')
+
+        const monopolizationAnalysis = (await getChatPromptResponse(
+          llm,
+          `You are evaluating whether an AI agent is negatively impacting human conversation participation.
+Assess if the agent is monopolizing the discussion or creating a chilling effect that makes humans hesitant to post.
+Signs include: high agent message ratio, declining human participation after agent posts, humans not following up on their own threads, or conversations becoming agent-to-agent/agent monologue patterns.
+Output valid JSON only.`,
+          `## Recent conversation (last 10 minutes):
+{recentMessages}
+
+## Stats:
+- Total messages: {totalMessages}
+- Agent messages: {agentMessages} ({agentSharePct}% of conversation)
+- Human messages: {humanMessages}
+
+Is the agent monopolizing the conversation or creating a chilling effect on human participation?`,
+          {
+            recentMessages: recentMessagesFormatted,
+            totalMessages: String(totalRecentMessages),
+            agentMessages: String(agentRecentMessages),
+            agentSharePct: agentSharePct.toFixed(1),
+            humanMessages: String(humanRecentMessages)
+          },
+          [],
+          monitorSchema
+        )) as z.infer<typeof monitorSchema>
+
+        if (monopolizationAnalysis.isMonopolizing) {
+          logger.warn(
+            `Agent ${this.name} suppressing intervention — monopolization detected: ${monopolizationAnalysis.reasoning}`
+          )
+          return null
+        }
+      }
+    }
+  }
+
   // Rate limiting: Check if an agent intervened recently
   const lastIntervention = recentInterventions[recentInterventions.length - 1]
   if (lastIntervention) {
