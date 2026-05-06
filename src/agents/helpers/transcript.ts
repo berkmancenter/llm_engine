@@ -156,14 +156,16 @@ async function loadEventMetadataIntoVectorStore(conversation) {
   if (conversation.presenters?.length) {
     conversation.presenters.forEach((presenter) => {
       const bioText = presenter.bio || 'No bio provided.'
-      docs.push(`${presenter.name} is a speaker, presenter, and panelist at this event. ${bioText}`)
+      const altText = presenter.alternateName ? ` (also known as "${presenter.alternateName}")` : ''
+      docs.push(`${presenter.name}${altText} is a speaker, presenter, and panelist at this event. ${bioText}`)
       metadatas.push({ type: 'presenter', presenterName: presenter.name })
     })
   }
   if (conversation.moderators?.length) {
     conversation.moderators.forEach((moderator) => {
       const bioText = moderator.bio || 'No bio provided.'
-      docs.push(`${moderator.name} is the moderator, facilitator, and host of this event. ${bioText}`)
+      const altText = moderator.alternateName ? ` (also known as "${moderator.alternateName}")` : ''
+      docs.push(`${moderator.name}${altText} is the moderator, facilitator, and host of this event. ${bioText}`)
       metadatas.push({ type: 'moderator', moderatorName: moderator.name })
     })
   }

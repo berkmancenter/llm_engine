@@ -1184,6 +1184,78 @@ describe('transcript', () => {
         expect.any(Object)
       )
     })
+
+    it('should include "also known as" in presenter doc when alternateName is set', async () => {
+      const conversation = {
+        _id: convId,
+        name: convName,
+        presenters: [{ name: 'Jonathan Smith', bio: 'Climate researcher.', alternateName: 'Jon' }]
+      }
+
+      await transcript.loadEventMetadataIntoVectorStore(conversation)
+
+      expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
+        `${TRANSCRIPT_COLLECTION_PREFIX}-${convId}`,
+        expect.arrayContaining([
+          'Jonathan Smith (also known as "Jon") is a speaker, presenter, and panelist at this event. Climate researcher.'
+        ]),
+        expect.any(Object)
+      )
+    })
+
+    it('should omit "also known as" in presenter doc when alternateName is absent', async () => {
+      const conversation = {
+        _id: convId,
+        name: convName,
+        presenters: [{ name: 'Jonathan Smith', bio: 'Climate researcher.' }]
+      }
+
+      await transcript.loadEventMetadataIntoVectorStore(conversation)
+
+      expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
+        `${TRANSCRIPT_COLLECTION_PREFIX}-${convId}`,
+        expect.arrayContaining([
+          'Jonathan Smith is a speaker, presenter, and panelist at this event. Climate researcher.'
+        ]),
+        expect.any(Object)
+      )
+    })
+
+    it('should include "also known as" in moderator doc when alternateName is set', async () => {
+      const conversation = {
+        _id: convId,
+        name: convName,
+        moderators: [{ name: 'Saoirse Ó Briain', bio: 'Senior editor.', alternateName: 'Sorsha O\'Brien' }]
+      }
+
+      await transcript.loadEventMetadataIntoVectorStore(conversation)
+
+      expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
+        `${TRANSCRIPT_COLLECTION_PREFIX}-${convId}`,
+        expect.arrayContaining([
+          'Saoirse Ó Briain (also known as "Sorsha O\'Brien") is the moderator, facilitator, and host of this event. Senior editor.'
+        ]),
+        expect.any(Object)
+      )
+    })
+
+    it('should omit "also known as" in moderator doc when alternateName is absent', async () => {
+      const conversation = {
+        _id: convId,
+        name: convName,
+        moderators: [{ name: 'Saoirse Ó Briain', bio: 'Senior editor.' }]
+      }
+
+      await transcript.loadEventMetadataIntoVectorStore(conversation)
+
+      expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
+        `${TRANSCRIPT_COLLECTION_PREFIX}-${convId}`,
+        expect.arrayContaining([
+          'Saoirse Ó Briain is the moderator, facilitator, and host of this event. Senior editor.'
+        ]),
+        expect.any(Object)
+      )
+    })
   })
 
   describe('clearTranscript', () => {
