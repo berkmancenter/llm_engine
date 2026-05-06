@@ -20,7 +20,7 @@ import transcript from '../agents/helpers/transcript.js'
 import reportService from './report.service.js'
 
 const returnFields =
-  'name slug locked owner createdAt active conversationType platforms scheduledTime description moderators presenters transcript properties features'
+  'name slug locked owner createdAt active conversationType platforms scheduledTime scheduledEndTime description moderators presenters transcript properties features'
 const transcriptBatchInterval = 30
 export const maxScheduledInterval = 10 * 60 * 1000 // 10 minutes in milliseconds
 
@@ -177,7 +177,8 @@ const createConversation = async (conversationBody, user) => {
       status: 'stopped',
       vectorStore: conversationBody.transcript?.vectorStore
     },
-    scheduledTime: conversationBody.scheduledTime
+    scheduledTime: conversationBody.scheduledTime,
+    scheduledEndTime: conversationBody.scheduledEndTime
   })
   // need to save to get id
   await conversation.save()
