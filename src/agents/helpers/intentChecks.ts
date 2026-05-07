@@ -1,12 +1,6 @@
-
-
-    // TODO: check if message contains something close to @BotName (handles misspellings)
-    //  levenshtein?
 import * as fuzzball from 'fuzzball'
-import { AgentMessageActions } from "../../types/index.types"
-import { getChatPromptResponse } from "./llmChain"
+import { getChatPromptResponse } from './llmChain'
 import logger from '../../config/logger'
-
 
 const nameMatchThreshold = 70
 
@@ -40,29 +34,25 @@ export function matchBotMention(text: string, botName: string): boolean {
  * @returns A boolean indicating whether the message was intended for the bot.
  */
 export async function checkIntent(llm, botName: string, userMessage) {
-    const intentCheckPrompt = `You are evaluating whether a message in a group chat was intended as a question or request directed at an AI assistant named "${botName}", even though the bot was not explicitly mentioned by name.
-
-  Message: "${userMessage?.body}"
+  const intentCheckPrompt = `You are evaluating whether a message in a group chat was intended as a question or request directed at an AI assistant named "${botName}", even though the bot was not explicitly mentioned by name.
 
   Respond with a single JSON object: {{ "intended_for_bot": true }} or {{ "intended_for_bot": false }}
   - true: the message is clearly a question or request that would benefit from an AI assistant response (e.g. asking for help, information, analysis, code, etc.)
   - false: the message is casual conversation between humans, a statement, or clearly not directed at the bot`
 
-    try {
-      const intentResponse = await getChatPromptResponse(
-        llm,
-        intentCheckPrompt,
-        '{question}',
-        { question: userMessage?.body },
-        [],
-        undefined,
-        this.llmPlatform
-      )
-      const parsed = JSON.parse(intentResponse.match(/\{.*\}/s)?.[0] ?? '{}')
-      return parsed.intended_for_bot; 
-      
-    } catch(error) {
-        logger.error(error)
-      return false
-    }
+  try {
+    const intentResponse = await getChatPromptResponse(
+      llm,
+      intentCheckPrompt,
+      'Message: {question}',
+      { question: userMessage?.body },
+      { intended_for_bot: 'boolean' },
+    )
+
+    const parsed = JSON.parse(intentResponse.match(/\{.*\}/s)?.[0] ?? '{}')
+    return parsed.intended_for_bot === true
+  } catch (error) {
+    logger.error(error)
+    return false
+  }
 }
