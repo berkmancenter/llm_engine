@@ -60,14 +60,14 @@ describe('intentChecks', () => {
 
   describe('checkIntent', () => {
 
-   const llm = getModelChat(defaultLLMPlatform as LlmPlatforms, defaultLLMModel)
-    let mockContext: { llm: typeof llm, botName: string }
-    const taggedMessage = { body: 'Hello @TestBot, how are you?' }
-    const possibleIntentMessage = { body: 'Can you help catch me up?' }
-    const nonIntendedMessage = { body: 'I like what the speaker just said about hybrid work policies' }
-
-    beforeEach(() => {
-      mockContext = {
+    let mockContext: { llm: Awaited<ReturnType<typeof getModelChat>>, botName: string }
+      const taggedMessage = { body: 'Hello @TestBot, how are you?' }
+      const possibleIntentMessage = { body: 'Can you help catch me up?' }
+      const nonIntendedMessage = { body: 'I like what the speaker just said about hybrid work policies' }
+      
+      beforeAll(async () => {
+          const llm = await getModelChat(defaultLLMPlatform as LlmPlatforms, defaultLLMModel)
+          mockContext = {
         llm,
         botName: 'TestBot'
       }
