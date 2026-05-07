@@ -34,7 +34,7 @@ export function matchBotMention(text: string, botName: string): boolean {
  * @returns A boolean indicating whether the message was intended for the bot.
  */
 export async function checkIntent(llm, botName: string, userMessage) {
-  const intentCheckPrompt = `You are evaluating whether a message in a group chat was intended as a question or request directed at an AI assistant named "${botName}", even though the bot was not explicitly mentioned by name.
+  const intentCheckPrompt = `You are evaluating whether a message in a group chat was intended as a question or request directed at an AI assistant named {botName}, even though the bot was not explicitly mentioned by name.
 
   Respond with a single JSON object: {{ "intended_for_bot": true }} or {{ "intended_for_bot": false }}
   - true: the message is clearly a question or request that would benefit from an AI assistant response (e.g. asking for help, information, analysis, code, etc.)
@@ -45,7 +45,7 @@ export async function checkIntent(llm, botName: string, userMessage) {
       llm,
       intentCheckPrompt,
       'Message: {question}',
-      { question: userMessage?.body },
+      { question: userMessage?.body, botName },
       { intended_for_bot: 'boolean' },
     )
 

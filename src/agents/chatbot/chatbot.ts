@@ -5,6 +5,7 @@ import { formatMultiUserConversationHistory } from '../helpers/llmInputFormatter
 import { buildSystemPromptWithPersonality } from '../helpers/agentPersonality.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
+import { checkIntent, matchBotMention } from '../helpers/intentChecks.js'
 import config from '../../config/config.js'
 
 const BASE_SYSTEM_PROMPT = `You are {botName}, a helpful, knowledgeable AI assistant participating in a group chat. You can engage with any topic or inquiry—from casual conversation to technical questions, creative tasks, analysis, debugging, writing, math, and beyond. There are no subject limits.
@@ -41,41 +42,14 @@ export default verify({
   defaultConversationHistorySettings: { count: 100, channels: ['chatbot'] },
 
   async evaluate(userMessage) {
-    // Only respond when explicitly mentioned with @BotName
-    if (!userMessage?.body?.toLowerCase().includes(`@${this.agentConfig.botName}`.toLowerCase())) {
-      return {
-        userMessage,
-        action: AgentMessageActions.OK,
-        userContributionVisible: true,
-        suggestion: undefined
-      }
-    }
-
-    // TODO: check if message contains something close to @BotName (handles misspellings)
-    //  levenshtein?
-
-    // Use LLM-as-a-judge to determine if the user intended to ask the bot a question
-    const llm = await this.getLLM()
-    const intentCheckPrompt = `You are evaluating whether a message in a group chat was intended as a question or request directed at an AI assistant named "${this.agentConfig.botName}", even though the bot was not explicitly mentioned by name.
-
-  Message: "${userMessage?.body}"
-
-  Respond with a single JSON object: { "intended_for_bot": true } or { "intended_for_bot": false }
-  - true: the message is clearly a question or request that would benefit from an AI assistant response (e.g. asking for help, information, analysis, code, etc.)
-  - false: the message is casual conversation between humans, a statement, or clearly not directed at the bot`
-
-    try {
-      const intentResponse = await getChatPromptResponse(
-        llm,
-        intentCheckPrompt,
-        '{question}',
-        { question: userMessage?.body },
-        [],
-        undefined,
-        this.llmPlatform
-      )
-      const parsed = JSON.parse(intentResponse.match(/\{.*\}/s)?.[0] ?? '{}')
-      if (!parsed.intended_for_bot) {
+    // Only respond when explicitly mentioned with @BotName, or...
+    const noMention = !userMessage?.body?.toLowerCase().includes(`@${this.agentConfig.botName}`.toLowerCase())
+    // Also check for misspellings of the bot name.
+    const misspelledMention = matchBotMention(userMessage?.body, this.agentConfig.botName)
+    if (noMention || !misspelledMention) {
+      // Fallback: determine if the user intended to ask the bot a question
+      const noIntendedMention = (await checkIntent(this.llm, this.agentConfig.botName, userMessage)) === false
+      if (noIntendedMention) {
         return {
           userMessage,
           action: AgentMessageActions.OK,
@@ -83,14 +57,8 @@ export default verify({
           suggestion: undefined
         }
       }
-    } catch {
-      return {
-        userMessage,
-        action: AgentMessageActions.OK,
-        userContributionVisible: true,
-        suggestion: undefined
-      }
     }
+
     return {
       userMessage,
       action: AgentMessageActions.CONTRIBUTE,
