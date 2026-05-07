@@ -13,13 +13,12 @@ We provide a Zoom adapter that saves real-time transcription of a Zoom meeting t
 
 #### One Time Setup
 
-1. Complete Step 1 of [these instructions](https://beta-docs.recall.ai/docs/step-1-create-a-zoom-marketplace-app) to create a Zoom marketplace app and connect it to Recall.
-2. In Zoom Marketplace, Set up Zoom event subscriptions in your app to receive meeting started and ended events. Choose Webhook method and set the event notification endpoint URL to [baseUrl]/v1/webhooks/zoom
-3. Create a new Webhook from the Recall.ai dashboard. Use [baseUrl]/v1/webhooks/recall/status as the endpoint. Subscribe to `bot.call_ended`, `bot.in_call_recording`, and `bot.in_call_not_recording` events. Copy the signing secret displayed on the webhook page for setting the `RECALL_SVIX_SECRET` environment variable.
-4. Set the Recall environment variables and Zoom event subscription variable in `.env`
+1. Create a Recall.ai account
+2. Select Create a new Webhook in the Recall.ai dashboard. Use [baseUrl]/v1/webhooks/recall/status as the endpoint. Subscribe to `bot.call_ended`, `bot.in_call_recording`, and `bot.in_call_not_recording` events. Copy the signing secret displayed on the webhook page for setting the `RECALL_SVIX_SECRET` environment variable.
+3. Set the Recall environment variables in `.env`
 
 - For legacy accounts (created before Dec 15, 2025), you need TWO secrets:
-  - RECALL_REALTIME_SECRET: the Verification Secrent found on (Recall's API keys dashboard) [https://[region].recall.ai/dashboard/developers/api-keys] for real-time endpoints (chat, join, transcript)
+  - RECALL_REALTIME_SECRET: the Verification Secret found on (Recall's API keys dashboard) [https://[region].recall.ai/dashboard/developers/api-keys] for real-time endpoints (chat, join, transcript)
   - RECALL_SVIX_SECRET: the signing secret from webhooks dashboard for bot.status_change events (see Step 3 above)
 - For newer accounts, only RECALL_REALTIME_SECRET is needed
 
@@ -30,7 +29,6 @@ RECALL_ENDPOINT_BASE_URL: The URL Recall should use to send events to this serve
 # Verification secrets for webhook signature validation
 RECALL_REALTIME_SECRET=whsec_...
 RECALL_SVIX_SECRET=whsec_...
-ZOOM_SECRET_TOKEN: the secret token found in your app configuration in the Zoom marketplace
 ```
 
 #### Zoom Webinar One Time Setup
@@ -39,6 +37,20 @@ Recall bots can join Zoom webinars as well as meetings, but they must be added t
 
 ```
 ZOOM_WEBINAR_USER_EMAIL=[bot email address]
+```
+
+### Setup Zoom start/stop hooks to automatically start/stop conversations (Optional)
+
+Starting a conversation deploys the Recall.ai bot to your Zoom meeting and sets the agents and adapters to active. By default, LLM Engine will auto-start conversations 5 minutes before scheduled time and auto-stop 30 minutes after scheduled end time. If you close the Zoom meeting during that 30 minute window, the Recall bot will undeploy, but agents will still be usable.
+
+If you wish to fully tie auto-start and stop behavior to starting and ending a Zoom meeting, follow these steps to create a Zoom app for your organization and set up event subscriptions:
+
+1. Complete Step 1 of [these instructions](https://beta-docs.recall.ai/docs/step-1-create-a-zoom-marketplace-app) to create a Zoom marketplace app and connect it to Recall.
+2. In Zoom Marketplace, Set up Zoom event subscriptions in your app to receive meeting started and ended events. Choose Webhook method and set the event notification endpoint URL to [baseUrl]/v1/webhooks/zoom
+3. Add this Zoom event subscription variable to `.env`
+
+```
+ZOOM_SECRET_TOKEN: the secret token found in your app configuration in the Zoom marketplace
 ```
 
 ### Using LLM Engine in a Zoom Meeting
@@ -84,7 +96,7 @@ Example setting data retention to four hours:
 4. Start your Zoom meeting. After a minute or two, LLM Engine should join the meeting and ask for recording permission.
 5. Grant permission to record and real-time transcription should start.
 
-## Enabling Direct Messages
+### Enabling Direct Messages
 
 If you wish to enable direct messages between agents and users, you must set the `enableDMs": ["agents"]` property during Conversation creation. You must also specify a `dmChannel` in the `Adapter` configuration for each agent that should receive DMs.
 

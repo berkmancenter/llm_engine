@@ -2,7 +2,7 @@ import { User } from '../models/index.js'
 import { AdapterMessage, AdapterUser } from '../types/adapter.types.js'
 import userService from './user.service.js'
 import messageService from './message.service.js'
-import conversationService from './conversation.service.js'
+import conversationService from './conversation.service/index.js'
 import logger from '../config/logger.js'
 
 async function getOrCreateUser(adapter, adapterUser) {
