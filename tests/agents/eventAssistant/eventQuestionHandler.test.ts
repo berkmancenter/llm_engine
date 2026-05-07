@@ -1,14 +1,14 @@
-import { buildParticipantNamesContext } from '../../../src/agents/eventAssistant/eventQuestionHandler.js'
+import { compileSpeakerNames } from '../../../src/agents/eventAssistant/eventQuestionHandler.js'
 
-describe('buildParticipantNamesContext', () => {
+describe('compileSpeakerNames', () => {
   it('returns empty string when conversation has no presenters or moderators specified', () => {
     const conversation = { presenters: [], moderators: [] }
-    expect(buildParticipantNamesContext(conversation)).toBe('')
+    expect(compileSpeakerNames(conversation)).toBe('')
   })
 
   it('returns empty string when presenters and moderators are undefined', () => {
     const conversation = {}
-    expect(buildParticipantNamesContext(conversation)).toBe('')
+    expect(compileSpeakerNames(conversation)).toBe('')
   })
 
   it('includes presenter with canonical name', () => {
@@ -16,7 +16,7 @@ describe('buildParticipantNamesContext', () => {
       presenters: [{ name: 'Jonathan Smith', bio: 'Climate researcher.' }],
       moderators: []
     }
-    const result = buildParticipantNamesContext(conversation)
+    const result = compileSpeakerNames(conversation)
     expect(result).toContain('Jonathan Smith')
     expect(result).toContain('Speaker')
     expect(result).toContain('Climate researcher.')
@@ -27,7 +27,7 @@ describe('buildParticipantNamesContext', () => {
       presenters: [{ name: 'Jonathan Smith', alternateName: 'Jon', bio: 'Climate researcher.' }],
       moderators: []
     }
-    const result = buildParticipantNamesContext(conversation)
+    const result = compileSpeakerNames(conversation)
     expect(result).toContain('Jonathan Smith (also known as "Jon")')
   })
 
@@ -36,7 +36,7 @@ describe('buildParticipantNamesContext', () => {
       presenters: [{ name: 'Jonathan Smith', bio: 'Climate researcher.' }],
       moderators: []
     }
-    const result = buildParticipantNamesContext(conversation)
+    const result = compileSpeakerNames(conversation)
     expect(result).not.toContain('also known as')
   })
 
@@ -45,7 +45,7 @@ describe('buildParticipantNamesContext', () => {
       presenters: [],
       moderators: [{ name: 'Saoirse O Briain', bio: 'Senior editor.' }]
     }
-    const result = buildParticipantNamesContext(conversation)
+    const result = compileSpeakerNames(conversation)
     expect(result).toContain('Saoirse O Briain')
     expect(result).toContain('Moderator')
     expect(result).toContain('Senior editor.')
@@ -56,7 +56,7 @@ describe('buildParticipantNamesContext', () => {
       presenters: [],
       moderators: [{ name: 'Saoirse O Briain', alternateName: 'Sorsha', bio: 'Senior editor.' }]
     }
-    const result = buildParticipantNamesContext(conversation)
+    const result = compileSpeakerNames(conversation)
     expect(result).toContain('Saoirse O Briain (also known as "Sorsha")')
   })
 
@@ -65,7 +65,7 @@ describe('buildParticipantNamesContext', () => {
       presenters: [{ name: '', bio: 'Some bio.' }],
       moderators: []
     }
-    expect(buildParticipantNamesContext(conversation)).toBe('')
+    expect(compileSpeakerNames(conversation)).toBe('')
   })
 
   it('includes the Event Participants header when there are participants', () => {
@@ -73,7 +73,7 @@ describe('buildParticipantNamesContext', () => {
       presenters: [{ name: 'Jane Doe' }],
       moderators: []
     }
-    expect(buildParticipantNamesContext(conversation)).toContain('## Event Participants:')
+    expect(compileSpeakerNames(conversation)).toContain('## Event Participants:')
   })
 
   it('passes through comma-separated alternate names as a single string', () => {
@@ -81,7 +81,7 @@ describe('buildParticipantNamesContext', () => {
       presenters: [{ name: 'Dr. Priyanka Subramaniam', alternateName: 'Dr. Sub, Priya' }],
       moderators: []
     }
-    const result = buildParticipantNamesContext(conversation)
+    const result = compileSpeakerNames(conversation)
     expect(result).toContain('also known as "Dr. Sub, Priya"')
   })
 
@@ -90,7 +90,7 @@ describe('buildParticipantNamesContext', () => {
       presenters: [{ name: 'Dr. Priyanka Subramaniam', alternateName: 'Dr. Sub, Priya' }],
       moderators: []
     }
-    const result = buildParticipantNamesContext(conversation)
+    const result = compileSpeakerNames(conversation)
     expect(result).toContain('Dr. Priyanka Subramaniam (also known as "Dr. Sub, Priya")')
   })
 
@@ -99,7 +99,7 @@ describe('buildParticipantNamesContext', () => {
       presenters: [],
       moderators: [{ name: 'Saoirse O Briain', alternateName: 'Sorsha, Sorsha O Brien' }]
     }
-    const result = buildParticipantNamesContext(conversation)
+    const result = compileSpeakerNames(conversation)
     expect(result).toContain('Saoirse O Briain (also known as "Sorsha, Sorsha O Brien")')
   })
 })

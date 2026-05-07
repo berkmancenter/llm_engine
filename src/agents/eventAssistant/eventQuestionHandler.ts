@@ -259,14 +259,13 @@ async function shouldGenerateVisual(question, classification, llmResponse, templ
  * even when RAG retrieval doesn't surface the speaker metadata
  * (e.g. for generic questions like "what is this event about?").
  */
-export function buildParticipantNamesContext(conversation): string {
+export function compileSpeakerNames(conversation): string {
   const lines: string[] = []
 
   conversation.presenters?.forEach((presenter) => {
     if (!presenter.name) return
     const altText = presenter.alternateName ? ` (also known as "${presenter.alternateName}")` : ''
-    const bioText = presenter.bio ? ` ${presenter.bio}` : ''
-    lines.push(`- ${presenter.name}${altText} — Speaker.${bioText}`)
+    lines.push(`- ${presenter.name}${altText} — Speaker.`)
   })
 
   conversation.moderators?.forEach((moderator) => {
@@ -352,7 +351,7 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
     } else {
       // For semantic searches, always include provided names so the LLM has
       // canonical speaker/moderator names even when RAG doesn't retrieve their metadata docs
-      const participantNamesContext = buildParticipantNamesContext(this.conversation)
+      const participantNamesContext = compileSpeakerNames(this.conversation)
       const liveTranscript = transcript.getTranscript(this.conversation, 300, this.conversationHistorySettings?.endTime)
       contextString = [
         participantNamesContext.trimEnd(), // ## Event Participants
