@@ -4,24 +4,23 @@ import { AgentMessageActions, ConversationHistory, IMessage } from '../../types/
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { eventAssistantLLMTemplates, eventAssistantLlmTemplateVars, answerQuestion } from './eventQuestionHandler.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
+import { matchBotMention } from '../helpers/intentChecks.js'
 import logger from '../../config/logger.js'
 
 const heyMatchThreshold = 85
-const nameMatchThreshold = 70
 
 function matchHeyDirective(text: string, botName: string): { matched: boolean; question: string } {
   // Split and scan all consecutive word pairs for "hey <botName>" anywhere in the message
   const words = text.trim().split(/\s+/)
   if (words.length < 2) return { matched: false, question: '' }
-
+  
   for (let i = 0; i < words.length - 1; i++) {
     const heyToken = words[i].replace(/[,!.]+$/, '')
     const nameToken = words[i + 1].replace(/[,!.]+$/, '').toLowerCase()
 
     const heyScore = fuzzball.ratio(heyToken.toLowerCase(), 'hey')
-    const nameScore = fuzzball.ratio(nameToken, botName.toLowerCase())
 
-    if (heyScore >= heyMatchThreshold && nameScore >= nameMatchThreshold) {
+    if (heyScore >= heyMatchThreshold && matchBotMention(nameToken, botName)) {
       const extracted = words
         .slice(i + 2)
         .join(' ')
