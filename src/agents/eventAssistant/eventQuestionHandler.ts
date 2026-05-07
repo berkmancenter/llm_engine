@@ -254,6 +254,32 @@ async function shouldGenerateVisual(question, classification, llmResponse, templ
   }
 }
 
+/*
+ * Always-present the names list so the LLM has correct names in context,
+ * even when RAG retrieval doesn't surface the speaker metadata
+ * (e.g. for generic questions like "what is this event about?").
+ */
+export function buildParticipantNamesContext(conversation): string {
+  const lines: string[] = []
+
+  conversation.presenters?.forEach((presenter) => {
+    if (!presenter.name) return
+    const altText = presenter.alternateName ? ` (also known as "${presenter.alternateName}")` : ''
+    const bioText = presenter.bio ? ` ${presenter.bio}` : ''
+    lines.push(`- ${presenter.name}${altText} — Speaker.${bioText}`)
+  })
+
+  conversation.moderators?.forEach((moderator) => {
+    if (!moderator.name) return
+    const altText = moderator.alternateName ? ` (also known as "${moderator.alternateName}")` : ''
+    const bioText = moderator.bio ? ` ${moderator.bio}` : ''
+    lines.push(`- ${moderator.name}${altText} — Moderator.${bioText}`)
+  })
+
+  if (lines.length === 0) return ''
+  return `## Event Participants:\n${lines.join('\n')}\n\n`
+}
+
 export async function generatePseudonymFunFact(channel) {
   // Find the user participant (not the agent)
   const userParticipantId = channel.participants.find(
@@ -324,13 +350,17 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
       // For time window searches, use only the chunks
       contextString = chunks
     } else {
-      // For semantic searches, include recent transcript and retrieved chunks
+      // For semantic searches, always include provided names so the LLM has
+      // canonical speaker/moderator names even when RAG doesn't retrieve their metadata docs
+      const participantNamesContext = buildParticipantNamesContext(this.conversation)
       const liveTranscript = transcript.getTranscript(this.conversation, 300, this.conversationHistorySettings?.endTime)
-      contextString = `## Recent Transcript:
-${liveTranscript}
-
-## Relevant Retrieved Context:
-${chunks}`
+      contextString = [
+        participantNamesContext.trimEnd(), // ## Event Participants
+        `## Recent Transcript:\n${liveTranscript}`,
+        `## Relevant Retrieved Context:\n${chunks}`
+      ]
+        .filter(Boolean)
+        .join('\n\n')
     }
   }
 
