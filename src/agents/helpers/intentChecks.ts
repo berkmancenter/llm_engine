@@ -1,6 +1,6 @@
 import * as fuzzball from 'fuzzball'
-import { getChatPromptResponse } from './llmChain'
-import logger from '../../config/logger'
+import { getChatPromptResponse } from './llmChain.js'
+import logger from '../../config/logger.js'
 
 const nameMatchThreshold = 70
 
