@@ -25,12 +25,6 @@ const declineModeratorReply = "OK, I won't submit it. Feel free to ask me anythi
 const submitToModeratorCommand = '/mod'
 const mindMapCommand = '/mindmap'
 
-const submitToModeratorQuestion = 'Would you like to submit this question anonymously to the moderator for Q&A?'
-const submitToModeratorReply = 'Your message has been submitted to the moderator.'
-const declineModeratorReply = "OK, I won't submit it. Feel free to ask me anything else!"
-const submitToModeratorCommand = '/mod'
-const mindMapCommand = '/mindmap'
-
 const supportedCommands: SlashCommand[] = [
   { command: 'mod', prefix: submitToModeratorCommand, addToChannels: ['participant'] },
   { command: 'visual', prefix: '/visual ' },
@@ -237,7 +231,7 @@ export default verify({
       const agentResponses = await answerQuestion.call(this, userMessage, conversationHistory)
       return agentResponses
     }
-    
+
     // Check if the message is intended for the assistant
     const llm = await this.getLLM()
     if (await checkIntent(llm, this.agentConfig?.botName, userMessage)) {
