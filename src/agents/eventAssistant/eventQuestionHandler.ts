@@ -271,8 +271,7 @@ export function compileSpeakerNames(conversation): string {
   conversation.moderators?.forEach((moderator) => {
     if (!moderator.name) return
     const altText = moderator.alternateName ? ` (also known as "${moderator.alternateName}")` : ''
-    const bioText = moderator.bio ? ` ${moderator.bio}` : ''
-    lines.push(`- ${moderator.name}${altText} — Moderator.${bioText}`)
+    lines.push(`- ${moderator.name}${altText} — Moderator.`)
   })
 
   if (lines.length === 0) return ''
