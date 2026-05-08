@@ -3,6 +3,9 @@ import mongoose from 'mongoose'
 import httpStatus from 'http-status'
 import setupIntTest from '../utils/setupIntTest.js'
 import { Channel, Conversation } from '../../src/models/index.js'
+import Agent, { setAgentTypes } from '../../src/models/user.model/agent.model/index.js'
+import defaultAgentTypes from '../../src/agents/index.js'
+import { defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/getModelChat.js'
 import { insertUsers } from '../fixtures/user.fixture.js'
 import { publicTopic } from '../fixtures/conversation.fixture.js'
 import { insertTopics } from '../fixtures/topic.fixture.js'
@@ -2374,6 +2377,134 @@ describe('zoom adapter tests', () => {
 
       expect(fetch).toHaveBeenCalledTimes(2)
       expect(adapter.config.botId).toBe('recovery-bot-222')
+    })
+
+    describe('chat intro messages', () => {
+      const mockIntroText = 'Hello from the bot!'
+      const mockAgentTypeName = 'testAgentWithIntro'
+
+      beforeEach(() => {
+        setAgentTypes({
+          [mockAgentTypeName]: {
+            name: 'Test Agent',
+            description: 'Agent for intro tests',
+            maxTokens: 2000,
+            priority: 100,
+            defaultTriggers: { perMessage: {} },
+            llmTemplateVars: { contribution: [], voting: [] },
+            defaultLLMTemplates: { contribution: '', voting: '' },
+            defaultLLMPlatform,
+            defaultLLMModel,
+            introduce: jest
+              .fn()
+              .mockResolvedValue([
+                { message: { text: mockIntroText, type: 'intro' }, messageType: 'json', channels: [], visible: true }
+              ]),
+            evaluate: jest.fn(),
+            start: jest.fn(),
+            stop: jest.fn()
+          }
+        })
+      })
+
+      afterEach(() => {
+        setAgentTypes(defaultAgentTypes)
+      })
+
+      async function createAgentForConversation(conv) {
+        const agent = new Agent({ agentType: mockAgentTypeName, conversation: conv._id })
+        await agent.save()
+        conv.agents.push(agent._id)
+        await conv.save()
+        return agent
+      }
+
+      it('includes chat intro message in deploy payload when agents return intro text', async () => {
+        await createConversation('Meeting with Intro Message')
+        adapter.config = { meetingUrl: 'https://zoom.us/j/123456789' }
+        adapter.chatChannels = [{ name: 'chat', direction: Direction.OUTGOING }]
+        await adapter.save()
+
+        const channel = await Channel.create({ name: 'chat' })
+        conversation.channels.push(channel)
+        await createAgentForConversation(conversation)
+
+        const mockResponse = {
+          status: httpStatus.CREATED,
+          json: jest.fn().mockResolvedValue({ id: 'intro-bot-123' })
+        }
+        ;(fetch as jest.Mock).mockResolvedValue(mockResponse)
+
+        await adapter.start()
+
+        const body = JSON.parse((fetch as jest.Mock).mock.calls[0][1].body)
+        expect(body.chat).toEqual({ on_bot_join: { send_to: 'everyone', message: mockIntroText } })
+      })
+
+      it('joins intro text from multiple agents with newline', async () => {
+        await createConversation('Meeting with Multiple Agent Intros')
+        adapter.config = { meetingUrl: 'https://zoom.us/j/123456789' }
+        adapter.chatChannels = [{ name: 'chat', direction: Direction.OUTGOING }]
+        await adapter.save()
+
+        const channel = await Channel.create({ name: 'chat' })
+        conversation.channels.push(channel)
+        await createAgentForConversation(conversation)
+        await createAgentForConversation(conversation)
+
+        const mockResponse = {
+          status: httpStatus.CREATED,
+          json: jest.fn().mockResolvedValue({ id: 'multi-agent-bot-456' })
+        }
+        ;(fetch as jest.Mock).mockResolvedValue(mockResponse)
+
+        await adapter.start()
+
+        const body = JSON.parse((fetch as jest.Mock).mock.calls[0][1].body)
+        expect(body.chat).toEqual({
+          on_bot_join: { send_to: 'everyone', message: `${mockIntroText}\n${mockIntroText}` }
+        })
+      })
+
+      it('omits chat field when no agents are on the conversation', async () => {
+        await createConversation('Meeting with No Intro')
+        adapter.config = { meetingUrl: 'https://zoom.us/j/123456789' }
+        adapter.chatChannels = [{ name: 'chat', direction: Direction.OUTGOING }]
+        await adapter.save()
+
+        const channel = await Channel.create({ name: 'chat' })
+        conversation.channels.push(channel)
+        await conversation.save()
+
+        const mockResponse = {
+          status: httpStatus.CREATED,
+          json: jest.fn().mockResolvedValue({ id: 'no-intro-bot-789' })
+        }
+        ;(fetch as jest.Mock).mockResolvedValue(mockResponse)
+
+        await adapter.start()
+
+        const body = JSON.parse((fetch as jest.Mock).mock.calls[0][1].body)
+        expect(body.chat).toBeUndefined()
+      })
+
+      it('omits chat field when no chatChannels configured', async () => {
+        await createConversation('Meeting with No Chat Channel')
+        adapter.config = { meetingUrl: 'https://zoom.us/j/123456789' }
+        adapter.chatChannels = []
+        await adapter.save()
+
+        const mockResponse = {
+          status: httpStatus.CREATED,
+          json: jest.fn().mockResolvedValue({ id: 'no-chat-bot-000' })
+        }
+        ;(fetch as jest.Mock).mockResolvedValue(mockResponse)
+
+        await adapter.start()
+
+        const body = JSON.parse((fetch as jest.Mock).mock.calls[0][1].body)
+        expect(body.chat).toBeUndefined()
+      })
     })
   })
   describe('stop method', () => {

@@ -216,11 +216,9 @@ describe('Conversation service methods', () => {
     jest.spyOn(schedule, 'cancelPeriodicAgent').mockResolvedValue()
     jest.spyOn(schedule, 'periodicAgent').mockResolvedValue()
     jest.spyOn(schedule, 'agentResponse').mockResolvedValue()
-    jest.spyOn(schedule, 'agentIntroduction').mockResolvedValue()
     jest.spyOn(defineJob, 'batchTranscript').mockResolvedValue()
     jest.spyOn(defineJob, 'periodicAgent').mockResolvedValue()
     jest.spyOn(defineJob, 'agentResponse').mockResolvedValue()
-    jest.spyOn(defineJob, 'agentIntroduction').mockResolvedValue()
     mockGetUniqueKeys.mockReturnValue([])
   })
 
