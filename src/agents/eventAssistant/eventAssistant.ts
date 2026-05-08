@@ -3,7 +3,7 @@ import { AgentMessageActions, ConversationHistory } from '../../types/index.type
 import renderAgentTemplate from '../helpers/renderAgentTemplate.js'
 
 import Message from '../../models/message.model.js'
-import { defaultLLMModel, defaultLLMPlatform, llmPlatforms } from '../helpers/getModelChat.js'
+import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import {
   eventAssistantLLMTemplates,
   eventAssistantLlmTemplateVars,
@@ -25,7 +25,12 @@ const declineModeratorReply = "OK, I won't submit it. Feel free to ask me anythi
 const submitToModeratorCommand = '/mod'
 const mindMapCommand = '/mindmap'
 
-// Supported slash commands for Event Assistant Plus
+const submitToModeratorQuestion = 'Would you like to submit this question anonymously to the moderator for Q&A?'
+const submitToModeratorReply = 'Your message has been submitted to the moderator.'
+const declineModeratorReply = "OK, I won't submit it. Feel free to ask me anything else!"
+const submitToModeratorCommand = '/mod'
+const mindMapCommand = '/mindmap'
+
 const supportedCommands: SlashCommand[] = [
   { command: 'mod', prefix: submitToModeratorCommand, addToChannels: ['participant'] },
   { command: 'visual', prefix: '/visual ' },
@@ -99,6 +104,10 @@ async function handleModeratorReply(conversationHistory, userMessage) {
     }
 
     if (isNegative(responseText)) {
+      if (!message) {
+        logger.error(`Could not find original message with ID ${originalMessageId} to send acknowledgement of decline`)
+        return []
+      }
       return declineModeratorResponse.call(this, userMessage, message)
     }
     // Neither affirmative nor negative — fall through to process as a new question
