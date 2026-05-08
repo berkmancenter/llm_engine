@@ -6,7 +6,6 @@ import transcriptHandlers from './transcript.js'
 const JobHandlers = {
   // Agent handlers
   agentResponse: agentHandlers.agentResponse,
-  agentIntroduction: agentHandlers.agentIntroduction,
   periodicAgent: agentHandlers.periodicAgent,
 
   // Conversation handlers

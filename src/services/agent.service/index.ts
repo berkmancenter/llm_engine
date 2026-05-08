@@ -22,8 +22,6 @@ async function initialize(agent) {
       // Define the job used to retrieve response async during per-message or manual activation
       await defineJob.agentResponse(agent._id)
     }
-    // Define the job used by agent to send introductory messages on channel creation
-    await defineJob.agentIntroduction(agent._id)
     if (agent.active && agent.triggers?.periodic) {
       await schedulePeriodicAgent(agent)
     }
@@ -50,14 +48,6 @@ async function initializeAgents() {
   logger.debug(`Agents initialized: ${count}`)
 }
 
-async function introduceAgents(agents, channel) {
-  for (const agent of agents) {
-    // Only ask agent to introduce itself on a group channel or direct channel on which it participates
-    if (!channel.direct || (channel.direct && channel.participants.includes(agent._id))) {
-      await schedule.agentIntroduction({ agentId: agent._id, channelId: channel._id })
-    }
-  }
-}
 
 async function createAgent(agentType, conversation, agentProps?) {
   const agent = new Agent({
@@ -99,5 +89,5 @@ async function stopAgent(agent) {
   }
 }
 
-const agentService = { initializeAgents, introduceAgents, createAgent, patchAgent, startAgent, stopAgent }
+const agentService = { initializeAgents, createAgent, patchAgent, startAgent, stopAgent }
 export default agentService

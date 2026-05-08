@@ -27,37 +27,6 @@ const agentResponse = async (job) => {
     logger.error(`Response failed for agent ${agentId}`, error)
   }
 }
-const agentIntroduction = async (job) => {
-  const { agentId, channelId } = job.attrs.data
-  try {
-    const agent = await Agent.findOne({ _id: agentId }).exec()
-    if (!agent) {
-      logger.warn(`Could not find agent ${agentId}`)
-      return
-    }
-
-    await agent.populate({
-      path: 'conversation',
-      populate: [{ path: 'channels' }]
-    })
-
-    logger.debug(` agentIntroduction handler ${agent._id} - ${agent.conversation._id!.toString()}`)
-
-    const channel = agent.conversation.channels.find((c) => c._id!.toString() === channelId.toString())
-    if (!channel) {
-      throw new Error(`Channel ${channelId} not found on agent conversation`)
-    }
-    logger.debug(`[agentIntroduction] found channel: ${channel.name}, direct: ${channel.direct}, calling agent.introduce`)
-    const introductions = await agent.introduce(channel)
-    logger.debug(`[agentIntroduction] introductions returned: ${introductions.length}`)
-    for (const introduction of introductions) {
-      logger.debug(`[agentIntroduction] sending intro message on channels: ${JSON.stringify(introduction.channels)}`)
-      await messageService.newMessageHandler(introduction, agent)
-    }
-  } catch (error) {
-    logger.error(`Introduction failed for agent ${agentId}`, error)
-  }
-}
 const periodicAgent = async (job) => {
   const { agentId } = job.attrs.data
   logger.debug(`Agenda activation ${agentId}`)
@@ -83,7 +52,6 @@ const periodicAgent = async (job) => {
 }
 const agentHandlers = {
   agentResponse,
-  agentIntroduction,
   periodicAgent
 }
 export default agentHandlers

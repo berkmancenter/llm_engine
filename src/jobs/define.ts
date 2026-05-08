@@ -10,10 +10,6 @@ const defineJob = {
     await agenda.start()
     await agenda.define(`response - ${agentId}`, JobHandlers.agentResponse)
   },
-  agentIntroduction: async (agentId) => {
-    await agenda.start()
-    await agenda.define(`introduction - ${agentId}`, JobHandlers.agentIntroduction)
-  },
   autoStartConversation: async (conversationId) => {
     await agenda.start()
     await agenda.define(`autoStart - ${conversationId}`, JobHandlers.autoStartConversation)
