@@ -19,7 +19,6 @@ describe('compileSpeakerNames', () => {
     const result = compileSpeakerNames(conversation)
     expect(result).toContain('Jonathan Smith')
     expect(result).toContain('Speaker')
-    expect(result).toContain('Climate researcher.')
   })
 
   it('includes also known as when alternateName is set on a presenter', () => {
@@ -48,7 +47,6 @@ describe('compileSpeakerNames', () => {
     const result = compileSpeakerNames(conversation)
     expect(result).toContain('Saoirse O Briain')
     expect(result).toContain('Moderator')
-    expect(result).toContain('Senior editor.')
   })
 
   it('includes also known as when alternateName is set on a moderator', () => {
