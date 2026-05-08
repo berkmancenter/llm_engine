@@ -45,7 +45,7 @@ export default verify({
     // Only respond when explicitly mentioned with @BotName, or...
     const noMention = !userMessage?.body?.toLowerCase().includes(`@${this.agentConfig.botName}`.toLowerCase())
     // Also check for misspellings of the bot name.
-    const misspelledMention = matchBotMention(userMessage?.body, this.agentConfig.botName)
+    const misspelledMention = matchBotMention(userMessage?.body?.trim().split(/\s+/), this.agentConfig.botName)
     if (noMention || !misspelledMention) {
       // Fallback: determine if the user intended to ask the bot a question
       const noIntendedMention = (await checkIntent(this.llm, this.agentConfig.botName, userMessage)) === false

@@ -16,11 +16,9 @@ function matchHeyDirective(text: string, botName: string): { matched: boolean; q
   
   for (let i = 0; i < words.length - 1; i++) {
     const heyToken = words[i].replace(/[,!.]+$/, '')
-    const nameToken = words[i + 1].replace(/[,!.]+$/, '').toLowerCase()
-
     const heyScore = fuzzball.ratio(heyToken.toLowerCase(), 'hey')
 
-    if (heyScore >= heyMatchThreshold && matchBotMention(nameToken, botName)) {
+    if (heyScore >= heyMatchThreshold && matchBotMention(words, botName)) {
       const extracted = words
         .slice(i + 2)
         .join(' ')

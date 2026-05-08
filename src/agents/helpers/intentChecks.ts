@@ -10,13 +10,11 @@ const nameMatchThreshold = 70
  * @param botName The name of the bot.
  * @returns True if the message contains a mention of the bot, false otherwise.
  */
-export function matchBotMention(text: string, botName: string): boolean {
-  // Split and scan all consecutive word pairs for "<botName>" anywhere in the message
-  const words = text.trim().split(/\s+/)
-  if (words.length < 2) return false
+export function matchBotMention(text: string[], botName: string): boolean {
+  if (text.length < 2) return false
 
-  for (let i = 0; i < words.length - 1; i++) {
-    const nameToken = words[i + 1].replace(/[,!.]+$/, '').toLowerCase()
+  for (let i = 0; i < text.length - 1; i++) {
+    const nameToken = text[i + 1].replace(/[,!.]+$/, '').toLowerCase()
     const nameScore = fuzzball.ratio(nameToken, botName.toLowerCase())
 
     if (nameScore >= nameMatchThreshold) {
