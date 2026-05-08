@@ -602,6 +602,55 @@ describe(`event assistant CI tests`, () => {
     expect(funFactPart.length).toBeGreaterThan(20) // Should be at least 1-2 sentences
   })
 
+  // ZOOM ADAPTER INTRO TESTS
+
+  describe('zoom adapter type', () => {
+    it('uses zoomIntroMessage for zoom DM intro', async () => {
+      const [directChannel] = await Channel.create([
+        { name: 'direct-zoom-agents', direct: true, participants: [user1._id, agent._id] }
+      ])
+      const msgs = await agent.introduce(directChannel, 'zoom')
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].bodyType).toBe('json')
+      expect(msgs[0].body.type).toBe('intro')
+      expect(msgs[0].body.text).toContain(agent.agentConfig.botName)
+      expect(msgs[0].body.text).not.toContain('{{agentConfig.botName}}')
+      // Zoom DM uses the zoomIntroMessage template
+      expect(msgs[0].body.text).toContain('Ask me anything about the event')
+    })
+
+    it('does not include fun fact in zoom DM intro', async () => {
+      const [directChannel] = await Channel.create([
+        { name: 'direct-zoom-agents-nofact', direct: true, participants: [user1._id, agent._id] }
+      ])
+      const msgs = await agent.introduce(directChannel, 'zoom')
+      expect(msgs).toHaveLength(1)
+      // Fun fact is suppressed for zoom adapter
+      expect(msgs[0].body.text).not.toMatch(/fun fact about your pseudonym:/i)
+    })
+
+    it('uses zoomChatIntroMessage for zoom chat intro', async () => {
+      const [chatChannel] = await Channel.create([{ name: 'chat' }])
+      const msgs = await agent.introduce(chatChannel, 'zoom')
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].bodyType).toBe('json')
+      expect(msgs[0].body.type).toBe('intro')
+      expect(msgs[0].body.text).toContain(agent.agentConfig.botName)
+      expect(msgs[0].body.text).not.toContain('{{agentConfig.botName}}')
+      // zoomChatIntroMessage prompts DM for private questions
+      expect(msgs[0].body.text).toContain('send me a DM')
+    })
+
+    it('non-zoom DM intro still includes fun fact', async () => {
+      const [directChannel] = await Channel.create([
+        { name: 'direct-socket-agents', direct: true, participants: [user1._id, agent._id] }
+      ])
+      const msgs = await agent.introduce(directChannel)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].body.text).toMatch(/fun fact about your pseudonym:/i)
+    })
+  })
+
   // PERSONALITY CONFIGURATION TESTS
 
   describe('buildLLMTemplates personality configuration', () => {
