@@ -3,7 +3,7 @@ import { AgentMessageActions, ConversationHistory } from '../../types/index.type
 import renderAgentTemplate from '../helpers/renderAgentTemplate.js'
 
 import Message from '../../models/message.model.js'
-import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
+import { defaultLLMModel, defaultLLMPlatform, llmPlatforms } from '../helpers/getModelChat.js'
 import {
   eventAssistantLLMTemplates,
   eventAssistantLlmTemplateVars,
@@ -17,6 +17,7 @@ import config from '../../config/config.js'
 import generateImageResponse from './imageGenerator.js'
 import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from '../helpers/slashCommandParser.js'
 import generateMindMap from './mindMapGenerator.js'
+import { checkIntent } from '../helpers/intentChecks.js'
 
 const submitToModeratorQuestion = 'Would you like to submit this question anonymously to the moderator for Q&A?'
 const submitToModeratorReply = 'Your message has been submitted to the moderator.'
@@ -224,6 +225,13 @@ export default verify({
 
     // Message on chat channel?
     if (userMessage?.channels?.includes('chat')) {
+      const agentResponses = await answerQuestion.call(this, userMessage, conversationHistory)
+      return agentResponses
+    }
+    
+    // Check if the message is intended for the assistant
+    const llm = await this.getLLM()
+    if (await checkIntent(llm, this.agentConfig?.botName, userMessage)) {
       const agentResponses = await answerQuestion.call(this, userMessage, conversationHistory)
       return agentResponses
     }
