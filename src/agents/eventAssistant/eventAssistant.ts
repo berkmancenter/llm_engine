@@ -145,10 +145,12 @@ export default verify({
   },
   agentConfig: {
     introMessage:
-      "Hey! I'm {{agentConfig.botName}}. Ask me about what's happening, or use '/' commands for special functions.",
-    chatIntroMessage:
-      'Welcome to the chat! This is a space to chat with other event participants. You can also ask me questions with an @{{agentConfig.botName}} mention. Just remember that everyone can see what you ask me here. Use the {{agentConfig.botName}} tab if you want to talk privately. Have fun!',
-    enablePersonality: config.enableAgentPersonality
+      "Hi! I'm {{agentConfig.botName}}, your AI event assistant. Ask me anything, or tap '/' to see available commands.",
+    chatIntroMessage: `Welcome! I'm {{agentConfig.botName}}, your AI event assistant. This is a space to chat with other event participants. You can also ask me questions with an @{{agentConfig.botName}} mention. Just remember that everyone can see what you ask me here. Use the {{agentConfig.botName}} tab if you want to talk privately. Have fun`,
+    enablePersonality: config.enableAgentPersonality,
+    zoomIntroMessage: "Hi! I'm {{agentConfig.botName}}, your AI event assistant. Ask me anything about the event!",
+    zoomChatIntroMessage:
+      "Welcome! I'm {{agentConfig.botName}}, your AI event assistant. You can ask me questions in the chat with an @{{agentConfig.botName}} mention. Or send me a DM if you want to talk privately."
   },
   llmTemplateVars: eventAssistantLlmTemplateVars,
   defaultLLMTemplates: eventAssistantLLMTemplates,
@@ -261,25 +263,33 @@ export default verify({
   async stop() {
     return true
   },
-  async introduce(channel) {
+  async introduce(channel, adapterType?) {
     logger.debug(
-      `[introduce] eventAssistant called for channel: ${channel.name}, direct: ${channel.direct}, agentConfig.botName: ${this.agentConfig?.botName}`
+      `[introduce] eventAssistant called for channel: ${channel.name}, direct: ${channel.direct}, adapterType: ${
+        adapterType ?? 'socket'
+      }, agentConfig.botName: ${this.agentConfig?.botName}`
     )
     if (channel.direct) {
-      const { introMessage: defaultIntroMessage } = this.agentConfig
-      logger.debug(`[introduce] DM path - defaultIntroMessage: ${defaultIntroMessage}`)
+      const templateStr = adapterType === 'zoom' ? this.agentConfig.zoomIntroMessage : this.agentConfig.introMessage
+      logger.debug(`[introduce] DM path - templateStr: ${templateStr}`)
       let introMessage
       try {
-        introMessage = renderAgentTemplate(defaultIntroMessage, this.toObject())
+        introMessage = renderAgentTemplate(templateStr, this.toObject())
         logger.debug(`[introduce] DM rendered introMessage: ${introMessage}`)
       } catch (err) {
         logger.error(`[introduce] renderAgentTemplate error (DM): ${err}`)
         throw err
       }
 
-      const funFact = await generatePseudonymFunFact.call(this, channel)
-      if (funFact) {
-        introMessage = `${introMessage}\n\n${funFact}`
+      if (adapterType === 'zoom' && this.agentConfig?.moderatorSupport) {
+        introMessage = `${introMessage} Use /mod to send a question to the moderator.`
+      }
+
+      if (adapterType !== 'zoom') {
+        const funFact = await generatePseudonymFunFact.call(this, channel)
+        if (funFact) {
+          introMessage = `${introMessage}\n\n${funFact}`
+        }
       }
 
       return [
@@ -295,10 +305,11 @@ export default verify({
       ]
     }
     if (channel.name === 'chat') {
+      const templateStr = adapterType === 'zoom' ? this.agentConfig.zoomChatIntroMessage : this.agentConfig.chatIntroMessage
       return [
         {
           message: {
-            text: renderAgentTemplate(this.agentConfig.chatIntroMessage, this.toObject()),
+            text: renderAgentTemplate(templateStr, this.toObject()),
             type: 'intro'
           },
           messageType: 'json',
