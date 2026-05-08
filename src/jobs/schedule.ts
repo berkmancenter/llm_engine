@@ -7,9 +7,6 @@ const schedule = {
   agentResponse: async (data) => {
     await agenda.now(`response - ${data.agentId}`, data)
   },
-  agentIntroduction: async (data) => {
-    await agenda.schedule('in 1 second', `introduction - ${data.agentId}`, data)
-  },
   cancelPeriodicAgent: async (agentId) => {
     await agenda.cancel({ name: `periodic - ${agentId}` })
   },
