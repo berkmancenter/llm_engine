@@ -34,6 +34,16 @@ export function matchBotMention(text: string[], botName: string): boolean {
 export async function checkIntent(llm, botName: string, userMessage) {
   const intentCheckPrompt = `You are evaluating whether a message in a group chat was intended as a question or request directed at an AI assistant named {botName}, even though the bot was not explicitly mentioned by name.
 
+  Examples of this might include:
+  - "What did I miss?"
+  - "Catch me up"
+  - "Who is speaking?"
+  - "Can you help me?"
+  - "What is the agenda?"
+  - "What does this do?"
+
+  Essentially, you are looking for phrases that indicate a question or request directed at the bot, but where the user has forgotten to tag the bot by name. When in doubt, you should default to false.
+
   Respond with a single JSON object: {{ "intended_for_bot": true }} or {{ "intended_for_bot": false }}
   - true: the message is clearly a question or request that would benefit from an AI assistant response (e.g. asking for help, information, analysis, code, etc.)
   - false: the message is casual conversation between humans, a statement, or clearly not directed at the bot`
