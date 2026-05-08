@@ -500,6 +500,24 @@ describe(`event assistant CI tests`, () => {
     const msgs = await agent.introduce(channel)
     expect(msgs).toHaveLength(0)
   })
+  
+  it('does not respond to messages not intended for the assistant (may be unanswerable)', async () => {
+    const msg = await createMessage('please ignore this message', user1, conversation)
+    const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
+    expect(evaluation.classification).toBe(undefined)
+  })
+
+  it('responds to a direct question on chat channel even without @mention when clearly a question for the assistant', async () => {
+    const msg = await createMessage('What did I miss?', user1, conversation)
+    agent.conversationHistorySettings = {
+      endTime: new Date(startTime.getTime() + 829 * 1000),
+      count: 100,
+    }
+    const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
+    expect(evaluation.action).toEqual(AgentMessageActions.CONTRIBUTE)
+    const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+    expect(responses[0].classification).toBe(QuestionClassification.CATCHUP)
+    })
 
   // DYNAMIC BOT NAME TESTS
 
