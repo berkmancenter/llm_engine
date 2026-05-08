@@ -162,6 +162,9 @@ components:
           type: string
         bio:
           type: string
+        alternateName:
+          type: string
+          description: Optional nickname or abbreviation (e.g. "Jon" for "Jonathan Smith")
 
     BaseUser:
       type: object

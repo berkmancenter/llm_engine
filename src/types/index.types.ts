@@ -279,6 +279,7 @@ export interface ConversationType {
 export interface Profile {
   name: string
   bio?: string
+  alternateName?: string
 }
 
 export interface ITranscript {

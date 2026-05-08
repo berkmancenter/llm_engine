@@ -45,7 +45,7 @@ Answer the question using these rules:
 
 **CRITICAL RULES:**
 - Prioritize information from the retrieved context when available.
-- **When speaker names, moderator names, or people are mentioned:** Check the retrieved context for official speaker/moderator names and bios. Transcription may contain name errors, so use the official names from the context when available. If a user asks about "John Smith" but the context shows the speaker is "Jon Smythe," use the correct spelling from the retrieved data.
+- **When speaker names, moderator names, or people are mentioned:** Check the retrieved context for official speaker/moderator names and bios. Transcription may contain name errors, so use the official names from the context when available. If a user asks about "John Smith" but the context shows the speaker is "Jon Smythe," use the correct spelling from the retrieved data. If the context shows a name followed by "(also known as ...)", treat both as the same person and always output the canonical name — the alternate name is an intentional identity hint, not a nickname preference. Never use the alternate name in your response in any form — not standalone, not in parentheses, not as an abbreviation — even if the user used it in their question.
 - **When referring to speakers or moderators:** Use their official names and credentials from the retrieved context. If bio information is available, you may reference relevant expertise when it adds value to your response.
 - If the context doesn't contain the answer, use your general knowledge to provide a helpful response.
 - When using general knowledge, be clear about your sources (e.g., "According to general industry data..." or "Research typically shows...")
@@ -254,6 +254,30 @@ async function shouldGenerateVisual(question, classification, llmResponse, templ
   }
 }
 
+/*
+ * Always-present the names list so the LLM has correct names in context,
+ * even when RAG retrieval doesn't surface the speaker metadata
+ * (e.g. for generic questions like "what is this event about?").
+ */
+export function compileSpeakerNames(conversation): string {
+  const lines: string[] = []
+
+  conversation.presenters?.forEach((presenter) => {
+    if (!presenter.name) return
+    const altText = presenter.alternateName ? ` (also known as "${presenter.alternateName}")` : ''
+    lines.push(`- ${presenter.name}${altText} — Speaker.`)
+  })
+
+  conversation.moderators?.forEach((moderator) => {
+    if (!moderator.name) return
+    const altText = moderator.alternateName ? ` (also known as "${moderator.alternateName}")` : ''
+    lines.push(`- ${moderator.name}${altText} — Moderator.`)
+  })
+
+  if (lines.length === 0) return ''
+  return `## Event Participants:\n${lines.join('\n')}\n\n`
+}
+
 export async function generatePseudonymFunFact(channel) {
   // Find the user participant (not the agent)
   const userParticipantId = channel.participants.find(
@@ -324,13 +348,17 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
       // For time window searches, use only the chunks
       contextString = chunks
     } else {
-      // For semantic searches, include recent transcript and retrieved chunks
+      // For semantic searches, always include provided names so the LLM has
+      // canonical speaker/moderator names even when RAG doesn't retrieve their metadata docs
+      const participantNamesContext = compileSpeakerNames(this.conversation)
       const liveTranscript = transcript.getTranscript(this.conversation, 300, this.conversationHistorySettings?.endTime)
-      contextString = `## Recent Transcript:
-${liveTranscript}
-
-## Relevant Retrieved Context:
-${chunks}`
+      contextString = [
+        participantNamesContext.trimEnd(), // ## Event Participants
+        `## Recent Transcript:\n${liveTranscript}`,
+        `## Relevant Retrieved Context:\n${chunks}`
+      ]
+        .filter(Boolean)
+        .join('\n\n')
     }
   }
 

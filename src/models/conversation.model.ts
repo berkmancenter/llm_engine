@@ -21,6 +21,10 @@ const profileSchema = new mongoose.Schema<Profile>(
     bio: {
       type: String,
       required: false
+    },
+    alternateName: {
+      type: String,
+      required: false
     }
   },
   {
