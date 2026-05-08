@@ -10,6 +10,7 @@ import {
   createEventAssistantWithModSupportConversation
 } from '../../utils/agentTestHelpers.js'
 import Message from '../../../src/models/message.model.js'
+import Channel from '../../../src/models/channel.model.js'
 import { AgentMessageActions } from '../../../src/types/index.types.js'
 import Agent from '../../../src/models/user.model/agent.model/index.js'
 
@@ -420,6 +421,29 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
       },
       testTimeout
     )
+  })
+
+  describe('introduce with zoom adapter', () => {
+    it('appends /mod hint to zoom DM intro when moderatorSupport is enabled', async () => {
+      const [directChannel] = await Channel.create([
+        { name: 'direct-zoom-mod', direct: true, participants: [user1._id, agent._id] }
+      ])
+      const msgs = await agent.introduce(directChannel, 'zoom')
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].bodyType).toBe('json')
+      expect(msgs[0].body.type).toBe('intro')
+      expect(msgs[0].body.text).toContain('/mod')
+      expect(msgs[0].body.text).toContain('moderator')
+    })
+
+    it('does not include fun fact in zoom DM intro', async () => {
+      const [directChannel] = await Channel.create([
+        { name: 'direct-zoom-mod-nofact', direct: true, participants: [user1._id, agent._id] }
+      ])
+      const msgs = await agent.introduce(directChannel, 'zoom')
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].body.text).not.toMatch(/fun fact about your pseudonym:/i)
+    })
   })
 
   describe('parseOutput', () => {
