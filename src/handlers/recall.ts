@@ -7,7 +7,7 @@ import logger from '../config/logger.js'
 import Conversation from '../models/conversation.model.js'
 import Adapter from '../models/adapter.model.js'
 import webhookService from '../services/webhook.service.js'
-import conversationService from '../services/conversation.service.js'
+import conversationService from '../services/conversation.service/index.js'
 
 const verifyRequestFromRecall = (args: { secret: string; headers: Record<string, string>; payload: string | null }) => {
   const { secret, headers, payload } = args

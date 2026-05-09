@@ -93,7 +93,13 @@ const envVarsSchema = Joi.object()
     IMAGE_GENERATION_LLM_MODEL: Joi.string()
       .default('gemini-3-pro-image-preview')
       .description('Model to use for image generation tasks'),
-    SEMANTIC_SCHOLAR_API_KEY: Joi.string().description('Semantic Scholar API key for agent tools')
+    SEMANTIC_SCHOLAR_API_KEY: Joi.string().description('Semantic Scholar API key for agent tools'),
+    CONVERSATION_AUTO_START_LEAD_TIME_MINUTES: Joi.number()
+      .default(5)
+      .description('Minutes before scheduledTime to auto-start a conversation'),
+    CONVERSATION_AUTO_STOP_DELAY_MINUTES: Joi.number()
+      .default(30)
+      .description('Minutes after scheduledEndTime to auto-stop a conversation')
   })
   .unknown()
 
@@ -216,6 +222,10 @@ const config = {
   imageGenerationLLMModel: envVars.IMAGE_GENERATION_LLM_MODEL,
   semanticScholar: {
     apiKey: envVars.SEMANTIC_SCHOLAR_API_KEY
+  },
+  conversation: {
+    autoStartLeadTimeMs: envVars.CONVERSATION_AUTO_START_LEAD_TIME_MINUTES * 60 * 1000,
+    autoStopDelayMs: envVars.CONVERSATION_AUTO_STOP_DELAY_MINUTES * 60 * 1000
   }
 }
 export default config

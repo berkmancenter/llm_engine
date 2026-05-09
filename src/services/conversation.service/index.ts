@@ -1,51 +1,33 @@
 import mongoose from 'mongoose'
 import httpStatus from 'http-status'
-import { Conversation, Topic, Follower, Message, Channel, Agent } from '../models/index.js'
-import updateDocument from '../utils/updateDocument.js'
-import ApiError from '../utils/ApiError.js'
-import websocketGateway from '../websockets/websocketGateway.js'
-import agentService from './agent.service/index.js'
-import Adapter from '../models/adapter.model.js'
-import schedule from '../jobs/schedule.js'
-import defineJob from '../jobs/define.js'
+import { Conversation, Topic, Follower, Message, Channel, Agent } from '../../models/index.js'
+import updateDocument from '../../utils/updateDocument.js'
+import ApiError from '../../utils/ApiError.js'
+import websocketGateway from '../../websockets/websocketGateway.js'
+import agentService from '../agent.service/index.js'
+import Adapter from '../../models/adapter.model.js'
+import schedule from '../../jobs/schedule.js'
+import defineJob from '../../jobs/define.js'
+import logger from '../../config/logger.js'
+import config from '../../config/config.js'
+import adapterService from '../adapter.service.js'
+import channelService from '../channel.service.js'
+import { ConversationDocument } from '../../models/conversation.model.js'
+import { getConversationType } from '../../conversations/index.js'
+import resolveConversationType from '../../conversations/resolver.js'
+import { supportedModels } from '../../agents/helpers/getEmbeddings.js'
+import transcript from '../../agents/helpers/transcript.js'
+import reportService from '../report.service.js'
+import { doStartConversation, doStopConversation, updateTranscriptStatus } from './lifecycle.js'
 
-import logger from '../config/logger.js'
-import adapterService from './adapter.service.js'
-import channelService from './channel.service.js'
-import { ConversationDocument } from '../models/conversation.model.js'
-import { getConversationType } from '../conversations/index.js'
-import resolveConversationType from '../conversations/resolver.js'
-import { supportedModels } from '../agents/helpers/getEmbeddings.js'
-import transcript from '../agents/helpers/transcript.js'
-import reportService from './report.service.js'
+export { updateTranscriptStatus }
 
 const returnFields =
-  'name slug locked owner createdAt active conversationType platforms scheduledTime description moderators presenters transcript properties features'
-const transcriptBatchInterval = 30
+  'name slug locked owner createdAt active conversationType platforms scheduledTime scheduledEndTime description moderators presenters transcript properties features'
 export const maxScheduledInterval = 10 * 60 * 1000 // 10 minutes in milliseconds
+export const { autoStartLeadTimeMs } = config.conversation
+export const { autoStopDelayMs } = config.conversation
 
-/**
- * Updates transcript status and broadcasts the change
- * Use this for any transcript status changes (system or user-initiated)
- */
-export const updateTranscriptStatus = async (
-  conversation,
-  status: 'active' | 'paused' | 'stopped' | 'deleted'
-): Promise<void> => {
-  if (!conversation.transcript) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'No transcript configured for this conversation')
-  }
-  if (conversation.transcript.status === status) {
-    logger.debug(`Transcript already in status ${status} for conversation ${conversation._id}`)
-    return
-  }
-
-  // eslint-disable-next-line no-param-reassign
-  conversation.transcript.status = status
-  await conversation.save()
-  await websocketGateway.broadcastTranscriptStatusChange(conversation, status)
-  logger.info(`Transcript ${status} for conversation ${conversation._id}`)
-}
 /**
  * Removed messages array property and replaces with messageCount
  * @param {Array} conversations
@@ -63,12 +45,6 @@ const addMessageCount = async (conversations) => {
   })
 }
 
-async function scheduleTranscriptBatching(conversation) {
-  await schedule.cancelBatchTranscript(conversation._id)
-  await defineJob.batchTranscript(conversation._id)
-  await schedule.batchTranscript(`${transcriptBatchInterval} seconds`, { conversationId: conversation._id })
-}
-
 const startConversation = async (conversationOrId, user) => {
   let conversation = conversationOrId
   if (typeof conversationOrId === 'string' || conversationOrId instanceof mongoose.Types.ObjectId) {
@@ -84,23 +60,7 @@ const startConversation = async (conversationOrId, user) => {
   ) {
     throw new ApiError(httpStatus.FORBIDDEN, 'Only conversation or topic owner can start conversation')
   }
-  logger.debug(`Start conversation: ${conversation._id}`)
-
-  conversation.startTime = Date.now()
-  for (const agent of conversation.agents) {
-    // needed so agent has all conversation info for activation
-    agent.conversation = conversation
-    await agentService.startAgent(agent)
-  }
-  await scheduleTranscriptBatching(conversation)
-  for (const adapter of conversation.adapters) {
-    adapter.conversation = conversation
-    await adapterService.start(adapter)
-  }
-
-  conversation.active = true
-  await conversation.save()
-  return conversation
+  return doStartConversation(conversation)
 }
 
 const stopConversation = async (conversationOrId, user) => {
@@ -115,28 +75,66 @@ const stopConversation = async (conversationOrId, user) => {
   if (user._id.toString() !== conversation.owner.toString() && user._id.toString() !== conversation.topic.owner.toString()) {
     throw new ApiError(httpStatus.FORBIDDEN, 'Only conversation or topic owner can stop conversation')
   }
-  logger.debug(`Stop conversation: ${conversation._id}`)
-
-  conversation.endTime = new Date(Date.now())
-  for (const agent of conversation.agents) {
-    // needed so agent has all conversation info for activation
-    agent.conversation = conversation
-    await agentService.stopAgent(agent)
-  }
-  await schedule.cancelBatchTranscript(conversation._id)
-
-  for (const adapter of conversation.adapters) {
-    adapter.conversation = conversation
-    await adapterService.stop(adapter)
-  }
-
-  conversation.active = false
-  if (conversation.transcript) {
-    await updateTranscriptStatus(conversation, 'stopped')
-  }
-  await conversation.save()
-  return conversation
+  return doStopConversation(conversation)
 }
+
+const autoStart = async (conversationId) => {
+  const conversation = await Conversation.findOne({ _id: conversationId })
+  if (!conversation) {
+    logger.warn(`Auto-start: conversation ${conversationId} not found`)
+    return
+  }
+  if (conversation.active) {
+    logger.debug(`Auto-start: conversation ${conversationId} already active, skipping`)
+    return
+  }
+  await conversation.populate(['topic', 'agents', 'adapters'])
+  return doStartConversation(conversation)
+}
+
+const autoStop = async (conversationId) => {
+  const conversation = await Conversation.findOne({ _id: conversationId })
+  if (!conversation) {
+    logger.warn(`Auto-stop: conversation ${conversationId} not found`)
+    return
+  }
+  if (!conversation.active) {
+    logger.debug(`Auto-stop: conversation ${conversationId} already inactive, skipping`)
+    return
+  }
+  await conversation.populate(['topic', 'agents', 'adapters'])
+  return doStopConversation(conversation)
+}
+
+async function scheduleConversationAutoStart(conversation) {
+  await schedule.cancelAutoStartConversation(conversation._id)
+  await defineJob.autoStartConversation(conversation._id)
+  const scheduledAt = new Date(conversation.scheduledTime.getTime() - autoStartLeadTimeMs)
+  await schedule.autoStartConversation(scheduledAt, { conversationId: conversation._id })
+  logger.debug(`Scheduled auto-start for conversation ${conversation._id} at ${scheduledAt}`)
+}
+
+async function scheduleConversationAutoStop(conversation) {
+  await schedule.cancelAutoStopConversation(conversation._id)
+  await defineJob.autoStopConversation(conversation._id)
+  const scheduledAt = new Date(conversation.scheduledEndTime.getTime() + autoStopDelayMs)
+  await schedule.autoStopConversation(scheduledAt, { conversationId: conversation._id })
+  logger.debug(`Scheduled auto-stop for conversation ${conversation._id} at ${scheduledAt}`)
+}
+
+const initializeConversations = async () => {
+  const now = new Date()
+  const pendingStart = await Conversation.find({ scheduledTime: { $gt: now }, active: false })
+  for (const conversation of pendingStart) {
+    await defineJob.autoStartConversation(conversation._id)
+  }
+  const pendingStop = await Conversation.find({ scheduledEndTime: { $gt: now } })
+  for (const conversation of pendingStop) {
+    await defineJob.autoStopConversation(conversation._id)
+  }
+  logger.debug(`Conversations initialized: ${pendingStart.length} pending start, ${pendingStop.length} pending stop`)
+}
+
 /**
  * Create a conversation
  * @param {Object} conversationBody
@@ -177,7 +175,8 @@ const createConversation = async (conversationBody, user) => {
       status: 'stopped',
       vectorStore: conversationBody.transcript?.vectorStore
     },
-    scheduledTime: conversationBody.scheduledTime
+    scheduledTime: conversationBody.scheduledTime,
+    scheduledEndTime: conversationBody.scheduledEndTime
   })
   // need to save to get id
   await conversation.save()
@@ -207,8 +206,12 @@ const createConversation = async (conversationBody, user) => {
 
   websocketGateway.broadcastNewConversation(conversation)
 
-  // Assume immediate start if not scheduled
-  if (!conversation.scheduledTime) {
+  if (conversation.scheduledTime) {
+    await scheduleConversationAutoStart(conversation)
+    if (conversation.scheduledEndTime) {
+      await scheduleConversationAutoStop(conversation)
+    }
+  } else {
     await startConversation(conversation, user)
   }
   return conversation
@@ -236,6 +239,7 @@ const createConversationFromType = async (params, user) => {
   const resolved = resolveConversationType(params, conversationType)
   return createConversation({ ...params, conversationType: type, ...resolved }, user)
 }
+
 /**
  * Update a conversation
  * @param {Object} conversationBody
@@ -258,6 +262,7 @@ const updateConversation = async (conversationBody, user) => {
   websocketGateway.broadcastConversationUpdate(conversationDoc)
   return conversationDoc
 }
+
 const userConversations = async (user) => {
   const deletedTopics = await Topic.find({ isDeleted: true }).select('_id')
   const followedConversations = await Follower.find({ user }).select('conversation').exec()
@@ -285,10 +290,12 @@ const userConversations = async (user) => {
   })
   return conversations
 }
+
 const findById = async (id) => {
   const conversation = await Conversation.findOne({ _id: id }).populate('followers').select('name slug owner').exec()
   return conversation
 }
+
 const findByIdFull = async (id, user) => {
   const conversation = await Conversation.findOne({ _id: id })
     .select(returnFields)
@@ -328,6 +335,7 @@ const findByIdFull = async (id, user) => {
 
   return conversationPojo
 }
+
 const topicConversations = async (topicId) => {
   const conversations = await Conversation.find({ topic: topicId, experimental: { $ne: true } })
     .populate({ path: 'messages', select: 'id visible' })
@@ -335,6 +343,7 @@ const topicConversations = async (topicId) => {
     .exec()
   return addMessageCount(conversations)
 }
+
 const follow = async (status, conversationId, user) => {
   const conversation = await findById(conversationId)
   if (!conversation) {
@@ -352,6 +361,7 @@ const follow = async (status, conversationId, user) => {
     await Follower.deleteMany(params)
   }
 }
+
 const allPublic = async () => {
   const deletedTopics = await Topic.find({ isDeleted: true }).select('_id')
   const conversations = await Conversation.find({ topic: { $nin: deletedTopics }, experimental: { $ne: true } })
@@ -404,6 +414,7 @@ const deleteConversation = async (id, user) => {
   await Agent.deleteMany({ conversation })
   await Adapter.deleteMany({ conversation })
 }
+
 const patchConversationAgent = async (id, agentId, body, user) => {
   const conversation = await Conversation.findOne({ _id: id }).populate('topic').populate('agents').exec()
   if (!conversation) {
@@ -549,6 +560,9 @@ const conversationService = {
   patchConversationAgent,
   startConversation,
   stopConversation,
+  autoStart,
+  autoStop,
+  initializeConversations,
   joinConversation,
   generateConversationReport,
   updateTranscriptStatus,

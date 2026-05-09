@@ -14,6 +14,14 @@ const defineJob = {
     await agenda.start()
     await agenda.define(`introduction - ${agentId}`, JobHandlers.agentIntroduction)
   },
+  autoStartConversation: async (conversationId) => {
+    await agenda.start()
+    await agenda.define(`autoStart - ${conversationId}`, JobHandlers.autoStartConversation)
+  },
+  autoStopConversation: async (conversationId) => {
+    await agenda.start()
+    await agenda.define(`autoStop - ${conversationId}`, JobHandlers.autoStopConversation)
+  },
   batchTranscript: async (conversationId) => {
     await agenda.start()
     await agenda.define(`batchTranscript - ${conversationId}`, JobHandlers.batchTranscript)
