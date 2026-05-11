@@ -151,6 +151,10 @@ const createConversation = async (conversationBody, user) => {
     throw new ApiError(httpStatus.FORBIDDEN, 'Conversation creation not allowed.')
   }
 
+  if (conversationBody.scheduledTime && new Date(conversationBody.scheduledTime) <= new Date()) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'scheduledTime must be in the future')
+  }
+
   const { embeddingsPlatform, embeddingsModelName } = conversationBody.transcript?.vectorStore ?? {}
   if (embeddingsPlatform || embeddingsModelName) {
     if (!supportedModels.find((m) => embeddingsPlatform === m.platform && embeddingsModelName === m.model))
