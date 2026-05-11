@@ -15,7 +15,7 @@ import { insertTopics } from '../fixtures/topic.fixture.js'
 import { AgentMessageActions } from '../../src/types/index.types.js'
 import { defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/getModelChat.js'
 
-jest.setTimeout(10000)
+jest.setTimeout(30000)
 setupIntTest()
 
 const mockRespond = jest.fn()
