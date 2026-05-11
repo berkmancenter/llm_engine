@@ -4,12 +4,20 @@ import { LlmPlatforms } from '../../../src/types/index.types'
 
 describe('intentChecks', () => {
   describe('matchBotMention', () => {
-    it('should return false for single word messages', () => {
-      expect(matchBotMention('hello'.trim().split(/\s+/), 'Assistant')).toBe(false)
-    })
-
     it('should return false for empty string', () => {
       expect(matchBotMention(''.trim().split(/\s+/), 'Assistant')).toBe(false)
+    })
+
+    it('should return true for single word exact bot name match', () => {
+      expect(matchBotMention('Assistant'.trim().split(/\s+/), 'Assistant')).toBe(true)
+    })
+
+    it('should return true for @mention at the start of message', () => {
+      expect(matchBotMention('@Assistant how are you'.trim().split(/\s+/), 'Assistant')).toBe(true)
+    })
+
+    it('should return true for @mention anywhere in message', () => {
+      expect(matchBotMention('hey @Assistant how are you'.trim().split(/\s+/), 'Assistant')).toBe(true)
     })
 
     it('should return true for exact bot name match', () => {
@@ -22,6 +30,10 @@ describe('intentChecks', () => {
 
     it('should return true for minor misspelling', () => {
       expect(matchBotMention('hey Assistent how are you'.trim().split(/\s+/), 'Assistant')).toBe(true)
+    })
+
+    it('should return true for misspelled @mention', () => {
+      expect(matchBotMention('@Assistent how are you'.trim().split(/\s+/), 'Assistant')).toBe(true)
     })
 
     it('should return true when bot name has trailing punctuation', () => {

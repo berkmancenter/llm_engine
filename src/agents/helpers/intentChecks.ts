@@ -1,6 +1,11 @@
 import * as fuzzball from 'fuzzball'
+import { z } from 'zod'
 import { getChatPromptResponse } from './llmChain.js'
 import logger from '../../config/logger.js'
+
+const intentCheckSchema = z.object({
+  intended_for_bot: z.boolean()
+})
 
 const nameMatchThreshold = 70
 
@@ -11,10 +16,11 @@ const nameMatchThreshold = 70
  * @returns True if the message contains a mention of the bot, false otherwise.
  */
 export function matchBotMention(text: string[], botName: string): boolean {
-  if (text.length < 2) return false
-
-  for (let i = 0; i < text.length - 1; i++) {
-    const nameToken = text[i + 1].replace(/[,!.]+$/, '').toLowerCase()
+  for (let i = 0; i < text.length; i++) {
+    const nameToken = text[i]
+      .replace(/^@/, '')
+      .replace(/[,!.]+$/, '')
+      .toLowerCase()
     const nameScore = fuzzball.ratio(nameToken, botName.toLowerCase())
 
     if (nameScore >= nameMatchThreshold) {
@@ -60,11 +66,11 @@ export async function checkBotIntent(llm, botName: string, userMessage) {
       intentCheckPrompt,
       'Message: {question}',
       { question: userMessage?.body, botName },
-      { intended_for_bot: 'boolean' },
+      [],
+      intentCheckSchema
     )
 
-    const parsed = JSON.parse(intentResponse.match(/\{.*\}/s)?.[0] ?? '{}')
-    return parsed.intended_for_bot === true
+    return intentResponse.intended_for_bot === true
   } catch (error) {
     logger.error(error)
     return false

@@ -575,8 +575,6 @@ describe(`event assistant CI tests`, () => {
       const customBotName = 'MyCustomBot'
       agent.agentConfig = { ...agent.agentConfig, botName: customBotName }
 
-      // The misspelled name must not be the first word — matchBotMention checks text[i+1],
-      // so position 0 is never evaluated. 'hey @MyCustomBo ...' places the name at index 1.
       const msg = await createMessage('hey @MyCustomBo what did I miss?', user1, conversation, ['chat'])
       agent.conversationHistorySettings = {
         endTime: new Date(startTime.getTime() + 829 * 1000),
