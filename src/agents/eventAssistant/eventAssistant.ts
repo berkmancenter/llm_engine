@@ -17,7 +17,7 @@ import config from '../../config/config.js'
 import generateImageResponse from './imageGenerator.js'
 import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from '../helpers/slashCommandParser.js'
 import generateMindMap from './mindMapGenerator.js'
-import { checkBotIntent } from '../helpers/intentChecks.js'
+import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 
 const submitToModeratorQuestion = 'Would you like to submit this question anonymously to the moderator for Q&A?'
 const submitToModeratorReply = 'Your message has been submitted to the moderator.'
@@ -191,7 +191,14 @@ export default verify({
     const activeCommands = this.agentConfig?.moderatorSupport
       ? supportedCommands
       : supportedCommands.filter((c) => c.command !== 'mod')
-    const modifiedMessage = parseSlashCommands(userMessage, activeCommands)
+    let modifiedMessage = parseSlashCommands(userMessage, activeCommands)
+
+    if (modifiedMessage?.channels?.includes('chat')) {
+      const words = modifiedMessage?.body?.trim().split(/\s+/) ?? []
+      if (matchBotMention(words, this.agentConfig?.botName)) {
+        modifiedMessage = { ...modifiedMessage, body: normalizeBotMention(modifiedMessage.body, this.agentConfig?.botName) }
+      }
+    }
 
     return {
       userMessage: modifiedMessage,
@@ -215,12 +222,10 @@ export default verify({
     // Message on chat channel?
     if (userMessage?.channels?.includes('chat')) {
       const llm = await this.getLLM()
-      // Check if the message is intended for the assistant
-      if (await checkBotIntent(llm, this.agentConfig?.botName, userMessage)) {
-        const agentResponses = await answerQuestion.call(this, userMessage, conversationHistory)
-        return agentResponses
+      if (!(await checkBotIntent(llm, this.agentConfig?.botName, userMessage))) {
+        return []
       }
-      return []
+      return await answerQuestion.call(this, userMessage, conversationHistory)
     }
 
     if (this.agentConfig?.moderatorSupport) {

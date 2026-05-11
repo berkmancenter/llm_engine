@@ -21,26 +21,40 @@ export function matchBotMention(text: string[], botName: string): boolean {
       .replace(/^@/, '')
       .replace(/[,!.]+$/, '')
       .toLowerCase()
-    const nameScore = fuzzball.ratio(nameToken, botName.toLowerCase())
-
-    if (nameScore >= nameMatchThreshold) {
+    if (fuzzball.ratio(nameToken, botName.toLowerCase()) >= nameMatchThreshold) {
       return true
     }
   }
-
   return false
+}
+
+export function normalizeBotMention(body: string, botName: string): string {
+  const words = body.trim().split(/\s+/)
+  return words
+    .map((word) => {
+      const stripped = word
+        .replace(/^@/, '')
+        .replace(/[,!.]+$/, '')
+        .toLowerCase()
+      if (fuzzball.ratio(stripped, botName.toLowerCase()) >= nameMatchThreshold) {
+        const trailing = word.match(/[,!.]+$/)?.[0] ?? ''
+        return `@${botName}${trailing}`
+      }
+      return word
+    })
+    .join(' ')
 }
 
 /**
  * Determines if a user message was intended for the bot.
- * First checks for a fuzzy bot name mention; if found, returns true immediately.
+ * First checks for a fuzzy bot name mention; if found, returns true with the normalized body.
  * Otherwise, uses an LLM to evaluate intent.
  * @param llm The LLM instance to use for evaluation.
  * @param botName The name of the bot.
  * @param userMessage The user message to evaluate.
- * @returns A boolean indicating whether the message was intended for the bot.
+ * @returns intended: whether the message was intended for the bot.
  */
-export async function checkBotIntent(llm, botName: string, userMessage) {
+export async function checkBotIntent(llm, botName, userMessage) {
   const words = userMessage?.body?.trim().split(/\s+/) ?? []
   if (matchBotMention(words, botName)) return true
 

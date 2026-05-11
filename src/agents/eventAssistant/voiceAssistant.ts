@@ -4,7 +4,7 @@ import { AgentMessageActions, ConversationHistory, IMessage } from '../../types/
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { eventAssistantLLMTemplates, eventAssistantLlmTemplateVars, answerQuestion } from './eventQuestionHandler.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
-import { matchBotMention } from '../helpers/intentChecks.js'
+import { matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 import logger from '../../config/logger.js'
 
 const heyMatchThreshold = 85
@@ -87,12 +87,17 @@ export default verify({
 
     if (questionText) {
       logger.debug(`Voice trigger matched, question: "${questionText}"`)
-      return { userMessage, action: AgentMessageActions.CONTRIBUTE, userContributionVisible: true, suggestion: undefined }
+      const modifiedMessage = { ...userMessage, body: normalizeBotMention(userMessage.body, botName) }
+      return { userMessage: modifiedMessage, action: AgentMessageActions.CONTRIBUTE, userContributionVisible: true, suggestion: undefined }
     }
 
     const messageText = extractMessageText(userMessage)
     const { matched } = matchHeyDirective(messageText, botName)
-    if (matched) logger.debug(`Voice trigger matched (bare), waiting for next message`)
+    if (matched) {
+      logger.debug(`Voice trigger matched (bare), waiting for next message`)
+      const modifiedMessage = { ...userMessage, body: normalizeBotMention(userMessage.body, botName) }
+      return { userMessage: modifiedMessage, action: AgentMessageActions.OK, userContributionVisible: true, suggestion: undefined }
+    }
 
     return { userMessage, action: AgentMessageActions.OK, userContributionVisible: true, suggestion: undefined }
   },

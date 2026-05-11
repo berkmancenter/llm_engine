@@ -93,10 +93,12 @@ describe('eventHistorian agent tests', () => {
     expect(responses[0].message).toBeDefined()
   })
 
-  it('responds to a misspelled @mention of the bot name', async () => {
+  it('responds to a misspelled @mention of the bot name and normalizes spelling in evaluate', async () => {
     const msg = await ask('@Berkei what is the capital of France?')
-    const responses = await respond(buildHistory([]), msg)
+    const evaluation = await defaultAgentTypes.eventHistorian.evaluate.call(agent, msg)
+    expect(evaluation.userMessage.body).toBe(`@${BOT_NAME} what is the capital of France?`)
 
+    const responses = await respond(buildHistory([]), evaluation.userMessage)
     expect(responses).toHaveLength(1)
     expect(responses[0].message).toBeDefined()
     expect(responses[0].message.toLowerCase()).toContain('paris')
@@ -105,7 +107,6 @@ describe('eventHistorian agent tests', () => {
   it('does not respond to casual conversation not intended for the bot', async () => {
     const msg = await ask('I really liked what the last speaker said about flexible work')
     const responses = await respond(buildHistory([]), msg)
-
     expect(responses).toHaveLength(0)
   })
 

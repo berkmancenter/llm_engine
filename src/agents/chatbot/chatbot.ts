@@ -5,7 +5,7 @@ import { formatMultiUserConversationHistory } from '../helpers/llmInputFormatter
 import { buildSystemPromptWithPersonality } from '../helpers/agentPersonality.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
-import { checkBotIntent } from '../helpers/intentChecks.js'
+import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 import config from '../../config/config.js'
 
 const BASE_SYSTEM_PROMPT = `You are {botName}, a helpful, knowledgeable AI assistant participating in a group chat. You can engage with any topic or inquiry—from casual conversation to technical questions, creative tasks, analysis, debugging, writing, math, and beyond. There are no subject limits.
@@ -42,16 +42,14 @@ export default verify({
   defaultConversationHistorySettings: { count: 100, channels: ['chatbot'] },
 
   async evaluate(userMessage) {
-    return {
-      userMessage,
-      action: AgentMessageActions.CONTRIBUTE,
-      userContributionVisible: true,
-      suggestion: undefined
-    }
+    const words = userMessage?.body?.trim().split(/\s+/) ?? []
+    const modifiedMessage = matchBotMention(words, this.agentConfig.botName)
+      ? { ...userMessage, body: normalizeBotMention(userMessage.body, this.agentConfig.botName) }
+      : userMessage
+    return { userMessage: modifiedMessage, action: AgentMessageActions.CONTRIBUTE, userContributionVisible: true, suggestion: undefined }
   },
 
   async respond(conversationHistory: ConversationHistory, userMessage) {
-    // Return early if message not meant for agent response
     if (!(await checkBotIntent(this.llm, this.agentConfig.botName, userMessage))) {
       return []
     }

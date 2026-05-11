@@ -437,12 +437,6 @@ describe(`event assistant CI tests`, () => {
 
   it('does not respond to a regular message on the chat channel', async () => {
     const msg = await createMessage('@Sleepy Salamander Hey, what did I miss?', user1, conversation, ['chat'])
-    agent.conversationHistorySettings = {
-      endTime: new Date(startTime.getTime() + 829 * 1000),
-      count: 100,
-      directMessages: true,
-      channels: ['chat']
-    }
     const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
     expect(responses).toHaveLength(0)
   })
@@ -571,7 +565,7 @@ describe(`event assistant CI tests`, () => {
       await validateResponse(responsesMixed, 'chat')
     })
 
-    it('responds to chat message with misspelled @mention of botName', async () => {
+    it('responds to chat message with misspelled @mention of botName and normalizes spelling in evaluate', async () => {
       const customBotName = 'MyCustomBot'
       agent.agentConfig = { ...agent.agentConfig, botName: customBotName }
 
@@ -582,7 +576,10 @@ describe(`event assistant CI tests`, () => {
         directMessages: true,
         channels: ['chat']
       }
-      const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+      const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
+      expect(evaluation.userMessage.body).toBe(`hey @${customBotName} what did I miss?`)
+
+      const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, evaluation.userMessage)
       await validateResponse(responses, 'chat')
     })
 

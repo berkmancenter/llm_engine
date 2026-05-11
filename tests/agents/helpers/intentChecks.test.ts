@@ -1,5 +1,5 @@
 import { getModelChat, defaultLLMPlatform, defaultLLMModel } from '../../../src/agents/helpers/getModelChat.js'
-import { matchBotMention, checkBotIntent } from '../../../src/agents/helpers/intentChecks'
+import { matchBotMention, checkBotIntent, normalizeBotMention } from '../../../src/agents/helpers/intentChecks'
 import { LlmPlatforms } from '../../../src/types/index.types'
 
 describe('intentChecks', () => {
@@ -62,6 +62,40 @@ describe('intentChecks', () => {
 
     it('should return true for bot name at end of message', () => {
       expect(matchBotMention('can you help Assistant'.trim().split(/\s+/), 'Assistant')).toBe(true)
+    })
+  })
+
+  describe('normalizeBotMention', () => {
+    it('replaces exact name with @name', () => {
+      expect(normalizeBotMention('hey Assistant how are you', 'Assistant')).toBe('hey @Assistant how are you')
+    })
+
+    it('replaces misspelled name with @name', () => {
+      expect(normalizeBotMention('hey Assistent how are you', 'Assistant')).toBe('hey @Assistant how are you')
+    })
+
+    it('replaces @misspelling with @name', () => {
+      expect(normalizeBotMention('@Assistent how are you', 'Assistant')).toBe('@Assistant how are you')
+    })
+
+    it('preserves trailing punctuation after name', () => {
+      expect(normalizeBotMention('hey Assistant, can you help', 'Assistant')).toBe('hey @Assistant, can you help')
+    })
+
+    it('does not modify words that do not match bot name', () => {
+      expect(normalizeBotMention('hello world how are you', 'Assistant')).toBe('hello world how are you')
+    })
+
+    it('replaces name at start of message', () => {
+      expect(normalizeBotMention('Assistant what did I miss?', 'Assistant')).toBe('@Assistant what did I miss?')
+    })
+
+    it('replaces name at end of message', () => {
+      expect(normalizeBotMention('can you help Assistant', 'Assistant')).toBe('can you help @Assistant')
+    })
+
+    it('does not double the @ if already present', () => {
+      expect(normalizeBotMention('@Assistant how are you', 'Assistant')).toBe('@Assistant how are you')
     })
   })
 
