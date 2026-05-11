@@ -85,6 +85,30 @@ describe('eventHistorian agent tests', () => {
     expect(responses[0].message.toLowerCase()).toContain('paris')
   })
 
+  it('responds to an event history question intended for the bot without an @mention', async () => {
+    const msg = await ask('What did I miss at the last event?')
+    const responses = await respond(buildHistory([]), msg)
+
+    expect(responses).toHaveLength(1)
+    expect(responses[0].message).toBeDefined()
+  })
+
+  it('responds to a misspelled @mention of the bot name', async () => {
+    const msg = await ask('@Berkei what is the capital of France?')
+    const responses = await respond(buildHistory([]), msg)
+
+    expect(responses).toHaveLength(1)
+    expect(responses[0].message).toBeDefined()
+    expect(responses[0].message.toLowerCase()).toContain('paris')
+  })
+
+  it('does not respond to casual conversation not intended for the bot', async () => {
+    const msg = await ask('I really liked what the last speaker said about flexible work')
+    const responses = await respond(buildHistory([]), msg)
+
+    expect(responses).toHaveLength(0)
+  })
+
   it('responds sensibly with multi-user history containing consecutive user messages', async () => {
     // Simulate a multi-user group chat where multiple users post back-to-back
     // without any agent response in between — this creates consecutive 'user' role
