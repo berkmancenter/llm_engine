@@ -17,7 +17,7 @@ import config from '../../config/config.js'
 import generateImageResponse from './imageGenerator.js'
 import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from '../helpers/slashCommandParser.js'
 import generateMindMap from './mindMapGenerator.js'
-import { checkIntent } from '../helpers/intentChecks.js'
+import { checkBotIntent } from '../helpers/intentChecks.js'
 
 const submitToModeratorQuestion = 'Would you like to submit this question anonymously to the moderator for Q&A?'
 const submitToModeratorReply = 'Your message has been submitted to the moderator.'
@@ -187,20 +187,6 @@ export default verify({
       }
     }
 
-    const messageText = userMessage?.bodyType === 'json' ? userMessage?.body?.text : userMessage?.body
-    if (
-      userMessage?.channels?.includes('chat') &&
-      !messageText?.toLowerCase().includes(`@${this.agentConfig.botName}`.toLowerCase())
-    ) {
-      // regular chat message, no need to process
-      return {
-        userMessage,
-        action: AgentMessageActions.OK,
-        userContributionVisible: true,
-        suggestion: undefined
-      }
-    }
-
     // Parse slash commands using shared parser
     const activeCommands = this.agentConfig?.moderatorSupport
       ? supportedCommands
@@ -228,15 +214,13 @@ export default verify({
 
     // Message on chat channel?
     if (userMessage?.channels?.includes('chat')) {
-      const agentResponses = await answerQuestion.call(this, userMessage, conversationHistory)
-      return agentResponses
-    }
-
-    // Check if the message is intended for the assistant
-    const llm = await this.getLLM()
-    if (await checkIntent(llm, this.agentConfig?.botName, userMessage)) {
-      const agentResponses = await answerQuestion.call(this, userMessage, conversationHistory)
-      return agentResponses
+      const llm = await this.getLLM()
+      // Check if the message is intended for the assistant
+      if (await checkBotIntent(llm, this.agentConfig?.botName, userMessage)) {
+        const agentResponses = await answerQuestion.call(this, userMessage, conversationHistory)
+        return agentResponses
+      }
+      return []
     }
 
     if (this.agentConfig?.moderatorSupport) {

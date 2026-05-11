@@ -1,5 +1,5 @@
 import { getModelChat, defaultLLMPlatform, defaultLLMModel } from '../../../src/agents/helpers/getModelChat.js'
-import { matchBotMention, checkIntent } from '../../../src/agents/helpers/intentChecks'
+import { matchBotMention, checkBotIntent } from '../../../src/agents/helpers/intentChecks'
 import { LlmPlatforms } from '../../../src/types/index.types'
 
 describe('intentChecks', () => {
@@ -53,7 +53,7 @@ describe('intentChecks', () => {
     })
   })
 
-  describe('checkIntent', () => {
+  describe('checkBotIntent', () => {
     let mockContext: { llm: Awaited<ReturnType<typeof getModelChat>>; botName: string }
     const taggedMessage = { body: 'Hello @TestBot, how are you?' }
     const possibleIntentMessage = { body: 'Can you help catch me up?' }
@@ -72,18 +72,18 @@ describe('intentChecks', () => {
     })
 
     it('should return true when bot is tagged by name', async () => {
-      const result = await checkIntent(mockContext.llm, mockContext.botName, taggedMessage)
+      const result = await checkBotIntent(mockContext.llm, mockContext.botName, taggedMessage)
 
       expect(result).toBe(true)
     })
 
     it('should return true when message is possibly intended for bot', async () => {
-      const result = await checkIntent(mockContext.llm, mockContext.botName, possibleIntentMessage)
+      const result = await checkBotIntent(mockContext.llm, mockContext.botName, possibleIntentMessage)
       expect(result).toBe(true)
     })
 
     it('should return false when message is not intended for bot', async () => {
-      const result = await checkIntent(mockContext.llm, mockContext.botName, nonIntendedMessage)
+      const result = await checkBotIntent(mockContext.llm, mockContext.botName, nonIntendedMessage)
       expect(result).toBe(false)
     })
   })

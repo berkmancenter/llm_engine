@@ -26,12 +26,18 @@ export function matchBotMention(text: string[], botName: string): boolean {
 }
 
 /**
- * Uses an LLM to determine if a user message was intended for the bot.
+ * Determines if a user message was intended for the bot.
+ * First checks for a fuzzy bot name mention; if found, returns true immediately.
+ * Otherwise, uses an LLM to evaluate intent.
  * @param llm The LLM instance to use for evaluation.
+ * @param botName The name of the bot.
  * @param userMessage The user message to evaluate.
  * @returns A boolean indicating whether the message was intended for the bot.
  */
-export async function checkIntent(llm, botName: string, userMessage) {
+export async function checkBotIntent(llm, botName: string, userMessage) {
+  const words = userMessage?.body?.trim().split(/\s+/) ?? []
+  if (matchBotMention(words, botName)) return true
+
   const intentCheckPrompt = `You are evaluating whether a message in a group chat was intended as a question or request directed at an AI assistant named {botName}, even though the bot was not explicitly mentioned by name.
 
   Examples of this might include:
