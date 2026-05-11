@@ -9,6 +9,7 @@ import jargonFilterAgent from './jargonFilter/jargonFilter.js'
 import librarian from './librarian/librarianAgent.js'
 import chatbot from './chatbot/chatbot.js'
 import eventHistorian from './eventHistorian/eventHistorian.js'
+import eventSetup from './eventSetup/eventSetup.js'
 
 // Development agents
 import civilityPerMessage from './development/civilityPerMessage.js'
@@ -48,5 +49,6 @@ export default {
   jargonFilterAgent,
   voiceAssistant,
   librarian,
-  eventHistorian
+  eventHistorian,
+  eventSetup
 }
