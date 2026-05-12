@@ -87,7 +87,7 @@ export default verify({
 
     if (questionText) {
       logger.debug(`Voice trigger matched, question: "${questionText}"`)
-      const modifiedMessage = { ...userMessage, body: normalizeBotMention(userMessage.body, botName) }
+      const modifiedMessage = { ...userMessage, body: normalizeBotMention(userMessage.body, botName, false) }
       return { userMessage: modifiedMessage, action: AgentMessageActions.CONTRIBUTE, userContributionVisible: true, suggestion: undefined }
     }
 
@@ -95,7 +95,7 @@ export default verify({
     const { matched } = matchHeyDirective(messageText, botName)
     if (matched) {
       logger.debug(`Voice trigger matched (bare), waiting for next message`)
-      const modifiedMessage = { ...userMessage, body: normalizeBotMention(userMessage.body, botName) }
+      const modifiedMessage = { ...userMessage, body: normalizeBotMention(userMessage.body, botName, false) }
       return { userMessage: modifiedMessage, action: AgentMessageActions.OK, userContributionVisible: true, suggestion: undefined }
     }
 

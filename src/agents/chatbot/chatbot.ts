@@ -46,11 +46,17 @@ export default verify({
     const modifiedMessage = matchBotMention(words, this.agentConfig.botName)
       ? { ...userMessage, body: normalizeBotMention(userMessage.body, this.agentConfig.botName) }
       : userMessage
-    return { userMessage: modifiedMessage, action: AgentMessageActions.CONTRIBUTE, userContributionVisible: true, suggestion: undefined }
+    return {
+      userMessage: modifiedMessage,
+      action: AgentMessageActions.CONTRIBUTE,
+      userContributionVisible: true,
+      suggestion: undefined
+    }
   },
 
   async respond(conversationHistory: ConversationHistory, userMessage) {
-    if (!(await checkBotIntent(this.llm, this.agentConfig.botName, userMessage))) {
+    const llm = await this.getLLM()
+    if (!(await checkBotIntent(llm, this.agentConfig.botName, userMessage))) {
       return []
     }
     const chatHistory = formatMultiUserConversationHistory(conversationHistory)
@@ -72,7 +78,6 @@ export default verify({
       personalityName
     )
 
-    const llm = await this.getLLM()
     const response = await getChatPromptResponse(
       llm,
       systemPrompt,

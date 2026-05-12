@@ -28,7 +28,7 @@ export function matchBotMention(text: string[], botName: string): boolean {
   return false
 }
 
-export function normalizeBotMention(body: string, botName: string): string {
+export function normalizeBotMention(body: string, botName: string, addAtSymbol = true): string {
   const words = body.trim().split(/\s+/)
   return words
     .map((word) => {
@@ -38,7 +38,7 @@ export function normalizeBotMention(body: string, botName: string): string {
         .toLowerCase()
       if (fuzzball.ratio(stripped, botName.toLowerCase()) >= nameMatchThreshold) {
         const trailing = word.match(/[,!.]+$/)?.[0] ?? ''
-        return `@${botName}${trailing}`
+        return `${addAtSymbol ? '@' : ''}${botName}${trailing}`
       }
       return word
     })

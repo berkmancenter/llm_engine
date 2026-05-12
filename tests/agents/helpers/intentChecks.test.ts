@@ -97,6 +97,24 @@ describe('intentChecks', () => {
     it('does not double the @ if already present', () => {
       expect(normalizeBotMention('@Assistant how are you', 'Assistant')).toBe('@Assistant how are you')
     })
+
+    describe('addAtSymbol = false', () => {
+      it('replaces exact name without adding @', () => {
+        expect(normalizeBotMention('hey Assistant how are you', 'Assistant', false)).toBe('hey Assistant how are you')
+      })
+
+      it('replaces misspelled name with correct spelling, no @', () => {
+        expect(normalizeBotMention('hey Assistent how are you', 'Assistant', false)).toBe('hey Assistant how are you')
+      })
+
+      it('preserves trailing punctuation after name without @', () => {
+        expect(normalizeBotMention('hey Assistant, can you help', 'Assistant', false)).toBe('hey Assistant, can you help')
+      })
+
+      it('does not modify words that do not match bot name', () => {
+        expect(normalizeBotMention('hello world how are you', 'Assistant', false)).toBe('hello world how are you')
+      })
+    })
   })
 
   describe('checkBotIntent', () => {
