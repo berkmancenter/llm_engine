@@ -170,7 +170,7 @@ export default verify({
   defaultConversationHistorySettings: { count: 100, directMessages: true, channels: ['chat'] },
 
   async evaluate(userMessage) {
-    if (userMessage.pseudonym === this.name) {
+    if (userMessage.fromAgent) {
       // Handle image generation requests from self
       if (userMessage?.channels?.includes('image-gen')) {
         return {
@@ -180,7 +180,7 @@ export default verify({
           suggestion: undefined
         }
       }
-      // do not contribute to your own messages
+      // do not contribute to other agent messages
       return {
         userMessage,
         action: AgentMessageActions.OK,
