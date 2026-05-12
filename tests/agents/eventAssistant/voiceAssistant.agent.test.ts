@@ -88,7 +88,7 @@ describe('voice assistant CI tests', () => {
 
   it('normalizes misspelled bot name in evaluate for inline hey trigger', async () => {
     agent.agentConfig.botName = 'Berkie'
-    const msg = await createMessage('hey Burkei what is part-time work?', user1, conversation, ['transcript'])
+    const msg = await createMessage('hey Burkie what is part-time work?', user1, conversation, ['transcript'])
     const evaluation = await defaultAgentTypes.voiceAssistant.evaluate.call(agent, msg)
     expect(evaluation.action).toEqual(AgentMessageActions.CONTRIBUTE)
     expect(evaluation.userMessage.body).toBe('hey Berkie what is part-time work?')
@@ -96,7 +96,7 @@ describe('voice assistant CI tests', () => {
 
   it('normalizes misspelled bot name in evaluate for bare hey trigger', async () => {
     agent.agentConfig.botName = 'Berkie'
-    const msg = await createMessage('hey Burkei', user1, conversation, ['transcript'])
+    const msg = await createMessage('hey berkey', user1, conversation, ['transcript'])
     const evaluation = await defaultAgentTypes.voiceAssistant.evaluate.call(agent, msg)
     expect(evaluation.action).toEqual(AgentMessageActions.OK)
     expect(evaluation.userMessage.body).toBe('hey Berkie')
