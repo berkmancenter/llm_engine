@@ -430,8 +430,6 @@ describe(`event assistant CI tests`, () => {
       directMessages: true,
       channels: ['chat']
     }
-    const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
-    expect(evaluation.action).toEqual(AgentMessageActions.CONTRIBUTE)
     const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [msg1] }, msg)
     await validateResponse(responses, 'chat')
     expect(responses[0].classification).toBe(QuestionClassification.CATCHUP)
@@ -439,14 +437,8 @@ describe(`event assistant CI tests`, () => {
 
   it('does not respond to a regular message on the chat channel', async () => {
     const msg = await createMessage('@Sleepy Salamander Hey, what did I miss?', user1, conversation, ['chat'])
-    agent.conversationHistorySettings = {
-      endTime: new Date(startTime.getTime() + 829 * 1000),
-      count: 100,
-      directMessages: true,
-      channels: ['chat']
-    }
-    const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
-    expect(evaluation.action).toEqual(AgentMessageActions.OK)
+    const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+    expect(responses).toHaveLength(0)
   })
 
   it('introduces itself on new DM channels', async () => {
@@ -501,6 +493,24 @@ describe(`event assistant CI tests`, () => {
     expect(msgs).toHaveLength(0)
   })
 
+  it('does not respond to messages not intended for the assistant (may be unanswerable)', async () => {
+    const msg = await createMessage('please ignore this message', user1, conversation)
+    const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
+    expect(evaluation.classification).toBe(undefined)
+  })
+
+  it('responds to a direct question on chat channel even without @mention when clearly a question for the assistant', async () => {
+    const msg = await createMessage('What did I miss?', user1, conversation)
+    agent.conversationHistorySettings = {
+      endTime: new Date(startTime.getTime() + 829 * 1000),
+      count: 100
+    }
+    const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
+    expect(evaluation.action).toEqual(AgentMessageActions.CONTRIBUTE)
+    const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+    expect(responses[0].classification).toBe(QuestionClassification.CATCHUP)
+  })
+
   // DYNAMIC BOT NAME TESTS
 
   describe('dynamic botName support', () => {
@@ -509,8 +519,14 @@ describe(`event assistant CI tests`, () => {
       agent.agentConfig = { ...agent.agentConfig, botName: customBotName }
 
       const msg = await createMessage(`@${customBotName} what did I miss?`, user1, conversation, ['chat'])
-      const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
-      expect(evaluation.action).toEqual(AgentMessageActions.CONTRIBUTE)
+      agent.conversationHistorySettings = {
+        endTime: new Date(startTime.getTime() + 829 * 1000),
+        count: 100,
+        directMessages: true,
+        channels: ['chat']
+      }
+      const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+      await validateResponse(responses, 'chat')
     })
 
     it('does not respond to a chat mention of a different name when botName is customized', async () => {
@@ -519,28 +535,52 @@ describe(`event assistant CI tests`, () => {
 
       // Message mentions the old hardcoded name, not the configured botName
       const msg = await createMessage('@Event Assistant what did I miss?', user1, conversation, ['chat'])
-      const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
-      expect(evaluation.action).toEqual(AgentMessageActions.OK)
+      const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+      expect(responses).toHaveLength(0)
     })
 
     it('responds to case-insensitive chat mentions of botName', async () => {
       const customBotName = 'MyCustomBot'
       agent.agentConfig = { ...agent.agentConfig, botName: customBotName }
+      agent.conversationHistorySettings = {
+        endTime: new Date(startTime.getTime() + 829 * 1000),
+        count: 100,
+        directMessages: true,
+        channels: ['chat']
+      }
 
       // Test lowercase mention
       const msgLower = await createMessage('@mycustombot what did I miss?', user1, conversation, ['chat'])
-      const evalLower = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msgLower)
-      expect(evalLower.action).toEqual(AgentMessageActions.CONTRIBUTE)
+      const responsesLower = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msgLower)
+      await validateResponse(responsesLower, 'chat')
 
       // Test uppercase mention
       const msgUpper = await createMessage('@MYCUSTOMBOT what did I miss?', user1, conversation, ['chat'])
-      const evalUpper = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msgUpper)
-      expect(evalUpper.action).toEqual(AgentMessageActions.CONTRIBUTE)
+      const responsesUpper = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msgUpper)
+      await validateResponse(responsesUpper, 'chat')
 
       // Test mixed case mention
       const msgMixed = await createMessage('@mYcUsToMbOt what did I miss?', user1, conversation, ['chat'])
-      const evalMixed = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msgMixed)
-      expect(evalMixed.action).toEqual(AgentMessageActions.CONTRIBUTE)
+      const responsesMixed = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msgMixed)
+      await validateResponse(responsesMixed, 'chat')
+    })
+
+    it('responds to chat message with misspelled @mention of botName and normalizes spelling in evaluate', async () => {
+      const customBotName = 'MyCustomBot'
+      agent.agentConfig = { ...agent.agentConfig, botName: customBotName }
+
+      const msg = await createMessage('hey @MyCustomBo what did I miss?', user1, conversation, ['chat'])
+      agent.conversationHistorySettings = {
+        endTime: new Date(startTime.getTime() + 829 * 1000),
+        count: 100,
+        directMessages: true,
+        channels: ['chat']
+      }
+      const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
+      expect(evaluation.userMessage.body).toBe(`hey @${customBotName} what did I miss?`)
+
+      const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, evaluation.userMessage)
+      await validateResponse(responses, 'chat')
     })
 
     it('includes custom botName in rendered DM intro message', async () => {

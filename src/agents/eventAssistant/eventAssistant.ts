@@ -17,6 +17,7 @@ import config from '../../config/config.js'
 import generateImageResponse from './imageGenerator.js'
 import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from '../helpers/slashCommandParser.js'
 import generateMindMap from './mindMapGenerator.js'
+import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 
 const submitToModeratorQuestion = 'Would you like to submit this question anonymously to the moderator for Q&A?'
 const submitToModeratorReply = 'Your message has been submitted to the moderator.'
@@ -169,7 +170,7 @@ export default verify({
   defaultConversationHistorySettings: { count: 100, directMessages: true, channels: ['chat'] },
 
   async evaluate(userMessage) {
-    if (userMessage.pseudonym === this.name) {
+    if (userMessage.fromAgent) {
       // Handle image generation requests from self
       if (userMessage?.channels?.includes('image-gen')) {
         return {
@@ -179,21 +180,7 @@ export default verify({
           suggestion: undefined
         }
       }
-      // do not contribute to your own messages
-      return {
-        userMessage,
-        action: AgentMessageActions.OK,
-        userContributionVisible: true,
-        suggestion: undefined
-      }
-    }
-
-    const messageText = userMessage?.bodyType === 'json' ? userMessage?.body?.text : userMessage?.body
-    if (
-      userMessage?.channels?.includes('chat') &&
-      !messageText?.toLowerCase().includes(`@${this.agentConfig.botName}`.toLowerCase())
-    ) {
-      // regular chat message, no need to process
+      // do not contribute to other agent messages
       return {
         userMessage,
         action: AgentMessageActions.OK,
@@ -206,7 +193,14 @@ export default verify({
     const activeCommands = this.agentConfig?.moderatorSupport
       ? supportedCommands
       : supportedCommands.filter((c) => c.command !== 'mod')
-    const modifiedMessage = parseSlashCommands(userMessage, activeCommands)
+    let modifiedMessage = parseSlashCommands(userMessage, activeCommands)
+
+    if (modifiedMessage?.channels?.includes('chat')) {
+      const words = modifiedMessage?.body?.trim().split(/\s+/) ?? []
+      if (matchBotMention(words, this.agentConfig?.botName)) {
+        modifiedMessage = { ...modifiedMessage, body: normalizeBotMention(modifiedMessage.body, this.agentConfig?.botName) }
+      }
+    }
 
     return {
       userMessage: modifiedMessage,
@@ -229,8 +223,11 @@ export default verify({
 
     // Message on chat channel?
     if (userMessage?.channels?.includes('chat')) {
-      const agentResponses = await answerQuestion.call(this, userMessage, conversationHistory)
-      return agentResponses
+      const llm = await this.getLLM()
+      if (!(await checkBotIntent(llm, this.agentConfig?.botName, userMessage))) {
+        return []
+      }
+      return await answerQuestion.call(this, userMessage, conversationHistory)
     }
 
     if (this.agentConfig?.moderatorSupport) {

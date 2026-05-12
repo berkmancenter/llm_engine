@@ -86,6 +86,22 @@ describe('voice assistant CI tests', () => {
     expect(evaluation.action).toEqual(AgentMessageActions.OK)
   })
 
+  it('normalizes misspelled bot name in evaluate for inline hey trigger', async () => {
+    agent.agentConfig.botName = 'Berkie'
+    const msg = await createMessage('hey Burkie what is part-time work?', user1, conversation, ['transcript'])
+    const evaluation = await defaultAgentTypes.voiceAssistant.evaluate.call(agent, msg)
+    expect(evaluation.action).toEqual(AgentMessageActions.CONTRIBUTE)
+    expect(evaluation.userMessage.body).toBe('hey Berkie what is part-time work?')
+  })
+
+  it('normalizes misspelled bot name in evaluate for bare hey trigger', async () => {
+    agent.agentConfig.botName = 'Berkie'
+    const msg = await createMessage('hey berkey', user1, conversation, ['transcript'])
+    const evaluation = await defaultAgentTypes.voiceAssistant.evaluate.call(agent, msg)
+    expect(evaluation.action).toEqual(AgentMessageActions.OK)
+    expect(evaluation.userMessage.body).toBe('hey Berkie')
+  })
+
   it('contributes for a deferred question when previous transcript message was a bare hey trigger', async () => {
     const prevMsg = await createMessage(`hey ${agent.agentConfig.botName}`, user1, conversation, ['transcript'])
     agent.conversation.messages.push(prevMsg)
