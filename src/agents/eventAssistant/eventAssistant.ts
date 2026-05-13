@@ -14,6 +14,7 @@ import {
 
 import logger from '../../config/logger.js'
 import config from '../../config/config.js'
+import getDefaultEventAssistantToolNames from './eventAssistantDefaultTools.js'
 import generateImageResponse from './imageGenerator.js'
 import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from '../helpers/slashCommandParser.js'
 import generateMindMap from './mindMapGenerator.js'
@@ -148,7 +149,8 @@ export default verify({
       "Hey! I'm {{agentConfig.botName}}. Ask me about what's happening, or use '/' commands for special functions.",
     chatIntroMessage:
       'Welcome to the chat! This is a space to chat with other event participants. You can also ask me questions with an @{{agentConfig.botName}} mention. Just remember that everyone can see what you ask me here. Use the {{agentConfig.botName}} tab if you want to talk privately. Have fun!',
-    enablePersonality: config.enableAgentPersonality
+    enablePersonality: config.enableAgentPersonality,
+    tools: getDefaultEventAssistantToolNames()
   },
   llmTemplateVars: eventAssistantLlmTemplateVars,
   defaultLLMTemplates: eventAssistantLLMTemplates,

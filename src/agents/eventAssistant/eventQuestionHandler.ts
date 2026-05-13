@@ -1,4 +1,4 @@
-import { getChatPromptResponse } from '../helpers/llmChain.js'
+import { getChatPromptResponse, getAgentStructuredResponse } from '../helpers/llmChain.js'
 import { formatMultiUserConversationHistory, formatSingleUserConversationHistory } from '../helpers/llmInputFormatters.js'
 import transcript from '../helpers/transcript.js'
 import User from '../../models/user.model/user.model.js'
@@ -8,6 +8,8 @@ import config from '../../config/config.js'
 
 import { getModelChat, classificationLLMPlatform, classificationLLMModel } from '../helpers/getModelChat.js'
 import { personalitySection } from '../helpers/agentPersonality.js'
+import { getTools } from '../tools/registry.js'
+import { buildEventAssistantToolSystemPrompt, EVENT_ASSISTANT_TOOL_USER_MANDATE } from './buildEventAssistantToolSystemPrompt.js'
 
 export enum QuestionClassification {
   ON_TOPIC_ANSWER = 'ON_TOPIC_ANSWER',
@@ -70,6 +72,11 @@ Output Style:
 `,
     semanticClassificationSystem: `You are a classification system for live event Q&A. Return ONLY a classification string.
 
+**IMPORTANT -- Context-reference check (apply before choosing OFF_TOPIC):**
+Before you classify any question as OFF_TOPIC, verify whether the question mentions or refers to any entity, person, product, organization, concept, statistic, or fact that appears in the **Context** (Recent Transcript, Relevant Retrieved Context), the **Event topic**, or the **Recent conversation**. If it does, and the question could conceivably add to or extend the ongoing discussion, it is **not OFF_TOPIC** -- classify as ON_TOPIC_ANSWER (if answerable from context/general knowledge) or ON_TOPIC_ASK_SPEAKER (if the speaker's input would help).
+Treat **Recent conversation** as part of the ongoing discussion: if prior messages show participants building a concrete sub-thread (logistics, food, scheduling, coordination tied to experiencing this event together) and the current question continues that same thread, it extends the live-event experience — do **not** use OFF_TOPIC even when the headline session topic alone would not suggest that subject.
+**Worked example:** The formal talk may be about one subject (e.g. a science topic on stage), while **Recent conversation** shows attendees coordinating something practical for the same gathering (potluck, what to bring, dishes). A follow-up that continues that coordination (e.g. asking for a recipe to bring) is **not OFF_TOPIC** — classify as ON_TOPIC_ASK_SPEAKER (or ON_TOPIC_ANSWER if fully answerable without the speaker).
+
 **Default assumption: Almost all questions about the event topic should go to the speaker (ON_TOPIC_ASK_SPEAKER)**
 
 **Classifications:**
@@ -80,9 +87,11 @@ Output Style:
 
 **ON_TOPIC_ASK_SPEAKER**: Question relates to the event topic (DEFAULT for topic-related questions), OR helpful for the speaker to understand audience positive or negative sentiment.
 Important! When deciding between ON_TOPIC_ASK_SPEAKER and ON_TOPIC_ANSWER, bias towards ON_TOPIC_ASK_SPEAKER.
+Exception: if the question requests direct, specific factual info or statistics within the event topic’s domain (including adjacent subtopics like updated time windows or comparable providers/policies), bias towards ON_TOPIC_ANSWER.
+- Precedence: If the user asks for direct factual statistics/policy/guardrail details (and is implicitly requesting verifiable published sources), classify as ON_TOPIC_ANSWER, even if you also consider speaker-focused categories.
 - Speaker's opinions, perspectives, or expertise on anything related to the topic
-- Requests for data, statistics, or facts about the event topic
-- Requests for resources, recommendations, or next steps
+- Requests for the speaker's interpretation/perspective of data/stats about the event topic (not just the raw facts)
+- Requests for resources, recommendations, or next steps (except when the user requests citations/sources to support direct facts within the topic's domain)
 - User feedback, criticism, or reactions about the talk (e.g. "boring", "disagree", "interesting")
 - Personal questions about the speaker's views or preferences related to the topic
 - If it's about the event topic and NOT one of the categories below, use this
@@ -94,11 +103,18 @@ Important! When deciding between ON_TOPIC_ASK_SPEAKER and ON_TOPIC_ANSWER, bias 
 - Direct quotes or summaries of what was explicitly said
 - Content creation based on the event (tweets, summaries, posts, etc.)
 - Simple acknowledgments ("thanks", "got it")
+- Direct requests for up-to-date facts/stats or policy/guardrail details in the topic’s domain (e.g., "last month" numbers, or comparable provider guardrails when the event discusses a different provider)
 
 **OFF_TOPIC**: Zero connection to the event or the event topic, or an entirely irrelevant request or instruction
 - Must be completely unrelated subject matter
+- **Ignore @BotName mentions:** The user question may start with an @mention to the assistant (e.g. "@Berkie! ..."). Strip that prefix mentally—it is not part of the topic signal.
+- **Context anchoring:** If the question asks for names, lists, counts, entities, products, or facts that **appear in the Context** (Recent Transcript or Relevant Retrieved Context) or are clearly the same subject as phrases in that Context (e.g. "15 AI companions" when the transcript discusses those companions), it is **not OFF_TOPIC**. Prefer ON_TOPIC_ANSWER when the answer is likely in the Context; otherwise ON_TOPIC_ASK_SPEAKER.
+- **Conversation-thread continuation:** You receive prior chat messages before the current user message. If recent turns show participants and/or the speaker actively discussing a concrete sub-topic, treat follow-up questions that **continue that same thread** as **on-topic** (usually ON_TOPIC_ASK_SPEAKER, or ON_TOPIC_ANSWER if fully answerable from transcript/context alone). Do **not** use OFF_TOPIC for those follow-ups, even if they would look unrelated to the overall session title **without** that thread context.
+- Still use OFF_TOPIC for random personal errands, spam, or topics with **no** clear link to what the group is discussing in those recent turns.
+- Do NOT use OFF_TOPIC for adjacent subtopics within the same domain/theme. Adjacent includes: the same metric/time window but newer (e.g. "last month"), comparable organizations/providers in the same category (e.g. asking about a different provider's guardrails while the event discusses another), and directly related safety/guardrails policies or regulations.
 - Example for aliens event: "What's the weather?" = OFF_TOPIC
 - Example for aliens event: "How many sightings per year?" = ON_TOPIC_ASK_SPEAKER
+- Example for aliens event: "How many sightings last month?" = ON_TOPIC_ASK_SPEAKER
 - If it mentions the event/speaker/talk at all = NOT off-topic
 
 **UNANSWERABLE**: Extremely rare - use only for truly unclear or impossible questions
@@ -107,7 +123,9 @@ Important! When deciding between ON_TOPIC_ASK_SPEAKER and ON_TOPIC_ANSWER, bias 
 
 **Output Format:**
 **Return ONLY a single string - one of:** CATCHUP, ON_TOPIC_ASK_SPEAKER, ON_TOPIC_ANSWER, OFF_TOPIC, UNANSWERABLE
-Do NOT provide any explanation or additional text.`,
+Do NOT provide any explanation or additional text.
+
+**Reminder:** Always read **Recent conversation** (in the user message) together with **Event topic** and **Context** before choosing OFF_TOPIC.`,
     offTopicSystem: `You are an AI assistant for a live event. The user has asked something unrelated to the event topic.
 
 ${personalityContent}
@@ -162,7 +180,10 @@ Do NOT provide any explanation or additional text.`,
 {answer}
 
 Would this benefit from a visual representation?`,
-    user: `## Event topic:
+    user: `## Recent conversation (same channel/DM, oldest to newest):
+{recentChat}
+
+## Event topic:
   {topic}
   
   ## Context:
@@ -192,6 +213,11 @@ export const eventAssistantLlmTemplateVars = {
       name: 'context',
       description: 'The context for answering the question - may include recent transcript and/or relevant retrieved chunks'
     },
+    {
+      name: 'recentChat',
+      description:
+        'Prior messages in this channel/DM before the current question, formatted for classification and answering (oldest to newest)'
+    },
     { name: 'question', description: 'The user question' }
   ]
 }
@@ -200,8 +226,30 @@ const funFactSystemTemplate = `You create short, fun facts about pseudonyms. The
   **IMPORTANT** Always start the sentence with the phrase 'Fun Fact about your pseudonym:'`
 const funFactUserTemplate = 'Create a fun fact about the pseudonym: {pseudonym}'
 
+function flattenChatHistory(chatHistory: unknown): Array<{ role: string; content: string }> {
+  if (!chatHistory || !Array.isArray(chatHistory)) return []
+  const out: Array<{ role: string; content: string }> = []
+  for (const item of chatHistory as Array<{ role: string; content: string } | Array<unknown>>) {
+    if (Array.isArray(item)) {
+      out.push(...flattenChatHistory(item))
+    } else if (item && typeof item === 'object' && 'role' in item && 'content' in item) {
+      out.push(item as { role: string; content: string })
+    }
+  }
+  return out
+}
+
+function formatRecentChatSummaryForTemplate(chatHistory: unknown): string {
+  const flat = flattenChatHistory(chatHistory)
+  if (flat.length === 0) {
+    return '(none — no prior messages before this question for this channel/DM)'
+  }
+  return flat.map((m) => `${m.role}: ${m.content}`).join('\n')
+}
+
 async function getResponse(question, context, chatHistory, topic, systemTemplate) {
   const llm = await this.getLLM()
+  const recentChat = formatRecentChatSummaryForTemplate(chatHistory)
   const llmResponse = await getChatPromptResponse(
     llm,
     systemTemplate,
@@ -209,7 +257,8 @@ async function getResponse(question, context, chatHistory, topic, systemTemplate
     {
       context,
       question,
-      topic
+      topic,
+      recentChat
     },
     chatHistory
   )
@@ -397,7 +446,62 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
     ? QuestionClassification.CATCHUP
     : await getResponse.call(this, question, contextString, chatHistory, topic, templates.semanticClassificationSystem)
 
-  const llmResponse = await getResponse.call(this, question, contextString, chatHistory, topic, systemTemplate)
+  // Resolve tools from the agent's configured tool list (if any)
+  const configuredToolNames: string[] = this.agentConfig?.tools || []
+  const tools = configuredToolNames.length > 0 ? getTools(configuredToolNames) : []
+
+  let llmResponse: string
+  if (tools.length > 0) {
+    let templateType: 'offTopic' | 'unanswerable' | 'timeWindow' | 'semantic'
+    if (systemTemplate === templates.offTopicSystem) {
+      templateType = 'offTopic'
+    } else if (systemTemplate === templates.unanswerableSystem) {
+      templateType = 'unanswerable'
+    } else if (systemTemplate === templates.timeWindowSystem) {
+      templateType = 'timeWindow'
+    } else {
+      templateType = 'semantic'
+    }
+    logger.debug(`Responding with tools enabled: [${configuredToolNames.join(', ')}], systemTemplate: ${templateType}`)
+    const llm = await this.getLLM()
+    const { systemPrompt: toolSystemPrompt, replacements: toolPromptReplacements } = buildEventAssistantToolSystemPrompt(
+      systemTemplate,
+      topic,
+      contextString
+    )
+    const userPrompt = `${EVENT_ASSISTANT_TOOL_USER_MANDATE}## User question:\n${question}`
+    const agentBundle = (await getAgentStructuredResponse(
+      llm,
+      tools,
+      toolSystemPrompt,
+      userPrompt,
+      undefined,
+      chatHistory,
+      10,
+      { returnToolTrace: true }
+    )) as { text: string; toolTrace: { invoked: boolean; calls: Array<{ name: string; args: unknown }> } }
+    llmResponse = agentBundle.text
+    const toolCalls = agentBundle.toolTrace.calls.length
+    logger.info(
+      `eventAssistant.toolPath toolsEnabled=true toolCalls=${toolCalls} toolNames=[${configuredToolNames.join(', ')}] systemTemplate=${templateType} ` +
+        `promptReplacements=suggestResources:${toolPromptReplacements.suggestResources},pointToward:${toolPromptReplacements.pointToward}`
+    )
+    if (configuredToolNames.includes('web_search') && toolCalls === 0) {
+      logger.warn(
+        `eventAssistant.toolPath web_search configured but toolCalls=0 systemTemplate=${templateType} — model may have skipped search`
+      )
+    }
+    const tracePayload = JSON.stringify({
+      invoked: agentBundle.toolTrace.invoked,
+      calls: agentBundle.toolTrace.calls.map((c) => ({ name: c.name, args: c.args }))
+    })
+    logger.debug(
+      tracePayload.length > 8000 ? `eventAssistant.toolTrace ${tracePayload.slice(0, 8000)}…` : `eventAssistant.toolTrace ${tracePayload}`
+    )
+  } else {
+    llmResponse = await getResponse.call(this, question, contextString, chatHistory, topic, systemTemplate)
+  }
+
   const responseChannels = this.conversation.channels.filter((channel: IChannel) =>
     userMessage.channels.includes(channel.name)
   )

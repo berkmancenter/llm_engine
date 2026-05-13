@@ -5,6 +5,7 @@ import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { eventAssistantLLMTemplates, eventAssistantLlmTemplateVars, answerQuestion } from './eventQuestionHandler.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
 import logger from '../../config/logger.js'
+import getDefaultEventAssistantToolNames from './eventAssistantDefaultTools.js'
 
 const heyMatchThreshold = 85
 const nameMatchThreshold = 70
@@ -65,6 +66,9 @@ export default verify({
   maxTokens: 2000,
   defaultTriggers: {
     perMessage: { channels: ['transcript'] }
+  },
+  agentConfig: {
+    tools: getDefaultEventAssistantToolNames()
   },
   llmTemplateVars: eventAssistantLlmTemplateVars,
   defaultLLMTemplates: eventAssistantLLMTemplates,

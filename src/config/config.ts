@@ -93,7 +93,11 @@ const envVarsSchema = Joi.object()
     IMAGE_GENERATION_LLM_MODEL: Joi.string()
       .default('gemini-3-pro-image-preview')
       .description('Model to use for image generation tasks'),
-    SEMANTIC_SCHOLAR_API_KEY: Joi.string().description('Semantic Scholar API key for agent tools')
+    SEMANTIC_SCHOLAR_API_KEY: Joi.string().description('Semantic Scholar API key for agent tools'),
+    TAVILY_API_KEY: Joi.string().description('Tavily API key for web search tool'),
+    WEB_SEARCH_PROVIDER: Joi.string()
+      .default('tavily')
+      .description('Web search provider to use (e.g. tavily, brave, serpapi)')
   })
   .unknown()
 
@@ -216,6 +220,10 @@ const config = {
   imageGenerationLLMModel: envVars.IMAGE_GENERATION_LLM_MODEL,
   semanticScholar: {
     apiKey: envVars.SEMANTIC_SCHOLAR_API_KEY
-  }
+  },
+  tavily: {
+    apiKey: envVars.TAVILY_API_KEY
+  },
+  webSearchProvider: envVars.WEB_SEARCH_PROVIDER
 }
 export default config
