@@ -26,6 +26,7 @@ const resourceSchema = new mongoose.Schema<Resource>({
   participantVisible: { type: Boolean, default: true },
   addedAt: { type: Date, default: Date.now }
 })
+resourceSchema.plugin(toJSON)
 
 const profileSchema = new mongoose.Schema<Profile>(
   {

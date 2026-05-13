@@ -73,8 +73,8 @@ class WebsocketGateway {
     await this.broadcast(conversation.topic._id.toString(), 'conversation:update', conversation)
   }
 
-  async broadcastResourcesUpdated(conversationId: string, resources: unknown[]) {
-    await this.broadcast(conversationId, 'resources:updated', { resources })
+  async broadcastResourcesUpdated(conversationId: string, resources) {
+    await this.broadcast(conversationId, 'resources:updated', { resources: resources.map((r) => r.toJSON()) })
   }
 
   async broadcastTranscriptStatusChange(conversation, status) {

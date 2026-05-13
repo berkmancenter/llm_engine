@@ -5,7 +5,7 @@ import { Agent, Message, Conversation, Topic } from '../models/index.js'
 import ApiError from '../utils/ApiError.js'
 import logger from '../config/logger.js'
 import transcript from '../agents/helpers/transcript.js'
-import { duplicateConversationMessages } from './message.service.js'
+import { duplicateConversationMessages, agentResponseToMessageData } from './message.service.js'
 import reportService from './report.service.js'
 
 async function getAgentResponse(agent, experiment, endTime, msg?) {
@@ -16,9 +16,12 @@ async function getAgentResponse(agent, experiment, endTime, msg?) {
   await agent.conversation.populate(['messages', 'channels'])
   const responses = await agent.respond(msg)
   for (const response of responses) {
-    response.channels = response.channels?.map((c) => c.name)
-    response.createdAt = new Date(endTime.getTime() + 1000) // simulate agent message one second after end time
-    const responseMsg = await Message.create(response)
+    const msgData = agentResponseToMessageData(response, agent)
+    const responseMsg = await Message.create({
+      ...msgData,
+      channels: msgData.channels?.map((c) => (typeof c === 'string' ? c : c.name)),
+      createdAt: new Date(endTime.getTime() + 1000)
+    })
     experiment.resultConversation.messages.push(responseMsg)
   }
 }

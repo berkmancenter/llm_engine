@@ -782,7 +782,7 @@ export async function createMessage(
     owner: user._id,
     channels,
     fromAgent: false,
-    pause: false,
+    pause: 0,
     visible: true,
     createdAt,
     updatedAt: createdAt,

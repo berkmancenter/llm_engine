@@ -3,17 +3,20 @@ import { checkAuth, getRoomId, getRoomIds } from '../utils.js'
 import logger from '../../config/logger.js'
 import authChannels from '../../utils/authChannels.js'
 import { conversationService } from '../../services/index.js'
+import { agentResponseToMessageData } from '../../services/message.service.js'
 import { Conversation } from '../../models/index.js'
-import { AgentResponse, IChannel } from '../../types/index.types.js'
+import { IChannel } from '../../types/index.types.js'
 
-async function collectChannelIntros(conversation, channelNames: string[]) {
-  const intros: AgentResponse<string>[] = []
+async function collectChannelIntros(conversation, channelNames) {
+  const intros: ReturnType<typeof agentResponseToMessageData>[] = []
   for (const channelName of channelNames) {
     const channel = conversation.channels?.find((c) => c.name === channelName)
     if (!channel) continue
     for (const agent of conversation.agents) {
       const agentIntros = await agent.introduce(channel)
-      intros.push(...agentIntros)
+      for (const intro of agentIntros) {
+        intros.push(agentResponseToMessageData(intro, agent))
+      }
     }
   }
   return intros.map((intro) => ({

@@ -92,7 +92,7 @@ const participantJoined = async (adapter, participant) => {
         agent.conversation = adapter.conversation
         const introMessages = await agent.introduce(channel, adapter.type)
         for (const introMsg of introMessages) {
-          const body = introMsg.body?.text ?? introMsg.body
+          const body = introMsg.message?.text ?? introMsg.message
           await adapter.sendMessage({ ...introMsg, body, channels: [directChannelName] })
         }
       }
