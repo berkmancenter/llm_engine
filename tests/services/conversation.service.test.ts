@@ -272,7 +272,7 @@ describe('Conversation service methods', () => {
         expect(adapters[0].config.meetingUrl).toBe('https://zoom.us/j/123456789?pwd=12345')
 
         // Verify channels were created
-        expect(conversation.channels).toHaveLength(6)
+        expect(conversation.channels).toHaveLength(5)
       })
 
       test('should create conversation with only validation keys specified', async () => {
@@ -310,7 +310,7 @@ describe('Conversation service methods', () => {
         expect(adapters[0].config.meetingUrl).toBe('https://zoom.us/j/123456789?pwd=12345')
 
         // Verify channels were created
-        expect(conversation.channels).toHaveLength(6)
+        expect(conversation.channels).toHaveLength(5)
       })
 
       test('should use default botName when not provided', async () => {

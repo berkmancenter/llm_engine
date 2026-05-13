@@ -25,38 +25,8 @@ const buildRecommendationSchema = (count: number) =>
       .describe(`Exactly ${count} reading recommendations`)
   })
 
-/**
- *
- * This function queries the conversation history to find all previous recommendations,
- * making it stateless and safe for use in clustered environments.
- *
- * @param conversationHistory - The conversation history to search
- * @param agentName - Name of the agent to filter by
- * @returns Array of titles that were previously recommended
- */
-function getPreviousRecommendations(conversationHistory: ConversationHistory, agentName: string): string[] {
-  const previousMessages = conversationHistory.messages.filter(
-    (msg) => msg.pseudonym === agentName && msg.fromAgent && msg.visible && msg.bodyType === 'json'
-  )
-
-  // Extract titles from message bodies
-  const titles: string[] = []
-  for (const msg of previousMessages) {
-    try {
-      const body = typeof msg.body === 'string' ? JSON.parse(msg.body) : msg.body
-      if (body && typeof body === 'object' && 'type' in body && body.type === 'reading') {
-        titles.push(
-          ...body.content
-            .filter((r: unknown) => r && typeof r === 'object' && 'title' in r)
-            .map((r: { title: unknown }) => String(r.title))
-        )
-      }
-    } catch {
-      // Skip malformed messages
-    }
-  }
-
-  return titles
+function getPreviousRecommendations(resources) {
+  return resources.filter((r) => r.source === 'ai').map((r) => r.title)
 }
 
 const formatPreviousRecs = (titles: string[]): string => {
@@ -150,13 +120,8 @@ export default verify({
     const speakerNames = this.conversation.presenters?.map((p: { name: string }) => p.name).join(', ') || 'None'
     const moderatorNames = this.conversation.moderators?.map((m: { name: string }) => m.name).join(', ') || 'None'
 
-    // 2. Get all previous recommendations from conversation history to avoid duplicates
-    const fullHistory: ConversationHistory = {
-      start: new Date(0), // Beginning of time to get all messages
-      end: conversationHistory.end,
-      messages: this.conversation.messages // Access all messages
-    }
-    const previousRecs = getPreviousRecommendations(fullHistory, this.name)
+    // 2. Get all previous AI recommendations from conversation resources to avoid duplicates
+    const previousRecs = getPreviousRecommendations(this.conversation.resources || [])
 
     // 3. Build prompt
     const count = this.agentConfig.recommendationsPerInterval
@@ -191,19 +156,23 @@ export default verify({
     })
     result.recommendations = deduped
 
-    // 6. Return formatted response
-    const resourcesChannel = this.conversation.channels.find((c: { name: string }) => c.name === 'resources')
-    if (!resourcesChannel) {
-      logger.warn('No resources channel found')
-      return []
-    }
+    // 6. Map to Resource objects and return as a typed agent response
+    const resources = deduped.map((r) => ({
+      source: 'ai' as const,
+      category: 'suggested' as const,
+      title: r.title,
+      authors: r.authors,
+      year: r.year?.toString(),
+      url: r.url,
+      relevanceReason: r.relevanceReason,
+      participantVisible: true
+    }))
 
     return [
       {
-        visible: true,
-        message: { content: result.recommendations, type: 'reading' },
-        messageType: 'json',
-        channels: [resourcesChannel],
+        visible: false,
+        message: resources,
+        messageType: 'resources',
         context: `Speakers: ${speakerNames}\nModerators: ${moderatorNames}\nPrevious recommendations: ${
           previousRecs.join('; ') || 'None yet'
         }\n\nTranscript:\n${transcript}`
@@ -219,7 +188,7 @@ export default verify({
     return true
   },
   formatTraceOutput(responses) {
-    return responses[0]?.message?.content
+    return responses[0]?.message
   },
 
   getTraceMetadata(conversationHistory, userMessage, responses) {

@@ -1,0 +1,169 @@
+import mongoose from 'mongoose'
+import { Conversation, Agent } from '../../../src/models/index.js'
+import { publicTopic, conversationAgentsEnabled } from '../../fixtures/conversation.fixture.js'
+import { insertTopics } from '../../fixtures/topic.fixture.js'
+import { insertUsers, registeredUser } from '../../fixtures/user.fixture.js'
+import agentHandlers from '../../../src/jobs/handlers/agent.js'
+import { setAgentTypes } from '../../../src/models/user.model/agent.model/index.js'
+import { defaultLLMPlatform, defaultLLMModel } from '../../../src/agents/helpers/getModelChat.js'
+import messageService from '../../../src/services/message.service.js'
+import resourceService from '../../../src/services/resource.service.js'
+import websocketGateway from '../../../src/websockets/websocketGateway.js'
+import setupIntTest from '../../utils/setupIntTest.js'
+
+setupIntTest()
+
+const mockStart = jest.fn()
+const mockStop = jest.fn()
+
+const testAgentTypes = {
+  periodic: {
+    respond: jest.fn(),
+    evaluate: jest.fn(),
+    start: mockStart,
+    stop: mockStop,
+    name: 'Test Periodic Agent',
+    description: 'A periodic test agent',
+    maxTokens: 2000,
+    defaultTriggers: { periodic: { timerPeriod: 300 } },
+    priority: 10,
+    llmTemplateVars: {},
+    defaultLLMTemplates: {},
+    defaultLLMPlatform,
+    defaultLLMModel
+  }
+}
+
+describe('agent job handlers', () => {
+  let conversation
+  let agent
+
+  beforeAll(() => {
+    setAgentTypes(testAgentTypes)
+  })
+
+  beforeEach(async () => {
+    await insertUsers([registeredUser])
+    await insertTopics([publicTopic])
+    conversation = new Conversation({ ...conversationAgentsEnabled, active: true })
+    await conversation.save()
+    agent = new Agent({ agentType: 'periodic', conversation: conversation._id, active: true })
+    await agent.save()
+    conversation.agents.push(agent)
+    await conversation.save()
+    jest.restoreAllMocks()
+    jest.spyOn(websocketGateway, 'broadcastResourcesUpdated').mockResolvedValue()
+  })
+
+  describe('agentResponse', () => {
+    test('should not throw if agent not found', async () => {
+      const fakeId = new mongoose.Types.ObjectId()
+      await expect(agentHandlers.agentResponse({ attrs: { data: { agentId: fakeId, message: {} } } })).resolves.not.toThrow()
+    })
+
+    test('should call newMessageHandler for a standard agent response', async () => {
+      const mockResponse = { visible: true, message: 'Hello from agent', messageType: 'text', channels: [] }
+      jest.spyOn(Agent.prototype, 'respond').mockResolvedValue([mockResponse])
+      const newMessageSpy = jest.spyOn(messageService, 'newMessageHandler').mockResolvedValue([])
+
+      await agentHandlers.agentResponse({ attrs: { data: { agentId: agent._id, message: {} } } })
+
+      expect(newMessageSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ body: 'Hello from agent', fromAgent: true, visible: true }),
+        expect.anything()
+      )
+    })
+
+    test('should call resourceService.addResources for a resources response', async () => {
+      const resources = [{ source: 'ai', title: 'Test Paper', category: 'suggested', participantVisible: true }]
+      jest
+        .spyOn(Agent.prototype, 'respond')
+        .mockResolvedValue([{ visible: false, message: resources, messageType: 'resources' }])
+      const addResourcesSpy = jest.spyOn(resourceService, 'addResources').mockResolvedValue(undefined)
+
+      await agentHandlers.agentResponse({ attrs: { data: { agentId: agent._id, message: {} } } })
+
+      expect(addResourcesSpy).toHaveBeenCalledWith(resources, conversation._id.toString())
+    })
+
+    test('should persist resources to conversation when agent returns resources response', async () => {
+      const resources = [{ source: 'ai', title: 'AI Recommended Paper', category: 'suggested', participantVisible: true }]
+      jest
+        .spyOn(Agent.prototype, 'respond')
+        .mockResolvedValue([{ visible: false, message: resources, messageType: 'resources' }])
+
+      await agentHandlers.agentResponse({ attrs: { data: { agentId: agent._id, message: {} } } })
+
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.resources).toHaveLength(1)
+      expect(updated!.resources[0].title).toBe('AI Recommended Paper')
+      expect(updated!.resources[0].source).toBe('ai')
+    })
+
+    test('should not call newMessageHandler for a resources response', async () => {
+      const resources = [{ source: 'ai', title: 'Paper', category: 'suggested', participantVisible: true }]
+      jest
+        .spyOn(Agent.prototype, 'respond')
+        .mockResolvedValue([{ visible: false, message: resources, messageType: 'resources' }])
+      const newMessageSpy = jest.spyOn(messageService, 'newMessageHandler').mockResolvedValue([])
+
+      await agentHandlers.agentResponse({ attrs: { data: { agentId: agent._id, message: {} } } })
+
+      expect(newMessageSpy).not.toHaveBeenCalled()
+    })
+
+    test('should not throw if agent respond fails', async () => {
+      jest.spyOn(Agent.prototype, 'respond').mockRejectedValue(new Error('LLM failed'))
+
+      await expect(
+        agentHandlers.agentResponse({ attrs: { data: { agentId: agent._id, message: {} } } })
+      ).resolves.not.toThrow()
+    })
+  })
+
+  describe('periodicAgent', () => {
+    test('should not throw if agent not found', async () => {
+      const fakeId = new mongoose.Types.ObjectId()
+      await expect(agentHandlers.periodicAgent({ attrs: { data: { agentId: fakeId } } })).resolves.not.toThrow()
+    })
+
+    test('should call newMessageHandler when agent evaluates to CONTRIBUTE', async () => {
+      const mockResponse = { visible: true, message: 'Periodic response', messageType: 'text', channels: [] }
+      jest.spyOn(Agent.prototype, 'evaluate').mockResolvedValue({ action: 2 })
+      jest.spyOn(Agent.prototype, 'respond').mockResolvedValue([mockResponse])
+      const newMessageSpy = jest.spyOn(messageService, 'newMessageHandler').mockResolvedValue([])
+
+      await agentHandlers.periodicAgent({ attrs: { data: { agentId: agent._id } } })
+
+      expect(newMessageSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ body: 'Periodic response', fromAgent: true }),
+        expect.anything()
+      )
+    })
+
+    test('should persist resources when periodic agent returns resources response', async () => {
+      const resources = [{ source: 'ai', title: 'Periodic AI Paper', category: 'suggested', participantVisible: true }]
+      jest.spyOn(Agent.prototype, 'evaluate').mockResolvedValue({ action: 2 })
+      jest
+        .spyOn(Agent.prototype, 'respond')
+        .mockResolvedValue([{ visible: false, message: resources, messageType: 'resources' }])
+
+      await agentHandlers.periodicAgent({ attrs: { data: { agentId: agent._id } } })
+
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.resources).toHaveLength(1)
+      expect(updated!.resources[0].title).toBe('Periodic AI Paper')
+    })
+
+    test('should not respond when agent evaluates to OK', async () => {
+      jest.spyOn(Agent.prototype, 'evaluate').mockResolvedValue({ action: 0 })
+      const respondSpy = jest.spyOn(Agent.prototype, 'respond')
+      const newMessageSpy = jest.spyOn(messageService, 'newMessageHandler').mockResolvedValue([])
+
+      await agentHandlers.periodicAgent({ attrs: { data: { agentId: agent._id } } })
+
+      expect(respondSpy).not.toHaveBeenCalled()
+      expect(newMessageSpy).not.toHaveBeenCalled()
+    })
+  })
+})

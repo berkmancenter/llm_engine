@@ -2,6 +2,7 @@ import setupAgentTest from '../../utils/setupAgentTest.js'
 import defaultAgentTypes from '../../../src/agents/index.js'
 import { createPublicTopic, createUser, loadForgivenessTranscript } from '../../utils/agentTestHelpers.js'
 import { Agent, Channel, Conversation, Message } from '../../../src/models/index.js'
+import { Resource } from '../../../src/types/index.types.js'
 
 const testConfig = setupAgentTest('librarian')
 jest.setTimeout(120000)
@@ -55,46 +56,39 @@ describe('librarian agent tests', () => {
     conversation = await Conversation.findById(conversation._id).populate('agents').populate('channels').populate('messages')
   })
 
-  it('generates 2 reading recommendations and does not repeat recommendations from previous messages', async () => {
-    const resourcesChannel = conversation.channels.find((c: { name: string }) => c.name === 'resources')
-    // Add a previous recommendation message from the librarian agent
-    const previousRecommendations = {
-      content: [
-        {
-          title: 'When Should Law Forgive?',
-          authors: ['Martha Minow'],
-          year: 2019,
-          relevanceReason: 'Direct work by the speaker on forgiveness in legal contexts'
-        },
-        {
-          title: 'Between Vengeance and Forgiveness',
-          authors: ['Martha Minow'],
-          year: 1998,
-          relevanceReason: 'Explores reconciliation after mass violence'
-        },
-        {
-          title: 'Breaking the Cycles of Hatred',
-          authors: ['Martha Minow'],
-          year: 2002,
-          relevanceReason: 'Discusses memory, law, and repair'
-        }
-      ],
-      type: 'reading'
-    }
+  it('generates 2 reading recommendations and does not repeat recommendations from previous resources', async () => {
+    // Add previous AI recommendations to conversation.resources to simulate prior librarian run
+    const previousResources: Resource[] = [
+      {
+        source: 'ai',
+        category: 'suggested',
+        title: 'When Should Law Forgive?',
+        authors: ['Martha Minow'],
+        year: '2019',
+        relevanceReason: 'Direct work by the speaker on forgiveness in legal contexts',
+        participantVisible: true
+      },
+      {
+        source: 'ai',
+        category: 'suggested',
+        title: 'Between Vengeance and Forgiveness',
+        authors: ['Martha Minow'],
+        year: '1998',
+        relevanceReason: 'Explores reconciliation after mass violence',
+        participantVisible: true
+      },
+      {
+        source: 'ai',
+        category: 'suggested',
+        title: 'Breaking the Cycles of Hatred',
+        authors: ['Martha Minow'],
+        year: '2002',
+        relevanceReason: 'Discusses memory, law, and repair',
+        participantVisible: true
+      }
+    ]
 
-    const prevMessage = new Message({
-      conversation: conversation._id,
-      channel: resourcesChannel._id,
-      pseudonymId: agent.pseudonyms[0]._id,
-      pseudonym: agent.name,
-      fromAgent: true,
-      visible: true,
-      body: JSON.stringify(previousRecommendations),
-      bodyType: 'json',
-      createdAt: new Date(startTime.getTime() + 300 * 1000)
-    })
-    await prevMessage.save()
-    conversation.messages.push(prevMessage)
+    conversation.resources = previousResources
     await conversation.save()
 
     conversation = await Conversation.findById(conversation._id).populate('agents').populate('channels').populate('messages')
@@ -107,25 +101,25 @@ describe('librarian agent tests', () => {
     })
 
     expect(responses).toHaveLength(1)
-    const body = responses[0].message as { content: Array<{ title: string } & Record<string, unknown>>; type: string }
-    expect(body.type).toBe('reading')
-    expect(body.content).toHaveLength(2)
+    expect(responses[0].messageType).toBe('resources')
+    const resources = responses[0].message as Resource[]
+    expect(resources).toHaveLength(2)
 
-    body.content.forEach((rec) => {
+    resources.forEach((rec) => {
       expect(rec.title).toBeDefined()
-      expect(rec.authors).toBeDefined()
       expect(Array.isArray(rec.authors)).toBe(true)
+      expect(rec.source).toBe('ai')
+      expect(rec.category).toBe('suggested')
       expect(rec.relevanceReason).toBeDefined()
     })
 
-    const titles = body.content.map((rec) => rec.title)
+    const titles = resources.map((rec) => rec.title)
     // Check for uniqueness using a Set
     expect(new Set(titles).size).toBe(titles.length)
 
-    const returnedTitles = body.content.map((rec) => rec.title)
-    expect(returnedTitles).not.toContain('When Should Law Forgive?')
-    expect(returnedTitles).not.toContain('Between Vengeance and Forgiveness')
-    expect(returnedTitles).not.toContain('Breaking the Cycles of Hatred')
+    expect(titles).not.toContain('When Should Law Forgive?')
+    expect(titles).not.toContain('Between Vengeance and Forgiveness')
+    expect(titles).not.toContain('Breaking the Cycles of Hatred')
   })
 
   it('returns empty array when transcript is too short', async () => {
@@ -231,49 +225,34 @@ describe('librarian agent tests', () => {
 
     // Should still generate recommendations
     expect(responses).toHaveLength(1)
-    const body = responses[0].message as { content: Array<Record<string, unknown>>; type: string }
-    expect(body.content).toHaveLength(2)
+    expect(responses[0].messageType).toBe('resources')
+    const resources = responses[0].message as Resource[]
+    expect(resources).toHaveLength(2)
 
     // Each recommendation should have required fields
-    body.content.forEach((rec) => {
+    resources.forEach((rec) => {
       expect(rec.title).toBeDefined()
-      expect(rec.authors).toBeDefined()
       expect(Array.isArray(rec.authors)).toBe(true)
+      expect(rec.source).toBe('ai')
+      expect(rec.category).toBe('suggested')
       expect(rec.relevanceReason).toBeDefined()
     })
   })
 
-  it('handles malformed previous recommendations gracefully', async () => {
-    const resourcesChannel = conversation.channels.find((c: { name: string }) => c.name === 'resources')
-
-    const malformedMessage = new Message({
+  it('generates recommendations with messages in the conversation that are not transcript messages', async () => {
+    // Verify librarian works correctly even with non-transcript messages present
+    const nonTranscriptMessage = new Message({
       conversation: conversation._id,
-      channel: resourcesChannel._id,
       pseudonymId: agent.pseudonyms[0]._id,
       pseudonym: agent.name,
       fromAgent: true,
       visible: true,
-      body: '{"content": "not an array", "type": "reading"}',
-      bodyType: 'json',
+      body: 'Some unrelated chat message',
+      bodyType: 'text',
       createdAt: new Date(startTime.getTime() + 300 * 1000)
     })
-    await malformedMessage.save()
-    conversation.messages.push(malformedMessage)
-
-    // Add another malformed message (invalid JSON altogether)
-    const invalidJsonMessage = new Message({
-      conversation: conversation._id,
-      channel: resourcesChannel._id,
-      pseudonymId: agent.pseudonyms[0]._id,
-      pseudonym: agent.name,
-      fromAgent: true,
-      visible: true,
-      body: 'invalid json {{{',
-      bodyType: 'json',
-      createdAt: new Date(startTime.getTime() + 400 * 1000)
-    })
-    await invalidJsonMessage.save()
-    conversation.messages.push(invalidJsonMessage)
+    await nonTranscriptMessage.save()
+    conversation.messages.push(nonTranscriptMessage)
     await conversation.save()
 
     conversation = await Conversation.findById(conversation._id).populate('agents').populate('channels').populate('messages')
@@ -282,11 +261,12 @@ describe('librarian agent tests', () => {
     const responses = await defaultAgentTypes.librarian.respond.call(agent, {
       start: startTime,
       end: new Date(startTime.getTime() + 600 * 1000),
-      messages: conversation.messages
+      messages: conversation.messages.filter((m: { channels?: string[] }) => m.channels?.includes('transcript'))
     })
 
     expect(responses).toHaveLength(1)
-    const body = responses[0].message as { content: Array<Record<string, unknown>>; type: string }
-    expect(body.content).toHaveLength(2)
+    expect(responses[0].messageType).toBe('resources')
+    const resources = responses[0].message as Resource[]
+    expect(resources).toHaveLength(2)
   })
 })
