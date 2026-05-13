@@ -232,8 +232,7 @@ const eventAssistant: ConversationType = {
     { name: 'participant' },
     { name: 'moderator' },
     { name: 'chat' },
-    { name: 'image-gen' },
-    { name: 'resources' }
+    { name: 'image-gen' }
   ],
   adapters: {
     zoom: {
