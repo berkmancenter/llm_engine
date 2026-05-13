@@ -290,6 +290,22 @@ export interface ITranscript {
   status: 'active' | 'paused' | 'stopped' | 'deleted'
 }
 
+export interface Resource {
+  _id?: mongoose.Types.ObjectId
+  source: 'speaker' | 'ai'
+  category: 'required' | 'referenced' | 'suggested'
+  title: string
+  authors?: string[]
+  year?: string
+  url?: string
+  fileName?: string // on-disk name; present when resource is a PDF file
+  description?: string // creator-provided relevance note
+  summary?: string // AI-generated; populated async for required readings
+  relevanceReason?: string // librarian one-liner
+  participantVisible: boolean
+  addedAt?: Date
+}
+
 export interface IConversation {
   _id?: mongoose.Types.ObjectId
   messages: Array<IMessage>
@@ -320,6 +336,7 @@ export interface IConversation {
   topic: ITopic
   transcript?: ITranscript
   followed?: boolean
+  resources: Resource[]
   createdAt?: Date
   updatedAt?: Date
   messageCount(): number

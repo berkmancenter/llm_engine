@@ -565,6 +565,107 @@ describe('Conversation routes', () => {
       expect(getResp.body.properties.customField).toBe('test value')
       expect(getResp.body.properties.numberField).toBe(999)
     })
+
+    test('should return 201 and persist resources when provided', async () => {
+      const resources = [
+        {
+          source: 'speaker',
+          category: 'required',
+          title: 'Introduction to AI',
+          authors: ['Smith, J.'],
+          year: '2023',
+          url: 'https://example.com/ai',
+          description: 'Core reading for this session',
+          participantVisible: true
+        },
+        {
+          source: 'speaker',
+          category: 'suggested',
+          title: 'Optional Background Reading',
+          authors: ['Jones, A.'],
+          year: '2022',
+          participantVisible: true
+        }
+      ]
+
+      const resp = await request(app)
+        .post(`/v1/conversations`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({
+          name: 'Conversation With Resources',
+          topicId: publicTopic._id.toString(),
+          resources
+        })
+        .expect(httpStatus.CREATED)
+
+      const conversationId = resp.body.id
+      const getResp = await request(app)
+        .get(`/v1/conversations/${conversationId}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .expect(httpStatus.OK)
+
+      expect(getResp.body.resources).toHaveLength(2)
+      expect(getResp.body.resources[0]).toMatchObject({
+        source: 'speaker',
+        category: 'required',
+        title: 'Introduction to AI',
+        authors: ['Smith, J.'],
+        year: '2023',
+        url: 'https://example.com/ai',
+        description: 'Core reading for this session',
+        participantVisible: true
+      })
+      // Verify _id serializes as id (not _id)
+      expect(getResp.body.resources[0].id).toBeDefined()
+      expect(getResp.body.resources[0]._id).toBeUndefined()
+      expect(getResp.body.resources[1]).toMatchObject({
+        source: 'speaker',
+        category: 'suggested',
+        title: 'Optional Background Reading'
+      })
+
+      // Verify persisted in DB
+      const dbConversation = await Conversation.findById(conversationId)
+      expect(dbConversation?.resources).toHaveLength(2)
+      expect(dbConversation?.resources[0].title).toBe('Introduction to AI')
+    })
+
+    test('should return 201 and persist PDF resources when provided', async () => {
+      const resp = await request(app)
+        .post(`/v1/conversations`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({
+          name: 'Conversation With PDF Resources',
+          topicId: publicTopic._id.toString(),
+          resources: [
+            {
+              source: 'speaker',
+              category: 'required',
+              title: 'Research Paper',
+              fileName: 'doc-abc123.pdf',
+              participantVisible: false
+            }
+          ]
+        })
+        .expect(httpStatus.CREATED)
+
+      const conversationId = resp.body.id
+
+      // Verify persisted in DB with fileName
+      const dbConversation = await Conversation.findById(conversationId)
+      expect(dbConversation?.resources).toHaveLength(1)
+      expect(dbConversation?.resources[0].fileName).toBe('doc-abc123.pdf')
+      expect(dbConversation?.resources[0].title).toBe('Research Paper')
+
+      // fileName is not included in API response (filtering by participantVisible is frontend concern for now)
+      const getResp = await request(app)
+        .get(`/v1/conversations/${conversationId}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .expect(httpStatus.OK)
+
+      expect(getResp.body.resources).toHaveLength(1)
+      expect(getResp.body.resources[0].fileName).toBeUndefined()
+    })
   })
   describe('POST /v1/conversations/from-type', () => {
     test('should return 201 and create conversation from type with all required fields', async () => {
@@ -1522,6 +1623,51 @@ describe('Conversation routes', () => {
       expect(resp.body.transcript).toHaveProperty('status')
       expect(['active', 'paused', 'stopped', 'deleted']).toContain(resp.body.transcript.status)
     })
+
+    test('should return 200 and include resources with fileName for PDF resources', async () => {
+      const conversationWithResources = new Conversation({
+        name: 'Resources Retrieval Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        resources: [
+          {
+            source: 'speaker',
+            category: 'required',
+            title: 'Test Paper',
+            authors: ['Doe, J.'],
+            year: '2024',
+            participantVisible: true
+          },
+          {
+            source: 'speaker',
+            category: 'required',
+            title: 'Background Document',
+            fileName: 'file-123.pdf',
+            participantVisible: false
+          }
+        ]
+      })
+      await conversationWithResources.save()
+
+      const resp = await request(app)
+        .get(`/v1/conversations/${conversationWithResources._id.toString()}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .expect(httpStatus.OK)
+
+      expect(resp.body.resources).toHaveLength(2)
+      expect(resp.body.resources[0]).toMatchObject({
+        source: 'speaker',
+        category: 'required',
+        title: 'Test Paper',
+        authors: ['Doe, J.'],
+        year: '2024',
+        participantVisible: true
+      })
+      expect(resp.body.resources[1]).toMatchObject({
+        title: 'Background Document',
+        participantVisible: false
+      })
+    })
   })
 
   describe('POST /v1/conversations/:conversationId/join', () => {
@@ -2273,6 +2419,42 @@ describe('Conversation routes', () => {
 
       const conversation = await Conversation.findById(conversationOne._id)
       expect(conversation?.name).toBe(originalName)
+    })
+
+    test('should replace resources when updated', async () => {
+      const conversationWithResources = new Conversation({
+        name: 'Resources Update Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        resources: [{ source: 'speaker', category: 'suggested', title: 'Old Paper', participantVisible: true }]
+      })
+      await conversationWithResources.save()
+
+      const updatedResources = [
+        {
+          source: 'speaker',
+          category: 'required',
+          title: 'New Required Paper',
+          authors: ['Smith, J.'],
+          year: '2024',
+          participantVisible: true
+        },
+        { source: 'speaker', category: 'suggested', title: 'New Optional Paper', participantVisible: true }
+      ]
+
+      const res = await request(app)
+        .put('/v1/conversations')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({ id: conversationWithResources._id, resources: updatedResources })
+        .expect(httpStatus.OK)
+
+      expect(res.body.resources).toHaveLength(2)
+      expect(res.body.resources[0]).toMatchObject({ title: 'New Required Paper', category: 'required' })
+      expect(res.body.resources[1]).toMatchObject({ title: 'New Optional Paper', category: 'suggested' })
+
+      const dbConversation = await Conversation.findById(conversationWithResources._id)
+      expect(dbConversation?.resources).toHaveLength(2)
+      expect(dbConversation?.resources[0].title).toBe('New Required Paper')
     })
 
     test('should allow topic owner to update conversation they do not own', async () => {

@@ -2,7 +2,7 @@ import mongoose, { HydratedDocument, Model } from 'mongoose'
 import slugify from 'slugify'
 
 import { toJSON, paginate, lock } from './plugins/index.js'
-import { IConversation, Profile } from '../types/index.types.js'
+import { IConversation, Profile, Resource } from '../types/index.types.js'
 import Message from './message.model.js'
 import transcriptSchema from './schemas/transcript.schema.js'
 
@@ -11,6 +11,21 @@ interface ConversationMethods {
 }
 
 type ConversationModel = Model<IConversation, Record<string, never>, ConversationMethods>
+
+const resourceSchema = new mongoose.Schema<Resource>({
+  source: { type: String, enum: ['speaker', 'ai'], required: true },
+  category: { type: String, enum: ['required', 'referenced', 'suggested'], required: true },
+  title: { type: String, required: true },
+  authors: { type: [String] },
+  year: { type: String },
+  url: { type: String },
+  fileName: { type: String, private: true },
+  description: { type: String },
+  summary: { type: String },
+  relevanceReason: { type: String },
+  participantVisible: { type: Boolean, default: true },
+  addedAt: { type: Date, default: Date.now }
+})
 
 const profileSchema = new mongoose.Schema<Profile>(
   {
@@ -123,6 +138,10 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
     },
     features: {
       type: [mongoose.Schema.Types.Mixed],
+      default: []
+    },
+    resources: {
+      type: [resourceSchema],
       default: []
     }
   },
