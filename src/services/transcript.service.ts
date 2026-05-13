@@ -6,7 +6,7 @@ import ApiError from '../utils/ApiError.js'
 import logger from '../config/logger.js'
 import transcript from '../agents/helpers/transcript.js'
 import adapterService from './adapter.service.js'
-import conversationService from './conversation.service.js'
+import conversationService from './conversation.service/index.js'
 import { formatTranscript } from '../agents/helpers/llmInputFormatters.js'
 
 const deleteTranscript = async (conversationId, user) => {

@@ -97,7 +97,13 @@ const envVarsSchema = Joi.object()
     TAVILY_API_KEY: Joi.string().description('Tavily API key for web search tool'),
     WEB_SEARCH_PROVIDER: Joi.string()
       .default('tavily')
-      .description('Web search provider to use (e.g. tavily, brave, serpapi)')
+      .description('Web search provider to use (e.g. tavily, brave, serpapi)'),
+    CONVERSATION_AUTO_START_LEAD_TIME_MINUTES: Joi.number()
+      .default(5)
+      .description('Minutes before scheduledTime to auto-start a conversation'),
+    CONVERSATION_AUTO_STOP_DELAY_MINUTES: Joi.number()
+      .default(30)
+      .description('Minutes after scheduledEndTime to auto-stop a conversation')
   })
   .unknown()
 
@@ -224,6 +230,10 @@ const config = {
   tavily: {
     apiKey: envVars.TAVILY_API_KEY
   },
-  webSearchProvider: envVars.WEB_SEARCH_PROVIDER
+  webSearchProvider: envVars.WEB_SEARCH_PROVIDER,
+  conversation: {
+    autoStartLeadTimeMs: envVars.CONVERSATION_AUTO_START_LEAD_TIME_MINUTES * 60 * 1000,
+    autoStopDelayMs: envVars.CONVERSATION_AUTO_STOP_DELAY_MINUTES * 60 * 1000
+  }
 }
 export default config

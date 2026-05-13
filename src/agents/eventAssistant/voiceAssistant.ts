@@ -4,25 +4,22 @@ import { AgentMessageActions, ConversationHistory, IMessage } from '../../types/
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { eventAssistantLLMTemplates, eventAssistantLlmTemplateVars, answerQuestion } from './eventQuestionHandler.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
+import { matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 import logger from '../../config/logger.js'
 import getDefaultEventAssistantToolNames from './eventAssistantDefaultTools.js'
 
 const heyMatchThreshold = 85
-const nameMatchThreshold = 70
 
 function matchHeyDirective(text: string, botName: string): { matched: boolean; question: string } {
   // Split and scan all consecutive word pairs for "hey <botName>" anywhere in the message
   const words = text.trim().split(/\s+/)
   if (words.length < 2) return { matched: false, question: '' }
-
+  
   for (let i = 0; i < words.length - 1; i++) {
     const heyToken = words[i].replace(/[,!.]+$/, '')
-    const nameToken = words[i + 1].replace(/[,!.]+$/, '').toLowerCase()
-
     const heyScore = fuzzball.ratio(heyToken.toLowerCase(), 'hey')
-    const nameScore = fuzzball.ratio(nameToken, botName.toLowerCase())
 
-    if (heyScore >= heyMatchThreshold && nameScore >= nameMatchThreshold) {
+    if (heyScore >= heyMatchThreshold && matchBotMention(words, botName)) {
       const extracted = words
         .slice(i + 2)
         .join(' ')
@@ -94,12 +91,17 @@ export default verify({
 
     if (questionText) {
       logger.debug(`Voice trigger matched, question: "${questionText}"`)
-      return { userMessage, action: AgentMessageActions.CONTRIBUTE, userContributionVisible: true, suggestion: undefined }
+      const modifiedMessage = { ...userMessage, body: normalizeBotMention(userMessage.body, botName, false) }
+      return { userMessage: modifiedMessage, action: AgentMessageActions.CONTRIBUTE, userContributionVisible: true, suggestion: undefined }
     }
 
     const messageText = extractMessageText(userMessage)
     const { matched } = matchHeyDirective(messageText, botName)
-    if (matched) logger.debug(`Voice trigger matched (bare), waiting for next message`)
+    if (matched) {
+      logger.debug(`Voice trigger matched (bare), waiting for next message`)
+      const modifiedMessage = { ...userMessage, body: normalizeBotMention(userMessage.body, botName, false) }
+      return { userMessage: modifiedMessage, action: AgentMessageActions.OK, userContributionVisible: true, suggestion: undefined }
+    }
 
     return { userMessage, action: AgentMessageActions.OK, userContributionVisible: true, suggestion: undefined }
   },

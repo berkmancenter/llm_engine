@@ -18,6 +18,7 @@ import getDefaultEventAssistantToolNames from './eventAssistantDefaultTools.js'
 import generateImageResponse from './imageGenerator.js'
 import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from '../helpers/slashCommandParser.js'
 import generateMindMap from './mindMapGenerator.js'
+import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 
 const submitToModeratorQuestion = 'Would you like to submit this question anonymously to the moderator for Q&A?'
 const submitToModeratorReply = 'Your message has been submitted to the moderator.'
@@ -146,10 +147,12 @@ export default verify({
   },
   agentConfig: {
     introMessage:
-      "Hey! I'm {{agentConfig.botName}}. Ask me about what's happening, or use '/' commands for special functions.",
-    chatIntroMessage:
-      'Welcome to the chat! This is a space to chat with other event participants. You can also ask me questions with an @{{agentConfig.botName}} mention. Just remember that everyone can see what you ask me here. Use the {{agentConfig.botName}} tab if you want to talk privately. Have fun!',
+      "Hi! I'm {{agentConfig.botName}}, your AI event assistant. Ask me anything, or tap '/' to see available commands.",
+    chatIntroMessage: `Welcome! I'm {{agentConfig.botName}}, your AI event assistant. This is a space to chat with other event participants. You can also ask me questions with an @{{agentConfig.botName}} mention. Just remember that everyone can see what you ask me here. Use the {{agentConfig.botName}} tab if you want to talk privately. Have fun!`,
     enablePersonality: config.enableAgentPersonality,
+    zoomIntroMessage: "Hi! I'm {{agentConfig.botName}}, your AI event assistant. Ask me anything about the event!",
+    zoomChatIntroMessage:
+      "Welcome! I'm {{agentConfig.botName}}, your AI event assistant. You can ask me questions in the chat with an @{{agentConfig.botName}} mention. Or send me a DM if you want to talk privately.",
     tools: getDefaultEventAssistantToolNames()
   },
   llmTemplateVars: eventAssistantLlmTemplateVars,
@@ -169,7 +172,7 @@ export default verify({
   defaultConversationHistorySettings: { count: 100, directMessages: true, channels: ['chat'] },
 
   async evaluate(userMessage) {
-    if (userMessage.pseudonym === this.name) {
+    if (userMessage.fromAgent) {
       // Handle image generation requests from self
       if (userMessage?.channels?.includes('image-gen')) {
         return {
@@ -179,21 +182,7 @@ export default verify({
           suggestion: undefined
         }
       }
-      // do not contribute to your own messages
-      return {
-        userMessage,
-        action: AgentMessageActions.OK,
-        userContributionVisible: true,
-        suggestion: undefined
-      }
-    }
-
-    const messageText = userMessage?.bodyType === 'json' ? userMessage?.body?.text : userMessage?.body
-    if (
-      userMessage?.channels?.includes('chat') &&
-      !messageText?.toLowerCase().includes(`@${this.agentConfig.botName}`.toLowerCase())
-    ) {
-      // regular chat message, no need to process
+      // do not contribute to other agent messages
       return {
         userMessage,
         action: AgentMessageActions.OK,
@@ -206,7 +195,14 @@ export default verify({
     const activeCommands = this.agentConfig?.moderatorSupport
       ? supportedCommands
       : supportedCommands.filter((c) => c.command !== 'mod')
-    const modifiedMessage = parseSlashCommands(userMessage, activeCommands)
+    let modifiedMessage = parseSlashCommands(userMessage, activeCommands)
+
+    if (modifiedMessage?.channels?.includes('chat')) {
+      const words = modifiedMessage?.body?.trim().split(/\s+/) ?? []
+      if (matchBotMention(words, this.agentConfig?.botName)) {
+        modifiedMessage = { ...modifiedMessage, body: normalizeBotMention(modifiedMessage.body, this.agentConfig?.botName) }
+      }
+    }
 
     return {
       userMessage: modifiedMessage,
@@ -229,8 +225,11 @@ export default verify({
 
     // Message on chat channel?
     if (userMessage?.channels?.includes('chat')) {
-      const agentResponses = await answerQuestion.call(this, userMessage, conversationHistory)
-      return agentResponses
+      const llm = await this.getLLM()
+      if (!(await checkBotIntent(llm, this.agentConfig?.botName, userMessage))) {
+        return []
+      }
+      return await answerQuestion.call(this, userMessage, conversationHistory)
     }
 
     if (this.agentConfig?.moderatorSupport) {
@@ -263,25 +262,33 @@ export default verify({
   async stop() {
     return true
   },
-  async introduce(channel) {
+  async introduce(channel, adapterType?) {
     logger.debug(
-      `[introduce] eventAssistant called for channel: ${channel.name}, direct: ${channel.direct}, agentConfig.botName: ${this.agentConfig?.botName}`
+      `[introduce] eventAssistant called for channel: ${channel.name}, direct: ${channel.direct}, adapterType: ${
+        adapterType ?? 'socket'
+      }, agentConfig.botName: ${this.agentConfig?.botName}`
     )
     if (channel.direct) {
-      const { introMessage: defaultIntroMessage } = this.agentConfig
-      logger.debug(`[introduce] DM path - defaultIntroMessage: ${defaultIntroMessage}`)
+      const templateStr = adapterType === 'zoom' ? this.agentConfig.zoomIntroMessage : this.agentConfig.introMessage
+      logger.debug(`[introduce] DM path - templateStr: ${templateStr}`)
       let introMessage
       try {
-        introMessage = renderAgentTemplate(defaultIntroMessage, this.toObject())
+        introMessage = renderAgentTemplate(templateStr, this.toObject())
         logger.debug(`[introduce] DM rendered introMessage: ${introMessage}`)
       } catch (err) {
         logger.error(`[introduce] renderAgentTemplate error (DM): ${err}`)
         throw err
       }
 
-      const funFact = await generatePseudonymFunFact.call(this, channel)
-      if (funFact) {
-        introMessage = `${introMessage}\n\n${funFact}`
+      if (adapterType === 'zoom' && this.agentConfig?.moderatorSupport) {
+        introMessage = `${introMessage} Use /mod to send a question to the moderator.`
+      }
+
+      if (adapterType !== 'zoom') {
+        const funFact = await generatePseudonymFunFact.call(this, channel)
+        if (funFact) {
+          introMessage = `${introMessage}\n\n${funFact}`
+        }
       }
 
       return [
@@ -297,10 +304,11 @@ export default verify({
       ]
     }
     if (channel.name === 'chat') {
+      const templateStr = adapterType === 'zoom' ? this.agentConfig.zoomChatIntroMessage : this.agentConfig.chatIntroMessage
       return [
         {
           message: {
-            text: renderAgentTemplate(this.agentConfig.chatIntroMessage, this.toObject()),
+            text: renderAgentTemplate(templateStr, this.toObject()),
             type: 'intro'
           },
           messageType: 'json',

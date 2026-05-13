@@ -2,7 +2,7 @@ import { User } from '../models/index.js'
 import { AdapterMessage, AdapterUser } from '../types/adapter.types.js'
 import userService from './user.service.js'
 import messageService from './message.service.js'
-import conversationService from './conversation.service.js'
+import conversationService from './conversation.service/index.js'
 import logger from '../config/logger.js'
 
 async function getOrCreateUser(adapter, adapterUser) {
@@ -82,7 +82,21 @@ const receiveMessage = async (adapter, message) => {
 const participantJoined = async (adapter, participant) => {
   const adapterUser: AdapterUser = await adapter.participantJoined(participant)
   if (adapterUser) {
-    await getOrCreateUser(adapter, adapterUser)
+    const user = await getOrCreateUser(adapter, adapterUser)
+    if (adapter.dmChannels?.length > 0) {
+      await adapter.conversation.populate(['agents', 'channels'])
+      for (const agent of adapter.conversation.agents) {
+        const directChannelName = `direct-${user._id}-${agent._id}`
+        const channel = adapter.conversation.channels.find((c) => c.name === directChannelName)
+        if (!channel) continue
+        agent.conversation = adapter.conversation
+        const introMessages = await agent.introduce(channel, adapter.type)
+        for (const introMsg of introMessages) {
+          const body = introMsg.body?.text ?? introMsg.body
+          await adapter.sendMessage({ ...introMsg, body, channels: [directChannelName] })
+        }
+      }
+    }
   }
 }
 

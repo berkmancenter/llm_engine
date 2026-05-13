@@ -574,22 +574,20 @@ agentSchema.method('deepPatch', function (origPatch) {
   this.conversation = conversation
 })
 
-agentSchema.method('introduce', async function (channel) {
+agentSchema.method('introduce', async function (channel, adapterType?) {
   logger.debug(
-    `[agent.introduce] channel: ${channel.name}, direct: ${channel.direct}, participants: ${JSON.stringify(
-      channel.participants?.map((p) => p?.toString())
-    )}, agent._id: ${this._id?.toString()}`
+    `[agent.introduce] channel: ${channel.name}, direct: ${channel.direct}, adapterType: ${adapterType ?? 'socket'}, agent._id: ${this._id?.toString()}`
   )
   if (channel.direct && !channel.participants.includes(this._id)) {
     logger.debug(`[agent.introduce] skipping - agent not in participants`)
-    return [] // do not introduce in direct channels where this agent is not a participant
+    return []
   }
   const agentType = agentTypes[this.agentType]
-  const introductions = agentType.introduce ? await agentType.introduce.call(this, channel) : []
-  logger.debug(`[agent.introduce] introductions count: ${introductions.length}`)
-  const messages = createMessages.call(this, introductions, channel)
-  logger.debug(`[agent.introduce] messages count: ${messages.length}`)
-  return messages
+  if (!agentType.introduce) return []
+
+  const responses = await agentType.introduce.call(this, channel, adapterType)
+  logger.debug(`[agent.introduce] responses count: ${responses.length}`)
+  return createMessages.call(this, responses, channel)
 })
 
 export function setAgentTypes(newAgentTypes) {

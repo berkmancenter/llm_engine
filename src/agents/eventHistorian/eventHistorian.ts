@@ -8,6 +8,7 @@ import { extractMessageText } from '../helpers/slashCommandParser.js'
 import createEventHistoryTools, { TopicRef } from '../tools/eventHistory.js'
 import Topic from '../../models/topic.model.js'
 import config from '../../config/config.js'
+import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 
 const BASE_SYSTEM_PROMPT = `You are {botName}, a helpful, knowledgeable AI assistant participating in a group chat. You can engage with any topic or inquiry—from casual conversation to technical questions, creative tasks, analysis, debugging, writing, math, and beyond. There are no subject limits.
 
@@ -63,25 +64,18 @@ export default verify({
   defaultConversationHistorySettings: { count: 100, channels: ['historian'] },
 
   async evaluate(userMessage) {
-    // Only respond when explicitly mentioned with @BotName
-    if (!userMessage?.body?.toLowerCase().includes(`@${this.agentConfig.botName}`.toLowerCase())) {
-      return {
-        userMessage,
-        action: AgentMessageActions.OK,
-        userContributionVisible: true,
-        suggestion: undefined
-      }
-    }
-
-    return {
-      userMessage,
-      action: AgentMessageActions.CONTRIBUTE,
-      userContributionVisible: true,
-      suggestion: undefined
-    }
+    const words = userMessage?.body?.trim().split(/\s+/) ?? []
+    const modifiedMessage = matchBotMention(words, this.agentConfig.botName)
+      ? { ...userMessage, body: normalizeBotMention(userMessage.body, this.agentConfig.botName) }
+      : userMessage
+    return { userMessage: modifiedMessage, action: AgentMessageActions.CONTRIBUTE, userContributionVisible: true, suggestion: undefined }
   },
 
   async respond(conversationHistory: ConversationHistory, userMessage) {
+    const llm = await this.getLLM()
+    if (!(await checkBotIntent(llm, this.agentConfig.botName, userMessage))) {
+      return []
+    }
     const chatHistory = formatMultiUserConversationHistory(conversationHistory)
     const question = extractMessageText(userMessage).trim()
 
@@ -111,8 +105,6 @@ export default verify({
     const systemPrompt = buildSystemPromptWithPersonality(systemPromptBase, personalityName)
 
     const tools = topics.length > 0 ? createEventHistoryTools(topics) : []
-
-    const llm = await this.getLLM()
 
     // Build message array: chat history + current question
     const response = await getAgentStructuredResponse(

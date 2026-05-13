@@ -1400,7 +1400,7 @@ describe('Transcript routes', () => {
     })
 
     test('should start conversation and return 204 when resuming transcript for an inactive conversation', async () => {
-      const conversationService = await import('../../src/services/conversation.service.js')
+      const conversationService = await import('../../src/services/conversation.service/index.js')
       const startConversationSpy = jest.spyOn(conversationService.default, 'startConversation').mockResolvedValue({})
 
       const conversation = new Conversation({

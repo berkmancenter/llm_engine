@@ -148,4 +148,69 @@ describe('chatbot agent tests', () => {
     // Should reference the Eiffel Tower from context without needing it re-stated
     expect(responses[0].message.toLowerCase()).toMatch(/\d+\s*(meter|metre|feet|foot|m\b|ft\b)/)
   })
+
+  it('normalizes misspelled @mention of bot name in evaluate', async () => {
+    const msg = await ask(`@Berkey what is the capital of France?`)
+    const evaluation = await defaultAgentTypes.chatbot.evaluate.call(agent, msg)
+    expect(evaluation.userMessage.body).toBe(`@${BOT_NAME} what is the capital of France?`)
+
+    const responses = await respond(buildHistory([]), evaluation.userMessage)
+    expect(responses).toHaveLength(1)
+    expect(responses[0].message.toLowerCase()).toContain('paris')
+  })
+
+  it('responds when user asks what they missed without a direct @mention', async () => {
+    const t = Date.now()
+    const history = buildHistory([
+      await createMessage(
+        'Did you know the moon is about 384,400 km from Earth?',
+        user2,
+        conversation,
+        ['chatbot'],
+        new Date(t - 4000)
+      ),
+      await createMessage('Wow, that is really far!', user3, conversation, ['chatbot'], new Date(t - 3000)),
+      await createMessage(
+        'Yes, and it takes light about 1.3 seconds to travel that distance.',
+        user2,
+        conversation,
+        ['chatbot'],
+        new Date(t - 2000)
+      )
+    ])
+
+    const msg = await ask('what did I miss?', user1)
+    const responses = await respond(history, msg)
+
+    expect(responses).toHaveLength(1)
+    expect(responses[0].message).toBeDefined()
+    expect(responses[0].message.toLowerCase()).toMatch(/moon|km|distance|light/)
+  })
+
+  it('responds when user asks who is speaking without a direct @mention', async () => {
+    const t = Date.now()
+    const history = buildHistory([
+      await createMessage(
+        'I think React is better than Vue for large projects.',
+        user2,
+        conversation,
+        ['chatbot'],
+        new Date(t - 2000)
+      ),
+      await createMessage(
+        'I disagree, Vue is much simpler to get started with.',
+        user3,
+        conversation,
+        ['chatbot'],
+        new Date(t - 1000)
+      )
+    ])
+
+    const msg = await ask('who is speaking?', user1)
+    const responses = await respond(history, msg)
+
+    expect(responses).toHaveLength(1)
+    expect(responses[0].message).toBeDefined()
+    expect(responses[0].message.toLowerCase()).toMatch(/bob|carol/)
+  })
 })

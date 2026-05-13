@@ -3,7 +3,7 @@ import httpStatus from 'http-status'
 import setupIntTest from '../utils/setupIntTest.js'
 import { insertUsers, registeredUser } from '../fixtures/user.fixture.js'
 import { insertTopics, newPublicTopic } from '../fixtures/topic.fixture.js'
-import conversationService from '../../src/services/conversation.service.js'
+import conversationService from '../../src/services/conversation.service/index.js'
 import { Agent, Adapter } from '../../src/models/index.js'
 import ApiError from '../../src/utils/ApiError.js'
 import websocketGateway from '../../src/websockets/websocketGateway.js'
@@ -216,11 +216,9 @@ describe('Conversation service methods', () => {
     jest.spyOn(schedule, 'cancelPeriodicAgent').mockResolvedValue()
     jest.spyOn(schedule, 'periodicAgent').mockResolvedValue()
     jest.spyOn(schedule, 'agentResponse').mockResolvedValue()
-    jest.spyOn(schedule, 'agentIntroduction').mockResolvedValue()
     jest.spyOn(defineJob, 'batchTranscript').mockResolvedValue()
     jest.spyOn(defineJob, 'periodicAgent').mockResolvedValue()
     jest.spyOn(defineJob, 'agentResponse').mockResolvedValue()
-    jest.spyOn(defineJob, 'agentIntroduction').mockResolvedValue()
     mockGetUniqueKeys.mockReturnValue([])
   })
 

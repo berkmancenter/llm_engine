@@ -5,6 +5,7 @@ import { formatMultiUserConversationHistory } from '../helpers/llmInputFormatter
 import { buildSystemPromptWithPersonality } from '../helpers/agentPersonality.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
+import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 import config from '../../config/config.js'
 
 const BASE_SYSTEM_PROMPT = `You are {botName}, a helpful, knowledgeable AI assistant participating in a group chat. You can engage with any topic or inquiry—from casual conversation to technical questions, creative tasks, analysis, debugging, writing, math, and beyond. There are no subject limits.
@@ -41,18 +42,12 @@ export default verify({
   defaultConversationHistorySettings: { count: 100, channels: ['chatbot'] },
 
   async evaluate(userMessage) {
-    // Only respond when explicitly mentioned with @BotName
-    if (!userMessage?.body?.toLowerCase().includes(`@${this.agentConfig.botName}`.toLowerCase())) {
-      return {
-        userMessage,
-        action: AgentMessageActions.OK,
-        userContributionVisible: true,
-        suggestion: undefined
-      }
-    }
-
+    const words = userMessage?.body?.trim().split(/\s+/) ?? []
+    const modifiedMessage = matchBotMention(words, this.agentConfig.botName)
+      ? { ...userMessage, body: normalizeBotMention(userMessage.body, this.agentConfig.botName) }
+      : userMessage
     return {
-      userMessage,
+      userMessage: modifiedMessage,
       action: AgentMessageActions.CONTRIBUTE,
       userContributionVisible: true,
       suggestion: undefined
@@ -60,6 +55,10 @@ export default verify({
   },
 
   async respond(conversationHistory: ConversationHistory, userMessage) {
+    const llm = await this.getLLM()
+    if (!(await checkBotIntent(llm, this.agentConfig.botName, userMessage))) {
+      return []
+    }
     const chatHistory = formatMultiUserConversationHistory(conversationHistory)
 
     // Keep the @BotName mention in the question so the LLM can see it is addressed directly,
@@ -79,7 +78,6 @@ export default verify({
       personalityName
     )
 
-    const llm = await this.getLLM()
     const response = await getChatPromptResponse(
       llm,
       systemPrompt,

@@ -98,6 +98,9 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
     scheduledTime: {
       type: Date
     },
+    scheduledEndTime: {
+      type: Date
+    },
     startTime: {
       type: Date
     },

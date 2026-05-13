@@ -21,10 +21,14 @@ export enum QuestionClassification {
 
 function buildLLMTemplates(personalityName?: string | null, botName?: string) {
   const personalityContent = personalityName ? personalitySection : ''
-  const botIdentity = botName ? `You are ${botName}, an` : 'You are an'
+  const botIdentity = botName
+    ? `Your name is ${botName} — always refer to yourself with this exact spelling, even if your name appears differently in transcripts or conversation history.`
+    : ''
 
   return {
-    timeWindowSystem: `You are rephrasing short transcript chunks from a live event. The user missed this part of the conversation and only needs the reworded content.
+    timeWindowSystem: `${
+      botIdentity ? `${botIdentity} ` : ''
+    }You are rephrasing short transcript chunks from a live event. The user missed this part of the conversation and only needs the reworded content.
 
 ${personalityContent}
 
@@ -39,7 +43,7 @@ ${personalityContent}
 - Natural, clear English.
 - Contain only the essential rephrased content, nothing extra.
 `,
-    semanticSystem: `${botIdentity} AI assistant that answers questions about a live event.
+    semanticSystem: `${botIdentity ? `${botIdentity} ` : ''}You answer questions about a live event.
 
 ${personalityContent}
 

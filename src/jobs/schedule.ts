@@ -7,11 +7,20 @@ const schedule = {
   agentResponse: async (data) => {
     await agenda.now(`response - ${data.agentId}`, data)
   },
-  agentIntroduction: async (data) => {
-    await agenda.schedule('in 1 second', `introduction - ${data.agentId}`, data)
-  },
   cancelPeriodicAgent: async (agentId) => {
     await agenda.cancel({ name: `periodic - ${agentId}` })
+  },
+  autoStartConversation: async (scheduledAt: Date, data) => {
+    await agenda.schedule(scheduledAt, `autoStart - ${data.conversationId}`, data)
+  },
+  cancelAutoStartConversation: async (conversationId) => {
+    await agenda.cancel({ name: `autoStart - ${conversationId}` })
+  },
+  autoStopConversation: async (scheduledAt: Date, data) => {
+    await agenda.schedule(scheduledAt, `autoStop - ${data.conversationId}`, data)
+  },
+  cancelAutoStopConversation: async (conversationId) => {
+    await agenda.cancel({ name: `autoStop - ${conversationId}` })
   },
   batchTranscript: async (timerPeriod, data) => {
     await agenda.every(timerPeriod, `batchTranscript - ${data.conversationId}`, data, { skipImmediate: true })

@@ -75,6 +75,21 @@ async function deployMeetingBot() {
       }
     }
   }
+  // Collect chat intro messages from agents for Recall on_bot_join
+  const chatIntroTexts: string[] = []
+  if (this.chatChannels?.length > 0) {
+    await this.conversation.populate(['agents', 'channels'])
+    for (const chatChannelConfig of this.chatChannels) {
+      const channel = this.conversation.channels.find((c) => c.name === chatChannelConfig.name)
+      if (!channel) continue
+      for (const agent of this.conversation.agents) {
+        const introMessages = await agent.introduce(channel, 'zoom')
+        chatIntroTexts.push(...introMessages.map((m) => m.body?.text ?? m.body).filter(Boolean))
+      }
+    }
+  }
+  const chatIntroMessage = chatIntroTexts.length > 0 ? chatIntroTexts.join('\n') : null
+
   const options = {
     method: 'POST',
     headers: { accept: 'application/json', 'content-type': 'application/json', Authorization: config.recall.key },
@@ -102,6 +117,9 @@ async function deployMeetingBot() {
         realtime_endpoints: realtimeEndpoints,
         retention: 'retention' in this.config ? retention : defaultRetention
       },
+      ...(chatIntroMessage && {
+        chat: { on_bot_join: { send_to: 'everyone', message: chatIntroMessage } }
+      }),
       ...(config.zoom?.webinarUserEmail && {
         zoom: {
           user_email: config.zoom.webinarUserEmail

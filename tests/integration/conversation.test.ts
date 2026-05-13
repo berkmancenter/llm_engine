@@ -432,7 +432,7 @@ describe('Conversation routes', () => {
           name: 'Test Agent Conversation',
           topicId: publicTopic._id.toString(),
           agentTypes: ['test'],
-          scheduledTime: '2025-03-25T16:15:00Z'
+          scheduledTime: '2035-03-25T16:15:00Z'
         })
         .expect(httpStatus.CREATED)
       expect(newConversationSpy).toHaveBeenCalled()
@@ -441,101 +441,23 @@ describe('Conversation routes', () => {
       expect(resp.body.startTime).not.toBeDefined()
       const conversation = await Conversation.findById(resp.body.id)
       expect(conversation).toBeTruthy()
-      expect(conversation!.scheduledTime).toEqual(new Date('2025-03-25T16:15:00Z'))
+      expect(conversation!.scheduledTime).toEqual(new Date('2035-03-25T16:15:00Z'))
       expect(conversation!.agents).toHaveLength(1)
       const modifiedAgent = conversation!.agents[0]
       expect(modifiedAgent.active).toBe(false)
     })
-    test('should call introduce on agents for each channel when creating conversation with agents and channels', async () => {
-      const scheduleSpy = jest.spyOn(schedule, 'agentIntroduction').mockResolvedValue()
 
-      const resp = await request(app)
+    test('should return 400 when scheduledTime is in the past', async () => {
+      await request(app)
         .post(`/v1/conversations`)
         .set('Authorization', `Bearer ${userOneAccessToken}`)
         .send({
-          name: 'Test Agent and Channel Conversation',
+          name: 'Test Agent Conversation',
           topicId: publicTopic._id.toString(),
           agentTypes: ['test'],
-          enableDMs: ['agents'],
-          channels: [{ name: 'channel1', passcode: 'Channel1_CoDe' }, { name: 'channel2' }]
+          scheduledTime: '2020-01-01T00:00:00Z'
         })
-        .expect(httpStatus.CREATED)
-
-      expect(newConversationSpy).toHaveBeenCalled()
-      expect(resp.body.agents).toHaveLength(1)
-      expect(resp.body.channels).toHaveLength(2)
-
-      // Verify introduce was called twice (once for each channel)
-      expect(scheduleSpy).toHaveBeenCalledTimes(2)
-      expect(scheduleSpy).toHaveBeenCalledWith({
-        agentId: new mongoose.Types.ObjectId(resp.body.agents[0].id),
-        channelId: new mongoose.Types.ObjectId(resp.body.channels[0]._id)
-      })
-      expect(scheduleSpy).toHaveBeenCalledWith({
-        agentId: new mongoose.Types.ObjectId(resp.body.agents[0].id),
-        channelId: new mongoose.Types.ObjectId(resp.body.channels[1]._id)
-      })
-    })
-
-    test('should not call introduce when creating conversation with channels but no agents', async () => {
-      const scheduleSpy = jest.spyOn(schedule, 'agentIntroduction').mockResolvedValue()
-      await request(app)
-        .post(`/v1/conversations`)
-        .set('Authorization', `Bearer ${userOneAccessToken}`)
-        .send({
-          name: 'Test Channel Only Conversation',
-          topicId: publicTopic._id.toString(),
-          channels: [{ name: 'channel1', passcode: 'Channel1_CoDe' }]
-        })
-        .expect(httpStatus.CREATED)
-
-      expect(newConversationSpy).toHaveBeenCalled()
-
-      // Should not call introduce when there are no agents
-      expect(scheduleSpy).not.toHaveBeenCalled()
-    })
-
-    test('should not call introduce when creating conversation with agents but no channels', async () => {
-      const scheduleSpy = jest.spyOn(schedule, 'agentIntroduction').mockResolvedValue()
-      await request(app)
-        .post(`/v1/conversations`)
-        .set('Authorization', `Bearer ${userOneAccessToken}`)
-        .send({
-          name: 'Test Agent Only Conversation',
-          topicId: publicTopic._id.toString(),
-          agentTypes: ['test']
-        })
-        .expect(httpStatus.CREATED)
-
-      expect(newConversationSpy).toHaveBeenCalled()
-
-      // Should not call introduce when there are no channels
-      expect(scheduleSpy).not.toHaveBeenCalled()
-    })
-
-    test('should call introduce multiple times with multiple agents and multiple channels', async () => {
-      const scheduleSpy = jest.spyOn(schedule, 'agentIntroduction').mockResolvedValue()
-      const resp = await request(app)
-        .post(`/v1/conversations`)
-        .set('Authorization', `Bearer ${userOneAccessToken}`)
-        .send({
-          name: 'Multi Agent Multi Channel Conversation',
-          topicId: publicTopic._id.toString(),
-          agentTypes: ['test', 'testManual'],
-          enableDMs: ['agents'],
-          channels: [
-            { name: 'general', passcode: 'GeneralPass' },
-            { name: 'private', passcode: 'PrivatePass' }
-          ]
-        })
-        .expect(httpStatus.CREATED)
-
-      expect(newConversationSpy).toHaveBeenCalled()
-      expect(resp.body.agents).toHaveLength(2)
-      expect(resp.body.channels).toHaveLength(2)
-
-      // Should call introduce 6 times (2 agents × 2 channels)
-      expect(scheduleSpy).toHaveBeenCalledTimes(4)
+        .expect(httpStatus.BAD_REQUEST)
     })
 
     test('should return 201 and include transcript with default status', async () => {
@@ -731,7 +653,7 @@ describe('Conversation routes', () => {
           properties: {
             meetingUrl: 'https://zoom.us/j/987654321'
           },
-          scheduledTime: '2025-11-01T14:00:00Z'
+          scheduledTime: '2035-11-01T14:00:00Z'
         })
         .expect(httpStatus.CREATED)
 
@@ -739,7 +661,7 @@ describe('Conversation routes', () => {
       expect(mockStart).not.toHaveBeenCalled()
 
       const conversation = await Conversation.findById(resp.body.id)
-      expect(conversation!.scheduledTime).toEqual(new Date('2025-11-01T14:00:00Z'))
+      expect(conversation!.scheduledTime).toEqual(new Date('2035-11-01T14:00:00Z'))
     })
 
     test('should return 201 and use default platform when platform not specified', async () => {
@@ -1186,7 +1108,7 @@ describe('Conversation routes', () => {
         .send({
           name: 'Test Scheduled Adapter',
           topicId: publicTopic._id.toString(),
-          scheduledTime: '2025-03-25T16:15:00Z',
+          scheduledTime: '2035-03-25T16:15:00Z',
           agentTypes: ['test'],
           adapters: [
             {
@@ -1203,13 +1125,13 @@ describe('Conversation routes', () => {
 
       const conversation = await Conversation.findById(resp.body.id)
       expect(conversation!.active).toBe(false)
-      expect(conversation!.scheduledTime).toEqual(new Date('2025-03-25T16:15:00Z'))
+      expect(conversation!.scheduledTime).toEqual(new Date('2035-03-25T16:15:00Z'))
     })
     test('should return 400 when creating scheduled conversation with adapter that conflicts with another scheduled conversation', async () => {
       mockGetUniqueKeys.mockReturnValue(['config.meetingId'])
 
       // Create first scheduled conversation with adapter
-      const firstScheduledTime = new Date('2025-03-25T16:00:00Z')
+      const firstScheduledTime = new Date('2035-03-25T16:00:00Z')
       const resp1 = await request(app)
         .post(`/v1/conversations`)
         .set('Authorization', `Bearer ${userOneAccessToken}`)
@@ -1230,7 +1152,7 @@ describe('Conversation routes', () => {
       expect(resp1.body.scheduledTime).toBe(firstScheduledTime.toISOString())
 
       // Attempt to create second conversation with same adapter within 10 minutes
-      const secondScheduledTime = new Date('2025-03-25T16:05:00Z') // 5 minutes later
+      const secondScheduledTime = new Date('2035-03-25T16:05:00Z') // 5 minutes later
       await request(app)
         .post(`/v1/conversations`)
         .set('Authorization', `Bearer ${userOneAccessToken}`)
@@ -1251,7 +1173,7 @@ describe('Conversation routes', () => {
     test('should return 201 when creating scheduled conversation with adapters that have the same unique keys', async () => {
       mockGetUniqueKeys.mockReturnValue(['config.meetingId'])
 
-      const scheduledTime = new Date('2025-03-25T16:00:00Z')
+      const scheduledTime = new Date('2035-03-25T16:00:00Z')
 
       // Create conversation with adapter
       const resp = await request(app)
@@ -1282,7 +1204,7 @@ describe('Conversation routes', () => {
       mockGetUniqueKeys.mockReturnValue(['config.meetingId'])
 
       // Create first scheduled conversation with adapter
-      const firstScheduledTime = new Date('2025-03-25T16:00:00Z')
+      const firstScheduledTime = new Date('2035-03-25T16:00:00Z')
       const resp1 = await request(app)
         .post(`/v1/conversations`)
         .set('Authorization', `Bearer ${userOneAccessToken}`)
@@ -1302,7 +1224,7 @@ describe('Conversation routes', () => {
       expect(resp1.body.adapters).toHaveLength(1)
 
       // Create second conversation with same adapter outside 10 minute window (11 minutes later)
-      const secondScheduledTime = new Date('2025-03-25T16:11:00Z')
+      const secondScheduledTime = new Date('2035-03-25T16:11:00Z')
       const resp2 = await request(app)
         .post(`/v1/conversations`)
         .set('Authorization', `Bearer ${userOneAccessToken}`)
