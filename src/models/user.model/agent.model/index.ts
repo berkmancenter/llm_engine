@@ -18,8 +18,7 @@ import {
   LLM_PLATFORMS,
   AgentMessageActions,
   AgentEvaluation,
-  AgentResponse,
-  AgentResponseZodSchema
+  AgentResponse
 } from '../../../types/index.types.js'
 import { ConversationDocument } from '../../conversation.model.js'
 import { pingLLM } from '../../../agents/helpers/llmChain.js'
@@ -30,7 +29,6 @@ import config from '../../../config/config.js'
 
 const FAKE_AGENT_TOKEN = 'FAKE_AGENT_TOKEN'
 const REQUIRED_AGENT_EVALUATION_PROPS = ['userMessage', 'action', 'userContributionVisible', 'suggestion']
-const REQUIRED_AGENT_RESPONSE_PROPS = ['visible', 'message']
 
 const llmPlatformOptionsSchema = new mongoose.Schema<ILlmPlatformOptions>({
   useKeepAlive: {
@@ -43,12 +41,13 @@ const llmPlatformOptionsSchema = new mongoose.Schema<ILlmPlatformOptions>({
 })
 
 export interface AgentMethods {
-  respond(message?: IMessage): Promise<Array<IMessage>>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  respond(message?: IMessage): Promise<Array<AgentResponse<unknown>>>
   evaluate(message?: IMessage): Promise<AgentEvaluation>
   deepPatch(patch: Record<string, unknown>)
   start()
   stop()
-  introduce(channel: IChannel): Array<IMessage>
+  introduce(channel: IChannel): Promise<Array<AgentResponse<unknown>>>
   pingLLM(): Promise<void>
   getLLM(): Promise<unknown>
 }
@@ -179,6 +178,10 @@ agentSchema.virtual('priority').get(function () {
   return agentTypes[this.agentType]?.priority
 })
 
+agentSchema.virtual('parseOutput').get(function () {
+  return agentTypes[this.agentType]?.parseOutput
+})
+
 // allow for a custom instance name for this agent (e.g. if multiple instances). Can use for pseudonym, etc.
 agentSchema.virtual('instanceName').get(function () {
   return agentTypes[this.agentType]?.instanceNameFn?.call(this) || this.name
@@ -200,14 +203,6 @@ function validAgentEvaluation(agentEvaluation) {
   }
 
   return agentEvaluation
-}
-
-function validAgentResponse(agentResponse) {
-  for (const prop of REQUIRED_AGENT_RESPONSE_PROPS) {
-    if (!Object.hasOwn(agentResponse, prop)) throw new Error(`Agent response missing required property ${prop}`)
-  }
-
-  return agentResponse
 }
 
 // methods
@@ -303,47 +298,6 @@ agentSchema.method('evaluate', async function (userMessage = null) {
   this.agentEvaluation = agentEvaluation
   return agentEvaluation
 })
-
-function createMessages(responses: Array<AgentResponse<unknown>>, channel?) {
-  const agentMessages: Array<IMessage> = []
-  for (const agentResponse of responses) {
-    const response = validAgentResponse(agentResponse)
-
-    agentMessages.push({
-      body: response.message,
-      conversation: this.conversation,
-      fromAgent: true,
-      visible: response.visible,
-      pause: response.pause,
-      pseudonym: this.pseudonyms[0].pseudonym,
-      pseudonymId: this.pseudonyms[0]._id,
-      upVotes: [],
-      downVotes: [],
-      channels: channel ? [channel] : response.channels,
-      ...(response.messageType !== undefined && { bodyType: response.messageType }),
-      ...(agentTypes[this.agentType].parseOutput !== undefined && { parseOutput: agentTypes[this.agentType].parseOutput }),
-      ...(response.replyFormat !== undefined && { prompt: response.replyFormat }),
-      ...(response.parent !== undefined && { parentMessage: response.parent })
-    })
-  }
-  return agentMessages
-}
-
-// a runtime check to ensure proper passing in of channels as objects with a name property
-// will throw an error if the response is not as expected
-function verifyResponses(responses) {
-  try {
-    for (const response of responses) {
-      AgentResponseZodSchema.parse(response)
-    }
-
-    return true
-  } catch (err) {
-    logger.error(`verifyResponse error: ${String(err)}`)
-    // to avoid issues with winston
-    throw new Error(`verifyResponses failed: ${err.message}`)
-  }
-}
 
 agentSchema.method('respond', async function (userMessage = null) {
   if (!this.active) return []
@@ -473,10 +427,7 @@ agentSchema.method('respond', async function (userMessage = null) {
 
   await tracedRespond(traceInput)
 
-  const responses = actualResponses
-  verifyResponses(responses)
-
-  return createMessages.call(this, responses)
+  return actualResponses
 })
 
 // middleware
@@ -576,7 +527,9 @@ agentSchema.method('deepPatch', function (origPatch) {
 
 agentSchema.method('introduce', async function (channel, adapterType?) {
   logger.debug(
-    `[agent.introduce] channel: ${channel.name}, direct: ${channel.direct}, adapterType: ${adapterType ?? 'socket'}, agent._id: ${this._id?.toString()}`
+    `[agent.introduce] channel: ${channel.name}, direct: ${channel.direct}, adapterType: ${
+      adapterType ?? 'socket'
+    }, agent._id: ${this._id?.toString()}`
   )
   if (channel.direct && !channel.participants.includes(this._id)) {
     logger.debug(`[agent.introduce] skipping - agent not in participants`)
@@ -587,7 +540,7 @@ agentSchema.method('introduce', async function (channel, adapterType?) {
 
   const responses = await agentType.introduce.call(this, channel, adapterType)
   logger.debug(`[agent.introduce] responses count: ${responses.length}`)
-  return createMessages.call(this, responses, channel)
+  return responses
 })
 
 export function setAgentTypes(newAgentTypes) {

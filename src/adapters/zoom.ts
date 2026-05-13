@@ -84,7 +84,7 @@ async function deployMeetingBot() {
       if (!channel) continue
       for (const agent of this.conversation.agents) {
         const introMessages = await agent.introduce(channel, 'zoom')
-        chatIntroTexts.push(...introMessages.map((m) => m.body?.text ?? m.body).filter(Boolean))
+        chatIntroTexts.push(...introMessages.map((m) => m.message?.text ?? m.message).filter(Boolean))
       }
     }
   }

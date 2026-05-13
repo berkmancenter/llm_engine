@@ -1,7 +1,12 @@
 import logger from '../../config/logger.js'
 import Agent from '../../models/user.model/agent.model/index.js'
-import messageService from '../../services/message.service.js'
-import { AgentMessageActions } from '../../types/index.types.js'
+import messageService, { agentResponseToMessageData } from '../../services/message.service.js'
+import { AgentMessageActions, AgentResponseZodSchema } from '../../types/index.types.js'
+
+const handleAgentResponse = async (response, agent) => {
+  AgentResponseZodSchema.parse(response)
+  return messageService.newMessageHandler(agentResponseToMessageData(response, agent), agent)
+}
 
 const agentResponse = async (job) => {
   const { agentId, message } = job.attrs.data
@@ -21,7 +26,7 @@ const agentResponse = async (job) => {
 
     const responses = await agent.respond(message)
     for (const response of responses) {
-      await messageService.newMessageHandler(response, agent)
+      await handleAgentResponse(response, agent)
     }
   } catch (error) {
     logger.error(`Response failed for agent ${agentId}`, error)
@@ -46,7 +51,7 @@ const periodicAgent = async (job) => {
   if (agentEvaluation.action === AgentMessageActions.CONTRIBUTE) {
     const responses = await agent.respond()
     for (const response of responses) {
-      await messageService.newMessageHandler(response, agent)
+      await handleAgentResponse(response, agent)
     }
   }
 }

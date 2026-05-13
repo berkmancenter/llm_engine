@@ -394,12 +394,30 @@ export const duplicateConversationMessages = async (conversationOrId, duplicateC
   await Message.insertMany(duplicatedMessages)
 }
 
+export const agentResponseToMessageData = (response, agent) => ({
+  body: response.message,
+  ...(response.messageType !== undefined && { bodyType: response.messageType }),
+  conversation: agent.conversation,
+  fromAgent: true,
+  visible: response.visible,
+  pause: response.pause,
+  pseudonym: agent.pseudonyms[0].pseudonym,
+  pseudonymId: agent.pseudonyms[0]._id,
+  upVotes: [],
+  downVotes: [],
+  channels: response.channels,
+  parseOutput: agent.parseOutput,
+  ...(response.replyFormat !== undefined && { prompt: response.replyFormat }),
+  ...(response.parent !== undefined && { parentMessage: response.parent })
+})
+
 const messageService = {
   fetchConversation,
   createMessage,
   conversationMessages,
   vote,
   duplicateConversationMessages,
+  agentResponseToMessageData,
   newMessageHandler,
   getMessageReplies
 }

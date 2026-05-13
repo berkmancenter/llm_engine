@@ -225,13 +225,9 @@ describe('agent tests', () => {
     expect(introductions[0]).toEqual(
       expect.objectContaining({
         visible: true,
-        body: 'Hello, I am an agent',
-        conversation,
-        fromAgent: true
+        message: 'Hello, I am an agent'
       })
     )
-    expect(introductions[0].channels).toHaveLength(1)
-    expect(introductions[0].channels![0]).toEqual(directChannel)
   })
 
   test('should introduce itself if not active', async () => {
@@ -324,9 +320,7 @@ describe('agent tests', () => {
     expect(responses[0]).toEqual(
       expect.objectContaining({
         visible: true,
-        body: 'A response',
-        conversation,
-        fromAgent: true
+        message: 'A response'
       })
     )
     expect(responses[0].pause).toBe(0)
@@ -383,9 +377,7 @@ describe('agent tests', () => {
     expect(responses[0]).toEqual(
       expect.objectContaining({
         visible: true,
-        body: 'A response',
-        conversation,
-        fromAgent: true
+        message: 'A response'
       })
     )
     expect(responses[0].pause).toBe(0)
@@ -431,9 +423,7 @@ describe('agent tests', () => {
     expect(responses[0]).toEqual(
       expect.objectContaining({
         visible: true,
-        body: 'A response',
-        conversation,
-        fromAgent: true
+        message: 'A response'
       })
     )
     expect(responses[0].pause).toBe(0)
@@ -495,10 +485,8 @@ describe('agent tests', () => {
     expect(responses[0]).toEqual(
       expect.objectContaining({
         visible: true,
-        body: 'Another response',
-        conversation,
-        fromAgent: true,
-        prompt
+        message: 'Another response',
+        replyFormat: prompt
       })
     )
     expect(responses[0].pause).toBe(30)
@@ -561,62 +549,6 @@ describe('agent tests', () => {
     expect(mockRespond).not.toHaveBeenCalled()
   })
 
-  // test('should indicate if input text is within max token limit', async () => {
-  //   const agent = new Agent({
-  //     agentType: 'perMessage',
-  //     conversation
-  //   })
-  //   await agent.save()
-  //   mockTokenLimit.mockResolvedValue(true)
-
-  //   await
-
-  //   const inLimit = await agent.isWithinTokenLimit('Hello')
-  //   expect(inLimit).toBe(true)
-  // })
-
-  test('should set message body type to response message type', async () => {
-    const agent = new Agent({
-      agentType: 'perMessage',
-      conversation
-    })
-    await agent.save()
-    await await agent.start()
-
-    const expectedEval = {
-      userMessage: msg1,
-      action: AgentMessageActions.CONTRIBUTE,
-      agentContributionVisible: true,
-      userContributionVisible: true,
-      suggestion: undefined
-    }
-
-    const expectedResponse = {
-      visible: true,
-      message: 'Test json response',
-      messageType: 'json'
-    }
-
-    mockEvaluate.mockResolvedValue(expectedEval)
-    mockRespond.mockResolvedValue([expectedResponse])
-
-    const evaluation = await agent.evaluate(msg1)
-    expect(evaluation).toEqual(expectedEval)
-
-    const responses = await agent.respond(msg1)
-    expect(responses).toHaveLength(1)
-
-    const response = responses[0]
-    expect(response).toEqual(
-      expect.objectContaining({
-        visible: true,
-        body: 'Test json response',
-        bodyType: 'json',
-        conversation,
-        fromAgent: true
-      })
-    )
-  })
   test('should not call respond if agent has settings but no conversation history', async () => {
     const agent = new Agent({
       agentType: 'withParsers',
@@ -1979,7 +1911,7 @@ describe('agent tests', () => {
 
       // Should return responses without formatting
       expect(responses).toHaveLength(1)
-      expect(responses[0].body).toBe('Test response')
+      expect(responses[0].message).toBe('Test response')
     })
 
     test('should handle trace metadata update errors gracefully', async () => {

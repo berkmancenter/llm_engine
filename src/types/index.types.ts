@@ -98,7 +98,7 @@ export interface IMessage {
   channels?: string[]
   conversation: IConversation
   fromAgent: boolean
-  pause: boolean
+  pause: number
   visible: boolean
   count?: number
   pseudonym: string
@@ -419,6 +419,7 @@ export interface AgentResponse<T> {
   context?: string
   replyFormat?: MessagePrompt
   parent?: mongoose.Types.ObjectId
+  pause?: number
 }
 
 export interface ConversationHistorySettings {
