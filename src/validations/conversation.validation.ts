@@ -1,5 +1,19 @@
 import Joi from 'joi'
 
+const resourceSchema = Joi.object().keys({
+  source: Joi.string().valid('speaker', 'ai').required(),
+  category: Joi.string().valid('required', 'referenced', 'suggested').required(),
+  title: Joi.string().required(),
+  authors: Joi.array().items(Joi.string()).allow(null),
+  year: Joi.string().allow('', null),
+  url: Joi.string().allow('', null),
+  fileName: Joi.string().allow('', null),
+  description: Joi.string().allow('', null),
+  summary: Joi.string().allow('', null),
+  relevanceReason: Joi.string().allow('', null),
+  participantVisible: Joi.boolean()
+})
+
 const updateConversation = {
   body: Joi.object().keys({
     id: Joi.string().required(),
@@ -17,7 +31,8 @@ const updateConversation = {
         name: Joi.string().required(),
         bio: Joi.string().allow('', null)
       })
-    )
+    ),
+    resources: Joi.array().items(resourceSchema)
   })
 }
 
@@ -43,7 +58,8 @@ const createConversation = {
         name: Joi.string().required(),
         bio: Joi.string().allow('', null)
       })
-    )
+    ),
+    resources: Joi.array().items(resourceSchema)
   })
 }
 const agentAllowedProperties = {

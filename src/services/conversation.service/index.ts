@@ -174,6 +174,7 @@ const createConversation = async (conversationBody, user) => {
     ...(conversationBody.presenters !== undefined && { presenters: conversationBody.presenters }),
     ...(conversationBody.properties !== undefined && { properties: conversationBody.properties }),
     ...(conversationBody.features !== undefined && { features: conversationBody.features }),
+    ...(conversationBody.resources !== undefined && { resources: conversationBody.resources }),
     agents: [],
     transcript: {
       status: 'stopped',
@@ -302,7 +303,7 @@ const findById = async (id) => {
 
 const findByIdFull = async (id, user) => {
   const conversation = await Conversation.findOne({ _id: id })
-    .select(returnFields)
+    .select(`${returnFields} resources`)
     .populate('agents')
     .populate('channels')
     .populate('adapters')
@@ -328,11 +329,18 @@ const findByIdFull = async (id, user) => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
         }) as any[]
       }
+      const resources = cleanRet.resources?.map((r) => {
+        // strip internal fileName
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { _id: resourceId, fileName, ...rest } = r as unknown as Record<string, unknown>
+        return { ...rest, id: (resourceId as { toString(): string }).toString() }
+      })
       return {
         ...cleanRet,
         id: _id.toString(),
         followed,
-        ...(channels && { channels })
+        ...(channels && { channels }),
+        ...(resources && { resources })
       }
     }
   })
