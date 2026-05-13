@@ -335,6 +335,99 @@ describe('POST /v1/webhooks/slack', () => {
       expect(receiveMessageSpy).not.toHaveBeenCalled()
     })
 
+    test('should process two messages with different event_ids', async () => {
+      const makePayload = (eventId: string) => ({
+        event_id: eventId,
+        event: {
+          type: 'message',
+          text: 'Hello from Slack!',
+          channel: 'C1234567890',
+          team: '123456',
+          user: 'U1234567890',
+          ts: '1234567890.123456'
+        }
+      })
+
+      const timestamp = Math.floor(Date.now() / 1000).toString()
+
+      const payload1 = makePayload('Ev0FIRST1234')
+      await request(app)
+        .post('/v1/webhooks/slack')
+        .set('x-slack-signature', generateSlackSignature(timestamp, JSON.stringify(payload1)))
+        .set('x-slack-request-timestamp', timestamp)
+        .send(payload1)
+        .expect(httpStatus.OK)
+
+      const payload2 = makePayload('Ev0SECOND123')
+      await request(app)
+        .post('/v1/webhooks/slack')
+        .set('x-slack-signature', generateSlackSignature(timestamp, JSON.stringify(payload2)))
+        .set('x-slack-request-timestamp', timestamp)
+        .send(payload2)
+        .expect(httpStatus.OK)
+
+      expect(receiveMessageSpy).toHaveBeenCalledTimes(2)
+    })
+
+    test('should process messages with no event_id', async () => {
+      const payload = {
+        event: {
+          type: 'message',
+          text: 'Hello from Slack!',
+          channel: 'C1234567890',
+          team: '123456',
+          user: 'U1234567890',
+          ts: '1234567890.123456'
+        }
+      }
+      const timestamp = Math.floor(Date.now() / 1000).toString()
+      const signature = generateSlackSignature(timestamp, JSON.stringify(payload))
+
+      await request(app)
+        .post('/v1/webhooks/slack')
+        .set('x-slack-signature', signature)
+        .set('x-slack-request-timestamp', timestamp)
+        .send(payload)
+        .expect(httpStatus.OK)
+
+      await request(app)
+        .post('/v1/webhooks/slack')
+        .set('x-slack-signature', signature)
+        .set('x-slack-request-timestamp', timestamp)
+        .send(payload)
+        .expect(httpStatus.OK)
+
+      expect(receiveMessageSpy).toHaveBeenCalledTimes(2)
+    })
+
+    test('should not process the same event_id twice', async () => {
+      const payload = {
+        event_id: 'Ev0TEST12345',
+        event: {
+          type: 'message',
+          text: 'Hello from Slack!',
+          channel: 'C1234567890',
+          team: '123456',
+          user: 'U1234567890',
+          ts: '1234567890.123456'
+        }
+      }
+      const timestamp = Math.floor(Date.now() / 1000).toString()
+      const signature = generateSlackSignature(timestamp, JSON.stringify(payload))
+
+      const sendRequest = () =>
+        request(app)
+          .post('/v1/webhooks/slack')
+          .set('x-slack-signature', signature)
+          .set('x-slack-request-timestamp', timestamp)
+          .send(payload)
+
+      await sendRequest().expect(httpStatus.OK)
+      await sendRequest().expect(httpStatus.OK)
+
+      expect(receiveMessageSpy).toHaveBeenCalledTimes(1)
+    })
+
     test('should handle payload without event', async () => {
       const payload = { type: 'event_callback' } // Missing event property
       const timestamp = Math.floor(Date.now() / 1000).toString()

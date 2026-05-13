@@ -6,6 +6,21 @@ import logger from '../config/logger.js'
 import validateSignature from './helpers/validateSignature.js'
 import webhookService from '../services/webhook.service.js'
 
+// Slack retries webhook delivery if it doesn't get a 200 fast enough (common through ngrok).
+// event_id stays the same on retries, so we track it to skip duplicates.
+const DEDUP_WINDOW_MS = 5 * 60 * 1000 // 5 minutes — well beyond Slack's retry window
+const seenEventIds = new Map<string, number>()
+
+function isDuplicate(eventId: string): boolean {
+  const now = Date.now()
+  for (const [id, timestamp] of seenEventIds) {
+    if (now - timestamp > DEDUP_WINDOW_MS) seenEventIds.delete(id)
+  }
+  if (seenEventIds.has(eventId)) return true
+  seenEventIds.set(eventId, now)
+  return false
+}
+
 const handleEvent = async (req, res) => {
   const payload = req.body
 
@@ -14,6 +29,13 @@ const handleEvent = async (req, res) => {
     res.status(httpStatus.OK).send(payload.challenge)
     return
   }
+  const eventId = payload.event_id
+  if (eventId && isDuplicate(eventId)) {
+    logger.debug(`Slack duplicate event skipped: ${eventId}`)
+    res.status(httpStatus.OK).send('ok')
+    return
+  }
+
   const { event } = payload
   if (!event) {
     logger.info(`Received payload from Slack without an event: ${payload}`)
