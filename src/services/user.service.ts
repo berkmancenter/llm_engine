@@ -4,7 +4,7 @@ import crypto from 'crypto'
 import { uniqueNamesGenerator } from 'unique-names-generator'
 import bcrypt from 'bcryptjs'
 import { uid } from 'uid'
-import { User, Message } from '../models/index.js'
+import { User, Message, Follower } from '../models/index.js'
 import ApiError from '../utils/ApiError.js'
 import { pseudonymAdjectives, pseudonymNouns } from '../config/pseudonym-dictionaries.js'
 import logger from '../config/logger.js'
@@ -353,6 +353,33 @@ const updatePreferences = async (userId, updateBody) => {
   return user.preferences
 }
 
+/**
+ * Find-or-create the event setup bot system user and follow any configured default topics.
+ * Safe to call on every startup — idempotent.
+ * @returns {Promise<string>} MongoDB ObjectId of the bot user
+ */
+const ensureEventSetupBotUser = async (): Promise<string> => {
+  const username = 'event-setup-bot'
+  let user = await User.findOne({ username })
+  if (!user) {
+    user = await User.create({
+      username,
+      role: 'eventSetupBot',
+      pseudonyms: [{ token: newToken(), pseudonym: 'EventSetupBot', active: true }]
+    })
+    logger.info(`Created event setup bot user: ${user._id}`)
+  }
+
+  for (const topicId of config.eventSetupDefaultTopics) {
+    const existing = await Follower.findOne({ user: user._id, topic: topicId })
+    if (!existing) {
+      await Follower.create({ user: user._id, topic: topicId })
+    }
+  }
+
+  return user._id.toString()
+}
+
 const userService = {
   createUser,
   updateUser,
@@ -372,6 +399,7 @@ const userService = {
   deletePseudonym,
   hashPassword,
   getPreferences,
-  updatePreferences
+  updatePreferences,
+  ensureEventSetupBotUser
 }
 export default userService
