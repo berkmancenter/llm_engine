@@ -66,3 +66,7 @@ If you would like to use LLM Engine with the Nextspace client, see our [nextspac
 ## Optional: Zoom integration
 
 If you would like to use LLM Engine with Zoom, see our [zoom guide](../platforms/zoom.md).
+
+## Optional: Slack integration
+
+If you would like to use LLM Engine with Slack, including the Event Setup Bot for organizers, see our [slack guide](../platforms/slack.md).

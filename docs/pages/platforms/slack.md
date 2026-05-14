@@ -85,3 +85,27 @@ Example conversation body:
         "dmChannels": [{ "direct": true, "agent": "playfulPerMessage", "direction": "both"}]}]
 }
 ```
+
+### Event Setup Bot configuration
+
+The `eventSetup` agent runs in Slack and walks an organizer through a multi-step setup flow (event name, date/time, description, Zoom link, topic, speakers, moderators) before creating an `eventAssistant` conversation. All of its env vars are optional and only need to be set if you run this agent.
+
+```
+# Frontend base URL used to build participant/moderator links
+EVENT_UI_BASE_URL=
+
+# URL templates for the final-reply links. Placeholders: {host},
+# {conversationId}, {slug}, {<channelName>_passcode}. Wrap optional
+# segments in [ ] so they drop out when the referenced passcode is missing.
+EVENT_PARTICIPANT_URL_TEMPLATE={host}/assistant/?conversationId={conversationId}[&channel=transcript,{transcript_passcode}][&channel=chat,{chat_passcode}][&channel=resources,{resources_passcode}]
+EVENT_MODERATOR_URL_TEMPLATE={host}/moderator/?conversationId={conversationId}&channel=moderator,{moderator_passcode}[&channel=transcript,{transcript_passcode}]
+
+# IANA timezone for the date/time shown in the confirmation summary when
+# the organizer doesn't mention one in the message text
+EVENT_DISPLAY_TIMEZONE=America/New_York
+
+# Calendar deep link the "Add to Calendar" link points at. Set this to the
+# /calendar/0/deeplink/compose endpoint of whichever calendar host your
+# organizers sign into (e.g. work/school Microsoft 365 vs personal Outlook.com).
+CALENDAR_DEEPLINK_BASE_URL=
+```
