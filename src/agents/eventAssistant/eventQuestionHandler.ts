@@ -411,7 +411,7 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
     templateType = 'timeWindow'
     classification = QuestionClassification.CATCHUP
   } else {
-    classification = await getResponse.call(
+    const rawClassification = await getResponse.call(
       this,
       question,
       contextString,
@@ -419,6 +419,13 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
       topic,
       templates.semanticClassificationSystem
     )
+    const validClassifications = new Set(Object.values(QuestionClassification))
+    classification = validClassifications.has(rawClassification as QuestionClassification)
+      ? (rawClassification as QuestionClassification)
+      : QuestionClassification.UNANSWERABLE
+    if (rawClassification !== classification) {
+      logger.warn(`Unexpected classification response: "${rawClassification}", defaulting to UNANSWERABLE`)
+    }
     if (classification === QuestionClassification.OFF_TOPIC) {
       logger.debug('Question classified as off-topic')
       systemTemplate = templates.offTopicSystem
