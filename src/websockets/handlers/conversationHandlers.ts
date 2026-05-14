@@ -52,6 +52,11 @@ export default (io, socket) => {
       channels.push(data.channel)
     }
 
+    // Always join the bare conversation room (receives conversation-level events e.g. resources:updated)
+    const conversationRoomId = getRoomId(data.conversationId.toString())
+    logger.debug('Joining conversation via socket. Room: %s', conversationRoomId)
+    socket.join(conversationRoomId)
+
     if (channels.length > 0) {
       await authChannels(channels, data.conversationId.toString(), data.user)
       const channelNames = channels.map((ch) => ch.name)
@@ -64,12 +69,7 @@ export default (io, socket) => {
       await conversation.populate(['agents', 'channels'])
       const intros = await collectChannelIntros(conversation, channelNames)
       if (typeof callback === 'function') callback({ intros })
-    } else {
-      const roomId = getRoomId(data.conversationId.toString())
-      logger.debug('Joining conversation via socket. Room: %s', roomId)
-      socket.join(roomId)
-      if (typeof callback === 'function') callback({ intros: [] })
-    }
+    } else if (typeof callback === 'function') callback({ intros: [] })
   })
   socket.use(([event, args], next) => {
     logger.debug('Checking auth (JWT) for topic socket requests.')
