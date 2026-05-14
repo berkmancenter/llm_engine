@@ -425,9 +425,11 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
   const topic = options?.topic || this.conversation.name
 
   // If question is off-topic or unanswerable, use matching template for systemTemplate
-  if (!isTimeWindow) {
-    // Get pre-classification
-    const preClassification = await getResponse.call(
+  let classification: QuestionClassification
+  if (isTimeWindow) {
+    classification = QuestionClassification.CATCHUP
+  } else {
+    classification = await getResponse.call(
       this,
       question,
       contextString,
@@ -435,20 +437,16 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
       topic,
       templates.semanticClassificationSystem
     )
-    if (preClassification === QuestionClassification.OFF_TOPIC) {
+    if (classification === QuestionClassification.OFF_TOPIC) {
       logger.debug('Question classified as off-topic')
       systemTemplate = templates.offTopicSystem
       allowGenerateVisual = false
-    } else if (preClassification === QuestionClassification.UNANSWERABLE) {
+    } else if (classification === QuestionClassification.UNANSWERABLE) {
       logger.debug('Question classified as unanswerable')
       systemTemplate = templates.unanswerableSystem
       allowGenerateVisual = false
     }
   }
-
-  const classification = isTimeWindow
-    ? QuestionClassification.CATCHUP
-    : await getResponse.call(this, question, contextString, chatHistory, topic, templates.semanticClassificationSystem)
 
   // Resolve tools from the agent's configured tool list (if any)
   const configuredToolNames: string[] = this.agentConfig?.tools || []
