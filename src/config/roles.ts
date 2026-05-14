@@ -45,7 +45,9 @@ const baseRights = [
 const allRoles = {
   user: baseRights,
   // Admins inherit all user rights
-  admin: [...baseRights, 'getUsers', 'manageUsers']
+  admin: [...baseRights, 'getUsers', 'manageUsers'],
+  // System user for the event setup agent — only the rights needed to list and create topics
+  eventSetupBot: ['createTopic', 'allTopics', 'followTopic']
 }
 const roles = Object.keys(allRoles)
 const roleRights = new Map(Object.entries(allRoles))
