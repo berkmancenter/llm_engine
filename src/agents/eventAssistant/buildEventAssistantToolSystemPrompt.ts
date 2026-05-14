@@ -1,5 +1,3 @@
-import logger from '../../config/logger.js'
-
 /**
  * System instructions for the event assistant when tools (e.g. web_search) are enabled.
  * Exported as a constant so unit tests can lock the decision rule without calling an LLM.
@@ -22,42 +20,8 @@ export const EVENT_ASSISTANT_TOOL_USER_MANDATE = `**Tool policy (mandatory):** U
 
 `
 
-const SUGGEST_RESOURCES_PATTERN =
-  /When information isn't in the context:\n- Provide what you know from general knowledge\.\n- Suggest specific resources or places to find more information \(e\.g\., Bureau of Labor Statistics, industry reports, relevant organizations\)\./
-
-const TOOLS_AWARE_REPLACEMENT = `When information isn't in the context:
-- Use your available tools (e.g. web_search) to find the answer before responding.
-- If tools return no results, provide what you know from general knowledge.`
-
-const POINT_TOWARD_PATTERN =
-  /Always aim to be helpful - provide the information you can and point toward additional resources\./
-
-const POINT_TOWARD_REPLACEMENT =
-  'Always aim to be helpful - use your tools to find information the event materials lack, then provide a substantive response.'
-
-export interface EventAssistantToolSystemPromptBuild {
-  systemPrompt: string
-  replacements: { suggestResources: boolean; pointToward: boolean }
-}
-
-export function buildEventAssistantToolSystemPrompt(
-  systemTemplate: string,
-  topic: string,
-  contextString: string
-): EventAssistantToolSystemPromptBuild {
-  let toolAwareTemplate = systemTemplate.replace(SUGGEST_RESOURCES_PATTERN, TOOLS_AWARE_REPLACEMENT)
-  const didReplaceSuggest = toolAwareTemplate !== systemTemplate
-
-  const beforePointToward = toolAwareTemplate
-  toolAwareTemplate = toolAwareTemplate.replace(POINT_TOWARD_PATTERN, POINT_TOWARD_REPLACEMENT)
-  const didReplacePointToward = toolAwareTemplate !== beforePointToward
-
-  logger.debug(
-    `Tool prompt: suggest-resources replacement ${didReplaceSuggest ? 'applied' : 'NOT matched'}, ` +
-      `point-toward replacement ${didReplacePointToward ? 'applied' : 'NOT matched'}`
-  )
-
-  const systemPrompt = `${toolAwareTemplate}
+export function buildEventAssistantToolSystemPrompt(systemTemplate: string, topic: string, contextString: string) {
+  return `${systemTemplate}
 
 ${EVENT_ASSISTANT_TOOL_USAGE_RULES}
 
@@ -66,9 +30,4 @@ ${topic}
 
 ## Context:
 ${contextString}`
-
-  return {
-    systemPrompt,
-    replacements: { suggestResources: didReplaceSuggest, pointToward: didReplacePointToward }
-  }
 }

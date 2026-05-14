@@ -19,11 +19,24 @@ export enum QuestionClassification {
   CATCHUP = 'CATCHUP'
 }
 
-function buildLLMTemplates(personalityName?: string | null, botName?: string) {
+export function buildLLMTemplates(personalityName?: string | null, botName?: string, toolNames: string[] = []) {
   const personalityContent = personalityName ? personalitySection : ''
   const botIdentity = botName
     ? `Your name is ${botName} — always refer to yourself with this exact spelling, even if your name appears differently in transcripts or conversation history.`
     : ''
+  const hasTools = toolNames.length > 0
+
+  const resourceSection = hasTools
+    ? `When information isn't in the context:
+- Use your available tools (e.g. web_search) to find the answer before responding.
+- If tools return no results, provide what you know from general knowledge.`
+    : `When information isn't in the context:
+- Provide what you know from general knowledge.
+- Suggest specific resources or places to find more information (e.g., Bureau of Labor Statistics, industry reports, relevant organizations).`
+
+  const helpfulnessLine = hasTools
+    ? `Always aim to be helpful - use your tools to find information the event materials lack, then provide a substantive response.`
+    : `Always aim to be helpful - provide the information you can and point toward additional resources.`
 
   return {
     timeWindowSystem: `${
@@ -60,9 +73,7 @@ Answer the question using these rules:
 - **For catchup requests:** Provide a brief summary of key points covered based on available context. If context is limited, acknowledge this and suggest they review available materials or ask specific questions about topics of interest.
 - **For feedback, criticism, or reactions** (e.g., "this is stupid", "boring", "I disagree"): Acknowledge their perspective briefly and supportively without being defensive. Examples: "I understand this perspective may not resonate with everyone" or "That's valuable feedback for the speaker."
 
-When information isn't in the context:
-- Provide what you know from general knowledge.
-- Suggest specific resources or places to find more information (e.g., Bureau of Labor Statistics, industry reports, relevant organizations).
+${resourceSection}
 - If appropriate, suggest they ask the speaker for event-specific insights.
 - **For questions about speakers/moderators without available bio data:** Acknowledge you don't have their background information in the current context, but focus on what they've discussed in the event if relevant.
 
@@ -71,7 +82,7 @@ When information isn't in the context:
 Output Style:
 - 1-3 sentences maximum.
 - Direct and clear; no pleasantries, filler, or meta-commentary.
-- Always aim to be helpful - provide the information you can and point toward additional resources.
+- ${helpfulnessLine}
 - Always provide a substantive response.
 `,
     semanticClassificationSystem: `You are a classification system for live event Q&A. Return ONLY a classification string.
@@ -188,13 +199,13 @@ Would this benefit from a visual representation?`,
 {recentChat}
 
 ## Event topic:
-  {topic}
-  
-  ## Context:
-  {context}
+{topic}
 
-  ## User question:
-  {question}`
+## Context:
+{context}
+
+## User question:
+{question}`
   }
 }
 
@@ -373,8 +384,12 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
     personalityName = 'sarcastic-expert'
   }
 
+  // Resolve tools from the agent's configured tool list (if any)
+  const configuredToolNames: string[] = this.agentConfig?.tools || []
+  const tools = configuredToolNames.length > 0 ? getTools(configuredToolNames) : []
+
   // Get the appropriate templates based on personality setting
-  const templates = buildLLMTemplates(personalityName, this.agentConfig?.botName)
+  const templates = buildLLMTemplates(personalityName, this.agentConfig?.botName, configuredToolNames)
 
   // Use provided context from options if available, otherwise search transcript
   let contextString: string
@@ -417,16 +432,19 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
 
   // Default to semantic if no prompt type specified
   const isTimeWindow = promptType === 'timeWindow'
-  let systemTemplate = isTimeWindow ? templates.timeWindowSystem : templates.semanticSystem
 
   // Skip visual generation if question is skipped because off-topic or unanswerable
   let allowGenerateVisual = true
 
   const topic = options?.topic || this.conversation.name
 
-  // If question is off-topic or unanswerable, use matching template for systemTemplate
+  let systemTemplate: string
+  let templateType: 'offTopic' | 'unanswerable' | 'timeWindow' | 'semantic'
   let classification: QuestionClassification
+
   if (isTimeWindow) {
+    systemTemplate = templates.timeWindowSystem
+    templateType = 'timeWindow'
     classification = QuestionClassification.CATCHUP
   } else {
     classification = await getResponse.call(
@@ -440,37 +458,24 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
     if (classification === QuestionClassification.OFF_TOPIC) {
       logger.debug('Question classified as off-topic')
       systemTemplate = templates.offTopicSystem
+      templateType = 'offTopic'
       allowGenerateVisual = false
     } else if (classification === QuestionClassification.UNANSWERABLE) {
       logger.debug('Question classified as unanswerable')
       systemTemplate = templates.unanswerableSystem
+      templateType = 'unanswerable'
       allowGenerateVisual = false
+    } else {
+      systemTemplate = templates.semanticSystem
+      templateType = 'semantic'
     }
   }
 
-  // Resolve tools from the agent's configured tool list (if any)
-  const configuredToolNames: string[] = this.agentConfig?.tools || []
-  const tools = configuredToolNames.length > 0 ? getTools(configuredToolNames) : []
-
   let llmResponse: string
   if (tools.length > 0) {
-    let templateType: 'offTopic' | 'unanswerable' | 'timeWindow' | 'semantic'
-    if (systemTemplate === templates.offTopicSystem) {
-      templateType = 'offTopic'
-    } else if (systemTemplate === templates.unanswerableSystem) {
-      templateType = 'unanswerable'
-    } else if (systemTemplate === templates.timeWindowSystem) {
-      templateType = 'timeWindow'
-    } else {
-      templateType = 'semantic'
-    }
     logger.debug(`Responding with tools enabled: [${configuredToolNames.join(', ')}], systemTemplate: ${templateType}`)
     const llm = await this.getLLM()
-    const { systemPrompt: toolSystemPrompt, replacements: toolPromptReplacements } = buildEventAssistantToolSystemPrompt(
-      systemTemplate,
-      topic,
-      contextString
-    )
+    const toolSystemPrompt = buildEventAssistantToolSystemPrompt(systemTemplate, topic, contextString)
     const userPrompt = `${EVENT_ASSISTANT_TOOL_USER_MANDATE}## User question:\n${question}`
     const agentBundle = (await getAgentStructuredResponse(
       llm,
@@ -485,8 +490,7 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
     llmResponse = agentBundle.text
     const toolCalls = agentBundle.toolTrace.calls.length
     logger.info(
-      `eventAssistant.toolPath toolsEnabled=true toolCalls=${toolCalls} toolNames=[${configuredToolNames.join(', ')}] systemTemplate=${templateType} ` +
-        `promptReplacements=suggestResources:${toolPromptReplacements.suggestResources},pointToward:${toolPromptReplacements.pointToward}`
+      `eventAssistant.toolPath toolsEnabled=true toolCalls=${toolCalls} toolNames=[${configuredToolNames.join(', ')}] systemTemplate=${templateType}`
     )
     if (configuredToolNames.includes('web_search') && toolCalls === 0) {
       logger.warn(

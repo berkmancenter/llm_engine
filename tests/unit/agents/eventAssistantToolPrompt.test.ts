@@ -3,7 +3,7 @@ import {
   EVENT_ASSISTANT_TOOL_USAGE_RULES,
   EVENT_ASSISTANT_TOOL_USER_MANDATE
 } from '../../../src/agents/eventAssistant/buildEventAssistantToolSystemPrompt.js'
-import { eventAssistantLLMTemplates } from '../../../src/agents/eventAssistant/eventQuestionHandler.js'
+import { buildLLMTemplates } from '../../../src/agents/eventAssistant/eventQuestionHandler.js'
 import { webSearchTool } from '../../../src/agents/tools/webSearch.js'
 
 describe('event assistant tool system prompt', () => {
@@ -43,7 +43,7 @@ describe('event assistant tool system prompt', () => {
     const base = 'BASE_SYSTEM_TEMPLATE'
     const topic = 'Test topic title'
     const ctx = 'TRANSCRIPT_SNIPPET_ONLY_HERE'
-    const { systemPrompt: full } = buildEventAssistantToolSystemPrompt(base, topic, ctx)
+    const full = buildEventAssistantToolSystemPrompt(base, topic, ctx)
     expect(full.startsWith(base)).toBe(true)
     const toolRulesPos = full.indexOf(EVENT_ASSISTANT_TOOL_USAGE_RULES)
     const contextPos = full.indexOf(ctx)
@@ -52,17 +52,19 @@ describe('event assistant tool system prompt', () => {
     expect(toolRulesPos).toBeLessThan(contextPos)
   })
 
-  test('buildEventAssistantToolSystemPrompt replaces "suggest resources" and "point toward" with tools-aware guidance', () => {
-    const { systemPrompt: full } = buildEventAssistantToolSystemPrompt(
-      eventAssistantLLMTemplates.semanticSystem,
-      'Test topic',
-      'Test context'
-    )
-    expect(full).not.toMatch(/Suggest specific resources or places to find more information/)
-    expect(full).toMatch(/Use your available tools \(e\.g\. web_search\) to find the answer before responding/)
-    expect(full).toMatch(/If tools return no results, provide what you know from general knowledge/)
+  test('buildLLMTemplates with tool names produces tools-aware guidance in semanticSystem', () => {
+    const { semanticSystem } = buildLLMTemplates(null, undefined, ['web_search'])
+    expect(semanticSystem).not.toMatch(/Suggest specific resources or places to find more information/)
+    expect(semanticSystem).toMatch(/Use your available tools \(e\.g\. web_search\) to find the answer before responding/)
+    expect(semanticSystem).toMatch(/If tools return no results, provide what you know from general knowledge/)
+    expect(semanticSystem).not.toMatch(/point toward additional resources/)
+    expect(semanticSystem).toMatch(/use your tools to find information the event materials lack/)
+  })
 
-    expect(full).not.toMatch(/point toward additional resources/)
-    expect(full).toMatch(/use your tools to find information the event materials lack/)
+  test('buildLLMTemplates without tool names retains standard resource guidance in semanticSystem', () => {
+    const { semanticSystem } = buildLLMTemplates(null)
+    expect(semanticSystem).toMatch(/Suggest specific resources or places to find more information/)
+    expect(semanticSystem).toMatch(/point toward additional resources/)
+    expect(semanticSystem).not.toMatch(/Use your available tools/)
   })
 })
