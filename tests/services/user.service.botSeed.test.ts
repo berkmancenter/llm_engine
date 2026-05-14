@@ -1,24 +1,11 @@
 import mongoose from 'mongoose'
 import setupIntTest from '../utils/setupIntTest.js'
-import { User, Topic, Follower } from '../../src/models/index.js'
+import { User } from '../../src/models/index.js'
 import userService from '../../src/services/user.service.js'
-import config from '../../src/config/config.js'
 
 setupIntTest()
 
 const BOT_USERNAME = 'event-setup-bot'
-
-const buildTopic = (overrides = {}) => ({
-  _id: new mongoose.Types.ObjectId(),
-  name: 'Test Topic',
-  slug: 'test-topic',
-  votingAllowed: true,
-  conversationCreationAllowed: true,
-  private: true,
-  archivable: false,
-  owner: new mongoose.Types.ObjectId(),
-  ...overrides
-})
 
 describe('ensureEventSetupBotUser()', () => {
   describe('user creation', () => {
@@ -74,41 +61,6 @@ describe('ensureEventSetupBotUser()', () => {
       const id = await userService.ensureEventSetupBotUser()
 
       expect(id).toBe(existing._id.toString())
-    })
-  })
-
-  describe('topic following', () => {
-    let originalDefaultTopics: string[]
-
-    beforeEach(() => {
-      originalDefaultTopics = config.eventSetupDefaultTopics ?? []
-    })
-
-    afterEach(() => {
-      config.eventSetupDefaultTopics = originalDefaultTopics
-    })
-
-    it('follows each topic in EVENT_SETUP_DEFAULT_TOPICS', async () => {
-      const topic = await Topic.create(buildTopic())
-      config.eventSetupDefaultTopics = [topic._id.toString()]
-
-      await userService.ensureEventSetupBotUser()
-
-      const botUser = await User.findOne({ username: BOT_USERNAME })
-      const follower = await Follower.findOne({ user: botUser!._id, topic: topic._id })
-      expect(follower).not.toBeNull()
-    })
-
-    it('does not create duplicate Follower records on repeated calls', async () => {
-      const topic = await Topic.create(buildTopic({ slug: 'test-topic-2', name: 'Test Topic 2' }))
-      config.eventSetupDefaultTopics = [topic._id.toString()]
-
-      await userService.ensureEventSetupBotUser()
-      await userService.ensureEventSetupBotUser()
-
-      const botUser = await User.findOne({ username: BOT_USERNAME })
-      const count = await Follower.countDocuments({ user: botUser!._id, topic: topic._id })
-      expect(count).toBe(1)
     })
   })
 })

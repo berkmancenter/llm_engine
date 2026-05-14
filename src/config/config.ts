@@ -107,10 +107,7 @@ const envVarsSchema = Joi.object()
       .description('Minutes before scheduledTime to auto-start a conversation'),
     CONVERSATION_AUTO_STOP_DELAY_MINUTES: Joi.number()
       .default(30)
-      .description('Minutes after scheduledEndTime to auto-stop a conversation'),
-    EVENT_SETUP_DEFAULT_TOPICS: Joi.string().description(
-      'Comma-separated topic IDs the bot should follow on startup (grants visibility into private topics)'
-    )
+      .description('Minutes after scheduledEndTime to auto-stop a conversation')
   })
   .unknown()
 
@@ -242,9 +239,6 @@ const config = {
   conversation: {
     autoStartLeadTimeMs: envVars.CONVERSATION_AUTO_START_LEAD_TIME_MINUTES * 60 * 1000,
     autoStopDelayMs: envVars.CONVERSATION_AUTO_STOP_DELAY_MINUTES * 60 * 1000
-  },
-  eventSetupDefaultTopics: envVars.EVENT_SETUP_DEFAULT_TOPICS
-    ? envVars.EVENT_SETUP_DEFAULT_TOPICS.split(',').map((id: string) => id.trim())
-    : []
+  }
 }
 export default config
