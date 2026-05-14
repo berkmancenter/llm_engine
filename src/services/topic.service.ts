@@ -132,6 +132,9 @@ const allPublicTopics = async () => {
   const topics = await topicsWithSortData({ isDeleted: false, private: false })
   return topics
 }
+// NOTE: follower status is not considered here — private topics the user follows but does not own
+// are excluded. If that visibility is needed in the future, this query should subtract followed
+// topic IDs from the exclusion set (query Follower for the user first, then filter them out).
 const allTopicsByUser = async (user) => {
   const otherPrivateTopics = await Topic.find({ $and: [{ private: true }, { owner: { $ne: user } }] })
   const topics = await topicsWithSortData({
