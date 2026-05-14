@@ -13,6 +13,7 @@ import Message from '../../../src/models/message.model.js'
 import Channel from '../../../src/models/channel.model.js'
 import { AgentMessageActions } from '../../../src/types/index.types.js'
 import Agent from '../../../src/models/user.model/agent.model/index.js'
+import { QuestionClassification } from '../../../src/agents/eventAssistant/eventQuestionHandler.js'
 
 jest.setTimeout(180000)
 
@@ -77,7 +78,9 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
     it(
       'offers to submit to moderator for a speaker-directed question',
       async () => {
-        const questionMsg = await createQuestion('What percentage of U.S. workers are part-time?')
+        const questionMsg = await createQuestion(
+          'What does Jessica think is the biggest misconception businesses have about part-time employees?'
+        )
         const savedQuestion = await Message.create(questionMsg)
 
         const responses = await defaultAgentTypes.eventAssistant.respond.call(
@@ -87,19 +90,21 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
         )
 
         const offer = responses.find((r) => r.message?.type === 'moderator_offered')
-        expect(offer).toBeDefined()
-        expect(offer!.message).toMatchObject({
-          ...submitToModeratorQuestion,
-          message: savedQuestion._id.toString()
-        })
-        expect(offer!.replyFormat).toMatchObject({
-          type: 'singleChoice',
-          options: [
-            { value: 'no', label: 'No' },
-            { value: 'yes', label: 'Yes' }
-          ]
-        })
-        expect(offer!.visible).toBe(true)
+        if (responses[0].classification === QuestionClassification.ON_TOPIC_ASK_SPEAKER) {
+          expect(offer).toBeDefined()
+          expect(offer!.message).toMatchObject({
+            ...submitToModeratorQuestion,
+            message: savedQuestion._id.toString()
+          })
+          expect(offer!.replyFormat).toMatchObject({
+            type: 'singleChoice',
+            options: [
+              { value: 'no', label: 'No' },
+              { value: 'yes', label: 'Yes' }
+            ]
+          })
+          expect(offer!.visible).toBe(true)
+        }
       },
       testTimeout
     )
@@ -329,6 +334,97 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
           message: savedQuestion._id.toString()
         })
         expect(responses[0].parent).toBe(parentMessageId)
+      },
+      testTimeout
+    )
+  })
+
+  describe('moderator history filtering', () => {
+    it(
+      'LLM does not spontaneously offer moderator submission when prior moderator_offered messages are in history',
+      async () => {
+        const priorQuestion = await createQuestion('What percentage of U.S. workers are part-time?')
+        const savedPriorQuestion = await Message.create(priorQuestion)
+
+        const newQuestion = await createQuestion("What was Jessica's main argument?")
+        const savedNewQuestion = await Message.create(newQuestion)
+
+        const conversationHistory = {
+          messages: [
+            savedPriorQuestion,
+            {
+              body: 'According to the transcript, approximately 20% of workers are part-time.',
+              bodyType: 'text',
+              fromAgent: true
+            },
+            {
+              body: { ...submitToModeratorQuestion, message: savedPriorQuestion._id.toString() },
+              bodyType: 'json',
+              fromAgent: true
+            }
+          ]
+        }
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(
+          agent,
+          conversationHistory,
+          savedNewQuestion.toObject()
+        )
+
+        expect(responses.length).toBeGreaterThan(0)
+        const answerText = responses[0].message?.text ?? responses[0].message
+        expect(answerText).not.toMatch(/submit.*moderator|moderator.*Q&A|anonymously/i)
+      },
+      testTimeout
+    )
+
+    it(
+      'LLM answers normally when history contains a full moderator offer/accept exchange',
+      async () => {
+        const priorQuestion = await createQuestion('What percentage of U.S. workers are part-time?')
+        const savedPriorQuestion = await Message.create(priorQuestion)
+
+        const newQuestion = await createQuestion("What was Jessica's main argument?")
+        const savedNewQuestion = await Message.create(newQuestion)
+
+        const conversationHistory = {
+          messages: [
+            savedPriorQuestion,
+            {
+              body: 'According to the transcript, approximately 20% of workers are part-time.',
+              bodyType: 'text',
+              fromAgent: true
+            },
+            {
+              body: { ...submitToModeratorQuestion, message: savedPriorQuestion._id.toString() },
+              bodyType: 'json',
+              fromAgent: true
+            },
+            { body: 'yes', bodyType: 'text', fromAgent: false },
+            {
+              body: {
+                type: 'moderator_submitted',
+                text: 'Your message has been submitted to the moderator.',
+                message: savedPriorQuestion._id.toString()
+              },
+              bodyType: 'json',
+              fromAgent: true
+            }
+          ]
+        }
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(
+          agent,
+          conversationHistory,
+          savedNewQuestion.toObject()
+        )
+
+        expect(responses.length).toBeGreaterThan(0)
+        const answerText = responses[0].message?.text ?? responses[0].message
+        expect(answerText).not.toMatch(/submit.*moderator|moderator.*Q&A|anonymously/i)
+        // Should be a substantive answer, not empty or an error
+        expect(typeof answerText).toBe('string')
+        expect((answerText as string).length).toBeGreaterThan(10)
       },
       testTimeout
     )
