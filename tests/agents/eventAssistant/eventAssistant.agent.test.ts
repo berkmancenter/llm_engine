@@ -734,8 +734,6 @@ describe(`event assistant CI tests`, () => {
       const { eventAssistantLLMTemplates } = await import('../../../src/agents/eventAssistant/eventQuestionHandler.js')
 
       // User template should always be the same
-      expect(eventAssistantLLMTemplates.user).toContain('## Recent conversation')
-      expect(eventAssistantLLMTemplates.user).toContain('{recentChat}')
       expect(eventAssistantLLMTemplates.user).toContain('## Event topic:')
       expect(eventAssistantLLMTemplates.user).toContain('## Context:')
       expect(eventAssistantLLMTemplates.user).toContain('## User question:')

@@ -35,10 +35,11 @@ describe('event assistant adjacent-vs-off-topic classification prompt', () => {
     expect(sys).toMatch(/continue that same thread/i)
   })
 
-  test('user template includes recentChat for thread-aware prompting', () => {
+  test('user template includes event topic, context, and question', () => {
     const { user } = eventAssistantLLMTemplates
-    expect(user).toMatch(/Recent conversation/i)
-    expect(user).toMatch(/\{recentChat\}/)
+    expect(user).toMatch(/\{topic\}/)
+    expect(user).toMatch(/\{context\}/)
+    expect(user).toMatch(/\{question\}/)
   })
 })
 

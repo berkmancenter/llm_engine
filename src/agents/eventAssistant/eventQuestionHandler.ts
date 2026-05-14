@@ -195,10 +195,7 @@ Do NOT provide any explanation or additional text.`,
 {answer}
 
 Would this benefit from a visual representation?`,
-    user: `## Recent conversation (same channel/DM, oldest to newest):
-{recentChat}
-
-## Event topic:
+    user: `## Event topic:
 {topic}
 
 ## Context:
@@ -228,11 +225,6 @@ export const eventAssistantLlmTemplateVars = {
       name: 'context',
       description: 'The context for answering the question - may include recent transcript and/or relevant retrieved chunks'
     },
-    {
-      name: 'recentChat',
-      description:
-        'Prior messages in this channel/DM before the current question, formatted for classification and answering (oldest to newest)'
-    },
     { name: 'question', description: 'The user question' }
   ]
 }
@@ -241,43 +233,15 @@ const funFactSystemTemplate = `You create short, fun facts about pseudonyms. The
   **IMPORTANT** Always start the sentence with the phrase 'Fun Fact about your pseudonym:'`
 const funFactUserTemplate = 'Create a fun fact about the pseudonym: {pseudonym}'
 
-function flattenChatHistory(chatHistory: unknown): Array<{ role: string; content: string }> {
-  if (!chatHistory || !Array.isArray(chatHistory)) return []
-  const out: Array<{ role: string; content: string }> = []
-  for (const item of chatHistory as Array<{ role: string; content: string } | Array<unknown>>) {
-    if (Array.isArray(item)) {
-      out.push(...flattenChatHistory(item))
-    } else if (item && typeof item === 'object' && 'role' in item && 'content' in item) {
-      out.push(item as { role: string; content: string })
-    }
-  }
-  return out
-}
-
-function formatRecentChatSummaryForTemplate(chatHistory: unknown): string {
-  const flat = flattenChatHistory(chatHistory)
-  if (flat.length === 0) {
-    return '(none — no prior messages before this question for this channel/DM)'
-  }
-  return flat.map((m) => `${m.role}: ${m.content}`).join('\n')
-}
-
 async function getResponse(question, context, chatHistory, topic, systemTemplate) {
   const llm = await this.getLLM()
-  const recentChat = formatRecentChatSummaryForTemplate(chatHistory)
-  const llmResponse = await getChatPromptResponse(
+  return getChatPromptResponse(
     llm,
     systemTemplate,
     this.llmTemplates.user,
-    {
-      context,
-      question,
-      topic,
-      recentChat
-    },
+    { context, question, topic },
     chatHistory
   )
-  return llmResponse
 }
 
 async function shouldGenerateVisual(question, classification, llmResponse, templates) {
