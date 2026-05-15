@@ -405,7 +405,9 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
         participantNamesContext.trimEnd(), // ## Event Participants
         `## Recent Transcript:\n${liveTranscript}`,
         `## Relevant Retrieved Context:\n${chunks}`,
-        backgroundChunks ? `## Background Reading:\n${backgroundChunks}` : ''
+        backgroundChunks
+          ? `## Background Reading:\n(When using information from this section, cite the source by name in your response.)\n${backgroundChunks}`
+          : ''
       ]
         .filter(Boolean)
         .join('\n\n')
