@@ -354,23 +354,21 @@ const updatePreferences = async (userId, updateBody) => {
 }
 
 /**
- * Find-or-create the event setup bot system user.
+ * Find-or-create all system accounts defined in config.systemUsers.
  * Safe to call on every startup — idempotent.
- * @returns {Promise<string>} MongoDB ObjectId of the bot user
  */
-const ensureEventSetupBotUser = async (): Promise<string> => {
-  const username = 'event-setup-bot'
-  let user = await User.findOne({ username })
-  if (!user) {
-    user = await User.create({
-      username,
-      role: 'serviceAccount',
-      pseudonyms: [{ token: newToken(), pseudonym: 'EventSetupBot', active: true }]
-    })
-    logger.info(`Created event setup bot user: ${user._id}`)
+const ensureSystemUsers = async (): Promise<void> => {
+  for (const { username, role } of config.systemUsers) {
+    let user = await User.findOne({ username })
+    if (!user) {
+      user = await User.create({
+        username,
+        role,
+        pseudonyms: [{ token: newToken(), pseudonym: username, active: true }]
+      })
+      logger.info(`Created system user: ${username} (${role})`)
+    }
   }
-
-  return user._id.toString()
 }
 
 const userService = {
@@ -393,6 +391,6 @@ const userService = {
   hashPassword,
   getPreferences,
   updatePreferences,
-  ensureEventSetupBotUser
+  ensureSystemUsers
 }
 export default userService

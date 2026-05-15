@@ -107,7 +107,10 @@ const envVarsSchema = Joi.object()
       .description('Minutes before scheduledTime to auto-start a conversation'),
     CONVERSATION_AUTO_STOP_DELAY_MINUTES: Joi.number()
       .default(30)
-      .description('Minutes after scheduledEndTime to auto-stop a conversation')
+      .description('Minutes after scheduledEndTime to auto-stop a conversation'),
+    SYSTEM_USERS: Joi.string()
+      .default('event-setup-bot:serviceAccount')
+      .description('Comma-separated list of system accounts to create on startup, in username:role format')
   })
   .unknown()
 
@@ -239,6 +242,10 @@ const config = {
   conversation: {
     autoStartLeadTimeMs: envVars.CONVERSATION_AUTO_START_LEAD_TIME_MINUTES * 60 * 1000,
     autoStopDelayMs: envVars.CONVERSATION_AUTO_STOP_DELAY_MINUTES * 60 * 1000
-  }
+  },
+  systemUsers: envVars.SYSTEM_USERS.split(',').map((entry: string) => {
+    const [username, role] = entry.trim().split(':')
+    return { username, role }
+  })
 }
 export default config

@@ -7,7 +7,7 @@ import userService from './services/user.service.js'
 export default async () => {
   await agentService.initializeAgents()
   await conversationService.initializeConversations()
-  await userService.ensureEventSetupBotUser()
+  await userService.ensureSystemUsers()
   if (config.env !== 'test') {
     await startJobs()
   }
