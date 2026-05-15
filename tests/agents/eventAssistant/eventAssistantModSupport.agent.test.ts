@@ -526,10 +526,10 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
       ])
       const msgs = await agent.introduce(directChannel, 'zoom')
       expect(msgs).toHaveLength(1)
-      expect(msgs[0].bodyType).toBe('json')
-      expect(msgs[0].body.type).toBe('intro')
-      expect(msgs[0].body.text).toContain('/mod')
-      expect(msgs[0].body.text).toContain('moderator')
+      expect(msgs[0].messageType).toBe('json')
+      expect(msgs[0].message.type).toBe('intro')
+      expect(msgs[0].message.text).toContain('/mod')
+      expect(msgs[0].message.text).toContain('moderator')
     })
 
     it('does not include fun fact in zoom DM intro', async () => {
@@ -538,7 +538,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
       ])
       const msgs = await agent.introduce(directChannel, 'zoom')
       expect(msgs).toHaveLength(1)
-      expect(msgs[0].body.text).not.toMatch(/fun fact about your pseudonym:/i)
+      expect(msgs[0].message.text).not.toMatch(/fun fact about your pseudonym:/i)
     })
   })
 

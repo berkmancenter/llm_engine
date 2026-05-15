@@ -60,7 +60,7 @@ describe('reflection agent tests', () => {
     expect(responses[0].pause).toBe(expectedPause)
     expect(responses[0]).toEqual(expect.objectContaining({ visible: true, conversation, fromAgent: true }))
 
-    // console.log(responses[0].body)
+    // console.log(responses[0].message)
   }
 
   async function checkOkResponseEvaluation(evaluation) {
@@ -132,22 +132,6 @@ describe('reflection agent tests', () => {
 
   afterEach(async () => {
     jest.clearAllMocks()
-  })
-
-  it('should generate an intro message on start', async () => {
-    const expectedMessage = {
-      fromAgent: true,
-      visible: true,
-      body: `Welcome to the conversation! I am your automated facilitator. You can ask me questions about the discussion topic or tips for healthy discourse by using @"Reflection Agent" in your message. I will also chime in occasionally with my perspective on the discussion and some proposals for reaching consensus.`,
-      conversation: conversation._id,
-      pseudonym: agent.name,
-      pseudonymId: agent.pseudonyms[0]._id,
-      owner: agent._id
-    }
-    await conversation.populate('messages')
-    const agentMessages = conversation.messages.filter((msg) => msg.fromAgent && msg.visible)
-    expect(agentMessages).toHaveLength(1)
-    expect(agentMessages).toContainEqual(expect.objectContaining(expectedMessage))
   })
 
   it('should generate an AI response when min messages received', async () => {

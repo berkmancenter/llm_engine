@@ -114,7 +114,7 @@ describe('back channel agent tests', () => {
     // verify message going out to moderator channel
     expect(responses[0].channels).toHaveLength(1)
     expect(responses[0].channels[0].name).toEqual('moderator')
-    const response = responses[0].body
+    const response = responses[0].message
     // agent currently configured to check in two minute intervals
     expect(response.timestamp.end - response.timestamp.start).toBeGreaterThanOrEqual(120 * 1000)
     const { metrics } = response
@@ -149,7 +149,7 @@ describe('back channel agent tests', () => {
     await agent.evaluate()
     const responses = await agent.respond()
     expect(responses).toHaveLength(1)
-    const response = responses[0].body
+    const response = responses[0].message
     // agent currently configured to check in two minute intervals
     expect(response.timestamp.end - response.timestamp.start).toBeGreaterThanOrEqual(120 * 1000)
     const { metrics } = response

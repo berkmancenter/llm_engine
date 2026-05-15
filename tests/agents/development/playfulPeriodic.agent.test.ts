@@ -80,7 +80,7 @@ describe('playfulPeriodic agent tests', () => {
     const responses = await agent.respond(msg1)
     expect(responses).toHaveLength(1)
     expect(responses[0].visible).toBe(true)
-    expect(responses[0].body).toBeDefined()
-    expect(responses[0].body).toContain('@') // Should contain @ mention
+    expect(responses[0].message).toBeDefined()
+    expect(responses[0].message).toContain('@') // Should contain @ mention
   })
 })

@@ -594,7 +594,7 @@ describe('back channel agent CI tests', () => {
     ])
     const msgs = await agent.introduce(directChannel)
     expect(msgs).toHaveLength(1)
-    expect(msgs[0].body).toEqual(agent.agentConfig.introMessage)
+    expect(msgs[0].message).toEqual(agent.agentConfig.introMessage)
     expect(msgs[0].channels).toHaveLength(1)
     expect(msgs[0].channels[0]).toEqual(directChannel)
   })
