@@ -38,16 +38,40 @@ export interface CollectedFields {
 
 export type RoundKey = 'round1' | 'round2' | 'round3' | 'round4' | 'round5' | 'confirmation' | 'complete'
 
-export const ROUND_PROMPTS: Record<Exclude<RoundKey, 'complete' | 'confirmation'>, string> = {
-  round1:
-    "Sure, let's get this event set up. To start, please share:\n• The event name\n• The date and time\n• The duration (in minutes)",
-  round2:
-    'Got it. Next:\n• A short description of the event\n• The Zoom link\n• Whether the event needs a *resources* channel for sharing files and links during the event (yes/no)',
-  round3: 'What topic should this event be under?',
-  round4:
-    'Who is speaking? For each speaker, share their name plus an optional bio and an optional alternate name (nickname or other name) if they go by one. Reply *skip* if there are no speakers yet.',
-  round5:
-    'And who is moderating? For each moderator, share their name plus an optional bio and an optional alternate name. Reply *skip* if there are no moderators yet.'
+const ROUND3_PROMPT = 'What topic should this event be under?'
+const ROUND4_PROMPT =
+  'Who is speaking? For each speaker, share their name plus an optional bio and an optional alternate name (nickname or other name) if they go by one. Reply *skip* if there are no speakers yet.'
+const ROUND5_PROMPT =
+  'And who is moderating? For each moderator, share their name plus an optional bio and an optional alternate name. Reply *skip* if there are no moderators yet.'
+
+/**
+ * Returns the prompt for the given round, listing only the fields that are
+ * still missing. For rounds with multiple fields, uses a friendly opener on
+ * first contact and a targeted "still need" message on re-prompts.
+ */
+export function getRoundPrompt(round: Exclude<RoundKey, 'complete' | 'confirmation'>, fields: CollectedFields): string {
+  if (round === 'round1') {
+    const missing: string[] = []
+    if (!fields.eventName) missing.push('• The event name')
+    if (!fields.dateTime) missing.push('• The date and time')
+    if (typeof fields.duration !== 'number') missing.push('• The duration (in minutes)')
+    const isFirstContact = !fields.eventName && !fields.dateTime && typeof fields.duration !== 'number'
+    const opener = isFirstContact ? "Sure, let's get this event set up. To start, please share:" : 'Still need:'
+    return `${opener}\n${missing.join('\n')}`
+  }
+  if (round === 'round2') {
+    const missing: string[] = []
+    if (!fields.description) missing.push('• A short description of the event')
+    if (!fields.zoomLink) missing.push('• The Zoom link')
+    if (typeof fields.hasResources !== 'boolean')
+      missing.push('• Whether the event needs a *resources* channel for sharing files and links (yes/no)')
+    const isFirstContact = !fields.description && !fields.zoomLink && typeof fields.hasResources !== 'boolean'
+    const opener = isFirstContact ? 'Got it. Next:' : 'Still need:'
+    return `${opener}\n${missing.join('\n')}`
+  }
+  if (round === 'round3') return ROUND3_PROMPT
+  if (round === 'round4') return ROUND4_PROMPT
+  return ROUND5_PROMPT
 }
 
 /**

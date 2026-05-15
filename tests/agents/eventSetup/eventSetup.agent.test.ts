@@ -6,6 +6,7 @@ import { Agent, Channel } from '../../../src/models/index.js'
 import { AgentMessageActions, ConversationHistory } from '../../../src/types/index.types.js'
 import {
   getNextRound,
+  getRoundPrompt,
   lookupTopicByName,
   buildConfirmationPrompt,
   buildCalendarLink,
@@ -242,6 +243,45 @@ describe('eventSetup agent tests', () => {
           confirmed: true
         })
       ).toBe('complete')
+    })
+  })
+
+  describe('getRoundPrompt()', () => {
+    it('uses the friendly intro for round1 when no fields are collected yet', () => {
+      const prompt = getRoundPrompt('round1', {})
+      expect(prompt).toContain("let's get this event set up")
+      expect(prompt).toContain('event name')
+      expect(prompt).toContain('date and time')
+      expect(prompt).toContain('duration')
+    })
+
+    it('uses "Still need" and lists only missing fields when round1 is partially filled', () => {
+      const prompt = getRoundPrompt('round1', { eventName: 'My Event', dateTime: '2026-06-01T12:00:00Z' })
+      expect(prompt).toContain('Still need')
+      expect(prompt).toContain('duration')
+      expect(prompt).not.toContain('event name')
+      expect(prompt).not.toContain('date and time')
+    })
+
+    it('uses the friendly intro for round2 when no round2 fields are collected yet', () => {
+      const prompt = getRoundPrompt('round2', { eventName: 'X', dateTime: '2026-06-01T12:00:00Z', duration: 60 })
+      expect(prompt).toContain('Got it')
+      expect(prompt).toContain('description')
+      expect(prompt).toContain('Zoom link')
+      expect(prompt).toContain('resources')
+    })
+
+    it('uses "Still need" and lists only missing fields when round2 is partially filled', () => {
+      const prompt = getRoundPrompt('round2', {
+        eventName: 'X',
+        dateTime: '2026-06-01T12:00:00Z',
+        duration: 60,
+        description: 'A talk'
+      })
+      expect(prompt).toContain('Still need')
+      expect(prompt).toContain('Zoom link')
+      expect(prompt).toContain('resources')
+      expect(prompt).not.toContain('description')
     })
   })
 

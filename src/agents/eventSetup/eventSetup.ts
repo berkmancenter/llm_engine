@@ -3,7 +3,7 @@ import { AgentMessageActions, ConversationHistory } from '../../types/index.type
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 import {
-  ROUND_PROMPTS,
+  getRoundPrompt,
   buildConfirmationPrompt,
   createEvent,
   extractFieldsFromThread,
@@ -91,7 +91,7 @@ export default verify({
       return reply(buildConfirmationPrompt(fields, confirmationOptions))
     }
     if (nextRound !== 'complete') {
-      return reply(ROUND_PROMPTS[nextRound])
+      return reply(getRoundPrompt(nextRound, fields))
     }
 
     const topicResult = await lookupTopicByName(fields.topicName!)
