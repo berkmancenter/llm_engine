@@ -55,6 +55,18 @@ Open source models are also available through [Ollama](https://ollama.com) runni
 2. Configure `OLLAMA_BASE_URL`
 3. When creating a Conversation with an Agent, specify `llmPlatform` to be `ollama` and `llmModel` to be an available [open source model supported by ollama](https://ollama.com/search).
 
+## System accounts
+
+LLM Engine creates system accounts for bots and services on startup, driven by the `SYSTEM_USERS` env var. Each entry is a `username:role` pair, comma-separated:
+
+```
+SYSTEM_USERS=event-setup-bot:serviceAccount,another-bot:serviceAccount
+```
+
+Out of the box this creates `event-setup-bot` with the `serviceAccount` role, which the event setup agent uses to list and create topics. To add another account, append an entry and restart. The server skips accounts that already exist.
+
+Available roles: `user`, `admin`, `serviceAccount`.
+
 ## Optional: Retrieval Augmented Generation
 
 If you would like to make use of Retrieval Augmented Generation (RAG) see our [rag guide](rag.md).
