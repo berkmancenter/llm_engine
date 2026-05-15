@@ -14,10 +14,37 @@ import {
 
 import logger from '../../config/logger.js'
 import config from '../../config/config.js'
+import getDefaultEventAssistantToolNames from './eventAssistantDefaultTools.js'
 import generateImageResponse from './imageGenerator.js'
 import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from '../helpers/slashCommandParser.js'
 import generateMindMap from './mindMapGenerator.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
+
+const MODERATOR_MESSAGE_TYPES = new Set(['moderator_offered', 'moderator_submitted', 'moderator_declined'])
+
+// Filter out moderator interaction messages before passing history to the LLM.
+// Seeing these in history causes the model to spontaneously replicate the offer.
+// Also drops the user's confirmed yes/no reply (sandwiched between moderator_offered
+// and moderator_submitted/declined) since without the offer it becomes a non-sequitur.
+function filterModeratorHistory(conversationHistory) {
+  return {
+    ...conversationHistory,
+    messages: conversationHistory.messages?.filter((msg, i, msgs) => {
+      if (msg.bodyType === 'json' && MODERATOR_MESSAGE_TYPES.has((msg.body as Record<string, unknown>)?.type as string)) {
+        return false
+      }
+      const prev = msgs[i - 1]
+      const next = msgs[i + 1]
+      if (
+        prev?.bodyType === 'json' && (prev.body as Record<string, unknown>)?.type === 'moderator_offered' &&
+        next?.bodyType === 'json' && ((next.body as Record<string, unknown>)?.type === 'moderator_submitted' || (next.body as Record<string, unknown>)?.type === 'moderator_declined')
+      ) {
+        return false
+      }
+      return true
+    })
+  }
+}
 
 const submitToModeratorQuestion = 'Would you like to submit this question anonymously to the moderator for Q&A?'
 const submitToModeratorReply = 'Your message has been submitted to the moderator.'
@@ -151,7 +178,8 @@ export default verify({
     enablePersonality: config.enableAgentPersonality,
     zoomIntroMessage: "Hi! I'm {{agentConfig.botName}}, your AI event assistant. Ask me anything about the event!",
     zoomChatIntroMessage:
-      "Welcome! I'm {{agentConfig.botName}}, your AI event assistant. You can ask me questions in the chat with an @{{agentConfig.botName}} mention. Or send me a DM if you want to talk privately."
+      "Welcome! I'm {{agentConfig.botName}}, your AI event assistant. You can ask me questions in the chat with an @{{agentConfig.botName}} mention. Or send me a DM if you want to talk privately.",
+    tools: getDefaultEventAssistantToolNames()
   },
   llmTemplateVars: eventAssistantLlmTemplateVars,
   defaultLLMTemplates: eventAssistantLLMTemplates,
@@ -227,7 +255,7 @@ export default verify({
       if (!(await checkBotIntent(llm, this.agentConfig?.botName, userMessage))) {
         return []
       }
-      return await answerQuestion.call(this, userMessage, conversationHistory)
+      return await answerQuestion.call(this, userMessage, filterModeratorHistory(conversationHistory))
     }
 
     if (this.agentConfig?.moderatorSupport) {
@@ -246,7 +274,7 @@ export default verify({
     const modifiedMessage = { ...userMessage }
     modifiedMessage.body = extractMessageText(userMessage)
 
-    const agentResponses = await answerQuestion.call(this, modifiedMessage, conversationHistory, { forceVisual })
+    const agentResponses = await answerQuestion.call(this, modifiedMessage, filterModeratorHistory(conversationHistory), { forceVisual })
 
     if (this.agentConfig?.moderatorSupport) {
       offerModeratorSubmission(userMessage, agentResponses, this.conversation)

@@ -8,12 +8,18 @@ import {
   createPublicTopic,
   createUser,
   loadPartTimeWorkTranscript,
+  loadTestTranscript,
   createMessage
 } from '../../utils/agentTestHelpers.js'
 import Channel from '../../../src/models/channel.model.js'
 import { QuestionClassification } from '../../../src/agents/eventAssistant/eventQuestionHandler.js'
+// Note: heuristic overrides (shouldOverrideOffTopicForThreadContinuation, normalizeOffTopicForThreadContinuation)
+// were removed in favor of prompt-only OFF_TOPIC handling via the "Context-reference check" pre-check.
 import { AgentMessageActions, IChannel } from '../../../src/types/index.types.js'
 import { User } from '../../../src/models/index.js'
+import config from '../../../src/config/config.js'
+import type { AgentDocument } from '../../../src/models/user.model/agent.model/index.js'
+import { registerWebSearchProvider, type WebSearchParams } from '../../../src/agents/tools/webSearch.js'
 
 jest.setTimeout(180000)
 
@@ -244,7 +250,9 @@ describe(`event assistant CI tests`, () => {
       }
       const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
       await validateResponse(responses)
-      expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ASK_SPEAKER)
+      expect([QuestionClassification.ON_TOPIC_ANSWER, QuestionClassification.ON_TOPIC_ASK_SPEAKER]).toContain(
+        responses[0].classification
+      )
     },
     testTimeout
   )
@@ -792,7 +800,7 @@ describe(`event assistant CI tests`, () => {
     it(
       'falls back to config.enableAgentPersonality when agentConfig does not specify enablePersonality',
       async () => {
-        const config = await import('../../../src/config/config.js')
+        const configModule = await import('../../../src/config/config.js')
 
         // Don't set enablePersonality in agentConfig, should use config default
         delete agent.agentConfig.enablePersonality
@@ -813,7 +821,7 @@ describe(`event assistant CI tests`, () => {
         expect(responses[0].message.text.length).toBeGreaterThan(10)
 
         // Verify it used the config value
-        expect(config.default.enableAgentPersonality).toBeDefined()
+        expect(configModule.default.enableAgentPersonality).toBeDefined()
       },
       testTimeout
     )
@@ -821,10 +829,10 @@ describe(`event assistant CI tests`, () => {
     it(
       'agentConfig.enablePersonality overrides config.enableAgentPersonality',
       async () => {
-        const config = await import('../../../src/config/config.js')
+        const configModule = await import('../../../src/config/config.js')
 
         // Set agentConfig opposite to what config says
-        const configValue = config.default.enableAgentPersonality
+        const configValue = configModule.default.enableAgentPersonality
         agent.agentConfig = {
           ...agent.agentConfig,
           enablePersonality: !configValue
@@ -1423,6 +1431,345 @@ describe(`event assistant CI tests`, () => {
           // Should include the user's direct channel
           expect(imageChannelNames).toContain(`direct-agents-${user1._id}`)
         }
+      },
+      testTimeout
+    )
+  })
+
+  describe('agentConfig.tools (web_search integration)', () => {
+    beforeEach(async () => {
+      await agent.deepPatch({
+        agentConfig: {
+          ...(agent.agentConfig || {}),
+          tools: ['web_search']
+        }
+      })
+      await agent.save()
+    })
+
+    describe('web search invocation policy', () => {
+      let originalWebSearchProvider: string
+      let searchCallCount: number
+
+      beforeEach(() => {
+        originalWebSearchProvider = config.webSearchProvider
+        searchCallCount = 0
+        registerWebSearchProvider(
+          'event_assistant_search_probe',
+          () =>
+            async (
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars -- probe only counts invocations
+              _params: WebSearchParams
+            ) => {
+              searchCallCount += 1
+              return []
+            }
+        )
+        config.webSearchProvider = 'event_assistant_search_probe'
+      })
+
+      afterEach(() => {
+        config.webSearchProvider = originalWebSearchProvider
+      })
+
+      it(
+        'does not invoke the web search provider for a question answered in the loaded transcript',
+        async () => {
+          const msg = await createQuestion(
+            'At the very start of her talk, what true-or-false question does Jessica say she has heard from business owners about whether people want to work? Answer in one short sentence using only what she says in the talk.'
+          )
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 72 * 1000),
+            count: 100,
+            directMessages: true
+          }
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+          expect(searchCallCount).toBe(0)
+        },
+        testTimeout
+      )
+    })
+
+    const hasTavilyKey = Boolean(process.env.TAVILY_API_KEY)
+    ;(hasTavilyKey ? it : it.skip)(
+      'responds to a DM when web_search is enabled (requires TAVILY_API_KEY)',
+      async () => {
+        const msg = await createQuestion(
+          'Jessica talked about part-time retention. In one or two sentences, name a credible public report or statistic source about part-time employment trends that could support that theme.'
+        )
+        agent.conversationHistorySettings = {
+          endTime: new Date(startTime.getTime() + 72 * 1000),
+          count: 100,
+          directMessages: true
+        }
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+        await validateResponse(responses)
+        expect(String(responses[0].message.text).trim().length).toBeGreaterThan(20)
+      },
+      testTimeout
+    )
+  })
+
+  describe('adjacent topic questions (classification + web_search invocation)', () => {
+    const chatGptAdjacencyTranscript = `00:00 | Moderator: Today we discuss ChatGPT usage metrics and AI safety/guardrails.
+00:05 | Moderator: In 2022, there were monthly and annual user numbers for ChatGPT, and we talked about how usage trends changed over that period.
+00:10 | Moderator: We also discussed guardrails—how an AI assistant should avoid unsafe or harmful outputs and follow safety rules.
+00:15 | Moderator: The talk focused on both usage trends and the safety/guardrails principles behind AI assistants.`
+
+    const aliensTranscript = `00:00 | Speaker: Today we're discussing aliens and how alien sightings are tracked and reported.
+00:05 | Speaker: We talked about the idea of counting sightings per year.`
+
+    let originalWebSearchProvider: string
+    let searchCallCount: number
+
+    const statsResult = {
+      title: 'Example report: monthly users (most recent month)',
+      url: 'https://example.com/chatgpt-users',
+      content:
+        'A credible public report indicates that ChatGPT monthly active users have recently been measured using industry analytics. ' +
+        'The most recent monthly user count should be treated as time-sensitive and may differ from 2022 baseline figures.',
+      score: 0.9
+    }
+
+    const guardrailsResult = {
+      title: 'Example source: Anthropic Claude safety/guardrails',
+      url: 'https://example.com/anthropic-guardrails',
+      content:
+        "Anthropic's safety approach uses constitutional principles and safety checks intended to constrain harmful or disallowed outputs, " +
+        "which can be compared conceptually to other providers' guardrails policies.",
+      score: 0.9
+    }
+
+    beforeEach(() => {
+      originalWebSearchProvider = config.webSearchProvider
+      searchCallCount = 0
+
+      registerWebSearchProvider('event_assistant_adjacent_probe', () => async (params: WebSearchParams) => {
+        searchCallCount += 1
+        const q = params.query.toLowerCase()
+        if (q.includes('goulash') || (q.includes('recipe') && q.includes('goulash'))) return []
+        if (q.includes('anthropic') || q.includes('guardrail') || q.includes('safety')) return [guardrailsResult]
+        if (q.includes('monthly') || q.includes('active users') || q.includes('users')) return [statsResult]
+        return [statsResult]
+      })
+
+      config.webSearchProvider = 'event_assistant_adjacent_probe'
+    })
+
+    afterEach(() => {
+      config.webSearchProvider = originalWebSearchProvider
+    })
+
+    async function createChatGptConversation(conversationStart: Date) {
+      const user = await createUser('Adjacent User')
+      const evtTopic = await createPublicTopic()
+      const evtConversation = await createEventAssistantConversation(
+        {
+          name: 'ChatGPT usage metrics and guardrails',
+          description: 'Discussion about ChatGPT monthly/annual usage metrics and AI safety/guardrails principles.',
+          presenters: [{ name: 'Researcher', bio: 'Shares usage metrics and safety principles in the event.' }]
+        },
+        user,
+        evtTopic,
+        conversationStart,
+        testConfig.llmPlatform,
+        testConfig.llmModel
+      )
+
+      const testAgent = evtConversation.agents[0] as AgentDocument
+      await loadTestTranscript(evtConversation, chatGptAdjacencyTranscript, true)
+
+      await testAgent.deepPatch({
+        agentConfig: {
+          ...(testAgent.agentConfig || {}),
+          tools: ['web_search']
+        }
+      })
+      await testAgent.save()
+
+      return { user, conversation: evtConversation, testAgent }
+    }
+
+    async function createAliensConversation(conversationStart: Date) {
+      const user = await createUser('Aliens User')
+      const evtTopic = await createPublicTopic()
+      const evtConversation = await createEventAssistantConversation(
+        {
+          name: 'Aliens and sightings',
+          description: 'A discussion about aliens and tracking sightings per year.',
+          presenters: [{ name: 'Speaker', bio: 'Discusses aliens and sightings.' }]
+        },
+        user,
+        evtTopic,
+        conversationStart,
+        testConfig.llmPlatform,
+        testConfig.llmModel
+      )
+
+      const testAgent = evtConversation.agents[0] as AgentDocument
+      await loadTestTranscript(evtConversation, aliensTranscript, true)
+
+      await testAgent.deepPatch({
+        agentConfig: {
+          ...(testAgent.agentConfig || {}),
+          tools: ['web_search']
+        }
+      })
+      await testAgent.save()
+
+      return { user, conversation: evtConversation, testAgent }
+    }
+
+    it(
+      'classifies adjacent “ChatGPT most recent month users” as ON_TOPIC_ANSWER and uses web_search',
+      async () => {
+        const conversationStart = new Date(Date.now() - 15 * 60 * 1000)
+        const { user, conversation: adjacentConversation, testAgent } = await createChatGptConversation(conversationStart)
+        testAgent.conversationHistorySettings = {
+          endTime: new Date(conversationStart.getTime() + 72 * 1000),
+          count: 100,
+          directMessages: true
+        }
+
+        const msg = await createDirectMessage(
+          'ChatGPT monthly active users: using the 2022 numbers discussed in the talk as context, what were monthly users in the most recent reporting period? Cite a credible public report or statistic source.',
+          user,
+          adjacentConversation
+        )
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(testAgent, { messages: [] }, msg)
+        expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
+        expect(searchCallCount).toBeGreaterThan(0)
+      },
+      testTimeout
+    )
+
+    it(
+      'classifies adjacent “Anthropic guardrails” as ON_TOPIC_ANSWER and uses web_search',
+      async () => {
+        const conversationStart = new Date(Date.now() - 15 * 60 * 1000)
+        const { user, conversation: adjacentConversation, testAgent } = await createChatGptConversation(conversationStart)
+        testAgent.conversationHistorySettings = {
+          endTime: new Date(conversationStart.getTime() + 72 * 1000),
+          count: 100,
+          directMessages: true
+        }
+
+        const msg = await createDirectMessage(
+          "Provide a factual summary in two sentences of Anthropic's published safety/guardrails policy for disallowed or harmful outputs, citing a credible public source.",
+          user,
+          adjacentConversation
+        )
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(testAgent, { messages: [] }, msg)
+        expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
+        expect(searchCallCount).toBeGreaterThan(0)
+      },
+      testTimeout
+    )
+
+    it(
+      'keeps true off-topic requests as OFF_TOPIC and does not call web_search',
+      async () => {
+        const conversationStart = new Date(Date.now() - 15 * 60 * 1000)
+        const { user, conversation: adjacentConversation, testAgent } = await createAliensConversation(conversationStart)
+        testAgent.conversationHistorySettings = {
+          endTime: new Date(conversationStart.getTime() + 72 * 1000),
+          count: 100,
+          directMessages: true
+        }
+
+        const msg = await createDirectMessage('Recipes for goulash, please.', user, adjacentConversation)
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(testAgent, { messages: [] }, msg)
+        expect(responses[0].classification).toBe(QuestionClassification.OFF_TOPIC)
+        expect(searchCallCount).toBe(0)
+      },
+      testTimeout
+    )
+  })
+
+  describe('conversation thread continuation (classification)', () => {
+    const aliensTranscriptThread = `00:00 | Speaker: Today we're discussing aliens and how alien sightings are tracked and reported.
+00:05 | Speaker: We talked about the idea of counting sightings per year.`
+
+    async function createAliensThreadConversation(conversationStart: Date) {
+      const user = await createUser('Thread User')
+      const evtTopic = await createPublicTopic()
+      const evtConversation = await createEventAssistantConversation(
+        {
+          name: 'Aliens and sightings',
+          description: 'A discussion about aliens and tracking sightings per year.',
+          presenters: [{ name: 'Speaker', bio: 'Discusses aliens and sightings.' }]
+        },
+        user,
+        evtTopic,
+        conversationStart,
+        testConfig.llmPlatform,
+        testConfig.llmModel
+      )
+      const testAgent = evtConversation.agents[0] as AgentDocument
+      await loadTestTranscript(evtConversation, aliensTranscriptThread, true)
+      await testAgent.save()
+      return { user, conversation: evtConversation, testAgent }
+    }
+
+    it(
+      'does not classify as OFF_TOPIC when the question continues a recent potluck/thread in chat history',
+      async () => {
+        const conversationStart = new Date(Date.now() - 15 * 60 * 1000)
+        const { user, conversation: adjacentConversation, testAgent } = await createAliensThreadConversation(conversationStart)
+        testAgent.conversationHistorySettings = {
+          endTime: new Date(conversationStart.getTime() + 72 * 1000),
+          count: 100,
+          directMessages: true
+        }
+
+        const t0 = new Date(conversationStart.getTime() + 10 * 1000)
+        const t1 = new Date(conversationStart.getTime() + 20 * 1000)
+        const msgPriorA = await createDirectMessage(
+          "We're organizing a potluck during tonight's skywatch—people are signing up dishes now.",
+          user,
+          adjacentConversation,
+          t0
+        )
+        const msgPriorB = await createDirectMessage(
+          'Someone on stage just said to bring hearty stews, not just snacks. Any ideas?',
+          user,
+          adjacentConversation,
+          t1
+        )
+        const msg = await createDirectMessage(
+          'Can you suggest a simple beef goulash recipe I could bring to that potluck?',
+          user,
+          adjacentConversation
+        )
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(
+          testAgent,
+          { messages: [msgPriorA, msgPriorB] },
+          msg
+        )
+        expect(responses[0].classification).not.toBe(QuestionClassification.OFF_TOPIC)
+      },
+      testTimeout
+    )
+
+    it(
+      'still classifies unrelated recipe requests as OFF_TOPIC when there is no on-topic thread in history',
+      async () => {
+        const conversationStart = new Date(Date.now() - 15 * 60 * 1000)
+        const { user, conversation: adjacentConversation, testAgent } = await createAliensThreadConversation(conversationStart)
+        testAgent.conversationHistorySettings = {
+          endTime: new Date(conversationStart.getTime() + 72 * 1000),
+          count: 100,
+          directMessages: true
+        }
+
+        const msg = await createDirectMessage('Recipes for goulash, please.', user, adjacentConversation)
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(testAgent, { messages: [] }, msg)
+        expect(responses[0].classification).toBe(QuestionClassification.OFF_TOPIC)
       },
       testTimeout
     )

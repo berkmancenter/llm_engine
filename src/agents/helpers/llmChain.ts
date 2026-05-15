@@ -164,12 +164,14 @@ function createAgentOutputChain(responseSchema?) {
     const { messages } = agentResult
 
     // Log tool calls for debugging
+    let totalToolCalls = 0
     messages.forEach((msg, idx) => {
       const msgType = msg._getType()
       if (msgType === 'ai') {
         // Type guard: check if message has tool_calls property
         const aiMsg = msg as { tool_calls?: Array<{ name: string; args: unknown; id?: string }> }
         if (aiMsg.tool_calls && aiMsg.tool_calls.length > 0) {
+          totalToolCalls += aiMsg.tool_calls.length
           logger.debug(`[${idx}] AIMessage with ${aiMsg.tool_calls.length} tool calls:`)
           aiMsg.tool_calls.forEach((tc) => {
             logger.debug(`  - Tool: ${tc.name}`)
@@ -178,6 +180,11 @@ function createAgentOutputChain(responseSchema?) {
         }
       }
     })
+    if (totalToolCalls === 0) {
+      logger.debug('Agent completed without invoking any tools')
+    } else {
+      logger.debug(`Agent completed with ${totalToolCalls} total tool call(s)`)
+    }
 
     return messages[messages.length - 1]
   }
@@ -195,6 +202,26 @@ function createAgentOutputChain(responseSchema?) {
   }
 
   return RunnableSequence.from([logAndExtractStep, parseStep])
+}
+
+export type AgentToolCallTraceEntry = { name: string; args: unknown }
+
+export type AgentToolCallTrace = { invoked: boolean; calls: AgentToolCallTraceEntry[] }
+
+/**
+ * Collect tool calls from a LangChain agent invoke result (for observability / debug).
+ */
+function extractToolCallTraceFromAgentResult(agentResult: { messages: unknown[] }): AgentToolCallTrace {
+  const calls: AgentToolCallTraceEntry[] = []
+  for (const msg of agentResult.messages) {
+    const typed = msg as { _getType?: () => string; tool_calls?: Array<{ name?: string; args?: unknown }> }
+    if (typed._getType?.() === 'ai') {
+      for (const tc of typed.tool_calls || []) {
+        if (tc?.name) calls.push({ name: tc.name, args: tc.args })
+      }
+    }
+  }
+  return { invoked: calls.length > 0, calls }
 }
 
 /**
@@ -452,6 +479,22 @@ async function getRAGAugmentedResponse(
 /**
  * Executes an agent with tools and returns a structured or string response.
  *
+ * **Preflight (LangChain / callers):** This repo uses `langchain@^1` and `@langchain/core@^1` with
+ * `createAgent` from `langchain`. The agent runs `model` + `tools` + `systemPrompt` (as a `SystemMessage`),
+ * then `agent.invoke({ messages }, { recursionLimit })`. Tool invocation is **model-discretionary** unless
+ * the provider stack adds `tool_choice` or forced-tool behavior (not configured here).
+ *
+ * **Call-site parity:**
+ * - **Event Assistant** (`eventQuestionHandler.ts`): `responseSchema` is `undefined` — final user text via
+ *   `StringOutputParser` on the last AI message (string path).
+ * - **Librarian** (`librarianAgent.ts`): passes a Zod `responseSchema` — structured parse after the agent
+ *   completes (Semantic Scholar tools + structured recommendations).
+ * - **Event Historian** (`eventHistorian.ts`): tools + `responseSchema` undefined — same string path as
+ *   Event Assistant.
+ *
+ * Bedrock: elsewhere in this file, notes on mixing native structured output with heterogeneous tool types;
+ * Event Assistant uses normal function tools + optional string output only.
+ *
  * This function creates and invokes a LangChain agent with the provided tools,
  * then extracts and optionally parses the final response. It handles common
  * post-processing like stripping markdown code fences.
@@ -474,7 +517,8 @@ async function getAgentStructuredResponse(
   userMessage,
   responseSchema?,
   chatHistory?,
-  recursionLimit = 20
+  recursionLimit = 20,
+  options?: { returnToolTrace?: boolean }
 ) {
   // Add format instructions to system prompt if schema is provided
   let finalSystemPrompt = systemPrompt
@@ -509,8 +553,16 @@ ${parser.getFormatInstructions()}`
     { recursionLimit }
   )
 
+  const wantTrace = options?.returnToolTrace === true && responseSchema == null
+  const toolTrace = wantTrace ? extractToolCallTraceFromAgentResult(agentResult) : undefined
+
   const outputChain = createAgentOutputChain(responseSchema)
-  return outputChain.invoke(agentResult)
+  const out = await outputChain.invoke(agentResult)
+
+  if (toolTrace !== undefined) {
+    return { text: out as string, toolTrace }
+  }
+  return out
 }
 
 export {
@@ -520,5 +572,6 @@ export {
   shouldUseStructuredOutput,
   pingLLM,
   getStructuredResponseChain,
-  getAgentStructuredResponse
+  getAgentStructuredResponse,
+  extractToolCallTraceFromAgentResult
 }

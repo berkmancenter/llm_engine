@@ -94,6 +94,10 @@ const envVarsSchema = Joi.object()
       .default('gemini-3-pro-image-preview')
       .description('Model to use for image generation tasks'),
     SEMANTIC_SCHOLAR_API_KEY: Joi.string().description('Semantic Scholar API key for agent tools'),
+    TAVILY_API_KEY: Joi.string().description('Tavily API key for web search tool'),
+    WEB_SEARCH_PROVIDER: Joi.string()
+      .default('tavily')
+      .description('Web search provider to use (e.g. tavily, brave, serpapi)'),
     CONVERSATION_AUTO_START_LEAD_TIME_MINUTES: Joi.number()
       .default(5)
       .description('Minutes before scheduledTime to auto-start a conversation'),
@@ -223,6 +227,10 @@ const config = {
   semanticScholar: {
     apiKey: envVars.SEMANTIC_SCHOLAR_API_KEY
   },
+  tavily: {
+    apiKey: envVars.TAVILY_API_KEY
+  },
+  webSearchProvider: envVars.WEB_SEARCH_PROVIDER,
   conversation: {
     autoStartLeadTimeMs: envVars.CONVERSATION_AUTO_START_LEAD_TIME_MINUTES * 60 * 1000,
     autoStopDelayMs: envVars.CONVERSATION_AUTO_STOP_DELAY_MINUTES * 60 * 1000

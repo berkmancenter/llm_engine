@@ -6,6 +6,7 @@ import { eventAssistantLLMTemplates, eventAssistantLlmTemplateVars, answerQuesti
 import { extractMessageText } from '../helpers/slashCommandParser.js'
 import { matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 import logger from '../../config/logger.js'
+import getDefaultEventAssistantToolNames from './eventAssistantDefaultTools.js'
 
 const heyMatchThreshold = 85
 
@@ -62,6 +63,9 @@ export default verify({
   maxTokens: 2000,
   defaultTriggers: {
     perMessage: { channels: ['transcript'] }
+  },
+  agentConfig: {
+    tools: getDefaultEventAssistantToolNames()
   },
   llmTemplateVars: eventAssistantLlmTemplateVars,
   defaultLLMTemplates: eventAssistantLLMTemplates,
