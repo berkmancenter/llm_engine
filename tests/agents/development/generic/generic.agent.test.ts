@@ -121,8 +121,8 @@ describe('generic agent tests', () => {
     const responses = await agent.respond()
 
     expect(responses).toHaveLength(1)
-    expect(responses[0].body).toEqual('I am an un-configured Generic Agent. Please configure me.')
-    expect(responses[0].bodyType).toBe('text')
+    expect(responses[0].message).toEqual('I am an un-configured Generic Agent. Please configure me.')
+    expect(responses[0].messageType).toBe('text')
   })
 
   it('defaults to action CONTRIBUTE and outputs appropriate responses', async () => {
@@ -141,10 +141,10 @@ describe('generic agent tests', () => {
     const responses = await agent.respond()
 
     expect(responses).toHaveLength(1)
-    expect(typeof responses[0].body).toBe('string')
-    expect(responses[0].bodyType).toBe('text')
-    expect(responses[0].body).toContain('hot fudge sundae')
-    expect(responses[0].body).toContain('Curious Cat')
+    expect(typeof responses[0].message).toBe('string')
+    expect(responses[0].messageType).toBe('text')
+    expect(responses[0].message).toContain('hot fudge sundae')
+    expect(responses[0].message).toContain('Curious Cat')
   })
 
   it('uses provided model options', async () => {
@@ -168,10 +168,10 @@ describe('generic agent tests', () => {
     const responses = await agent.respond()
 
     expect(responses).toHaveLength(1)
-    expect(typeof responses[0].body).toBe('string')
-    expect(responses[0].bodyType).toBe('text')
-    expect(responses[0].body).toContain('compliment of the day')
-    expect(responses[0].body).toContain('Curious Cat')
+    expect(typeof responses[0].message).toBe('string')
+    expect(responses[0].messageType).toBe('text')
+    expect(responses[0].message).toContain('compliment of the day')
+    expect(responses[0].message).toContain('Curious Cat')
 
     const llm = await agent.getLLM()
     expect(llm.model).toBe('gpt-4')
@@ -234,12 +234,12 @@ describe('generic agent tests', () => {
     const responses = await agent.respond()
 
     expect(responses).toHaveLength(1)
-    expect(typeof responses[0].body).toBe('object')
-    expect(responses[0].bodyType).toBe('json')
-    expect(responses[0].body).toHaveProperty('temperature')
-    expect(typeof responses[0].body.temperature).toBe('number')
-    expect(responses[0].body).toHaveProperty('condition')
-    expect(typeof responses[0].body.condition).toBe('string')
+    expect(typeof responses[0].message).toBe('object')
+    expect(responses[0].messageType).toBe('json')
+    expect(responses[0].message).toHaveProperty('temperature')
+    expect(typeof responses[0].message.temperature).toBe('number')
+    expect(responses[0].message).toHaveProperty('condition')
+    expect(typeof responses[0].message.condition).toBe('string')
   })
 
   it('can output complex structured data with arrays', async () => {
@@ -304,20 +304,20 @@ describe('generic agent tests', () => {
     const responses = await agent.respond()
 
     expect(responses).toHaveLength(1)
-    expect(typeof responses[0].body).toBe('object')
-    expect(responses[0].bodyType).toBe('json')
+    expect(typeof responses[0].message).toBe('object')
+    expect(responses[0].messageType).toBe('json')
 
     // Check top-level properties
-    expect(responses[0].body).toHaveProperty('recommendations')
-    expect(Array.isArray(responses[0].body.recommendations)).toBe(true)
-    expect(responses[0].body.recommendations.length).toBeGreaterThan(0)
-    expect(responses[0].body).toHaveProperty('searchLocation')
-    expect(typeof responses[0].body.searchLocation).toBe('string')
-    expect(responses[0].body).toHaveProperty('totalResults')
-    expect(typeof responses[0].body.totalResults).toBe('number')
+    expect(responses[0].message).toHaveProperty('recommendations')
+    expect(Array.isArray(responses[0].message.recommendations)).toBe(true)
+    expect(responses[0].message.recommendations.length).toBeGreaterThan(0)
+    expect(responses[0].message).toHaveProperty('searchLocation')
+    expect(typeof responses[0].message.searchLocation).toBe('string')
+    expect(responses[0].message).toHaveProperty('totalResults')
+    expect(typeof responses[0].message.totalResults).toBe('number')
 
     // Check restaurant object structure
-    const firstRestaurant = responses[0].body.recommendations[0]
+    const firstRestaurant = responses[0].message.recommendations[0]
     expect(firstRestaurant).toHaveProperty('name')
     expect(typeof firstRestaurant.name).toBe('string')
     expect(firstRestaurant).toHaveProperty('cuisine')

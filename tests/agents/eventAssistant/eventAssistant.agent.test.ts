@@ -455,15 +455,15 @@ describe(`event assistant CI tests`, () => {
     ])
     const msgs = await agent.introduce(directChannel)
     expect(msgs).toHaveLength(1)
-    expect(msgs[0].bodyType).toBe('json')
-    expect(msgs[0].body.type).toBe('intro')
+    expect(msgs[0].messageType).toBe('json')
+    expect(msgs[0].message.type).toBe('intro')
     // Should contain the rendered bot name (template vars resolved)
-    expect(msgs[0].body.text).toContain(agent.agentConfig.botName)
-    expect(msgs[0].body.text).not.toContain('{{agentConfig.botName}}')
+    expect(msgs[0].message.text).toContain(agent.agentConfig.botName)
+    expect(msgs[0].message.text).not.toContain('{{agentConfig.botName}}')
     // Should contain a fun fact about the pseudonym
-    expect(msgs[0].body.text).toMatch(/fun fact about your pseudonym:/i)
+    expect(msgs[0].message.text).toMatch(/fun fact about your pseudonym:/i)
     // Should mention the pseudonym or at least "badger" (the noun part)
-    expect(msgs[0].body.text.toLowerCase()).toMatch(/badger/)
+    expect(msgs[0].message.text.toLowerCase()).toMatch(/badger/)
     expect(msgs[0].channels).toHaveLength(1)
     expect(msgs[0].channels[0]).toEqual(directChannel)
   })
@@ -472,11 +472,11 @@ describe(`event assistant CI tests`, () => {
     const [chatChannel] = await Channel.create([{ name: 'chat' }])
     const msgs = await agent.introduce(chatChannel)
     expect(msgs).toHaveLength(1)
-    expect(msgs[0].bodyType).toBe('json')
-    expect(msgs[0].body.type).toBe('intro')
+    expect(msgs[0].messageType).toBe('json')
+    expect(msgs[0].message.type).toBe('intro')
     // chatIntroMessage is a template — verify the bot name was rendered into it
-    expect(msgs[0].body.text).toContain(`@${agent.agentConfig.botName}`)
-    expect(msgs[0].body.text).not.toContain('{{agentConfig.botName}}')
+    expect(msgs[0].message.text).toContain(`@${agent.agentConfig.botName}`)
+    expect(msgs[0].message.text).not.toContain('{{agentConfig.botName}}')
     expect(msgs[0].channels).toHaveLength(1)
     expect(msgs[0].channels[0]).toEqual(chatChannel)
   })
@@ -489,9 +489,9 @@ describe(`event assistant CI tests`, () => {
     const [chatChannel] = await Channel.create([{ name: 'chat' }])
     const msgs = await agent.introduce(chatChannel)
     expect(msgs).toHaveLength(1)
-    expect(msgs[0].bodyType).toBe('json')
-    expect(msgs[0].body.type).toBe('intro')
-    expect(msgs[0].body.text).toEqual(`Welcome to ${conversation.name}!`)
+    expect(msgs[0].messageType).toBe('json')
+    expect(msgs[0].message.type).toBe('intro')
+    expect(msgs[0].message.text).toEqual(`Welcome to ${conversation.name}!`)
   })
 
   it('does not introduce itself on non-direct or chat channels', async () => {
@@ -600,10 +600,10 @@ describe(`event assistant CI tests`, () => {
       ])
       const msgs = await agent.introduce(directChannel)
       expect(msgs).toHaveLength(1)
-      expect(msgs[0].bodyType).toBe('json')
-      expect(msgs[0].body.type).toBe('intro')
-      expect(msgs[0].body.text).toContain(customBotName)
-      expect(msgs[0].body.text).not.toContain('{{agentConfig.botName}}')
+      expect(msgs[0].messageType).toBe('json')
+      expect(msgs[0].message.type).toBe('intro')
+      expect(msgs[0].message.text).toContain(customBotName)
+      expect(msgs[0].message.text).not.toContain('{{agentConfig.botName}}')
     })
 
     it('includes custom botName in rendered chat intro message', async () => {
@@ -614,10 +614,10 @@ describe(`event assistant CI tests`, () => {
       const [chatChannel] = await Channel.create([{ name: 'chat' }])
       const msgs = await agent.introduce(chatChannel)
       expect(msgs).toHaveLength(1)
-      expect(msgs[0].bodyType).toBe('json')
-      expect(msgs[0].body.type).toBe('intro')
-      expect(msgs[0].body.text).toContain(`@${customBotName}`)
-      expect(msgs[0].body.text).not.toContain('{{agentConfig.botName}}')
+      expect(msgs[0].messageType).toBe('json')
+      expect(msgs[0].message.type).toBe('intro')
+      expect(msgs[0].message.text).toContain(`@${customBotName}`)
+      expect(msgs[0].message.text).not.toContain('{{agentConfig.botName}}')
     })
   })
 
@@ -630,9 +630,9 @@ describe(`event assistant CI tests`, () => {
     const msgs = await agent.introduce(directChannel)
 
     expect(msgs).toHaveLength(1)
-    expect(msgs[0].bodyType).toBe('json')
-    expect(msgs[0].body.type).toBe('intro')
-    const introMessage = msgs[0].body.text
+    expect(msgs[0].messageType).toBe('json')
+    expect(msgs[0].message.type).toBe('intro')
+    const introMessage = msgs[0].message.text
 
     // Should contain the rendered bot name (template vars resolved)
     expect(introMessage).toContain(agent.agentConfig.botName)
@@ -659,12 +659,12 @@ describe(`event assistant CI tests`, () => {
       ])
       const msgs = await agent.introduce(directChannel, 'zoom')
       expect(msgs).toHaveLength(1)
-      expect(msgs[0].bodyType).toBe('json')
-      expect(msgs[0].body.type).toBe('intro')
-      expect(msgs[0].body.text).toContain(agent.agentConfig.botName)
-      expect(msgs[0].body.text).not.toContain('{{agentConfig.botName}}')
+      expect(msgs[0].messageType).toBe('json')
+      expect(msgs[0].message.type).toBe('intro')
+      expect(msgs[0].message.text).toContain(agent.agentConfig.botName)
+      expect(msgs[0].message.text).not.toContain('{{agentConfig.botName}}')
       // Zoom DM uses the zoomIntroMessage template
-      expect(msgs[0].body.text).toContain('Ask me anything about the event')
+      expect(msgs[0].message.text).toContain('Ask me anything about the event')
     })
 
     it('does not include fun fact in zoom DM intro', async () => {
@@ -674,19 +674,19 @@ describe(`event assistant CI tests`, () => {
       const msgs = await agent.introduce(directChannel, 'zoom')
       expect(msgs).toHaveLength(1)
       // Fun fact is suppressed for zoom adapter
-      expect(msgs[0].body.text).not.toMatch(/fun fact about your pseudonym:/i)
+      expect(msgs[0].message.text).not.toMatch(/fun fact about your pseudonym:/i)
     })
 
     it('uses zoomChatIntroMessage for zoom chat intro', async () => {
       const [chatChannel] = await Channel.create([{ name: 'chat' }])
       const msgs = await agent.introduce(chatChannel, 'zoom')
       expect(msgs).toHaveLength(1)
-      expect(msgs[0].bodyType).toBe('json')
-      expect(msgs[0].body.type).toBe('intro')
-      expect(msgs[0].body.text).toContain(agent.agentConfig.botName)
-      expect(msgs[0].body.text).not.toContain('{{agentConfig.botName}}')
+      expect(msgs[0].messageType).toBe('json')
+      expect(msgs[0].message.type).toBe('intro')
+      expect(msgs[0].message.text).toContain(agent.agentConfig.botName)
+      expect(msgs[0].message.text).not.toContain('{{agentConfig.botName}}')
       // zoomChatIntroMessage prompts DM for private questions
-      expect(msgs[0].body.text).toContain('send me a DM')
+      expect(msgs[0].message.text).toContain('send me a DM')
     })
 
     it('non-zoom DM intro still includes fun fact', async () => {
@@ -695,7 +695,7 @@ describe(`event assistant CI tests`, () => {
       ])
       const msgs = await agent.introduce(directChannel)
       expect(msgs).toHaveLength(1)
-      expect(msgs[0].body.text).toMatch(/fun fact about your pseudonym:/i)
+      expect(msgs[0].message.text).toMatch(/fun fact about your pseudonym:/i)
     })
   })
 
@@ -1719,7 +1719,11 @@ describe(`event assistant CI tests`, () => {
       'does not classify as OFF_TOPIC when the question continues a recent potluck/thread in chat history',
       async () => {
         const conversationStart = new Date(Date.now() - 15 * 60 * 1000)
-        const { user, conversation: adjacentConversation, testAgent } = await createAliensThreadConversation(conversationStart)
+        const {
+          user,
+          conversation: adjacentConversation,
+          testAgent
+        } = await createAliensThreadConversation(conversationStart)
         testAgent.conversationHistorySettings = {
           endTime: new Date(conversationStart.getTime() + 72 * 1000),
           count: 100,
@@ -1760,7 +1764,11 @@ describe(`event assistant CI tests`, () => {
       'still classifies unrelated recipe requests as OFF_TOPIC when there is no on-topic thread in history',
       async () => {
         const conversationStart = new Date(Date.now() - 15 * 60 * 1000)
-        const { user, conversation: adjacentConversation, testAgent } = await createAliensThreadConversation(conversationStart)
+        const {
+          user,
+          conversation: adjacentConversation,
+          testAgent
+        } = await createAliensThreadConversation(conversationStart)
         testAgent.conversationHistorySettings = {
           endTime: new Date(conversationStart.getTime() + 72 * 1000),
           count: 100,
