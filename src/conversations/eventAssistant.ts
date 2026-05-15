@@ -3,6 +3,8 @@ import adapterTypes from '../adapters/config.js'
 import { ConversationType, Direction } from '../types/index.types.js'
 import config from '../config/config.js'
 
+export const ZOOM_MEETING_URL_PROPERTY = 'zoomMeetingUrl' as const
+
 const eventAssistant: ConversationType = {
   // user-facing
   name: 'eventAssistant',

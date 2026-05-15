@@ -13,6 +13,7 @@ import {
   lookupTopicByName
 } from './fieldCollection.js'
 import logger from '../../config/logger.js'
+import { SETUP_CHANNEL_NAME } from '../../conversations/eventSetup.js'
 
 const SETUP_INTENT_PATTERNS = [/\bsetup\b/i, /\bcreate event\b/i, /\bcreate an? event\b/i, /\bnew event\b/i]
 
@@ -22,7 +23,7 @@ export default verify({
   priority: 100,
   maxTokens: 4000,
   defaultTriggers: {
-    perMessage: { channels: ['setup'] }
+    perMessage: { channels: [SETUP_CHANNEL_NAME] }
   },
   agentConfig: {
     botName: 'Eventbot'
@@ -32,7 +33,7 @@ export default verify({
   defaultLLMPlatform,
   defaultLLMModel,
   ragCollectionName: undefined,
-  defaultConversationHistorySettings: { count: 50, channels: ['setup'] },
+  defaultConversationHistorySettings: { count: 50, channels: [SETUP_CHANNEL_NAME] },
 
   async evaluate(userMessage) {
     const body = userMessage?.body ?? ''
@@ -64,7 +65,7 @@ export default verify({
   },
 
   async respond(conversationHistory: ConversationHistory, userMessage) {
-    const setupChannel = this.conversation.channels.find((channel) => channel.name === 'setup')
+    const setupChannel = this.conversation.channels.find((channel) => channel.name === SETUP_CHANNEL_NAME)
     const channels = setupChannel ? [setupChannel] : []
     // Reply in-thread so the setup exchange stays grouped under the
     // organizer's first message.

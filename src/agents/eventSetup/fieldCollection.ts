@@ -2,6 +2,8 @@ import { z } from 'zod'
 import mongoose from 'mongoose'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { ConversationHistory, IMessage } from '../../types/index.types.js'
+import { getConversationType } from '../../conversations/index.js'
+import { ZOOM_MEETING_URL_PROPERTY } from '../../conversations/eventAssistant.js'
 
 // Lazy imports to avoid a circular dependency: these modules load the agent
 // registry, which imports this file.
@@ -212,11 +214,14 @@ export async function createEvent(fields: CollectedFields, topicId: mongoose.Typ
       type: 'eventAssistant',
       name: fields.eventName,
       description: fields.description,
-      platforms: ['zoom'],
+      platforms: ['nextspace', 'zoom'],
       topicId: topicId.toString(),
       properties: {
-        zoomMeetingUrl: fields.zoomLink
+        [ZOOM_MEETING_URL_PROPERTY]: fields.zoomLink
       },
+      features: (getConversationType('eventAssistant')?.features ?? [])
+        .filter(f => f.default)
+        .map(f => ({ name: f.name })),
       scheduledTime: fields.dateTime,
       presenters: fields.speakers ?? [],
       moderators: fields.moderators ?? []
@@ -425,7 +430,7 @@ export function formatCompletionReply(event, fields?: CollectedFields): string {
       )
     })
   }
-  const zoomLink = event.properties?.zoomMeetingUrl ?? fields?.zoomLink
+  const zoomLink = event.properties?.[ZOOM_MEETING_URL_PROPERTY] ?? fields?.zoomLink
   // The conversation model stores scheduledTime + scheduledEndTime, not
   // duration — so we fall back to the collected fields for the deep-link
   // start/duration pair.
