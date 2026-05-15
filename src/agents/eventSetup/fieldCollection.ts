@@ -3,6 +3,7 @@ import mongoose from 'mongoose'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { ConversationHistory, IMessage } from '../../types/index.types.js'
 import { getConversationType } from '../../conversations/index.js'
+import logger from '../../config/logger.js'
 import {
   ZOOM_MEETING_URL_PROPERTY,
   TRANSCRIPT_CHANNEL,
@@ -121,6 +122,11 @@ const collectedFieldsSchema = z.object({
  */
 export function getThreadMessages(history: ConversationHistory, userMessage: IMessage): IMessage[] {
   if (!userMessage.parentMessage) {
+    if (history.messages.length > 0) {
+      logger.warn(
+        `eventSetup getThreadMessages: root message with no parentMessage but history has ${history.messages.length} messages — prior context will not be included in extraction`
+      )
+    }
     return [userMessage]
   }
   const parentId = userMessage.parentMessage.toString()
@@ -165,6 +171,7 @@ export async function extractFieldsFromThread(
   // Strip bot @-mentions before the LLM sees the transcript so they can't
   // be misread as part of a field value (e.g. "@Eventbot Setup Test" → "Setup Test").
   const escapedBotName = botName?.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // eslint-disable-next-line security/detect-non-literal-regexp
   const mentionPattern = escapedBotName ? new RegExp(`@${escapedBotName}\\b`, 'gi') : null
   const transcript = thread
     .map((m) => {
@@ -190,14 +197,12 @@ export async function extractFieldsFromThread(
     // Warn if the LLM returned nothing but the thread had agent prompts already.
     // That means we just lost state and the user will see the flow restart.
     if (Object.keys(fields).length === 0 && thread.some((m) => m.fromAgent)) {
-      const { default: logger } = await import('../../config/logger.js')
       logger.warn(
         `eventSetup extractFieldsFromThread returned empty for a thread with ${thread.length} messages. Transcript:\n${transcript}`
       )
     }
     return fields
   } catch (err) {
-    const { default: logger } = await import('../../config/logger.js')
     logger.error(`eventSetup extractFieldsFromThread failed: ${(err as Error).message}`)
     return {}
   }
@@ -253,8 +258,8 @@ export async function createEvent(fields: CollectedFields, topicId: mongoose.Typ
         .filter(f => f.default)
         .map(f => ({ name: f.name })),
       scheduledTime: fields.dateTime,
-      presenters: fields.speakers ?? [],
-      moderators: fields.moderators ?? []
+      presenters: fields.skipSpeakers ? [] : (fields.speakers ?? []),
+      moderators: fields.skipModerators ? [] : (fields.moderators ?? [])
     },
     owner
   )
@@ -459,11 +464,9 @@ export function formatCompletionReply(event, fields?: CollectedFields): string {
     // moderatorSupport is on, but we couldn't build a link — usually means
     // the moderator channel passcode was stripped when the conversation was
     // re-fetched (passcodes are only returned to the owner or an admin).
-    import('../../config/logger.js').then(({ default: logger }) => {
-      logger.warn(
-        `eventSetup: moderator link is empty even though moderatorSupport is enabled on conversation ${event?._id ?? event?.id}. Check that the topic owner can see channel passcodes.`
-      )
-    })
+    logger.warn(
+      `eventSetup: moderator link is empty even though moderatorSupport is enabled on conversation ${event?._id ?? event?.id}. Check that the topic owner can see channel passcodes.`
+    )
   }
   const zoomLink = event.properties?.[ZOOM_MEETING_URL_PROPERTY] ?? fields?.zoomLink
   // The conversation model stores scheduledTime + scheduledEndTime, not
