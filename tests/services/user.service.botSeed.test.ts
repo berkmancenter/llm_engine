@@ -9,7 +9,7 @@ const BOT_USERNAME = 'event-setup-bot'
 
 describe('ensureEventSetupBotUser()', () => {
   describe('user creation', () => {
-    it('creates a user with the eventSetupBot role and returns its ID', async () => {
+    it('creates a user with the serviceAccount role and returns its ID', async () => {
       const id = await userService.ensureEventSetupBotUser()
 
       expect(id).toBeDefined()
@@ -17,7 +17,7 @@ describe('ensureEventSetupBotUser()', () => {
 
       const user = await User.findOne({ username: BOT_USERNAME })
       expect(user).not.toBeNull()
-      expect(user!.role).toBe('eventSetupBot')
+      expect(user!.role).toBe('serviceAccount')
     })
 
     it('creates exactly one user document', async () => {
@@ -54,7 +54,7 @@ describe('ensureEventSetupBotUser()', () => {
     it('finds and returns an existing bot user ID when one already exists', async () => {
       const existing = await User.create({
         username: BOT_USERNAME,
-        role: 'eventSetupBot',
+        role: 'serviceAccount',
         pseudonyms: [{ token: 'test-token', pseudonym: 'EventSetupBot', active: true }]
       })
 

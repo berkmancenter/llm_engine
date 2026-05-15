@@ -364,7 +364,7 @@ const ensureEventSetupBotUser = async (): Promise<string> => {
   if (!user) {
     user = await User.create({
       username,
-      role: 'eventSetupBot',
+      role: 'serviceAccount',
       pseudonyms: [{ token: newToken(), pseudonym: 'EventSetupBot', active: true }]
     })
     logger.info(`Created event setup bot user: ${user._id}`)
