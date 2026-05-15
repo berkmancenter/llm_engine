@@ -745,6 +745,143 @@ const designWorkshopTranscript = `00:15 | Marcus: Alright everyone, welcome to o
 23:58 | Marcus: Don't overthink it. Scrappy is good. We're testing concepts, not building products.
 24:06 | Marcus: Go!`
 
+/**
+ * NOTE: this video transcript is excerpted from
+ * the Duke University YouTube channel
+ * 'James Boyle | The Line: AI and the Future of Personhood: Faculty Author Celebration'
+ * Available at: https://www.youtube.com/watch?v=4VOv6ON5aN8
+ * Talk matching the boyle_line rag_documents collection (Foucault in Cyberspace,
+ * The Public Domain).
+ */
+export const theLineTranscript = `08:21 | Joseph: And I just want to pick up
+08:23 | Joseph: on one of the words you use there of compassion and empathy.
+08:26 | Joseph: So many of the passages in this book, at least for me,
+08:29 | Joseph: they're very intuition pumping exercises of like,
+08:31 | Joseph: how do you respond to this particular scene or scenario
+08:34 | Joseph: or whatever?
+08:35 | Joseph: And what does that tell us maybe about where
+08:37 | Joseph: the line might be drawn?
+08:38 | Joseph: I imagine that'll be true for many readers.
+08:40 | Joseph: These are tools that are familiar to all of us,
+08:42 | Joseph: these very human responses.
+08:44 | Joseph: I was put in mind of the Mars Rover,
+08:47 | Joseph: which some of you may remember in 2018,
+08:49 | Joseph: just before it shut down in the middle of Perseverance Valley
+08:52 | Joseph: on Mars sent one last message that was essentially,
+08:55 | Joseph: I believe the quote was, "My battery is low and it's getting
+08:58 | Joseph: dark," and that was it.
+08:60 | Joseph: And this is a machine.
+09:01 | Joseph: But I mean, tears definitely were running.
+09:04 | Joseph: On that, you start chapter one with a passage, which I just
+09:07 | Joseph: want to read.
+09:08 | Joseph: This is I think an amazing scene.
+09:11 | Joseph: At the Yuma test grounds in Arizona, the autonomous robot.
+09:14 | Joseph: This is a landmine destroying robot here.
+09:17 | Joseph: Autonomous robot, five feet long and modeled on a stick insect,
+09:20 | Joseph: strutted out for a live fire test, and it worked beautifully.
+09:24 | Joseph: Every time it found a mine, blew it up and lost a limb,
+09:29 | Joseph: it picked itself up and readjusted
+09:31 | Joseph: to move forward on its remaining legs, continuing to clear
+09:34 | Joseph: a path through the minefield.
+09:36 | Joseph: Finally, it was down to one leg.
+09:37 | Joseph: Still, it pulled itself forward.
+09:40 | Joseph: The engineer was ecstatic.
+09:41 | Joseph: The machine was working splendidly.
+09:43 | Joseph: The human in command of the exercise,
+09:46 | Joseph: however, an Army Colonel, blew a fuse.
+09:48 | Joseph: The Colonel ordered the test stopped.
+09:51 | Joseph: Why? Asked the engineer.
+09:52 | Joseph: What's wrong?
+09:53 | Joseph: The Colonel just could not stand the pathos
+09:55 | Joseph: of watching the burned, scarred, and crippled machine drag itself
+09:59 | Joseph: forward on its last leg.
+10:01 | Joseph: The test, he charged, I love this, was inhumane.
+10:05 | Joseph: One of the things that I just find
+10:06 | Joseph: amazing about the first chapter of the book in particular
+10:09 | Joseph: is you show how these empathy and sympathy pumps actually
+10:11 | Joseph: can be really hard and drawing on your countrymen, Adam Smith,
+10:17 | Joseph: but also people like Rick Deckard or entities like Rick Deckard.
+10:20 | Joseph: I wonder if you could just say about what
+10:21 | Joseph: you learned from that.
+10:22 | Jamie: Yeah, my own moral philosophy,
+10:25 | Jamie: like Adam Smith's, is -- it's the only time where I get to say
+10:29 | Jamie: like Adam Smith --
+10:30 | Jamie: is very much rooted in the moral sentiments.
+10:34 | Jamie: I think that our pre-moral feelings of I see your eyes,
+10:40 | Jamie: I recognize pain in your eyes.
+10:43 | Jamie: I understand what it's like to have pain.
+10:45 | Jamie: I now realize you must be having pain.
+10:47 | Jamie: The empathy jumps the gap to the other person.
+10:51 | Jamie: I think that that is the beginning
+10:52 | Jamie: of many of our moral chains of reasoning.
+10:54 | Jamie: We then go off in very different directions.
+10:56 | Jamie: We might be Kantians, we might be utilitarians.
+10:59 | Jamie: But we have to first recognize that the other entity is
+11:03 | Jamie: worthy of anything.
+11:05 | Jamie: And I think at least descriptively,
+11:06 | Jamie: that starts with empathy.
+11:08 | Jamie: Now, as this story says, we are prone to over-empathize.
+11:12 | Jamie: I talk to my Roomba all the time when
+11:15 | Jamie: it gets stuck under a chair, which is obviously crazy.
+11:18 | Jamie: But then again, when the robot revolt comes,
+11:20 | Jamie: perhaps it will put in a good word for me.
+11:22 | Jamie: So maybe it's not.
+11:24 | Jamie: And this is a deeply rooted human tendency, the tendency
+11:28 | Jamie: to project ourselves into objects.
+11:30 | Jamie: We put gods in our fields and streams.
+11:32 | Jamie: We personify things.
+11:34 | Jamie: And there are lots of reasons why we do that.
+11:38 | Jamie: But it's the pathetic fallacy, in some ways.
+11:40 | Jamie: But we also have this opposite and very unattractive tendency,
+11:45 | Jamie: which is to draw our moral empathy closer to ourselves,
+11:50 | Jamie: to exclude people outside of our little kinship
+11:52 | Jamie: group, our nationality, our race, our religion, our sex,
+11:56 | Jamie: our gender, and to say that they are the other, to depersonalize
+11:59 | Jamie: them, to call them rats, to call them cockroaches,
+12:01 | Jamie: to call them bad blood.
+12:03 | Jamie: And to say to those people, those
+12:05 | Jamie: are people who are not worthy of our moral consideration.
+12:09 | Jamie: And those are two warring tendencies in the human spirit.
+12:12 | Jamie: The empathy which goes out even when it shouldn't, and the self
+12:18 | Jamie: reflexive insularity that cuts off empathy when it should.
+12:22 | Jamie: For me, I've always thought it might be better
+12:24 | Jamie: to err on the side of being empathic,
+12:28 | Jamie: because the error costs are greater,
+12:30 | Jamie: as our empirical colleagues would put it, on the other side.
+12:34 | Jamie: So as I started to think about that and think about the book,
+12:39 | Jamie: it occurred to me that one of the main ways in which,
+12:41 | Jamie: whether or not we should, that we
+12:44 | Jamie: would start having feelings about
+12:46 | Jamie: am I acting rightly towards this AI?
+12:48 | Jamie: Is because the responses it gave us triggered something
+12:52 | Jamie: in us going, that's not just a script.
+12:55 | Jamie: There's something in there.
+12:56 | Jamie: Or look at a machine that is maybe
+12:59 | Jamie: the caregiver for your grandmother
+13:01 | Jamie: who has conversations with it, who is, in fact, her most
+13:04 | Jamie: significant interlocutor.
+13:06 | Jamie: I think most of us would struggle
+13:08 | Jamie: not to put a little bit of projection in there.
+13:12 | Jamie: And so I discuss in the book how that might lead us to err,
+13:16 | Jamie: to go wrong.
+13:17 | Jamie: But I also think that process will inevitably
+13:21 | Jamie: start our tendency to say, well, let's reassess this.
+13:26 | Jamie: And when I first wrote this, thinking
+13:30 | Jamie: about AI in interactions with AI was indeed just
+13:32 | Jamie: pure science fiction.
+13:33 | Jamie: 100 million people have had conversations with things
+13:38 | Jamie: like ChatGPT.
+13:39 | Jamie: Now, ChatGPT isn't conscious, and I
+13:41 | Jamie: don't think you should be empathic towards it.
+13:43 | Jamie: But there's 100 million people.
+13:45 | Jamie: This is no longer a philosopher's conceit.
+13:47 | Jamie: This is an actual embedded experience
+13:50 | Jamie: that hundreds of millions of people have had,
+13:52 | Jamie: and that's only going to increase.
+13:55 | Jamie: So I thought what I should do in the book is to try and chart out
+13:58 | Jamie: what that path probably would look like
+14:02 | Jamie: and what it should look like.`
+
 export async function createUser(pseudonym) {
   const user = {
     _id: new mongoose.Types.ObjectId(),
@@ -836,6 +973,10 @@ export async function loadForgivenessTranscript(conversation, rag = false) {
   await loadTestTranscript(conversation, forgivenessTranscript, rag, '-')
 }
 
+export async function loadTheLineTranscript(conversation, ragLoad = false) {
+  await loadTestTranscript(conversation, theLineTranscript, ragLoad)
+}
+
 export async function createConversation(conversationObj, owner, topic, startTime = new Date()) {
   const conversationConfig = {
     ...conversationObj,
@@ -870,6 +1011,36 @@ export async function createEventAssistantConversation(conversationObj, owner, t
   conversation.agents.push(agent)
   await conversation.save()
   await await agent.start()
+  return conversation
+}
+
+export async function createEventAssistantConversationWithResources(
+  conversationObj,
+  owner,
+  topic,
+  startTime,
+  resources,
+  llmPlatform?,
+  llmModel?
+) {
+  const conversation = await createConversation({ ...conversationObj, resources }, owner, topic, startTime)
+  const agent = new Agent({
+    agentType: 'eventAssistant',
+    conversation,
+    llmPlatform,
+    llmModel
+  })
+  const channels = await Channel.create([
+    { name: 'transcript' },
+    { name: 'chat' },
+    { name: 'image-gen' },
+    { name: `direct-agents-${owner._id}`, direct: true, participants: [owner, agent] }
+  ])
+  conversation.channels.push(...channels)
+  await agent.save()
+  conversation.agents.push(agent)
+  await conversation.save()
+  await agent.start()
   return conversation
 }
 
