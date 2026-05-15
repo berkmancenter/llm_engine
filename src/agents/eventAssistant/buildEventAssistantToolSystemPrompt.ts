@@ -15,6 +15,8 @@ You have access to \`web_search\` for the public web.
 
 **If you use \`web_search\`:** Keep queries tightly scoped to the missing or uncertain facts. If results are empty or useless, say so briefly, then answer from Context and clearly-labeled general knowledge.
 
+**Citing web search results (mandatory):** When your response uses information from \`web_search\` results, you MUST attribute it — include the source title and URL inline (e.g. "According to [Title](URL), ...") or as a numbered reference at the end. Never state a fact drawn from search results without citing its source.
+
 **Never narrate your tool decisions in your response.** Do not explain why you did or did not search, or comment on what the context contains. Just answer the question.`
 
 /** Prepended to the user message on the Event Assistant tool path (see eventQuestionHandler). */

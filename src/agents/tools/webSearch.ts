@@ -74,15 +74,19 @@ registerWebSearchProvider(
 export const webSearchTool = tool(
   async ({ query, maxResults, includeDomains, excludeDomains }) => {
     const results = await searchWeb({ query, maxResults, includeDomains, excludeDomains })
-    return JSON.stringify(results)
+    if (results.length === 0) return 'No results found.'
+    return results
+      .map((r, i) => `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.content}`)
+      .join('\n\n')
   },
   {
     name: 'web_search',
     description:
       'Search the public web for facts that are missing, uncertain, time-sensitive, or need verification beyond the event transcript and chat supplied in this request. ' +
       'Use when the user needs post-knowledge-cutoff updates, verifiable third-party details, or anything you would otherwise infer from memory instead of from cited context. ' +
-      'Returns titles, URLs, snippets, and relevance scores. **Default:** if unsure whether context alone suffices, call this tool rather than guessing. ' +
-      '**Omit only** when your entire reply will restate or tightly paraphrase information explicitly present in that supplied context and chat, with no material external factual claims.',
+      'Returns titled, numbered results with URLs and snippets. **Default:** if unsure whether context alone suffices, call this tool rather than guessing. ' +
+      '**Omit only** when your entire reply will restate or tightly paraphrase information explicitly present in that supplied context and chat, with no material external factual claims. ' +
+      '**When using results:** cite the source title and URL in your response.',
     schema: z.object({
       query: z.string().describe('The search query to look up on the web.'),
       maxResults: z
