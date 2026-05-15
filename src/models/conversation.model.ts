@@ -20,6 +20,7 @@ const resourceSchema = new mongoose.Schema<Resource>({
   year: { type: String },
   url: { type: String },
   fileName: { type: String, private: true },
+  citation: { type: String },
   description: { type: String },
   summary: { type: String },
   relevanceReason: { type: String },

@@ -907,6 +907,9 @@ components:
         fileName:
           type: string
           description: On-disk filename; present when the resource is an uploaded PDF file.
+        citation:
+          type: string
+          description: Full formatted citation string. Used verbatim in RAG metadata when provided; falls back to title/authors/year otherwise.
         description:
           type: string
           description: Creator-provided relevance note.
