@@ -132,6 +132,12 @@ const allPublicTopics = async () => {
   const topics = await topicsWithSortData({ isDeleted: false, private: false })
   return topics
 }
+
+// This function works by building a blocklist of private topics the user doesn't own, then
+// returning everything except those. That gives us: all public topics + the user's own private topics.
+//
+// NOTE: private topics the user *follows* but doesn't own are currently on that blocklist, so they
+// get filtered out.
 const allTopicsByUser = async (user) => {
   const otherPrivateTopics = await Topic.find({ $and: [{ private: true }, { owner: { $ne: user } }] })
   const topics = await topicsWithSortData({

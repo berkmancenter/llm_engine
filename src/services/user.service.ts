@@ -353,6 +353,24 @@ const updatePreferences = async (userId, updateBody) => {
   return user.preferences
 }
 
+/**
+ * Find-or-create all system accounts listed in the SYSTEM_USERS env var.
+ * Safe to call on every startup; skips accounts that already exist.
+ */
+const ensureSystemUsers = async (): Promise<void> => {
+  for (const { username, role } of config.systemUsers) {
+    let user = await User.findOne({ username })
+    if (!user) {
+      user = await User.create({
+        username,
+        role,
+        pseudonyms: [{ token: newToken(), pseudonym: username, active: true }]
+      })
+      logger.info(`Created system user: ${username} (${role})`)
+    }
+  }
+}
+
 const userService = {
   createUser,
   updateUser,
@@ -372,6 +390,7 @@ const userService = {
   deletePseudonym,
   hashPassword,
   getPreferences,
-  updatePreferences
+  updatePreferences,
+  ensureSystemUsers
 }
 export default userService

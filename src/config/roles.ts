@@ -45,7 +45,9 @@ const baseRights = [
 const allRoles = {
   user: baseRights,
   // Admins inherit all user rights
-  admin: [...baseRights, 'getUsers', 'manageUsers']
+  admin: [...baseRights, 'getUsers', 'manageUsers'],
+  // Generic role for system/bot accounts, scoped to topic operations only
+  serviceAccount: ['createTopic', 'allTopics', 'followTopic']
 }
 const roles = Object.keys(allRoles)
 const roleRights = new Map(Object.entries(allRoles))
