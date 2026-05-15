@@ -5,6 +5,13 @@ import config from '../config/config.js'
 
 export const ZOOM_MEETING_URL_PROPERTY = 'zoomMeetingUrl' as const
 
+export const TRANSCRIPT_CHANNEL = 'transcript' as const
+export const PARTICIPANT_CHANNEL = 'participant' as const
+export const MODERATOR_CHANNEL = 'moderator' as const
+export const CHAT_CHANNEL = 'chat' as const
+export const IMAGE_GEN_CHANNEL = 'image-gen' as const
+export const RESOURCES_CHANNEL = 'resources' as const
+
 const eventAssistant: ConversationType = {
   // user-facing
   name: 'eventAssistant',
@@ -230,11 +237,11 @@ const eventAssistant: ConversationType = {
   ],
   enableDMs: ['agents'],
   channels: [
-    { name: 'transcript' },
-    { name: 'participant' },
-    { name: 'moderator' },
-    { name: 'chat' },
-    { name: 'image-gen' }
+    { name: TRANSCRIPT_CHANNEL },
+    { name: PARTICIPANT_CHANNEL },
+    { name: MODERATOR_CHANNEL },
+    { name: CHAT_CHANNEL },
+    { name: IMAGE_GEN_CHANNEL }
   ],
   adapters: {
     zoom: {
@@ -252,17 +259,17 @@ const eventAssistant: ConversationType = {
       ],
       chatChannels: [
         {
-          name: 'moderator',
+          name: MODERATOR_CHANNEL,
           direction: Direction.OUTGOING
         },
         {
-          name: 'chat',
+          name: CHAT_CHANNEL,
           direction: Direction.BOTH
         }
       ],
       audioChannels: [
         {
-          name: 'transcript',
+          name: TRANSCRIPT_CHANNEL,
           direction: Direction.INCOMING
         }
       ]
@@ -276,7 +283,7 @@ const eventAssistant: ConversationType = {
       },
       audioChannels: [
         {
-          name: 'transcript',
+          name: TRANSCRIPT_CHANNEL,
           direction: Direction.INCOMING
         }
       ]

@@ -3,7 +3,13 @@ import mongoose from 'mongoose'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { ConversationHistory, IMessage } from '../../types/index.types.js'
 import { getConversationType } from '../../conversations/index.js'
-import { ZOOM_MEETING_URL_PROPERTY } from '../../conversations/eventAssistant.js'
+import {
+  ZOOM_MEETING_URL_PROPERTY,
+  TRANSCRIPT_CHANNEL,
+  CHAT_CHANNEL,
+  RESOURCES_CHANNEL,
+  MODERATOR_CHANNEL
+} from '../../conversations/eventAssistant.js'
 
 // Lazy imports to avoid a circular dependency: these modules load the agent
 // registry, which imports this file.
@@ -340,10 +346,15 @@ export function buildCalendarLink({ name, description, zoomLink, dateTime, durat
 }
 
 const DEFAULT_PARTICIPANT_TEMPLATE =
-  '{host}/assistant/?conversationId={conversationId}[&channel=transcript,{transcript_passcode}][&channel=chat,{chat_passcode}][&channel=resources,{resources_passcode}]'
+  `{host}/assistant/?conversationId={conversationId}` +
+  `[&channel=${TRANSCRIPT_CHANNEL},{${TRANSCRIPT_CHANNEL}_passcode}]` +
+  `[&channel=${CHAT_CHANNEL},{${CHAT_CHANNEL}_passcode}]` +
+  `[&channel=${RESOURCES_CHANNEL},{${RESOURCES_CHANNEL}_passcode}]`
 
 const DEFAULT_MODERATOR_TEMPLATE =
-  '{host}/moderator/?conversationId={conversationId}&channel=moderator,{moderator_passcode}[&channel=transcript,{transcript_passcode}]'
+  `{host}/moderator/?conversationId={conversationId}` +
+  `&channel=${MODERATOR_CHANNEL},{${MODERATOR_CHANNEL}_passcode}` +
+  `[&channel=${TRANSCRIPT_CHANNEL},{${TRANSCRIPT_CHANNEL}_passcode}]`
 
 interface ChannelLike {
   name?: string
@@ -394,7 +405,7 @@ export function buildEventLinks(
     if (channel.name && channel.passcode) {
       // Skip the resources passcode when the organizer didn't ask for a
       // resources section, so the bracket segment drops out of the URL.
-      if (channel.name === 'resources' && !includeResources) continue
+      if (channel.name === RESOURCES_CHANNEL && !includeResources) continue
       vars[`${channel.name}_passcode`] = channel.passcode
     }
   }
