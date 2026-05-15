@@ -299,6 +299,7 @@ export interface Resource {
   year?: string
   url?: string
   fileName?: string // on-disk name; present when resource is a PDF file
+  citation?: string // full formatted citation
   description?: string // creator-provided relevance note
   summary?: string // AI-generated; populated async for required readings
   relevanceReason?: string // librarian one-liner

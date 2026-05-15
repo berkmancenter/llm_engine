@@ -8,6 +8,7 @@ const resourceSchema = Joi.object().keys({
   year: Joi.string().allow('', null),
   url: Joi.string().allow('', null),
   fileName: Joi.string().allow('', null),
+  citation: Joi.string().allow('', null),
   description: Joi.string().allow('', null),
   summary: Joi.string().allow('', null),
   relevanceReason: Joi.string().allow('', null),
