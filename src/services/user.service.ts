@@ -354,8 +354,8 @@ const updatePreferences = async (userId, updateBody) => {
 }
 
 /**
- * Find-or-create all system accounts defined in config.systemUsers.
- * Safe to call on every startup — idempotent.
+ * Find-or-create all system accounts listed in the SYSTEM_USERS env var.
+ * Safe to call on every startup; skips accounts that already exist.
  */
 const ensureSystemUsers = async (): Promise<void> => {
   for (const { username, role } of config.systemUsers) {
