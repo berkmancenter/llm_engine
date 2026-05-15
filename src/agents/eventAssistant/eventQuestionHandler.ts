@@ -1,6 +1,7 @@
 import { getChatPromptResponse, getAgentStructuredResponse } from '../helpers/llmChain.js'
 import { formatMultiUserConversationHistory, formatSingleUserConversationHistory } from '../helpers/llmInputFormatters.js'
 import transcript from '../helpers/transcript.js'
+import rag from '../helpers/rag.js'
 import User from '../../models/user.model/user.model.js'
 import logger from '../../config/logger.js'
 import { IChannel } from '../../types/index.types.js'
@@ -384,10 +385,27 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
       // canonical speaker/moderator names even when RAG doesn't retrieve their metadata docs
       const participantNamesContext = compileSpeakerNames(this.conversation)
       const liveTranscript = transcript.getTranscript(this.conversation, 300, this.conversationHistorySettings?.endTime)
+
+      const hasBackground = this.conversation.resources?.some((r) => r.source === 'speaker')
+      let backgroundChunks = ''
+      if (hasBackground) {
+        try {
+          const backgroundResult = await rag.getContextChunksForQuestion(
+            `background-${this.conversation._id}`,
+            question,
+            (doc, idx) => `Source ID: ${idx}\nArticle title: ${doc.metadata.citation}\nArticle Snippet: ${doc.pageContent}`
+          )
+          backgroundChunks = backgroundResult.chunks
+        } catch (err) {
+          logger.warn(`eventQuestionHandler: failed to query background collection for conversation ${this.conversation._id}: ${err}`)
+        }
+      }
+
       contextString = [
         participantNamesContext.trimEnd(), // ## Event Participants
         `## Recent Transcript:\n${liveTranscript}`,
-        `## Relevant Retrieved Context:\n${chunks}`
+        `## Relevant Retrieved Context:\n${chunks}`,
+        backgroundChunks ? `## Background Reading:\n${backgroundChunks}` : ''
       ]
         .filter(Boolean)
         .join('\n\n')
