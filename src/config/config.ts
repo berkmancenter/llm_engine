@@ -1,3 +1,4 @@
+import path from 'path'
 import dotenv from 'dotenv'
 import Joi from 'joi'
 import { availableParallelism } from 'node:os'
@@ -38,6 +39,9 @@ const envVarsSchema = Joi.object()
       .description('true/false if pseudonyms are made truly random with UID'),
     MAX_MESSAGE_LENGTH: Joi.number().min(50).max(100000).default(2000).description('The maximum length of a message'),
     DAYS_FOR_GOOD_REPUTATION: Joi.number().default(1).description('the number of days it takes to get a good reputation'),
+    RAG_DOCUMENTS_PATH: Joi.string()
+      .default(path.join(process.cwd(), 'rag_documents'))
+      .description('Base path for RAG document storage'),
     CHROMA_DB_URL: Joi.string().default('http://0.0.0.0:8000'),
     EMBEDDINGS_COLLECTION_PREFIX: Joi.string().default('llm-engine'),
     DEFAULT_EMBEDDINGS_API_URL: Joi.string().description('The URL of an OpenAI-compatible server used for embeddings'),
@@ -125,6 +129,7 @@ const config = {
     debug: envVars.MONGODB_DEBUG,
     options: {}
   },
+  ragDocumentsPath: envVars.RAG_DOCUMENTS_PATH,
   chroma: {
     url: envVars.CHROMA_DB_URL,
     embeddingsCollectionPrefix: envVars.EMBEDDINGS_COLLECTION_PREFIX
