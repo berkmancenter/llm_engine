@@ -57,11 +57,41 @@ describe('slackInteraction handler — receiveInteraction()', () => {
     )
   })
 
-  it('uses the action_id as message text when button has no value — keeps behavior predictable', async () => {
+  it('skips processing when no meaningful value can be extracted from the action', async () => {
     const payload = makePayload({ actions: [{ action_id: 'my_action' }] })
     await slackInteractionHandler.receiveInteraction(payload)
 
-    expect(receiveMessageSpy).toHaveBeenCalledWith(mockAdapter, expect.objectContaining({ text: 'my_action' }))
+    expect(receiveMessageSpy).not.toHaveBeenCalled()
+  })
+
+  it('extracts the selected value from a select menu or overflow action', async () => {
+    const payload = makePayload({ actions: [{ action_id: 'pick_topic', selected_option: { value: 'topic_climate' } }] })
+    await slackInteractionHandler.receiveInteraction(payload)
+
+    expect(receiveMessageSpy).toHaveBeenCalledWith(mockAdapter, expect.objectContaining({ text: 'topic_climate' }))
+  })
+
+  it('extracts comma-separated values from a multi-select or checkboxes action', async () => {
+    const payload = makePayload({
+      actions: [{ action_id: 'pick_days', selected_options: [{ value: 'mon' }, { value: 'wed' }, { value: 'fri' }] }]
+    })
+    await slackInteractionHandler.receiveInteraction(payload)
+
+    expect(receiveMessageSpy).toHaveBeenCalledWith(mockAdapter, expect.objectContaining({ text: 'mon,wed,fri' }))
+  })
+
+  it('extracts the selected date from a date picker action', async () => {
+    const payload = makePayload({ actions: [{ action_id: 'pick_date', selected_date: '2026-06-15' }] })
+    await slackInteractionHandler.receiveInteraction(payload)
+
+    expect(receiveMessageSpy).toHaveBeenCalledWith(mockAdapter, expect.objectContaining({ text: '2026-06-15' }))
+  })
+
+  it('extracts the selected time from a time picker action', async () => {
+    const payload = makePayload({ actions: [{ action_id: 'pick_time', selected_time: '14:30' }] })
+    await slackInteractionHandler.receiveInteraction(payload)
+
+    expect(receiveMessageSpy).toHaveBeenCalledWith(mockAdapter, expect.objectContaining({ text: '14:30' }))
   })
 
   it('looks up the "direct" channel adapter for DM button clicks (Slack DM IDs start with D)', async () => {

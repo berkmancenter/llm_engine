@@ -10,10 +10,38 @@ import webhookService from '../services/webhook.service.js'
 import logger from '../config/logger.js'
 import ApiError from '../utils/ApiError.js'
 
-/** Minimum fields needed from a Slack block_actions action element */
+/**
+ * Fields present on Slack block_actions action elements. Different interactive
+ * element types expose their selected value in different fields — see extractActionValue.
+ */
 interface SlackBlockAction {
   action_id: string
+  // button
   value?: string
+  // static_select, external_select, overflow, radio_buttons, users/conversations/channels_select
+  selected_option?: { value: string }
+  // multi_static_select, multi_external_select, checkboxes, multi_users/conversations/channels_select
+  selected_options?: { value: string }[]
+  // datepicker
+  selected_date?: string
+  // timepicker
+  selected_time?: string
+}
+
+/**
+ * Extracts a meaningful string value from a block_actions action element.
+ * Returns undefined if the element carries no user-selected value (e.g. a
+ * button with no value set), in which case the interaction should be skipped
+ * rather than forwarding a developer identifier as message text.
+ */
+function extractActionValue(action: SlackBlockAction): string | undefined {
+  return (
+    action.value ??
+    action.selected_option?.value ??
+    action.selected_options?.map((o) => o.value).join(',') ??
+    action.selected_date ??
+    action.selected_time
+  )
 }
 
 /** Minimum shape of a Slack block_actions payload */
@@ -50,6 +78,12 @@ async function receiveInteraction(rawPayload: unknown): Promise<void> {
     return
   }
 
+  const text = extractActionValue(action)
+  if (!text) {
+    logger.warn(`Slack block_actions: no extractable value from action ${action.action_id}, ignoring`)
+    return
+  }
+
   // Slack DM channel IDs begin with 'D'
   const isIM = resolvedChannelId.startsWith('D')
 
@@ -68,7 +102,7 @@ async function receiveInteraction(rawPayload: unknown): Promise<void> {
 
   const syntheticEvent = {
     type: 'message',
-    text: action.value || action.action_id,
+    text,
     ts: String(Date.now() / 1000), // Slack doesn't give interactions a timestamp, so this is approximate
     team: payload.team.id,
     user: payload.user.id,
