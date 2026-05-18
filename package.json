@@ -117,6 +117,7 @@
     "@commitlint/config-conventional": "^19.8.1",
     "@eslint/js": "^9.24.0",
     "@jest/globals": "^29.7.0",
+    "@slack/types": "^2.21.1",
     "@types/agenda": "^4.1.4",
     "@types/express": "^5.0.1",
     "@types/helmet": "^4.0.0",

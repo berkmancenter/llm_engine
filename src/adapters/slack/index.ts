@@ -1,4 +1,5 @@
 import { ChatPostMessageResponse } from '@slack/web-api'
+import type { KnownBlock, Block } from '@slack/types'
 import logger from '../../config/logger.js'
 import slackClientPool from './slackClientPool.js'
 import { AdapterMessage } from '../../types/adapter.types.js'
@@ -86,7 +87,10 @@ export default {
     const result = (await slackWebClient.chat.postMessage({
       channel,
       text,
-      ...(threadTs && { thread_ts: threadTs })
+      ...(threadTs && { thread_ts: threadTs }),
+      // Include Block Kit blocks when provided. text is still required alongside blocks
+      // as Slack uses it for notifications and accessibility fallback.
+      ...(message.blocks?.length && { blocks: message.blocks as (KnownBlock | Block)[] })
     })) as ChatPostMessageResponse
     if (!result.ok) {
       throw new Error(`Slack message failed to send: ${result.error}`)
