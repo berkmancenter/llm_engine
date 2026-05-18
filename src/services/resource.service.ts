@@ -53,6 +53,36 @@ const savePdf = async (conversationId: string, resourceId: string, fileBuffer: B
   return fileName
 }
 
+// Matches incoming resources to existing ones by id, carrying over fileName.
+// Strips id (client-side correlation field), deletes orphaned PDF files, and rebuilds the Chroma collection.
+const updateResources = async (conversationId: string, oldResources, incomingResources) => {
+  const reconciled = incomingResources.map(({ id, ...r }) => {
+    if (!id) return r
+    const existing = oldResources.find((old) => old._id!.toString() === id)
+    return existing?.fileName ? { ...r, fileName: existing.fileName } : r
+  })
+
+  for (const old of oldResources) {
+    if (!old.fileName) continue
+    const stillPresent = reconciled.some((r) => r.fileName === old.fileName)
+    if (!stillPresent) {
+      const filePath = path.join(BACKGROUND_DOCS_BASE, conversationId, old.fileName)
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath)
+        logger.info(`resource.service: deleted orphaned PDF ${filePath}`)
+      }
+    }
+  }
+
+  try {
+    await backgroundCollection.loadBackgroundCollection(conversationId, reconciled)
+  } catch (err) {
+    logger.warn(`resource.service: failed to rebuild Chroma collection for ${conversationId}: ${err}`)
+  }
+
+  return reconciled
+}
+
 const addResources = async (newResources, conversationId) => {
   const conv = await Conversation.findByIdAndUpdate(
     conversationId,
@@ -82,5 +112,5 @@ const deleteResources = async (conversationId: string) => {
   }
 }
 
-const resourceService = { savePdf, addResources, deleteResources }
+const resourceService = { savePdf, updateResources, addResources, deleteResources }
 export default resourceService

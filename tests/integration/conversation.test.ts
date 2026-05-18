@@ -2514,6 +2514,140 @@ describe('Conversation routes', () => {
       expect(dbConversation?.resources[0].title).toBe('New Required Paper')
     })
 
+    test('should preserve fileName when existing resource is included by id', async () => {
+      const conversationWithPdf = new Conversation({
+        name: 'PDF Resource Conversation',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        resources: [
+          {
+            source: 'speaker',
+            category: 'required',
+            title: 'Paper With PDF',
+            participantVisible: true,
+            fileName: 'someresourceid.pdf'
+          }
+        ]
+      })
+      await conversationWithPdf.save()
+      const existingResourceId = conversationWithPdf.resources[0]._id!.toString()
+
+      const res = await request(app)
+        .put('/v1/conversations')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({
+          id: conversationWithPdf._id,
+          resources: [
+            {
+              id: existingResourceId,
+              source: 'speaker',
+              category: 'required',
+              title: 'Paper With PDF (edited)',
+              participantVisible: true
+            }
+          ]
+        })
+        .expect(httpStatus.OK)
+
+      expect(res.body.resources[0].title).toBe('Paper With PDF (edited)')
+
+      const dbConversation = await Conversation.findById(conversationWithPdf._id)
+      expect(dbConversation?.resources[0].fileName).toBe('someresourceid.pdf')
+    })
+
+    test('should not set fileName on new resources added without id', async () => {
+      const conversationWithPdf = new Conversation({
+        name: 'New Resource Conversation',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        resources: [
+          {
+            source: 'speaker',
+            category: 'required',
+            title: 'Old Paper',
+            participantVisible: true,
+            fileName: 'someresourceid.pdf'
+          }
+        ]
+      })
+      await conversationWithPdf.save()
+
+      const res = await request(app)
+        .put('/v1/conversations')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({
+          id: conversationWithPdf._id,
+          resources: [{ source: 'speaker', category: 'required', title: 'Brand New Paper', participantVisible: true }]
+        })
+        .expect(httpStatus.OK)
+
+      const dbConversation = await Conversation.findById(conversationWithPdf._id)
+      expect(dbConversation?.resources).toHaveLength(1)
+      expect(dbConversation?.resources[0].title).toBe('Brand New Paper')
+      expect(dbConversation?.resources[0].fileName).toBeUndefined()
+    })
+
+    test('should delete orphaned PDF file when resource is removed', async () => {
+      const rmSyncSpy = jest.spyOn(fs, 'unlinkSync').mockReturnValue(undefined)
+      jest.spyOn(fs, 'existsSync').mockReturnValue(true)
+      jest.spyOn(backgroundCollection, 'loadBackgroundCollection').mockResolvedValue(undefined)
+
+      const conversationWithPdf = new Conversation({
+        name: 'Orphan PDF Conversation',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        resources: [
+          {
+            source: 'speaker',
+            category: 'required',
+            title: 'Paper To Remove',
+            participantVisible: true,
+            fileName: 'someresourceid.pdf'
+          }
+        ]
+      })
+      await conversationWithPdf.save()
+
+      await request(app)
+        .put('/v1/conversations')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({ id: conversationWithPdf._id, resources: [] })
+        .expect(httpStatus.OK)
+
+      expect(rmSyncSpy).toHaveBeenCalled()
+
+      jest.restoreAllMocks()
+    })
+
+    test('should not affect resources when resources not included in update body', async () => {
+      const conversationWithResources = new Conversation({
+        name: 'Stable Resources Conversation',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        resources: [
+          {
+            source: 'speaker',
+            category: 'required',
+            title: 'Existing Paper',
+            participantVisible: true,
+            fileName: 'someresourceid.pdf'
+          }
+        ]
+      })
+      await conversationWithResources.save()
+
+      await request(app)
+        .put('/v1/conversations')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({ id: conversationWithResources._id, name: 'Updated Name Only' })
+        .expect(httpStatus.OK)
+
+      const dbConversation = await Conversation.findById(conversationWithResources._id)
+      expect(dbConversation?.resources).toHaveLength(1)
+      expect(dbConversation?.resources[0].title).toBe('Existing Paper')
+      expect(dbConversation?.resources[0].fileName).toBe('someresourceid.pdf')
+    })
+
     test('should allow topic owner to update conversation they do not own', async () => {
       // Create a conversation owned by userTwo but in userOne's topic
       const conversationOwnedByUserTwo = new Conversation({

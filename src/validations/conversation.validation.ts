@@ -7,12 +7,15 @@ const resourceSchema = Joi.object().keys({
   authors: Joi.array().items(Joi.string()).allow(null),
   year: Joi.string().allow('', null),
   url: Joi.string().allow('', null),
-  fileName: Joi.string().allow('', null),
   citation: Joi.string().allow('', null),
   description: Joi.string().allow('', null),
   summary: Joi.string().allow('', null),
   relevanceReason: Joi.string().allow('', null),
   participantVisible: Joi.boolean()
+})
+
+const updateResourceSchema = resourceSchema.keys({
+  id: Joi.string().optional()
 })
 
 const updateConversation = {
@@ -33,7 +36,7 @@ const updateConversation = {
         bio: Joi.string().allow('', null)
       })
     ),
-    resources: Joi.array().items(resourceSchema)
+    resources: Joi.array().items(updateResourceSchema)
   })
 }
 

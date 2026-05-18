@@ -265,8 +265,24 @@ const updateConversation = async (conversationBody, user) => {
   if (conversationDoc.active) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Cannot update an active conversation')
   }
-  conversationDoc = updateDocument(conversationBody, conversationDoc)
+
+  const { resources: incomingResources, ...restBody } = conversationBody
+  const oldResources = incomingResources !== undefined ? [...conversationDoc.resources] : null
+
+  conversationDoc = updateDocument(restBody, conversationDoc)
+
+  if (incomingResources !== undefined) {
+    const reconciled = await resourceService.updateResources(
+      conversationDoc!._id!.toString(),
+      oldResources,
+      incomingResources
+    )
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    conversationDoc!.resources = reconciled as any
+  }
+
   await conversationDoc!.save()
+
   await transcript.loadEventMetadataIntoVectorStore(conversationDoc!)
   websocketGateway.broadcastConversationUpdate(conversationDoc)
   return conversationDoc
