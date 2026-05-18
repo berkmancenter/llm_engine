@@ -262,6 +262,9 @@ const updateConversation = async (conversationBody, user) => {
   ) {
     throw new ApiError(httpStatus.FORBIDDEN, 'Only conversation or topic owner can update.')
   }
+  if (conversationDoc.active) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Cannot update an active conversation')
+  }
   conversationDoc = updateDocument(conversationBody, conversationDoc)
   await conversationDoc!.save()
   await transcript.loadEventMetadataIntoVectorStore(conversationDoc!)

@@ -2417,6 +2417,26 @@ describe('Conversation routes', () => {
         .expect(httpStatus.BAD_REQUEST)
     })
 
+    test('should return 400 when conversation is active', async () => {
+      const activeConversation = new Conversation({
+        name: 'Active Conversation',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        active: true
+      })
+      await activeConversation.save()
+
+      await request(app)
+        .put('/v1/conversations')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({ id: activeConversation._id, name: 'Updated Name' })
+        .expect(httpStatus.BAD_REQUEST)
+
+      // Verify conversation was not updated
+      const unchanged = await Conversation.findById(activeConversation._id)
+      expect(unchanged?.name).toBe('Active Conversation')
+    })
+
     test('should preserve fields that are not in update body', async () => {
       const originalConversation = await Conversation.findById(conversationOne._id)
       const originalName = originalConversation?.name
