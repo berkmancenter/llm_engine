@@ -8,7 +8,50 @@ import logger from '../config/logger.js'
 import Conversation from '../models/conversation.model.js'
 import websocketGateway from '../websockets/websocketGateway.js'
 import ApiError from '../utils/ApiError.js'
-import { Resource } from '../types/index.types.js'
+
+const savePdf = async (conversationId: string, resourceId: string, fileBuffer: Buffer, user) => {
+  const conv = await Conversation.findOne({
+    _id: conversationId,
+    'resources._id': new mongoose.Types.ObjectId(resourceId)
+  })
+    .select('resources owner topic')
+    .populate('topic', 'owner')
+    .lean()
+    .exec()
+
+  if (!conv) {
+    throw new ApiError(httpStatus.NOT_FOUND, `Resource ${resourceId} not found in conversation ${conversationId}`)
+  }
+
+  const userId = user._id.toString()
+  const isConvOwner = conv.owner.toString() === userId
+  const isTopicOwner = conv.topic.owner.toString() === userId
+  if (!isConvOwner && !isTopicOwner) {
+    throw new ApiError(httpStatus.FORBIDDEN, 'Only conversation or topic owner can upload resources')
+  }
+
+  const dir = path.join(BACKGROUND_DOCS_BASE, conversationId)
+  fs.mkdirSync(dir, { recursive: true })
+  const fileName = `${resourceId}.pdf`
+  const filePath = path.join(dir, fileName)
+  fs.writeFileSync(filePath, fileBuffer)
+  logger.info(`resource.service: wrote PDF to ${filePath}`)
+
+  await Conversation.updateOne(
+    { _id: conversationId, 'resources._id': new mongoose.Types.ObjectId(resourceId) },
+    { $set: { 'resources.$.fileName': fileName } }
+  ).exec()
+
+  const resource = conv.resources.find((r) => r._id!.toString() === resourceId)
+  if (resource) {
+    try {
+      await backgroundCollection.loadPdfIntoChroma(conversationId, { ...resource, fileName })
+    } catch (err) {
+      logger.warn(`resource.service: failed to load PDF into Chroma for resource ${resourceId}: ${err}`)
+    }
+  }
+  return fileName
+}
 
 const addResources = async (newResources, conversationId) => {
   const conv = await Conversation.findByIdAndUpdate(
@@ -39,5 +82,5 @@ const deleteResources = async (conversationId: string) => {
   }
 }
 
-const resourceService = { addResources, deleteResources }
+const resourceService = { savePdf, addResources, deleteResources }
 export default resourceService
