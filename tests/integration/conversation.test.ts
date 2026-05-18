@@ -1,6 +1,7 @@
 import request from 'supertest'
 import httpStatus from 'http-status'
 import mongoose from 'mongoose'
+import fs from 'fs'
 import setupIntTest from '../utils/setupIntTest.js'
 import app from '../../src/app.js'
 import { insertUsers, userOne, userTwo } from '../fixtures/user.fixture.js'
@@ -42,6 +43,7 @@ import Adapter, { setAdapterTypes } from '../../src/models/adapter.model.js'
 import defineJob from '../../src/jobs/define.js'
 import { ConversationType, Direction } from '../../src/types/index.types.js'
 import transcript from '../../src/agents/helpers/transcript.js'
+import backgroundCollection from '../../src/agents/helpers/backgroundCollection.js'
 
 jest.setTimeout(120000)
 
@@ -2066,6 +2068,41 @@ describe('Conversation routes', () => {
 
       const deletedConversation = await Conversation.findById(activeConversation._id)
       expect(deletedConversation).toBeNull()
+    })
+
+    test('should delete background resource collection and files when conversation deleted', async () => {
+      const deleteCollectionSpy = jest.spyOn(backgroundCollection, 'deleteBackgroundCollection').mockResolvedValue(undefined)
+      const rmSyncSpy = jest.spyOn(fs, 'rmSync').mockReturnValue(undefined)
+      jest.spyOn(fs, 'existsSync').mockReturnValue(true)
+
+      const conversationWithResources = new Conversation({
+        topic: publicTopic._id,
+        name: 'Conversation With Resources',
+        owner: userOne._id,
+        resources: [
+          {
+            source: 'speaker',
+            category: 'required',
+            title: 'Research Paper',
+            fileName: 'someresourceid.pdf',
+            participantVisible: true
+          }
+        ]
+      })
+      await conversationWithResources.save()
+
+      await request(app)
+        .delete(`/v1/conversations/${conversationWithResources._id}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.OK)
+
+      expect(deleteCollectionSpy).toHaveBeenCalledWith(conversationWithResources._id.toString())
+      expect(rmSyncSpy).toHaveBeenCalled()
+
+      deleteCollectionSpy.mockRestore()
+      rmSyncSpy.mockRestore()
+      jest.restoreAllMocks()
     })
 
     test('should delete transcript RAG collection when conversation deleted', async () => {

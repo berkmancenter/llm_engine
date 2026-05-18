@@ -5,7 +5,7 @@ import logger from '../../config/logger.js'
 import config from '../../config/config.js'
 import { Resource } from '../../types/index.types.js'
 
-const BACKGROUND_DOCS_BASE = path.join(config.ragDocumentsPath, 'background')
+export const BACKGROUND_DOCS_BASE = path.join(config.ragDocumentsPath, 'background')
 
 const conversationCollectionName = (conversationId: string) => `background-${conversationId}`
 
@@ -57,8 +57,13 @@ async function loadBackgroundCollection(conversationId: string, resources: Resou
   }
 }
 
+const deleteBackgroundCollection = async (conversationId: string) => {
+  await rag.deleteCollection(conversationCollectionName(conversationId))
+}
+
 export default {
   loadPdfIntoChroma,
   loadBackgroundCollection,
+  deleteBackgroundCollection,
   loadPdfIntoCollection
 }
