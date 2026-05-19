@@ -19,6 +19,7 @@ import { supportedModels } from '../../agents/helpers/getEmbeddings.js'
 import transcript from '../../agents/helpers/transcript.js'
 import reportService from '../report.service.js'
 import { doStartConversation, doStopConversation, updateTranscriptStatus } from './lifecycle.js'
+import resourceService from '../resource.service.js'
 
 export { updateTranscriptStatus }
 
@@ -261,8 +262,27 @@ const updateConversation = async (conversationBody, user) => {
   ) {
     throw new ApiError(httpStatus.FORBIDDEN, 'Only conversation or topic owner can update.')
   }
-  conversationDoc = updateDocument(conversationBody, conversationDoc)
+  if (conversationDoc.active) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Cannot update an active conversation')
+  }
+
+  const { resources: incomingResources, ...restBody } = conversationBody
+  const oldResources = incomingResources !== undefined ? [...conversationDoc.resources] : null
+
+  conversationDoc = updateDocument(restBody, conversationDoc)
+
+  if (incomingResources !== undefined) {
+    const reconciled = await resourceService.updateResources(
+      conversationDoc!._id!.toString(),
+      oldResources,
+      incomingResources
+    )
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    conversationDoc!.resources = reconciled as any
+  }
+
   await conversationDoc!.save()
+
   await transcript.loadEventMetadataIntoVectorStore(conversationDoc!)
   websocketGateway.broadcastConversationUpdate(conversationDoc)
   return conversationDoc
@@ -415,6 +435,12 @@ const deleteConversation = async (id, user) => {
     await transcript.deleteTranscript(conversation)
   } catch {
     logger.warn(`Failed to delete transcript for conversation ${conversation._id}.`)
+  }
+
+  try {
+    await resourceService.deleteResources(conversation._id!.toString())
+  } catch {
+    logger.warn(`Failed to delete resources for conversation ${conversation._id}.`)
   }
 
   if (conversation.channels && conversation.channels.length > 0) {

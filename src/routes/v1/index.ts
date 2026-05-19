@@ -6,6 +6,7 @@ import messagesRoute from './messages.route.js'
 import topicsRoute from './topics.route.js'
 import conversationsRoute from './conversations.route.js'
 import transcriptRoute from './transcript.route.js'
+import resourcesRoute from './resources.route.js'
 import configRoute from './config.route.js'
 import config from '../../config/config.js'
 import pollsRoute from './polls.route/index.js'
@@ -40,6 +41,10 @@ const defaultRoutes = [
   {
     path: '/transcript',
     route: transcriptRoute
+  },
+  {
+    path: '/resources',
+    route: resourcesRoute
   },
   {
     path: '/polls',

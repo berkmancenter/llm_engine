@@ -1,6 +1,7 @@
 import request from 'supertest'
 import httpStatus from 'http-status'
 import mongoose from 'mongoose'
+import fs from 'fs'
 import setupIntTest from '../utils/setupIntTest.js'
 import app from '../../src/app.js'
 import { insertUsers, userOne, userTwo } from '../fixtures/user.fixture.js'
@@ -42,6 +43,7 @@ import Adapter, { setAdapterTypes } from '../../src/models/adapter.model.js'
 import defineJob from '../../src/jobs/define.js'
 import { ConversationType, Direction } from '../../src/types/index.types.js'
 import transcript from '../../src/agents/helpers/transcript.js'
+import backgroundCollection from '../../src/agents/helpers/backgroundCollection.js'
 
 jest.setTimeout(120000)
 
@@ -2068,6 +2070,41 @@ describe('Conversation routes', () => {
       expect(deletedConversation).toBeNull()
     })
 
+    test('should delete background resource collection and files when conversation deleted', async () => {
+      const deleteCollectionSpy = jest.spyOn(backgroundCollection, 'deleteBackgroundCollection').mockResolvedValue(undefined)
+      const rmSyncSpy = jest.spyOn(fs, 'rmSync').mockReturnValue(undefined)
+      jest.spyOn(fs, 'existsSync').mockReturnValue(true)
+
+      const conversationWithResources = new Conversation({
+        topic: publicTopic._id,
+        name: 'Conversation With Resources',
+        owner: userOne._id,
+        resources: [
+          {
+            source: 'speaker',
+            category: 'required',
+            title: 'Research Paper',
+            fileName: 'someresourceid.pdf',
+            participantVisible: true
+          }
+        ]
+      })
+      await conversationWithResources.save()
+
+      await request(app)
+        .delete(`/v1/conversations/${conversationWithResources._id}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.OK)
+
+      expect(deleteCollectionSpy).toHaveBeenCalledWith(conversationWithResources._id.toString())
+      expect(rmSyncSpy).toHaveBeenCalled()
+
+      deleteCollectionSpy.mockRestore()
+      rmSyncSpy.mockRestore()
+      jest.restoreAllMocks()
+    })
+
     test('should delete transcript RAG collection when conversation deleted', async () => {
       const transcriptSpy = jest.spyOn(transcript, 'deleteTranscript').mockResolvedValue()
 
@@ -2380,6 +2417,26 @@ describe('Conversation routes', () => {
         .expect(httpStatus.BAD_REQUEST)
     })
 
+    test('should return 400 when conversation is active', async () => {
+      const activeConversation = new Conversation({
+        name: 'Active Conversation',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        active: true
+      })
+      await activeConversation.save()
+
+      await request(app)
+        .put('/v1/conversations')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({ id: activeConversation._id, name: 'Updated Name' })
+        .expect(httpStatus.BAD_REQUEST)
+
+      // Verify conversation was not updated
+      const unchanged = await Conversation.findById(activeConversation._id)
+      expect(unchanged?.name).toBe('Active Conversation')
+    })
+
     test('should preserve fields that are not in update body', async () => {
       const originalConversation = await Conversation.findById(conversationOne._id)
       const originalName = originalConversation?.name
@@ -2455,6 +2512,140 @@ describe('Conversation routes', () => {
       const dbConversation = await Conversation.findById(conversationWithResources._id)
       expect(dbConversation?.resources).toHaveLength(2)
       expect(dbConversation?.resources[0].title).toBe('New Required Paper')
+    })
+
+    test('should preserve fileName when existing resource is included by id', async () => {
+      const conversationWithPdf = new Conversation({
+        name: 'PDF Resource Conversation',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        resources: [
+          {
+            source: 'speaker',
+            category: 'required',
+            title: 'Paper With PDF',
+            participantVisible: true,
+            fileName: 'someresourceid.pdf'
+          }
+        ]
+      })
+      await conversationWithPdf.save()
+      const existingResourceId = conversationWithPdf.resources[0]._id!.toString()
+
+      const res = await request(app)
+        .put('/v1/conversations')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({
+          id: conversationWithPdf._id,
+          resources: [
+            {
+              id: existingResourceId,
+              source: 'speaker',
+              category: 'required',
+              title: 'Paper With PDF (edited)',
+              participantVisible: true
+            }
+          ]
+        })
+        .expect(httpStatus.OK)
+
+      expect(res.body.resources[0].title).toBe('Paper With PDF (edited)')
+
+      const dbConversation = await Conversation.findById(conversationWithPdf._id)
+      expect(dbConversation?.resources[0].fileName).toBe('someresourceid.pdf')
+    })
+
+    test('should not set fileName on new resources added without id', async () => {
+      const conversationWithPdf = new Conversation({
+        name: 'New Resource Conversation',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        resources: [
+          {
+            source: 'speaker',
+            category: 'required',
+            title: 'Old Paper',
+            participantVisible: true,
+            fileName: 'someresourceid.pdf'
+          }
+        ]
+      })
+      await conversationWithPdf.save()
+
+      const res = await request(app)
+        .put('/v1/conversations')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({
+          id: conversationWithPdf._id,
+          resources: [{ source: 'speaker', category: 'required', title: 'Brand New Paper', participantVisible: true }]
+        })
+        .expect(httpStatus.OK)
+
+      const dbConversation = await Conversation.findById(conversationWithPdf._id)
+      expect(dbConversation?.resources).toHaveLength(1)
+      expect(dbConversation?.resources[0].title).toBe('Brand New Paper')
+      expect(dbConversation?.resources[0].fileName).toBeUndefined()
+    })
+
+    test('should delete orphaned PDF file when resource is removed', async () => {
+      const rmSyncSpy = jest.spyOn(fs, 'unlinkSync').mockReturnValue(undefined)
+      jest.spyOn(fs, 'existsSync').mockReturnValue(true)
+      jest.spyOn(backgroundCollection, 'loadBackgroundCollection').mockResolvedValue(undefined)
+
+      const conversationWithPdf = new Conversation({
+        name: 'Orphan PDF Conversation',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        resources: [
+          {
+            source: 'speaker',
+            category: 'required',
+            title: 'Paper To Remove',
+            participantVisible: true,
+            fileName: 'someresourceid.pdf'
+          }
+        ]
+      })
+      await conversationWithPdf.save()
+
+      await request(app)
+        .put('/v1/conversations')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({ id: conversationWithPdf._id, resources: [] })
+        .expect(httpStatus.OK)
+
+      expect(rmSyncSpy).toHaveBeenCalled()
+
+      jest.restoreAllMocks()
+    })
+
+    test('should not affect resources when resources not included in update body', async () => {
+      const conversationWithResources = new Conversation({
+        name: 'Stable Resources Conversation',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        resources: [
+          {
+            source: 'speaker',
+            category: 'required',
+            title: 'Existing Paper',
+            participantVisible: true,
+            fileName: 'someresourceid.pdf'
+          }
+        ]
+      })
+      await conversationWithResources.save()
+
+      await request(app)
+        .put('/v1/conversations')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({ id: conversationWithResources._id, name: 'Updated Name Only' })
+        .expect(httpStatus.OK)
+
+      const dbConversation = await Conversation.findById(conversationWithResources._id)
+      expect(dbConversation?.resources).toHaveLength(1)
+      expect(dbConversation?.resources[0].title).toBe('Existing Paper')
+      expect(dbConversation?.resources[0].fileName).toBe('someresourceid.pdf')
     })
 
     test('should allow topic owner to update conversation they do not own', async () => {
