@@ -232,10 +232,14 @@ export default function resolveConversationType(
   for (const { name, config, enabled } of features) if (enabled) workingProperties[name] = config ?? true
 
   const adapterDefs = conversationType.adapters || {}
-  const matched = (platforms || []).map((p) => adapterDefs[p]).filter(Boolean)
+  const sortedKey = (platforms || []).slice().sort().join(',')
+  const exactMatch = adapterDefs[sortedKey]
+  const perPlatform = (platforms || []).map((p) => adapterDefs[p]).filter(Boolean)
   let adapters: unknown[] = []
-  if (matched.length > 0) {
-    adapters = matched.map((a) => resolvePropertyReferences(a, workingProperties))
+  if (exactMatch) {
+    adapters = [resolvePropertyReferences(exactMatch, workingProperties)]
+  } else if (perPlatform.length > 0) {
+    adapters = perPlatform.map((a) => resolvePropertyReferences(a, workingProperties))
   } else if (adapterDefs.default) {
     adapters = [resolvePropertyReferences(adapterDefs.default, workingProperties)]
   }
