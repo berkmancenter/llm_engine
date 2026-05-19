@@ -1,3 +1,4 @@
+import * as fuzzball from 'fuzzball'
 import { User } from '../models/index.js'
 import { AdapterMessage, AdapterUser } from '../types/adapter.types.js'
 import userService from './user.service.js'
@@ -32,6 +33,35 @@ async function getOrCreateUser(adapter, adapterUser) {
           config: {
             ...(dmChannelConfig.config || {}),
             [directChannelName]: adapterUser.dmConfig
+          }
+        }
+      }
+    }
+    if (dmChannelConfig.users && adapterUser.dmConfig) {
+      const moderators = adapter.conversation.moderators ?? []
+      const fuzzyMatchesModerator = moderators.some(
+        (mod) =>
+          fuzzball.ratio(adapterUser.username, mod.name) >= 70 ||
+          (mod.alternateName && fuzzball.ratio(adapterUser.username, mod.alternateName) >= 70)
+      )
+      let isTargeted: boolean
+      if (dmChannelConfig.users === 'moderators') {
+        isTargeted = moderators.length > 0 ? fuzzyMatchesModerator : adapterUser.isHost
+      } else if (dmChannelConfig.users === 'hosts') {
+        isTargeted = adapterUser.isHost
+      } else {
+        isTargeted = dmChannelConfig.users
+          .split(',')
+          .map((u) => u.trim())
+          .includes(adapterUser.username)
+      }
+      if (isTargeted && !dmChannelConfig.config?.[adapterUser.username]) {
+        channelsUpdated = true
+        return {
+          ...dmChannelConfig,
+          config: {
+            ...(dmChannelConfig.config || {}),
+            [adapterUser.username]: adapterUser.dmConfig
           }
         }
       }

@@ -40,6 +40,10 @@ const adapterChannelConfigSchema = new mongoose.Schema<AdapterChannelConfig>({
   config: {
     type: mongoose.Schema.Types.Mixed,
     default: undefined
+  },
+  users: {
+    type: mongoose.Schema.Types.Mixed,
+    required: false
   }
 })
 const adapterSchema = new mongoose.Schema<IAdapter, AdapterModel>(
@@ -200,8 +204,14 @@ adapterSchema.method('sendMessage', async function (message) {
         return
       }
       logger.debug(`Sending message with channel ${channelName} through adapter ${this._id}`)
-      const channelConfig = channel.direct ? channel.config[channelName] : channel.config
-      await adapterTypes[this.type].sendMessage.call(this, message, channelConfig)
+      if (channel.users) {
+        for (const dmConfig of Object.values(channel.config || {})) {
+          await adapterTypes[this.type].sendMessage.call(this, message, dmConfig)
+        }
+      } else {
+        const channelConfig = channel.direct ? channel.config[channelName] : channel.config
+        await adapterTypes[this.type].sendMessage.call(this, message, channelConfig)
+      }
     }
   }
 })

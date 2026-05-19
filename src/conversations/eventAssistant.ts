@@ -40,7 +40,7 @@ const eventAssistant: ConversationType = {
       required: false,
       type: 'number',
       default: 3
-    }
+    },
   ],
   /*
    * Each entry determines 3 things: the Features section in the event creation form,
@@ -247,13 +247,14 @@ const eventAssistant: ConversationType = {
           direct: true,
           agent: 'eventAssistant',
           direction: Direction.BOTH
+        },
+        {
+          name: 'moderator',
+          direction: Direction.OUTGOING,
+          users: 'moderators'
         }
       ],
       chatChannels: [
-        {
-          name: 'moderator',
-          direction: Direction.OUTGOING
-        },
         {
           name: 'chat',
           direction: Direction.BOTH

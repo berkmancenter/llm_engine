@@ -401,7 +401,11 @@ export default {
     botNames.push(defaultBotName)
     // Ignore if participant is one of the bots
     if (!botNames.includes(participant.name)) {
-      const adapterUser: AdapterUser = { username: participant.name, dmConfig: { to: participant.id } }
+      const adapterUser: AdapterUser = {
+        username: participant.name,
+        dmConfig: { to: participant.id },
+        isHost: participant.is_host ?? false
+      }
       return adapterUser
     }
   },
