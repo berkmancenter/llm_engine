@@ -94,6 +94,12 @@ const envVarsSchema = Joi.object()
       .default('bedrock')
       .description('Platform to use for classification tasks (e.g., bedrock, openai, google)'),
     CLASSIFICATION_LLM_MODEL: Joi.string().default('sonnet').description('Model to use for classification tasks'),
+    SUMMARY_LLM_PLATFORM: Joi.string()
+      .default('bedrock')
+      .description('Platform to use for document summarization (e.g., bedrock, openai, google)'),
+    SUMMARY_LLM_MODEL: Joi.string()
+      .default('us.anthropic.claude-haiku-4-5-20251001-v1:0')
+      .description('Model to use for document summarization'),
     IMAGE_GENERATION_LLM_MODEL: Joi.string()
       .default('gemini-3-pro-image-preview')
       .description('Model to use for image generation tasks'),
@@ -231,6 +237,8 @@ const config = {
   conversationBotName: envVars.CONVERSATION_BOT_NAME,
   classificationLLMPlatform: envVars.CLASSIFICATION_LLM_PLATFORM,
   classificationLLMModel: envVars.CLASSIFICATION_LLM_MODEL,
+  summaryLLMPlatform: envVars.SUMMARY_LLM_PLATFORM,
+  summaryLLMModel: envVars.SUMMARY_LLM_MODEL,
   imageGenerationLLMModel: envVars.IMAGE_GENERATION_LLM_MODEL,
   semanticScholar: {
     apiKey: envVars.SEMANTIC_SCHOLAR_API_KEY
