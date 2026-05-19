@@ -235,6 +235,7 @@ const eventAssistant: ConversationType = {
     { name: 'image-gen' }
   ],
   adapters: {
+    // Fully remote: Zoom only — moderator DMs sent via Zoom
     zoom: {
       type: 'zoom',
       config: {
@@ -253,6 +254,33 @@ const eventAssistant: ConversationType = {
           name: 'moderator',
           direction: Direction.OUTGOING
         },
+        {
+          name: 'chat',
+          direction: Direction.BOTH
+        }
+      ],
+      audioChannels: [
+        {
+          name: 'transcript',
+          direction: Direction.INCOMING
+        }
+      ]
+    },
+    // Hybrid: Zoom + NextSpace — moderator DMs handled by NextSpace, not Zoom
+    'nextspace,zoom': {
+      type: 'zoom',
+      config: {
+        meetingUrl: '{{{properties.zoomMeetingUrl}}}',
+        botName: '{{properties.botName}}'
+      },
+      dmChannels: [
+        {
+          direct: true,
+          agent: 'eventAssistant',
+          direction: Direction.BOTH
+        }
+      ],
+      chatChannels: [
         {
           name: 'chat',
           direction: Direction.BOTH

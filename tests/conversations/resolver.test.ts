@@ -296,6 +296,51 @@ describe('resolveConversationType', () => {
       const result = resolveConversationType({ platforms: ['web'] }, type)
       expect(result.adapters).toHaveLength(0)
     })
+
+    test('matches composite platform key over individual keys', () => {
+      const type: ConversationType = {
+        ...baseType,
+        properties: [],
+        adapters: {
+          zoom: { type: 'zoom', config: { variant: 'zoom-only' } },
+          'nextspace,zoom': { type: 'zoom', config: { variant: 'hybrid' } },
+          default: { type: 'web' }
+        }
+      }
+      const result = resolveConversationType({ platforms: ['zoom', 'nextspace'] }, type)
+      expect(result.adapters).toHaveLength(1)
+      expect(result.adapters[0]).toMatchObject({ config: { variant: 'hybrid' } })
+    })
+
+    test('composite key matches regardless of platform order', () => {
+      const type: ConversationType = {
+        ...baseType,
+        properties: [],
+        adapters: {
+          'nextspace,zoom': { type: 'zoom', config: { variant: 'hybrid' } },
+          default: { type: 'web' }
+        }
+      }
+      const result = resolveConversationType({ platforms: ['nextspace', 'zoom'] }, type)
+      expect(result.adapters).toHaveLength(1)
+      expect(result.adapters[0]).toMatchObject({ config: { variant: 'hybrid' } })
+    })
+
+    test('falls back to per-platform adapters when no composite key matches', () => {
+      const type: ConversationType = {
+        ...baseType,
+        properties: [],
+        adapters: {
+          zoom: { type: 'zoom' },
+          'nextspace,zoom': { type: 'zoom', config: { variant: 'hybrid' } }
+        }
+      }
+      // Only zoom platform — matches single 'zoom' key, not composite
+      const result = resolveConversationType({ platforms: ['zoom'] }, type)
+      expect(result.adapters).toHaveLength(1)
+      expect(result.adapters[0]).toMatchObject({ type: 'zoom' })
+      expect((result.adapters[0] as { config?: { variant?: string } }).config?.variant).toBeUndefined()
+    })
   })
 
   describe('passthrough fields', () => {
