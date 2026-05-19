@@ -98,13 +98,13 @@ Example setting data retention to four hours:
 
 ### Enabling Direct Messages
 
-If you wish to enable direct messages between agents and users, you must set the `enableDMs": ["agents"]` property during Conversation creation. You must also specify a `dmChannel` in the `Adapter` configuration for each agent that should receive DMs.
+If you wish to enable direct messages between agents and users, you must set the `"enableDMs": ["agents"]` property during Conversation creation. You must also specify a `dmChannel` in the `Adapter` configuration for each agent that should receive DMs.
 
 ```
 {
 "name": "Should plastic water bottles be banned?",
 "topicId": "{{defaultTopic}}",
-"enableDMs": ["agents"]
+"enableDMs": ["agents"],
 "channels": [ { "name": "transcript"}],
 "adapters": [ {"type": "zoom", "config" : {"meetingUrl": "{{ZOOM_MEETING_URL}}"},
     "dmChannels": [{"direct": true, "agent": "eventAssistant", "direction": "both"}],
@@ -113,3 +113,34 @@ If you wish to enable direct messages between agents and users, you must set the
 ```
 
 If you do not need transcription, remove the `transcript` channel from the configuration.
+
+#### Sending DMs to a Specific Set of Participants
+
+You can configure a DM channel to target a specific subset of participants using the `users` property. This is useful for sending moderator alerts or other outgoing messages to particular roles.
+
+The `users` property supports three modes:
+
+- **`"moderators"`** — targets participants whose Zoom display name fuzzy-matches a name in the conversation's `moderators` list. If no moderators are defined on the conversation, falls back to targeting the meeting host(s). This is the recommended mode for moderator alert channels.
+- **`"hosts"`** — targets only participants who joined as the Zoom host.
+- **Comma-separated names** — targets participants whose Zoom display name exactly matches one of the provided names, e.g. `"Alice Smith, Bob Jones"`.
+
+Targeted DM channels use `"direction": "outgoing"` since they are used for one-way delivery to specific participants, not for receiving messages.
+
+Example using `"moderators"` mode:
+
+```
+{
+"name": "Should plastic water bottles be banned?",
+"topicId": "{{defaultTopic}}",
+"enableDMs": ["agents"],
+"channels": [{"name": "transcript"}, {"name": "moderator"}],
+"adapters": [{"type": "zoom", "config": {"meetingUrl": "{{ZOOM_MEETING_URL}}"},
+    "dmChannels": [
+        {"direct": true, "agent": "eventAssistant", "direction": "both"},
+        {"name": "moderator", "direction": "outgoing", "users": "moderators"}
+    ],
+    "audioChannels": [{"name": "transcript"}]}]
+}
+```
+
+DM channel targeting is resolved at join time — when a participant joins (or updates their display name or host status), the engine checks whether they match the `users` criteria and registers them for that channel if so.
