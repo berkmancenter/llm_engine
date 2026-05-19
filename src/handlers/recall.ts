@@ -115,6 +115,7 @@ const supportedEvents = [
   'transcript.data',
   'participant_events.chat_message',
   'participant_events.join',
+  'participant_events.update',
   'bot.call_ended',
   'bot.in_call_recording',
   'bot.in_call_not_recording'
@@ -157,6 +158,8 @@ const handleEvent = async (req, _res) => {
     await webhookService.receiveMessage(zoomAdapter, req.body)
   } else if (event === 'participant_events.join') {
     await webhookService.participantJoined(zoomAdapter, req.body.data.data.participant)
+  } else if (event === 'participant_events.update') {
+    await webhookService.participantUpdated(zoomAdapter, req.body.data.data.participant)
   }
   _res.status(httpStatus.OK).send('ok')
 }

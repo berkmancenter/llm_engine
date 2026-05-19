@@ -54,7 +54,7 @@ async function deployMeetingBot() {
     },
     {
       type: 'webhook',
-      events: ['participant_events.join'],
+      events: ['participant_events.join', 'participant_events.update'],
       url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/join/?conversationId=${this.conversation._id}`
     }
   ]
@@ -400,6 +400,22 @@ export default {
     const botNames = bots.map((bot) => bot.config?.botName)
     botNames.push(defaultBotName)
     // Ignore if participant is one of the bots
+    if (!botNames.includes(participant.name)) {
+      const adapterUser: AdapterUser = {
+        username: participant.name,
+        dmConfig: { to: participant.id },
+        isHost: participant.is_host ?? false
+      }
+      return adapterUser
+    }
+  },
+  async participantUpdated(participant) {
+    if (!this.conversation.populated('adapters')) {
+      await this.conversation.populate('adapters')
+    }
+    const bots = this.conversation.adapters.filter((adapter) => adapter.type === 'zoom' && adapter.config?.botName)
+    const botNames = bots.map((bot) => bot.config?.botName)
+    botNames.push(defaultBotName)
     if (!botNames.includes(participant.name)) {
       const adapterUser: AdapterUser = {
         username: participant.name,

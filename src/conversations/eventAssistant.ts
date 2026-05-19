@@ -40,7 +40,7 @@ const eventAssistant: ConversationType = {
       required: false,
       type: 'number',
       default: 3
-    },
+    }
   ],
   /*
    * Each entry determines 3 things: the Features section in the event creation form,

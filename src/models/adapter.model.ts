@@ -11,6 +11,7 @@ export interface AdapterMethods {
   sendMessage(message: IMessage)
   validateBeforeUpdate()
   participantJoined(participant: Record<string, unknown>)
+  participantUpdated(participant: Record<string, unknown>)
 }
 
 interface AdapterStatics {
@@ -234,6 +235,18 @@ adapterSchema.method('participantJoined', async function (participant) {
     return
   }
   return await adapterTypes[this.type].participantJoined.call(this, participant)
+})
+
+adapterSchema.method('participantUpdated', async function (participant) {
+  if (!this.active) {
+    logger.warn(`Inactive adapter: ${this._id} received message`)
+    return
+  }
+  await populateConversation.call(this)
+  if (this.dmChannels?.length === 0 && this.chatChannels?.length === 0) {
+    return
+  }
+  return await adapterTypes[this.type].participantUpdated.call(this, participant)
 })
 
 adapterSchema.pre('validate', async function () {

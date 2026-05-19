@@ -130,5 +130,12 @@ const participantJoined = async (adapter, participant) => {
   }
 }
 
-const webhookService = { receiveMessage, participantJoined }
+const participantUpdated = async (adapter, participant) => {
+  const adapterUser: AdapterUser = await adapter.participantUpdated(participant)
+  if (adapterUser) {
+    await getOrCreateUser(adapter, adapterUser)
+  }
+}
+
+const webhookService = { receiveMessage, participantJoined, participantUpdated }
 export default webhookService

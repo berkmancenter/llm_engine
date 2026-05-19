@@ -2052,7 +2052,7 @@ describe('zoom adapter tests', () => {
               },
               {
                 type: 'webhook',
-                events: ['participant_events.join'],
+                events: ['participant_events.join', 'participant_events.update'],
                 url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/join/?conversationId=${conversation._id}`
               }
             ],
@@ -2130,7 +2130,7 @@ describe('zoom adapter tests', () => {
               },
               {
                 type: 'webhook',
-                events: ['participant_events.join'],
+                events: ['participant_events.join', 'participant_events.update'],
                 url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/join/?conversationId=${conversation._id}`
               }
             ],
@@ -2798,7 +2798,7 @@ describe('zoom adapter tests', () => {
       }
 
       const adapterUser = await adapter.participantJoined(participant)
-      expect(adapterUser).toEqual({ username: 'New Joiner', dmConfig: { to: 200 } })
+      expect(adapterUser).toEqual({ username: 'New Joiner', dmConfig: { to: 200 }, isHost: false })
     })
 
     it('does not configure direct channel when DMs are not enabled', async () => {
