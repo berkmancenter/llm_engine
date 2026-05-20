@@ -4,6 +4,7 @@ export interface AdapterUser {
   username: string
   pseudonym?: string
   dmConfig?: Record<string, unknown>
+  isHost?: boolean
 }
 
 export interface AdapterMessage<T> {

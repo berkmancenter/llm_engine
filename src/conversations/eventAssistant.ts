@@ -247,13 +247,14 @@ const eventAssistant: ConversationType = {
           direct: true,
           agent: 'eventAssistant',
           direction: Direction.BOTH
+        },
+        {
+          name: 'moderator',
+          direction: Direction.OUTGOING,
+          users: 'moderators'
         }
       ],
       chatChannels: [
-        {
-          name: 'moderator',
-          direction: Direction.OUTGOING
-        },
         {
           name: 'chat',
           direction: Direction.BOTH

@@ -38,7 +38,8 @@ const testAgentTypeSpecification = {
 // Create mock adapter type
 const mockAdapterType = {
   receiveMessage: jest.fn(),
-  participantJoined: jest.fn()
+  participantJoined: jest.fn(),
+  participantUpdated: jest.fn()
 }
 const testAdapterTypes = {
   test: mockAdapterType
@@ -92,6 +93,7 @@ describe('adapter service tests', () => {
     // Add mock methods to the adapter instance
     adapter.receiveMessage = mockAdapterType.receiveMessage
     adapter.participantJoined = mockAdapterType.participantJoined
+    adapter.participantUpdated = mockAdapterType.participantUpdated
 
     conversation.adapters.push(adapter)
     await conversation.save()
@@ -783,6 +785,339 @@ describe('adapter service tests', () => {
       const modifiedAdapter = await Adapter.findById(adapter._id)
       const dmChannel = modifiedAdapter?.dmChannels?.find((c) => c.direct)
       expect(dmChannel!.config![`direct-${user!._id}-${agent._id}`]).toEqual({ to: 500 })
+    })
+
+    it('stores dmConfig on users channel when host joins and users is "hosts"', async () => {
+      await createConversation('Meeting with Host DMs')
+      conversation.enableDMs = ['agents']
+      await conversation.save()
+
+      adapter.dmChannels = [{ name: 'moderator', direction: Direction.OUTGOING, users: 'hosts' }]
+      await adapter.save()
+
+      const participant = { id: 700, name: 'Host User', is_host: true, platform: 'test' }
+
+      mockAdapterType.participantJoined.mockReturnValue({
+        username: 'Host User',
+        dmConfig: { to: 700 },
+        isHost: true
+      })
+
+      await webhookService.participantJoined(adapter, participant)
+
+      const modifiedAdapter = await Adapter.findById(adapter._id)
+      const moderatorChannel = modifiedAdapter?.dmChannels?.find((c) => c.name === 'moderator')
+      expect(moderatorChannel!.config!['Host User']).toEqual({ to: 700 })
+    })
+
+    it('does not store dmConfig on users channel when non-host joins and users is "hosts"', async () => {
+      await createConversation('Meeting with Non-Host')
+      conversation.enableDMs = ['agents']
+      await conversation.save()
+
+      adapter.dmChannels = [{ name: 'moderator', direction: Direction.OUTGOING, users: 'hosts' }]
+      await adapter.save()
+
+      const participant = { id: 701, name: 'Regular User', is_host: false, platform: 'test' }
+
+      mockAdapterType.participantJoined.mockReturnValue({
+        username: 'Regular User',
+        dmConfig: { to: 701 },
+        isHost: false
+      })
+
+      await webhookService.participantJoined(adapter, participant)
+
+      const modifiedAdapter = await Adapter.findById(adapter._id)
+      const moderatorChannel = modifiedAdapter?.dmChannels?.find((c) => c.name === 'moderator')
+      expect(moderatorChannel!.config?.['Regular User']).toBeUndefined()
+    })
+
+    it('stores dmConfig on users channel when username matches comma-separated list', async () => {
+      await createConversation('Meeting with Named Moderators')
+      conversation.enableDMs = ['agents']
+      await conversation.save()
+
+      adapter.dmChannels = [{ name: 'moderator', direction: Direction.OUTGOING, users: 'Alice Smith, Bob Jones' }]
+      await adapter.save()
+
+      mockAdapterType.participantJoined.mockReturnValue({
+        username: 'Alice Smith',
+        dmConfig: { to: 702 },
+        isHost: false
+      })
+
+      await webhookService.participantJoined(adapter, { id: 702, name: 'Alice Smith', is_host: false, platform: 'test' })
+
+      const modifiedAdapter = await Adapter.findById(adapter._id)
+      const moderatorChannel = modifiedAdapter?.dmChannels?.find((c) => c.name === 'moderator')
+      expect(moderatorChannel!.config!['Alice Smith']).toEqual({ to: 702 })
+    })
+
+    it('does not store dmConfig on users channel when username is not in comma-separated list', async () => {
+      await createConversation('Meeting with Named Moderators Exclusion')
+      conversation.enableDMs = ['agents']
+      await conversation.save()
+
+      adapter.dmChannels = [{ name: 'moderator', direction: Direction.OUTGOING, users: 'Alice Smith, Bob Jones' }]
+      await adapter.save()
+
+      mockAdapterType.participantJoined.mockReturnValue({
+        username: 'Carol Williams',
+        dmConfig: { to: 703 },
+        isHost: false
+      })
+
+      await webhookService.participantJoined(adapter, { id: 703, name: 'Carol Williams', is_host: false, platform: 'test' })
+
+      const modifiedAdapter = await Adapter.findById(adapter._id)
+      const moderatorChannel = modifiedAdapter?.dmChannels?.find((c) => c.name === 'moderator')
+      expect(moderatorChannel!.config?.['Carol Williams']).toBeUndefined()
+    })
+
+    it('does not duplicate dmConfig on users channel when same host rejoins', async () => {
+      await createConversation('Meeting with Rejoining Host')
+      conversation.enableDMs = ['agents']
+      await conversation.save()
+
+      adapter.dmChannels = [{ name: 'moderator', direction: Direction.OUTGOING, users: 'hosts' }]
+      await adapter.save()
+
+      mockAdapterType.participantJoined.mockReturnValue({
+        username: 'Rejoining Host',
+        dmConfig: { to: 704 },
+        isHost: true
+      })
+
+      await webhookService.participantJoined(adapter, { id: 704, name: 'Rejoining Host', is_host: true, platform: 'test' })
+      await webhookService.participantJoined(adapter, { id: 704, name: 'Rejoining Host', is_host: true, platform: 'test' })
+
+      expect(mockAdapterType.participantJoined).toHaveBeenCalledTimes(2)
+
+      const modifiedAdapter = await Adapter.findById(adapter._id)
+      const moderatorChannel = modifiedAdapter?.dmChannels?.find((c) => c.name === 'moderator')
+      expect(Object.keys(moderatorChannel!.config!)).toHaveLength(1)
+      expect(moderatorChannel!.config!['Rejoining Host']).toEqual({ to: 704 })
+    })
+
+    it('stores dmConfig on users channel when participant fuzzy matches a moderator name and users is "moderators"', async () => {
+      await createConversation('Meeting with Moderator DMs')
+      conversation.moderators = [{ name: 'Alice Smith' }]
+      conversation.enableDMs = ['agents']
+      await conversation.save()
+
+      adapter.dmChannels = [{ name: 'moderator', direction: Direction.OUTGOING, users: 'moderators' }]
+      await adapter.save()
+
+      mockAdapterType.participantJoined.mockReturnValue({
+        username: 'Alice Smith',
+        dmConfig: { to: 710 },
+        isHost: false
+      })
+
+      await webhookService.participantJoined(adapter, { id: 710, name: 'Alice Smith', is_host: false, platform: 'test' })
+
+      const modifiedAdapter = await Adapter.findById(adapter._id)
+      const moderatorChannel = modifiedAdapter?.dmChannels?.find((c) => c.name === 'moderator')
+      expect(moderatorChannel!.config!['Alice Smith']).toEqual({ to: 710 })
+    })
+
+    it('stores dmConfig when participant fuzzy matches moderator alternateName and users is "moderators"', async () => {
+      await createConversation('Meeting with Moderator Alternate Name')
+      conversation.moderators = [{ name: 'Alice Smith', alternateName: 'Dr. Alice' }]
+      conversation.enableDMs = ['agents']
+      await conversation.save()
+
+      adapter.dmChannels = [{ name: 'moderator', direction: Direction.OUTGOING, users: 'moderators' }]
+      await adapter.save()
+
+      mockAdapterType.participantJoined.mockReturnValue({
+        username: 'Dr. Alice',
+        dmConfig: { to: 711 },
+        isHost: false
+      })
+
+      await webhookService.participantJoined(adapter, { id: 711, name: 'Dr. Alice', is_host: false, platform: 'test' })
+
+      const modifiedAdapter = await Adapter.findById(adapter._id)
+      const moderatorChannel = modifiedAdapter?.dmChannels?.find((c) => c.name === 'moderator')
+      expect(moderatorChannel!.config!['Dr. Alice']).toEqual({ to: 711 })
+    })
+
+    it('does not store dmConfig when participant does not match any moderator and users is "moderators"', async () => {
+      await createConversation('Meeting with Moderator Exclusion')
+      conversation.moderators = [{ name: 'Alice Smith' }]
+      conversation.enableDMs = ['agents']
+      await conversation.save()
+
+      adapter.dmChannels = [{ name: 'moderator', direction: Direction.OUTGOING, users: 'moderators' }]
+      await adapter.save()
+
+      mockAdapterType.participantJoined.mockReturnValue({
+        username: 'Carol Williams',
+        dmConfig: { to: 712 },
+        isHost: false
+      })
+
+      await webhookService.participantJoined(adapter, { id: 712, name: 'Carol Williams', is_host: false, platform: 'test' })
+
+      const modifiedAdapter = await Adapter.findById(adapter._id)
+      const moderatorChannel = modifiedAdapter?.dmChannels?.find((c) => c.name === 'moderator')
+      expect(moderatorChannel!.config?.['Carol Williams']).toBeUndefined()
+    })
+
+    it('falls back to host targeting when users is "moderators" and no moderators are defined', async () => {
+      await createConversation('Meeting with Moderators Fallback to Host')
+      conversation.moderators = []
+      conversation.enableDMs = ['agents']
+      await conversation.save()
+
+      adapter.dmChannels = [{ name: 'moderator', direction: Direction.OUTGOING, users: 'moderators' }]
+      await adapter.save()
+
+      mockAdapterType.participantJoined.mockReturnValue({
+        username: 'Host User',
+        dmConfig: { to: 713 },
+        isHost: true
+      })
+
+      await webhookService.participantJoined(adapter, { id: 713, name: 'Host User', is_host: true, platform: 'test' })
+
+      const modifiedAdapter = await Adapter.findById(adapter._id)
+      const moderatorChannel = modifiedAdapter?.dmChannels?.find((c) => c.name === 'moderator')
+      expect(moderatorChannel!.config!['Host User']).toEqual({ to: 713 })
+    })
+
+    it('does not store dmConfig for non-host when users is "moderators" and no moderators are defined', async () => {
+      await createConversation('Meeting with Moderators Fallback Non-Host')
+      conversation.moderators = []
+      conversation.enableDMs = ['agents']
+      await conversation.save()
+
+      adapter.dmChannels = [{ name: 'moderator', direction: Direction.OUTGOING, users: 'moderators' }]
+      await adapter.save()
+
+      mockAdapterType.participantJoined.mockReturnValue({
+        username: 'Regular User',
+        dmConfig: { to: 714 },
+        isHost: false
+      })
+
+      await webhookService.participantJoined(adapter, { id: 714, name: 'Regular User', is_host: false, platform: 'test' })
+
+      const modifiedAdapter = await Adapter.findById(adapter._id)
+      const moderatorChannel = modifiedAdapter?.dmChannels?.find((c) => c.name === 'moderator')
+      expect(moderatorChannel!.config?.['Regular User']).toBeUndefined()
+    })
+
+    describe('participantUpdated', () => {
+      it('adds participant to moderator channel when they become host and no moderators are defined', async () => {
+        await createConversation('Meeting with Host Promotion')
+        conversation.moderators = []
+        conversation.enableDMs = ['agents']
+        await conversation.save()
+
+        adapter.dmChannels = [{ name: 'moderator', direction: Direction.OUTGOING, users: 'moderators' }]
+        await adapter.save()
+
+        // Participant joins as non-host — not added to moderator channel
+        mockAdapterType.participantJoined.mockReturnValue({
+          username: 'Future Host',
+          dmConfig: { to: 720 },
+          isHost: false
+        })
+        await webhookService.participantJoined(adapter, { id: 720, name: 'Future Host', is_host: false, platform: 'test' })
+
+        let modifiedAdapter = await Adapter.findById(adapter._id)
+        expect(modifiedAdapter?.dmChannels?.find((c) => c.name === 'moderator')?.config?.['Future Host']).toBeUndefined()
+
+        // Host status changes — now added to moderator channel
+        mockAdapterType.participantUpdated.mockReturnValue({
+          username: 'Future Host',
+          dmConfig: { to: 720 },
+          isHost: true
+        })
+        await webhookService.participantUpdated(adapter, { id: 720, name: 'Future Host', is_host: true, platform: 'test' })
+
+        modifiedAdapter = await Adapter.findById(adapter._id)
+        expect(modifiedAdapter?.dmChannels?.find((c) => c.name === 'moderator')?.config?.['Future Host']).toEqual({
+          to: 720
+        })
+      })
+
+      it('adds participant to moderator channel when they rename to match a moderator', async () => {
+        await createConversation('Meeting with Rename to Moderator')
+        conversation.moderators = [{ name: 'Alice Smith' }]
+        conversation.enableDMs = ['agents']
+        await conversation.save()
+
+        adapter.dmChannels = [{ name: 'moderator', direction: Direction.OUTGOING, users: 'moderators' }]
+        await adapter.save()
+
+        // Participant joins with a non-matching name
+        mockAdapterType.participantJoined.mockReturnValue({
+          username: 'Unknown',
+          dmConfig: { to: 721 },
+          isHost: false
+        })
+        await webhookService.participantJoined(adapter, { id: 721, name: 'Unknown', is_host: false, platform: 'test' })
+
+        let modifiedAdapter = await Adapter.findById(adapter._id)
+        expect(modifiedAdapter?.dmChannels?.find((c) => c.name === 'moderator')?.config?.Unknown).toBeUndefined()
+
+        // Participant renames to match moderator
+        mockAdapterType.participantUpdated.mockReturnValue({
+          username: 'Alice Smith',
+          dmConfig: { to: 721 },
+          isHost: false
+        })
+        await webhookService.participantUpdated(adapter, { id: 721, name: 'Alice Smith', is_host: false, platform: 'test' })
+
+        modifiedAdapter = await Adapter.findById(adapter._id)
+        expect(modifiedAdapter?.dmChannels?.find((c) => c.name === 'moderator')?.config?.['Alice Smith']).toEqual({
+          to: 721
+        })
+      })
+
+      it('does not add participant to moderator channel when update does not match criteria', async () => {
+        await createConversation('Meeting with Non-Matching Update')
+        conversation.moderators = [{ name: 'Alice Smith' }]
+        conversation.enableDMs = ['agents']
+        await conversation.save()
+
+        adapter.dmChannels = [{ name: 'moderator', direction: Direction.OUTGOING, users: 'moderators' }]
+        await adapter.save()
+
+        mockAdapterType.participantUpdated.mockReturnValue({
+          username: 'Carol Williams',
+          dmConfig: { to: 722 },
+          isHost: false
+        })
+        await webhookService.participantUpdated(adapter, {
+          id: 722,
+          name: 'Carol Williams',
+          is_host: false,
+          platform: 'test'
+        })
+
+        const modifiedAdapter = await Adapter.findById(adapter._id)
+        expect(modifiedAdapter?.dmChannels?.find((c) => c.name === 'moderator')?.config?.['Carol Williams']).toBeUndefined()
+      })
+
+      it('does not process participantUpdated when adapter type returns null', async () => {
+        await createConversation('Meeting with Bot Update')
+        conversation.enableDMs = ['agents']
+        await conversation.save()
+
+        adapter.dmChannels = [{ name: 'moderator', direction: Direction.OUTGOING, users: 'moderators' }]
+        await adapter.save()
+
+        mockAdapterType.participantUpdated.mockReturnValue(null)
+        await webhookService.participantUpdated(adapter, { id: 723, name: 'LLM Engine', is_host: true, platform: 'test' })
+
+        const modifiedAdapter = await Adapter.findById(adapter._id)
+        expect(modifiedAdapter?.dmChannels?.find((c) => c.name === 'moderator')?.config).toBeUndefined()
+      })
     })
 
     it('does not process participantJoined when adapter type returns null', async () => {

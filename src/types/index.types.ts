@@ -148,6 +148,7 @@ export interface AdapterChannelConfig {
   name?: string
   direction: Direction
   config?: Record<string, unknown>
+  users?: string
 }
 
 export interface IAdapter {
