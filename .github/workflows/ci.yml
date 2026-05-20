@@ -150,6 +150,8 @@ jobs:
           CHROMA_DB_URL: http://0.0.0.0:8000
           DEFAULT_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DEFAULT_OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          BEDROCK_API_KEY: ${{ secrets.BEDROCK_API_KEY }}
+          BEDROCK_BASE_URL: ${{ secrets.BEDROCK_BASE_URL }}
 
       - name: Run agent tests
         if: steps.changes.outputs.helpers_src == 'true' || steps.changes.outputs.tools_src == 'true' || steps.changes.outputs.agents == 'true' || github.event_name == 'workflow_dispatch'

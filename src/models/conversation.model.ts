@@ -12,6 +12,8 @@ interface ConversationMethods {
 
 type ConversationModel = Model<IConversation, Record<string, never>, ConversationMethods>
 
+// Resources are embedded rather than standalone: they are never queried outside their
+// conversation, have no independent lifecycle, and cascade-delete naturally with the parent.
 const resourceSchema = new mongoose.Schema<Resource>({
   source: { type: String, enum: ['speaker', 'ai'], required: true },
   category: { type: String, enum: ['required', 'referenced', 'suggested'], required: true },

@@ -29,6 +29,10 @@ const defineJob = {
   cleanUpTopics: async () => {
     await agenda.start()
     await agenda.define('clean up inactive topics', JobHandlers.cleanUpTopics)
+  },
+  summarizePdf: async () => {
+    await agenda.start()
+    await agenda.define('summarize pdf', JobHandlers.summarizePdf)
   }
 }
 
