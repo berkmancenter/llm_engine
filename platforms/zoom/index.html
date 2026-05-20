@@ -467,6 +467,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Enabling Direct Messages">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sending-dms-to-a-specific-set-of-participants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sending DMs to a Specific Set of Participants
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
       </ul>
@@ -573,11 +590,11 @@ RECALL_SVIX_SECRET=whsec_...
 <li>Grant permission to record and real-time transcription should start.</li>
 </ol>
 <h3 id="enabling-direct-messages">Enabling Direct Messages</h3>
-<p>If you wish to enable direct messages between agents and users, you must set the <code>enableDMs": ["agents"]</code> property during Conversation creation. You must also specify a <code>dmChannel</code> in the <code>Adapter</code> configuration for each agent that should receive DMs.</p>
+<p>If you wish to enable direct messages between agents and users, you must set the <code>"enableDMs": ["agents"]</code> property during Conversation creation. You must also specify a <code>dmChannel</code> in the <code>Adapter</code> configuration for each agent that should receive DMs.</p>
 <div class="highlight"><pre><span></span><code>{
 &quot;name&quot;: &quot;Should plastic water bottles be banned?&quot;,
 &quot;topicId&quot;: &quot;{{defaultTopic}}&quot;,
-&quot;enableDMs&quot;: [&quot;agents&quot;]
+&quot;enableDMs&quot;: [&quot;agents&quot;],
 &quot;channels&quot;: [ { &quot;name&quot;: &quot;transcript&quot;}],
 &quot;adapters&quot;: [ {&quot;type&quot;: &quot;zoom&quot;, &quot;config&quot; : {&quot;meetingUrl&quot;: &quot;{{ZOOM_MEETING_URL}}&quot;},
     &quot;dmChannels&quot;: [{&quot;direct&quot;: true, &quot;agent&quot;: &quot;eventAssistant&quot;, &quot;direction&quot;: &quot;both&quot;}],
@@ -585,6 +602,30 @@ RECALL_SVIX_SECRET=whsec_...
 }
 </code></pre></div>
 <p>If you do not need transcription, remove the <code>transcript</code> channel from the configuration.</p>
+<h4 id="sending-dms-to-a-specific-set-of-participants">Sending DMs to a Specific Set of Participants</h4>
+<p>You can configure a DM channel to target a specific subset of participants using the <code>users</code> property. This is useful for sending moderator alerts or other outgoing messages to particular roles.</p>
+<p>The <code>users</code> property supports three modes:</p>
+<ul>
+<li><strong><code>"moderators"</code></strong> — targets participants whose Zoom display name fuzzy-matches a name in the conversation's <code>moderators</code> list. If no moderators are defined on the conversation, falls back to targeting the meeting host(s). This is the recommended mode for moderator alert channels.</li>
+<li><strong><code>"hosts"</code></strong> — targets only participants who joined as the Zoom host.</li>
+<li><strong>Comma-separated names</strong> — targets participants whose Zoom display name exactly matches one of the provided names, e.g. <code>"Alice Smith, Bob Jones"</code>.</li>
+</ul>
+<p>Targeted DM channels use <code>"direction": "outgoing"</code> since they are used for one-way delivery to specific participants, not for receiving messages.</p>
+<p>Example using <code>"moderators"</code> mode:</p>
+<div class="highlight"><pre><span></span><code>{
+&quot;name&quot;: &quot;Should plastic water bottles be banned?&quot;,
+&quot;topicId&quot;: &quot;{{defaultTopic}}&quot;,
+&quot;enableDMs&quot;: [&quot;agents&quot;],
+&quot;channels&quot;: [{&quot;name&quot;: &quot;transcript&quot;}, {&quot;name&quot;: &quot;moderator&quot;}],
+&quot;adapters&quot;: [{&quot;type&quot;: &quot;zoom&quot;, &quot;config&quot;: {&quot;meetingUrl&quot;: &quot;{{ZOOM_MEETING_URL}}&quot;},
+    &quot;dmChannels&quot;: [
+        {&quot;direct&quot;: true, &quot;agent&quot;: &quot;eventAssistant&quot;, &quot;direction&quot;: &quot;both&quot;},
+        {&quot;name&quot;: &quot;moderator&quot;, &quot;direction&quot;: &quot;outgoing&quot;, &quot;users&quot;: &quot;moderators&quot;}
+    ],
+    &quot;audioChannels&quot;: [{&quot;name&quot;: &quot;transcript&quot;}]}]
+}
+</code></pre></div>
+<p>DM channel targeting is resolved at join time — when a participant joins (or updates their display name or host status), the engine checks whether they match the <code>users</code> criteria and registers them for that channel if so.</p>
 
 
 
