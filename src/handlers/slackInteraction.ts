@@ -51,7 +51,7 @@ interface SlackBlockActionsPayload {
   channel: { id: string } | null
   user: { id: string }
   actions: SlackBlockAction[]
-  message?: { ts: string }
+  message?: { ts: string; thread_ts?: string }
   container?: { channel_id?: string }
   response_url?: string
 }
@@ -108,7 +108,10 @@ async function receiveInteraction(rawPayload: unknown): Promise<void> {
     user: payload.user.id,
     channel: resolvedChannelId,
     ...(isIM && { channel_type: 'im' }),
-    ...(payload.message?.ts && { thread_ts: payload.message.ts }),
+    /* Prefer message.thread_ts (Slack's own root-thread pointer) over
+       message.ts so button clicks on bot replies are always parented to
+       the thread root, not the intermediate message that held the buttons. */
+    ...(payload.message && { thread_ts: payload.message.thread_ts ?? payload.message.ts }),
     response_url: payload.response_url
   }
 

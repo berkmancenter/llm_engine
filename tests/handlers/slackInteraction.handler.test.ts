@@ -136,6 +136,25 @@ describe('slackInteraction handler — receiveInteraction()', () => {
     expect(syntheticEvent).not.toHaveProperty('thread_ts')
   })
 
+  it('uses message.thread_ts as the thread anchor when present (button on a bot reply, not the root)', async () => {
+    /* When a bot reply carries buttons, payload.message.ts is the bot reply ts
+       but payload.message.thread_ts is the actual thread root ts. We must use
+       the root so synthetic events are parented correctly. */
+    const payload = makePayload({ message: { ts: '111.222', thread_ts: '999.000' } })
+    await slackInteractionHandler.receiveInteraction(payload)
+
+    const syntheticEvent = receiveMessageSpy.mock.calls[0][1]
+    expect(syntheticEvent.thread_ts).toBe('999.000')
+  })
+
+  it('falls back to message.ts when thread_ts is absent (button on a root message)', async () => {
+    const payload = makePayload({ message: { ts: '1234567890.123456' } })
+    await slackInteractionHandler.receiveInteraction(payload)
+
+    const syntheticEvent = receiveMessageSpy.mock.calls[0][1]
+    expect(syntheticEvent.thread_ts).toBe('1234567890.123456')
+  })
+
   it('passes response_url through so the agent can send a deferred loading or follow-up message', async () => {
     await slackInteractionHandler.receiveInteraction(makePayload())
 
