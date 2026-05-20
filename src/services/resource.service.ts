@@ -3,11 +3,80 @@ import fs from 'fs'
 import path from 'path'
 import mongoose from 'mongoose'
 import httpStatus from 'http-status'
-import backgroundCollection, { BACKGROUND_DOCS_BASE } from '../agents/helpers/backgroundCollection.js'
+import { z } from 'zod'
+import { PDFLoader } from '@langchain/community/document_loaders/fs/pdf'
+import backgroundCollection, { BACKGROUND_DOCS_BASE, buildFullCitation } from '../agents/helpers/backgroundCollection.js'
+import { getModelChat, summaryLLMPlatform, summaryLLMModel } from '../agents/helpers/getModelChat.js'
+import { getChatPromptResponse } from '../agents/helpers/llmChain.js'
 import logger from '../config/logger.js'
 import Conversation from '../models/conversation.model.js'
+import schedule from '../jobs/schedule.js'
 import websocketGateway from '../websockets/websocketGateway.js'
 import ApiError from '../utils/ApiError.js'
+
+const resourceSummarySchema = z.object({
+  mainThesis: z.array(z.string()).describe('The central argument or purpose of the resource as 1–2 bullet points.'),
+  keyFindings: z.array(z.string()).describe('The most important results or arguments as 2–4 bullet points.'),
+  methodology: z
+    .array(z.string())
+    .optional()
+    .describe(
+      'The research method or study design as 1–2 bullet points. Omit entirely if the resource does not describe a specific method or study.'
+    ),
+  practicalRelevance: z
+    .array(z.string())
+    .describe('Why this matters or how it connects to real-world practice as 1–2 bullet points.')
+})
+
+function formatSummary(s: z.infer<typeof resourceSummarySchema>) {
+  const bullets = (items: string[]) => items.map((b) => `- ${b}`).join('\n')
+  const sections = [
+    `**Main Thesis**\n${bullets(s.mainThesis)}`,
+    `**Key Findings**\n${bullets(s.keyFindings)}`,
+    ...(s.methodology ? [`**Methodology**\n${bullets(s.methodology)}`] : []),
+    `**Practical Relevance**\n${bullets(s.practicalRelevance)}`
+  ]
+  return sections.join('\n\n')
+}
+
+const PDF_MAX_CHARS_FOR_SUMMARY = 400_000
+
+const SUMMARIZATION_PROMPT =
+  'You are writing cognitive support summaries to help people with executive function differences ' +
+  'or other cognitive needs quickly get up to speed on academic readings before an event. ' +
+  'Each field should be a list of short, plain-English bullet points. ' +
+  'Write like you are explaining to a smart non-specialist — no jargon, no complex sentence structure, ' +
+  'no hedging phrases like "the authors argue" or "this paper posits". ' +
+  'Every bullet should be a simple, direct statement. ' +
+  'Target 150 words total across all fields.'
+
+const summarizePdf = async (conversationId: string, resourceId: string, filePath: string, citation: string) => {
+  const loader = new PDFLoader(filePath)
+  const docs = await loader.load()
+  let content = docs.map((d) => d.pageContent).join('\n')
+  if (content.length > PDF_MAX_CHARS_FOR_SUMMARY) {
+    logger.warn(`resource.service: PDF for resource ${resourceId} exceeds ${PDF_MAX_CHARS_FOR_SUMMARY} chars, truncating`)
+    content = content.slice(0, PDF_MAX_CHARS_FOR_SUMMARY)
+  }
+
+  const llm = await getModelChat(summaryLLMPlatform, summaryLLMModel)
+  const structured = await getChatPromptResponse(
+    llm,
+    SUMMARIZATION_PROMPT,
+    'Citation: {citation}\n\n{content}',
+    { citation, content },
+    undefined,
+    resourceSummarySchema
+  )
+  const summary = formatSummary(structured as z.infer<typeof resourceSummarySchema>)
+
+  await Conversation.updateOne(
+    { _id: conversationId, 'resources._id': new mongoose.Types.ObjectId(resourceId) },
+    { $set: { 'resources.$.summary': summary } }
+  ).exec()
+
+  logger.info(`resource.service: generated summary for resource ${resourceId}`)
+}
 
 const savePdf = async (conversationId: string, resourceId: string, fileBuffer: Buffer, user) => {
   const conv = await Conversation.findOne({
@@ -48,6 +117,11 @@ const savePdf = async (conversationId: string, resourceId: string, fileBuffer: B
       await backgroundCollection.loadPdfIntoChroma(conversationId, { ...resource, fileName })
     } catch (err) {
       logger.warn(`resource.service: failed to load PDF into Chroma for resource ${resourceId}: ${err}`)
+    }
+
+    if (resource.category === 'required') {
+      const citation = buildFullCitation({ ...resource, fileName })
+      await schedule.summarizePdf({ conversationId, resourceId, filePath, citation })
     }
   }
   return fileName
@@ -112,5 +186,5 @@ const deleteResources = async (conversationId: string) => {
   }
 }
 
-const resourceService = { savePdf, updateResources, addResources, deleteResources }
+const resourceService = { savePdf, summarizePdf, updateResources, addResources, deleteResources }
 export default resourceService

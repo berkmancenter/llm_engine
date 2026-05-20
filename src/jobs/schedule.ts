@@ -33,6 +33,9 @@ const schedule = {
   },
   cleanUpTopics: async () => {
     await agenda.every('0 1 * * *', 'clean up inactive topics')
+  },
+  summarizePdf: async (data: { conversationId: string; resourceId: string; filePath: string; citation: string }) => {
+    await agenda.now('summarize pdf', data)
   }
 }
 

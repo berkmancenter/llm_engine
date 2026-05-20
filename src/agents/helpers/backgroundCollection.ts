@@ -11,7 +11,7 @@ const conversationCollectionName = (conversationId: string) => `background-${con
 
 const pdfPath = (conversationId: string, fileName: string) => path.join(BACKGROUND_DOCS_BASE, conversationId, fileName)
 
-function buildFullCitation(resource: Resource) {
+export function buildFullCitation(resource: Resource) {
   return resource.citation || [resource.title, resource.authors?.join(', '), resource.year].filter(Boolean).join(', ')
 }
 

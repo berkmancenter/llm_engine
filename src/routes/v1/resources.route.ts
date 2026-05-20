@@ -6,7 +6,7 @@ import resourceValidation from '../../validations/resource.validation.js'
 import validate from '../../middlewares/validate.js'
 
 const router = express.Router()
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } })
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } })
 
 /**
  * @swagger
@@ -49,7 +49,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 
  *               pdf:
  *                 type: string
  *                 format: binary
- *                 description: PDF file to upload (max 50MB)
+ *                 description: PDF file to upload (max 20MB)
  *     responses:
  *       204:
  *         description: PDF uploaded and indexed successfully

@@ -10,6 +10,7 @@ export async function startJobs() {
     await schedule.cleanUpTopics()
     await defineJob.cleanUpTranscripts()
     await schedule.cleanUpTranscripts()
+    await defineJob.summarizePdf()
   }
 }
 
