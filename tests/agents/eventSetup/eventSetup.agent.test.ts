@@ -3,6 +3,8 @@ import defaultAgentTypes from '../../../src/agents/index.js'
 import { createUser, createConversation, createPublicTopic, createMessage } from '../../utils/agentTestHelpers.js'
 import { Agent, Channel } from '../../../src/models/index.js'
 import { AgentMessageActions, ConversationHistory } from '../../../src/types/index.types.js'
+import { verifyHandoffToken } from '../../../src/services/handoffToken.service.js'
+import config from '../../../src/config/config.js'
 
 jest.setTimeout(30000)
 
@@ -86,19 +88,38 @@ describe('eventSetup agent tests', () => {
   })
 
   describe('respond()', () => {
-    it('returns a placeholder response', async () => {
+    /* The DB-backed createMessage helper does not set source.type='slack',
+       so to exercise the Slack-handoff branch we attach a Slack-shaped envelope
+       to the message before calling respond. */
+    /* eslint-disable no-param-reassign */
+    function asSlackMessage(msg, { teamId = 'T123ABC', userId = 'U456DEF', channelId = 'C789GHI' } = {}) {
+      msg.source = { type: 'slack', id: '1700000000.000100' }
+      msg.user = { username: `${teamId}-${userId}`, pseudonym: userId }
+      msg.channels = [{ name: channelId }]
+      return msg
+    }
+    /* eslint-enable no-param-reassign */
+
+    it('returns a Nextspace handoff URL with a verifiable token', async () => {
       const msg = await createMessage('setup a new event', user1, conversation, ['setup'])
+      asSlackMessage(msg)
       const history = buildHistory([])
       const responses = await defaultAgentTypes.eventSetup.respond.call(agent, history, msg)
 
       expect(responses).toHaveLength(1)
       expect(responses[0].visible).toBe(true)
-      expect(responses[0].message).toBe('Event setup coming soon')
       expect(responses[0].messageType).toBe('text')
+      expect(responses[0].message).toContain(`${config.appHost}/events/new?token=`)
+
+      const match = responses[0].message.match(/token=([A-Za-z0-9._-]+)/)
+      const token = decodeURIComponent(match[1])
+      const verified = verifyHandoffToken(token)
+      expect(verified.slackUserId).toBe('U456DEF')
     })
 
     it('routes the response to the setup channel', async () => {
       const msg = await createMessage('setup a new event', user1, conversation, ['setup'])
+      asSlackMessage(msg)
       const history = buildHistory([])
       const responses = await defaultAgentTypes.eventSetup.respond.call(agent, history, msg)
 
