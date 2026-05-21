@@ -15,4 +15,6 @@ export interface AdapterMessage<T> {
   source: { type: string; id?: string }
   createdAt?: Date
   parentMessage?: string
+  /** Adapter-specific rich content blocks (e.g. Slack Block Kit). Typed as unknown[] to keep this interface platform-agnostic. */
+  blocks?: unknown[]
 }

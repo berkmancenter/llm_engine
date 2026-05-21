@@ -350,6 +350,41 @@ describe('slack adapter tests', () => {
         text: 'Hello from the bot!'
       })
     })
+
+    describe('Slack Block Kit UI blocks support', () => {
+      beforeEach(async () => {
+        await createConversation('Block Kit Test Conversation')
+        adapter.chatChannels = [{ name: 'general', direction: Direction.OUTGOING }]
+        mockWebClient.chat.postMessage.mockResolvedValue({ ok: true, ts: '1234567890.123456', channel: '#test-channel' })
+      })
+
+      it('includes Block Kit blocks array in Slack API call when message has blocks', async () => {
+        const blocks = [
+          { type: 'section', text: { type: 'mrkdwn', text: 'Pick an option:' } },
+          {
+            type: 'actions',
+            elements: [{ type: 'button', text: { type: 'plain_text', text: 'Confirm' }, action_id: 'confirm', value: 'yes' }]
+          }
+        ]
+        await adapter.sendMessage({ body: 'Pick an option:', channels: ['general'], blocks })
+
+        expect(mockWebClient.chat.postMessage).toHaveBeenCalledWith(expect.objectContaining({ blocks }))
+      })
+
+      it('sends message without blocks key when no blocks are attached', async () => {
+        await adapter.sendMessage({ body: 'Hello!', channels: ['general'] })
+
+        const call = mockWebClient.chat.postMessage.mock.calls[0][0]
+        expect(call).not.toHaveProperty('blocks')
+      })
+
+      it('sends message without blocks key when blocks array is empty', async () => {
+        await adapter.sendMessage({ body: 'Hello!', channels: ['general'], blocks: [] })
+
+        const call = mockWebClient.chat.postMessage.mock.calls[0][0]
+        expect(call).not.toHaveProperty('blocks')
+      })
+    })
   })
 
   describe('receiveMessage', () => {

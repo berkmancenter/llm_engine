@@ -5,6 +5,7 @@ import config from '../config/config.js'
 import logger from '../config/logger.js'
 import validateSignature from './helpers/validateSignature.js'
 import webhookService from '../services/webhook.service.js'
+import slackInteractionHandler from './slackInteraction.js'
 
 // Slack retries webhook delivery if it doesn't get a 200 fast enough (common through ngrok).
 // event_id stays the same on retries, so we track it to skip duplicates.
@@ -22,6 +23,26 @@ function isDuplicate(eventId: string): boolean {
 }
 
 const handleEvent = async (req, res) => {
+  // Interactive component payloads (e.g. button clicks) arrive URL-encoded with the JSON
+  // in a `payload` field, unlike Events API payloads which are raw JSON.
+  if (typeof req.body.payload === 'string') {
+    let parsed
+    try {
+      parsed = JSON.parse(req.body.payload)
+    } catch {
+      logger.warn('Slack interaction: received unparseable payload, ignoring')
+      res.status(httpStatus.OK).send('ok')
+      return
+    }
+    if (parsed.type === 'block_actions') {
+      await slackInteractionHandler.receiveInteraction(parsed)
+    }
+    // Always respond 200 — Slack requires a fast acknowledgment and does not retry on non-200
+    // for interactive components.
+    res.status(httpStatus.OK).send('ok')
+    return
+  }
+
   const payload = req.body
 
   // Handle Slack URL verification

@@ -1,6 +1,7 @@
 import httpStatus from 'http-status'
 import request from 'supertest'
 import crypto from 'crypto'
+import qs from 'qs'
 import app from '../../src/app.js'
 import setupIntTest from '../utils/setupIntTest.js'
 import config from '../../src/config/config.js'
@@ -10,6 +11,7 @@ import { conversationAgentsEnabled, publicTopic } from '../fixtures/conversation
 import Adapter, { setAdapterTypes } from '../../src/models/adapter.model.js'
 import webhookService from '../../src/services/webhook.service.js'
 import defaultAdapterTypes from '../../src/adapters/index.js'
+import slackInteractionHandler from '../../src/handlers/slackInteraction.js'
 
 setupIntTest()
 
@@ -441,6 +443,84 @@ describe('POST /v1/webhooks/slack', () => {
         .expect(httpStatus.OK)
 
       expect(receiveMessageSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('Slack interactive component (block_actions) handling', () => {
+    let receiveInteractionSpy
+
+    // Builds a minimal block_actions payload and URL-encodes it as Slack would send it.
+    function makeInteractionBody(overrides = {}) {
+      const payload = {
+        type: 'block_actions',
+        team: { id: '123456' },
+        channel: { id: 'C1234567890' },
+        user: { id: 'U1234567890' },
+        actions: [{ action_id: 'confirm', value: 'yes' }],
+        message: { ts: '1234567890.123456' },
+        ...overrides
+      }
+      return qs.stringify({ payload: JSON.stringify(payload) })
+    }
+
+    function signAndPost(rawBody: string) {
+      const timestamp = Math.floor(Date.now() / 1000).toString()
+      const signature = generateSlackSignature(timestamp, rawBody)
+      return request(app)
+        .post('/v1/webhooks/slack')
+        .set('x-slack-signature', signature)
+        .set('x-slack-request-timestamp', timestamp)
+        .set('content-type', 'application/x-www-form-urlencoded')
+        .send(rawBody)
+    }
+
+    beforeEach(() => {
+      receiveInteractionSpy = jest.spyOn(slackInteractionHandler, 'receiveInteraction').mockResolvedValue()
+    })
+
+    test('routes a button-click (block_actions) payload to the interaction handler', async () => {
+      await signAndPost(makeInteractionBody()).expect(httpStatus.OK)
+
+      expect(receiveInteractionSpy).toHaveBeenCalledTimes(1)
+      expect(receiveInteractionSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'block_actions' }))
+    })
+
+    test('acknowledges unknown interaction types with 200 without routing them', async () => {
+      const body = qs.stringify({ payload: JSON.stringify({ type: 'shortcut', callback_id: 'my_shortcut' }) })
+      await signAndPost(body).expect(httpStatus.OK)
+
+      expect(receiveInteractionSpy).not.toHaveBeenCalled()
+    })
+
+    test('acknowledges malformed JSON payload gracefully with 200 — prevents Slack retries', async () => {
+      const body = qs.stringify({ payload: 'this is not valid JSON {{{' })
+      await signAndPost(body).expect(httpStatus.OK)
+
+      expect(receiveInteractionSpy).not.toHaveBeenCalled()
+    })
+
+    test('still processes normal Slack message events (JSON body, no payload field) unchanged', async () => {
+      const messageEvent = {
+        type: 'message',
+        text: 'Hello!',
+        channel: 'C1234567890',
+        team: '123456',
+        user: 'U1234567890',
+        ts: '1234567890.123456'
+      }
+      const payload = { event: messageEvent }
+      const timestamp = Math.floor(Date.now() / 1000).toString()
+      const signature = generateSlackSignature(timestamp, JSON.stringify(payload))
+
+      await request(app)
+        .post('/v1/webhooks/slack')
+        .set('x-slack-signature', signature)
+        .set('x-slack-request-timestamp', timestamp)
+        .send(payload)
+        .expect(httpStatus.OK)
+
+      expect(receiveMessageSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: slackAdapter._id }), messageEvent)
+      expect(receiveInteractionSpy).not.toHaveBeenCalled()
     })
   })
 })
