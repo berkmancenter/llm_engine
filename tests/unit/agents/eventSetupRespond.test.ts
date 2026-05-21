@@ -14,6 +14,7 @@ function buildContext() {
 
 function buildSlackMessage(overrides: Record<string, unknown> = {}) {
   return {
+    _id: 'user-msg-id-001',
     body: 'setup a new event',
     source: { type: 'slack', id: '1700000000.000100' },
     user: { username: 'T123ABC-U456DEF', pseudonym: 'U456DEF' },
@@ -51,6 +52,26 @@ describe('eventSetup respond()', () => {
     expect(verified.slackTeamId).toBe('T123ABC')
     expect(verified.slackChannelId).toBe('C789GHI')
     expect(verified.slackThreadTs).toBe('1700000000.000100')
+  })
+
+  test('threads the reply under the user message when the user posted at top level', async () => {
+    /* If the organizer's message itself has no parent, the bot's reply
+       should start a new thread under that message rather than landing
+       back in the main channel. The Slack adapter does this by setting
+       thread_ts to the parent message's source.id, so we need to set our
+       response's parent to the user's own _id when no existing thread
+       exists. */
+    const msg = buildSlackMessage({ parentMessage: undefined })
+    const responses = await eventSetup.respond.call(buildContext(), { messages: [] }, msg)
+
+    expect(responses[0].parent).toBe('user-msg-id-001')
+  })
+
+  test('preserves an existing thread when the user message is already a reply', async () => {
+    const msg = buildSlackMessage({ parentMessage: 'existing-thread-root-id' })
+    const responses = await eventSetup.respond.call(buildContext(), { messages: [] }, msg)
+
+    expect(responses[0].parent).toBe('existing-thread-root-id')
   })
 
   test('non-Slack origin: falls back to a generic Nextspace URL without a token', async () => {

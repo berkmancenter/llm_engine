@@ -48,7 +48,12 @@ export default verify({
 
   async respond(_conversationHistory: ConversationHistory, userMessage) {
     const setupChannel = this.conversation.channels.find((channel) => channel.name === 'setup')
-    const parentMessageId = userMessage.parentMessage
+    /* If the organizer's message is already a reply in an existing thread,
+       keep our response in that same thread. Otherwise use the organizer's
+       own message as the parent so the Slack adapter starts a new thread
+       under it; without this our reply would land in the main channel
+       instead of threading under what the user typed. */
+    const parentMessageId = userMessage.parentMessage || userMessage._id
 
     /* The handoff token has to carry enough Slack context that the form
        can post back into the right thread later. The Slack adapter packs
