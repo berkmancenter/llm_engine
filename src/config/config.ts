@@ -27,6 +27,9 @@ const envVarsSchema = Joi.object()
     JWT_RESET_PASSWORD_EXPIRATION_MINUTES: Joi.number()
       .default(120)
       .description('minutes after which a password reset token expires'),
+    HANDOFF_TOKEN_EXPIRATION_MINUTES: Joi.number()
+      .default(60)
+      .description('minutes after which a Slack-to-Nextspace event-setup handoff token expires'),
     AUTH_TOKEN_SECRET: Joi.string().description('secret used to encrypt generated passwords'),
     SMTP_HOST: Joi.string().description('server that will send the emails'),
     SMTP_PORT: Joi.number().description('port to connect to the email server'),
@@ -148,7 +151,8 @@ const config = {
     accessExpirationMinutes: envVars.JWT_ACCESS_EXPIRATION_MINUTES,
     refreshExpirationDays: envVars.JWT_REFRESH_EXPIRATION_DAYS,
     resetPasswordExpirationMinutes: envVars.JWT_RESET_PASSWORD_EXPIRATION_MINUTES,
-    verifyEmailExpirationMinutes: undefined
+    verifyEmailExpirationMinutes: undefined,
+    handoffExpirationMinutes: envVars.HANDOFF_TOKEN_EXPIRATION_MINUTES
   },
   email: {
     smtp: {
