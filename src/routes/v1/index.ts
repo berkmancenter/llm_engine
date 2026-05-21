@@ -14,6 +14,7 @@ import webhooksRoute from './webhooks.route.js'
 import experimentsRoute from './experiments.route.js'
 import healthRoute from './health.route.js'
 import openApiRoute from './openapi.route.js'
+import eventSetupRoute from './eventSetup.route.js'
 // import exportRoute from './export.route.js'
 
 const router = express.Router()
@@ -69,6 +70,10 @@ const defaultRoutes = [
   {
     path: '/openapi.json',
     route: openApiRoute
+  },
+  {
+    path: '/event-setup',
+    route: eventSetupRoute
   }
   // {
   //   path: '/export',
