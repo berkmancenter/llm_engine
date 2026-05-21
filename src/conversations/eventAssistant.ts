@@ -3,6 +3,14 @@ import adapterTypes from '../adapters/config.js'
 import { ConversationType, Direction } from '../types/index.types.js'
 import config from '../config/config.js'
 
+export const ZOOM_MEETING_URL_PROPERTY = 'zoomMeetingUrl' as const
+
+export const TRANSCRIPT_CHANNEL = 'transcript' as const
+export const PARTICIPANT_CHANNEL = 'participant' as const
+export const MODERATOR_CHANNEL = 'moderator' as const
+export const CHAT_CHANNEL = 'chat' as const
+export const IMAGE_GEN_CHANNEL = 'image-gen' as const
+
 const eventAssistant: ConversationType = {
   // user-facing
   name: 'eventAssistant',
@@ -11,7 +19,7 @@ const eventAssistant: ConversationType = {
   platforms: adapterTypes,
   properties: [
     {
-      name: 'zoomMeetingUrl',
+      name: ZOOM_MEETING_URL_PROPERTY,
       label: 'Zoom Meeting URL',
       description: 'The zoom meeting link for transcription purposes',
       required: true,
@@ -228,11 +236,11 @@ const eventAssistant: ConversationType = {
   ],
   enableDMs: ['agents'],
   channels: [
-    { name: 'transcript' },
-    { name: 'participant' },
-    { name: 'moderator' },
-    { name: 'chat' },
-    { name: 'image-gen' }
+    { name: TRANSCRIPT_CHANNEL },
+    { name: PARTICIPANT_CHANNEL },
+    { name: MODERATOR_CHANNEL },
+    { name: CHAT_CHANNEL },
+    { name: IMAGE_GEN_CHANNEL }
   ],
   adapters: {
     // Fully remote: Zoom only — moderator DMs sent via Zoom
@@ -256,13 +264,13 @@ const eventAssistant: ConversationType = {
       ],
       chatChannels: [
         {
-          name: 'chat',
+          name: CHAT_CHANNEL,
           direction: Direction.BOTH
         }
       ],
       audioChannels: [
         {
-          name: 'transcript',
+          name: TRANSCRIPT_CHANNEL,
           direction: Direction.INCOMING
         }
       ]
@@ -303,7 +311,7 @@ const eventAssistant: ConversationType = {
       },
       audioChannels: [
         {
-          name: 'transcript',
+          name: TRANSCRIPT_CHANNEL,
           direction: Direction.INCOMING
         }
       ]

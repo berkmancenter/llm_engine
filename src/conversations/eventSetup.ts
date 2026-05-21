@@ -2,6 +2,8 @@ import { supportedModels } from '../agents/helpers/getModelChat.js'
 import { ConversationType, Direction } from '../types/index.types.js'
 import config from '../config/config.js'
 
+export const SETUP_CHANNEL_NAME = 'setup' as const
+
 const eventSetup: ConversationType = {
   name: 'eventSetup',
   label: 'Event Setup',
@@ -63,7 +65,7 @@ const eventSetup: ConversationType = {
       ]
     }
   ],
-  channels: [{ name: 'setup' }],
+  channels: [{ name: SETUP_CHANNEL_NAME }],
   adapters: {
     slack: {
       type: 'slack',
@@ -76,7 +78,7 @@ const eventSetup: ConversationType = {
       },
       chatChannels: [
         {
-          name: 'setup',
+          name: SETUP_CHANNEL_NAME,
           direction: Direction.BOTH
         }
       ]
