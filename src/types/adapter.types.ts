@@ -12,7 +12,7 @@ export interface AdapterMessage<T> {
   channels: AdapterChannelConfig[]
   messageType?: string
   user: AdapterUser
-  source: { type: string; id?: string }
+  source: { type: string; id?: string; [key: string]: unknown }
   createdAt?: Date
   parentMessage?: string
   /** Adapter-specific rich content blocks (e.g. Slack Block Kit). Typed as unknown[] to keep this interface platform-agnostic. */

@@ -83,7 +83,8 @@ const createMessage = async (messageBody, user, conversation) => {
     // TODO control this more carefully
     fromAgent: !!messageBody.fromAgent,
     source: messageBody.source,
-    channels: messageBody.channels?.map((c) => c.name)
+    channels: messageBody.channels?.map((c) => c.name),
+    ...(messageBody.blocks !== undefined && { blocks: messageBody.blocks })
   })
 
   message.parseOutput = messageBody.parseOutput
