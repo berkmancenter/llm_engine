@@ -21,7 +21,9 @@ async function findThreadParent(conversationId, threadTs) {
 async function receiveGroupChatMessage(event) {
   const msg: AdapterMessage<string> = {
     message: normalizeBotMention(event.text, this.config.botUserId, this.config.botName),
-    source: { type: 'slack', id: event.ts },
+    /* Store Slack identity in source so it survives DB persistence.
+       The user field is only used for auth lookup and is not saved. */
+    source: { type: 'slack', id: event.ts, userId: event.user, teamId: event.team, channelId: event.channel },
     channels: this.chatChannels,
     user: { username: `${event.team}-${event.user}`, pseudonym: event.user }
   }

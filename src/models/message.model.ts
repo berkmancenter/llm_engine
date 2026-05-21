@@ -121,6 +121,13 @@ const messageSchema = new mongoose.Schema<IMessage, MessageModel>(
     },
     prompt: {
       type: promptSchema
+    },
+    /* Adapter-specific rich content (e.g. Slack Block Kit blocks array).
+       Stored as Mixed so any valid block structure can round-trip without
+       needing a schema per platform. The Slack adapter reads this field
+       when forwarding the message to chat.postMessage. */
+    blocks: {
+      type: mongoose.SchemaTypes.Mixed
     }
   },
   {

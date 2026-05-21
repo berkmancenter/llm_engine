@@ -83,7 +83,8 @@ const createMessage = async (messageBody, user, conversation) => {
     // TODO control this more carefully
     fromAgent: !!messageBody.fromAgent,
     source: messageBody.source,
-    channels: messageBody.channels?.map((c) => c.name)
+    channels: messageBody.channels?.map((c) => c.name),
+    ...(messageBody.blocks !== undefined && { blocks: messageBody.blocks })
   })
 
   message.parseOutput = messageBody.parseOutput
@@ -408,7 +409,10 @@ export const agentResponseToMessageData = (response, agent) => ({
   channels: response.channels,
   parseOutput: agent.parseOutput,
   ...(response.replyFormat !== undefined && { prompt: response.replyFormat }),
-  ...(response.parent !== undefined && { parentMessage: response.parent })
+  ...(response.parent !== undefined && { parentMessage: response.parent }),
+  /* Pass adapter-specific blocks (e.g. Slack Block Kit) through to the
+     message so the adapter can include them in the outbound API call. */
+  ...(response.blocks !== undefined && { blocks: response.blocks })
 })
 
 const messageService = {
