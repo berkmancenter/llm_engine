@@ -54,11 +54,17 @@ export const mintHandoffToken = (context: SlackHandoffContext): string => {
     iat: moment().unix(),
     exp: expires.unix()
   }
-  return jwt.sign(payload, config.jwt.secret)
+  /* Pin to HS256 so the algorithm can't be negotiated from the token header.
+     Some jsonwebtoken versions accept 'none' or asymmetric algorithms without
+     this, which would let an attacker bypass signature verification. */
+  return jwt.sign(payload, config.jwt.secret, { algorithm: 'HS256' })
 }
 
 export const verifyHandoffToken = (token: string): VerifiedHandoff => {
-  const payload = jwt.verify(token, config.jwt.secret) as HandoffPayload
+  /* Explicit algorithm allowlist: rejects tokens signed with anything else,
+     including 'none'. The type check below is a second layer so an
+     access-session JWT can't be replayed against this endpoint. */
+  const payload = jwt.verify(token, config.jwt.secret, { algorithms: ['HS256'] }) as HandoffPayload
   if (payload.type !== tokenTypes.SLACK_HANDOFF) {
     throw new Error('Invalid token type for handoff')
   }

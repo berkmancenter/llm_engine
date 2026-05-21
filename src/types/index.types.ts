@@ -113,6 +113,10 @@ export interface IMessage {
   updatedAt?: Date
   replyCount?: number
   prompt?: MessagePrompt
+  /* Adapter-specific rich content (e.g. Slack Block Kit). Persisted so the
+     Slack adapter can read it when forwarding the message to Slack's API.
+     Kept as unknown[] to avoid platform-specific types in the shared model. */
+  blocks?: unknown[]
 }
 
 export interface IFollower {
@@ -422,6 +426,10 @@ export interface AgentResponse<T> {
   replyFormat?: MessagePrompt
   parent?: mongoose.Types.ObjectId
   pause?: number
+  /* Adapter-specific rich content (e.g. Slack Block Kit). Kept as unknown[]
+     here to avoid pulling platform-specific types into the shared interface.
+     The Slack adapter reads this field when sending a message. */
+  blocks?: unknown[]
 }
 
 export interface ConversationHistorySettings {

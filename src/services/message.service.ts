@@ -408,7 +408,10 @@ export const agentResponseToMessageData = (response, agent) => ({
   channels: response.channels,
   parseOutput: agent.parseOutput,
   ...(response.replyFormat !== undefined && { prompt: response.replyFormat }),
-  ...(response.parent !== undefined && { parentMessage: response.parent })
+  ...(response.parent !== undefined && { parentMessage: response.parent }),
+  /* Pass adapter-specific blocks (e.g. Slack Block Kit) through to the
+     message so the adapter can include them in the outbound API call. */
+  ...(response.blocks !== undefined && { blocks: response.blocks })
 })
 
 const messageService = {

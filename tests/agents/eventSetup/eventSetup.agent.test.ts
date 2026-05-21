@@ -6,6 +6,10 @@ import { AgentMessageActions, ConversationHistory } from '../../../src/types/ind
 import { verifyHandoffToken } from '../../../src/services/handoffToken.service.js'
 import config from '../../../src/config/config.js'
 
+type Block = Record<string, unknown>
+type ActionElement = { type: string; text: { text: string }; url: string }
+type ActionsBlock = { type: 'actions'; elements: ActionElement[] }
+
 jest.setTimeout(30000)
 
 const testConfig = setupAgentTest('eventSetup')
@@ -58,32 +62,18 @@ describe('eventSetup agent tests', () => {
   }
 
   describe('evaluate()', () => {
-    it('returns CONTRIBUTE when message contains "setup"', async () => {
-      const result = await evaluate('I want to setup a new event')
-      expect(result.action).toBe(AgentMessageActions.CONTRIBUTE)
-    })
+    /* evaluate() always returns CONTRIBUTE for any message on the setup
+       channel. The "should the bot actually reply?" decision is deferred to
+       checkEventSetupIntent inside respond(), which uses an LLM. This
+       matches the pattern used by chatbot and eventHistorian: evaluate marks
+       every message as a contribution so the agent is considered for
+       respond(), then respond() decides whether to post. */
+    it('returns CONTRIBUTE for any message on the setup channel', async () => {
+      const setupMsg = await evaluate('I want to setup a new event')
+      expect(setupMsg.action).toBe(AgentMessageActions.CONTRIBUTE)
 
-    it('returns CONTRIBUTE when message contains "create event" or "create an event"', async () => {
-      const withoutArticle = await evaluate('Can you create event for next Thursday?')
-      expect(withoutArticle.action).toBe(AgentMessageActions.CONTRIBUTE)
-
-      const withArticle = await evaluate('Can you create an event for next Thursday?')
-      expect(withArticle.action).toBe(AgentMessageActions.CONTRIBUTE)
-    })
-
-    it('returns CONTRIBUTE when message contains "new event"', async () => {
-      const result = await evaluate('Let us kick off a new event about AI')
-      expect(result.action).toBe(AgentMessageActions.CONTRIBUTE)
-    })
-
-    it('returns CONTRIBUTE when message is a direct @mention', async () => {
-      const result = await evaluate(`@${BOT_NAME} can you help me?`)
-      expect(result.action).toBe(AgentMessageActions.CONTRIBUTE)
-    })
-
-    it('returns OK when message has no setup intent', async () => {
-      const result = await evaluate('Good morning everyone!')
-      expect(result.action).toBe(AgentMessageActions.OK)
+      const casualMsg = await evaluate('Good morning everyone!')
+      expect(casualMsg.action).toBe(AgentMessageActions.CONTRIBUTE)
     })
   })
 
@@ -100,7 +90,7 @@ describe('eventSetup agent tests', () => {
     }
     /* eslint-enable no-param-reassign */
 
-    it('returns a Nextspace handoff URL with a verifiable token', async () => {
+    it("returns a Block Kit response with a Let's Go button carrying a verifiable token", async () => {
       const msg = await createMessage('setup a new event', user1, conversation, ['setup'])
       asSlackMessage(msg)
       const history = buildHistory([])
@@ -109,12 +99,17 @@ describe('eventSetup agent tests', () => {
       expect(responses).toHaveLength(1)
       expect(responses[0].visible).toBe(true)
       expect(responses[0].messageType).toBe('text')
-      /* Token lives in the URL fragment so it never reaches the server's
-         access logs. See eventSetup.ts for the reasoning. */
-      expect(responses[0].message).toContain(`${config.appHost}/events/new#token=`)
 
-      const match = responses[0].message.match(/#token=([A-Za-z0-9._-]+)/)
-      const token = decodeURIComponent(match[1])
+      /* The token lives in the button URL (inside blocks), not in the
+         fallback message text. URL fragment keeps it out of server logs. */
+      const { blocks } = responses[0]
+      expect(blocks).toBeDefined()
+      const actionsBlock = (blocks as Block[]).find((b): b is ActionsBlock => b.type === 'actions') as ActionsBlock
+      const buttonUrl: string = actionsBlock.elements[0].url
+      expect(buttonUrl).toContain(`${config.appHost}/events/new#token=`)
+
+      const match = buttonUrl.match(/#token=([A-Za-z0-9._-]+)/)
+      const token = decodeURIComponent(match![1])
       const verified = verifyHandoffToken(token)
       expect(verified.slackUserId).toBe('U456DEF')
     })
