@@ -22,9 +22,9 @@ function buildSlackMessage(overrides: Record<string, unknown> = {}) {
   return {
     _id: 'user-msg-id-001',
     body: 'setup a new event',
-    source: { type: 'slack', id: '1700000000.000100' },
-    user: { username: 'T123ABC-U456DEF', pseudonym: 'U456DEF' },
-    channels: [{ name: 'C789GHI' }],
+    /* Slack identity lives in source — these fields survive DB persistence
+       (unlike the transient user field, which is dropped after auth lookup). */
+    source: { type: 'slack', id: '1700000000.000100', userId: 'U456DEF', teamId: 'T123ABC', channelId: 'C789GHI' },
     parentMessage: undefined,
     ...overrides
   }
@@ -141,10 +141,7 @@ describe('eventSetup respond()', () => {
   })
 
   test('non-Slack origin: falls back to a text-only message with the Nextspace URL, no blocks', async () => {
-    const msg = buildSlackMessage({
-      source: { type: 'web', id: 'abc' },
-      user: { username: 'alice', pseudonym: 'alice' }
-    })
+    const msg = buildSlackMessage({ source: { type: 'web', id: 'abc' } })
     const responses = await eventSetup.respond.call(buildContext(), { messages: [] }, msg, alwaysSetupIntent)
 
     const text: string = responses[0].message
@@ -156,12 +153,12 @@ describe('eventSetup respond()', () => {
   })
 
   test.each([
-    ['user is missing entirely', { user: undefined }],
-    ['username has no dash separator', { user: { username: 'alice', pseudonym: 'alice' } }],
-    ['username is empty string', { user: { username: '', pseudonym: '' } }],
-    ['channels array is empty', { channels: [] }],
-    ['source.id is missing', { source: { type: 'slack' } }]
-  ])('Slack origin but %s: falls back to text-only message without blocks', async (_label, override) => {
+    ['source.userId is missing', { source: { type: 'slack', id: '1700000000.000100', teamId: 'T123ABC', channelId: 'C789GHI' } }],
+    ['source.teamId is missing', { source: { type: 'slack', id: '1700000000.000100', userId: 'U456DEF', channelId: 'C789GHI' } }],
+    ['source.channelId is missing', { source: { type: 'slack', id: '1700000000.000100', userId: 'U456DEF', teamId: 'T123ABC' } }],
+    ['source.id (thread ts) is missing', { source: { type: 'slack', userId: 'U456DEF', teamId: 'T123ABC', channelId: 'C789GHI' } }],
+    ['source.type is not slack', { source: { type: 'web', id: '1700000000.000100', userId: 'U456DEF', teamId: 'T123ABC', channelId: 'C789GHI' } }]
+  ])('Slack context but %s: falls back to text-only message without blocks', async (_label, override) => {
     const msg = buildSlackMessage(override)
     const responses = await eventSetup.respond.call(buildContext(), { messages: [] }, msg, alwaysSetupIntent)
 

@@ -83,9 +83,10 @@ describe('eventSetup agent tests', () => {
        to the message before calling respond. */
     /* eslint-disable no-param-reassign */
     function asSlackMessage(msg, { teamId = 'T123ABC', userId = 'U456DEF', channelId = 'C789GHI' } = {}) {
-      msg.source = { type: 'slack', id: '1700000000.000100' }
-      msg.user = { username: `${teamId}-${userId}`, pseudonym: userId }
-      msg.channels = [{ name: channelId }]
+      /* Slack identity goes in source — that's what survives the DB
+         round-trip. The adapter stores these fields there so respond()
+         can read them from the persisted message. */
+      msg.source = { type: 'slack', id: '1700000000.000100', userId, teamId, channelId }
       return msg
     }
     /* eslint-enable no-param-reassign */

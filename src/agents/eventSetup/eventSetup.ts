@@ -109,16 +109,21 @@ export default verify({
        different adapter — and signing a token with empty Slack fields
        would just produce a broken link. In that case we drop the token
        and fall back to the bare URL. */
-    const username = userMessage.user?.username ?? ''
-    const dashIndex = username.indexOf('-')
-    const slackChannelId = userMessage.channels?.[0]?.name ?? ''
-    const slackThreadTs = userMessage.source?.id ?? ''
+    /* Read Slack identity from source — that's the only field that survives
+       DB round-trip. The adapter stores userId/teamId/channelId there so they
+       are available here even after the message is persisted and reloaded. */
+    const slackUserId = (userMessage.source?.userId as string) ?? ''
+    const slackTeamId = (userMessage.source?.teamId as string) ?? ''
+    const slackChannelId = (userMessage.source?.channelId as string) ?? ''
+    const slackThreadTs = (userMessage.source?.id as string) ?? ''
     const hasFullSlackContext =
-      userMessage.source?.type === 'slack' && dashIndex > 0 && slackChannelId !== '' && slackThreadTs !== ''
+      userMessage.source?.type === 'slack' &&
+      slackUserId !== '' &&
+      slackTeamId !== '' &&
+      slackChannelId !== '' &&
+      slackThreadTs !== ''
 
     if (hasFullSlackContext) {
-      const slackTeamId = username.slice(0, dashIndex)
-      const slackUserId = username.slice(dashIndex + 1)
       const token = mintHandoffToken({ slackUserId, slackTeamId, slackChannelId, slackThreadTs })
       /* The token goes in the URL fragment (after #) rather than the query
          string (after ?). Browsers never send fragments to the server, so

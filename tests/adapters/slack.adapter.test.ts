@@ -406,7 +406,13 @@ describe('slack adapter tests', () => {
       expect(msgs).toEqual([
         {
           message: 'Hello from Slack!',
-          source: { type: 'slack', id: slackEvent.ts },
+          source: {
+            type: 'slack',
+            id: slackEvent.ts,
+            userId: slackEvent.user,
+            teamId: slackEvent.team,
+            channelId: slackEvent.channel
+          },
           channels: adapter.chatChannels,
           user: { username: `${slackEvent.team}-${slackEvent.user}`, pseudonym: slackEvent.user }
         }
@@ -430,7 +436,13 @@ describe('slack adapter tests', () => {
       expect(msgs).toEqual([
         {
           message: 'Hello <@U123456> and <#C789012|general>! Check out <https://example.com|this link>',
-          source: { type: 'slack', id: slackEvent.ts },
+          source: {
+            type: 'slack',
+            id: slackEvent.ts,
+            userId: slackEvent.user,
+            teamId: slackEvent.team,
+            channelId: slackEvent.channel
+          },
           channels: adapter.chatChannels,
           user: { username: `${slackEvent.team}-${slackEvent.user}`, pseudonym: slackEvent.user }
         }
