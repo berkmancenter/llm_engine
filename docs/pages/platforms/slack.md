@@ -88,7 +88,7 @@ These are all that's needed for the event setup bot. No separate URL templates, 
 
 | Variable                           | Required        | Purpose                                                                                                                                                   |
 | ---------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `APP_HOST`                         | yes             | Public URL of the Nextspace frontend. The bot builds the handoff link as `${APP_HOST}/events/new?token=...`.                                              |
+| `APP_HOST`                         | yes             | Public URL of the Nextspace frontend. The bot builds the handoff link as `${APP_HOST}/events/new#token=...`. The token is placed in the URL fragment (after `#`) so browsers never send it to the Nextspace server, keeping it out of server access logs and Referer headers. |
 | `JWT_SECRET`                       | yes             | Signs and verifies the handoff token. Must match between the Slack bot's process and any process that verifies the token (this same llm_engine instance). |
 | `HANDOFF_TOKEN_EXPIRATION_MINUTES` | no (default 60) | How long the link stays valid after the bot posts it. Short window is intentional.                                                                        |
 | `SLACK_SIGNING_SECRET`             | yes             | Verifies inbound Slack webhooks (general Slack requirement, not event-setup specific).                                                                    |
@@ -190,11 +190,11 @@ When merging this change to production, do these in order:
 3. Expose the local server with ngrok or similar, point your Slack dev app's Event Subscriptions URL at it.
 4. Create a dev Conversation following the steps above, pointing at a Slack channel in your dev workspace.
 5. Post a setup request in that Slack channel. The bot will reply with a `localhost:3000` link.
-6. Hit the planner endpoint directly with curl to iterate on the LLM prompt without the frontend:
+6. Hit the planner endpoint directly with curl to iterate on the LLM prompt without the frontend. The token is the part of the bot's URL after `#token=`:
 
 ```bash
 curl -X POST http://localhost:3000/v1/event-setup/plan \
-  -H "X-Handoff-Token: <token from the bot's URL>" \
+  -H "X-Handoff-Token: <token from the # fragment of the bot's URL>" \
   -H "Content-Type: application/json" \
   -d '{"description":"AI ethics roundtable next Thursday at 3pm ET, online via Zoom"}'
 ```

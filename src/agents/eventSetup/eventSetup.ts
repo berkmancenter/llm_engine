@@ -78,7 +78,14 @@ export default verify({
       const slackTeamId = username.slice(0, dashIndex)
       const slackUserId = username.slice(dashIndex + 1)
       const token = mintHandoffToken({ slackUserId, slackTeamId, slackChannelId, slackThreadTs })
-      const url = `${config.appHost}/events/new?token=${encodeURIComponent(token)}`
+      /* The token is placed in the URL fragment (after #) rather than the
+         query string (after ?) on purpose. Browsers do not send URL
+         fragments to servers, so the Nextspace server never sees the
+         token in its access logs and the token cannot leak via Referer
+         headers on third-party resources the form page might load. The
+         frontend reads the token from window.location.hash on the client
+         side. */
+      const url = `${config.appHost}/events/new#token=${encodeURIComponent(token)}`
       message = `Let's set up your event! Open the form here: ${url}`
     } else {
       /* Reached when Slack context is missing or partial — see the guard

@@ -39,11 +39,15 @@ describe('eventSetup respond()', () => {
     const responses = await eventSetup.respond.call(buildContext(), { messages: [] }, msg)
 
     const text: string = responses[0].message
-    /* The URL we tell the organizer to open must point at the configured
-       Nextspace host and include the handoff token as a query param. */
-    expect(text).toContain(`${config.appHost}/events/new?token=`)
+    /* The token must be in the URL fragment (after #), not the query
+       string (after ?). Browsers do not send URL fragments to servers,
+       so this keeps the token out of Nextspace's server access logs and
+       out of the Referer header on any third-party resource the form
+       page loads. */
+    expect(text).toContain(`${config.appHost}/events/new#token=`)
+    expect(text).not.toContain(`${config.appHost}/events/new?token=`)
 
-    const match = text.match(/token=([A-Za-z0-9._-]+)/)
+    const match = text.match(/#token=([A-Za-z0-9._-]+)/)
     expect(match).not.toBeNull()
     const token = decodeURIComponent(match![1])
 

@@ -109,9 +109,11 @@ describe('eventSetup agent tests', () => {
       expect(responses).toHaveLength(1)
       expect(responses[0].visible).toBe(true)
       expect(responses[0].messageType).toBe('text')
-      expect(responses[0].message).toContain(`${config.appHost}/events/new?token=`)
+      /* Token lives in the URL fragment so it never reaches the server's
+         access logs. See eventSetup.ts for the reasoning. */
+      expect(responses[0].message).toContain(`${config.appHost}/events/new#token=`)
 
-      const match = responses[0].message.match(/token=([A-Za-z0-9._-]+)/)
+      const match = responses[0].message.match(/#token=([A-Za-z0-9._-]+)/)
       const token = decodeURIComponent(match[1])
       const verified = verifyHandoffToken(token)
       expect(verified.slackUserId).toBe('U456DEF')
