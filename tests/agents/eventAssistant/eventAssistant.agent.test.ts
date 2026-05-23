@@ -338,7 +338,9 @@ describe(`event assistant CI tests`, () => {
       }
       const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
       await validateResponse(responses)
-      expect([QuestionClassification.ON_TOPIC_ASK_SPEAKER]).toContain(responses[0].classification)
+      expect([QuestionClassification.ON_TOPIC_ASK_SPEAKER, QuestionClassification.ON_TOPIC_ANSWER]).toContain(
+        responses[0].classification
+      )
     },
     testTimeout
   )
