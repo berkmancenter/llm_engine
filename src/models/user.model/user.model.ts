@@ -67,7 +67,8 @@ const userSchema = new mongoose.Schema<IUser, UserModel>(
         jargonClarification: {
           type: Boolean
         }
-      }
+      },
+      _id: false
     }
   },
   {
