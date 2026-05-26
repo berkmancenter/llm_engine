@@ -147,12 +147,26 @@ async function addTextsToVectorStore(
     chunkOverlap
   })
 
+  const emptyTexts = texts.filter((t) => !t || t.trim() === '')
+  if (emptyTexts.length > 0) {
+    logger.warn(`addTextsToVectorStore: ${emptyTexts.length} empty/blank texts in input for collection ${collectionName}`)
+  }
+
   const docs = await splitter.createDocuments(texts, options?.metadatas)
   const docsWithMetadata = options?.metadataFn ? docs.map((doc) => options.metadataFn!(doc)) : docs
 
   // TODO use Hash to see if chunk stored previously?
   logger.debug(`Adding ${docs.length} docs to vector store ${collectionName}...`)
-  await vectorStore.addDocuments(docsWithMetadata)
+  try {
+    await vectorStore.addDocuments(docsWithMetadata)
+  } catch (err) {
+    logger.error(`addTextsToVectorStore failed for collection ${collectionName}: ${err.message}`, {
+      docCount: docsWithMetadata.length,
+      firstDocSnippet: docsWithMetadata[0]?.pageContent?.slice(0, 100),
+      rawError: JSON.stringify(err, Object.getOwnPropertyNames(err))
+    })
+    throw err
+  }
   logger.debug(`Added docs to vector store`)
 }
 
