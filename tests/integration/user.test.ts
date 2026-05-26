@@ -234,7 +234,7 @@ describe('User routes', () => {
   })
 
   describe('GET v1/users/user/:userId/preferences', () => {
-    test('should return 200 and empty object when preferences not set', async () => {
+    test('should return 200 and default preferences when preferences not set', async () => {
       await insertUsers([registeredUser])
       const ret = await request(app)
         .get(`/v1/users/user/${registeredUser._id}/preferences`)
@@ -242,7 +242,7 @@ describe('User routes', () => {
         .send()
         .expect(httpStatus.OK)
 
-      expect(ret.body).toEqual({})
+      expect(ret.body).toEqual({ visualResponse: true, jargonClarification: true })
     })
 
     test('should return 200 and user preferences when set', async () => {

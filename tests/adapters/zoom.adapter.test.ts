@@ -20,6 +20,8 @@ jest.setTimeout(120000)
 // Mock fetch for sendMessage tests
 global.fetch = jest.fn()
 
+const zoomDefaultPreferences = { visualResponse: false, jargonClarification: false }
+
 setupIntTest()
 
 describe('zoom adapter tests', () => {
@@ -171,28 +173,28 @@ describe('zoom adapter tests', () => {
       const expectedMsg1 = {
         message: 'Welcome to the meeting!',
         source: { type: 'zoom' },
-        user: { username: 'Jennifer Hickey' },
+        user: { username: 'Jennifer Hickey', defaultPreferences: zoomDefaultPreferences },
         channels: adapter.audioChannels,
         createdAt: new Date('2025-05-16T19:32:54.522382Z')
       }
       const expectedMsg2 = {
         message: 'Great to see everyone!',
         source: { type: 'zoom' },
-        user: { username: 'Jennifer Hickey' },
+        user: { username: 'Jennifer Hickey', defaultPreferences: zoomDefaultPreferences },
         channels: adapter.audioChannels,
         createdAt: new Date('2025-05-16T19:33:20.522382Z')
       }
       const expectedMsg3 = {
         message: 'Welcome to our special guest!',
         source: { type: 'zoom' },
-        user: { username: 'Jennifer Hickey' },
+        user: { username: 'Jennifer Hickey', defaultPreferences: zoomDefaultPreferences },
         channels: adapter.audioChannels,
         createdAt: new Date('2025-05-16T19:33:55.522382Z')
       }
       const expectedMsg4 = {
         message: 'Happy to be here!',
         source: { type: 'zoom' },
-        user: { username: 'John Doe' },
+        user: { username: 'John Doe', defaultPreferences: zoomDefaultPreferences },
         channels: adapter.audioChannels,
         createdAt: new Date('2025-05-16T19:34:43.522382Z')
       }
@@ -238,7 +240,7 @@ describe('zoom adapter tests', () => {
         {
           message: 'Hello everyone!',
           source: { type: 'zoom' },
-          user: { username: 'Alice Smith' },
+          user: { username: 'Alice Smith', defaultPreferences: zoomDefaultPreferences },
           channels: adapter.chatChannels
         }
       ])
@@ -274,7 +276,7 @@ describe('zoom adapter tests', () => {
       expect(msgs).toHaveLength(1)
       expect(msgs[0].message).toBe('Hello everyone!')
       expect(msgs[0].source).toEqual({ type: 'zoom' })
-      expect(msgs[0].user).toEqual({ username: 'Alice Smith' })
+      expect(msgs[0].user).toEqual({ username: 'Alice Smith', defaultPreferences: zoomDefaultPreferences })
       expect(msgs[0].channels).toHaveLength(1)
       expect(msgs[0].channels[0].name).toBe('chat-incoming')
       expect(msgs[0].channels[0].direction).toBe(Direction.INCOMING)
@@ -310,7 +312,7 @@ describe('zoom adapter tests', () => {
       expect(msgs).toHaveLength(1)
       expect(msgs[0].message).toBe('Hello everyone!')
       expect(msgs[0].source).toEqual({ type: 'zoom' })
-      expect(msgs[0].user).toEqual({ username: 'Alice Smith' })
+      expect(msgs[0].user).toEqual({ username: 'Alice Smith', defaultPreferences: zoomDefaultPreferences })
       expect(msgs[0].channels).toHaveLength(1)
       expect(msgs[0].channels[0].name).toBe('chat-both')
       expect(msgs[0].channels[0].direction).toBe(Direction.BOTH)
@@ -456,7 +458,7 @@ describe('zoom adapter tests', () => {
       expect(msgs).toHaveLength(1)
       expect(msgs[0].message).toBe("I think that's wrong")
       expect(msgs[0].source).toEqual({ type: 'zoom' })
-      expect(msgs[0].user).toEqual({ username: 'Charlie Brown' })
+      expect(msgs[0].user).toEqual({ username: 'Charlie Brown', defaultPreferences: zoomDefaultPreferences })
     })
 
     it('preserves @ symbols in the reply portion', async () => {
@@ -486,7 +488,7 @@ describe('zoom adapter tests', () => {
       const msgs = await adapter.receiveMessage(replyMessage)
       expect(msgs).toHaveLength(1)
       expect(msgs[0].message).toBe('Actually @bot can you explain this?')
-      expect(msgs[0].user).toEqual({ username: 'Dana White' })
+      expect(msgs[0].user).toEqual({ username: 'Dana White', defaultPreferences: zoomDefaultPreferences })
     })
 
     it('preserves @ symbols in regular messages (not replies)', async () => {
@@ -516,7 +518,7 @@ describe('zoom adapter tests', () => {
       const msgs = await adapter.receiveMessage(regularMessage)
       expect(msgs).toHaveLength(1)
       expect(msgs[0].message).toBe('@bot please help with this task')
-      expect(msgs[0].user).toEqual({ username: 'Eve Anderson' })
+      expect(msgs[0].user).toEqual({ username: 'Eve Anderson', defaultPreferences: zoomDefaultPreferences })
     })
 
     it('preserves quotes in regular messages (not replies)', async () => {
@@ -546,7 +548,7 @@ describe('zoom adapter tests', () => {
       const msgs = await adapter.receiveMessage(messageWithQuotes)
       expect(msgs).toHaveLength(1)
       expect(msgs[0].message).toBe('I think the answer is "42" according to the documentation')
-      expect(msgs[0].user).toEqual({ username: 'Frank Miller' })
+      expect(msgs[0].user).toEqual({ username: 'Frank Miller', defaultPreferences: zoomDefaultPreferences })
     })
     it('preserves extra quotes in reply portion', async () => {
       await createConversation('Meeting with Quoted Text')
@@ -575,7 +577,7 @@ describe('zoom adapter tests', () => {
       const msgs = await adapter.receiveMessage(messageWithQuotes)
       expect(msgs).toHaveLength(1)
       expect(msgs[0].message).toBe('I think the answer is "42"')
-      expect(msgs[0].user).toEqual({ username: 'Frank Miller' })
+      expect(msgs[0].user).toEqual({ username: 'Frank Miller', defaultPreferences: zoomDefaultPreferences })
     })
 
     it('removes "Replying to" prefix even with @ symbols in quote', async () => {
@@ -605,7 +607,7 @@ describe('zoom adapter tests', () => {
       const msgs = await adapter.receiveMessage(replyMessage)
       expect(msgs).toHaveLength(1)
       expect(msgs[0].message).toBe('Yes, they should both help')
-      expect(msgs[0].user).toEqual({ username: 'Grace Lee' })
+      expect(msgs[0].user).toEqual({ username: 'Grace Lee', defaultPreferences: zoomDefaultPreferences })
     })
 
     it('correctly processes DM messages with direct channel when enabled', async () => {
@@ -647,7 +649,7 @@ describe('zoom adapter tests', () => {
           message: 'Hello bot, can you help me?',
           source: { type: 'zoom' },
           channels: adapter.dmChannels,
-          user: { username: 'Alice Smith', dmConfig: { to: 102 } }
+          user: { username: 'Alice Smith', dmConfig: { to: 102 }, defaultPreferences: zoomDefaultPreferences }
         }
       ])
     })
@@ -684,7 +686,11 @@ describe('zoom adapter tests', () => {
       expect(msgs).toHaveLength(1)
       expect(msgs[0].message).toBe('Hello bot, can you help me?')
       expect(msgs[0].source).toEqual({ type: 'zoom' })
-      expect(msgs[0].user).toEqual({ username: 'Alice Smith', dmConfig: { to: 102 } })
+      expect(msgs[0].user).toEqual({
+        username: 'Alice Smith',
+        dmConfig: { to: 102 },
+        defaultPreferences: zoomDefaultPreferences
+      })
       expect(msgs[0].channels).toHaveLength(1)
       expect(msgs[0].channels[0].name).toBe('dm-incoming')
       expect(msgs[0].channels[0].direction).toBe(Direction.INCOMING)
@@ -722,7 +728,11 @@ describe('zoom adapter tests', () => {
       expect(msgs).toHaveLength(1)
       expect(msgs[0].message).toBe('Hello bot, can you help me?')
       expect(msgs[0].source).toEqual({ type: 'zoom' })
-      expect(msgs[0].user).toEqual({ username: 'Alice Smith', dmConfig: { to: 102 } })
+      expect(msgs[0].user).toEqual({
+        username: 'Alice Smith',
+        dmConfig: { to: 102 },
+        defaultPreferences: zoomDefaultPreferences
+      })
       expect(msgs[0].channels).toHaveLength(1)
       expect(msgs[0].channels[0].name).toBe('dm-both')
       expect(msgs[0].channels[0].direction).toBe(Direction.BOTH)
@@ -1739,6 +1749,91 @@ describe('zoom adapter tests', () => {
         // Should match the message where pseudonym AND partial text both match
         expect(msgs[0].parentMessage.toString()).toBe(matchingMessage._id.toString())
       })
+    })
+  })
+
+  describe('defaultPreferences', () => {
+    it('includes defaultPreferences with both set to false on transcript messages', async () => {
+      await createConversation('Meeting with Transcript')
+      adapter.audioChannels = [{ name: 'transcript' }]
+      await adapter.save()
+
+      const message = {
+        data: {
+          data: {
+            words: [{ text: 'Hello!', end_timestamp: { absolute: '2025-05-16T19:32:54.522382Z' } }],
+            participant: { id: 1, name: 'Test User', is_host: false, platform: 'zoom', extra_data: null }
+          }
+        },
+        event: 'transcript.data'
+      }
+
+      const msgs = await adapter.receiveMessage(message)
+      expect(msgs[0].user.defaultPreferences).toEqual({ visualResponse: false, jargonClarification: false })
+    })
+
+    it('includes defaultPreferences with both set to false on group chat messages', async () => {
+      await createConversation('Meeting with Chat')
+      adapter.chatChannels = [{ name: 'participant' }]
+      await adapter.save()
+
+      const message = {
+        data: {
+          data: {
+            data: { text: 'Hello!', to: 'everyone' },
+            participant: { id: 1, name: 'Test User', is_host: false, platform: 'zoom' }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      const msgs = await adapter.receiveMessage(message)
+      expect(msgs[0].user.defaultPreferences).toEqual({ visualResponse: false, jargonClarification: false })
+    })
+
+    it('includes defaultPreferences with both set to false on DM messages', async () => {
+      await createConversation('Meeting with DMs')
+      conversation.enableDMs = ['agents']
+      await conversation.save()
+      adapter.dmChannels = [{ name: 'dm' }]
+      await adapter.save()
+
+      const message = {
+        data: {
+          data: {
+            data: { text: 'Private message', to: 'only_bot' },
+            participant: { id: 1, name: 'Test User', is_host: false, platform: 'zoom' }
+          }
+        },
+        event: 'participant_events.chat_message'
+      }
+
+      const msgs = await adapter.receiveMessage(message)
+      expect(msgs[0].user.defaultPreferences).toEqual({ visualResponse: false, jargonClarification: false })
+    })
+
+    it('includes defaultPreferences with both set to false when participant joins', async () => {
+      await createConversation('Meeting with Participant Join')
+      conversation.enableDMs = ['agents']
+      await conversation.save()
+      adapter.dmChannels = [{ name: 'dm' }]
+      await adapter.save()
+
+      const participant = { id: 1, name: 'Test User', is_host: false, platform: 'zoom' }
+      const adapterUser = await adapter.participantJoined(participant)
+
+      expect(adapterUser.defaultPreferences).toEqual({ visualResponse: false, jargonClarification: false })
+    })
+
+    it('includes defaultPreferences with both set to false when participant is updated', async () => {
+      await createConversation('Meeting with Participant Update')
+      adapter.dmChannels = [{ name: 'dm' }]
+      await adapter.save()
+
+      const participant = { id: 1, name: 'Test User', is_host: true, platform: 'zoom' }
+      const adapterUser = await adapter.participantUpdated(participant)
+
+      expect(adapterUser.defaultPreferences).toEqual({ visualResponse: false, jargonClarification: false })
     })
   })
 
@@ -2798,7 +2893,12 @@ describe('zoom adapter tests', () => {
       }
 
       const adapterUser = await adapter.participantJoined(participant)
-      expect(adapterUser).toEqual({ username: 'New Joiner', dmConfig: { to: 200 }, isHost: false })
+      expect(adapterUser).toEqual({
+        username: 'New Joiner',
+        dmConfig: { to: 200 },
+        isHost: false,
+        defaultPreferences: zoomDefaultPreferences
+      })
     })
 
     it('does not configure direct channel when DMs are not enabled', async () => {

@@ -62,12 +62,15 @@ const userSchema = new mongoose.Schema<IUser, UserModel>(
     preferences: {
       type: {
         visualResponse: {
-          type: Boolean
+          type: Boolean,
+          default: true
         },
         jargonClarification: {
-          type: Boolean
+          type: Boolean,
+          default: true
         }
       },
+      default: () => ({}),
       _id: false
     }
   },
