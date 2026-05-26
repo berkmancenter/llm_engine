@@ -10,7 +10,10 @@ import config from '../../config/config.js'
 import { getModelChat, classificationLLMPlatform, classificationLLMModel } from '../helpers/getModelChat.js'
 import { personalitySection } from '../helpers/agentPersonality.js'
 import { getTools } from '../tools/registry.js'
-import { buildEventAssistantToolSystemPrompt, EVENT_ASSISTANT_TOOL_USER_MANDATE } from './buildEventAssistantToolSystemPrompt.js'
+import {
+  buildEventAssistantToolSystemPrompt,
+  EVENT_ASSISTANT_TOOL_USER_MANDATE
+} from './buildEventAssistantToolSystemPrompt.js'
 
 export enum QuestionClassification {
   ON_TOPIC_ANSWER = 'ON_TOPIC_ANSWER',
@@ -23,7 +26,7 @@ export enum QuestionClassification {
 export function buildLLMTemplates(personalityName?: string | null, botName?: string, toolNames: string[] = []) {
   const personalityContent = personalityName ? personalitySection : ''
   const botIdentity = botName
-    ? `Your name is ${botName} \u2014 always refer to yourself with this exact spelling, even if your name appears differently in transcripts or conversation history.`
+    ? `Your name is ${botName} - always refer to yourself with this exact spelling, even if your name appears differently in transcripts or conversation history.`
     : ''
   const hasTools = toolNames.length > 0
 
@@ -56,7 +59,7 @@ export function buildLLMTemplates(personalityName?: string | null, botName?: str
    */
   const classificationDefaultBias = hasTools
     ? `**Default assumption:** The assistant can answer most on-topic questions using event context, its own knowledge base, and web search (ON_TOPIC_ANSWER). Reserve ON_TOPIC_ASK_SPEAKER **only** for questions that genuinely require the speaker's personal opinion, subjective interpretation, lived experience, or unique non-public expertise.
-Important! When deciding between ON_TOPIC_ASK_SPEAKER and ON_TOPIC_ANSWER, bias towards ON_TOPIC_ANSWER. The assistant has access to event context, broad general knowledge, and web search \u2014 if the question is factual, definitional, comparative, explanatory, or seeks any information that exists in the public domain or the assistant's knowledge, classify as ON_TOPIC_ANSWER.`
+Important! When deciding between ON_TOPIC_ASK_SPEAKER and ON_TOPIC_ANSWER, bias towards ON_TOPIC_ANSWER. The assistant has access to event context, broad general knowledge, and web search - if the question is factual, definitional, comparative, explanatory, or seeks any information that exists in the public domain or the assistant's knowledge, classify as ON_TOPIC_ANSWER.`
     : `**Default assumption: Almost all questions about the event topic should go to the speaker (ON_TOPIC_ASK_SPEAKER)**`
 
   const classificationAskSpeaker = hasTools
@@ -66,9 +69,9 @@ Important! When deciding between ON_TOPIC_ASK_SPEAKER and ON_TOPIC_ANSWER, bias 
 - Questions seeking specialized, insider, or cutting-edge knowledge where the speaker likely has significantly deeper insight than publicly available sources (e.g., unpublished data, real-world practitioner experience with edge cases, niche implementation details from their own work)
 - User feedback, criticism, or reactions about the talk (e.g. "boring", "disagree", "interesting")
 - Questions about what the speaker will cover next or their future plans
-- However: if the question is about well-established concepts, commonly documented practices, or readily searchable facts \u2014 even within the speaker's domain \u2014 do NOT use this, use ON_TOPIC_ANSWER
-- If the answer is factual, definitional, or generally knowable (even without web search \u2014 e.g. "What is machine learning?"), do NOT use this \u2014 use ON_TOPIC_ANSWER
-- If the answer could be found via web search (stats, news, comparisons, resource lists), do NOT use this \u2014 use ON_TOPIC_ANSWER`
+- However: if the question is about well-established concepts, commonly documented practices, or readily searchable facts - even within the speaker's domain - do NOT use this, use ON_TOPIC_ANSWER
+- If the answer is factual, definitional, or generally knowable (even without web search, e.g. "What is machine learning?"), do NOT use this - use ON_TOPIC_ANSWER
+- If the answer could be found via web search (stats, news, comparisons, resource lists), do NOT use this - use ON_TOPIC_ANSWER`
     : `**ON_TOPIC_ASK_SPEAKER**: Question relates to the event topic (DEFAULT for topic-related questions), OR helpful for the speaker to understand audience positive or negative sentiment.
 Important! When deciding between ON_TOPIC_ASK_SPEAKER and ON_TOPIC_ANSWER, bias towards ON_TOPIC_ASK_SPEAKER.
 Exception: if the question requests direct, specific factual info or statistics within the event topic's domain (including adjacent subtopics like updated time windows or comparable providers/policies), bias towards ON_TOPIC_ANSWER.
@@ -112,7 +115,7 @@ ${personalityContent}
 - Use only the provided transcript chunks.
 - Do not add context or thematic commentary
 - Use only "they/them" pronouns when referring to any person, including speakers, attendees, or individuals mentioned in questions, regardless of how the user refers to them.
-- State what was said directly \u2014 avoid "the speaker discussed\u2026" or similar.
+- State what was said directly - avoid "the speaker discussed..." or similar.
 
 **Output Style:**
 - 1-3 sentences maximum.
@@ -127,7 +130,7 @@ Answer the question using these rules:
 
 **CRITICAL RULES:**
 - Prioritize information from the retrieved context when available.
-- **When speaker names, moderator names, or people are mentioned:** Check the retrieved context for official speaker/moderator names and bios. Transcription may contain name errors, so use the official names from the context when available. If a user asks about "John Smith" but the context shows the speaker is "Jon Smythe," use the correct spelling from the retrieved data. If the context shows a name followed by "(also known as ...)", treat both as the same person and always output the canonical name \u2014 the alternate name is an intentional identity hint, not a nickname preference. Never use the alternate name in your response in any form \u2014 not standalone, not in parentheses, not as an abbreviation \u2014 even if the user used it in their question.
+- **When speaker names, moderator names, or people are mentioned:** Check the retrieved context for official speaker/moderator names and bios. Transcription may contain name errors, so use the official names from the context when available. If a user asks about "John Smith" but the context shows the speaker is "Jon Smythe," use the correct spelling from the retrieved data. If the context shows a name followed by "(also known as ...)", treat both as the same person and always output the canonical name - the alternate name is an intentional identity hint, not a nickname preference. Never use the alternate name in your response in any form - not standalone, not in parentheses, not as an abbreviation - even if the user used it in their question.
 - **When referring to speakers or moderators:** Use their official names and credentials from the retrieved context. If bio information is available, you may reference relevant expertise when it adds value to your response.
 - If the context doesn't contain the answer, use your general knowledge to provide a helpful response.
 - When using general knowledge, be clear about your sources (e.g., "According to general industry data..." or "Research typically shows...")
@@ -152,8 +155,8 @@ Output Style:
 
 **IMPORTANT -- Context-reference check (apply before choosing OFF_TOPIC):**
 Before you classify any question as OFF_TOPIC, verify whether the question mentions or refers to any entity, person, product, organization, concept, statistic, or fact that appears in the **Context** (Recent Transcript, Relevant Retrieved Context), the **Event topic**, or the **Recent conversation**. If it does, and the question could conceivably add to or extend the ongoing discussion, it is **not OFF_TOPIC** -- classify as ON_TOPIC_ANSWER (if answerable from context/general knowledge) or ON_TOPIC_ASK_SPEAKER (if the speaker's input would help).
-Treat **Recent conversation** as part of the ongoing discussion: if prior messages show participants building a concrete sub-thread (logistics, food, scheduling, coordination tied to experiencing this event together) and the current question continues that same thread, it extends the live-event experience \u2014 do **not** use OFF_TOPIC even when the headline session topic alone would not suggest that subject.
-**Worked example:** The formal talk may be about one subject (e.g. a science topic on stage), while **Recent conversation** shows attendees coordinating something practical for the same gathering (potluck, what to bring, dishes). A follow-up that continues that coordination (e.g. asking for a recipe to bring) is **not OFF_TOPIC** \u2014 classify as ON_TOPIC_ASK_SPEAKER (or ON_TOPIC_ANSWER if fully answerable without the speaker).
+Treat **Recent conversation** as part of the ongoing discussion: if prior messages show participants building a concrete sub-thread (logistics, food, scheduling, coordination tied to experiencing this event together) and the current question continues that same thread, it extends the live-event experience - do **not** use OFF_TOPIC even when the headline session topic alone would not suggest that subject.
+**Worked example:** The formal talk may be about one subject (e.g. a science topic on stage), while **Recent conversation** shows attendees coordinating something practical for the same gathering (potluck, what to bring, dishes). A follow-up that continues that coordination (e.g. asking for a recipe to bring) is **not OFF_TOPIC** - classify as ON_TOPIC_ASK_SPEAKER (or ON_TOPIC_ANSWER if fully answerable without the speaker).
 
 ${classificationDefaultBias}
 
@@ -169,7 +172,7 @@ ${classificationOnTopicAnswer}
 
 **OFF_TOPIC**: Zero connection to the event or the event topic, or an entirely irrelevant request or instruction
 - Must be completely unrelated subject matter
-- **Ignore @BotName mentions:** The user question may start with an @mention to the assistant (e.g. "@Berkie! ..."). Strip that prefix mentally\u2014it is not part of the topic signal.
+- **Ignore @BotName mentions:** The user question may start with an @mention to the assistant (e.g. "@Berkie! ..."). Strip that prefix mentally - it is not part of the topic signal.
 - **Context anchoring:** If the question asks for names, lists, counts, entities, products, or facts that **appear in the Context** (Recent Transcript or Relevant Retrieved Context) or are clearly the same subject as phrases in that Context (e.g. "15 AI companions" when the transcript discusses those companions), it is **not OFF_TOPIC**. Prefer ON_TOPIC_ANSWER when the answer is likely in the Context; otherwise ON_TOPIC_ASK_SPEAKER.
 - **Conversation-thread continuation:** You receive prior chat messages before the current user message. If recent turns show participants and/or the speaker actively discussing a concrete sub-topic, treat follow-up questions that **continue that same thread** as **on-topic** (usually ON_TOPIC_ASK_SPEAKER, or ON_TOPIC_ANSWER if fully answerable from transcript/context alone). Do **not** use OFF_TOPIC for those follow-ups, even if they would look unrelated to the overall session title **without** that thread context.
 - Still use OFF_TOPIC for random personal errands, spam, or topics with **no** clear link to what the group is discussing in those recent turns.
@@ -282,13 +285,7 @@ const funFactUserTemplate = 'Create a fun fact about the pseudonym: {pseudonym}'
 
 async function getResponse(question, context, chatHistory, topic, systemTemplate) {
   const llm = await this.getLLM()
-  return getChatPromptResponse(
-    llm,
-    systemTemplate,
-    this.llmTemplates.user,
-    { context, question, topic },
-    chatHistory
-  )
+  return getChatPromptResponse(llm, systemTemplate, this.llmTemplates.user, { context, question, topic }, chatHistory)
 }
 
 async function shouldGenerateVisual(question, classification, llmResponse, templates) {
@@ -340,13 +337,13 @@ export function compileSpeakerNames(conversation): string {
   conversation.presenters?.forEach((presenter) => {
     if (!presenter.name) return
     const altText = presenter.alternateName ? ` (also known as "${presenter.alternateName}")` : ''
-    lines.push(`- ${presenter.name}${altText} \u2014 Speaker.`)
+    lines.push(`- ${presenter.name}${altText} - Speaker.`)
   })
 
   conversation.moderators?.forEach((moderator) => {
     if (!moderator.name) return
     const altText = moderator.alternateName ? ` (also known as "${moderator.alternateName}")` : ''
-    lines.push(`- ${moderator.name}${altText} \u2014 Moderator.`)
+    lines.push(`- ${moderator.name}${altText} - Moderator.`)
   })
 
   if (lines.length === 0) return ''
@@ -443,7 +440,9 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
           )
           backgroundChunks = backgroundResult.chunks
         } catch (err) {
-          logger.warn(`eventQuestionHandler: failed to query background collection for conversation ${this.conversation._id}: ${err}`)
+          logger.warn(
+            `eventQuestionHandler: failed to query background collection for conversation ${this.conversation._id}: ${err}`
+          )
         }
       }
 
@@ -527,11 +526,13 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
     llmResponse = agentBundle.text
     const toolCalls = agentBundle.toolTrace.calls.length
     logger.info(
-      `eventAssistant.toolPath toolsEnabled=true toolCalls=${toolCalls} toolNames=[${configuredToolNames.join(', ')}] systemTemplate=${templateType}`
+      `eventAssistant.toolPath toolsEnabled=true toolCalls=${toolCalls} toolNames=[${configuredToolNames.join(
+        ', '
+      )}] systemTemplate=${templateType}`
     )
     if (configuredToolNames.includes('web_search') && toolCalls === 0) {
       logger.warn(
-        `eventAssistant.toolPath web_search configured but toolCalls=0 systemTemplate=${templateType} \u2014 model may have skipped search`
+        `eventAssistant.toolPath web_search configured but toolCalls=0 systemTemplate=${templateType} - model may have skipped search`
       )
     }
     const tracePayload = JSON.stringify({
@@ -539,7 +540,9 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
       calls: agentBundle.toolTrace.calls.map((c) => ({ name: c.name, args: c.args }))
     })
     logger.debug(
-      tracePayload.length > 8000 ? `eventAssistant.toolTrace ${tracePayload.slice(0, 8000)}\u2026` : `eventAssistant.toolTrace ${tracePayload}`
+      tracePayload.length > 8000
+        ? `eventAssistant.toolTrace ${tracePayload.slice(0, 8000)}...`
+        : `eventAssistant.toolTrace ${tracePayload}`
     )
   } else {
     llmResponse = await getResponse.call(this, question, contextString, chatHistory, topic, systemTemplate)
@@ -579,7 +582,7 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
       // User explicitly requested visual, so respect their intent
       shouldGenerate = true
     } else {
-      // isDirectChannel \u2014 only now do we need the user's preferences
+      // isDirectChannel - only now do we need the user's preferences
       const user = await User.findById(userMessage.owner)
       if (user?.preferences?.visualResponse) {
         logger.debug(`User ${user._id} has visual response preference enabled`)
