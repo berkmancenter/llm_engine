@@ -86,28 +86,28 @@ The Slack adapter bridges the two. In the Conversation you create below, `adapte
 
 These are all that's needed for the event setup bot. No separate URL templates, calendar deeplink, or display timezone settings are needed. Those concerns moved to the Nextspace frontend.
 
-| Variable                           | Required        | Purpose                                                                                                                                                   |
-| ---------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Variable                           | Required        | Purpose                                                                                                                                                                                                                                                                       |
+| ---------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `APP_HOST`                         | yes             | Public URL of the Nextspace frontend. The bot builds the handoff link as `${APP_HOST}/events/new#token=...`. The token is placed in the URL fragment (after `#`) so browsers never send it to the Nextspace server, keeping it out of server access logs and Referer headers. |
-| `JWT_SECRET`                       | yes             | Signs and verifies the handoff token. Must match between the Slack bot's process and any process that verifies the token (this same llm_engine instance). |
-| `HANDOFF_TOKEN_EXPIRATION_MINUTES` | no (default 60) | How long the link stays valid after the bot posts it. Short window is intentional.                                                                        |
-| `SLACK_SIGNING_SECRET`             | yes             | Verifies inbound Slack webhooks (general Slack requirement, not event-setup specific).                                                                    |
-| `SYSTEM_USERS`                     | recommended     | Include `event-setup-bot:serviceAccount` so the bot has an account to act under. See [Installing](../installing/index.md).                                |
+| `JWT_SECRET`                       | yes             | Signs and verifies the handoff token. Must match between the Slack bot's process and any process that verifies the token (this same llm_engine instance).                                                                                                                     |
+| `HANDOFF_TOKEN_EXPIRATION_MINUTES` | no (default 60) | How long the link stays valid after the bot posts it. Short window is intentional.                                                                                                                                                                                            |
+| `SLACK_SIGNING_SECRET`             | yes             | Verifies inbound Slack webhooks (general Slack requirement, not event-setup specific).                                                                                                                                                                                        |
+| `SYSTEM_USERS`                     | recommended     | Include `event-setup-bot:serviceAccount` so the bot has an account to act under. See [Installing](../installing/index.md).                                                                                                                                                    |
 
 #### Slack-side setup
 
-**Prerequisite:** complete the *One Time Setup - Create the app in Slack* section at the top of this document first. That section walks through creating the LLM Engine Slack app, requesting bot scopes, installing the app into your workspace, configuring event subscriptions, and setting `SLACK_SIGNING_SECRET`. The steps below assume the app already exists in your workspace and is reachable from your LLM Engine server.
+**Prerequisite:** complete the _One Time Setup - Create the app in Slack_ section at the top of this document first. That section walks through creating the LLM Engine Slack app, requesting bot scopes, installing the app into your workspace, configuring event subscriptions, and setting `SLACK_SIGNING_SECRET`. The steps below assume the app already exists in your workspace and is reachable from your LLM Engine server.
 
 The event setup bot has no additional Slack permissions beyond `chat:write` and the channel scopes already listed in the prerequisite section.
 
 To trigger the bot in a workspace:
 
 1. **Pick or create a Slack channel.** Name it whatever fits your team. This is the channel organizers will post in when they want to create an event.
-2. **Invite the LLM Engine app to that channel** so it can read messages and post replies. In Slack: open the channel, click the channel name to open settings, go to the *Integrations* tab, click *Add apps*, and select your LLM Engine app.
+2. **Invite the LLM Engine app to that channel** so it can read messages and post replies. In Slack: open the channel, click the channel name to open settings, go to the _Integrations_ tab, click _Add apps_, and select your LLM Engine app.
 3. **Look up the Slack identifiers you'll need for the Conversation config:**
-   - **Slack channel ID.** Open the channel in Slack, click the channel name, scroll to the bottom of the *About* panel. The ID looks like `C` followed by alphanumeric characters.
+   - **Slack channel ID.** Open the channel in Slack, click the channel name, scroll to the bottom of the _About_ panel. The ID looks like `C` followed by alphanumeric characters.
    - **Slack workspace (team) ID.** Open the workspace in Slack on the web. The URL contains the workspace ID, which looks like `T` followed by alphanumeric characters.
-   - **Bot User OAuth Token.** In your Slack app configuration at api.slack.com, go to *OAuth & Permissions* and copy the *Bot* token (not the User token). It starts with `xoxb-`.
+   - **Bot User OAuth Token.** In your Slack app configuration at api.slack.com, go to _OAuth & Permissions_ and copy the _Bot_ token (not the User token). It starts with `xoxb-`.
 4. **Create a Conversation** by POSTing to the admin API with the body below. Replace the four `<PLACEHOLDER>` values with the identifiers from step 3, your topic ID, and the name you want the bot to display in Slack.
 
    ```json
@@ -156,19 +156,19 @@ Because of the one-app-per-server constraint above, both agents appear in Slack 
 Since every agent in the channel posts under the same Slack bot identity, the user cannot pick one out with a real Slack `@`-mention. Each agent resolves itself by inspecting the message body inside its own `evaluate()` function. The rules each agent applies fall into the categories below:
 
 1. **Typed name in the message text.** The user types the agent's name as plain text: `Berkie, set up an event` or `@Mason can you summarize`. Each agent's `evaluate()` looks for its own `agentConfig.botName` in the body, independently of the others. Two matching styles exist in the codebase:
-   - **Fuzzy** match via `matchBotMention()` in [src/agents/helpers/intentChecks.ts](src/agents/helpers/intentChecks.ts). It uses fuzzball with a 70% ratio threshold, so small typos like `Berki` or `Berkey` still resolve. Used by chatbot and eventHistorian.
-   - **Substring** match. The simplest form, used by `eventSetup`: `body.toLowerCase().includes('@' + botName.toLowerCase())` (see [src/agents/eventSetup/eventSetup.ts](src/agents/eventSetup/eventSetup.ts)).
+   - **Fuzzy** match via `matchBotMention()` in [../src/agents/helpers/intentChecks.ts](src/agents/helpers/intentChecks.ts). It uses fuzzball with a 70% ratio threshold, so small typos like `Berki` or `Berkey` still resolve. Used by chatbot and eventHistorian.
+   - **Substring** match. The simplest form, used by `eventSetup`: `body.toLowerCase().includes('@' + botName.toLowerCase())` (see [../src/agents/eventSetup/eventSetup.ts](../src/agents/eventSetup/eventSetup.ts)).
 2. **Real Slack `@app` mention.** Slack's built-in mention (with the blue highlight) refers to the one bot user the app owns. The adapter rewrites that mention into the in-text token `@<botName>`, where `<botName>` is whatever is configured in `adapters[0].config.botName` (not the per-agent `agentConfig.botName`). So a Slack-level mention resolves to exactly one name. If that name matches an agent's `agentConfig.botName`, that agent fires; otherwise the message falls through to intent matching.
 3. **Intent keywords.** If the user names no agent at all, each agent falls back to whatever intent pattern its `evaluate()` declares. For event setup, this is the regex set in `SETUP_INTENT_PATTERNS` (matches `setup`, `create an event`, etc.). For other agents it might be different keywords or an LLM intent check.
 
 Worked examples for a Berkie + Mason channel:
 
-| User types | Berkie matches | Mason matches | Who responds |
-| --- | --- | --- | --- |
-| `Berkie, set up an event` | yes (typed name) | no | Berkie |
-| `Mason, summarize the discussion` | no | yes (typed name) | Mason |
-| `create an event next Thursday` | yes (intent keyword) | no | Berkie |
-| `@<adapter botName> hello` | depends on whether the adapter botName matches their `agentConfig.botName` | same | whoever matches |
+| User types                        | Berkie matches                                                             | Mason matches    | Who responds    |
+| --------------------------------- | -------------------------------------------------------------------------- | ---------------- | --------------- |
+| `Berkie, set up an event`         | yes (typed name)                                                           | no               | Berkie          |
+| `Mason, summarize the discussion` | no                                                                         | yes (typed name) | Mason           |
+| `create an event next Thursday`   | yes (intent keyword)                                                       | no               | Berkie          |
+| `@<adapter botName> hello`        | depends on whether the adapter botName matches their `agentConfig.botName` | same             | whoever matches |
 
 If you put two agents on one channel, their `evaluate()` functions have to be written so they don't both fire on the same message. The reliable way to keep them apart is to require a name match in the body before responding, and to make sure their intent keywords don't overlap. When both agents fire on the same input, both respond, which gets confusing fast for the user.
 
