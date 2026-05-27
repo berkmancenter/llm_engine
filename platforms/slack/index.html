@@ -452,6 +452,117 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#event-setup-bot-slack-nextspace-handoff" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Event Setup bot (Slack → Nextspace handoff)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Event Setup bot (Slack → Nextspace handoff)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment variables
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#slack-side-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Slack-side setup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Slack-side setup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#one-slack-app-per-llm-engine-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One Slack app per LLM Engine server
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sharing-a-slack-channel-between-multiple-agents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sharing a Slack channel between multiple agents
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-users-address-individual-agents-in-a-shared-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How users address individual agents in a shared channel
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deploying-to-production" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deploying to production
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#local-development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local development
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#direct-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Direct messages
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -531,6 +642,168 @@
 <ol>
 <li>Post a message to the Slack Channel. Any agents configured on the <code>Conversation</code> should receive and send messages on their typical channels.</li>
 </ol>
+<h3 id="event-setup-bot-slack-nextspace-handoff">Event Setup bot (Slack → Nextspace handoff)</h3>
+<p>The <code>eventSetup</code> agent lets an organizer kick off a new Nextspace event from Slack. When the organizer mentions the bot or posts a setup-intent message (e.g. "create an event") in a designated Slack channel, the bot replies with a link to the Nextspace event-creation form. The link carries a signed handoff token (JWT) so the form knows which Slack user, team, channel, and thread the request came from. The form lives in Nextspace; this server only mints and verifies the token and runs the planner endpoint the form calls.</p>
+<p>A note on channel naming, because there are two different things both called "channel":</p>
+<ul>
+<li>The <strong>Slack channel</strong> is the actual channel in your Slack workspace where organizers post setup requests. You can name your channel anything.</li>
+<li>The <strong>Nextspace channel role</strong> is an internal label this codebase uses to describe what a channel is for. The <code>eventSetup</code> agent listens on a role literally named <code>setup</code>. Other agents listen on roles like <code>transcript</code> or <code>chat</code>. Operators do not need to rename these roles. They are part of the agent's contract, the same way every other agent in the codebase declares the role it serves.</li>
+</ul>
+<p>The Slack adapter bridges the two. In the Conversation you create below, <code>adapters[0].config.channel</code> says which Slack channel ID you want, and <code>adapters[0].chatChannels</code> maps that Slack channel into the <code>setup</code> role the agent listens on. So renaming your Slack channel never requires a code change, only an update to the Conversation config.</p>
+<h4 id="environment-variables">Environment variables</h4>
+<p>These are all that's needed for the event setup bot. No separate URL templates, calendar deeplink, or display timezone settings are needed. Those concerns moved to the Nextspace frontend.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Required</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>APP_HOST</code></td>
+<td>yes</td>
+<td>Public URL of the Nextspace frontend. The bot builds the handoff link as <code>${APP_HOST}/events/new#token=...</code>. The token is placed in the URL fragment (after <code>#</code>) so browsers never send it to the Nextspace server, keeping it out of server access logs and Referer headers.</td>
+</tr>
+<tr>
+<td><code>JWT_SECRET</code></td>
+<td>yes</td>
+<td>Signs and verifies the handoff token. Must match between the Slack bot's process and any process that verifies the token (this same llm_engine instance).</td>
+</tr>
+<tr>
+<td><code>HANDOFF_TOKEN_EXPIRATION_MINUTES</code></td>
+<td>no (default 60)</td>
+<td>How long the link stays valid after the bot posts it. Short window is intentional.</td>
+</tr>
+<tr>
+<td><code>SLACK_SIGNING_SECRET</code></td>
+<td>yes</td>
+<td>Verifies inbound Slack webhooks (general Slack requirement, not event-setup specific).</td>
+</tr>
+<tr>
+<td><code>SYSTEM_USERS</code></td>
+<td>recommended</td>
+<td>Include <code>event-setup-bot:serviceAccount</code> so the bot has an account to act under. See <a href="../../installing/">Installing</a>.</td>
+</tr>
+</tbody>
+</table>
+<h4 id="slack-side-setup">Slack-side setup</h4>
+<p><strong>Prerequisite:</strong> complete the <em>One Time Setup - Create the app in Slack</em> section at the top of this document first. That section walks through creating the LLM Engine Slack app, requesting bot scopes, installing the app into your workspace, configuring event subscriptions, and setting <code>SLACK_SIGNING_SECRET</code>. The steps below assume the app already exists in your workspace and is reachable from your LLM Engine server.</p>
+<p>The event setup bot has no additional Slack permissions beyond <code>chat:write</code> and the channel scopes already listed in the prerequisite section.</p>
+<p>To trigger the bot in a workspace:</p>
+<ol>
+<li><strong>Pick or create a Slack channel.</strong> Name it whatever fits your team. This is the channel organizers will post in when they want to create an event.</li>
+<li><strong>Invite the LLM Engine app to that channel</strong> so it can read messages and post replies. In Slack: open the channel, click the channel name to open settings, go to the <em>Integrations</em> tab, click <em>Add apps</em>, and select your LLM Engine app.</li>
+<li><strong>Look up the Slack identifiers you'll need for the Conversation config:</strong></li>
+<li><strong>Slack channel ID.</strong> Open the channel in Slack, click the channel name, scroll to the bottom of the <em>About</em> panel. The ID looks like <code>C</code> followed by alphanumeric characters.</li>
+<li><strong>Slack workspace (team) ID.</strong> Open the workspace in Slack on the web. The URL contains the workspace ID, which looks like <code>T</code> followed by alphanumeric characters.</li>
+<li><strong>Bot User OAuth Token.</strong> In your Slack app configuration at api.slack.com, go to <em>OAuth &amp; Permissions</em> and copy the <em>Bot</em> token (not the User token). It starts with <code>xoxb-</code>.</li>
+<li><strong>Create a Conversation</strong> by POSTing to the admin API with the body below. Replace the four <code>&lt;PLACEHOLDER&gt;</code> values with the identifiers from step 3, your topic ID, and the name you want the bot to display in Slack.</li>
+</ol>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Event Setup&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;topicId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;NEXTSPACE_TOPIC_ID&gt;&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;channels&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;setup&quot;</span><span class="w"> </span><span class="p">}],</span>
+<span class="w">  </span><span class="nt">&quot;agentTypes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;eventSetup&quot;</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;adapters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;slack&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;config&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">&quot;channel&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;SLACK_CHANNEL_ID&gt;&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;workspace&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;SLACK_WORKSPACE_ID&gt;&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;botToken&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;SLACK_BOT_TOKEN&gt;&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">&quot;botName&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;BOT_DISPLAY_NAME&gt;&quot;</span>
+<span class="w">      </span><span class="p">},</span>
+<span class="w">      </span><span class="nt">&quot;chatChannels&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;setup&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;direction&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;both&quot;</span><span class="w"> </span><span class="p">}]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><code>channels[0].name</code> and <code>chatChannels[0].name</code> both stay as <code>"setup"</code>. That value is the Nextspace channel role the agent listens on, not a Slack channel name. The Slack-side name is whatever you picked in step 1, and you reference it by ID in <code>adapters[0].config.channel</code>.</p>
+<ol>
+<li><strong>Post a setup request</strong> in the Slack channel from step 1. Either mention the bot (e.g. <code>@&lt;BOT_DISPLAY_NAME&gt; create an event</code>) or use a setup-intent phrase like <code>create an event next Thursday</code>. The bot replies with the handoff link.</li>
+</ol>
+<h5 id="one-slack-app-per-llm-engine-server">One Slack app per LLM Engine server</h5>
+<p>Before configuring multiple agents, know this constraint up front: a single LLM Engine server is bound to exactly one Slack app. The server verifies every inbound Slack webhook against the single <code>SLACK_SIGNING_SECRET</code> env var (see <code>src/handlers/slack.ts</code>), so webhooks from any other Slack app would fail signature verification and never reach an agent. There is no per-agent or per-Conversation signing secret.</p>
+<p>That single Slack app can host many Conversations across many Slack channels and workspaces. What it cannot do is appear as more than one bot identity in Slack. Every outbound post from this server uses the installed app's bot user, with the display name and avatar configured at install time on api.slack.com. The adapter does not override <code>username</code> or <code>icon_url</code> per message (see <code>src/adapters/slack/index.ts</code>).</p>
+<p>If you need agents to appear as visually distinct Slack users (e.g. Berkie posting as "Berkie" and Mason posting as "Mason"), you need a separate Slack app and a separate LLM Engine instance, each with its own signing secret and installed identity.</p>
+<h5 id="sharing-a-slack-channel-between-multiple-agents">Sharing a Slack channel between multiple agents</h5>
+<p>A single Conversation can host more than one agent on the same channel binding. To put the event setup bot and another Nextspace agent (e.g. a moderator persona) into the same Slack channel, add both agent type names to the <code>agentTypes</code> array on the Conversation. They both attach to the <code>setup</code>-role channel binding declared in <code>chatChannels</code>.</p>
+<p>Each agent evaluates incoming messages independently against its own triggers, so the two do not interfere with each other. If only one agent's triggers match a given message (e.g. only the event-setup intent pattern fires on <code>create an event next Thursday</code>), only that agent responds. If both match, each gets a chance to respond.</p>
+<p>Because of the one-app-per-server constraint above, both agents appear in Slack under the same bot identity. The <code>agentConfig.botName</code> value on each agent definition is used for in-prompt addressing and trace metadata. It does not change what Slack displays.</p>
+<h5 id="how-users-address-individual-agents-in-a-shared-channel">How users address individual agents in a shared channel</h5>
+<p>Since every agent in the channel posts under the same Slack bot identity, the user cannot pick one out with a real Slack <code>@</code>-mention. Each agent resolves itself by inspecting the message body inside its own <code>evaluate()</code> function. The rules each agent applies fall into the categories below:</p>
+<ol>
+<li><strong>Typed name in the message text.</strong> The user types the agent's name as plain text: <code>Berkie, set up an event</code> or <code>@Mason can you summarize</code>. Each agent's <code>evaluate()</code> looks for its own <code>agentConfig.botName</code> in the body, independently of the others. Two matching styles exist in the codebase:</li>
+<li><strong>Fuzzy</strong> match via <code>matchBotMention()</code> in <a href="https://github.com/berkmancenter/llm_engine/blob/main/src/agents/helpers/intentChecks.ts">intentChecks.ts</a>. It uses fuzzball with a 70% ratio threshold, so small typos like <code>Berki</code> or <code>Berkey</code> still resolve. Used by chatbot and eventHistorian.</li>
+<li><strong>Substring</strong> match. The simplest form, used by <code>eventSetup</code>: <code>body.toLowerCase().includes('@' + botName.toLowerCase())</code> (see <a href="https://github.com/berkmancenter/llm_engine/blob/main/src/agents/eventSetup/eventSetup.ts">eventSetup.ts</a>).</li>
+<li><strong>Real Slack <code>@app</code> mention.</strong> Slack's built-in mention (with the blue highlight) refers to the one bot user the app owns. The adapter rewrites that mention into the in-text token <code>@&lt;botName&gt;</code>, where <code>&lt;botName&gt;</code> is whatever is configured in <code>adapters[0].config.botName</code> (not the per-agent <code>agentConfig.botName</code>). So a Slack-level mention resolves to exactly one name. If that name matches an agent's <code>agentConfig.botName</code>, that agent fires; otherwise the message falls through to intent matching.</li>
+<li><strong>Intent keywords.</strong> If the user names no agent at all, each agent falls back to whatever intent pattern its <code>evaluate()</code> declares. For event setup, this is the regex set in <code>SETUP_INTENT_PATTERNS</code> (matches <code>setup</code>, <code>create an event</code>, etc.). For other agents it might be different keywords or an LLM intent check.</li>
+</ol>
+<p>Worked examples for a Berkie + Mason channel:</p>
+<table>
+<thead>
+<tr>
+<th>User types</th>
+<th>Berkie matches</th>
+<th>Mason matches</th>
+<th>Who responds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Berkie, set up an event</code></td>
+<td>yes (typed name)</td>
+<td>no</td>
+<td>Berkie</td>
+</tr>
+<tr>
+<td><code>Mason, summarize the discussion</code></td>
+<td>no</td>
+<td>yes (typed name)</td>
+<td>Mason</td>
+</tr>
+<tr>
+<td><code>create an event next Thursday</code></td>
+<td>yes (intent keyword)</td>
+<td>no</td>
+<td>Berkie</td>
+</tr>
+<tr>
+<td><code>@&lt;adapter botName&gt; hello</code></td>
+<td>depends on whether the adapter botName matches their <code>agentConfig.botName</code></td>
+<td>same</td>
+<td>whoever matches</td>
+</tr>
+</tbody>
+</table>
+<p>If you put two agents on one channel, their <code>evaluate()</code> functions have to be written so they don't both fire on the same message. The reliable way to keep them apart is to require a name match in the body before responding, and to make sure their intent keywords don't overlap. When both agents fire on the same input, both respond, which gets confusing fast for the user.</p>
+<h4 id="deploying-to-production">Deploying to production</h4>
+<p>When merging this change to production, do these in order:</p>
+<ol>
+<li><strong>Set <code>APP_HOST</code></strong> to the production Nextspace URL (e.g. <code>https://nextspace.example.org</code>). Without this the bot will post <code>localhost</code> links.</li>
+<li><strong>Confirm <code>JWT_SECRET</code> is set</strong> in the production environment and is not the placeholder from <code>.env.example</code>. The handoff token is signed with this secret; a weak or default secret means anyone can forge a handoff.</li>
+<li><strong>(Optional) Set <code>HANDOFF_TOKEN_EXPIRATION_MINUTES</code></strong> if the default 60 minutes doesn't fit your workflow.</li>
+<li><strong>Restart the llm_engine service</strong> so the new config is loaded.</li>
+<li><strong>Smoke test</strong> by posting a setup request in the Slack channel the production Conversation is wired to, and confirming the bot replies with a link pointing at the production <code>APP_HOST</code>. Clicking the link should land on the Nextspace event-creation form. That part requires the matching Nextspace deploy with the frontend handler; track that separately.</li>
+<li><strong>Verify token rejection paths</strong> by hand-crafting a request to <code>POST /v1/event-setup/plan</code> without a token and with a tampered token. Both should return 401.</li>
+</ol>
+<h4 id="local-development">Local development</h4>
+<ol>
+<li>Copy <code>.env.example</code> to <code>.env</code> and set <code>APP_HOST=http://localhost:3000</code>, <code>JWT_SECRET=&lt;anything&gt;</code>, <code>SLACK_SIGNING_SECRET=&lt;your dev app secret&gt;</code>.</li>
+<li>Run <code>yarn dev</code> (or your usual local script).</li>
+<li>Expose the local server with ngrok or similar, point your Slack dev app's Event Subscriptions URL at it.</li>
+<li>Create a dev Conversation following the steps above, pointing at a Slack channel in your dev workspace.</li>
+<li>Post a setup request in that Slack channel. The bot will reply with a <code>localhost:3000</code> link.</li>
+<li>Hit the planner endpoint directly with curl to iterate on the LLM prompt without the frontend. The token is the part of the bot's URL after <code>#token=</code>:</li>
+</ol>
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:3000/v1/event-setup/plan<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;X-Handoff-Token: &lt;token from the # fragment of the bot&#39;s URL&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;description&quot;:&quot;AI ethics roundtable next Thursday at 3pm ET, online via Zoom&quot;}&#39;</span>
+</code></pre></div>
+<h3 id="direct-messages">Direct messages</h3>
 <p>If you wish to support DMs between users and agents, you must configure a separate Conversation for all DMs. <strong>You can only have one such Conversation active at a time.</strong> Private communication between a user and the Slack app happens on a dedicated channel (different for each user). Therefore, you must use the keyword 'direct' for channel name, to signal that the conversation should process all direct messages.</p>
 <p>Example conversation body:</p>
 <div class="highlight"><pre><span></span><code>{
