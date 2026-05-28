@@ -8,9 +8,10 @@ import {
   eventAssistantLLMTemplates,
   eventAssistantLlmTemplateVars,
   answerQuestion,
-  QuestionClassification,
-  generatePseudonymFunFact
+  QuestionClassification
 } from './eventQuestionHandler.js'
+import { buildSystemPromptWithPersonality } from '../helpers/agentPersonality.js'
+import { getChatPromptResponse } from '../helpers/llmChain.js'
 
 import logger from '../../config/logger.js'
 import config from '../../config/config.js'
@@ -19,6 +20,101 @@ import generateImageResponse from './imageGenerator.js'
 import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from '../helpers/slashCommandParser.js'
 import generateMindMap from './mindMapGenerator.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
+import User from '../../models/user.model/user.model.js'
+
+const funFactSystemTemplate = `You create short, fun facts about pseudonyms. The pseudonym is in the form "adjective noun". Create a 1 sentence fun fact that is factual about the noun, but can be playful about the adjective part. Makes sure your answers are safe for work.
+  **IMPORTANT** Always start the sentence with the phrase 'Fun Fact about your pseudonym:'`
+const funFactUserTemplate = 'Create a fun fact about the pseudonym: {pseudonym}'
+
+/**
+ * Builds a dynamic capability description for the WELCOME check-in message.
+ * Varies based on which tools and features are enabled in agentConfig.
+ */
+export function buildCheckinCapabilityDescription(agentConfig): string {
+  const toolNames: string[] = agentConfig?.tools || []
+  const hasWebSearch = toolNames.includes('web_search')
+  const hasModerator = agentConfig?.moderatorSupport
+
+  const capabilities = [
+    '- Re-explain anything from the event in simpler terms',
+    '- Answer any question about the event privately',
+    '- Summarize what they missed if they stepped away',
+    '- Clarify jargon or terminology used by the speaker'
+  ]
+
+  if (hasWebSearch) {
+    capabilities.push('- Research related topics, people, or claims the speaker briefly mentioned')
+  }
+  capabilities.push('- Just work with a fragment like "I\'m lost" or "the second part" — no need to form a full question')
+  capabilities.push('- Use /visual to get a diagram or image to help explain a concept')
+  capabilities.push('- Use /mindmap to generate a visual map of the key topics discussed')
+
+  if (hasModerator) {
+    capabilities.push('- Use /mod to submit a question anonymously to the moderator for Q&A')
+  }
+
+  return capabilities.join('\n')
+}
+
+export async function generatePseudonymFunFact(channel) {
+  // Find the user participant (not the agent)
+  const userParticipantId = channel.participants.find(
+    (participantId: string) => participantId.toString() !== this._id.toString()
+  )
+  const user = await User.findById(userParticipantId)
+  const activePseudonym = user?.pseudonyms?.find((p) => p.active)
+
+  if (!activePseudonym?.pseudonym) {
+    logger.debug(`No active pseudonym found for user ${user?._id} on channel ${channel.name}, cannot generate fun fact.`)
+    return null
+  }
+
+  const llm = await this.getLLM()
+
+  const funFact = await getChatPromptResponse(llm, funFactSystemTemplate, funFactUserTemplate, {
+    pseudonym: activePseudonym.pseudonym
+  })
+
+  return funFact
+}
+
+/**
+ * Generates the first DM a participant receives — a warm, contextual intro that incorporates
+ * the pseudonym fun fact, capability description, and a brief trust note. Used by introduce()
+ * for all DM channels. Falls back to the template string if the LLM call fails.
+ * Called with `this` = agent instance.
+ */
+async function buildDmIntroMessage(this, channel): Promise<string | null> {
+  const botName = this.agentConfig?.botName || config.conversationBotName
+  const personalityName = this.agentConfig?.personality ?? (config.enableAgentPersonality ? 'sarcastic-expert' : null)
+  const capabilityDescription = buildCheckinCapabilityDescription(this.agentConfig)
+  const funFact = await generatePseudonymFunFact.call(this, channel).catch(() => null)
+
+  const base = `You are ${botName}, a private AI assistant for this event. Your job is to send a participant their very first message — a brief, warm welcome that sets concrete expectations for what this private channel is for.
+
+Rules:
+- If a fun fact is provided, open with it as a light icebreaker — make it feel like a casual aside, not a formal introduction
+- Otherwise open with a simple "Hi!" — do not address the participant by name
+- 2-3 sentences describing what this channel is for, with 1-2 concrete examples (e.g. asking a question privately, typing "I'm lost", asking for a recap)
+- Include one brief trust note: their pseudonym keeps them anonymous, and their messages are never used to train AI models
+- End with explicit permission to not respond: "No need to reply — just wanted you to know I'm here."
+- Never imply the participant should participate more, or that silence is a problem
+- Friendly and direct, not formal`
+
+  const systemPrompt = buildSystemPromptWithPersonality(base, personalityName)
+
+  const userPrompt = `You are sending the first message to a participant in a private channel at a live event.
+
+Event: "${this.conversation.name}"
+${this.conversation.description ? `Description: ${this.conversation.description}` : ''}
+What ${botName} can do in this private channel:
+${capabilityDescription}
+${funFact ? `\nFun fact to open with: ${funFact}` : ''}
+Write their welcome message.`
+
+  const llm = await this.getLLM()
+  return (await getChatPromptResponse(llm, systemPrompt, userPrompt, {})) as string
+}
 
 const MODERATOR_MESSAGE_TYPES = new Set(['moderator_offered', 'moderator_submitted', 'moderator_declined'])
 
@@ -172,11 +268,8 @@ export default verify({
     perMessage: { directMessages: true, channels: ['chat', 'image-gen'], allowMessagesFromAgents: true }
   },
   agentConfig: {
-    introMessage:
-      "Hi! I'm {{agentConfig.botName}}, your AI event assistant. Ask me anything, or tap '/' to see available commands.",
     chatIntroMessage: `Welcome! I'm {{agentConfig.botName}}, your AI event assistant. This is a space to chat with other event participants. You can also ask me questions with an @{{agentConfig.botName}} mention. Just remember that everyone can see what you ask me here. Use the {{agentConfig.botName}} tab if you want to talk privately. Have fun!`,
     enablePersonality: config.enableAgentPersonality,
-    zoomIntroMessage: "Hi! I'm {{agentConfig.botName}}, your AI event assistant. Ask me anything about the event!",
     zoomChatIntroMessage:
       "Welcome! I'm {{agentConfig.botName}}, your AI event assistant. You can ask me questions in the chat with an @{{agentConfig.botName}} mention. Or send me a DM if you want to talk privately.",
     tools: getDefaultEventAssistantToolNames()
@@ -295,39 +388,21 @@ export default verify({
       }, agentConfig.botName: ${this.agentConfig?.botName}`
     )
     if (channel.direct) {
-      const templateStr = adapterType === 'zoom' ? this.agentConfig.zoomIntroMessage : this.agentConfig.introMessage
-      logger.debug(`[introduce] DM path - templateStr: ${templateStr}`)
-      let introMessage
+      // LLM-generated intro: fun fact opener, capability description, trust note, no-reply close.
       try {
-        introMessage = renderAgentTemplate(templateStr, this.toObject())
-        logger.debug(`[introduce] DM rendered introMessage: ${introMessage}`)
-      } catch (err) {
-        logger.error(`[introduce] renderAgentTemplate error (DM): ${err}`)
-        throw err
-      }
-
-      if (adapterType === 'zoom' && this.agentConfig?.moderatorSupport) {
-        introMessage = `${introMessage} Use /mod to send a question to the moderator.`
-      }
-
-      if (adapterType !== 'zoom') {
-        const funFact = await generatePseudonymFunFact.call(this, channel)
-        if (funFact) {
-          introMessage = `${introMessage}\n\n${funFact}`
-        }
-      }
-
+        const introText = await buildDmIntroMessage.call(this, channel)
       return [
         {
-          message: {
-            text: introMessage,
-            type: 'intro'
-          },
+            message: { text: introText, type: 'intro' },
           messageType: 'json',
           channels: [channel],
           visible: true
         }
       ]
+      } catch (err) {
+        logger.error('[introduce] LLM call failed for DM intro', err)
+        return []
+      }
     }
     if (channel.name === 'chat') {
       const templateStr = adapterType === 'zoom' ? this.agentConfig.zoomChatIntroMessage : this.agentConfig.chatIntroMessage
