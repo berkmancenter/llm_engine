@@ -33,7 +33,7 @@ describe('alternate name enforcement', () => {
 
   const startTime = new Date(Date.now() - 10 * 60 * 1000)
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     topic = await createPublicTopic()
     user1 = await createUser('curious-attendee')
 
