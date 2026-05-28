@@ -55,8 +55,10 @@ export const defaultLLMModel = supportedModels[0].llmModel
 // These can be model family names (e.g., "sonnet", "haiku") or exact model IDs
 export const { classificationLLMPlatform } = config
 export const { classificationLLMModel } = config
-export const { summaryLLMPlatform } = config
-export const { summaryLLMModel } = config
+
+// Used for core system tasks like generating fun facts and reading summaries
+export const { coreLLMPlatform } = config
+export const { coreLLMModel } = config
 // No platform specified because only Google is currently supported for image generation
 export const { imageGenerationLLMModel } = config
 

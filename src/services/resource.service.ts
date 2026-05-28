@@ -6,7 +6,7 @@ import httpStatus from 'http-status'
 import { z } from 'zod'
 import { PDFLoader } from '@langchain/community/document_loaders/fs/pdf'
 import backgroundCollection, { BACKGROUND_DOCS_BASE, buildFullCitation } from '../agents/helpers/backgroundCollection.js'
-import { getModelChat, summaryLLMPlatform, summaryLLMModel } from '../agents/helpers/getModelChat.js'
+import { getModelChat, coreLLMPlatform, coreLLMModel } from '../agents/helpers/getModelChat.js'
 import { getChatPromptResponse } from '../agents/helpers/llmChain.js'
 import logger from '../config/logger.js'
 import Conversation from '../models/conversation.model.js'
@@ -59,7 +59,7 @@ const summarizePdf = async (conversationId: string, resourceId: string, filePath
     content = content.slice(0, PDF_MAX_CHARS_FOR_SUMMARY)
   }
 
-  const llm = await getModelChat(summaryLLMPlatform, summaryLLMModel)
+  const llm = await getModelChat(coreLLMPlatform, coreLLMModel)
   const structured = await getChatPromptResponse(
     llm,
     SUMMARIZATION_PROMPT,
