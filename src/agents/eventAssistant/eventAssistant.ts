@@ -25,10 +25,11 @@ import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers
  * Builds a dynamic capability description for the WELCOME check-in message.
  * Varies based on which tools and features are enabled in agentConfig.
  */
-export function buildCheckinCapabilityDescription(agentConfig): string {
+export function buildCheckinCapabilityDescription(agentConfig, adapterType?: string): string {
   const toolNames: string[] = agentConfig?.tools || []
   const hasWebSearch = toolNames.includes('web_search')
   const hasModerator = agentConfig?.moderatorSupport
+  const isZoom = adapterType === 'zoom'
 
   const capabilities = [
     '- Re-explain anything from the event in simpler terms',
@@ -40,12 +41,17 @@ export function buildCheckinCapabilityDescription(agentConfig): string {
   if (hasWebSearch) {
     capabilities.push('- Research related topics, people, or claims the speaker briefly mentioned')
   }
-  capabilities.push('- Just work with a fragment like "I\'m lost" or "the second part" — no need to form a full question')
-  capabilities.push('- Use /visual to get a diagram or image to help explain a concept')
-  capabilities.push('- Use /mindmap to generate a visual map of the key topics discussed')
+  if (!isZoom) {
+    capabilities.push('- Use /visual to get a diagram or image to help explain a concept')
+    capabilities.push('- Use /mindmap to generate a visual map of the key topics discussed')
+    if (hasModerator) {
+      capabilities.push('- Use /mod to submit a question anonymously to the moderator for Q&A')
+    }
+  }
 
-  if (hasModerator) {
-    capabilities.push('- Use /mod to submit a question anonymously to the moderator for Q&A')
+  for (let i = capabilities.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[capabilities[i], capabilities[j]] = [capabilities[j], capabilities[i]]
   }
 
   return capabilities.join('\n')
@@ -56,33 +62,29 @@ export function buildCheckinCapabilityDescription(agentConfig): string {
  * the capability description and a brief trust note. Used by introduce() for all DM channels.
  * Called with `this` = agent instance.
  */
-async function buildDmIntroMessage(this): Promise<string | null> {
+async function buildDmIntroMessage(this, adapterType?: string): Promise<string | null> {
   const botName = this.agentConfig?.botName || config.conversationBotName
   const personalityName = this.agentConfig?.personality ?? (config.enableAgentPersonality ? 'sarcastic-expert' : null)
-  const capabilityDescription = buildCheckinCapabilityDescription(this.agentConfig)
+  const capabilityDescription = buildCheckinCapabilityDescription(this.agentConfig, adapterType)
 
-  const base = `You are ${botName}, a private AI assistant for this event. Your job is to send a participant their very first message — a brief, warm welcome that sets concrete expectations for what this private channel is for.
-
-Rules:
-- Otherwise open with a simple "Hi!" — do not address the participant by name
-- 2-3 sentences describing what this channel is for, with 1-2 concrete examples (e.g. asking a question privately, typing "I'm lost", asking for a recap)
-- Include one brief trust note: their pseudonym keeps them anonymous, and their messages are never used to train AI models
-- End with explicit permission to not respond: "No need to reply — just wanted you to know I'm here."
-- Never imply the participant should participate more, or that silence is a problem
-- Friendly and direct, not formal`
+  const base = `You are ${botName}, a private AI assistant for this event. Write 1-2 short sentences highlighting what you can help with. Prefer natural, conversational examples (e.g. "ask me to catch you up" or "ask me to simplify something") over listing slash commands. Do not re-explain the channel's purpose or privacy. Friendly and direct, not formal. Output only those sentences, nothing else.`
 
   const systemPrompt = buildSystemPromptWithPersonality(base, personalityName)
 
-  const userPrompt = `You are sending the first message to a participant in a private channel at a live event.
-
-Event: "${this.conversation.name}"
+  const userPrompt = `Event: "${this.conversation.name}"
 ${this.conversation.description ? `Description: ${this.conversation.description}` : ''}
-What ${botName} can do in this private channel:
-${capabilityDescription}
-Write their welcome message.`
+Available capabilities (pick 1-2 to highlight):
+${capabilityDescription}`
 
   const llm = await this.getLLM()
-  return (await getChatPromptResponse(llm, systemPrompt, userPrompt, {})) as string
+  const body = await getChatPromptResponse(llm, systemPrompt, userPrompt, {})
+  let commandHint: string
+  if (adapterType === 'zoom') {
+    commandHint = this.agentConfig?.moderatorSupport ? 'Use /mod to send a question to the moderator.' : ''
+  } else {
+    commandHint = 'Just type / if you want to see what else I can do.'
+  }
+  return `Hi! I'm ${botName}, your private, anonymous support during this session. ${body}${commandHint ? ` ${commandHint}` : ''} Your pseudonym keeps you anonymous, and nothing you share is ever used to train AI models. No need to respond, just know I'm here.`
 }
 
 const MODERATOR_MESSAGE_TYPES = new Set(['moderator_offered', 'moderator_submitted', 'moderator_declined'])
@@ -364,7 +366,7 @@ export default verify({
     if (channel.direct) {
       // LLM-generated intro: capability description, trust note, no-reply close.
       try {
-        const introText = await buildDmIntroMessage.call(this)
+        const introText = await buildDmIntroMessage.call(this, adapterType)
         return [
           {
             message: { text: introText, type: 'intro' },

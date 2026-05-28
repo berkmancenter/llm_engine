@@ -509,6 +509,15 @@ describe(`event assistant CI tests`, () => {
       expect(msgs[0].message.text).not.toContain('{{agentConfig.botName}}')
     })
 
+    it('includes type-/ hint in non-zoom DM intro', async () => {
+      const [directChannel] = await Channel.create([
+        { name: 'direct-agents-hint', direct: true, participants: [user1._id, agent._id] }
+      ])
+      const msgs = await agent.introduce(directChannel)
+      console.log('DM intro (type-/ hint):', msgs[0]?.message?.text)
+      expect(msgs[0].message.text).toContain('Just type /')
+    })
+
     it('sends an LLM-generated intro for zoom DM channels', async () => {
       const [directChannel] = await Channel.create([
         { name: 'direct-zoom-agents', direct: true, participants: [user1._id, agent._id] }
@@ -519,6 +528,27 @@ describe(`event assistant CI tests`, () => {
       expect(msgs[0].messageType).toBe('json')
       expect(msgs[0].message.type).toBe('intro')
       expect(msgs[0].message.text.length).toBeGreaterThan(20)
+    })
+
+    it('omits command hint in zoom DM intro when moderatorSupport is disabled', async () => {
+      agent.agentConfig = { ...agent.agentConfig, moderatorSupport: false }
+      const [directChannel] = await Channel.create([
+        { name: 'direct-zoom-nomod', direct: true, participants: [user1._id, agent._id] }
+      ])
+      const msgs = await agent.introduce(directChannel, 'zoom')
+      console.log('Zoom DM intro (no mod):', msgs[0]?.message?.text)
+      expect(msgs[0].message.text).not.toContain('/mod')
+      expect(msgs[0].message.text).not.toContain('Just type /')
+    })
+
+    it('includes /mod hint in zoom DM intro when moderatorSupport is enabled', async () => {
+      agent.agentConfig = { ...agent.agentConfig, moderatorSupport: true }
+      const [directChannel] = await Channel.create([
+        { name: 'direct-zoom-mod', direct: true, participants: [user1._id, agent._id] }
+      ])
+      const msgs = await agent.introduce(directChannel, 'zoom')
+      console.log('Zoom DM intro (with mod):', msgs[0]?.message?.text)
+      expect(msgs[0].message.text).toContain('/mod')
     })
 
     it('uses zoomChatIntroMessage for zoom chat intro', async () => {
