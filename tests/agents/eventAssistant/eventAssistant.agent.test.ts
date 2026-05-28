@@ -498,17 +498,6 @@ describe(`event assistant CI tests`, () => {
       expect(msgs).toHaveLength(0)
     })
 
-    it('incorporates a fun fact about the user pseudonym into the DM intro', async () => {
-      const testUser = await createUser('Curious Elephant')
-      const [directChannel] = await Channel.create([
-        { name: 'direct-test-pseudonym', direct: true, participants: [testUser._id, agent._id] }
-      ])
-      const msgs = await agent.introduce(directChannel)
-      console.log('Fun fact DM intro:', msgs[0]?.message?.text)
-      expect(msgs).toHaveLength(1)
-      expect(msgs[0].message.text.toLowerCase()).toContain('elephant')
-    })
-
     it('includes custom botName in chat intro', async () => {
       const customBotName = 'MyCustomBot'
       agent.agentConfig = { ...agent.agentConfig, botName: customBotName }

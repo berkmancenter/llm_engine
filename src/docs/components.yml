@@ -152,6 +152,9 @@ components:
           items:
             type: string
           description: Array of Conversation IDs
+        funFact:
+          type: string
+          description: LLM-generated fun fact about the pseudonym
 
     Profile:
       type: object

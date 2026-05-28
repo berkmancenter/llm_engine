@@ -9,6 +9,27 @@ import ApiError from '../utils/ApiError.js'
 import { pseudonymAdjectives, pseudonymNouns } from '../config/pseudonym-dictionaries.js'
 import logger from '../config/logger.js'
 import config from '../config/config.js'
+import { getModelChat, coreLLMPlatform, coreLLMModel } from '../agents/helpers/getModelChat.js'
+import { getChatPromptResponse } from '../agents/helpers/llmChain.js'
+
+const funFactSystemTemplate = `You create short, fun facts about pseudonyms. The pseudonym is in the form "adjective noun". Create a 1 sentence fun fact that is factual about the noun, but can be playful about the adjective part. Makes sure your answers are safe for work.
+Output only the fun fact sentence itself — no headings, labels, pseudonym names, or additional commentary.`
+
+const funFactUserTemplate = 'Create a fun fact about the pseudonym: {pseudonym}'
+
+// Skip fun fact generation when truly random pseudonyms are enabled — those aren't human-readable.
+const generatePseudonymFunFact = async (pseudonym: string) => {
+  if (config.trulyRandomPseudonyms === 'true') {
+    return null
+  }
+  try {
+    const llm = await getModelChat(coreLLMPlatform, coreLLMModel)
+    return (await getChatPromptResponse(llm, funFactSystemTemplate, funFactUserTemplate, { pseudonym })) as string
+  } catch (err) {
+    logger.warn(`Failed to generate fun fact for pseudonym "${pseudonym}": ${err.message}`)
+    return null
+  }
+}
 
 const tokenKey = 'greenheron'
 /**
@@ -54,6 +75,11 @@ const createUser = async (userBody) => {
   }
 
   const user = await User.create(userProps)
+  const funFact = await generatePseudonymFunFact(user.pseudonyms[0].pseudonym)
+  if (funFact) {
+    user.pseudonyms[0].funFact = funFact
+    await user.save()
+  }
   return user
 }
 
@@ -115,6 +141,12 @@ const addPseudonym = async (requestBody, requestUser) => {
   })
   user!.pseudonyms.push(newPseudonym)
   await user!.save()
+  const addedPseudo = user!.pseudonyms[user!.pseudonyms.length - 1]
+  const funFact = await generatePseudonymFunFact(addedPseudo.pseudonym)
+  if (funFact) {
+    addedPseudo.funFact = funFact
+    await user!.save()
+  }
   return user
 }
 /**
@@ -137,6 +169,14 @@ const activatePseudonym = async (requestBody, requestUser) => {
     throw new ApiError(httpStatus.NOT_FOUND, 'Pseudonym not found')
   }
   await user!.save()
+  const activatedPseudo = user!.pseudonyms.find((p) => p.token === requestBody.token)
+  if (activatedPseudo && !activatedPseudo.funFact) {
+    const funFact = await generatePseudonymFunFact(activatedPseudo.pseudonym)
+    if (funFact) {
+      activatedPseudo.funFact = funFact
+      await user!.save()
+    }
+  }
   return user
 }
 /**

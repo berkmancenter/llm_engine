@@ -20,11 +20,6 @@ import generateImageResponse from './imageGenerator.js'
 import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from '../helpers/slashCommandParser.js'
 import generateMindMap from './mindMapGenerator.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
-import User from '../../models/user.model/user.model.js'
-
-const funFactSystemTemplate = `You create short, fun facts about pseudonyms. The pseudonym is in the form "adjective noun". Create a 1 sentence fun fact that is factual about the noun, but can be playful about the adjective part. Makes sure your answers are safe for work.
-  **IMPORTANT** Always start the sentence with the phrase 'Fun Fact about your pseudonym:'`
-const funFactUserTemplate = 'Create a fun fact about the pseudonym: {pseudonym}'
 
 /**
  * Builds a dynamic capability description for the WELCOME check-in message.
@@ -56,44 +51,19 @@ export function buildCheckinCapabilityDescription(agentConfig): string {
   return capabilities.join('\n')
 }
 
-export async function generatePseudonymFunFact(channel) {
-  // Find the user participant (not the agent)
-  const userParticipantId = channel.participants.find(
-    (participantId: string) => participantId.toString() !== this._id.toString()
-  )
-  const user = await User.findById(userParticipantId)
-  const activePseudonym = user?.pseudonyms?.find((p) => p.active)
-
-  if (!activePseudonym?.pseudonym) {
-    logger.debug(`No active pseudonym found for user ${user?._id} on channel ${channel.name}, cannot generate fun fact.`)
-    return null
-  }
-
-  const llm = await this.getLLM()
-
-  const funFact = await getChatPromptResponse(llm, funFactSystemTemplate, funFactUserTemplate, {
-    pseudonym: activePseudonym.pseudonym
-  })
-
-  return funFact
-}
-
 /**
  * Generates the first DM a participant receives — a warm, contextual intro that incorporates
- * the pseudonym fun fact, capability description, and a brief trust note. Used by introduce()
- * for all DM channels. Falls back to the template string if the LLM call fails.
+ * the capability description and a brief trust note. Used by introduce() for all DM channels.
  * Called with `this` = agent instance.
  */
-async function buildDmIntroMessage(this, channel): Promise<string | null> {
+async function buildDmIntroMessage(this): Promise<string | null> {
   const botName = this.agentConfig?.botName || config.conversationBotName
   const personalityName = this.agentConfig?.personality ?? (config.enableAgentPersonality ? 'sarcastic-expert' : null)
   const capabilityDescription = buildCheckinCapabilityDescription(this.agentConfig)
-  const funFact = await generatePseudonymFunFact.call(this, channel).catch(() => null)
 
   const base = `You are ${botName}, a private AI assistant for this event. Your job is to send a participant their very first message — a brief, warm welcome that sets concrete expectations for what this private channel is for.
 
 Rules:
-- If a fun fact is provided, open with it as a light icebreaker — make it feel like a casual aside, not a formal introduction
 - Otherwise open with a simple "Hi!" — do not address the participant by name
 - 2-3 sentences describing what this channel is for, with 1-2 concrete examples (e.g. asking a question privately, typing "I'm lost", asking for a recap)
 - Include one brief trust note: their pseudonym keeps them anonymous, and their messages are never used to train AI models
@@ -109,7 +79,6 @@ Event: "${this.conversation.name}"
 ${this.conversation.description ? `Description: ${this.conversation.description}` : ''}
 What ${botName} can do in this private channel:
 ${capabilityDescription}
-${funFact ? `\nFun fact to open with: ${funFact}` : ''}
 Write their welcome message.`
 
   const llm = await this.getLLM()
@@ -132,8 +101,11 @@ function filterModeratorHistory(conversationHistory) {
       const prev = msgs[i - 1]
       const next = msgs[i + 1]
       if (
-        prev?.bodyType === 'json' && (prev.body as Record<string, unknown>)?.type === 'moderator_offered' &&
-        next?.bodyType === 'json' && ((next.body as Record<string, unknown>)?.type === 'moderator_submitted' || (next.body as Record<string, unknown>)?.type === 'moderator_declined')
+        prev?.bodyType === 'json' &&
+        (prev.body as Record<string, unknown>)?.type === 'moderator_offered' &&
+        next?.bodyType === 'json' &&
+        ((next.body as Record<string, unknown>)?.type === 'moderator_submitted' ||
+          (next.body as Record<string, unknown>)?.type === 'moderator_declined')
       ) {
         return false
       }
@@ -367,7 +339,9 @@ export default verify({
     const modifiedMessage = { ...userMessage }
     modifiedMessage.body = extractMessageText(userMessage)
 
-    const agentResponses = await answerQuestion.call(this, modifiedMessage, filterModeratorHistory(conversationHistory), { forceVisual })
+    const agentResponses = await answerQuestion.call(this, modifiedMessage, filterModeratorHistory(conversationHistory), {
+      forceVisual
+    })
 
     if (this.agentConfig?.moderatorSupport) {
       offerModeratorSubmission(userMessage, agentResponses, this.conversation)
@@ -388,17 +362,17 @@ export default verify({
       }, agentConfig.botName: ${this.agentConfig?.botName}`
     )
     if (channel.direct) {
-      // LLM-generated intro: fun fact opener, capability description, trust note, no-reply close.
+      // LLM-generated intro: capability description, trust note, no-reply close.
       try {
-        const introText = await buildDmIntroMessage.call(this, channel)
-      return [
-        {
+        const introText = await buildDmIntroMessage.call(this)
+        return [
+          {
             message: { text: introText, type: 'intro' },
-          messageType: 'json',
-          channels: [channel],
-          visible: true
-        }
-      ]
+            messageType: 'json',
+            channels: [channel],
+            visible: true
+          }
+        ]
       } catch (err) {
         logger.error('[introduce] LLM call failed for DM intro', err)
         return []
