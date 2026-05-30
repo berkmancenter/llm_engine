@@ -24,6 +24,9 @@ const pseudonymSchema = new mongoose.Schema<IPseudonym>({
   conversations: {
     type: [String],
     default: []
+  },
+  funFact: {
+    type: String
   }
 })
 export default pseudonymSchema

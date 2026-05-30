@@ -451,56 +451,116 @@ describe(`event assistant CI tests`, () => {
     expect(responses).toHaveLength(0)
   })
 
-  it('introduces itself on new DM channels', async () => {
-    const [directChannel] = await Channel.create([
-      { name: 'direct-jh-agents', direct: true, participants: [user1._id, agent._id] }
-    ])
-    const msgs = await agent.introduce(directChannel)
-    expect(msgs).toHaveLength(1)
-    expect(msgs[0].messageType).toBe('json')
-    expect(msgs[0].message.type).toBe('intro')
-    // Should contain the rendered bot name (template vars resolved)
-    expect(msgs[0].message.text).toContain(agent.agentConfig.botName)
-    expect(msgs[0].message.text).not.toContain('{{agentConfig.botName}}')
-    // Should contain a fun fact about the pseudonym
-    expect(msgs[0].message.text).toMatch(/fun fact about your pseudonym:/i)
-    // Should mention the pseudonym or at least "badger" (the noun part)
-    expect(msgs[0].message.text.toLowerCase()).toMatch(/badger/)
-    expect(msgs[0].channels).toHaveLength(1)
-    expect(msgs[0].channels[0]).toEqual(directChannel)
-  })
+  describe('introduce', () => {
+    it('sends an LLM-generated intro to DM channels', async () => {
+      const [directChannel] = await Channel.create([
+        { name: 'direct-jh-agents', direct: true, participants: [user1._id, agent._id] }
+      ])
+      const msgs = await agent.introduce(directChannel)
+      console.log('DM intro:', msgs[0]?.message?.text)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].messageType).toBe('json')
+      expect(msgs[0].message.type).toBe('intro')
+      expect(msgs[0].message.text.length).toBeGreaterThan(20)
+      expect(msgs[0].channels).toHaveLength(1)
+      expect(msgs[0].channels[0]).toEqual(directChannel)
+    })
 
-  it('introduces itself on chat channels', async () => {
-    const [chatChannel] = await Channel.create([{ name: 'chat' }])
-    const msgs = await agent.introduce(chatChannel)
-    expect(msgs).toHaveLength(1)
-    expect(msgs[0].messageType).toBe('json')
-    expect(msgs[0].message.type).toBe('intro')
-    // chatIntroMessage is a template — verify the bot name was rendered into it
-    expect(msgs[0].message.text).toContain(`@${agent.agentConfig.botName}`)
-    expect(msgs[0].message.text).not.toContain('{{agentConfig.botName}}')
-    expect(msgs[0].channels).toHaveLength(1)
-    expect(msgs[0].channels[0]).toEqual(chatChannel)
-  })
+    it('sends a template-based intro to the chat channel', async () => {
+      const [chatChannel] = await Channel.create([{ name: 'chat' }])
+      const msgs = await agent.introduce(chatChannel)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].messageType).toBe('json')
+      expect(msgs[0].message.type).toBe('intro')
+      expect(msgs[0].message.text).toContain(`@${agent.agentConfig.botName}`)
+      expect(msgs[0].message.text).not.toContain('{{agentConfig.botName}}')
+      expect(msgs[0].channels).toHaveLength(1)
+      expect(msgs[0].channels[0]).toEqual(chatChannel)
+    })
 
-  it('renders template vars in chatIntroMessage using agent data', async () => {
-    agent.agentConfig = {
-      ...agent.agentConfig,
-      chatIntroMessage: 'Welcome to {{conversation.name}}!'
-    }
-    const [chatChannel] = await Channel.create([{ name: 'chat' }])
-    const msgs = await agent.introduce(chatChannel)
-    expect(msgs).toHaveLength(1)
-    expect(msgs[0].messageType).toBe('json')
-    expect(msgs[0].message.type).toBe('intro')
-    expect(msgs[0].message.text).toEqual(`Welcome to ${conversation.name}!`)
-  })
+    it('renders template vars in chatIntroMessage using agent data', async () => {
+      agent.agentConfig = {
+        ...agent.agentConfig,
+        chatIntroMessage: 'Welcome to {{conversation.name}}!'
+      }
+      const [chatChannel] = await Channel.create([{ name: 'chat' }])
+      const msgs = await agent.introduce(chatChannel)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].messageType).toBe('json')
+      expect(msgs[0].message.type).toBe('intro')
+      expect(msgs[0].message.text).toEqual(`Welcome to ${conversation.name}!`)
+    })
 
-  it('does not introduce itself on non-direct or chat channels', async () => {
-    await agent.save()
-    const [channel] = await Channel.create([{ name: 'testchannel' }])
-    const msgs = await agent.introduce(channel)
-    expect(msgs).toHaveLength(0)
+    it('returns empty array for non-DM, non-chat channels', async () => {
+      await agent.save()
+      const [channel] = await Channel.create([{ name: 'testchannel' }])
+      const msgs = await agent.introduce(channel)
+      expect(msgs).toHaveLength(0)
+    })
+
+    it('includes custom botName in chat intro', async () => {
+      const customBotName = 'MyCustomBot'
+      agent.agentConfig = { ...agent.agentConfig, botName: customBotName }
+      const [chatChannel] = await Channel.create([{ name: 'chat' }])
+      const msgs = await agent.introduce(chatChannel)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].message.type).toBe('intro')
+      expect(msgs[0].message.text).toContain(`@${customBotName}`)
+      expect(msgs[0].message.text).not.toContain('{{agentConfig.botName}}')
+    })
+
+    it('includes type-/ hint in non-zoom DM intro', async () => {
+      const [directChannel] = await Channel.create([
+        { name: 'direct-agents-hint', direct: true, participants: [user1._id, agent._id] }
+      ])
+      const msgs = await agent.introduce(directChannel)
+      console.log('DM intro (type-/ hint):', msgs[0]?.message?.text)
+      expect(msgs[0].message.text).toContain('Just type /')
+    })
+
+    it('sends an LLM-generated intro for zoom DM channels', async () => {
+      const [directChannel] = await Channel.create([
+        { name: 'direct-zoom-agents', direct: true, participants: [user1._id, agent._id] }
+      ])
+      const msgs = await agent.introduce(directChannel, 'zoom')
+      console.log('Zoom DM intro:', msgs[0]?.message?.text)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].messageType).toBe('json')
+      expect(msgs[0].message.type).toBe('intro')
+      expect(msgs[0].message.text.length).toBeGreaterThan(20)
+    })
+
+    it('omits command hint in zoom DM intro when moderatorSupport is disabled', async () => {
+      agent.agentConfig = { ...agent.agentConfig, moderatorSupport: false }
+      const [directChannel] = await Channel.create([
+        { name: 'direct-zoom-nomod', direct: true, participants: [user1._id, agent._id] }
+      ])
+      const msgs = await agent.introduce(directChannel, 'zoom')
+      console.log('Zoom DM intro (no mod):', msgs[0]?.message?.text)
+      expect(msgs[0].message.text).not.toContain('/mod')
+      expect(msgs[0].message.text).not.toContain('Just type /')
+    })
+
+    it('includes /mod hint in zoom DM intro when moderatorSupport is enabled', async () => {
+      agent.agentConfig = { ...agent.agentConfig, moderatorSupport: true }
+      const [directChannel] = await Channel.create([
+        { name: 'direct-zoom-mod', direct: true, participants: [user1._id, agent._id] }
+      ])
+      const msgs = await agent.introduce(directChannel, 'zoom')
+      console.log('Zoom DM intro (with mod):', msgs[0]?.message?.text)
+      expect(msgs[0].message.text).toContain('/mod')
+    })
+
+    it('uses zoomChatIntroMessage for zoom chat intro', async () => {
+      const [chatChannel] = await Channel.create([{ name: 'chat' }])
+      const msgs = await agent.introduce(chatChannel, 'zoom')
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].messageType).toBe('json')
+      expect(msgs[0].message.type).toBe('intro')
+      expect(msgs[0].message.text).toContain(agent.agentConfig.botName)
+      expect(msgs[0].message.text).not.toContain('{{agentConfig.botName}}')
+      expect(msgs[0].message.text).toContain('send me a DM')
+    })
   })
 
   it('does not respond to messages not intended for the assistant (may be unanswerable)', async () => {
@@ -591,113 +651,6 @@ describe(`event assistant CI tests`, () => {
 
       const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, evaluation.userMessage)
       await validateResponse(responses, 'chat')
-    })
-
-    it('includes custom botName in rendered DM intro message', async () => {
-      const customBotName = 'MyCustomBot'
-      agent.agentConfig = { ...agent.agentConfig, botName: customBotName }
-
-      const [directChannel] = await Channel.create([
-        { name: 'direct-custom-bot', direct: true, participants: [user1._id, agent._id] }
-      ])
-      const msgs = await agent.introduce(directChannel)
-      expect(msgs).toHaveLength(1)
-      expect(msgs[0].messageType).toBe('json')
-      expect(msgs[0].message.type).toBe('intro')
-      expect(msgs[0].message.text).toContain(customBotName)
-      expect(msgs[0].message.text).not.toContain('{{agentConfig.botName}}')
-    })
-
-    it('includes custom botName in rendered chat intro message', async () => {
-      const customBotName = 'MyCustomBot'
-      agent.agentConfig = { ...agent.agentConfig, botName: customBotName }
-
-      // Channel name must be 'chat' to match the introduce() logic
-      const [chatChannel] = await Channel.create([{ name: 'chat' }])
-      const msgs = await agent.introduce(chatChannel)
-      expect(msgs).toHaveLength(1)
-      expect(msgs[0].messageType).toBe('json')
-      expect(msgs[0].message.type).toBe('intro')
-      expect(msgs[0].message.text).toContain(`@${customBotName}`)
-      expect(msgs[0].message.text).not.toContain('{{agentConfig.botName}}')
-    })
-  })
-
-  it('includes a fun fact about the user pseudonym in DM intro', async () => {
-    // Create a user with a clear "adjective noun" pseudonym
-    const testUser = await createUser('Curious Elephant')
-    const [directChannel] = await Channel.create([
-      { name: 'direct-test-pseudonym', direct: true, participants: [testUser._id, agent._id] }
-    ])
-    const msgs = await agent.introduce(directChannel)
-
-    expect(msgs).toHaveLength(1)
-    expect(msgs[0].messageType).toBe('json')
-    expect(msgs[0].message.type).toBe('intro')
-    const introMessage = msgs[0].message.text
-
-    // Should contain the rendered bot name (template vars resolved)
-    expect(introMessage).toContain(agent.agentConfig.botName)
-    expect(introMessage).not.toContain('{{agentConfig.botName}}')
-
-    // Should have the fun fact header
-    expect(introMessage).toMatch(/fun fact about your pseudonym:/i)
-
-    // Should mention "elephant" (the noun part) in the fun fact
-    expect(introMessage.toLowerCase()).toContain('elephant')
-
-    // The fun fact should be factual about elephants
-    // We can't predict exact LLM output, but it should be substantive (more than just the header)
-    const funFactPart = introMessage.split(/fun fact about your pseudonym:/i)[1]
-    expect(funFactPart.length).toBeGreaterThan(20) // Should be at least 1-2 sentences
-  })
-
-  // ZOOM ADAPTER INTRO TESTS
-
-  describe('zoom adapter type', () => {
-    it('uses zoomIntroMessage for zoom DM intro', async () => {
-      const [directChannel] = await Channel.create([
-        { name: 'direct-zoom-agents', direct: true, participants: [user1._id, agent._id] }
-      ])
-      const msgs = await agent.introduce(directChannel, 'zoom')
-      expect(msgs).toHaveLength(1)
-      expect(msgs[0].messageType).toBe('json')
-      expect(msgs[0].message.type).toBe('intro')
-      expect(msgs[0].message.text).toContain(agent.agentConfig.botName)
-      expect(msgs[0].message.text).not.toContain('{{agentConfig.botName}}')
-      // Zoom DM uses the zoomIntroMessage template
-      expect(msgs[0].message.text).toContain('Ask me anything about the event')
-    })
-
-    it('does not include fun fact in zoom DM intro', async () => {
-      const [directChannel] = await Channel.create([
-        { name: 'direct-zoom-agents-nofact', direct: true, participants: [user1._id, agent._id] }
-      ])
-      const msgs = await agent.introduce(directChannel, 'zoom')
-      expect(msgs).toHaveLength(1)
-      // Fun fact is suppressed for zoom adapter
-      expect(msgs[0].message.text).not.toMatch(/fun fact about your pseudonym:/i)
-    })
-
-    it('uses zoomChatIntroMessage for zoom chat intro', async () => {
-      const [chatChannel] = await Channel.create([{ name: 'chat' }])
-      const msgs = await agent.introduce(chatChannel, 'zoom')
-      expect(msgs).toHaveLength(1)
-      expect(msgs[0].messageType).toBe('json')
-      expect(msgs[0].message.type).toBe('intro')
-      expect(msgs[0].message.text).toContain(agent.agentConfig.botName)
-      expect(msgs[0].message.text).not.toContain('{{agentConfig.botName}}')
-      // zoomChatIntroMessage prompts DM for private questions
-      expect(msgs[0].message.text).toContain('send me a DM')
-    })
-
-    it('non-zoom DM intro still includes fun fact', async () => {
-      const [directChannel] = await Channel.create([
-        { name: 'direct-socket-agents', direct: true, participants: [user1._id, agent._id] }
-      ])
-      const msgs = await agent.introduce(directChannel)
-      expect(msgs).toHaveLength(1)
-      expect(msgs[0].message.text).toMatch(/fun fact about your pseudonym:/i)
     })
   })
 

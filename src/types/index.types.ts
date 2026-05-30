@@ -17,6 +17,7 @@ export interface IPseudonym {
   active: boolean
   isDeleted: boolean
   conversations: string[]
+  funFact?: string
 }
 
 export interface IBaseUser {

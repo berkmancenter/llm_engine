@@ -279,10 +279,6 @@ export const eventAssistantLlmTemplateVars = {
   ]
 }
 
-const funFactSystemTemplate = `You create short, fun facts about pseudonyms. The pseudonym is in the form "adjective noun". Create a 1 sentence fun fact that is factual about the noun, but can be playful about the adjective part. Makes sure your answers are safe for work.
-  **IMPORTANT** Always start the sentence with the phrase 'Fun Fact about your pseudonym:'`
-const funFactUserTemplate = 'Create a fun fact about the pseudonym: {pseudonym}'
-
 async function getResponse(question, context, chatHistory, topic, systemTemplate) {
   const llm = await this.getLLM()
   return getChatPromptResponse(llm, systemTemplate, this.llmTemplates.user, { context, question, topic }, chatHistory)
@@ -348,28 +344,6 @@ export function compileSpeakerNames(conversation): string {
 
   if (lines.length === 0) return ''
   return `## Event Participants:\n${lines.join('\n')}\n\n`
-}
-
-export async function generatePseudonymFunFact(channel) {
-  // Find the user participant (not the agent)
-  const userParticipantId = channel.participants.find(
-    (participantId: string) => participantId.toString() !== this._id.toString()
-  )
-  const user = await User.findById(userParticipantId)
-  const activePseudonym = user?.pseudonyms?.find((p) => p.active)
-
-  if (!activePseudonym?.pseudonym) {
-    logger.debug(`No active pseudonym found for user ${user?._id} on channel ${channel.name}, cannot generate fun fact.`)
-    return null
-  }
-
-  const llm = await this.getLLM()
-
-  const funFact = await getChatPromptResponse(llm, funFactSystemTemplate, funFactUserTemplate, {
-    pseudonym: activePseudonym.pseudonym
-  })
-
-  return funFact
 }
 
 export async function answerQuestion(userMessage, conversationHistory, options?) {

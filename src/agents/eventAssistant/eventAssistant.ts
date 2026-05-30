@@ -8,9 +8,10 @@ import {
   eventAssistantLLMTemplates,
   eventAssistantLlmTemplateVars,
   answerQuestion,
-  QuestionClassification,
-  generatePseudonymFunFact
+  QuestionClassification
 } from './eventQuestionHandler.js'
+import { buildSystemPromptWithPersonality } from '../helpers/agentPersonality.js'
+import { getChatPromptResponse } from '../helpers/llmChain.js'
 
 import logger from '../../config/logger.js'
 import config from '../../config/config.js'
@@ -19,6 +20,72 @@ import generateImageResponse from './imageGenerator.js'
 import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from '../helpers/slashCommandParser.js'
 import generateMindMap from './mindMapGenerator.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
+
+/**
+ * Builds a dynamic capability description for the WELCOME check-in message.
+ * Varies based on which tools and features are enabled in agentConfig.
+ */
+export function buildCheckinCapabilityDescription(agentConfig, adapterType?: string): string {
+  const toolNames: string[] = agentConfig?.tools || []
+  const hasWebSearch = toolNames.includes('web_search')
+  const hasModerator = agentConfig?.moderatorSupport
+  const isZoom = adapterType === 'zoom'
+
+  const capabilities = [
+    '- Re-explain anything from the event in simpler terms',
+    '- Answer any question about the event privately',
+    '- Summarize what they missed if they stepped away',
+    '- Clarify jargon or terminology used by the speaker'
+  ]
+
+  if (hasWebSearch) {
+    capabilities.push('- Research related topics, people, or claims the speaker briefly mentioned')
+  }
+  if (!isZoom) {
+    capabilities.push('- Use /visual to get a diagram or image to help explain a concept')
+    capabilities.push('- Use /mindmap to generate a visual map of the key topics discussed')
+    if (hasModerator) {
+      capabilities.push('- Use /mod to submit a question anonymously to the moderator for Q&A')
+    }
+  }
+
+  for (let i = capabilities.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[capabilities[i], capabilities[j]] = [capabilities[j], capabilities[i]]
+  }
+
+  return capabilities.join('\n')
+}
+
+/**
+ * Generates the first DM a participant receives — a warm, contextual intro that incorporates
+ * the capability description and a brief trust note. Used by introduce() for all DM channels.
+ * Called with `this` = agent instance.
+ */
+async function buildDmIntroMessage(this, adapterType?: string): Promise<string | null> {
+  const botName = this.agentConfig?.botName || config.conversationBotName
+  const personalityName = this.agentConfig?.personality ?? (config.enableAgentPersonality ? 'sarcastic-expert' : null)
+  const capabilityDescription = buildCheckinCapabilityDescription(this.agentConfig, adapterType)
+
+  const base = `You are ${botName}, a private AI assistant for this event. Write 1-2 short sentences highlighting what you can help with. Prefer natural, conversational examples (e.g. "ask me to catch you up" or "ask me to simplify something") over listing slash commands. Do not re-explain the channel's purpose or privacy. Friendly and direct, not formal. Output only those sentences, nothing else.`
+
+  const systemPrompt = buildSystemPromptWithPersonality(base, personalityName)
+
+  const userPrompt = `Event: "${this.conversation.name}"
+${this.conversation.description ? `Description: ${this.conversation.description}` : ''}
+Available capabilities (pick 1-2 to highlight):
+${capabilityDescription}`
+
+  const llm = await this.getLLM()
+  const body = await getChatPromptResponse(llm, systemPrompt, userPrompt, {})
+  let commandHint: string
+  if (adapterType === 'zoom') {
+    commandHint = this.agentConfig?.moderatorSupport ? 'Use /mod to send a question to the moderator.' : ''
+  } else {
+    commandHint = 'Just type / if you want to see what else I can do.'
+  }
+  return `Hi! I'm ${botName}, your private, anonymous support during this session. ${body}${commandHint ? ` ${commandHint}` : ''} Your pseudonym keeps you anonymous, and nothing you share is ever used to train AI models. No need to respond, just know I'm here.`
+}
 
 const MODERATOR_MESSAGE_TYPES = new Set(['moderator_offered', 'moderator_submitted', 'moderator_declined'])
 
@@ -36,8 +103,11 @@ function filterModeratorHistory(conversationHistory) {
       const prev = msgs[i - 1]
       const next = msgs[i + 1]
       if (
-        prev?.bodyType === 'json' && (prev.body as Record<string, unknown>)?.type === 'moderator_offered' &&
-        next?.bodyType === 'json' && ((next.body as Record<string, unknown>)?.type === 'moderator_submitted' || (next.body as Record<string, unknown>)?.type === 'moderator_declined')
+        prev?.bodyType === 'json' &&
+        (prev.body as Record<string, unknown>)?.type === 'moderator_offered' &&
+        next?.bodyType === 'json' &&
+        ((next.body as Record<string, unknown>)?.type === 'moderator_submitted' ||
+          (next.body as Record<string, unknown>)?.type === 'moderator_declined')
       ) {
         return false
       }
@@ -172,11 +242,8 @@ export default verify({
     perMessage: { directMessages: true, channels: ['chat', 'image-gen'], allowMessagesFromAgents: true }
   },
   agentConfig: {
-    introMessage:
-      "Hi! I'm {{agentConfig.botName}}, your AI event assistant. Ask me anything, or tap '/' to see available commands.",
     chatIntroMessage: `Welcome! I'm {{agentConfig.botName}}, your AI event assistant. This is a space to chat with other event participants. You can also ask me questions with an @{{agentConfig.botName}} mention. Just remember that everyone can see what you ask me here. Use the {{agentConfig.botName}} tab if you want to talk privately. Have fun!`,
     enablePersonality: config.enableAgentPersonality,
-    zoomIntroMessage: "Hi! I'm {{agentConfig.botName}}, your AI event assistant. Ask me anything about the event!",
     zoomChatIntroMessage:
       "Welcome! I'm {{agentConfig.botName}}, your AI event assistant. You can ask me questions in the chat with an @{{agentConfig.botName}} mention. Or send me a DM if you want to talk privately.",
     tools: getDefaultEventAssistantToolNames()
@@ -274,7 +341,9 @@ export default verify({
     const modifiedMessage = { ...userMessage }
     modifiedMessage.body = extractMessageText(userMessage)
 
-    const agentResponses = await answerQuestion.call(this, modifiedMessage, filterModeratorHistory(conversationHistory), { forceVisual })
+    const agentResponses = await answerQuestion.call(this, modifiedMessage, filterModeratorHistory(conversationHistory), {
+      forceVisual
+    })
 
     if (this.agentConfig?.moderatorSupport) {
       offerModeratorSubmission(userMessage, agentResponses, this.conversation)
@@ -295,39 +364,21 @@ export default verify({
       }, agentConfig.botName: ${this.agentConfig?.botName}`
     )
     if (channel.direct) {
-      const templateStr = adapterType === 'zoom' ? this.agentConfig.zoomIntroMessage : this.agentConfig.introMessage
-      logger.debug(`[introduce] DM path - templateStr: ${templateStr}`)
-      let introMessage
+      // LLM-generated intro: capability description, trust note, no-reply close.
       try {
-        introMessage = renderAgentTemplate(templateStr, this.toObject())
-        logger.debug(`[introduce] DM rendered introMessage: ${introMessage}`)
+        const introText = await buildDmIntroMessage.call(this, adapterType)
+        return [
+          {
+            message: { text: introText, type: 'intro' },
+            messageType: 'json',
+            channels: [channel],
+            visible: true
+          }
+        ]
       } catch (err) {
-        logger.error(`[introduce] renderAgentTemplate error (DM): ${err}`)
-        throw err
+        logger.error('[introduce] LLM call failed for DM intro', err)
+        return []
       }
-
-      if (adapterType === 'zoom' && this.agentConfig?.moderatorSupport) {
-        introMessage = `${introMessage} Use /mod to send a question to the moderator.`
-      }
-
-      if (adapterType !== 'zoom') {
-        const funFact = await generatePseudonymFunFact.call(this, channel)
-        if (funFact) {
-          introMessage = `${introMessage}\n\n${funFact}`
-        }
-      }
-
-      return [
-        {
-          message: {
-            text: introMessage,
-            type: 'intro'
-          },
-          messageType: 'json',
-          channels: [channel],
-          visible: true
-        }
-      ]
     }
     if (channel.name === 'chat') {
       const templateStr = adapterType === 'zoom' ? this.agentConfig.zoomChatIntroMessage : this.agentConfig.chatIntroMessage
