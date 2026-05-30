@@ -6,6 +6,7 @@ import { Direction } from '../types/index.types.js'
 import Message from '../models/message.model.js'
 
 const defaultBotName = 'LLM Engine'
+const defaultPreferences = { visualResponse: false, jargonClarification: false }
 const defaultRetention = {
   type: 'timed',
   hours: 168 // 1 week
@@ -147,7 +148,7 @@ async function processTranscript(msgChunks, participantName) {
       message: msgChunk.text,
       source: { type: 'zoom' },
       createdAt: new Date(msgChunk.end_timestamp.absolute),
-      user: { username: participantName }
+      user: { username: participantName, defaultPreferences }
     })
   }
   return msgs
@@ -160,7 +161,7 @@ async function receiveGroupChatMessage(data) {
     channels: this.chatChannels.filter(
       (channel) => channel.direction === Direction.INCOMING || channel.direction === Direction.BOTH
     ),
-    user: { username: data.data.participant.name }
+    user: { username: data.data.participant.name, defaultPreferences }
   }
   return [msg]
 }
@@ -172,7 +173,7 @@ async function receiveDirectMesssage(data) {
     channels: this.dmChannels.filter(
       (channel) => channel.direction === Direction.INCOMING || channel.direction === Direction.BOTH
     ),
-    user: { username: data.data.participant.name, dmConfig: { to: data.data.participant.id } }
+    user: { username: data.data.participant.name, dmConfig: { to: data.data.participant.id }, defaultPreferences }
   }
   return [msg]
 }
@@ -404,7 +405,8 @@ export default {
       const adapterUser: AdapterUser = {
         username: participant.name,
         dmConfig: { to: participant.id },
-        isHost: participant.is_host ?? false
+        isHost: participant.is_host ?? false,
+        defaultPreferences
       }
       return adapterUser
     }
@@ -420,7 +422,8 @@ export default {
       const adapterUser: AdapterUser = {
         username: participant.name,
         dmConfig: { to: participant.id },
-        isHost: participant.is_host ?? false
+        isHost: participant.is_host ?? false,
+        defaultPreferences
       }
       return adapterUser
     }

@@ -539,6 +539,90 @@ describe('adapter service tests', () => {
       expect(newUser!.pseudonyms[0].active).toBe(true)
     })
 
+    it('creates new user with schema default preferences (true) when no defaultPreferences provided', async () => {
+      jest.spyOn(websocketGateway, 'broadcastNewMessage').mockResolvedValue()
+      await createConversation('Meeting with Default Preferences')
+
+      const channel = await Channel.create({ name: 'participant' })
+      conversation.channels.push(channel)
+      await conversation.save()
+
+      mockAdapterType.receiveMessage.mockResolvedValue([
+        {
+          user: { username: 'Default Prefs User' },
+          channels: [{ name: 'participant', direct: false }],
+          message: 'Hello!',
+          source: 'test'
+        }
+      ])
+
+      await webhookService.receiveMessage(adapter, {})
+
+      const newUser = await User.findOne({ username: 'Default Prefs User' })
+      expect(newUser!.preferences!.visualResponse).toBe(true)
+      expect(newUser!.preferences!.jargonClarification).toBe(true)
+    })
+
+    it('creates new user with adapter-supplied defaultPreferences when provided', async () => {
+      jest.spyOn(websocketGateway, 'broadcastNewMessage').mockResolvedValue()
+      await createConversation('Meeting with Zoom-like Preferences')
+
+      const channel = await Channel.create({ name: 'participant' })
+      conversation.channels.push(channel)
+      await conversation.save()
+
+      mockAdapterType.receiveMessage.mockResolvedValue([
+        {
+          user: {
+            username: 'Zoom Prefs User',
+            defaultPreferences: { visualResponse: false, jargonClarification: false }
+          },
+          channels: [{ name: 'participant', direct: false }],
+          message: 'Hello!',
+          source: 'test'
+        }
+      ])
+
+      await webhookService.receiveMessage(adapter, {})
+
+      const newUser = await User.findOne({ username: 'Zoom Prefs User' })
+      expect(newUser!.preferences!.visualResponse).toBe(false)
+      expect(newUser!.preferences!.jargonClarification).toBe(false)
+    })
+
+    it('does not override preferences of an existing user on subsequent messages', async () => {
+      jest.spyOn(websocketGateway, 'broadcastNewMessage').mockResolvedValue()
+      await createConversation('Meeting with Existing User Preferences')
+
+      const channel = await Channel.create({ name: 'participant' })
+      conversation.channels.push(channel)
+      await conversation.save()
+
+      const existingUser = await User.create({
+        username: 'Returning User',
+        pseudonyms: [{ token: 'some-token', pseudonym: 'Snappy Salmon', active: true }],
+        preferences: { visualResponse: true, jargonClarification: true }
+      })
+
+      mockAdapterType.receiveMessage.mockResolvedValue([
+        {
+          user: {
+            username: 'Returning User',
+            defaultPreferences: { visualResponse: false, jargonClarification: false }
+          },
+          channels: [{ name: 'participant', direct: false }],
+          message: 'Hello again!',
+          source: 'test'
+        }
+      ])
+
+      await webhookService.receiveMessage(adapter, {})
+
+      const user = await User.findById(existingUser._id)
+      expect(user!.preferences!.visualResponse).toBe(true)
+      expect(user!.preferences!.jargonClarification).toBe(true)
+    })
+
     it('does not create direct channels when adapter has no chat or DM channels configured', async () => {
       const broadcastMsgSpy = jest.spyOn(websocketGateway, 'broadcastNewMessage').mockResolvedValue()
 

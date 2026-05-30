@@ -1,10 +1,11 @@
-import type { AdapterChannelConfig } from './index.types.js'
+import type { AdapterChannelConfig, IUserPreferences } from './index.types.js'
 
 export interface AdapterUser {
   username: string
   pseudonym?: string
   dmConfig?: Record<string, unknown>
   isHost?: boolean
+  defaultPreferences?: IUserPreferences
 }
 
 export interface AdapterMessage<T> {

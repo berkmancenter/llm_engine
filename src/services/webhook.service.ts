@@ -17,7 +17,10 @@ async function getOrCreateUser(adapter, adapterUser) {
           pseudonym: adapterUser.pseudonym || (await userService.newPseudonym(0)),
           active: true
         }
-      ]
+      ],
+      ...(adapterUser.defaultPreferences !== undefined && {
+        preferences: adapterUser.defaultPreferences
+      })
     })
   }
   // update dmConfig by direct channel name, to be used later to send DMs
