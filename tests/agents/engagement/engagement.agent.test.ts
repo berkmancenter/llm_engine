@@ -97,7 +97,7 @@ describe(`engagement agent tests`, () => {
         // Speaker just asked a challenging question - room is silent
         // Should consider PROVOCATION to spark discussion, but might also be PLAY
         if (responses.length > 0) {
-          const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+          const { interventionType } = responses[0]
           console.log(`[02:30] Detected ${interventionType}:`, responses[0].message)
           expect(['PROVOCATION', 'NONE', 'PLAY']).toContain(interventionType)
         }
@@ -128,7 +128,7 @@ describe(`engagement agent tests`, () => {
 
         // Lots of data just presented, but room is passive - should provoke discussion
         if (responses.length > 0) {
-          const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+          const { interventionType } = responses[0]
           console.log(`[07:30] Detected ${interventionType}:`, responses[0].message)
           expect(['PROVOCATION', 'NONE']).toContain(interventionType)
         }
@@ -184,7 +184,7 @@ describe(`engagement agent tests`, () => {
 
         // Active, thoughtful discussion - likely NONE
         if (responses.length > 0) {
-          const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+          const { interventionType } = responses[0]
           console.log(`[08:45] Detected ${interventionType}:`, responses[0].message)
         }
         // Don't expect intervention during active healthy discussion
@@ -218,7 +218,7 @@ describe(`engagement agent tests`, () => {
 
         // Breathing room after emotional peak - good moment for warm PLAY
         if (responses.length > 0) {
-          const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+          const { interventionType } = responses[0]
           console.log(`[06:20] Detected ${interventionType}:`, responses[0].message)
           expect(responses[0].message).toBeDefined()
         }
@@ -261,7 +261,7 @@ describe(`engagement agent tests`, () => {
 
         // Perfect moment for witty PLAY commentary on surprising data
         if (responses.length > 0) {
-          const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+          const { interventionType } = responses[0]
           console.log(`[08:50] Detected ${interventionType}:`, responses[0].message)
           expect(['PLAY', 'NONE', 'PROVOCATION']).toContain(interventionType)
         }
@@ -292,7 +292,7 @@ describe(`engagement agent tests`, () => {
 
         // Should NOT use witty PLAY during emotionally raw moments
         if (responses.length > 0) {
-          const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+          const { interventionType } = responses[0]
           console.log(`[04:35] Detected ${interventionType}:`, responses[0].message)
           // Should NOT be PLAY - could be NONE or warm PROVOCATION
           expect(interventionType).not.toBe('PLAY')
@@ -323,7 +323,7 @@ describe(`engagement agent tests`, () => {
 
         // Transition moments are good for PLAY
         if (responses.length > 0) {
-          const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+          const { interventionType } = responses[0]
           console.log(`[06:30] Detected ${interventionType}:`, responses[0].message)
           expect(['PLAY', 'NONE', 'PROVOCATION']).toContain(interventionType)
         }
@@ -385,7 +385,7 @@ describe(`engagement agent tests`, () => {
         // Should be able to process transcript-only without error
         // May or may not intervene - depends on LLM assessment
         if (responses.length > 0) {
-          const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+          const { interventionType } = responses[0]
           console.log(`[02:35 transcript-only] Detected ${interventionType}:`, responses[0].message)
           expect(responses[0].message).toBeDefined()
         }
@@ -443,7 +443,7 @@ describe(`engagement agent tests`, () => {
 
         // Healthy, thoughtful discussion - likely NONE
         if (responses.length > 0) {
-          const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+          const { interventionType } = responses[0]
           console.log(`[07:00] Optional intervention: ${interventionType}:`, responses[0].message)
         }
         // Don't expect intervention when discussion is flowing well
@@ -478,7 +478,7 @@ describe(`engagement agent tests`, () => {
           const responses = await defaultAgentTypes.engagementAgent.respond.call(agent, conversationHistory)
 
           if (responses.length > 0) {
-            const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+            const { interventionType } = responses[0]
             if (interventionType) {
               interventionTypes.push(interventionType)
               console.log(`${label}: ${interventionType}`)

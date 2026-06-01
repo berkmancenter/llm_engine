@@ -1,5 +1,5 @@
 import verify from '../helpers/verify.js'
-import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
+import { AgentMessageActions, ConversationHistory, IChannel, IMessage } from '../../types/index.types.js'
 import { buildCheckinResponses } from './checkinHandler.js'
 import renderAgentTemplate from '../helpers/renderAgentTemplate.js'
 
@@ -238,6 +238,20 @@ function offerModeratorSubmission(userMessage, agentResponses, conversation) {
 
 const DEFAULT_CHECKIN_SCAN_INTERVAL_MINUTES = 3
 
+type TraceResponse = {
+  message?: unknown
+  context?: string
+  participantPseudonym?: string
+  eligibleTypes?: string[]
+  checkinType?: string
+  confidenceScore?: number
+  detectedPattern?: string
+  reasoning?: string
+  promptType?: string
+  topic?: string
+  channels?: IChannel[]
+}
+
 export default verify({
   name: 'Event Assistant',
   description: 'An assistant to answer questions about an event',
@@ -418,15 +432,36 @@ export default verify({
     return []
   },
 
-  formatTraceInput(conversationHistory, userMessage) {
+  formatTraceInput(_conversationHistory: ConversationHistory, userMessage: IMessage | undefined) {
+    if (!userMessage) return { trigger: 'periodic' }
     return userMessage?.body
   },
 
-  formatTraceOutput(responses) {
+  formatTraceOutput(responses: TraceResponse[]) {
+    if (responses.length > 0 && (responses[0]?.message as { type?: string })?.type === 'checkin') {
+      return responses.map((r) => ({
+        participant: r.participantPseudonym,
+        eligibleTypes: r.eligibleTypes,
+        checkinType: r.checkinType,
+        confidenceScore: r.confidenceScore,
+        detectedPattern: r.detectedPattern,
+        reasoning: r.reasoning,
+        messageSent: (r.message as { text?: string })?.text
+      }))
+    }
     return responses[0]?.message
   },
 
-  getTraceMetadata(conversationHistory, userMessage, responses) {
+  getTraceMetadata(conversationHistory: ConversationHistory, userMessage: IMessage | undefined, responses: TraceResponse[]) {
+    if (!userMessage) {
+      return {
+        triggerType: 'periodic',
+        topic: this.conversation.name,
+        context: responses
+          .map((r) => `# Participant: ${r.participantPseudonym} (${r.channels?.[0]?.name})\n\n${r.context}`)
+          .join('\n\n---\n\n')
+      }
+    }
     return {
       context: responses[0]?.context,
       conversationHistory,

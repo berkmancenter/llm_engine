@@ -8,7 +8,7 @@ import {
   getInterventionAnalysisSchema,
   buildInterventionTypeSection
 } from '../helpers/interventionHandler.js'
-import { InterventionType } from '../helpers/interventionTypes.js'
+import { InterventionType, InterventionAnalysis } from '../helpers/interventionTypes.js'
 import getConversationHistory from '../helpers/getConversationHistory.js'
 import logger from '../../config/logger.js'
 
@@ -212,14 +212,44 @@ export default verify({
 
     if (interventionAnalysis.sharedChatMessage) {
       responses.push({
+        ...interventionAnalysis,
         visible: true,
         message: interventionAnalysis.sharedChatMessage,
-        channels: this.conversation.channels.filter((c: IChannel) => c.name === 'chat'),
-        context: interventionAnalysis.context
-      })
+        channels: this.conversation.channels.filter((c: IChannel) => c.name === 'chat')
+      } as AgentResponse<string | Record<string, unknown>>)
     }
 
     return responses
+  },
+
+  formatTraceInput(conversationHistory: ConversationHistory) {
+    return {
+      transcript: conversationHistory.messages.map((m) => ({
+        role: m.fromAgent ? 'agent' : 'participant',
+        pseudonym: m.pseudonym,
+        text: m.bodyType === 'json' ? (m.body as { text?: string })?.text : m.body,
+        createdAt: m.createdAt
+      }))
+    }
+  },
+
+  formatTraceOutput(responses: InterventionAnalysis[]) {
+    if (responses.length === 0) return { interventionType: 'NONE', messageSent: null }
+    const r = responses[0]
+    return {
+      interventionType: r.interventionType,
+      reasoning: r.reasoning,
+      confidenceScore: r.confidenceScore,
+      detectedPattern: r.detectedPattern,
+      messageSent: r.sharedChatMessage
+    }
+  },
+
+  getTraceMetadata(_conversationHistory: ConversationHistory, _userMessage: unknown, responses: InterventionAnalysis[]) {
+    return {
+      topic: this.conversation.name,
+      context: responses[0]?.context
+    }
   },
 
   async start() {
