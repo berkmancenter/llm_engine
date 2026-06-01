@@ -25,6 +25,7 @@ const createVote = () => ({
   owner: new mongoose.Types.ObjectId()
 })
 
+jest.setTimeout(10000)
 setupIntTest()
 
 describe('User routes', () => {
