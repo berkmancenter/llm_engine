@@ -7,8 +7,8 @@ import transcript from '../helpers/transcript.js'
 import logger from '../../config/logger.js'
 import responseFormatSchemas from '../helpers/responseFormatSchemas.js'
 import { getStructuredResponseChain } from '../helpers/llmChain.js'
-import { BackChannelAgentResponse } from './backChannel.types.js'
-import filterHallucinations from './hallucinations.js'
+import { BackChannelAgentResponse, Insight } from './backChannel.types.js'
+import filterHallucinations from '../helpers/hallucinations.js'
 import { AgentResponse } from '../../types/index.types.js'
 
 export const backChannelLLMTemplates = {
@@ -282,7 +282,12 @@ export async function processParticipantMessages(messages, startTime, endTime) {
     timestamp: { start: startTime.getTime(), end: endTime.getTime() },
     // filter insights with hallucinated comments - could not be stopped with prompt - yet! ;)
     // and sometimes real comments will be modified by the LLM (e.g. modifying punctuation or fixing typos)
-    insights: await filterHallucinations(llmResponse.results, messages)
+    insights: (llmResponse.results as Insight[]).filter((result) => {
+      const claims = result.comments.filter((c) => c.user).map((c) => ({ participant: c.user!, text: c.text }))
+      const verified = filterHallucinations(claims, messages)
+      if (!verified) logger.info(`Dropping insight with unverified claims: ${JSON.stringify(result, null, 2)}`)
+      return verified
+    })
   }
 
   if (!response.insights?.length) return []
