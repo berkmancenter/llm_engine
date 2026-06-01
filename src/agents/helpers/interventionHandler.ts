@@ -126,8 +126,7 @@ async function runInterventionAnalysis(
   baseSystemPrompt: string,
   schema: z.ZodSchema,
   privateConversationHistory: ConversationHistory | null,
-  userTemplate: string | undefined,
-  primaryInput: 'chat' | 'private'
+  userTemplate: string | undefined
 ): Promise<InterventionAnalysis | null> {
   // Format conversation histories
   const sharedChatMessages = formatMultiUserConversationHistory(sharedChatHistory)
@@ -154,19 +153,21 @@ async function runInterventionAnalysis(
   const systemPrompt = buildSystemPromptWithPersonality(baseSystemPrompt, personalityName)
   const resolvedUserTemplate = userTemplate ?? this.llmTemplates.user ?? USER_TEMPLATE
 
+  const templateVars = {
+    topic: this.conversation.name,
+    recentTranscript,
+    retrievedChunks: chunks,
+    privateMessages: privateMessages.map((m) => m.content).join('\n') || 'No private messages.',
+    sharedChatHistory: sharedChatMessages.map((m) => m.content).join('\n') || 'No shared chat messages yet.',
+    agentRecentPosts
+  }
+
   const llm = await this.getLLM()
   const analysis = (await getChatPromptResponse(
     llm,
     systemPrompt,
     resolvedUserTemplate,
-    {
-      topic: this.conversation.name,
-      recentTranscript,
-      retrievedChunks: chunks,
-      privateMessages: privateMessages.map((m) => m.content).join('\n') || 'No private messages.',
-      sharedChatHistory: sharedChatMessages.map((m) => m.content).join('\n') || 'No shared chat messages yet.',
-      agentRecentPosts
-    },
+    templateVars,
     [], // No chat history - we provide full context in the prompt
     schema
   )) as z.infer<typeof schema>
@@ -195,19 +196,13 @@ async function runInterventionAnalysis(
     }
   }
 
-  const chatLabel = primaryInput === 'chat' ? 'Input (Shared Chat)' : 'Context (Shared Chat)'
-  const privateLabel = primaryInput === 'private' ? 'Input (Private Messages)' : 'Context (Private Messages)'
+  const renderedUserPrompt = Object.entries(templateVars).reduce(
+    (prompt, [key, value]) => prompt.replace(new RegExp(`\\{${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\}`, 'g'), value ?? ''),
+    resolvedUserTemplate
+  )
 
   const result = analysis as InterventionAnalysis
-  result.context = [
-    recentTranscript && `## Transcript:\n${recentTranscript}`,
-    chunks && `## Retrieved Context:\n${chunks}`,
-    privateMessages.length && `## ${privateLabel}:\n${privateMessages.map((m) => m.content).join('\n')}`,
-    `## ${chatLabel}:\n${sharedChatMessages.map((m) => m.content).join('\n') || 'No messages yet.'}`,
-    `## Agent Recent Posts:\n${agentRecentPosts}`
-  ]
-    .filter(Boolean)
-    .join('\n\n')
+  result.context = [`## System Prompt:\n${systemPrompt}`, `## User Prompt:\n${renderedUserPrompt}`].join('\n\n')
 
   return result
 }
@@ -238,8 +233,7 @@ export async function detectPublicInterventionOpportunity(
     baseSystemPrompt,
     schema,
     privateConversationHistory ?? null,
-    userTemplate,
-    'chat'
+    userTemplate
   )
   if (!result) return null
 
@@ -280,13 +274,5 @@ export async function detectPrivateInterventionOpportunity(
     return null
   }
 
-  return runInterventionAnalysis.call(
-    this,
-    sharedChatHistory,
-    baseSystemPrompt,
-    schema,
-    allDmHistory,
-    userTemplate,
-    'private'
-  )
+  return runInterventionAnalysis.call(this, sharedChatHistory, baseSystemPrompt, schema, allDmHistory, userTemplate)
 }

@@ -371,7 +371,13 @@ export async function buildCheckinResponses(conversationHistory: ConversationHis
       message: { type: 'checkin', text: analysis.directMessage },
       messageType: 'json',
       channels: [channel],
-      context: analysis.context
+      context: analysis.context,
+      participantPseudonym,
+      eligibleTypes,
+      checkinType: analysis.checkinType,
+      reasoning: analysis.reasoning,
+      confidenceScore: analysis.confidenceScore,
+      detectedPattern: analysis.detectedPattern
     })
   }
 
