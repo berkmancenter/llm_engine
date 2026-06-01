@@ -4,7 +4,7 @@ import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import logger from '../../config/logger.js'
 import getConversationHistory from '../helpers/getConversationHistory.js'
 import {
-  detectInterventionOpportunity,
+  detectPublicInterventionOpportunity,
   getInterventionAnalysisSchema,
   buildInterventionTypeSection,
   USER_TEMPLATE,
@@ -163,7 +163,7 @@ export default verify({
       endTime: conversationHistory.end
     })
 
-    const interventionAnalysis = await detectInterventionOpportunity.call(
+    const interventionAnalysis = await detectPublicInterventionOpportunity.call(
       this,
       sharedChatHistory,
       getEngagementSystemPrompt(this.agentConfig?.personality),
@@ -186,9 +186,7 @@ export default verify({
           visible: true,
           message: interventionAnalysis.sharedChatMessage,
           channels: this.conversation.channels.filter((c) => c.name === 'chat'),
-          context: `Intervention Type: ${interventionAnalysis.interventionType}\nReasoning: ${
-            interventionAnalysis.reasoning
-          }\nPattern: ${interventionAnalysis.detectedPattern || 'N/A'}`
+          context: interventionAnalysis.context
         }
       ]
     }

@@ -24,4 +24,5 @@ export interface InterventionAnalysis {
   confidenceScore: number
   detectedPattern?: string
   affectedUsers?: number
+  context?: string
 }
