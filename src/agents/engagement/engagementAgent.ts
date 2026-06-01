@@ -1,5 +1,5 @@
 import verify from '../helpers/verify.js'
-import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
+import { AgentMessageActions, ConversationHistory, IChannel } from '../../types/index.types.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import logger from '../../config/logger.js'
 import getConversationHistory from '../helpers/getConversationHistory.js'
@@ -10,7 +10,7 @@ import {
   USER_TEMPLATE,
   interventionLlmTemplateVars
 } from '../helpers/interventionHandler.js'
-import { InterventionType } from '../helpers/interventionTypes.js'
+import { InterventionType, InterventionAnalysis } from '../helpers/interventionTypes.js'
 
 /**
  * Default examples for engagement intervention types
@@ -183,15 +183,45 @@ export default verify({
     if (interventionAnalysis.sharedChatMessage) {
       return [
         {
+          ...interventionAnalysis,
           visible: true,
           message: interventionAnalysis.sharedChatMessage,
-          channels: this.conversation.channels.filter((c) => c.name === 'chat'),
-          context: interventionAnalysis.context
+          channels: this.conversation.channels.filter((c: IChannel) => c.name === 'chat')
         }
       ]
     }
 
     return []
+  },
+
+  formatTraceInput(conversationHistory: ConversationHistory) {
+    return {
+      transcript: conversationHistory.messages.map((m) => ({
+        role: m.fromAgent ? 'agent' : 'participant',
+        pseudonym: m.pseudonym,
+        text: m.bodyType === 'json' ? (m.body as { text?: string })?.text : m.body,
+        createdAt: m.createdAt
+      }))
+    }
+  },
+
+  formatTraceOutput(responses: InterventionAnalysis[]) {
+    if (responses.length === 0) return { interventionType: 'NONE', messageSent: null }
+    const r = responses[0]
+    return {
+      interventionType: r.interventionType,
+      reasoning: r.reasoning,
+      confidenceScore: r.confidenceScore,
+      detectedPattern: r.detectedPattern,
+      messageSent: r.sharedChatMessage
+    }
+  },
+
+  getTraceMetadata(_conversationHistory: ConversationHistory, _userMessage: unknown, responses: InterventionAnalysis[]) {
+    return {
+      topic: this.conversation.name,
+      context: responses[0]?.context
+    }
   },
 
   async start() {

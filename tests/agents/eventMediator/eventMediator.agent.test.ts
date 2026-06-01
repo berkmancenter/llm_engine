@@ -356,7 +356,6 @@ describe(`event mediator agent tests`, () => {
         testTimeout
       )
     })
-
   })
 
   describe('privacy protection', () => {
@@ -393,7 +392,7 @@ describe(`event mediator agent tests`, () => {
   })
 
   describe('intervention context', () => {
-    it('includes intervention type and reasoning in context', async () => {
+    it('includes intervention type and reasoning in response', async () => {
       const messages = [
         // Active chat
         await createMessage('Really useful information', user1, conversation, ['chat'], getMessageTime(100)),
@@ -419,14 +418,12 @@ describe(`event mediator agent tests`, () => {
       const responses = await defaultAgentTypes.eventMediator.respond.call(agent, conversationHistory)
 
       if (responses.length > 0) {
-        expect(responses[0].context).toBeDefined()
-        expect(responses[0].context).toContain('Intervention Type:')
-        expect(responses[0].context).toContain('Reasoning:')
+        expect(responses[0].interventionType).toBeDefined()
+        expect(responses[0].reasoning).toBeDefined()
 
         // Verify it's a valid intervention type
         const validTypes = Object.values(InterventionType)
-        const hasValidType = validTypes.some((type) => responses[0].context.includes(type))
-        expect(hasValidType).toBe(true)
+        expect(validTypes).toContain(responses[0].interventionType)
       }
     })
   })
@@ -575,7 +572,7 @@ describe(`event mediator agent tests`, () => {
 
         // If it intervenes, verify it follows rules
         if (responses.length > 0) {
-          console.log(`Detected ${responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]}:`, responses[0].message)
+          console.log(`Detected ${responses[0].interventionType}:`, responses[0].message)
           const { message } = responses[0]
           // Should surface the pattern without quoting individuals
           expect(message).not.toContain(user1.pseudonyms[0].pseudonym)
@@ -653,7 +650,7 @@ describe(`event mediator agent tests`, () => {
         // Assert intervention occurred - accept SYNTHESIS, SIGNAL, or MINORITY_VOICE
         // (all are valid for surfacing private concerns that diverge from public enthusiasm)
         expect(responses.length).toBeGreaterThan(0)
-        const interventionType = responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]
+        const { interventionType } = responses[0]
         expect(['SYNTHESIS', 'SIGNAL', 'MINORITY_VOICE']).toContain(interventionType)
 
         console.log(`Detected ${interventionType}:`, responses[0].message)
@@ -739,13 +736,11 @@ describe(`event mediator agent tests`, () => {
 
         // For MINORITY_VOICE, we accept it may also be detected as SIGNAL - both valid
         if (responses.length > 0) {
-          const isMinorityOrSignal = responses[0].context?.includes('MINORITY') || responses[0].context?.includes('SIGNAL')
+          const isMinorityOrSignal =
+            responses[0].interventionType === 'MINORITY_VOICE' || responses[0].interventionType === 'SIGNAL'
           expect(isMinorityOrSignal).toBe(true)
 
-          console.log(
-            `Detected ${responses[0].context?.includes('MINORITY') ? 'MINORITY_VOICE' : 'SIGNAL'}:`,
-            responses[0].message
-          )
+          console.log(`Detected ${responses[0].interventionType}:`, responses[0].message)
           const { message } = responses[0]
           // Should create space without identifying dissenters
           expect(message).not.toContain(user3.pseudonyms[0].pseudonym)
@@ -785,7 +780,7 @@ describe(`event mediator agent tests`, () => {
 
         const responses = await defaultAgentTypes.eventMediator.respond.call(agent, conversationHistory)
 
-        if (responses.length > 0 && responses[0].context?.includes('CONFUSION')) {
+        if (responses.length > 0 && responses[0].interventionType === 'CONFUSION') {
           console.log('Detected CONFUSION:', responses[0].message)
           const { message } = responses[0]
           // Should help clarify without exposing who was confused
@@ -864,7 +859,7 @@ describe(`event mediator agent tests`, () => {
 
         // BRIDGE is context-dependent - may be SIGNAL or other type
         if (responses.length > 0) {
-          console.log(`Detected ${responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]}:`, responses[0].message)
+          console.log(`Detected ${responses[0].interventionType}:`, responses[0].message)
           expect(responses[0].message).toBeDefined()
         }
       },
@@ -916,7 +911,7 @@ describe(`event mediator agent tests`, () => {
 
         const responses = await defaultAgentTypes.eventMediator.respond.call(agent, conversationHistory)
 
-        if (responses.length > 0 && responses[0].context?.includes('STRUCTURE')) {
+        if (responses.length > 0 && responses[0].interventionType === 'STRUCTURE') {
           console.log('Detected STRUCTURE:', responses[0].message)
           const { message } = responses[0]
           // Should provide orientation or structure
@@ -1211,7 +1206,7 @@ describe(`event mediator agent tests`, () => {
         // Should detect this as a good question to surface
         expect(responses.length).toBeGreaterThan(0)
         console.log('Mediator response about healthcare:', responses[0].message)
-        expect(responses[0].context).toContain('SIGNAL')
+        expect(responses[0].interventionType).toBe('SIGNAL')
         // Should not expose individual questions verbatim
         expect(responses[0].message).not.toContain('How do you handle health insurance for part-time workers')
       },
@@ -1304,7 +1299,7 @@ describe(`event mediator agent tests`, () => {
 
         const responses = await defaultAgentTypes.eventMediator.respond.call(agent, conversationHistory)
 
-        if (responses.length > 0 && responses[0].context?.includes('CONFUSION')) {
+        if (responses.length > 0 && responses[0].interventionType === 'CONFUSION') {
           console.log('Detected CONFUSION about terminology:', responses[0].message)
           // Should help clarify without exposing who was confused
           expect(responses[0].message).not.toContain(user1.pseudonyms[0].pseudonym)
@@ -1357,7 +1352,7 @@ describe(`event mediator agent tests`, () => {
 
         // BRIDGE interventions are contextual - may or may not occur
         if (responses.length > 0) {
-          console.log(`Detected ${responses[0].context?.match(/Intervention Type: (\w+)/)?.[1]}:`, responses[0].message)
+          console.log(`Detected ${responses[0].interventionType}:`, responses[0].message)
           expect(responses[0].message).toBeDefined()
         }
       },
