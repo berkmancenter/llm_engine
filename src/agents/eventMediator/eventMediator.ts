@@ -4,7 +4,7 @@ import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import {
   USER_TEMPLATE,
   interventionLlmTemplateVars,
-  detectInterventionOpportunity,
+  detectPublicInterventionOpportunity,
   getInterventionAnalysisSchema,
   buildInterventionTypeSection
 } from '../helpers/interventionHandler.js'
@@ -191,7 +191,7 @@ export default verify({
       this.conversation.channels.filter((c: IChannel) => c.direct).map((c: IChannel) => c.name)
     )
 
-    const interventionAnalysis = await detectInterventionOpportunity.call(
+    const interventionAnalysis = await detectPublicInterventionOpportunity.call(
       this,
       sharedChatHistory,
       getMediatorSystemPrompt(this.agentConfig.personality),
@@ -215,9 +215,7 @@ export default verify({
         visible: true,
         message: interventionAnalysis.sharedChatMessage,
         channels: this.conversation.channels.filter((c: IChannel) => c.name === 'chat'),
-        context: `Intervention Type: ${interventionAnalysis.interventionType}\nReasoning: ${
-          interventionAnalysis.reasoning
-        }\nPattern: ${interventionAnalysis.detectedPattern || 'N/A'}`
+        context: interventionAnalysis.context
       })
     }
 

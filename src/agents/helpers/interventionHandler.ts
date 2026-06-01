@@ -117,47 +117,31 @@ function getRecentAgentInterventions(conversationHistory: ConversationHistory): 
 }
 
 /**
- * Main intervention detection function
- * @param conversationHistory - Shared chat history
- * @param privateConversationHistory - Private/DM history (can be null if not needed based on category config)
- * @param categoryConfig - Optional category configuration (defaults to all enabled)
+ * Shared LLM evaluation core: formats histories, retrieves transcript/RAG context, calls the LLM,
+ * checks confidence and professionalism, and attaches the trace context string.
+ * Rate limiting and DB race guard are handled by the two public wrappers below.
  */
-export async function detectInterventionOpportunity(
-  conversationHistory: ConversationHistory,
+async function runInterventionAnalysis(
+  sharedChatHistory: ConversationHistory,
   baseSystemPrompt: string,
   schema: z.ZodSchema,
-  privateConversationHistory?: ConversationHistory | null,
-  sharedChatChannel: string = 'chat'
+  privateConversationHistory: ConversationHistory | null,
+  userTemplate: string | undefined,
+  primaryInput: 'chat' | 'private'
 ): Promise<InterventionAnalysis | null> {
-  // Use conversationHistory.end as "now" to maintain consistent time simulation
-  // This allows tests and the system to reason about specific moments in time
-  const now = conversationHistory.end ? conversationHistory.end.getTime() : Date.now()
-  const minInterval = (this.agentConfig?.minInterval || 2) * 60 * 1000 // Convert minutes to milliseconds
-  // Get recent interventions from conversation history (stateless rate limiting)
-  const recentInterventions = getRecentAgentInterventions(conversationHistory)
-
-  // Rate limiting: Check if an agent intervened recently
-  const lastIntervention = recentInterventions[recentInterventions.length - 1]
-  if (lastIntervention) {
-    const timeSinceLastIntervention = now - lastIntervention.timestamp.getTime()
-    if (timeSinceLastIntervention < minInterval) {
-      return null // Too soon since last intervention
-    }
-  }
-
   // Format conversation histories
-  const sharedChatMessages = formatMultiUserConversationHistory(conversationHistory)
+  const sharedChatMessages = formatMultiUserConversationHistory(sharedChatHistory)
   const privateMessages = privateConversationHistory ? formatMultiUserConversationHistory(privateConversationHistory) : []
 
   // Get recent transcript (last 10 minutes)
-  const recentTranscript = transcript.getTranscript(this.conversation, 600, conversationHistory.end)
+  const recentTranscript = transcript.getTranscript(this.conversation, 600, sharedChatHistory.end)
 
   // Get relevant context via RAG - use both private and public messages to find relevant transcript chunks
   const allMessages = [...sharedChatMessages, ...privateMessages].map((m) => m.content).join('\n')
-  const { chunks } = await transcript.searchTranscript(this.conversation, allMessages, conversationHistory.end)
+  const { chunks } = await transcript.searchTranscript(this.conversation, allMessages, sharedChatHistory.end)
 
   // Get agent's recent posts for self-awareness
-  const agentRecentPosts = getAgentRecentPosts(conversationHistory, this.name, 5)
+  const agentRecentPosts = getAgentRecentPosts(sharedChatHistory, this.name, 5)
 
   // Determine which personality to use (if any)
   let personalityName: string | null = null
@@ -168,15 +152,13 @@ export async function detectInterventionOpportunity(
   }
 
   const systemPrompt = buildSystemPromptWithPersonality(baseSystemPrompt, personalityName)
+  const resolvedUserTemplate = userTemplate ?? this.llmTemplates.user ?? USER_TEMPLATE
 
-  const userTemplate = this.llmTemplates.user || USER_TEMPLATE
-
-  // Call LLM with structured output
   const llm = await this.getLLM()
   const analysis = (await getChatPromptResponse(
     llm,
     systemPrompt,
-    userTemplate,
+    resolvedUserTemplate,
     {
       topic: this.conversation.name,
       recentTranscript,
@@ -205,7 +187,6 @@ export async function detectInterventionOpportunity(
       analysis.interventionType,
       recentTranscript
     )
-
     if (!isAppropriate) {
       logger.warn(
         `Agent ${this.name} intervention rejected by professionalism guardrail. Type: ${analysis.interventionType}`
@@ -214,20 +195,98 @@ export async function detectInterventionOpportunity(
     }
   }
 
-  // Re-check with fresh DB state to handle concurrent agents in a cluster.
-  // Shrinks the race window from LLM latency (seconds) to milliseconds.
+  const chatLabel = primaryInput === 'chat' ? 'Input (Shared Chat)' : 'Context (Shared Chat)'
+  const privateLabel = primaryInput === 'private' ? 'Input (Private Messages)' : 'Context (Private Messages)'
+
+  const result = analysis as InterventionAnalysis
+  result.context = [
+    recentTranscript && `## Transcript:\n${recentTranscript}`,
+    chunks && `## Retrieved Context:\n${chunks}`,
+    privateMessages.length && `## ${privateLabel}:\n${privateMessages.map((m) => m.content).join('\n')}`,
+    `## ${chatLabel}:\n${sharedChatMessages.map((m) => m.content).join('\n') || 'No messages yet.'}`,
+    `## Agent Recent Posts:\n${agentRecentPosts}`
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+
+  return result
+}
+
+/**
+ * Detects whether to post a public intervention to the shared chat channel.
+ * Rate limiting and the DB race guard are both scoped to the shared chat.
+ * Used by eventMediator and engagementAgent.
+ */
+export async function detectPublicInterventionOpportunity(
+  sharedChatHistory: ConversationHistory,
+  baseSystemPrompt: string,
+  schema: z.ZodSchema,
+  privateConversationHistory?: ConversationHistory | null,
+  userTemplate?: string
+): Promise<InterventionAnalysis | null> {
+  const now = sharedChatHistory.end ? sharedChatHistory.end.getTime() : Date.now()
+  const minInterval = (this.agentConfig?.minInterval || 2) * 60 * 1000
+
+  const lastIntervention = getRecentAgentInterventions(sharedChatHistory).at(-1)
+  if (lastIntervention && now - lastIntervention.timestamp.getTime() < minInterval) {
+    return null
+  }
+
+  const result = await runInterventionAnalysis.call(
+    this,
+    sharedChatHistory,
+    baseSystemPrompt,
+    schema,
+    privateConversationHistory ?? null,
+    userTemplate,
+    'chat'
+  )
+  if (!result) return null
+
   const freshRecentIntervention = await Message.findOne({
     conversation: this.conversation._id,
     fromAgent: true,
     visible: true,
-    channels: sharedChatChannel,
+    channels: 'chat',
     createdAt: { $gte: new Date(now - minInterval) }
   })
-
   if (freshRecentIntervention) {
     logger.info(`Agent ${this.name} dropping intervention: another agent posted during LLM call`)
     return null
   }
 
-  return analysis as InterventionAnalysis
+  return result
+}
+
+/**
+ * Detects whether to send a private check-in to an individual participant's DM channel.
+ * Rate limiting is scoped to that participant's DM history. No DB race guard — private
+ * DMs are handled by a single agent per conversation, so concurrent posting isn't a concern.
+ * Used by checkinHandler.
+ */
+export async function detectPrivateInterventionOpportunity(
+  sharedChatHistory: ConversationHistory,
+  baseSystemPrompt: string,
+  schema: z.ZodSchema,
+  allDmHistory: ConversationHistory,
+  participantDmHistory: ConversationHistory,
+  userTemplate?: string
+): Promise<InterventionAnalysis | null> {
+  const now = sharedChatHistory.end ? sharedChatHistory.end.getTime() : Date.now()
+  const minInterval = (this.agentConfig?.minInterval || 2) * 60 * 1000
+
+  const lastIntervention = getRecentAgentInterventions(participantDmHistory).at(-1)
+  if (lastIntervention && now - lastIntervention.timestamp.getTime() < minInterval) {
+    return null
+  }
+
+  return runInterventionAnalysis.call(
+    this,
+    sharedChatHistory,
+    baseSystemPrompt,
+    schema,
+    allDmHistory,
+    userTemplate,
+    'private'
+  )
 }
