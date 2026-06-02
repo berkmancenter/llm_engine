@@ -6,6 +6,10 @@ import schedule from '../../jobs/schedule.js'
 import defineJob from '../../jobs/define.js'
 import logger from '../../config/logger.js'
 import adapterService from '../adapter.service.js'
+import { getChatPromptResponse } from '../../agents/helpers/llmChain.js'
+import { coreLLMModel, coreLLMPlatform, getModelChat } from '../../agents/helpers/getModelChat.js'
+import { messageService } from '../index.js'
+import { User } from '../../models/index.js'
 
 const transcriptBatchInterval = 30
 
@@ -70,6 +74,32 @@ export async function doStopConversation(conversation) {
   doc.active = false
   if (doc.transcript) {
     await updateTranscriptStatus(doc, 'stopped')
+    const llm = await getModelChat(coreLLMPlatform, coreLLMModel)
+
+    const structured = await getChatPromptResponse(
+      llm,
+      'Please summarize the events of this conversation.',
+      `Event Transcript: {content}`,
+      { content: doc.transcript }
+    )
+
+    logger.debug(`Conversation summary for ${doc._id}: ${structured}`)
+
+    doc.summary = structured
+
+    // Send to summary channel
+    const msg = {
+      conversation,
+      channels: ['summary'],
+      body: structured,
+      source: 'system',
+      bodyType: 'text'
+    }
+
+    // Get owner user
+    const owner = await User.findById(conversation.owner)
+    await messageService.newMessageHandler(msg, owner)
+    
   }
   await doc.save()
   return doc

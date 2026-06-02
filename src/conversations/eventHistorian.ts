@@ -74,7 +74,7 @@ const eventHistorian: ConversationType = {
       ]
     }
   ],
-  channels: [{ name: 'historian' }],
+  channels: [{ name: 'historian' }, { name: 'summary' }],
   adapters: {
     slack: {
       type: 'slack',
@@ -89,6 +89,10 @@ const eventHistorian: ConversationType = {
         {
           name: 'historian',
           direction: Direction.BOTH
+        },
+        {
+          name: 'summary',
+          direction: Direction.OUTGOING
         }
       ]
     }

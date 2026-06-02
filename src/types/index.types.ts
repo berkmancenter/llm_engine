@@ -347,6 +347,7 @@ export interface IConversation {
   createdAt?: Date
   updatedAt?: Date
   messageCount(): number
+  summary?: string
 }
 
 export interface IPoll {
