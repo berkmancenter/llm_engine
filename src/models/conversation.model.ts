@@ -147,6 +147,10 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
     resources: {
       type: [resourceSchema],
       default: []
+    },
+    summary: {
+      type: String,
+      default: ''
     }
   },
   {
