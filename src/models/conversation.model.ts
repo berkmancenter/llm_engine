@@ -73,8 +73,7 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
     conversationType: {
       type: String,
       trim: true,
-      required: false,
-      immutable: true
+      required: false
     },
     platforms: {
       type: [String],
