@@ -4,6 +4,7 @@ import setupIntTest from '../utils/setupIntTest.js'
 import { insertUsers, registeredUser } from '../fixtures/user.fixture.js'
 import { insertTopics, newPublicTopic } from '../fixtures/topic.fixture.js'
 import conversationService from '../../src/services/conversation.service/index.js'
+import { Feature } from '../../src/types/index.types.js'
 import { Agent, Adapter, Conversation } from '../../src/models/index.js'
 import ApiError from '../../src/utils/ApiError.js'
 import websocketGateway from '../../src/websockets/websocketGateway.js'
@@ -1255,6 +1256,118 @@ describe('Conversation service methods', () => {
 
       const originalAdapterIds = originalAdapters.map((a) => a._id.toString())
       newAdapters.forEach((a) => expect(originalAdapterIds).not.toContain(a._id.toString()))
+    })
+
+    test('should save new features to the database when updated', async () => {
+      await conversationService.updateConversation(
+        {
+          id: conversation._id.toString(),
+          features: [{ name: 'moderatorSupport', config: {} }]
+        },
+        registeredUser
+      )
+      const updated = await Conversation.findById(conversation._id)
+      const features = updated!.features as Feature[]
+      expect(features).toHaveLength(1)
+      expect(features[0].name).toBe('moderatorSupport')
+    })
+
+    test('should update existing features in the database when sub-properties change', async () => {
+      await conversationService.updateConversation(
+        {
+          id: conversation._id.toString(),
+          features: [{ name: 'moderatorSupport', config: { minContributionInterval: 5 } }]
+        },
+        registeredUser
+      )
+      // Now update the sub-property value
+      await conversationService.updateConversation(
+        {
+          id: conversation._id.toString(),
+          features: [{ name: 'moderatorSupport', config: { minContributionInterval: 15 } }]
+        },
+        registeredUser
+      )
+      const updated = await Conversation.findById(conversation._id)
+      const features = updated!.features as Feature[]
+      expect(features).toHaveLength(1)
+      expect(features[0].config?.minContributionInterval).toBe(15)
+    })
+
+    test('should clear features in the database when updated to an empty array', async () => {
+      // First add a feature
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), features: [{ name: 'moderatorSupport', config: {} }] },
+        registeredUser
+      )
+
+      // Now clear it
+      await conversationService.updateConversation({ id: conversation._id.toString(), features: [] }, registeredUser)
+
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.features).toHaveLength(0)
+    })
+
+    test('should persist the updated conversationType when the type changes', async () => {
+      await conversationService.updateConversation({ id: conversation._id.toString(), type: 'backChannel' }, registeredUser)
+
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.conversationType).toBe('backChannel')
+    })
+
+    test('should persist alternateName for speakers and moderators in the database', async () => {
+      await conversationService.updateConversation(
+        {
+          id: conversation._id.toString(),
+          presenters: [{ name: 'Dr. Smith', bio: 'Researcher', alternateName: 'John Smith' }],
+          moderators: [{ name: 'Ms. Jones', bio: 'Host', alternateName: 'Alice Jones' }]
+        },
+        registeredUser
+      )
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.presenters![0].alternateName).toBe('John Smith')
+      expect(updated!.moderators![0].alternateName).toBe('Alice Jones')
+    })
+
+    test('should persist resources to the database when updated', async () => {
+      await conversationService.updateConversation(
+        {
+          id: conversation._id.toString(),
+          resources: [
+            {
+              title: 'Attention Is All You Need',
+              url: 'https://arxiv.org/abs/1706.03762',
+              authors: ['Vaswani', 'Shazeer'],
+              year: '2017',
+              source: 'speaker',
+              category: 'required',
+              participantVisible: true
+            }
+          ]
+        },
+        registeredUser
+      )
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.resources).toHaveLength(1)
+      expect(updated!.resources![0].title).toBe('Attention Is All You Need')
+      expect(updated!.resources![0].url).toBe('https://arxiv.org/abs/1706.03762')
+      expect(updated!.resources![0].source).toBe('speaker')
+      expect(updated!.resources![0].category).toBe('required')
+    })
+
+    test('should clear resources from the database when updated to an empty array', async () => {
+      // First add a resource
+      await conversationService.updateConversation(
+        {
+          id: conversation._id.toString(),
+          resources: [{ title: 'A Paper', source: 'speaker', category: 'suggested' }]
+        },
+        registeredUser
+      )
+      // Then clear it
+      await conversationService.updateConversation({ id: conversation._id.toString(), resources: [] }, registeredUser)
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.resources).toHaveLength(0)
     })
 
     test('should reject updates from users who do not own the event', async () => {
