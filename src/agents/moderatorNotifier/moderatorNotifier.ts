@@ -242,6 +242,36 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
     ]
   },
 
+  formatTraceInput(conversationHistory: ConversationHistory) {
+    return {
+      transcript: conversationHistory.messages.map((m) => ({
+        role: m.fromAgent ? 'agent' : 'participant',
+        text: m.bodyType === 'json' ? (m.body as { text?: string })?.text : m.body,
+        createdAt: m.createdAt
+      }))
+    }
+  },
+
+  formatTraceOutput(responses: AgentResponse<Record<string, unknown>>[]) {
+    if (responses.length === 0) return { escalated: false, moderatorMessage: null }
+    const insights = (responses[0].message as { insights?: { value: string }[] })?.insights
+    return {
+      escalated: true,
+      moderatorMessage: insights?.[0]?.value ?? null
+    }
+  },
+
+  getTraceMetadata(
+    _conversationHistory: ConversationHistory,
+    _userMessage: unknown,
+    responses: AgentResponse<Record<string, unknown>>[]
+  ) {
+    return {
+      topic: this.conversation.name,
+      context: responses[0]?.context
+    }
+  },
+
   async start() {
     return true
   },
