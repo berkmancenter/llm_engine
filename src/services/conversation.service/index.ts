@@ -249,6 +249,7 @@ const createConversationFromType = async (params, user) => {
 /**
  * Update a conversation
  * @param {Object} conversationBody
+ * @param {Object} user
  * @returns {Promise<Conversation>}
  */
 const updateConversation = async (conversationBody, user) => {
@@ -266,8 +267,87 @@ const updateConversation = async (conversationBody, user) => {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Cannot update an active conversation')
   }
 
-  const { resources: incomingResources, ...restBody } = conversationBody
+  const {
+    resources: incomingResources,
+    properties: incomingProperties,
+    features: incomingFeatures,
+    topicId,
+    type,
+    ...restBody
+  } = conversationBody
+
   const oldResources = incomingResources !== undefined ? [...conversationDoc.resources] : null
+
+  // updateDocument does a shallow doc[key] = body[key], which would wipe all existing
+  // property keys if `properties` passed through. Merge manually instead.
+  if (incomingProperties !== undefined) {
+    conversationDoc.properties = { ...conversationDoc.properties, ...incomingProperties }
+    conversationDoc.markModified('properties') // required for Mongoose Mixed fields
+
+    // meetingUrl and botName are baked into the adapter config at creation from Handlebars
+    // templates — they don't update automatically when properties change.
+    const adapterConfigUpdates: Record<string, unknown> = {}
+    if (incomingProperties.zoomMeetingUrl !== undefined) {
+      adapterConfigUpdates.meetingUrl = incomingProperties.zoomMeetingUrl
+    }
+    if (incomingProperties.botName !== undefined) {
+      adapterConfigUpdates.botName = incomingProperties.botName
+    }
+    if (Object.keys(adapterConfigUpdates).length > 0) {
+      const zoomAdapters = await Adapter.find({ conversation: conversationDoc._id, type: 'zoom' })
+      for (const adapter of zoomAdapters) {
+        adapter.config = { ...adapter.config, ...adapterConfigUpdates }
+        adapter.markModified('config')
+        await adapter.save()
+      }
+    }
+  }
+
+  if (incomingFeatures !== undefined) {
+    conversationDoc.features = incomingFeatures
+  }
+
+  if (topicId !== undefined) {
+    const topic = await Topic.findById(topicId)
+    if (!topic) {
+      throw new ApiError(httpStatus.NOT_FOUND, 'Topic not found')
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    conversationDoc.topic = topic._id as any
+  }
+
+  // Agents and adapters are type-specific — changing type requires recreating them.
+  if (type !== undefined && type !== conversationDoc.conversationType) {
+    const conversationType = getConversationType(type)
+    if (!conversationType) {
+      throw new ApiError(httpStatus.NOT_FOUND, `Conversation type ${type} not found`)
+    }
+
+    await Agent.deleteMany({ conversation: conversationDoc._id })
+    await Adapter.deleteMany({ conversation: conversationDoc._id })
+    conversationDoc.agents = []
+    conversationDoc.adapters = []
+
+    const resolved = resolveConversationType(
+      {
+        platforms: conversationDoc.platforms,
+        properties: conversationDoc.properties,
+        features: incomingFeatures
+      },
+      conversationType
+    )
+
+    for (const agentType of resolved.agentTypes) {
+      const agent = await agentService.createAgent(agentType.name, conversationDoc, agentType.properties)
+      conversationDoc.agents.push(agent)
+    }
+    for (const adapterProps of resolved.adapters) {
+      const adapter = await adapterService.createAdapter(adapterProps, conversationDoc)
+      conversationDoc.adapters.push(adapter)
+    }
+
+    conversationDoc.conversationType = type
+  }
 
   conversationDoc = updateDocument(restBody, conversationDoc)
 

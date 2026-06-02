@@ -23,7 +23,19 @@ const updateConversation = {
     id: Joi.string().required(),
     name: Joi.string(),
     locked: Joi.boolean(),
-    description: Joi.string(),
+    description: Joi.string().allow('', null),
+    scheduledTime: Joi.date(),
+    scheduledEndTime: Joi.date(),
+    topicId: Joi.string(),
+    type: Joi.string(),
+    platforms: Joi.array().items(Joi.string()),
+    properties: Joi.object(),
+    features: Joi.array().items(
+      Joi.object().keys({
+        name: Joi.string().required(),
+        config: Joi.object()
+      })
+    ),
     moderators: Joi.array().items(
       Joi.object().keys({
         name: Joi.string().required(),

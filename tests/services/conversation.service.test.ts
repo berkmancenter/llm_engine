@@ -1134,6 +1134,144 @@ describe('Conversation service methods', () => {
     })
   })
 
+  describe('updateConversation()', () => {
+    let conversation
+    let topicTwo
+
+    beforeEach(async () => {
+      jest.spyOn(websocketGateway, 'broadcastConversationUpdate').mockImplementation()
+      await insertUsers([registeredUser])
+      topicTwo = newPublicTopic()
+      await insertTopics([topicOne, topicTwo])
+
+      conversation = await conversationService.createConversationFromType(
+        {
+          type: 'eventAssistant',
+          name: 'Original Name',
+          platforms: ['zoom'],
+          topicId: topicOne._id.toString(),
+          scheduledTime: new Date(Date.now() + 3600000),
+          description: 'Original description',
+          properties: {
+            zoomMeetingUrl: 'https://zoom.us/j/111111111',
+            botName: 'OriginalBot'
+          }
+        },
+        registeredUser
+      )
+    })
+
+    test('should save changes to event name and description', async () => {
+      const result = await conversationService.updateConversation(
+        { id: conversation._id.toString(), name: 'Updated Name', description: 'Updated description' },
+        registeredUser
+      )
+      expect(result!.name).toBe('Updated Name')
+      expect(result!.description).toBe('Updated description')
+    })
+
+    test('should preserve other settings when only one property is updated', async () => {
+      const result = await conversationService.updateConversation(
+        { id: conversation._id.toString(), properties: { zoomMeetingUrl: 'https://zoom.us/j/999999999' } },
+        registeredUser
+      )
+      expect(result!.properties!.zoomMeetingUrl).toBe('https://zoom.us/j/999999999')
+      expect(result!.properties!.botName).toBe('OriginalBot')
+    })
+
+    test('should update the Zoom meeting URL on the linked adapter', async () => {
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), properties: { zoomMeetingUrl: 'https://zoom.us/j/999999999' } },
+        registeredUser
+      )
+      const adapters = await Adapter.find({ conversation: conversation._id })
+      expect(adapters[0].config.meetingUrl).toBe('https://zoom.us/j/999999999')
+    })
+
+    test('should update the bot name on the linked adapter', async () => {
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), properties: { botName: 'NewBotName' } },
+        registeredUser
+      )
+      const adapters = await Adapter.find({ conversation: conversation._id })
+      expect(adapters[0].config.botName).toBe('NewBotName')
+    })
+
+    test('should save changes to event start and end times', async () => {
+      const newStart = new Date(Date.now() + 7200000)
+      const newEnd = new Date(Date.now() + 10800000)
+      const result = await conversationService.updateConversation(
+        { id: conversation._id.toString(), scheduledTime: newStart, scheduledEndTime: newEnd },
+        registeredUser
+      )
+      expect(result!.scheduledTime).toEqual(newStart)
+      expect(result!.scheduledEndTime).toEqual(newEnd)
+    })
+
+    test('should save changes to moderators and speakers', async () => {
+      const result = await conversationService.updateConversation(
+        {
+          id: conversation._id.toString(),
+          moderators: [{ name: 'New Moderator', bio: 'Moderates things' }],
+          presenters: [{ name: 'New Speaker', bio: 'Speaks about things' }]
+        },
+        registeredUser
+      )
+      expect(result!.moderators).toHaveLength(1)
+      expect(result!.moderators![0].name).toBe('New Moderator')
+      expect(result!.presenters).toHaveLength(1)
+      expect(result!.presenters![0].name).toBe('New Speaker')
+    })
+
+    test('should move the event to a different event series', async () => {
+      const result = await conversationService.updateConversation(
+        { id: conversation._id.toString(), topicId: topicTwo._id.toString() },
+        registeredUser
+      )
+      expect(result!.topic.toString()).toBe(topicTwo._id.toString())
+    })
+
+    test('should reject an update referencing a non-existent event series', async () => {
+      await expect(
+        conversationService.updateConversation(
+          { id: conversation._id.toString(), topicId: new mongoose.Types.ObjectId().toString() },
+          registeredUser
+        )
+      ).rejects.toMatchObject({ statusCode: httpStatus.NOT_FOUND, message: 'Topic not found' })
+    })
+
+    test('should replace the AI agent and adapter when the conversation type changes', async () => {
+      const originalAgents = await Agent.find({ conversation: conversation._id })
+      const originalAdapters = await Adapter.find({ conversation: conversation._id })
+      expect(originalAgents.map((a) => a.agentType)).toContain('eventAssistant')
+
+      await conversationService.updateConversation({ id: conversation._id.toString(), type: 'backChannel' }, registeredUser)
+
+      const newAgents = await Agent.find({ conversation: conversation._id })
+      const newAdapters = await Adapter.find({ conversation: conversation._id })
+
+      expect(newAgents.map((a) => a.agentType)).not.toContain('eventAssistant')
+      expect(newAgents.map((a) => a.agentType).sort()).toEqual(['backChannelInsights', 'backChannelMetrics'])
+
+      const originalAdapterIds = originalAdapters.map((a) => a._id.toString())
+      newAdapters.forEach((a) => expect(originalAdapterIds).not.toContain(a._id.toString()))
+    })
+
+    test('should reject updates from users who do not own the event', async () => {
+      const otherUser = { _id: new mongoose.Types.ObjectId(), role: 'user' }
+      await expect(
+        conversationService.updateConversation({ id: conversation._id.toString(), name: 'Hacked' }, otherUser)
+      ).rejects.toMatchObject({ statusCode: httpStatus.FORBIDDEN })
+    })
+
+    test('should reject updates to an event that is currently live', async () => {
+      await conversation.updateOne({ active: true })
+      await expect(
+        conversationService.updateConversation({ id: conversation._id.toString(), name: 'New Name' }, registeredUser)
+      ).rejects.toMatchObject({ statusCode: httpStatus.BAD_REQUEST, message: 'Cannot update an active conversation' })
+    })
+  })
+
   describe('findByIdFull()', () => {
     let conversation
 
