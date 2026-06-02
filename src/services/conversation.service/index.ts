@@ -305,6 +305,7 @@ const updateConversation = async (conversationBody, user) => {
 
   if (incomingFeatures !== undefined) {
     conversationDoc.features = incomingFeatures
+    conversationDoc.markModified('features') // required for Mongoose Mixed array fields
   }
 
   if (topicId !== undefined) {
@@ -403,10 +404,11 @@ const findById = async (id) => {
 
 const findByIdFull = async (id, user) => {
   const conversation = await Conversation.findOne({ _id: id })
-    .select(`${returnFields} resources`)
+    .select(`${returnFields} resources topic`)
     .populate('agents')
     .populate('channels')
     .populate('adapters')
+    .populate('topic')
     .exec()
   if (!conversation) {
     throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${id} not found`)
