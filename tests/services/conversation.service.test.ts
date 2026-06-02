@@ -1223,7 +1223,7 @@ describe('Conversation service methods', () => {
       expect(result!.presenters![0].name).toBe('New Speaker')
     })
 
-    test('should move the event to a different event series', async () => {
+    test('should move the event to a different topic', async () => {
       const result = await conversationService.updateConversation(
         { id: conversation._id.toString(), topicId: topicTwo._id.toString() },
         registeredUser
@@ -1231,7 +1231,7 @@ describe('Conversation service methods', () => {
       expect(result!.topic.toString()).toBe(topicTwo._id.toString())
     })
 
-    test('should reject an update referencing a non-existent event series', async () => {
+    test('should reject an update referencing a non-existent topic', async () => {
       await expect(
         conversationService.updateConversation(
           { id: conversation._id.toString(), topicId: new mongoose.Types.ObjectId().toString() },
