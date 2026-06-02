@@ -39,13 +39,15 @@ const updateConversation = {
     moderators: Joi.array().items(
       Joi.object().keys({
         name: Joi.string().required(),
-        bio: Joi.string().allow('', null)
+        bio: Joi.string().allow('', null),
+        alternateName: Joi.string().allow('', null)
       })
     ),
     presenters: Joi.array().items(
       Joi.object().keys({
         name: Joi.string().required(),
-        bio: Joi.string().allow('', null)
+        bio: Joi.string().allow('', null),
+        alternateName: Joi.string().allow('', null)
       })
     ),
     resources: Joi.array().items(updateResourceSchema)
@@ -66,13 +68,15 @@ const createConversation = {
     moderators: Joi.array().items(
       Joi.object().keys({
         name: Joi.string().required(),
-        bio: Joi.string().allow('', null)
+        bio: Joi.string().allow('', null),
+        alternateName: Joi.string().allow('', null)
       })
     ),
     presenters: Joi.array().items(
       Joi.object().keys({
         name: Joi.string().required(),
-        bio: Joi.string().allow('', null)
+        bio: Joi.string().allow('', null),
+        alternateName: Joi.string().allow('', null)
       })
     ),
     resources: Joi.array().items(resourceSchema)
