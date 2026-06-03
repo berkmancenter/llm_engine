@@ -2,10 +2,11 @@ import mongoose from 'mongoose'
 import httpStatus from 'http-status'
 import setupIntTest from '../utils/setupIntTest.js'
 import { insertUsers, registeredUser } from '../fixtures/user.fixture.js'
-import { insertTopics, newPublicTopic } from '../fixtures/topic.fixture.js'
+import { insertTopics, newPublicTopic, newPrivateTopic } from '../fixtures/topic.fixture.js'
 import conversationService from '../../src/services/conversation.service/index.js'
 import { Feature } from '../../src/types/index.types.js'
-import { Agent, Adapter, Conversation } from '../../src/models/index.js'
+import { Agent, Adapter, Conversation, Topic } from '../../src/models/index.js'
+import { setConversationTypes, resetConversationTypes, getAllConversationTypes } from '../../src/conversations/index.js'
 import ApiError from '../../src/utils/ApiError.js'
 import websocketGateway from '../../src/websockets/websocketGateway.js'
 import { supportedModels, defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/getModelChat.js'
@@ -1383,6 +1384,116 @@ describe('Conversation service methods', () => {
         conversationService.updateConversation({ id: conversation._id.toString(), name: 'New Name' }, registeredUser)
       ).rejects.toMatchObject({ statusCode: httpStatus.BAD_REQUEST, message: 'Cannot update an active conversation' })
     })
+
+    /* Fix #1: auto-start and auto-stop jobs should be rescheduled when the event's
+       scheduled times change. Before this fix, updating times had no effect on
+       already-queued Agenda jobs. */
+    test('should reschedule the auto-start job when scheduledTime changes', async () => {
+      const cancelSpy = jest.spyOn(schedule, 'cancelAutoStartConversation').mockResolvedValue(undefined)
+      const scheduleSpy = jest.spyOn(schedule, 'autoStartConversation').mockResolvedValue(undefined)
+
+      const newStart = new Date(Date.now() + 7200000)
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), scheduledTime: newStart },
+        registeredUser
+      )
+
+      expect(cancelSpy).toHaveBeenCalledWith(conversation._id)
+      expect(scheduleSpy).toHaveBeenCalled()
+    })
+
+    test('should reschedule the auto-stop job when scheduledEndTime changes', async () => {
+      const cancelSpy = jest.spyOn(schedule, 'cancelAutoStopConversation').mockResolvedValue(undefined)
+      const scheduleSpy = jest.spyOn(schedule, 'autoStopConversation').mockResolvedValue(undefined)
+
+      const newEnd = new Date(Date.now() + 10800000)
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), scheduledEndTime: newEnd },
+        registeredUser
+      )
+
+      expect(cancelSpy).toHaveBeenCalledWith(conversation._id)
+      expect(scheduleSpy).toHaveBeenCalled()
+    })
+
+    /* Fix #2: when a conversation moves to a different topic, the old topic's
+       conversations list should no longer include it. Before this fix, only the
+       new topic was updated. */
+    test('should remove the conversation from the old topic when reassigned', async () => {
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), topicId: topicTwo._id.toString() },
+        registeredUser
+      )
+
+      const oldTopic = await Topic.findById(topicOne._id)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const oldTopicConvIds = oldTopic!.conversations.map((c: any) => c._id?.toString() ?? c.toString())
+      expect(oldTopicConvIds).not.toContain(conversation._id.toString())
+    })
+
+    /* Fix #4: features with enabled: false should be saved as false, not dropped.
+       Before this fix, the Joi validation schema stripped the enabled field,
+       so disabled features would silently revert to their type defaults. */
+    test('should persist a feature with enabled: false to the database', async () => {
+      await conversationService.updateConversation(
+        {
+          id: conversation._id.toString(),
+          features: [{ name: 'moderatorSupport', enabled: false, config: {} }]
+        },
+        registeredUser
+      )
+
+      const updated = await Conversation.findById(conversation._id)
+      const features = updated!.features as Feature[]
+      expect(features).toHaveLength(1)
+      expect(features[0].name).toBe('moderatorSupport')
+      expect(features[0].enabled).toBe(false)
+    })
+
+    /* Fix #5: switching to a conversation type that doesn't support the event's
+       current platform should return a clear 400 error, not silently drop adapters. */
+    test('should reject a type change when the existing platform is not supported by the new type', async () => {
+      /* Register a minimal conversation type that supports no platforms, so switching
+         to it from a zoom-based event should fail the platform compatibility check. */
+      const zoomlessType = {
+        name: 'zoomlessType',
+        label: 'Zoomless Type',
+        description: 'A type that does not support zoom',
+        platforms: [],
+        properties: [],
+        features: [],
+        agentTypes: []
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setConversationTypes({ ...getAllConversationTypes(), zoomlessType } as any)
+
+      try {
+        await expect(
+          conversationService.updateConversation({ id: conversation._id.toString(), type: 'zoomlessType' }, registeredUser)
+        ).rejects.toMatchObject({ statusCode: httpStatus.BAD_REQUEST })
+      } finally {
+        resetConversationTypes()
+      }
+    })
+
+    /* Fix #6: a type-only update (no features field sent) should keep the event's
+       existing features. Before this fix, resolveConversationType was always called
+       with an empty features array, dropping any features that were already saved. */
+    test('should preserve existing features when only the type changes', async () => {
+      await conversationService.updateConversation(
+        {
+          id: conversation._id.toString(),
+          features: [{ name: 'moderatorSupport', config: { minContributionInterval: 5 } }]
+        },
+        registeredUser
+      )
+
+      await conversationService.updateConversation({ id: conversation._id.toString(), type: 'backChannel' }, registeredUser)
+
+      const updated = await Conversation.findById(conversation._id)
+      const features = updated!.features as Feature[]
+      expect(features.some((f) => f.name === 'moderatorSupport')).toBe(true)
+    })
   })
 
   describe('findByIdFull()', () => {
@@ -1492,6 +1603,36 @@ describe('Conversation service methods', () => {
 
       expect(result).toBeDefined()
       expect(result.channels).toBeDefined()
+    })
+
+    /* Fix #3: private topic fields (like passcode) should not appear in the response.
+       Before this fix, topic was populated with toObject() which bypasses the toJSON
+       plugin transform, leaking fields marked private: true. */
+    test('should not expose private fields from the topic', async () => {
+      /* Override owner so registeredUser (the test caller) can create a conversation
+         on this private topic. Private topics only allow their owner to create events. */
+      const privateTopic = { ...newPrivateTopic(), owner: registeredUser._id }
+      await insertTopics([privateTopic])
+
+      const params = {
+        type: 'eventAssistant',
+        name: 'Private Topic Event',
+        platforms: ['zoom'],
+        topicId: privateTopic._id.toString(),
+        /* Schedule 2 hours out so it doesn't conflict with the beforeEach conversation
+           (1 hour out). The adapter service rejects two Zoom events within 10 minutes. */
+        scheduledTime: new Date(Date.now() + 7200000),
+        properties: {
+          zoomMeetingUrl: 'https://zoom.us/j/555555555'
+        }
+      }
+      const privateConversation = await conversationService.createConversationFromType(params, registeredUser)
+
+      const result = await conversationService.findByIdFull(privateConversation._id.toString(), registeredUser)
+
+      expect(result.topic).toBeDefined()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((result.topic as any).passcode).toBeUndefined()
     })
   })
 })
