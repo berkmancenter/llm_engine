@@ -33,6 +33,7 @@ const updateConversation = {
     features: Joi.array().items(
       Joi.object().keys({
         name: Joi.string().required(),
+        enabled: Joi.boolean(),
         config: Joi.object()
       })
     ),

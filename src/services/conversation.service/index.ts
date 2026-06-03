@@ -278,14 +278,16 @@ const updateConversation = async (conversationBody, user) => {
 
   const oldResources = incomingResources !== undefined ? [...conversationDoc.resources] : null
 
-  // updateDocument does a shallow doc[key] = body[key], which would wipe all existing
-  // property keys if `properties` passed through. Merge manually instead.
+  /* updateDocument sets doc[key] = body[key] directly, so passing properties through
+     would overwrite all existing keys with only what the caller sent. We merge manually
+     so only the changed keys are affected. */
   if (incomingProperties !== undefined) {
     conversationDoc.properties = { ...conversationDoc.properties, ...incomingProperties }
-    conversationDoc.markModified('properties') // required for Mongoose Mixed fields
+    conversationDoc.markModified('properties') // Mongoose won't detect changes inside a Mixed field without this
 
-    // meetingUrl and botName are baked into the adapter config at creation from Handlebars
-    // templates — they don't update automatically when properties change.
+    /* The Zoom adapter's meetingUrl and botName are set once at creation from Handlebars
+       templates. They don't sync automatically when the conversation's properties change,
+       so we update the adapter config here too. */
     const adapterConfigUpdates: Record<string, unknown> = {}
     if (incomingProperties.zoomMeetingUrl !== undefined) {
       adapterConfigUpdates.meetingUrl = incomingProperties.zoomMeetingUrl
@@ -305,23 +307,44 @@ const updateConversation = async (conversationBody, user) => {
 
   if (incomingFeatures !== undefined) {
     conversationDoc.features = incomingFeatures
-    conversationDoc.markModified('features') // required for Mongoose Mixed array fields
+    conversationDoc.markModified('features') // Mongoose won't detect changes inside a Mixed array without this
   }
 
   if (topicId !== undefined) {
-    const topic = await Topic.findById(topicId)
-    if (!topic) {
+    const newTopic = await Topic.findById(topicId)
+    if (!newTopic) {
       throw new ApiError(httpStatus.NOT_FOUND, 'Topic not found')
     }
+
+    /* Keep topic membership in sync on both sides. Without this, the old topic's
+       conversations list would still include this event after it's been reassigned. */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    conversationDoc.topic = topic._id as any
+    const oldTopic = conversationDoc.topic as any
+    if (oldTopic?._id?.toString() !== topicId) {
+      await Topic.findByIdAndUpdate(oldTopic._id, { $pull: { conversations: conversationDoc._id } })
+      newTopic.conversations.push(conversationDoc.toObject())
+      await newTopic.save()
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    conversationDoc.topic = newTopic._id as any
   }
 
-  // Agents and adapters are type-specific — changing type requires recreating them.
+  // Agents and adapters are wired to a specific conversation type, so switching types requires recreating them.
   if (type !== undefined && type !== conversationDoc.conversationType) {
     const conversationType = getConversationType(type)
     if (!conversationType) {
       throw new ApiError(httpStatus.NOT_FOUND, `Conversation type ${type} not found`)
+    }
+
+    /* Verify the conversation's existing platforms are supported by the new type.
+       resolveConversationType silently produces no adapters for unrecognized platforms,
+       so we catch this here and return a clear error instead. */
+    const incompatiblePlatforms = conversationDoc.platforms?.filter(
+      (p) => !conversationType.platforms.some((cp) => cp.name === p)
+    )
+    if (incompatiblePlatforms?.length) {
+      throw new ApiError(httpStatus.BAD_REQUEST, `Platform(s) not supported by ${type}: ${incompatiblePlatforms.join(', ')}`)
     }
 
     await Agent.deleteMany({ conversation: conversationDoc._id })
@@ -329,11 +352,13 @@ const updateConversation = async (conversationBody, user) => {
     conversationDoc.agents = []
     conversationDoc.adapters = []
 
+    /* Fall back to the conversation's existing features if none were sent with this
+       request. Without this, a type-only update would drop all feature-gated agents. */
     const resolved = resolveConversationType(
       {
         platforms: conversationDoc.platforms,
         properties: conversationDoc.properties,
-        features: incomingFeatures
+        features: incomingFeatures ?? conversationDoc.features
       },
       conversationType
     )
@@ -363,6 +388,16 @@ const updateConversation = async (conversationBody, user) => {
   }
 
   await conversationDoc!.save()
+
+  /* Reschedule auto-start and auto-stop jobs whenever the scheduled times change.
+     scheduleConversationAutoStart cancels the existing job before creating the new one,
+     so this is safe to call even if a job was already registered. */
+  if (restBody.scheduledTime !== undefined && conversationDoc!.scheduledTime) {
+    await scheduleConversationAutoStart(conversationDoc!)
+  }
+  if (restBody.scheduledEndTime !== undefined && conversationDoc!.scheduledEndTime) {
+    await scheduleConversationAutoStop(conversationDoc!)
+  }
 
   await transcript.loadEventMetadataIntoVectorStore(conversationDoc!)
   websocketGateway.broadcastConversationUpdate(conversationDoc)
@@ -408,7 +443,7 @@ const findByIdFull = async (id, user) => {
     .populate('agents')
     .populate('channels')
     .populate('adapters')
-    .populate('topic')
+    .populate({ path: 'topic', select: 'name slug description owner' })
     .exec()
   if (!conversation) {
     throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${id} not found`)
