@@ -13,10 +13,12 @@ import { conversationService, messageService, transcriptService } from '../index
 
 const transcriptBatchInterval = 30
 const SUMMARIZATION_PROMPT = `Please summarize what happened during this conversation. Where possible, also draw conclusions about outcomes of the discussion. 
-  
+  - **IMPORTANT**: you are summarizing for the event attendees. You are not worried about things like engagement or metrics. You want to provide a clear and concise summary of the key points and outcomes in a digestible format.
+  - The tone is friendly and conversational.
   - The event content will be made up of a transcript as well as participant messages. 
   - The transcript is drawing from what was said by the speakers in the event, or in some cases might be a video presentation of some kind. Be aware that speakers are generally allowed to use whatever media they would like during the conversation.
-  - The participant messages are from attendees in a group chat either on Zoom or within a custom-built front-end app.`
+  - The participant messages are from attendees in a group chat either on Zoom or within a custom-built front-end app.
+  - Participants might want to know what other participants were saying relative to the event wrap-up.`
 
 export const updateTranscriptStatus = async (
   conversation,
@@ -79,12 +81,12 @@ export async function doStopConversation(conversation) {
   doc.active = false
 
   if (doc.transcript) {
+    const llm = await getModelChat(coreLLMPlatform, coreLLMModel)
     const owner = await User.findById(conversation.owner)
     const conversationDoc = await conversationService.findByIdFull(doc._id, owner)
 
     await updateTranscriptStatus(doc, 'stopped')
 
-    const llm = await getModelChat(coreLLMPlatform, coreLLMModel)
     // Get transcript and participant messages
     const transcript = await transcriptService.getPlainTextTranscript(doc._id)
     const participantMessages = await messageService.conversationMessages(
@@ -97,7 +99,7 @@ export async function doStopConversation(conversation) {
       ],
       owner
     )
-    const structured = await getChatPromptResponse(
+    const structuredSummary = await getChatPromptResponse(
       llm,
       SUMMARIZATION_PROMPT,
       `Event Transcript: {transcript}, Participant Messages: {participantMessages}`,
@@ -106,7 +108,7 @@ export async function doStopConversation(conversation) {
 
     logger.debug(`Conversation summary generated for conversation ${doc._id}`)
 
-    doc.summary = structured
+    doc.summary = structuredSummary
   }
   await doc.save()
   return doc
