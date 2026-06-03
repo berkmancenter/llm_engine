@@ -1,13 +1,11 @@
 import { Poll, PollChoice, PollResponse } from '../../src/models/poll.model/index.js'
-import { newPrivateTopic } from './topic.fixture.js'
+import { conversationOne } from './conversation.fixture.js'
 import WHEN_RESULTS_VISIBLE from '../../src/models/poll.model/constants.js'
-
-const privateTopic = newPrivateTopic()
 
 const pollOneBody = {
   title: 'Multiselect open threshold/expiration poll with hidden choices and visible responses for own choices',
   owner: 'TO BE OVERWRITTEN',
-  topicId: privateTopic._id.toString(),
+  conversationId: conversationOne._id.toString(),
   threshold: 1,
   // will be filled in when created so expiration can be tested expirationDate:
   multiSelect: true,
@@ -22,7 +20,7 @@ const pollOneBody = {
 
 const pollTwoBody = {
   title: 'Single select closed threshold only poll with visible choices and visible responses for all choices',
-  topicId: privateTopic._id.toString(),
+  conversationId: conversationOne._id.toString(),
   threshold: 2,
   multiSelect: false,
   allowNewChoices: false,
@@ -47,7 +45,7 @@ const pollTwoBody = {
 
 const pollThreeBody = {
   title: 'Single select closed expiration only poll with visible choices and response counts for all',
-  topicId: privateTopic._id.toString(),
+  conversationId: conversationOne._id.toString(),
   // will be filled in when created so expiration can be tested expirationDate:
   multiSelect: false,
   allowNewChoices: false,
@@ -80,4 +78,4 @@ const getPollChoices = async (pollId) => PollChoice.find({ poll: pollId }).sort(
 
 const getPollResponses = async (pollId) => PollResponse.find({ poll: pollId }).sort({ createdAt: 1 })
 
-export { pollOneBody, pollTwoBody, pollThreeBody, insertPolls, getPolls, getPollChoices, getPollResponses, privateTopic }
+export { pollOneBody, pollTwoBody, pollThreeBody, insertPolls, getPolls, getPollChoices, getPollResponses }
