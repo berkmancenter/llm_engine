@@ -14,7 +14,8 @@ import {
   registeredUserAccessToken
 } from '../../fixtures/token.fixture.js'
 import { insertTopics } from '../../fixtures/topic.fixture.js'
-import { pollThreeBody, privateTopic, getPollChoices } from '../../fixtures/poll.fixture.js'
+import { conversationOne, insertConversations, publicTopic } from '../../fixtures/conversation.fixture.js'
+import { pollThreeBody, getPollChoices } from '../../fixtures/poll.fixture.js'
 import config from '../../../src/config/config.js'
 import sleep from '../../../src/utils/sleep.js'
 import websocketGateway from '../../../src/websockets/websocketGateway.js'
@@ -34,7 +35,8 @@ describe(`Poll API - Variant 3: ${pollThreeBody.title}`, () => {
     await mongoose.connect(config.mongoose.url, config.mongoose.options)
     await Promise.all(Object.values(mongoose.connection.collections).map(async (collection) => collection.deleteMany({})))
     await insertUsers([userOne, userTwo, admin, registeredUser])
-    await insertTopics([privateTopic])
+    await insertTopics([publicTopic])
+    await insertConversations([conversationOne])
   })
 
   afterAll(async () => {
@@ -42,7 +44,6 @@ describe(`Poll API - Variant 3: ${pollThreeBody.title}`, () => {
     await mongoose.disconnect()
   })
 
-  let topicId
   let pollId
   let pollData
 
@@ -67,13 +68,12 @@ describe(`Poll API - Variant 3: ${pollThreeBody.title}`, () => {
     pollId = resp.body.id
 
     pollData = { ...body }
-    topicId = pollData.topicId
-    delete pollData.topicId
+    delete pollData.conversationId
     delete pollData.owner
     delete pollData.choices
 
     expect(resp.body).toMatchObject(pollData)
-    expect(resp.body.topic.id).toMatch(pollThreeBody.topicId)
+    expect(resp.body.conversation.id).toMatch(pollThreeBody.conversationId)
     expect(resp.body.owner).toMatch(userOne._id.toString())
   })
 
@@ -82,7 +82,6 @@ describe(`Poll API - Variant 3: ${pollThreeBody.title}`, () => {
       choice: {
         text: 'NEW CHOICE NOT ALREADY AVAILABLE'
       },
-      topicId
     }
 
     const resp = await request(app)
@@ -108,7 +107,6 @@ describe(`Poll API - Variant 3: ${pollThreeBody.title}`, () => {
       choice: {
         text: CHOICE1_TEXT
       },
-      topicId
     }
     jest.spyOn(websocketGateway, 'broadcastNewPollChoice').mockResolvedValue()
     const resp = await request(app)
@@ -146,7 +144,6 @@ describe(`Poll API - Variant 3: ${pollThreeBody.title}`, () => {
       choice: {
         text: CHOICE2_TEXT
       },
-      topicId
     }
     jest.spyOn(websocketGateway, 'broadcastNewPollChoice').mockResolvedValue()
     const resp = await request(app)
@@ -181,7 +178,6 @@ describe(`Poll API - Variant 3: ${pollThreeBody.title}`, () => {
       choice: {
         text: CHOICE2_TEXT
       },
-      topicId
     }
 
     const resp = await request(app)
@@ -198,7 +194,6 @@ describe(`Poll API - Variant 3: ${pollThreeBody.title}`, () => {
       choice: {
         text: CHOICE1_TEXT
       },
-      topicId
     }
     jest.spyOn(websocketGateway, 'broadcastNewPollChoice').mockResolvedValue()
     const resp = await request(app)

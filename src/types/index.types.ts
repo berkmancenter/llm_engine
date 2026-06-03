@@ -357,7 +357,7 @@ export interface IPoll {
   owner: IUser
   threshold?: number
   expirationDate?: Date
-  topic: ITopic
+  conversation: IConversation
   multiSelect: boolean
   allowNewChoices: boolean
   choicesVisible: boolean
