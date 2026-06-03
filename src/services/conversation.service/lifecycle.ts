@@ -81,34 +81,38 @@ export async function doStopConversation(conversation) {
   doc.active = false
 
   if (doc.transcript) {
-    const llm = await getModelChat(coreLLMPlatform, coreLLMModel)
-    const owner = await User.findById(conversation.owner)
-    const conversationDoc = await conversationService.findByIdFull(doc._id, owner)
-
     await updateTranscriptStatus(doc, 'stopped')
+    const owner = await User.findById(conversation.owner)
+    
+    if (owner) {
+      const conversationDoc = await conversationService.findByIdFull(doc._id, owner)
+      
+      if (conversationDoc) {
+        const llm = await getModelChat(coreLLMPlatform, coreLLMModel)
+        // Get transcript and participant messages
+        const transcript = await transcriptService.getPlainTextTranscript(doc._id)
+        const participantMessages = await messageService.conversationMessages(
+          doc._id,
+          [
+            {
+              name: 'chat',
+              passcode: (conversationDoc.channels.find((c) => c.name === 'chat') ?? { passcode: undefined })?.passcode
+            }
+          ],
+          owner
+        )
+        const structuredSummary = await getChatPromptResponse(
+          llm,
+          SUMMARIZATION_PROMPT,
+          `Event Transcript: {transcript}, Participant Messages: {participantMessages}`,
+          { transcript, participantMessages }
+        )
 
-    // Get transcript and participant messages
-    const transcript = await transcriptService.getPlainTextTranscript(doc._id)
-    const participantMessages = await messageService.conversationMessages(
-      doc._id,
-      [
-        {
-          name: 'chat',
-          passcode: (conversationDoc.channels.find((c) => c.name === 'chat') ?? { passcode: undefined })?.passcode
-        }
-      ],
-      owner
-    )
-    const structuredSummary = await getChatPromptResponse(
-      llm,
-      SUMMARIZATION_PROMPT,
-      `Event Transcript: {transcript}, Participant Messages: {participantMessages}`,
-      { transcript, participantMessages }
-    )
+        logger.debug(`Conversation summary generated for conversation ${doc._id}`)
 
-    logger.debug(`Conversation summary generated for conversation ${doc._id}`)
-
-    doc.summary = structuredSummary
+        doc.summary = structuredSummary
+      } else logger.warn(`No conversation document found for conversation ${doc._id}`)
+    } else logger.warn(`No owner found for conversation ${doc._id}`)
   }
   await doc.save()
   return doc
