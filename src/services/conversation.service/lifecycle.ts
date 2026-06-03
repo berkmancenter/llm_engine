@@ -8,10 +8,15 @@ import logger from '../../config/logger.js'
 import adapterService from '../adapter.service.js'
 import { getChatPromptResponse } from '../../agents/helpers/llmChain.js'
 import { coreLLMModel, coreLLMPlatform, getModelChat } from '../../agents/helpers/getModelChat.js'
-import { messageService } from '../index.js'
 import { User } from '../../models/index.js'
+import { conversationService, messageService, transcriptService } from '../index.js'
 
 const transcriptBatchInterval = 30
+const SUMMARIZATION_PROMPT = `Please summarize what happened during this conversation. Where possible, also draw conclusions about outcomes of the discussion. 
+  
+  - The event content will be made up of a transcript as well as participant messages. 
+  - The transcript is drawing from what was said by the speakers in the event, or in some cases might be a video presentation of some kind. Be aware that speakers are generally allowed to use whatever media they would like during the conversation.
+  - The participant messages are from attendees in a group chat either on Zoom or within a custom-built front-end app.`
 
 export const updateTranscriptStatus = async (
   conversation,
@@ -72,34 +77,36 @@ export async function doStopConversation(conversation) {
     await adapterService.stop(adapter)
   }
   doc.active = false
-  if (doc.transcript) {
-    await updateTranscriptStatus(doc, 'stopped')
-    const llm = await getModelChat(coreLLMPlatform, coreLLMModel)
 
+  if (doc.transcript) {
+    const owner = await User.findById(conversation.owner)
+    const conversationDoc = await conversationService.findByIdFull(doc._id, owner)
+
+    await updateTranscriptStatus(doc, 'stopped')
+
+    const llm = await getModelChat(coreLLMPlatform, coreLLMModel)
+    // Get transcript and participant messages
+    const transcript = await transcriptService.getPlainTextTranscript(doc._id)
+    const participantMessages = await messageService.conversationMessages(
+      doc._id,
+      [
+        {
+          name: 'chat',
+          passcode: (conversationDoc.channels.find((c) => c.name === 'chat') ?? { passcode: undefined })?.passcode
+        }
+      ],
+      owner
+    )
     const structured = await getChatPromptResponse(
       llm,
-      'Please summarize the events of this conversation.',
-      `Event Transcript: {content}`,
-      { content: doc.transcript }
+      SUMMARIZATION_PROMPT,
+      `Event Transcript: {transcript}, Participant Messages: {participantMessages}`,
+      { transcript, participantMessages }
     )
 
-    logger.debug(`Conversation summary for ${doc._id}: ${structured}`)
+    logger.debug(`Conversation summary generated for conversation ${doc._id}`)
 
     doc.summary = structured
-
-    // Send to summary channel
-    const msg = {
-      conversation,
-      channels: ['summary'],
-      body: structured,
-      source: 'system',
-      bodyType: 'text'
-    }
-
-    // Get owner user
-    const owner = await User.findById(conversation.owner)
-    await messageService.newMessageHandler(msg, owner)
-    
   }
   await doc.save()
   return doc
