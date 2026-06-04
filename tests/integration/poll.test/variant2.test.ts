@@ -14,6 +14,7 @@ import { conversationOne, insertConversations, publicTopic } from '../../fixture
 import { pollTwoBody, getPollChoices } from '../../fixtures/poll.fixture.js'
 import config from '../../../src/config/config.js'
 import websocketGateway from '../../../src/websockets/websocketGateway.js'
+import schedule from '../../../src/jobs/schedule.js'
 
 // allow more time
 jest.setTimeout(10000)
@@ -44,6 +45,7 @@ describe(`Poll API - Variant 2: ${pollTwoBody.title}`, () => {
   test('Create a poll', async () => {
     const body = { ...pollTwoBody }
     jest.spyOn(websocketGateway, 'broadcastNewPoll').mockResolvedValue()
+    jest.spyOn(schedule, 'pollExpired').mockResolvedValue()
     const resp = await request(app)
       .post(BASE_API)
       .set('Authorization', `Bearer ${userOneAccessToken}`)
@@ -61,13 +63,15 @@ describe(`Poll API - Variant 2: ${pollTwoBody.title}`, () => {
     expect(resp.body).toMatchObject(pollData)
     expect(resp.body.conversation.id).toMatch(pollTwoBody.conversationId)
     expect(resp.body.owner).toMatch(userOne._id.toString())
+    // THRESHOLD_ONLY polls strip expirationDate — no expiration job scheduled
+    expect(schedule.pollExpired).not.toHaveBeenCalled()
   })
 
   test('User 1 responds to poll with unavailable choice', async () => {
     const body = {
       choice: {
         text: 'NEW CHOICE NOT ALREADY AVAILABLE'
-      },
+      }
     }
 
     const resp = await request(app)
@@ -92,7 +96,7 @@ describe(`Poll API - Variant 2: ${pollTwoBody.title}`, () => {
     const body = {
       choice: {
         text: CHOICE1_TEXT
-      },
+      }
     }
     jest.spyOn(websocketGateway, 'broadcastNewPollChoice').mockResolvedValue()
     const resp = await request(app)
@@ -129,7 +133,7 @@ describe(`Poll API - Variant 2: ${pollTwoBody.title}`, () => {
     const body = {
       choice: {
         text: CHOICE2_TEXT
-      },
+      }
     }
     jest.spyOn(websocketGateway, 'broadcastNewPollChoice').mockResolvedValue()
     const resp = await request(app)
@@ -163,7 +167,7 @@ describe(`Poll API - Variant 2: ${pollTwoBody.title}`, () => {
     const body = {
       choice: {
         text: CHOICE2_TEXT
-      },
+      }
     }
 
     const resp = await request(app)
@@ -179,9 +183,10 @@ describe(`Poll API - Variant 2: ${pollTwoBody.title}`, () => {
     const body = {
       choice: {
         text: CHOICE1_TEXT
-      },
+      }
     }
     jest.spyOn(websocketGateway, 'broadcastNewPollChoice').mockResolvedValue()
+    jest.spyOn(websocketGateway, 'broadcastPollThreshold').mockResolvedValue()
     const resp = await request(app)
       .post(`${BASE_API}/${pollId}/respond`)
       .set('Authorization', `Bearer ${adminAccessToken}`)
@@ -198,6 +203,8 @@ describe(`Poll API - Variant 2: ${pollTwoBody.title}`, () => {
     }
 
     expect(resp.body).toMatchObject(expectedResp)
+    // threshold=2 is reached on second vote for Choice 1 (User 1 + Admin)
+    expect(websocketGateway.broadcastPollThreshold).toHaveBeenCalledWith(pollTwoBody.conversationId, pollId)
   })
 
   test('User 1 checks responses after poll threshold is reached', async () => {

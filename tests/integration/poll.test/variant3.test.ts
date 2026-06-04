@@ -19,6 +19,7 @@ import { pollThreeBody, getPollChoices } from '../../fixtures/poll.fixture.js'
 import config from '../../../src/config/config.js'
 import sleep from '../../../src/utils/sleep.js'
 import websocketGateway from '../../../src/websockets/websocketGateway.js'
+import schedule from '../../../src/jobs/schedule.js'
 
 // allow more time
 jest.setTimeout(10000)
@@ -58,6 +59,8 @@ describe(`Poll API - Variant 3: ${pollThreeBody.title}`, () => {
     const body: any = { ...pollThreeBody }
     body.expirationDate = expirationDate.toISOString()
     jest.spyOn(websocketGateway, 'broadcastNewPoll').mockResolvedValue()
+    jest.spyOn(schedule, 'pollExpired').mockResolvedValue()
+    jest.spyOn(websocketGateway, 'broadcastPollThreshold').mockResolvedValue()
     const resp = await request(app)
       .post(BASE_API)
       .set('Authorization', `Bearer ${userOneAccessToken}`)
@@ -75,13 +78,17 @@ describe(`Poll API - Variant 3: ${pollThreeBody.title}`, () => {
     expect(resp.body).toMatchObject(pollData)
     expect(resp.body.conversation.id).toMatch(pollThreeBody.conversationId)
     expect(resp.body.owner).toMatch(userOne._id.toString())
+    expect(schedule.pollExpired).toHaveBeenCalledWith(expect.any(Date), {
+      pollId: expect.any(String),
+      conversationId: pollThreeBody.conversationId
+    })
   })
 
   test('User 1 responds to poll with unavailable choice', async () => {
     const body = {
       choice: {
         text: 'NEW CHOICE NOT ALREADY AVAILABLE'
-      },
+      }
     }
 
     const resp = await request(app)
@@ -106,7 +113,7 @@ describe(`Poll API - Variant 3: ${pollThreeBody.title}`, () => {
     const body = {
       choice: {
         text: CHOICE1_TEXT
-      },
+      }
     }
     jest.spyOn(websocketGateway, 'broadcastNewPollChoice').mockResolvedValue()
     const resp = await request(app)
@@ -143,7 +150,7 @@ describe(`Poll API - Variant 3: ${pollThreeBody.title}`, () => {
     const body = {
       choice: {
         text: CHOICE2_TEXT
-      },
+      }
     }
     jest.spyOn(websocketGateway, 'broadcastNewPollChoice').mockResolvedValue()
     const resp = await request(app)
@@ -177,7 +184,7 @@ describe(`Poll API - Variant 3: ${pollThreeBody.title}`, () => {
     const body = {
       choice: {
         text: CHOICE2_TEXT
-      },
+      }
     }
 
     const resp = await request(app)
@@ -193,7 +200,7 @@ describe(`Poll API - Variant 3: ${pollThreeBody.title}`, () => {
     const body = {
       choice: {
         text: CHOICE1_TEXT
-      },
+      }
     }
     jest.spyOn(websocketGateway, 'broadcastNewPollChoice').mockResolvedValue()
     const resp = await request(app)
@@ -223,6 +230,8 @@ describe(`Poll API - Variant 3: ${pollThreeBody.title}`, () => {
       .expect(httpStatus.FORBIDDEN)
 
     expect(resp.body.message.includes('Responses are not visible for this poll')).toBe(true)
+    // EXPIRATION_ONLY with no threshold — broadcastPollThreshold never fires
+    expect(websocketGateway.broadcastPollThreshold).not.toHaveBeenCalled()
   })
 
   test('User 2 checks response counts after expiration is reached', async () => {

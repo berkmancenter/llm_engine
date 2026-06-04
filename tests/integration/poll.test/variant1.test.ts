@@ -14,6 +14,7 @@ import { pollOneBody, getPollChoices } from '../../fixtures/poll.fixture.js'
 import config from '../../../src/config/config.js'
 import sleep from '../../../src/utils/sleep.js'
 import websocketGateway from '../../../src/websockets/websocketGateway.js'
+import schedule from '../../../src/jobs/schedule.js'
 
 // allow more time
 jest.setTimeout(10000)
@@ -55,6 +56,7 @@ describe(`Poll API - Variant 1: ${pollOneBody.title}`, () => {
     const body: any = { ...pollOneBody }
     body.expirationDate = expirationDate.toISOString()
     jest.spyOn(websocketGateway, 'broadcastNewPoll').mockResolvedValue()
+    jest.spyOn(schedule, 'pollExpired').mockResolvedValue()
     const resp = await request(app)
       .post(BASE_API)
       .set('Authorization', `Bearer ${userOneAccessToken}`)
@@ -71,15 +73,20 @@ describe(`Poll API - Variant 1: ${pollOneBody.title}`, () => {
     expect(resp.body).toMatchObject(pollData)
     expect(resp.body.conversation.id).toMatch(pollOneBody.conversationId)
     expect(resp.body.owner).toMatch(userOne._id.toString())
+    expect(schedule.pollExpired).toHaveBeenCalledWith(expect.any(Date), {
+      pollId: expect.any(String),
+      conversationId: pollOneBody.conversationId
+    })
   })
 
   test('User 1 responds to poll choice 1', async () => {
     const body = {
       choice: {
         text: CHOICE1_TEXT
-      },
+      }
     }
     jest.spyOn(websocketGateway, 'broadcastNewPollChoice').mockResolvedValue()
+    jest.spyOn(websocketGateway, 'broadcastPollThreshold').mockResolvedValue()
     const resp = await request(app)
       .post(`${BASE_API}/${pollId}/respond`)
       .set('Authorization', `Bearer ${userOneAccessToken}`)
@@ -98,13 +105,15 @@ describe(`Poll API - Variant 1: ${pollOneBody.title}`, () => {
     user1PollResponse1 = expectedResp
 
     expect(resp.body).toMatchObject(expectedResp)
+    // threshold=1 is reached on first vote
+    expect(websocketGateway.broadcastPollThreshold).toHaveBeenCalledWith(pollOneBody.conversationId, pollId)
   })
 
   test('User 1 responds to poll choice 1 again', async () => {
     const body = {
       choice: {
         text: CHOICE1_TEXT
-      },
+      }
     }
     jest.spyOn(websocketGateway, 'broadcastNewPollChoice').mockResolvedValue()
     const resp = await request(app)
@@ -141,7 +150,7 @@ describe(`Poll API - Variant 1: ${pollOneBody.title}`, () => {
     const body = {
       choice: {
         text: CHOICE2_TEXT
-      },
+      }
     }
     jest.spyOn(websocketGateway, 'broadcastNewPollChoice').mockResolvedValue()
     const resp = await request(app)
@@ -169,7 +178,7 @@ describe(`Poll API - Variant 1: ${pollOneBody.title}`, () => {
       choice: {
         text: CHOICE2_TEXT,
         remove: true
-      },
+      }
     }
     jest.spyOn(websocketGateway, 'broadcastNewPollChoice').mockResolvedValue()
     const resp = await request(app)
@@ -186,7 +195,7 @@ describe(`Poll API - Variant 1: ${pollOneBody.title}`, () => {
     const body = {
       choice: {
         text: CHOICE2_TEXT
-      },
+      }
     }
     jest.spyOn(websocketGateway, 'broadcastNewPollChoice').mockResolvedValue()
     const resp = await request(app)
@@ -211,7 +220,7 @@ describe(`Poll API - Variant 1: ${pollOneBody.title}`, () => {
     const body = {
       choice: {
         text: CHOICE2_TEXT
-      },
+      }
     }
     jest.spyOn(websocketGateway, 'broadcastNewPollChoice').mockResolvedValue()
     const resp = await request(app)
@@ -265,7 +274,7 @@ describe(`Poll API - Variant 1: ${pollOneBody.title}`, () => {
     const body = {
       choice: {
         text: CHOICE1_TEXT
-      },
+      }
     }
 
     const resp = await request(app)
@@ -282,7 +291,7 @@ describe(`Poll API - Variant 1: ${pollOneBody.title}`, () => {
       choice: {
         text: CHOICE1_TEXT,
         remove: true
-      },
+      }
     }
 
     const resp = await request(app)
