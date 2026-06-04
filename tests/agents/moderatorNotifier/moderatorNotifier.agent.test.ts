@@ -60,6 +60,14 @@ describe('moderator agent tests', () => {
     await loadPartTimeWorkTranscript(conversation)
   })
 
+  const participantPseudonyms = ['Curious Badger', 'Thoughtful Fox', 'Skeptical Owl']
+
+  const assertNoPseudonyms = (text: string) => {
+    for (const pseudonym of participantPseudonyms) {
+      expect(text).not.toContain(pseudonym)
+    }
+  }
+
   const assertEscalated = (responses) => {
     expect(responses.length).toBeGreaterThan(0)
     const moderatorResponse = responses.find((r) => r.channels.some((c) => c.name === 'moderator'))
@@ -70,6 +78,7 @@ describe('moderator agent tests', () => {
     expect(Array.isArray(insights)).toBe(true)
     expect(insights.length).toBeGreaterThan(0)
     expect(insights[0]).toHaveProperty('value')
+    assertNoPseudonyms(insights.map((i: { value: string }) => i.value).join(' '))
   }
 
   const assertNotEscalated = (responses) => {
@@ -486,6 +495,58 @@ describe('moderator agent tests', () => {
 
         const responses = await defaultAgentTypes.moderatorNotifier.respond.call(agent, conversationHistory)
         assertEscalated(responses)
+      },
+      testTimeout
+    )
+  })
+
+  describe('privacy', () => {
+    it(
+      'does not include participant pseudonyms in the moderator message',
+      async () => {
+        // Use named, distinctive messages to make pseudonym leakage tempting for the LLM
+        const messages = [
+          await createDirectMessage(
+            'Curious Badger here — I have a specific question about how part-time structures work for manufacturing roles',
+            user1,
+            conversation,
+            getMessageTime(100)
+          ),
+          await createDirectMessage(
+            "I'm Thoughtful Fox and I'm wondering the same thing about manufacturing",
+            user2,
+            conversation,
+            getMessageTime(130)
+          ),
+          await createDirectMessage(
+            'Skeptical Owl asking: does this scale beyond white-collar industries?',
+            user3,
+            conversation,
+            getMessageTime(160)
+          ),
+          await createDirectMessage(
+            'Also from Curious Badger — no examples of blue-collar part-time so far',
+            user1,
+            conversation,
+            getMessageTime(190)
+          )
+        ]
+        await prepareMessagesForAgent(messages, conversation, agent)
+
+        const conversationHistory = getConversationHistory(conversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 280 * 1000)
+        })
+
+        const responses = await defaultAgentTypes.moderatorNotifier.respond.call(agent, conversationHistory)
+        if (responses.length > 0) {
+          const moderatorResponse = responses.find((r) => r.channels.some((c) => c.name === 'moderator'))
+          if (moderatorResponse?.message?.insights) {
+            const messageText = moderatorResponse.message.insights.map((i: { value: string }) => i.value).join(' ')
+            assertNoPseudonyms(messageText)
+          }
+        }
       },
       testTimeout
     )
