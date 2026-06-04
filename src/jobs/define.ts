@@ -33,6 +33,10 @@ const defineJob = {
   summarizePdf: async () => {
     await agenda.start()
     await agenda.define('summarize pdf', JobHandlers.summarizePdf)
+  },
+  pollExpired: async () => {
+    await agenda.start()
+    await agenda.define('poll expired', JobHandlers.pollExpired)
   }
 }
 

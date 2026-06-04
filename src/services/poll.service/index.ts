@@ -2,11 +2,15 @@ import escapeStringRegexp from 'escape-string-regexp'
 import mongoose from 'mongoose'
 import httpStatus from 'http-status'
 import logger from '../../config/logger.js'
-import { Conversation, Poll, PollChoice, PollResponse } from '../../models/index.js'
+import Conversation from '../../models/conversation.model.js'
+import Poll from '../../models/poll.model/poll.js'
+import PollChoice from '../../models/poll.model/choice.js'
+import PollResponse from '../../models/poll.model/response.js'
 import ApiError from '../../utils/ApiError.js'
 import WHEN_RESULTS_VISIBLE from '../../models/poll.model/constants.js'
 import websocketGateway from '../../websockets/websocketGateway.js'
 import { IPollChoice } from '../../types/index.types.js'
+import schedule from '../../jobs/schedule.js'
 
 const createPoll = async (pollBody, user) => {
   if (!pollBody.conversationId) throw new ApiError(httpStatus.BAD_REQUEST, 'Conversation ID must be passed in request body')
@@ -59,6 +63,12 @@ const createPoll = async (pollBody, user) => {
   // We can still look up polls for a conversation with a query if needed
   logger.info('Created poll %s %s %s', poll._id, poll.title, choices?.length ?? 0)
   websocketGateway.broadcastNewPoll(poll)
+  if (poll.expirationDate) {
+    await schedule.pollExpired(poll.expirationDate, {
+      pollId: poll._id.toString(),
+      conversationId: conversation._id.toString()
+    })
+  }
   return poll
 }
 const findById = async (pollId) => {
@@ -145,6 +155,12 @@ const respondPoll = async (pollId, choiceData, user) => {
   logger.info('Response poll %s %s', pollId, user._id, choice._id)
   const responseWithIds = response.replaceObjectsWithIds()
   websocketGateway.broadcastNewPollChoice(poll.conversation, responseWithIds)
+  if (poll.threshold) {
+    const choiceCount = await PollResponse.countDocuments({ poll: poll._id, choice: choice._id })
+    if (choiceCount === poll.threshold) {
+      websocketGateway.broadcastPollThreshold(poll.conversation.toString(), poll._id.toString())
+    }
+  }
   return responseWithIds
 }
 const inspectPoll = async (pollId, user) => {

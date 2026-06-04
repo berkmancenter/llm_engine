@@ -36,6 +36,12 @@ const schedule = {
   },
   summarizePdf: async (data: { conversationId: string; resourceId: string; filePath: string; citation: string }) => {
     await agenda.now('summarize pdf', data)
+  },
+  pollExpired: async (expirationDate: Date, data: { pollId: string; conversationId: string }) => {
+    await agenda.schedule(expirationDate, 'poll expired', data)
+  },
+  cancelPollExpired: async (pollId: string) => {
+    await agenda.cancel({ name: 'poll expired', 'data.pollId': pollId })
   }
 }
 
