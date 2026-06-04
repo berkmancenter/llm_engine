@@ -158,7 +158,10 @@ async function runInterventionAnalysis(
     recentTranscript,
     retrievedChunks: chunks,
     privateMessages: privateMessages.map((m) => m.content).join('\n') || 'No private messages.',
-    sharedChatHistory: sharedChatMessages.map((m) => m.content).join('\n') || 'No shared chat messages yet.',
+    sharedChatHistory:
+      sharedChatMessages
+        .map((m) => (m.role === 'assistant' ? `Assistant: ${m.content}` : m.content))
+        .join('\n') || 'No shared chat messages yet.',
     agentRecentPosts
   }
 
