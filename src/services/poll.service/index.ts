@@ -20,7 +20,11 @@ const createPoll = async (pollBody, user) => {
     throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${conversationId} not found`)
   }
   if (user._id.toString() !== conversation.owner.toString()) {
-    throw new ApiError(httpStatus.FORBIDDEN, 'Poll creation not allowed.')
+    const userConversationId = user.conversation?._id?.toString() ?? user.conversation?.toString()
+    const isConversationAgent = user.__t === 'Agent' && userConversationId === conversationId.toString()
+    if (!isConversationAgent) {
+      throw new ApiError(httpStatus.FORBIDDEN, 'Poll creation not allowed.')
+    }
   }
   let choices
   if (pollBody.choices) choices = pollBody.choices

@@ -11,6 +11,27 @@ import {
   interventionLlmTemplateVars
 } from '../helpers/interventionHandler.js'
 import { InterventionType, InterventionAnalysis } from '../helpers/interventionTypes.js'
+import { getTools } from '../tools/registry.js'
+import { getAgentStructuredResponse } from '../helpers/llmChain.js'
+import { PollConfig } from '../tools/createPoll.js'
+import WHEN_RESULTS_VISIBLE from '../../models/poll.model/constants.js'
+
+const POLL_REVEAL_CONFIG: PollConfig = {
+  multiSelect: false,
+  allowNewChoices: false,
+  choicesVisible: true,
+  responseCountsVisible: true,
+  responsesVisible: true,
+  responsesVisibleToNonParticipants: true,
+  onlyOwnChoicesVisible: false,
+  whenResultsVisible: WHEN_RESULTS_VISIBLE.ALWAYS,
+  defaultExpirationMinutes: 3
+}
+
+const POLL_REVEAL_TOOL_DESCRIPTION =
+  'Creates a poll where results are shown immediately as votes come in. ' +
+  'Use when there are multiple genuine competing options and watching live votes accumulate would itself generate energy and discussion. ' +
+  'Best triggered by a moment of optionality — a speaker presenting alternatives, an open question with no clear consensus, or a bold claim worth testing against the room.'
 
 /**
  * Default examples for engagement intervention types
@@ -36,6 +57,15 @@ const defaultEngagementExamples = {
       '"Filed under: things I\'ll be thinking about at 2am."'
     ]
   },
+  [InterventionType.POLL_REVEAL]: {
+    description: 'A live poll where results appear immediately as votes come in, generating energy and discussion',
+    register: 'Either register',
+    examples: [
+      'Speaker presents three architectural approaches → "Which direction would you pursue first?" — watching votes accumulate drives the next discussion',
+      'Bold claim goes unchallenged → "Where does the room actually land on this?" — live results surface the real split',
+      'Natural pause or transition with competing options → poll the room and let the numbers speak'
+    ]
+  },
   [InterventionType.NONE]: {
     description: 'Strategic silence',
     register: 'N/A',
@@ -48,7 +78,7 @@ const defaultEngagementExamples = {
  */
 function getEngagementSystemPrompt(personalityName?: string | null): string {
   // Build intervention types from defaultEngagementExamples
-  const activeTypes = [InterventionType.PROVOCATION, InterventionType.PLAY]
+  const activeTypes = [InterventionType.PROVOCATION, InterventionType.PLAY, InterventionType.POLL_REVEAL]
 
   const interventionSections = activeTypes
     .map((t) => buildInterventionTypeSection(t, defaultEngagementExamples[t], personalityName))
@@ -109,7 +139,7 @@ Return a JSON object:
   "shouldIntervene": boolean,
   "interventionType": ${interventionTypesList},
   "reasoning": "Internal analysis — not posted to chat",
-  "sharedChatMessage": "Message for shared chat (null if not intervening)",
+  "sharedChatMessage": "Message for shared chat (null if not intervening or if interventionType is POLL)",
   "confidenceScore": 0-100,
   "detectedPattern": "Brief pattern description (null if none)",
   "affectedUsers": number (use 0 if no users affected)
@@ -179,14 +209,58 @@ export default verify({
       `Engagement Agent: Detected ${interventionAnalysis.interventionType} opportunity - ${interventionAnalysis.detectedPattern}`
     )
 
-    // Post to shared chat
+    const chatChannels = this.conversation.channels.filter((c: IChannel) => c.name === 'chat')
+
+    // For POLL_REVEAL interventions, use the create_poll_reveal tool via a ReAct agent
+    if (interventionAnalysis.interventionType === InterventionType.POLL_REVEAL) {
+      let createdPollId: string | undefined
+      const tools = getTools(['create_poll'], {
+        conversationId: this.conversation._id.toString(),
+        agent: this,
+        pollConfig: POLL_REVEAL_CONFIG,
+        pollDescription: POLL_REVEAL_TOOL_DESCRIPTION,
+        onPollCreated: (pollId: string) => { createdPollId = pollId }
+      })
+      if (tools.length === 0) {
+        logger.warn('Engagement Agent: create_poll tool not available')
+        return []
+      }
+      const llm = await this.getLLM()
+      const pollSystemPrompt = `You are facilitating a live event discussion. Based on this intervention analysis:
+
+Pattern: ${interventionAnalysis.detectedPattern}
+Reasoning: ${interventionAnalysis.reasoning}
+
+Use the create_poll tool to create an appropriate poll with choices that reflect distinct, genuine positions participants might hold. After creating the poll, write a brief message to the group introducing it (1-2 sentences).`
+
+      try {
+        const agentMessage = await getAgentStructuredResponse(llm, tools, pollSystemPrompt, interventionAnalysis.detectedPattern ?? 'Create a poll') as string
+        logger.info('Engagement Agent: POLL_REVEAL intervention executed')
+        if (createdPollId) {
+          return [
+            {
+              ...interventionAnalysis,
+              visible: true,
+              message: { text: agentMessage, pollId: createdPollId },
+              messageType: 'json',
+              channels: chatChannels
+            }
+          ]
+        }
+      } catch (error) {
+        logger.error('Engagement Agent: Failed to create poll via tool', error)
+      }
+      return []
+    }
+
+    // Post text message to shared chat
     if (interventionAnalysis.sharedChatMessage) {
       return [
         {
           ...interventionAnalysis,
           visible: true,
           message: interventionAnalysis.sharedChatMessage,
-          channels: this.conversation.channels.filter((c: IChannel) => c.name === 'chat')
+          channels: chatChannels
         }
       ]
     }

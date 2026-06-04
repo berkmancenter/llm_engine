@@ -3,6 +3,7 @@ import logger from '../../config/logger.js'
 import { webSearchTool } from './webSearch.js'
 import { searchSemanticScholarTool, getSemanticScholarRecommendationsTool } from './semanticScholar.js'
 import createEventHistoryTools from './eventHistory.js'
+import { createPollTool } from './createPoll.js'
 
 /**
  * A factory that returns one or more LangChain tools.
@@ -69,4 +70,20 @@ registerTool('event_history', (context) => {
     return []
   }
   return createEventHistoryTools(topics)
+})
+
+// create_poll: config and description are provided by the caller via context
+registerTool('create_poll', (context) => {
+  const { conversationId, agent, pollConfig, pollDescription, onPollCreated } = context ?? {}
+  if (!conversationId || !agent) {
+    logger.warn('Tool registry: create_poll requires conversationId and agent in context')
+    return []
+  }
+  return createPollTool(
+    conversationId,
+    agent,
+    pollConfig ?? {},
+    pollDescription ?? 'Creates a poll in the conversation.',
+    onPollCreated
+  )
 })

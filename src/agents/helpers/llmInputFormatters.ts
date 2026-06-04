@@ -50,6 +50,11 @@ function formatMessage(message, structured = false, transcriptMsgs?) {
     return formattedMsg
   }
   if (message.bodyType === 'json') {
+    const body = message.body as Record<string, unknown>
+    if (body?.type === 'poll') {
+      const choices = Array.isArray(body.choices) ? (body.choices as string[]).join(' / ') : ''
+      return `${message.pseudonym}: [POLL] "${body.title}"${choices ? ` — ${choices}` : ''}`
+    }
     return `${message.pseudonym}: "${JSON.stringify(message.body)}"`
   }
   if (message.bodyType === 'multimodal') {

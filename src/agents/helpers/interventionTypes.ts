@@ -10,6 +10,7 @@ export enum InterventionType {
   BRIDGE = 'BRIDGE',
   STRUCTURE = 'STRUCTURE',
   PLAY = 'PLAY',
+  POLL_REVEAL = 'POLL_REVEAL',
   NONE = 'NONE'
 }
 
