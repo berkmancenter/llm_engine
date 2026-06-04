@@ -8,8 +8,8 @@ import logger from '../../config/logger.js'
 import adapterService from '../adapter.service.js'
 import { getChatPromptResponse } from '../../agents/helpers/llmChain.js'
 import { coreLLMModel, coreLLMPlatform, getModelChat } from '../../agents/helpers/getModelChat.js'
-import { User } from '../../models/index.js'
-import { conversationService, messageService, transcriptService } from '../index.js'
+import { Conversation, User } from '../../models/index.js'
+import { formatTranscript } from '../../agents/helpers/llmInputFormatters.js'
 
 const transcriptBatchInterval = 30
 const SUMMARIZATION_PROMPT = `Please summarize what happened during this conversation. Where possible, also draw conclusions about outcomes of the discussion. 
@@ -85,22 +85,17 @@ export async function doStopConversation(conversation) {
     const owner = await User.findById(conversation.owner)
     
     if (owner) {
-      const conversationDoc = await conversationService.findByIdFull(doc._id, owner)
+      const conversationDoc = await Conversation.findOne({ _id: conversation._id }).populate('channels').populate({ path: 'messages', select: 'body createdAt channels', match: { channels: { $in: ['transcript', 'chat'] } } })
       
       if (conversationDoc) {
         const llm = await getModelChat(coreLLMPlatform, coreLLMModel)
         // Get transcript and participant messages
-        const transcript = await transcriptService.getPlainTextTranscript(doc._id)
-        const participantMessages = await messageService.conversationMessages(
-          doc._id,
-          [
-            {
-              name: 'chat',
-              passcode: (conversationDoc.channels.find((c) => c.name === 'chat') ?? { passcode: undefined })?.passcode
-            }
-          ],
-          owner
-        )
+        const sortedMessages = conversationDoc.messages.sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0))
+        const transcriptMessages = sortedMessages.filter((m) => m.channels?.includes('transcript'))
+        const transcript = formatTranscript(transcriptMessages, 'UTC')
+        const participantMessages = sortedMessages
+          .filter((m) => m.channels?.includes('chat'))
+
         const structuredSummary = await getChatPromptResponse(
           llm,
           SUMMARIZATION_PROMPT,
