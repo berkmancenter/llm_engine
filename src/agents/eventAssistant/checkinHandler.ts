@@ -262,8 +262,16 @@ ${typeSections}`
 export async function buildCheckinResponses(conversationHistory: ConversationHistory) {
   const responses: object[] = []
 
-  const directChannels = this.conversation.channels.filter(
-    (channel: IChannel) => channel.direct && channel.participants?.some((p) => p._id?.toString() === this._id.toString())
+  // Small chance there are duplicate direct channels with the same name due to React StrictMode double-invoking effects in development. De-dup just in case, to avoid duplicate messages.
+  const directChannels: IChannel[] = Array.from(
+    new Map<string, IChannel>(
+      this.conversation.channels
+        .filter(
+          (channel: IChannel) =>
+            channel.direct && channel.participants?.some((p) => p._id?.toString() === this._id.toString())
+        )
+        .map((channel: IChannel) => [channel.name, channel])
+    ).values()
   )
 
   if (directChannels.length === 0) return responses
@@ -345,7 +353,12 @@ export async function buildCheckinResponses(conversationHistory: ConversationHis
       USER_TEMPLATE
     )) as unknown as CheckinAnalysis | null
 
-    if (!analysis?.directMessage) continue
+    if (!analysis?.directMessage) {
+      logger.debug(
+        `Checkin Handler: No intervention opportunity detected or rate limited for participant ${participantPseudonym}`
+      )
+      continue
+    }
 
     // If the message implies cross-participant patterns, verify cited participant+text pairs are real.
     // Mirrors backChannel hallucination filtering: the LLM must cite sources it can actually see.
@@ -355,7 +368,7 @@ export async function buildCheckinResponses(conversationHistory: ConversationHis
       )
       if (!filterHallucinations(analysis.sourceMessages, otherParticipantMessages)) {
         logger.warn(
-          `[checkinHandler] suppressed hallucinated cross-participant claim for ${participantPseudonym}: cited ${JSON.stringify(
+          `CheckinHandler: suppressed hallucinated cross-participant claim for ${participantPseudonym}: cited ${JSON.stringify(
             analysis.sourceMessages
           )}`
         )
@@ -364,7 +377,7 @@ export async function buildCheckinResponses(conversationHistory: ConversationHis
     }
 
     logger.info(
-      `[checkinHandler] ${analysis.checkinType} → ${participantPseudonym} (${channel.name}): ${analysis.detectedPattern}`
+      `Checkin Handler: ${analysis.checkinType} → ${participantPseudonym} (${channel.name}): ${analysis.detectedPattern}`
     )
     responses.push({
       visible: true,
