@@ -83,9 +83,10 @@ describe('alternate name enforcement', () => {
     expect(response).not.toContain('Jay-Z')
   })
 
-  it('uses canonical name when asked about the speaker by a misspelling', async () => {
+  it('does not use misspelling or alternate name when asked about the speaker by a misspelling', async () => {
     const response = await ask('What did Jonny Zittren say about social contracts?')
-    expect(response).toContain('Jonathan Zittrain')
+    expect(response).not.toContain('Jonny')
+    expect(response).not.toContain('Zittren')
     expect(response).not.toContain('JZ')
   })
 })
