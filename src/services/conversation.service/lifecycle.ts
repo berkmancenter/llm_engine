@@ -12,7 +12,10 @@ import { Conversation, User } from '../../models/index.js'
 import { formatTranscript } from '../../agents/helpers/llmInputFormatters.js'
 
 const transcriptBatchInterval = 30
-const SUMMARIZATION_PROMPT = `Please summarize what happened during this conversation. Where possible, also draw conclusions about outcomes of the discussion. 
+const SUMMARIZATION_PROMPT = `
+  Please summarize what happened during this conversation. Where possible, also draw conclusions about outcomes of the discussion. 
+  When available, use as reference the listed speaker(s), moderator(s) and their bios, and event description.
+
   - **IMPORTANT**: you are summarizing for the event attendees. You are not worried about things like engagement or metrics. You want to provide a clear and concise summary of the key points and outcomes in a digestible format.
   - The tone is friendly and conversational.
   - The event content will be made up of a transcript as well as participant messages. 
@@ -88,19 +91,36 @@ export async function doStopConversation(conversation) {
       const conversationDoc = await Conversation.findOne({ _id: conversation._id }).populate('channels').populate({ path: 'messages', select: 'body createdAt channels', match: { channels: { $in: ['transcript', 'chat'] } } })
       
       if (conversationDoc) {
-        const llm = await getModelChat(coreLLMPlatform, coreLLMModel)
+        const llm = await getModelChat(coreLLMPlatform, coreLLMModel, {maxTokens: 2000})
         // Get transcript and participant messages
-        const sortedMessages = conversationDoc.messages.sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0))
+        const sortedMessages = conversationDoc.messages.sort(
+          (a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0)
+        )
         const transcriptMessages = sortedMessages.filter((m) => m.channels?.includes('transcript'))
         const transcript = formatTranscript(transcriptMessages, 'UTC')
-        const participantMessages = sortedMessages
-          .filter((m) => m.channels?.includes('chat'))
+        // Get participant messages and format them with role label where applicable
+        const sharedChat =
+          sortedMessages
+            .filter((m) => m.channels?.includes('chat'))
+            .map((m) => (m.fromAgent ? `Assistant: ${m.body}` : m.body))
+            .join('\n') || 'No shared chat messages yet.'
+
+        // Get speaker and moderator information if available
+        const speakers = `${conversationDoc.presenters?.map((p) => `${p.name}: ${p.bio}`).join(', ')}` || 'Not provided'
+        const moderators = `${conversationDoc.moderators?.map((m) => `${m.name}: ${m.bio}`).join(', ')}` || 'Not provided'
+        const eventDescription = conversationDoc.description || 'Not provided'
 
         const structuredSummary = await getChatPromptResponse(
           llm,
           SUMMARIZATION_PROMPT,
-          `Event Transcript: {transcript}, Participant Messages: {participantMessages}`,
-          { transcript, participantMessages }
+          `
+            Event Transcript: {transcript}, 
+            Shared Chat: {sharedChat}, 
+            Speaker(s): {speakers},
+            Moderator(s): {moderators},
+            Event Description: {eventDescription}
+          `,
+          { transcript, sharedChat, speakers, moderators, eventDescription }
         )
 
         logger.debug(`Conversation summary generated for conversation ${doc._id}`)
