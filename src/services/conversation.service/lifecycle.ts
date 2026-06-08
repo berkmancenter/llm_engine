@@ -9,7 +9,8 @@ import adapterService from '../adapter.service.js'
 import { getChatPromptResponse } from '../../agents/helpers/llmChain.js'
 import { coreLLMModel, coreLLMPlatform, getModelChat } from '../../agents/helpers/getModelChat.js'
 import { Conversation, User } from '../../models/index.js'
-import { formatTranscript } from '../../agents/helpers/llmInputFormatters.js'
+import { formatTranscript, formatMultiUserConversationHistory } from '../../agents/helpers/llmInputFormatters.js'
+import getConversationHistory from '../../agents/helpers/getConversationHistory.js'
 
 const transcriptBatchInterval = 30
 const SUMMARIZATION_PROMPT = `
@@ -89,21 +90,20 @@ export async function doStopConversation(conversation) {
     const owner = await User.findById(conversation.owner)
     
     if (owner) {
-      const conversationDoc = await Conversation.findOne({ _id: conversation._id }).populate('channels').populate({ path: 'messages', select: 'body createdAt channels', match: { channels: { $in: ['transcript', 'chat'] } } })
-      
+      const conversationDoc = await Conversation.findOne({ _id: conversation._id }).populate('channels').populate({ path: 'messages', match: { channels: { $in: ['transcript', 'chat'] } } })
+
       if (conversationDoc) {
         const llm = await getModelChat(coreLLMPlatform, coreLLMModel, {maxTokens: 2000})
-        // Get transcript and participant messages
         const sortedMessages = conversationDoc.messages.sort(
           (a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0)
         )
         const transcriptMessages = sortedMessages.filter((m) => m.channels?.includes('transcript'))
         const transcript = formatTranscript(transcriptMessages, 'UTC')
-        // Get participant messages and format them with role label where applicable
+
+        const chatHistory = getConversationHistory(sortedMessages, { channels: ['chat'] })
         const sharedChat =
-          sortedMessages
-            .filter((m) => m.channels?.includes('chat'))
-            .map((m) => (m.fromAgent ? `Assistant: ${m.body}` : m.body))
+          formatMultiUserConversationHistory(chatHistory)
+            .map((m) => (m.role === 'assistant' ? `Assistant: ${m.content}` : m.content))
             .join('\n') || 'No shared chat messages yet.'
 
         // Get speaker and moderator information if available
