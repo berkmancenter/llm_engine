@@ -17,6 +17,7 @@ const SUMMARIZATION_PROMPT = `
   When available, use as reference the listed speaker(s), moderator(s) and their bios, and event description.
 
   - **IMPORTANT**: you are summarizing for the event attendees. You are not worried about things like engagement or metrics. You want to provide a clear and concise summary of the key points and outcomes in a digestible format.
+  - **LENGTH**: write no more than three paragraphs. Be selective — prioritize the most significant points and outcomes over completeness.
   - The tone is friendly and conversational.
   - The event content will be made up of a transcript as well as participant messages. 
   - The transcript is drawing from what was said by the speakers in the event, or in some cases might be a video presentation of some kind. Be aware that speakers are generally allowed to use whatever media they would like during the conversation.
