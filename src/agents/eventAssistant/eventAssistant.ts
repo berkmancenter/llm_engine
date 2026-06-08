@@ -1,5 +1,6 @@
 import verify from '../helpers/verify.js'
-import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
+import { AgentMessageActions, ConversationHistory, IChannel, IMessage } from '../../types/index.types.js'
+import { buildCheckinResponses } from './checkinHandler.js'
 import renderAgentTemplate from '../helpers/renderAgentTemplate.js'
 
 import Message from '../../models/message.model.js'
@@ -84,7 +85,9 @@ ${capabilityDescription}`
   } else {
     commandHint = 'Just type / if you want to see what else I can do.'
   }
-  return `Hi! I'm ${botName}, your private, anonymous support during this session. ${body}${commandHint ? ` ${commandHint}` : ''} Your pseudonym keeps you anonymous, and nothing you share is ever used to train AI models. No need to respond, just know I'm here.`
+  return `Hi! I'm ${botName}, your private, anonymous support during this session. ${body}${
+    commandHint ? ` ${commandHint}` : ''
+  } Your pseudonym keeps you anonymous, and nothing you share is ever used to train AI models. No need to respond, just know I'm here.`
 }
 
 const MODERATOR_MESSAGE_TYPES = new Set(['moderator_offered', 'moderator_submitted', 'moderator_declined'])
@@ -233,20 +236,39 @@ function offerModeratorSubmission(userMessage, agentResponses, conversation) {
   }
 }
 
+const DEFAULT_CHECKIN_SCAN_INTERVAL_MINUTES = 3
+
+type TraceResponse = {
+  message?: unknown
+  context?: string
+  participantPseudonym?: string
+  eligibleTypes?: string[]
+  checkinType?: string
+  confidenceScore?: number
+  detectedPattern?: string
+  reasoning?: string
+  promptType?: string
+  topic?: string
+  channels?: IChannel[]
+}
+
 export default verify({
   name: 'Event Assistant',
   description: 'An assistant to answer questions about an event',
   priority: 100,
   maxTokens: 2000,
   defaultTriggers: {
-    perMessage: { directMessages: true, channels: ['chat', 'image-gen'], allowMessagesFromAgents: true }
+    perMessage: { directMessages: true, channels: ['chat', 'image-gen'], allowMessagesFromAgents: true },
+    periodic: { timerPeriod: DEFAULT_CHECKIN_SCAN_INTERVAL_MINUTES * 60 }
   },
   agentConfig: {
     chatIntroMessage: `Welcome! I'm {{agentConfig.botName}}, your AI event assistant. This is a space to chat with other event participants. You can also ask me questions with an @{{agentConfig.botName}} mention. Just remember that everyone can see what you ask me here. Use the {{agentConfig.botName}} tab if you want to talk privately. Have fun!`,
     enablePersonality: config.enableAgentPersonality,
     zoomChatIntroMessage:
       "Welcome! I'm {{agentConfig.botName}}, your AI event assistant. You can ask me questions in the chat with an @{{agentConfig.botName}} mention. Or send me a DM if you want to talk privately.",
-    tools: getDefaultEventAssistantToolNames()
+    tools: getDefaultEventAssistantToolNames(),
+    minInterval: 10, // minimum minutes between check-ins per participant
+    checkinScanInterval: DEFAULT_CHECKIN_SCAN_INTERVAL_MINUTES // how often the check-in handler runs (minutes); also controls transcript density window and quiet window
   },
   llmTemplateVars: eventAssistantLlmTemplateVars,
   defaultLLMTemplates: eventAssistantLLMTemplates,
@@ -265,6 +287,14 @@ export default verify({
   defaultConversationHistorySettings: { count: 100, directMessages: true, channels: ['chat'] },
 
   async evaluate(userMessage) {
+    if (!userMessage) {
+      return {
+        action: AgentMessageActions.CONTRIBUTE,
+        userMessage,
+        userContributionVisible: true,
+        suggestion: undefined
+      }
+    }
     if (userMessage.fromAgent) {
       // Handle image generation requests from self
       if (userMessage?.channels?.includes('image-gen')) {
@@ -305,6 +335,11 @@ export default verify({
     }
   },
   async respond(conversationHistory: ConversationHistory, userMessage) {
+    // Periodic check-in tick (no userMessage means this was triggered by the periodic job)
+    if (!userMessage) {
+      return buildCheckinResponses.call(this, conversationHistory)
+    }
+
     // Handle image generation requests from self
     if (userMessage?.channels?.includes('image-gen')) {
       const imageResponse = await generateImageResponse(userMessage, this.conversation)
@@ -397,15 +432,36 @@ export default verify({
     return []
   },
 
-  formatTraceInput(conversationHistory, userMessage) {
+  formatTraceInput(_conversationHistory: ConversationHistory, userMessage: IMessage | undefined) {
+    if (!userMessage) return { trigger: 'periodic' }
     return userMessage?.body
   },
 
-  formatTraceOutput(responses) {
+  formatTraceOutput(responses: TraceResponse[]) {
+    if (responses.length > 0 && (responses[0]?.message as { type?: string })?.type === 'checkin') {
+      return responses.map((r) => ({
+        participant: r.participantPseudonym,
+        eligibleTypes: r.eligibleTypes,
+        checkinType: r.checkinType,
+        confidenceScore: r.confidenceScore,
+        detectedPattern: r.detectedPattern,
+        reasoning: r.reasoning,
+        messageSent: (r.message as { text?: string })?.text
+      }))
+    }
     return responses[0]?.message
   },
 
-  getTraceMetadata(conversationHistory, userMessage, responses) {
+  getTraceMetadata(conversationHistory: ConversationHistory, userMessage: IMessage | undefined, responses: TraceResponse[]) {
+    if (!userMessage) {
+      return {
+        triggerType: 'periodic',
+        topic: this.conversation.name,
+        context: responses
+          .map((r) => `# Participant: ${r.participantPseudonym} (${r.channels?.[0]?.name})\n\n${r.context}`)
+          .join('\n\n---\n\n')
+      }
+    }
     return {
       context: responses[0]?.context,
       conversationHistory,

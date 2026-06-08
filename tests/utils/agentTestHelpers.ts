@@ -897,7 +897,8 @@ export async function createUser(pseudonym) {
         pseudonym,
         active: 'true'
       }
-    ]
+    ],
+    preferences: { visualResponse: false, jargonClarification: false }
   }
   await insertUsers([user])
   return user

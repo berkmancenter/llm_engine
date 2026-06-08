@@ -10,7 +10,7 @@ const setupAgentTest = (agentType?) => {
   let chromaCollectionPrefix
   beforeAll(async () => {
     chromaCollectionPrefix = config.chroma.embeddingsCollectionPrefix
-    config.chroma.embeddingsCollectionPrefix = 'llm-engine-test'
+    config.chroma.embeddingsCollectionPrefix = `llm-engine-test-w${process.env.JEST_WORKER_ID ?? '0'}`
     await initializeEvaluators()
   })
 
