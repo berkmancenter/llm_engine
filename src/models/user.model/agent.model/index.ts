@@ -18,7 +18,7 @@ import {
   LLM_PLATFORMS,
   AgentMessageActions,
   AgentEvaluation,
-  AgentResponse
+  AgentResponse,
 } from '../../../types/index.types.js'
 import { ConversationDocument } from '../../conversation.model.js'
 import { pingLLM } from '../../../agents/helpers/llmChain.js'
@@ -132,6 +132,10 @@ const agentSchema = new mongoose.Schema<IAgent, AgentModel>(
       default: false
     },
     conversationHistorySettings: {
+      type: mongoose.Schema.Types.Mixed,
+      default: undefined
+    },
+    capabilities: {
       type: mongoose.Schema.Types.Mixed,
       default: undefined
     }
@@ -491,8 +495,13 @@ agentSchema.pre('validate', function () {
   if (this.ragCollectionName === undefined) {
     this.ragCollectionName = agentTypes[this.agentType].ragCollectionName
   }
+  // Resolve capabilities from agent type definition if provided
+  const { capabilities, preValidate } = agentTypes[this.agentType]
+  if (capabilities) {
+    this.capabilities = capabilities(this.agentConfig ?? {})
+  }
+
   // custom preValidate call when needed
-  const { preValidate } = agentTypes[this.agentType]
   if (preValidate) {
     preValidate.call(this)
   }
