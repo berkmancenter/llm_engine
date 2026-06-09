@@ -74,6 +74,30 @@ describe('access', () => {
       expect(() => access.assertCanRead(agent, { type: 'conversation', id: 'conv-1' })).toThrow(AccessDeniedError)
     })
 
+    describe('allPublicTopics grant', () => {
+      const agent = makeAgent({ capabilities: { read: [{ type: 'allPublicTopics' }], write: [] } })
+
+      test('passes for a conversation scope on a public topic', () => {
+        expect(() => access.assertCanRead(agent, { type: 'conversation', id: 'conv-1', topicIsPrivate: false })).not.toThrow()
+      })
+
+      test('passes when topicIsPrivate is not set', () => {
+        expect(() => access.assertCanRead(agent, { type: 'conversation', id: 'conv-1' })).not.toThrow()
+      })
+
+      test('throws for a conversation scope on a private topic', () => {
+        expect(() => access.assertCanRead(agent, { type: 'conversation', id: 'conv-1', topicIsPrivate: true })).toThrow(AccessDeniedError)
+      })
+
+      test('passes for a public topic scope', () => {
+        expect(() => access.assertCanRead(agent, { type: 'topic', id: 'topic-1', topicIsPrivate: false })).not.toThrow()
+      })
+
+      test('throws for a private topic scope', () => {
+        expect(() => access.assertCanRead(agent, { type: 'topic', id: 'topic-1', topicIsPrivate: true })).toThrow(AccessDeniedError)
+      })
+    })
+
     test('agent with multiple grants passes when any match', () => {
       const agent = makeAgent({
         capabilities: {

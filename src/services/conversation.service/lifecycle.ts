@@ -136,9 +136,10 @@ export async function doStopConversation(conversation) {
   await doc.save()
 
   const topicId = doc.topic?._id?.toString() ?? doc.topic?.toString()
+  const topicIsPrivate = doc.topic?.private ?? true
   await agentDispatcher.dispatch(
     { type: 'conversationStopped', conversationId: doc._id.toString(), topicId },
-    { type: 'conversation', id: doc._id.toString(), topicId }
+    { type: 'conversation', id: doc._id.toString(), topicId, topicIsPrivate }
   )
 
   return doc
