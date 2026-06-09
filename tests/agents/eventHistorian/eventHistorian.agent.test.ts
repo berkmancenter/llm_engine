@@ -306,6 +306,60 @@ A single mom of two children with primary custody, she is passionate about findi
     })
   })
 
+  describe('onConversationEvent', () => {
+    let stoppedConversation
+
+    beforeEach(async () => {
+      stoppedConversation = await createConversation({ name: 'Past Event' }, user1, topic)
+    })
+
+    it('returns empty array for non-conversationStopped event types', async () => {
+      const responses = await defaultAgentTypes.eventHistorian.onConversationEvent.call(agent, {
+        type: 'unknownEvent',
+        conversationId: stoppedConversation._id.toString()
+      })
+
+      expect(responses).toHaveLength(0)
+    })
+
+    it('returns empty array when conversation has no summary', async () => {
+      const responses = await defaultAgentTypes.eventHistorian.onConversationEvent.call(agent, {
+        type: 'conversationStopped',
+        conversationId: stoppedConversation._id.toString()
+      })
+
+      expect(responses).toHaveLength(0)
+    })
+
+    it('returns a summary message when conversation has a summary', async () => {
+      await stoppedConversation.updateOne({ summary: 'Key takeaways from the event.' })
+
+      const responses = await defaultAgentTypes.eventHistorian.onConversationEvent.call(agent, {
+        type: 'conversationStopped',
+        conversationId: stoppedConversation._id.toString()
+      })
+
+      expect(responses).toHaveLength(1)
+      expect(responses[0].message).toContain('Past Event')
+      expect(responses[0].message).toContain('Key takeaways from the event.')
+    })
+
+    it('posts to the historian channel when one exists', async () => {
+      const historianChannel = await Channel.create({ name: 'historian' })
+      conversation.channels.push(historianChannel)
+      await conversation.save()
+      await stoppedConversation.updateOne({ summary: 'A summary.' })
+
+      const responses = await defaultAgentTypes.eventHistorian.onConversationEvent.call(agent, {
+        type: 'conversationStopped',
+        conversationId: stoppedConversation._id.toString()
+      })
+
+      expect(responses[0].channels).toHaveLength(1)
+      expect(responses[0].channels[0].name).toBe('historian')
+    })
+  })
+
   describe('uses all public topics when topicIds is not configured', () => {
     let eventTopic
     let partTimeConv
