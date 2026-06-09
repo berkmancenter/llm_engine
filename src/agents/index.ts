@@ -24,6 +24,7 @@ import experts from './development/experts/index.js'
 import generic from './development/generic/index.js'
 import config from '../config/config.js'
 import voiceAssistant from './eventAssistant/voiceAssistant.js'
+import logger from '../config/logger.js'
 
 const development = {
   civilityPerMessage,
@@ -37,7 +38,7 @@ const development = {
   generic
 }
 
-export default {
+const agentTypes = {
   ...(config.enableDevelopmentAgents ? development : {}),
   backChannelMetrics,
   backChannelInsights,
@@ -52,3 +53,15 @@ export default {
   eventHistorian,
   eventSetup
 }
+
+for (const [key, agentType] of Object.entries(agentTypes)) {
+  try {
+    const { default: caps } = await import(`./${key}/capabilities.js`)
+    agentType.capabilities = caps
+    logger.info(`Loaded capabilities for agent type: ${key}`)
+  } catch {
+    logger.debug(`No capabilities for agent type: ${key}`)
+  }
+}
+
+export default agentTypes
