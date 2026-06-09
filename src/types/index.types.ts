@@ -23,6 +23,7 @@ export interface IPseudonym {
 export interface IBaseUser {
   _id?: mongoose.Types.ObjectId
   activePseudonym?: IPseudonym
+  __t?: string
 }
 
 export interface IUserPreferences {
@@ -515,6 +516,16 @@ export interface EmbeddingsModelDetails {
   description: string
 }
 
+export type ReadScope = { type: 'topic'; id: string } | { type: 'conversation'; id: string; topicId?: string }
+export type ReadGrant = ReadScope
+export type WriteScope = { type: 'conversation'; id: string }
+export type WriteGrant = { type: 'ownConversation' }
+
+export interface AgentCapabilities {
+  read: ReadGrant[]
+  write: WriteGrant[]
+}
+
 export interface IAgent {
   _id?: mongoose.Types.ObjectId
   name: string
@@ -532,6 +543,7 @@ export interface IAgent {
   llmTemplateVars?: { [key: string]: { name: string; description: string }[] }
   llmTemplates?: { [key: string]: string }
   agentConfig?: { [key: string]: unknown }
+  capabilities?: AgentCapabilities
   ragCollectionName?: string
   triggers?: Triggers
   active?: boolean
