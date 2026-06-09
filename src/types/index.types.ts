@@ -525,6 +525,13 @@ export interface AgentCapabilities {
   read: ReadGrant[]
   write: WriteGrant[]
 }
+export interface ConversationStoppedEvent {
+  type: 'conversationStopped'
+  conversationId: string
+  topicId?: string
+}
+
+export type ConversationEvent = ConversationStoppedEvent
 
 export interface IAgent {
   _id?: mongoose.Types.ObjectId

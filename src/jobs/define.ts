@@ -33,6 +33,10 @@ const defineJob = {
   summarizePdf: async () => {
     await agenda.start()
     await agenda.define('summarize pdf', JobHandlers.summarizePdf)
+  },
+  conversationEvent: async () => {
+    await agenda.start()
+    await agenda.define('conversationEvent', JobHandlers.conversationEvent)
   }
 }
 
