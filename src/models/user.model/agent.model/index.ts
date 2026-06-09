@@ -19,6 +19,7 @@ import {
   AgentMessageActions,
   AgentEvaluation,
   AgentResponse,
+  ConversationEvent
 } from '../../../types/index.types.js'
 import { ConversationDocument } from '../../conversation.model.js'
 import { pingLLM } from '../../../agents/helpers/llmChain.js'
@@ -41,13 +42,13 @@ const llmPlatformOptionsSchema = new mongoose.Schema<ILlmPlatformOptions>({
 })
 
 export interface AgentMethods {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   respond(message?: IMessage): Promise<Array<AgentResponse<unknown>>>
   evaluate(message?: IMessage): Promise<AgentEvaluation>
   deepPatch(patch: Record<string, unknown>)
   start()
   stop()
   introduce(channel: IChannel): Promise<Array<AgentResponse<unknown>>>
+  onConversationEvent(evt: ConversationEvent): Promise<Array<AgentResponse<unknown>>>
   pingLLM(): Promise<void>
   getLLM(): Promise<unknown>
 }
@@ -532,6 +533,14 @@ agentSchema.method('deepPatch', function (origPatch) {
   Object.assign(this, update)
 
   this.conversation = conversation
+})
+
+agentSchema.method('onConversationEvent', async function (evt: ConversationEvent) {
+  const agentType = agentTypes[this.agentType]
+  if (!agentType.onConversationEvent) return []
+  if (!this.populated('conversation')) await this.populate('conversation')
+  await (this.conversation as HydratedDocument<IConversation>).populate('channels')
+  return agentType.onConversationEvent.call(this, evt)
 })
 
 agentSchema.method('introduce', async function (channel, adapterType?) {

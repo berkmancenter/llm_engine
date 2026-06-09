@@ -36,6 +36,9 @@ const schedule = {
   },
   summarizePdf: async (data: { conversationId: string; resourceId: string; filePath: string; citation: string }) => {
     await agenda.now('summarize pdf', data)
+  },
+  conversationEvent: async (data: { agentId: string; event: unknown }) => {
+    await agenda.now('conversationEvent', data)
   }
 }
 
