@@ -2,6 +2,7 @@ import httpStatus from 'http-status'
 import ApiError from '../../utils/ApiError.js'
 import websocketGateway from '../../websockets/websocketGateway.js'
 import agentService from '../agent.service/index.js'
+import agentDispatcher from '../../jobs/agentDispatcher.js'
 import schedule from '../../jobs/schedule.js'
 import defineJob from '../../jobs/define.js'
 import logger from '../../config/logger.js'
@@ -88,12 +89,14 @@ export async function doStopConversation(conversation) {
   if (doc.transcript) {
     await updateTranscriptStatus(doc, 'stopped')
     const owner = await User.findById(conversation.owner)
-    
+
     if (owner) {
-      const conversationDoc = await Conversation.findOne({ _id: conversation._id }).populate('channels').populate({ path: 'messages', match: { channels: { $in: ['transcript', 'chat'] } } })
+      const conversationDoc = await Conversation.findOne({ _id: conversation._id })
+        .populate('channels')
+        .populate({ path: 'messages', match: { channels: { $in: ['transcript', 'chat'] } } })
 
       if (conversationDoc) {
-        const llm = await getModelChat(coreLLMPlatform, coreLLMModel, {maxTokens: 2000})
+        const llm = await getModelChat(coreLLMPlatform, coreLLMModel, { maxTokens: 2000 })
         const sortedMessages = conversationDoc.messages.sort(
           (a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0)
         )
@@ -131,5 +134,12 @@ export async function doStopConversation(conversation) {
     } else logger.warn(`No owner found for conversation ${doc._id}`)
   }
   await doc.save()
+
+  const topicId = doc.topic?._id?.toString() ?? doc.topic?.toString()
+  await agentDispatcher.dispatch(
+    { type: 'conversationStopped', conversationId: doc._id.toString(), topicId },
+    { type: 'conversation', id: doc._id.toString(), topicId }
+  )
+
   return doc
 }

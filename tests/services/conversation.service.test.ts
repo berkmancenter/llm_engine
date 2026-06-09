@@ -4,7 +4,7 @@ import setupIntTest from '../utils/setupIntTest.js'
 import { insertUsers, registeredUser } from '../fixtures/user.fixture.js'
 import { insertTopics, newPublicTopic } from '../fixtures/topic.fixture.js'
 import conversationService from '../../src/services/conversation.service/index.js'
-import { Agent, Adapter } from '../../src/models/index.js'
+import { Agent, Adapter, Conversation } from '../../src/models/index.js'
 import ApiError from '../../src/utils/ApiError.js'
 import websocketGateway from '../../src/websockets/websocketGateway.js'
 import { supportedModels, defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/getModelChat.js'
@@ -16,6 +16,7 @@ import config from '../../src/config/config.js'
 import schedule from '../../src/jobs/schedule.js'
 import defineJob from '../../src/jobs/define.js'
 import transcript from '../../src/agents/helpers/transcript.js'
+import agentDispatcher from '../../src/jobs/agentDispatcher.js'
 
 jest.setTimeout(10000)
 jest.mock('agenda')
@@ -1101,6 +1102,35 @@ describe('Conversation service methods', () => {
           expect.anything()
         )
       })
+    })
+  })
+
+  describe('stopConversation()', () => {
+    let conversation
+
+    beforeEach(async () => {
+      await insertUsers([registeredUser])
+      await insertTopics([topicOne])
+      conversation = new Conversation({
+        name: 'Test Stop',
+        owner: registeredUser._id,
+        topic: topicOne._id,
+        active: true,
+        agents: [],
+        messages: []
+      })
+      await conversation.save()
+    })
+
+    test('dispatches conversationStopped event when conversation is stopped', async () => {
+      const dispatchSpy = jest.spyOn(agentDispatcher, 'dispatch').mockResolvedValue(undefined)
+
+      await conversationService.stopConversation(conversation._id.toString(), registeredUser)
+
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'conversationStopped', conversationId: conversation._id.toString() }),
+        expect.objectContaining({ type: 'conversation', id: conversation._id.toString() })
+      )
     })
   })
 
