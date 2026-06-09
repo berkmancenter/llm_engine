@@ -7,6 +7,7 @@ import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
 import createEventHistoryTools, { TopicRef } from '../tools/eventHistory.js'
 import Topic from '../../models/topic.model.js'
+import Conversation from '../../models/conversation.model.js'
 import config from '../../config/config.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 
@@ -68,7 +69,12 @@ export default verify({
     const modifiedMessage = matchBotMention(words, this.agentConfig.botName)
       ? { ...userMessage, body: normalizeBotMention(userMessage.body, this.agentConfig.botName) }
       : userMessage
-    return { userMessage: modifiedMessage, action: AgentMessageActions.CONTRIBUTE, userContributionVisible: true, suggestion: undefined }
+    return {
+      userMessage: modifiedMessage,
+      action: AgentMessageActions.CONTRIBUTE,
+      userContributionVisible: true,
+      suggestion: undefined
+    }
   },
 
   async respond(conversationHistory: ConversationHistory, userMessage) {
@@ -127,6 +133,22 @@ export default verify({
         messageType: 'text',
         channels: responseChannels,
         parent: parentMessageId
+      }
+    ]
+  },
+
+  async onConversationEvent(evt) {
+    if (evt.type !== 'conversationStopped') return []
+    const conv = await Conversation.findById(evt.conversationId).select('name summary').lean()
+    if (!conv?.summary) return []
+    const name = conv.name ?? 'An event'
+    const responseChannels = this.conversation.channels.filter((c) => c.name === 'historian')
+    return [
+      {
+        visible: true,
+        message: `*${name}* just wrapped up. Here's a summary:\n\n${conv.summary}`,
+        messageType: 'text' as const,
+        channels: responseChannels
       }
     ]
   },
