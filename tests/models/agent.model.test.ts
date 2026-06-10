@@ -1659,6 +1659,203 @@ describe('agent tests', () => {
     })
   })
 
+  describe('Breakout channel history expansion in respond method', () => {
+    let testConversation
+    let chatChannel
+    let breakoutRoom1ChatChannel
+    let breakoutRoom2ChatChannel
+    let transcriptBreakoutChannel
+
+    beforeEach(async () => {
+      chatChannel = await Channel.create({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'chat',
+        direct: false
+      })
+      breakoutRoom1ChatChannel = await Channel.create({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'breakout-room1-chat',
+        direct: false,
+        breakout: { roomId: 'room-1', roundId: 'round-1', type: 'chat', parentChannel: 'chat' }
+      })
+      breakoutRoom2ChatChannel = await Channel.create({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'breakout-room2-chat',
+        direct: false,
+        breakout: { roomId: 'room-2', roundId: 'round-1', type: 'chat', parentChannel: 'chat' }
+      })
+      transcriptBreakoutChannel = await Channel.create({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'breakout-room1-transcript',
+        direct: false,
+        breakout: { roomId: 'room-1', roundId: 'round-1', type: 'transcript', parentChannel: 'transcript' }
+      })
+
+      testConversation = new Conversation({
+        ...conversationAgentsEnabled,
+        _id: new mongoose.Types.ObjectId(),
+        channels: [chatChannel, breakoutRoom1ChatChannel, breakoutRoom2ChatChannel, transcriptBreakoutChannel]
+      })
+      await testConversation.save()
+    })
+
+    test('includes messages from all breakout rooms whose parentChannel is in settings channels', async () => {
+      const agent = new Agent({
+        agentType: 'periodic',
+        conversation: testConversation,
+        triggers: {
+          periodic: {
+            timerPeriod: 300,
+            conversationHistorySettings: { channels: ['chat'], includeBreakouts: true, count: 10 }
+          }
+        }
+      })
+      await agent.save()
+      await agent.start()
+
+      const mainMsg = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Main chat message',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['chat']
+      })
+      await mainMsg.save()
+
+      const room1Msg = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Room 1 message',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['breakout-room1-chat']
+      })
+      await room1Msg.save()
+
+      const room2Msg = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Room 2 message',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['breakout-room2-chat']
+      })
+      await room2Msg.save()
+
+      mockEvaluate.mockResolvedValue({ action: AgentMessageActions.CONTRIBUTE, userContributionVisible: true })
+      mockRespond.mockResolvedValue([{ visible: true, message: 'response' }])
+
+      await agent.evaluate()
+      await testConversation.populate(['messages', 'channels'])
+      await agent.respond()
+
+      const bodies = mockRespond.mock.calls[0][0].messages.map((m) => m.body)
+      expect(bodies).toContain('Main chat message')
+      expect(bodies).toContain('Room 1 message')
+      expect(bodies).toContain('Room 2 message')
+    })
+
+    test('excludes breakout channels whose parentChannel is not in settings channels', async () => {
+      const agent = new Agent({
+        agentType: 'periodic',
+        conversation: testConversation,
+        triggers: {
+          periodic: {
+            timerPeriod: 300,
+            conversationHistorySettings: { channels: ['chat'], includeBreakouts: true, count: 10 }
+          }
+        }
+      })
+      await agent.save()
+      await agent.start()
+
+      const chatMsg = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Chat message',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['chat']
+      })
+      await chatMsg.save()
+
+      const transcriptMsg = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Transcript breakout message',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['breakout-room1-transcript']
+      })
+      await transcriptMsg.save()
+
+      mockEvaluate.mockResolvedValue({ action: AgentMessageActions.CONTRIBUTE, userContributionVisible: true })
+      mockRespond.mockResolvedValue([{ visible: true, message: 'response' }])
+
+      await agent.evaluate()
+      await testConversation.populate(['messages', 'channels'])
+      await agent.respond()
+
+      const bodies = mockRespond.mock.calls[0][0].messages.map((m) => m.body)
+      expect(bodies).toContain('Chat message')
+      expect(bodies).not.toContain('Transcript breakout message')
+    })
+
+    test('excludes breakout channel messages when includeBreakouts is not set', async () => {
+      const agent = new Agent({
+        agentType: 'periodic',
+        conversation: testConversation,
+        triggers: {
+          periodic: {
+            timerPeriod: 300,
+            conversationHistorySettings: { channels: ['chat'], count: 10 }
+          }
+        }
+      })
+      await agent.save()
+      await agent.start()
+
+      const mainMsg = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Main chat message',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['chat']
+      })
+      await mainMsg.save()
+
+      const breakoutMsg = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Breakout message',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['breakout-room1-chat']
+      })
+      await breakoutMsg.save()
+
+      mockEvaluate.mockResolvedValue({ action: AgentMessageActions.CONTRIBUTE, userContributionVisible: true })
+      mockRespond.mockResolvedValue([{ visible: true, message: 'response' }])
+
+      await agent.evaluate()
+      await testConversation.populate(['messages', 'channels'])
+      await agent.respond()
+
+      const bodies = mockRespond.mock.calls[0][0].messages.map((m) => m.body)
+      expect(bodies).toContain('Main chat message')
+      expect(bodies).not.toContain('Breakout message')
+    })
+  })
+
   describe('LangSmith tracing behavior', () => {
     let mockGetCurrentRunTree: jest.Mock
     let mockRunTree: { metadata: Record<string, unknown> }

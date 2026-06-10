@@ -350,6 +350,15 @@ agentSchema.method('respond', async function (userMessage = null) {
         .map((c) => c.name)
     }
 
+    // When reconvening after breakouts, expand the channel allow-list to include breakout channels
+    // whose parentChannel is already in the allow-list.
+    if (effectiveSettings.includeBreakouts && effectiveSettings.channels) {
+      const breakoutChannels = (this.conversation as IConversation).channels
+        .filter((c: IChannel) => c.breakout?.parentChannel && effectiveSettings.channels!.includes(c.breakout.parentChannel))
+        .map((c: IChannel) => c.name)
+      effectiveSettings.channels = [...new Set([...effectiveSettings.channels, ...breakoutChannels])]
+    }
+
     // Get messages for conversation history (handles both normal and threaded replies)
     const { messages } = this.conversation as IConversation
     const messagesToProcess = await getThreadMessages(

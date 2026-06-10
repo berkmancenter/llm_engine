@@ -348,7 +348,7 @@ export function compileSpeakerNames(conversation): string {
 
 export async function answerQuestion(userMessage, conversationHistory, options?) {
   const chatHistory = userMessage?.channels?.includes('chat')
-    ? formatMultiUserConversationHistory(conversationHistory)
+    ? formatMultiUserConversationHistory(conversationHistory, this)
     : formatSingleUserConversationHistory(conversationHistory)
 
   const question = userMessage.body

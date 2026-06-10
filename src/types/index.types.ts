@@ -452,6 +452,7 @@ export interface ConversationHistorySettings {
   channels?: string[]
   directMessages?: boolean
   excludeOtherAgents?: boolean // When true, only include this agent's own messages (not other agents)
+  includeBreakouts?: boolean
 }
 
 export interface ConversationHistory {

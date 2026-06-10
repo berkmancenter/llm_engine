@@ -225,6 +225,111 @@ describe('LLM Input Formatter Tests', () => {
     ])
   })
 
+  describe('breakout room labeling in formatMultiUserConversationHistory', () => {
+    function makeAgent(channels, includeBreakouts = true) {
+      return {
+        conversation: { channels },
+        conversationHistorySettings: { includeBreakouts }
+      }
+    }
+
+    function breakoutChannel(name, roomId, type: 'chat' | 'transcript', roomName?: string) {
+      return { name, passcode: null, direct: false, breakout: { roomId, roundId: 'r1', type, name: roomName } }
+    }
+
+    it('prefixes messages from breakout chat channels with the room label', async () => {
+      const channels = [
+        { name: 'chat', passcode: null, direct: false },
+        breakoutChannel('chat-room-a', 'room-a', 'chat', 'Room A'),
+        breakoutChannel('chat-room-b', 'room-b', 'chat', 'Room B')
+      ]
+      const agent = makeAgent(channels)
+
+      const msg1 = await createMessage('Hello from A', 'Alice')
+      msg1.channels = ['chat-room-a']
+      const msg2 = await createMessage('Hello from B', 'Bob')
+      msg2.channels = ['chat-room-b']
+      const msg3 = await createMessage('Hello from main', 'Carol')
+      msg3.channels = ['chat']
+
+      const convHistory = getConversationHistory([msg1, msg2, msg3], { count: 100 })
+      const formatted = formatMultiUserConversationHistory(convHistory, agent)
+
+      expect(formatted).toEqual([
+        { role: 'user', content: '[Room A] Alice: Hello from A' },
+        { role: 'user', content: '[Room B] Bob: Hello from B' },
+        { role: 'user', content: 'Carol: Hello from main' }
+      ])
+    })
+
+    it('uses roomId as label when the breakout channel has no name', async () => {
+      const channels = [
+        { name: 'chat', passcode: null, direct: false },
+        breakoutChannel('chat-room-x', 'room-x', 'chat')
+      ]
+      const agent = makeAgent(channels)
+
+      const msg = await createMessage('Hi', 'Alice')
+      msg.channels = ['chat-room-x']
+
+      const convHistory = getConversationHistory([msg], { count: 100 })
+      const formatted = formatMultiUserConversationHistory(convHistory, agent)
+
+      expect(formatted).toEqual([{ role: 'user', content: '[room-x] Alice: Hi' }])
+    })
+
+    it('applies room label to agent voice response pairs', async () => {
+      const channels = [
+        { name: 'chat', passcode: null, direct: false },
+        breakoutChannel('chat-room-a', 'room-a', 'chat', 'Room A')
+      ]
+      const agent = makeAgent(channels)
+
+      const msg = await createMessage(
+        { text: 'Part-time is fewer hours.', source: 'voice', sourceMessage: 'What is part-time?', sourcePseudonym: 'Alice' },
+        'BOT',
+        undefined,
+        true,
+        'json'
+      )
+      msg.channels = ['chat-room-a']
+
+      const convHistory = getConversationHistory([msg], { count: 100 })
+      const formatted = formatMultiUserConversationHistory(convHistory, agent)
+
+      expect(formatted).toEqual([
+        { role: 'user', content: '[Room A] Alice: What is part-time?' },
+        { role: 'assistant', content: '[Room A] Part-time is fewer hours.' }
+      ])
+    })
+
+    it('omits room labels when includeBreakouts is not set', async () => {
+      const channels = [
+        { name: 'chat', passcode: null, direct: false },
+        breakoutChannel('chat-room-a', 'room-a', 'chat', 'Room A')
+      ]
+      const agent = makeAgent(channels, false)
+
+      const msg = await createMessage('Hi', 'Alice')
+      msg.channels = ['chat-room-a']
+
+      const convHistory = getConversationHistory([msg], { count: 100 })
+      const formatted = formatMultiUserConversationHistory(convHistory, agent)
+
+      expect(formatted).toEqual([{ role: 'user', content: 'Alice: Hi' }])
+    })
+
+    it('omits room labels when no agent is passed', async () => {
+      const msg = await createMessage('Hi', 'Alice')
+      msg.channels = ['chat-room-a']
+
+      const convHistory = getConversationHistory([msg], { count: 100 })
+      const formatted = formatMultiUserConversationHistory(convHistory)
+
+      expect(formatted).toEqual([{ role: 'user', content: 'Alice: Hi' }])
+    })
+  })
+
   describe('formatMessage function', () => {
     it('should format a simple message with text body', async () => {
       const msg = await createMessage('Hello world', 'Test User')

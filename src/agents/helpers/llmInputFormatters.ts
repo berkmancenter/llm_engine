@@ -1,5 +1,5 @@
 import logger from '../../config/logger.js'
-import { IMessage, ConversationHistory, ConversationHistorySettings } from '../../types/index.types'
+import { IMessage, IChannel, IChannelBreakout, ConversationHistory, ConversationHistorySettings } from '../../types/index.types'
 import getConversationHistory from './getConversationHistory.js'
 
 function formatTime(date, timezone = 'UTC') {
@@ -67,6 +67,18 @@ function formatMessages(messages, structured = false, transcriptMessages?, trans
   })
 }
 
+function buildBreakoutRoomLabels(agent): Map<string, string> | undefined {
+  if (!agent.conversationHistorySettings?.includeBreakouts) return undefined
+  const map = new Map<string, string>()
+  for (const channel of agent.conversation.channels as IChannel[]) {
+    if (channel.breakout) {
+      const label = (channel.breakout as IChannelBreakout).name || (channel.breakout as IChannelBreakout).roomId
+      map.set(channel.name, label)
+    }
+  }
+  return map.size > 0 ? map : undefined
+}
+
 function formatAndFilterMessages(messages, settings: ConversationHistorySettings = { count: 10 }) {
   const convHistory = getConversationHistory(messages, settings)
   return formatMessages(convHistory.messages)
@@ -91,7 +103,8 @@ function formatSingleUserConversationHistory(conversationHistory: ConversationHi
   })
 }
 
-function formatMultiUserConversationHistory(conversationHistory: ConversationHistory) {
+function formatMultiUserConversationHistory(conversationHistory: ConversationHistory, agent?) {
+  const breakoutRoomLabels = agent ? buildBreakoutRoomLabels(agent) : undefined
   return conversationHistory.messages?.flatMap((message) => {
     let messageText = message.body
     // conversation history messsages must be strings. If json or multimodal, assume it has a 'text' property
@@ -103,6 +116,14 @@ function formatMultiUserConversationHistory(conversationHistory: ConversationHis
         messageText = (message.body as Record<string, unknown>).text as string
       }
     }
+
+    // When reconvened history includes breakout channels, prefix with room label so the
+    // LLM can distinguish which room each message came from.
+    const roomLabel = breakoutRoomLabels
+      ? message.channels?.map((c) => breakoutRoomLabels.get(c)).find(Boolean)
+      : undefined
+    const roomPrefix = roomLabel ? `[${roomLabel}] ` : ''
+
     if (message.fromAgent) {
       // For voice assistant responses, prepend the original question so other agents
       // see the full exchange rather than an unexplained answer
@@ -110,14 +131,14 @@ function formatMultiUserConversationHistory(conversationHistory: ConversationHis
       if (body?.source === 'voice' && body?.sourceMessage) {
         const asker = (body.sourcePseudonym as string) || 'User'
         return [
-          { role: 'user', content: `${asker}: ${body.sourceMessage}` },
-          { role: 'assistant', content: messageText }
+          { role: 'user', content: `${roomPrefix}${asker}: ${body.sourceMessage}` },
+          { role: 'assistant', content: `${roomPrefix}${messageText}` }
         ]
       }
-      return { role: 'assistant', content: messageText }
+      return { role: 'assistant', content: `${roomPrefix}${messageText}` }
     }
     // For multi-user environments, include the pseudonym in the content
-    return { role: 'user', content: `${message.pseudonym}: ${messageText}` }
+    return { role: 'user', content: `${roomPrefix}${message.pseudonym}: ${messageText}` }
   })
 }
 

@@ -185,7 +185,7 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
     )
     privateHistory.messages = privateHistory.messages.filter((msg) => !isModCommand(msg))
 
-    const sharedChatMessages = formatMultiUserConversationHistory(sharedChatHistory)
+    const sharedChatMessages = formatMultiUserConversationHistory(sharedChatHistory, this)
     const privateMessages = formatMultiUserConversationHistory(privateHistory)
 
     const recentTranscript = transcript.getTranscript(this.conversation, 600, conversationHistory.end)

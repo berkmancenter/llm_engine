@@ -129,7 +129,7 @@ async function runInterventionAnalysis(
   userTemplate: string | undefined
 ): Promise<InterventionAnalysis | null> {
   // Format conversation histories
-  const sharedChatMessages = formatMultiUserConversationHistory(sharedChatHistory)
+  const sharedChatMessages = formatMultiUserConversationHistory(sharedChatHistory, this)
   const privateMessages = privateConversationHistory ? formatMultiUserConversationHistory(privateConversationHistory) : []
 
   // Get recent transcript (last 10 minutes)
