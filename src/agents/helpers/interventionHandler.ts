@@ -159,9 +159,8 @@ async function runInterventionAnalysis(
     retrievedChunks: chunks,
     privateMessages: privateMessages.map((m) => m.content).join('\n') || 'No private messages.',
     sharedChatHistory:
-      sharedChatMessages
-        .map((m) => (m.role === 'assistant' ? `Assistant: ${m.content}` : m.content))
-        .join('\n') || 'No shared chat messages yet.',
+      sharedChatMessages.map((m) => (m.role === 'assistant' ? `Assistant: ${m.content}` : m.content)).join('\n') ||
+      'No shared chat messages yet.',
     agentRecentPosts
   }
 
@@ -200,7 +199,8 @@ async function runInterventionAnalysis(
   }
 
   const renderedUserPrompt = Object.entries(templateVars).reduce(
-    (prompt, [key, value]) => prompt.replace(new RegExp(`\\{${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\}`, 'g'), value ?? ''),
+    (prompt, [key, value]) =>
+      prompt.replace(new RegExp(`\\{${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\}`, 'g'), value ?? ''),
     resolvedUserTemplate
   )
 

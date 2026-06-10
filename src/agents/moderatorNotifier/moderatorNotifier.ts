@@ -3,7 +3,7 @@ import verify from '../helpers/verify.js'
 import { AgentMessageActions, AgentResponse, ConversationHistory, IChannel } from '../../types/index.types.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
-import getConversationHistory from '../helpers/getConversationHistory.js'
+import getConversationHistory, { getSharedChatHistory } from '../helpers/getConversationHistory.js'
 import { formatMultiUserConversationHistory } from '../helpers/llmInputFormatters.js'
 import transcript from '../helpers/transcript.js'
 import logger from '../../config/logger.js'
@@ -167,11 +167,7 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
 
     const isModCommand = (msg) => msg.bodyType === 'json' && msg.body?.command === 'mod'
 
-    const sharedChatHistory = getConversationHistory(this.conversation.messages, {
-      count: 100,
-      channels: ['chat'],
-      endTime: conversationHistory.end
-    })
+    const sharedChatHistory = getSharedChatHistory(this, conversationHistory.end)
 
     const privateHistory = getConversationHistory(
       this.conversation.messages,
@@ -206,9 +202,8 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
         retrievedChunks: chunks,
         privateMessages: privateMessages.map((m) => m.content).join('\n') || 'No private messages.',
         sharedChatHistory:
-          sharedChatMessages
-            .map((m) => (m.role === 'assistant' ? `Assistant: ${m.content}` : m.content))
-            .join('\n') || 'No shared chat messages yet.'
+          sharedChatMessages.map((m) => (m.role === 'assistant' ? `Assistant: ${m.content}` : m.content)).join('\n') ||
+          'No shared chat messages yet.'
       },
       [],
       MODERATOR_SCHEMA

@@ -9,7 +9,7 @@ import {
   buildInterventionTypeSection
 } from '../helpers/interventionHandler.js'
 import { InterventionType, InterventionAnalysis } from '../helpers/interventionTypes.js'
-import getConversationHistory from '../helpers/getConversationHistory.js'
+import getConversationHistory, { getSharedChatHistory } from '../helpers/getConversationHistory.js'
 import logger from '../../config/logger.js'
 
 const defaultInterventionExamples = {
@@ -174,11 +174,7 @@ export default verify({
       return []
     }
 
-    const sharedChatHistory = getConversationHistory(this.conversation.messages, {
-      count: 100,
-      channels: ['chat'],
-      endTime: conversationHistory.end
-    })
+    const sharedChatHistory = getSharedChatHistory(this, conversationHistory.end)
 
     const privateHistory = getConversationHistory(
       this.conversation.messages,

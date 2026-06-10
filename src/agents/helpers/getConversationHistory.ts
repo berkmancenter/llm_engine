@@ -1,5 +1,6 @@
 import Message from '../../models/message.model.js'
-import { ConversationHistorySettings } from '../../types/index.types.js'
+import { ConversationHistory, ConversationHistorySettings } from '../../types/index.types.js'
+import { getChatHistoryChannelNames } from './agentChannels.js'
 
 export default function getConversationHistory(
   messages,
@@ -43,4 +44,16 @@ export default function getConversationHistory(
     filteredMessages = filteredMessages.map((message) => new Message(parseInput(message.toObject())))
   }
   return { start, end, messages: filteredMessages }
+}
+
+/**
+ * Returns the shared chat conversation history for an agent.
+ * Handles breakout room and reconvened channel resolution automatically.
+ */
+export function getSharedChatHistory(agent, endTime?): ConversationHistory {
+  return getConversationHistory(agent.conversation.messages, {
+    count: 100,
+    channels: getChatHistoryChannelNames(agent),
+    ...(endTime !== undefined && { endTime })
+  })
 }

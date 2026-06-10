@@ -2,7 +2,7 @@ import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory, IChannel } from '../../types/index.types.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import logger from '../../config/logger.js'
-import getConversationHistory from '../helpers/getConversationHistory.js'
+import { getSharedChatHistory } from '../helpers/getConversationHistory.js'
 import {
   detectPublicInterventionOpportunity,
   getInterventionAnalysisSchema,
@@ -156,12 +156,7 @@ export default verify({
       return []
     }
 
-    // Shared chat
-    const sharedChatHistory = getConversationHistory(this.conversation.messages, {
-      count: 100,
-      channels: ['chat'],
-      endTime: conversationHistory.end
-    })
+    const sharedChatHistory = getSharedChatHistory(this, conversationHistory.end)
 
     const interventionAnalysis = await detectPublicInterventionOpportunity.call(
       this,

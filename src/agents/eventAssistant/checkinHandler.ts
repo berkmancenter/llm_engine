@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { ConversationHistory, IChannel } from '../../types/index.types.js'
 
 import getConversationHistory from '../helpers/getConversationHistory.js'
+import { getChatHistoryChannelNames } from '../helpers/agentChannels.js'
 import {
   detectPrivateInterventionOpportunity,
   buildInterventionTypeSection,
@@ -278,7 +279,7 @@ export async function buildCheckinResponses(conversationHistory: ConversationHis
 
   const sharedChatHistory = getConversationHistory(conversationHistory.messages, {
     count: 100,
-    channels: ['chat'],
+    channels: getChatHistoryChannelNames(this),
     endTime: conversationHistory.end
   })
 
