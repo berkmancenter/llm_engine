@@ -282,6 +282,26 @@ describe('slack adapter tests', () => {
       it('handles mixed formatting in a single message', async () => {
         expect(await sendAndGetText('**bold** and *italic* and ~~strike~~')).toBe('*bold* and _italic_ and ~strike~')
       })
+
+      it('converts "- item" bullet to "• item"', async () => {
+        expect(await sendAndGetText('- item one')).toBe('• item one')
+      })
+
+      it('converts "* item" bullet to "• item"', async () => {
+        expect(await sendAndGetText('* item one')).toBe('• item one')
+      })
+
+      it('converts multiple bullet lines', async () => {
+        expect(await sendAndGetText('- first\n- second\n- third')).toBe('• first\n• second\n• third')
+      })
+
+      it('converts indented bullets', async () => {
+        expect(await sendAndGetText('  - indented')).toBe('• indented')
+      })
+
+      it('does not convert dashes mid-sentence', async () => {
+        expect(await sendAndGetText('well-known fact')).toBe('well-known fact')
+      })
     })
 
     describe('Slack user ID mention formatting', () => {

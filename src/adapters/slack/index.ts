@@ -63,6 +63,8 @@ function markdownToMrkdwn(text: string): string {
       .replace(/~~(.+?)~~/gs, '~$1~')
       // Headings: # Heading → *Heading* (bold, since Slack has no headings)
       .replace(/^#{1,6}\s+(.+)$/gm, '*$1*')
+      // Bullet points: "- text" or "* text" at start of line → "• text"
+      .replace(/^[ \t]*[-*][ \t]+/gm, '• ')
       // Links: [text](url) → <url|text>
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<$2|$1>')
   )
