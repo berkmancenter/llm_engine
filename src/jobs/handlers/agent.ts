@@ -5,7 +5,11 @@ import resourceService from '../../services/resource.service.js'
 import { AgentMessageActions, AgentResponseZodSchema } from '../../types/index.types.js'
 
 const handleAgentResponse = async (response, agent) => {
-  AgentResponseZodSchema.parse(response)
+  const parsed = AgentResponseZodSchema.safeParse(response)
+  if (!parsed.success) {
+    logger.error(`agentResponse handler ${agent._id} - invalid response shape, skipping`, parsed.error)
+    return
+  }
   return messageService.newMessageHandler(agentResponseToMessageData(response, agent), agent)
 }
 
