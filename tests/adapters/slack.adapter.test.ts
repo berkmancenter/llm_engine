@@ -7,7 +7,7 @@ import { publicTopic } from '../fixtures/conversation.fixture.js'
 import { insertTopics } from '../fixtures/topic.fixture.js'
 import Adapter from '../../src/models/adapter.model.js'
 import websocketGateway from '../../src/websockets/websocketGateway.js'
-import slackClientPool from '../../src/adapters/slack/slackClientPool.js'
+import slackClientPool from '../../src/adapters/slack/client.js'
 
 import { Direction } from '../../src/types/index.types.js'
 
