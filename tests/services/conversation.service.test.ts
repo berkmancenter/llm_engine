@@ -1494,6 +1494,75 @@ describe('Conversation service methods', () => {
       const features = updated!.features as Feature[]
       expect(features.some((f) => f.name === 'moderatorSupport')).toBe(true)
     })
+
+    test('should recreate the adapter with the correct config when platforms change', async () => {
+      /* The beforeEach conversation uses platforms: ['zoom'], which resolves to the
+         zoom-only adapter config (2 dmChannels: direct agent DM + moderator DM).
+         Switching to nextspace+zoom should produce the 'nextspace,zoom' config
+         (1 dmChannel: direct agent DM only — moderator DMs go through NextSpace). */
+      const adapterBefore = await Adapter.findOne({ conversation: conversation._id, type: 'zoom' })
+      expect(adapterBefore!.dmChannels).toHaveLength(2)
+
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), platforms: ['nextspace', 'zoom'] },
+        registeredUser
+      )
+
+      const adapterAfter = await Adapter.findOne({ conversation: conversation._id, type: 'zoom' })
+      /* After the fix, the adapter should be recreated with the nextspace,zoom config
+         (1 dmChannel). Before the fix, the old adapter is not recreated and still has 2. */
+      expect(adapterAfter!.dmChannels).toHaveLength(1)
+    })
+
+    test('should update the llmModel on all agents when the property changes', async () => {
+      /* Agents inherit llmModel from conversation properties at creation time via $ref
+         resolution, but updateConversation currently only writes the new llmModel into
+         the conversation's properties object. The Agent documents are not updated,
+         so a model change set on the edit form has no effect on running agents. */
+      const newModel = supportedModels[1]
+
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), properties: { llmModel: newModel } },
+        registeredUser
+      )
+
+      const agents = await Agent.find({ conversation: conversation._id })
+      agents.forEach((agent) => {
+        expect(agent.llmModel).toBe(newModel.llmModel)
+        expect(agent.llmPlatform).toBe(newModel.llmPlatform)
+      })
+    })
+
+    test('should remove the agent for a feature when that feature is disabled', async () => {
+      /* Feature-gated agents are created at conversation-creation time. When a feature is
+         later disabled via updateConversation, only the features array on the Conversation
+         document is updated — the Agent documents are not reconciled, so the agent stays. */
+      const featureConv = await conversationService.createConversationFromType(
+        {
+          type: 'eventAssistant',
+          name: 'Feature Test Event',
+          platforms: ['zoom'],
+          topicId: topicOne._id.toString(),
+          /* Use a different scheduledTime to avoid a uniqueness conflict with the
+             beforeEach conversation (both are Zoom events). */
+          scheduledTime: new Date(Date.now() + 7200000),
+          properties: { zoomMeetingUrl: 'https://zoom.us/j/feature-test' },
+          features: [{ name: 'collectiveVoice' }]
+        },
+        registeredUser
+      )
+
+      const agentsBefore = await Agent.find({ conversation: featureConv._id })
+      expect(agentsBefore.map((a) => a.agentType)).toContain('eventMediator')
+
+      await conversationService.updateConversation(
+        { id: featureConv._id.toString(), features: [{ name: 'collectiveVoice', enabled: false }] },
+        registeredUser
+      )
+
+      const agentsAfter = await Agent.find({ conversation: featureConv._id })
+      expect(agentsAfter.map((a) => a.agentType)).not.toContain('eventMediator')
+    })
   })
 
   describe('findByIdFull()', () => {
@@ -1633,6 +1702,31 @@ describe('Conversation service methods', () => {
       expect(result.topic).toBeDefined()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect((result.topic as any).passcode).toBeUndefined()
+    })
+
+    test('should expose hasPdf: true and omit fileName when a resource has a PDF attached', async () => {
+      /* Insert a resource with fileName directly in the DB to simulate what savePdf does.
+         findByIdFull should strip fileName and expose hasPdf: true instead. */
+      await Conversation.updateOne(
+        { _id: conversation._id },
+        {
+          $push: {
+            resources: {
+              source: 'speaker',
+              category: 'required',
+              title: 'Test Paper',
+              participantVisible: true,
+              fileName: 'test-resource.pdf'
+            }
+          }
+        }
+      )
+
+      const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
+      const resource = result.resources![0] as unknown as Record<string, unknown>
+
+      expect(resource.hasPdf).toBe(true)
+      expect(resource.fileName).toBeUndefined()
     })
   })
 })
