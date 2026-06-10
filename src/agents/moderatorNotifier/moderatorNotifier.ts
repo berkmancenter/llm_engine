@@ -184,9 +184,9 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
     const sharedChatMessages = formatMultiUserConversationHistory(sharedChatHistory, this)
     const privateMessages = formatMultiUserConversationHistory(privateHistory)
 
-    const recentTranscript = transcript.getTranscript(this.conversation, 600, conversationHistory.end)
+    const recentTranscript = transcript.getTranscript(this, 600, conversationHistory.end)
     const allMessages = [...sharedChatMessages, ...privateMessages].map((m) => m.content).join('\n')
-    const { chunks } = await transcript.searchTranscript(this.conversation, allMessages, conversationHistory.end)
+    const { chunks } = await transcript.searchTranscript(this, allMessages, conversationHistory.end)
 
     const previousAlerts = getPreviousAlerts(this.conversation.messages, this.name)
 

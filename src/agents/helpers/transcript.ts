@@ -6,6 +6,7 @@ import { formatTime, formatTranscript } from './llmInputFormatters.js'
 import rag, { TRANSCRIPT_COLLECTION_PREFIX } from './rag.js'
 import Conversation from '../../models/conversation.model.js'
 import Topic from '../../models/topic.model.js'
+import { getTranscriptHistoryChannelNames } from './agentChannels.js'
 
 export const TOPIC_TRANSCRIPT_COLLECTION_PREFIX = 'topic-transcript'
 
@@ -63,7 +64,9 @@ async function buildTimeQuery(timeQuery: TimeReference, startTime: Date, endTime
   }
 }
 
-async function searchTranscript(conversation, question, endTime?) {
+async function searchTranscript(agent, question, endTime?) {
+  const { conversation } = agent
+  const transcriptChannels = getTranscriptHistoryChannelNames(agent)
   const timeQuery = detectTimeQuery(question, conversation.startTime, endTime)
   const k = 10
   if (timeQuery) {
@@ -75,7 +78,7 @@ async function searchTranscript(conversation, question, endTime?) {
             (message) =>
               message.createdAt >= timeFilter.startTime &&
               message.createdAt <= timeFilter.endTime &&
-              message.channels?.some((c) => c === 'transcript')
+              message.channels?.some((c) => transcriptChannels.includes(c))
           )
         ),
         timeWindow: true
@@ -106,17 +109,17 @@ async function searchTranscript(conversation, question, endTime?) {
   return { chunks, timeWindow: false }
 }
 
-function getTranscriptMessages(conversation, timeWindow?, endTime?) {
-  return getConversationHistory(conversation.messages, {
-    channels: ['transcript'],
+function getTranscriptMessages(agent, timeWindow?, endTime?) {
+  const transcriptChannels = getTranscriptHistoryChannelNames(agent)
+  return getConversationHistory(agent.conversation.messages, {
+    channels: transcriptChannels,
     ...(timeWindow !== undefined && { timeWindow }),
     ...(endTime !== undefined && { endTime })
   }).messages
 }
 
-function getTranscript(conversation, timeWindow?, endTime?) {
-  const transcriptMsgs = getTranscriptMessages(conversation, timeWindow, endTime)
-  return formatTranscript(transcriptMsgs)
+function getTranscript(agent, timeWindow?, endTime?) {
+  return formatTranscript(getTranscriptMessages(agent, timeWindow, endTime))
 }
 
 async function loadEventMetadataIntoVectorStore(conversation) {

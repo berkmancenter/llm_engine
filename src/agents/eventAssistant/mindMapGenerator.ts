@@ -55,7 +55,7 @@ const mindMapUser = `## Event topic:
  */
 export default async function generateMindMap(agent, userMessage) {
   // Get the transcript so far
-  const liveTranscript = transcript.getTranscript(agent.conversation, agent.conversationHistorySettings?.endTime)
+  const liveTranscript = transcript.getTranscript(agent, agent.conversationHistorySettings?.endTime)
 
   const topic = agent.conversation.name
   const llm = await agent.getLLM()

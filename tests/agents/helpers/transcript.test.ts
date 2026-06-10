@@ -3,6 +3,7 @@ import transcript, { TOPIC_TRANSCRIPT_COLLECTION_PREFIX } from '../../../src/age
 import rag, { TRANSCRIPT_COLLECTION_PREFIX } from '../../../src/agents/helpers/rag.js'
 import Conversation from '../../../src/models/conversation.model.js'
 import Message from '../../../src/models/message.model.js'
+import { getTranscriptHistoryChannelNames } from '../../../src/agents/helpers/agentChannels.js'
 
 const { searchTranscript, loadTranscriptIntoVectorStore } = transcript
 
@@ -35,7 +36,7 @@ describe('transcript', () => {
           }
         }
       }
-      await searchTranscript(mockConversation, 'test question')
+      await searchTranscript({ conversation: mockConversation }, 'test question')
       expect(ragGetContextChunksSpy).toHaveBeenCalledWith(
         'event-transcript-conv1',
         'test question',
@@ -58,7 +59,7 @@ describe('transcript', () => {
           }
         }
       }
-      await searchTranscript(mockConversation, 'test question')
+      await searchTranscript({ conversation: mockConversation }, 'test question')
       expect(ragGetContextChunksSpy).toHaveBeenCalledWith(
         'event-transcript-conv1b',
         'test question',
@@ -81,7 +82,7 @@ describe('transcript', () => {
           }
         }
       }
-      await searchTranscript(mockConversation, 'test question')
+      await searchTranscript({ conversation: mockConversation }, 'test question')
       expect(ragGetContextChunksSpy).toHaveBeenCalledWith(
         'event-transcript-conv1c',
         'test question',
@@ -99,7 +100,7 @@ describe('transcript', () => {
         _id: 'conv2',
         startTime: new Date()
       }
-      await searchTranscript(mockConversation, 'test question')
+      await searchTranscript({ conversation: mockConversation }, 'test question')
       expect(ragGetContextChunksSpy).toHaveBeenCalledWith(
         'event-transcript-conv2',
         'test question',
@@ -245,7 +246,7 @@ describe('transcript', () => {
   })
 
   describe('searchTranscript', () => {
-    let mockConversation
+    let mockAgent
 
     const mockChunks = [
       { content: 'Discussion about project timeline', metadata: { start: '2024-01-15T10:05:00Z' } },
@@ -253,16 +254,18 @@ describe('transcript', () => {
     ]
 
     beforeEach(() => {
-      mockConversation = {
-        _id: 'conversation123',
-        startTime: new Date('2024-01-15T10:00:00Z')
+      mockAgent = {
+        conversation: {
+          _id: 'conversation123',
+          startTime: new Date('2024-01-15T10:00:00Z')
+        }
       }
       ragGetContextChunksSpy.mockResolvedValue({ chunks: mockChunks })
     })
 
     it('should search transcript without time query', async () => {
       const question = 'What was discussed about the project?'
-      const result = await transcript.searchTranscript(mockConversation, question)
+      const result = await transcript.searchTranscript(mockAgent, question)
       expect(ragGetContextChunksSpy).toHaveBeenCalledWith(
         'event-transcript-conversation123',
         question,
@@ -279,7 +282,7 @@ describe('transcript', () => {
 
     it('should search transcript with relative time query', async () => {
       const testStartTime = Date.now()
-      mockConversation.messages = [
+      mockAgent.conversation.messages = [
         {
           createdAt: new Date(testStartTime - 289 * 1000),
           body: 'Test message',
@@ -305,7 +308,7 @@ describe('transcript', () => {
         }
       ]
       const result = await transcript.searchTranscript(
-        mockConversation,
+        mockAgent,
         'What was discussed about the project in the last 5 minutes?'
       )
       expect(result.chunks).toEqual(expect.stringContaining('Test message'))
@@ -317,21 +320,21 @@ describe('transcript', () => {
     })
 
     it('should search transcript with time query relative to the beginning', async () => {
-      mockConversation.messages = [
+      mockAgent.conversation.messages = [
         {
-          createdAt: new Date(mockConversation.startTime.getTime() + 120 * 1000),
+          createdAt: new Date(mockAgent.conversation.startTime.getTime() + 120 * 1000),
           body: 'Test message',
           pseudonym: 'Joe',
           channels: ['transcript']
         },
         {
-          createdAt: new Date(mockConversation.startTime.getTime() + 600 * 1000),
+          createdAt: new Date(mockAgent.conversation.startTime.getTime() + 600 * 1000),
           body: 'Test older message',
           pseudonym: 'Bob',
           channels: ['transcript']
         },
         {
-          createdAt: new Date(mockConversation.startTime.getTime() + 300 * 1000),
+          createdAt: new Date(mockAgent.conversation.startTime.getTime() + 300 * 1000),
           body: 'Different message',
           pseudonym: 'Frank',
           channels: ['transcript']
@@ -339,7 +342,7 @@ describe('transcript', () => {
       ]
 
       const result = await transcript.searchTranscript(
-        mockConversation,
+        mockAgent,
         'What was discussed about the project in the first 5 minutes?'
       )
 
@@ -350,27 +353,27 @@ describe('transcript', () => {
     })
 
     it('should search transcript with absolute time query', async () => {
-      mockConversation.messages = [
+      mockAgent.conversation.messages = [
         {
-          createdAt: new Date(mockConversation.startTime.getTime() + 32 * 60 * 1000),
+          createdAt: new Date(mockAgent.conversation.startTime.getTime() + 32 * 60 * 1000),
           body: 'Test message',
           pseudonym: 'Joe',
           channels: ['transcript']
         },
         {
-          createdAt: new Date(mockConversation.startTime.getTime() + 15 * 60 * 1000),
+          createdAt: new Date(mockAgent.conversation.startTime.getTime() + 15 * 60 * 1000),
           body: 'Test older message',
           pseudonym: 'Bob',
           channels: ['transcript']
         },
         {
-          createdAt: new Date(mockConversation.startTime.getTime() + 29 * 60 * 1000),
+          createdAt: new Date(mockAgent.conversation.startTime.getTime() + 29 * 60 * 1000),
           body: 'Different message',
           pseudonym: 'Frank',
           channels: ['transcript']
         }
       ]
-      const result = await transcript.searchTranscript(mockConversation, `What happened at ${localHour}:30?`)
+      const result = await transcript.searchTranscript(mockAgent, `What happened at ${localHour}:30?`)
 
       expect(result.chunks).toEqual(expect.stringContaining('Test message'))
       expect(result.chunks).toEqual(expect.stringContaining('Different message'))
@@ -379,28 +382,28 @@ describe('transcript', () => {
     })
 
     it('should search transcript with range time query', async () => {
-      mockConversation.messages = [
+      mockAgent.conversation.messages = [
         {
-          createdAt: new Date(mockConversation.startTime.getTime() + 32 * 60 * 1000),
+          createdAt: new Date(mockAgent.conversation.startTime.getTime() + 32 * 60 * 1000),
           body: 'Test message',
           pseudonym: 'Joe',
           channels: ['transcript']
         },
         {
-          createdAt: new Date(mockConversation.startTime.getTime() + 10 * 60 * 1000),
+          createdAt: new Date(mockAgent.conversation.startTime.getTime() + 10 * 60 * 1000),
           body: 'Test older message',
           pseudonym: 'Bob',
           channels: ['transcript']
         },
         {
-          createdAt: new Date(mockConversation.startTime.getTime() + 29 * 60 * 1000),
+          createdAt: new Date(mockAgent.conversation.startTime.getTime() + 29 * 60 * 1000),
           body: 'Different message',
           pseudonym: 'Frank',
           channels: ['transcript']
         }
       ]
       const result = await transcript.searchTranscript(
-        mockConversation,
+        mockAgent,
         `What happened between ${localHour}:15 and ${localHour}:45?`
       )
 
@@ -415,7 +418,7 @@ describe('transcript', () => {
         const question = 'What was discussed about the project?'
         const endTime = new Date('2024-01-15T10:30:00Z')
 
-        await transcript.searchTranscript(mockConversation, question, endTime)
+        await transcript.searchTranscript(mockAgent, question, endTime)
 
         expect(ragGetContextChunksSpy).toHaveBeenCalledWith(
           'event-transcript-conversation123',
@@ -434,7 +437,7 @@ describe('transcript', () => {
       it('should not pass filter to RAG when endTime is not provided', async () => {
         const question = 'What was discussed about the project?'
 
-        await transcript.searchTranscript(mockConversation, question)
+        await transcript.searchTranscript(mockAgent, question)
 
         expect(ragGetContextChunksSpy).toHaveBeenCalledWith(
           'event-transcript-conversation123',
@@ -452,7 +455,7 @@ describe('transcript', () => {
         const testStartTime = Date.now()
         const endTime = new Date(testStartTime - 200 * 1000) // 200 seconds ago
 
-        mockConversation.messages = [
+        mockAgent.conversation.messages = [
           {
             createdAt: new Date(testStartTime - 150 * 1000), // After endTime - should be excluded
             body: 'Message after endTime',
@@ -480,7 +483,7 @@ describe('transcript', () => {
         ]
 
         const result = await transcript.searchTranscript(
-          mockConversation,
+          mockAgent,
           'What was discussed in the last 5 minutes?',
           endTime
         )
@@ -493,29 +496,29 @@ describe('transcript', () => {
       })
 
       it('should ignore endTime when using absolute time query', async () => {
-        const endTime = new Date(mockConversation.startTime.getTime() + 25 * 60 * 1000) // 25 minutes after start
+        const endTime = new Date(mockAgent.conversation.startTime.getTime() + 25 * 60 * 1000) // 25 minutes after start
 
-        mockConversation.messages = [
+        mockAgent.conversation.messages = [
           {
-            createdAt: new Date(mockConversation.startTime.getTime() + 32 * 60 * 1000),
+            createdAt: new Date(mockAgent.conversation.startTime.getTime() + 32 * 60 * 1000),
             body: 'Test message',
             pseudonym: 'Joe',
             channels: ['transcript']
           },
           {
-            createdAt: new Date(mockConversation.startTime.getTime() + 15 * 60 * 1000),
+            createdAt: new Date(mockAgent.conversation.startTime.getTime() + 15 * 60 * 1000),
             body: 'Test older message',
             pseudonym: 'Bob',
             channels: ['transcript']
           },
           {
-            createdAt: new Date(mockConversation.startTime.getTime() + 29 * 60 * 1000),
+            createdAt: new Date(mockAgent.conversation.startTime.getTime() + 29 * 60 * 1000),
             body: 'Different message',
             pseudonym: 'Frank',
             channels: ['transcript']
           }
         ]
-        const result = await transcript.searchTranscript(mockConversation, `What happened at ${localHour}:30?`, endTime)
+        const result = await transcript.searchTranscript(mockAgent, `What happened at ${localHour}:30?`, endTime)
 
         expect(result.chunks).toEqual(expect.stringContaining('Test message'))
         expect(result.chunks).toEqual(expect.stringContaining('Different message'))
@@ -524,29 +527,29 @@ describe('transcript', () => {
       })
 
       it('should ignore endTime when using range time query', async () => {
-        const endTime = new Date(mockConversation.startTime.getTime() + 35 * 60 * 1000) // 35 minutes after start
+        const endTime = new Date(mockAgent.conversation.startTime.getTime() + 35 * 60 * 1000) // 35 minutes after start
 
-        mockConversation.messages = [
+        mockAgent.conversation.messages = [
           {
-            createdAt: new Date(mockConversation.startTime.getTime() + 40 * 60 * 1000), // After endTime
+            createdAt: new Date(mockAgent.conversation.startTime.getTime() + 40 * 60 * 1000), // After endTime
             body: 'Message after endTime',
             pseudonym: 'Alice',
             channels: ['transcript']
           },
           {
-            createdAt: new Date(mockConversation.startTime.getTime() + 30 * 60 * 1000), // Within range and before endTime
+            createdAt: new Date(mockAgent.conversation.startTime.getTime() + 30 * 60 * 1000), // Within range and before endTime
             body: 'Valid message 1',
             pseudonym: 'Bob',
             channels: ['transcript']
           },
           {
-            createdAt: new Date(mockConversation.startTime.getTime() + 20 * 60 * 1000), // Within range and before endTime
+            createdAt: new Date(mockAgent.conversation.startTime.getTime() + 20 * 60 * 1000), // Within range and before endTime
             body: 'Valid message 2',
             pseudonym: 'Charlie',
             channels: ['transcript']
           },
           {
-            createdAt: new Date(mockConversation.startTime.getTime() + 10 * 60 * 1000), // Outside range (too early)
+            createdAt: new Date(mockAgent.conversation.startTime.getTime() + 10 * 60 * 1000), // Outside range (too early)
             body: 'Too early message',
             pseudonym: 'Dave',
             channels: ['transcript']
@@ -554,7 +557,7 @@ describe('transcript', () => {
         ]
 
         const result = await transcript.searchTranscript(
-          mockConversation,
+          mockAgent,
           `What happened between ${localHour}:15 and ${localHour}:45?`,
           endTime
         )
@@ -567,17 +570,17 @@ describe('transcript', () => {
       })
 
       it('should handle endTime that is before all messages in time query', async () => {
-        const endTime = new Date(mockConversation.startTime.getTime() + 5 * 60 * 1000) // 5 minutes after start
+        const endTime = new Date(mockAgent.conversation.startTime.getTime() + 5 * 60 * 1000) // 5 minutes after start
 
-        mockConversation.messages = [
+        mockAgent.conversation.messages = [
           {
-            createdAt: new Date(mockConversation.startTime.getTime() + 32 * 60 * 1000), // After endTime
+            createdAt: new Date(mockAgent.conversation.startTime.getTime() + 32 * 60 * 1000), // After endTime
             body: 'Message after endTime',
             pseudonym: 'Alice',
             channels: ['transcript']
           },
           {
-            createdAt: new Date(mockConversation.startTime.getTime() + 29 * 60 * 1000), // After endTime
+            createdAt: new Date(mockAgent.conversation.startTime.getTime() + 29 * 60 * 1000), // After endTime
             body: 'Another message after endTime',
             pseudonym: 'Bob',
             channels: ['transcript']
@@ -585,7 +588,7 @@ describe('transcript', () => {
         ]
 
         const result = await transcript.searchTranscript(
-          mockConversation,
+          mockAgent,
           'What was discussed about the project in the last 5 minutes?',
           endTime
         )
@@ -598,15 +601,15 @@ describe('transcript', () => {
         const testStartTime = Date.now()
         const endTime = new Date(testStartTime - 100 * 1000) // 100 seconds ago
 
-        mockConversation.messages = [
+        mockAgent.conversation.messages = [
           {
-            createdAt: new Date(mockConversation.startTime.getTime() + 2 * 60 * 1000), // Within first 5 minutes
+            createdAt: new Date(mockAgent.conversation.startTime.getTime() + 2 * 60 * 1000), // Within first 5 minutes
             body: 'Early valid message',
             pseudonym: 'Alice',
             channels: ['transcript']
           },
           {
-            createdAt: new Date(mockConversation.startTime.getTime() + 4 * 60 * 1000), // Within first 5 minutes
+            createdAt: new Date(mockAgent.conversation.startTime.getTime() + 4 * 60 * 1000), // Within first 5 minutes
             body: 'Another early message',
             pseudonym: 'Bob',
             channels: ['transcript']
@@ -620,7 +623,7 @@ describe('transcript', () => {
         ]
 
         const result = await transcript.searchTranscript(
-          mockConversation,
+          mockAgent,
           'What was discussed in the first 5 minutes?',
           endTime
         )
@@ -635,7 +638,7 @@ describe('transcript', () => {
         const question = 'What was discussed about the project?'
 
         // Test with null
-        await transcript.searchTranscript(mockConversation, question, null)
+        await transcript.searchTranscript(mockAgent, question, null)
         expect(ragGetContextChunksSpy).toHaveBeenCalledWith(
           'event-transcript-conversation123',
           question,
@@ -649,7 +652,7 @@ describe('transcript', () => {
 
         // Test with undefined
         jest.clearAllMocks()
-        await transcript.searchTranscript(mockConversation, question, undefined)
+        await transcript.searchTranscript(mockAgent, question, undefined)
         expect(ragGetContextChunksSpy).toHaveBeenCalledWith(
           'event-transcript-conversation123',
           question,
@@ -812,32 +815,34 @@ describe('transcript', () => {
     it('should handle 12-hour format time conversion correctly for PM start time', async () => {
       const startTime = new Date()
       startTime.setHours(14, 0, 0, 0) // set to 2:00 pm local time
-      const mockConversation = {
-        _id: 'test',
-        startTime,
-        messages: [
-          {
-            createdAt: new Date(startTime.getTime() + 32 * 60 * 1000),
-            body: 'Test message',
-            pseudonym: 'Joe',
-            channels: ['transcript']
-          },
-          {
-            createdAt: new Date(startTime.getTime() + 10 * 60 * 1000),
-            body: 'Test older message',
-            pseudonym: 'Bob',
-            channels: ['transcript']
-          },
-          {
-            createdAt: new Date(startTime.getTime() + 29 * 60 * 1000),
-            body: 'Different message',
-            pseudonym: 'Frank',
-            channels: ['transcript']
-          }
-        ]
+      const mockAgent = {
+        conversation: {
+          _id: 'test',
+          startTime,
+          messages: [
+            {
+              createdAt: new Date(startTime.getTime() + 32 * 60 * 1000),
+              body: 'Test message',
+              pseudonym: 'Joe',
+              channels: ['transcript']
+            },
+            {
+              createdAt: new Date(startTime.getTime() + 10 * 60 * 1000),
+              body: 'Test older message',
+              pseudonym: 'Bob',
+              channels: ['transcript']
+            },
+            {
+              createdAt: new Date(startTime.getTime() + 29 * 60 * 1000),
+              body: 'Different message',
+              pseudonym: 'Frank',
+              channels: ['transcript']
+            }
+          ]
+        }
       }
 
-      const result = await transcript.searchTranscript(mockConversation, `What happened at ${startTime.getHours()}:30?`)
+      const result = await transcript.searchTranscript(mockAgent, `What happened at ${startTime.getHours()}:30?`)
 
       expect(result.chunks).toEqual(expect.stringContaining('Test message'))
       expect(result.chunks).toEqual(expect.stringContaining('Different message'))
@@ -848,32 +853,34 @@ describe('transcript', () => {
     it('should handle 12-hour format time conversion correctly for AM start time', async () => {
       const startTime = new Date()
       startTime.setHours(8, 0, 0, 0) // set to 8:00 am local time
-      const mockConversation = {
-        _id: 'test',
-        startTime,
-        messages: [
-          {
-            createdAt: new Date(startTime.getTime() + 17 * 60 * 1000),
-            body: 'Test message',
-            pseudonym: 'Joe',
-            channels: ['transcript']
-          },
-          {
-            createdAt: new Date(startTime.getTime() + 10 * 60 * 1000),
-            body: 'Test older message',
-            pseudonym: 'Bob',
-            channels: ['transcript']
-          },
-          {
-            createdAt: new Date(startTime.getTime() + 14 * 60 * 1000),
-            body: 'Different message',
-            pseudonym: 'Frank',
-            channels: ['transcript']
-          }
-        ]
+      const mockAgent = {
+        conversation: {
+          _id: 'test',
+          startTime,
+          messages: [
+            {
+              createdAt: new Date(startTime.getTime() + 17 * 60 * 1000),
+              body: 'Test message',
+              pseudonym: 'Joe',
+              channels: ['transcript']
+            },
+            {
+              createdAt: new Date(startTime.getTime() + 10 * 60 * 1000),
+              body: 'Test older message',
+              pseudonym: 'Bob',
+              channels: ['transcript']
+            },
+            {
+              createdAt: new Date(startTime.getTime() + 14 * 60 * 1000),
+              body: 'Different message',
+              pseudonym: 'Frank',
+              channels: ['transcript']
+            }
+          ]
+        }
       }
 
-      const result = await transcript.searchTranscript(mockConversation, `What happened at ${startTime.getHours()}:15?`)
+      const result = await transcript.searchTranscript(mockAgent, `What happened at ${startTime.getHours()}:15?`)
 
       expect(result.chunks).toEqual(expect.stringContaining('Test message'))
       expect(result.chunks).toEqual(expect.stringContaining('Different message'))
@@ -884,32 +891,34 @@ describe('transcript', () => {
     it('should handle 24-hour format time conversion correctly', async () => {
       const startTime = new Date()
       startTime.setHours(110, 0, 0, 0) // set to 15:00 local time
-      const mockConversation = {
-        _id: 'test',
-        startTime,
-        messages: [
-          {
-            createdAt: new Date(startTime.getTime() + 21 * 60 * 1000),
-            body: 'Test message',
-            pseudonym: 'Joe',
-            channels: ['transcript']
-          },
-          {
-            createdAt: new Date(startTime.getTime() + 10 * 60 * 1000),
-            body: 'Test older message',
-            pseudonym: 'Bob',
-            channels: ['transcript']
-          },
-          {
-            createdAt: new Date(startTime.getTime() + 19 * 60 * 1000),
-            body: 'Different message',
-            pseudonym: 'Frank',
-            channels: ['transcript']
-          }
-        ]
+      const mockAgent = {
+        conversation: {
+          _id: 'test',
+          startTime,
+          messages: [
+            {
+              createdAt: new Date(startTime.getTime() + 21 * 60 * 1000),
+              body: 'Test message',
+              pseudonym: 'Joe',
+              channels: ['transcript']
+            },
+            {
+              createdAt: new Date(startTime.getTime() + 10 * 60 * 1000),
+              body: 'Test older message',
+              pseudonym: 'Bob',
+              channels: ['transcript']
+            },
+            {
+              createdAt: new Date(startTime.getTime() + 19 * 60 * 1000),
+              body: 'Different message',
+              pseudonym: 'Frank',
+              channels: ['transcript']
+            }
+          ]
+        }
       }
 
-      const result = await transcript.searchTranscript(mockConversation, `What happened at ${startTime.getHours()}:20?`)
+      const result = await transcript.searchTranscript(mockAgent, `What happened at ${startTime.getHours()}:20?`)
 
       expect(result.chunks).toEqual(expect.stringContaining('Test message'))
       expect(result.chunks).toEqual(expect.stringContaining('Different message'))
@@ -1411,6 +1420,129 @@ describe('transcript', () => {
 
       // Should still delete messages
       expect(messageDeleteManySpy).toHaveBeenCalled()
+    })
+  })
+
+  describe('breakout room transcript channel selection', () => {
+    it('should return ["transcript"] for a standard agent with no breakout config', () => {
+      const agent = {
+        conversation: { channels: [] }
+      }
+      expect(getTranscriptHistoryChannelNames(agent)).toEqual(['transcript'])
+    })
+
+    it('should return the breakout transcript channel name for a breakout room agent', () => {
+      const agent = {
+        agentConfig: { breakout: { roomId: 'room-1' } },
+        conversation: {
+          channels: [
+            { name: 'transcript-room-1', breakout: { roomId: 'room-1', type: 'transcript' } },
+            { name: 'chat-room-1', breakout: { roomId: 'room-1', type: 'chat' } },
+            { name: 'transcript-room-2', breakout: { roomId: 'room-2', type: 'transcript' } }
+          ]
+        }
+      }
+      expect(getTranscriptHistoryChannelNames(agent)).toEqual(['transcript-room-1'])
+    })
+
+    it('should fall back to ["transcript"] when breakout agent has no matching channel', () => {
+      const agent = {
+        agentConfig: { breakout: { roomId: 'room-99' } },
+        conversation: {
+          channels: [
+            { name: 'transcript-room-1', breakout: { roomId: 'room-1', type: 'transcript' } }
+          ]
+        }
+      }
+      expect(getTranscriptHistoryChannelNames(agent)).toEqual(['transcript'])
+    })
+
+    it('should return parent transcript channel plus all breakout transcript channels when includeBreakouts is set', () => {
+      const agent = {
+        conversationHistorySettings: { includeBreakouts: true },
+        conversation: {
+          channels: [
+            { name: 'transcript-room-1', breakout: { roomId: 'room-1', type: 'transcript' } },
+            { name: 'transcript-room-2', breakout: { roomId: 'room-2', type: 'transcript' } },
+            { name: 'chat-room-1', breakout: { roomId: 'room-1', type: 'chat' } }
+          ]
+        }
+      }
+      expect(getTranscriptHistoryChannelNames(agent)).toEqual(['transcript', 'transcript-room-1', 'transcript-room-2'])
+    })
+
+    it('should filter breakout transcript messages by channel when using time query', async () => {
+      const startTime = new Date('2024-01-15T10:00:00Z')
+      const agent = {
+        agentConfig: { breakout: { roomId: 'room-1' } },
+        conversation: {
+          _id: 'conv-breakout',
+          startTime,
+          channels: [
+            { name: 'transcript-room-1', breakout: { roomId: 'room-1', type: 'transcript' } }
+          ],
+          messages: [
+            {
+              createdAt: new Date(startTime.getTime() + 2 * 60 * 1000),
+              body: 'Breakout room message',
+              pseudonym: 'Alice',
+              channels: ['transcript-room-1']
+            },
+            {
+              createdAt: new Date(startTime.getTime() + 3 * 60 * 1000),
+              body: 'Main transcript message',
+              pseudonym: 'Bob',
+              channels: ['transcript']
+            }
+          ]
+        }
+      }
+      ragGetContextChunksSpy.mockResolvedValue({ chunks: '' })
+      const result = await transcript.searchTranscript(agent, 'What was discussed in the first 5 minutes?')
+      expect(result.chunks).toEqual(expect.stringContaining('Breakout room message'))
+      expect(result.chunks).not.toEqual(expect.stringContaining('Main transcript message'))
+      expect(result.timeWindow).toBe(true)
+    })
+
+    it('should include messages from all breakout transcript channels when includeBreakouts is set', async () => {
+      const startTime = new Date('2024-01-15T10:00:00Z')
+      const agent = {
+        conversationHistorySettings: { includeBreakouts: true },
+        conversation: {
+          _id: 'conv-reconvened',
+          startTime,
+          channels: [
+            { name: 'transcript-room-1', breakout: { roomId: 'room-1', type: 'transcript' } },
+            { name: 'transcript-room-2', breakout: { roomId: 'room-2', type: 'transcript' } }
+          ],
+          messages: [
+            {
+              createdAt: new Date(startTime.getTime() + 2 * 60 * 1000),
+              body: 'Main transcript message',
+              pseudonym: 'Alice',
+              channels: ['transcript']
+            },
+            {
+              createdAt: new Date(startTime.getTime() + 3 * 60 * 1000),
+              body: 'Room 1 message',
+              pseudonym: 'Bob',
+              channels: ['transcript-room-1']
+            },
+            {
+              createdAt: new Date(startTime.getTime() + 4 * 60 * 1000),
+              body: 'Room 2 message',
+              pseudonym: 'Charlie',
+              channels: ['transcript-room-2']
+            }
+          ]
+        }
+      }
+      ragGetContextChunksSpy.mockResolvedValue({ chunks: '' })
+      const result = await transcript.searchTranscript(agent, 'What was discussed in the first 5 minutes?')
+      expect(result.chunks).toEqual(expect.stringContaining('Main transcript message'))
+      expect(result.chunks).toEqual(expect.stringContaining('Room 1 message'))
+      expect(result.chunks).toEqual(expect.stringContaining('Room 2 message'))
+      expect(result.timeWindow).toBe(true)
     })
   })
 })

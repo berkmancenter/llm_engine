@@ -382,11 +382,7 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
     contextString = options.context
   } else {
     // Normal flow - search transcript
-    const searchResult = await transcript.searchTranscript(
-      this.conversation,
-      question,
-      this.conversationHistorySettings?.endTime
-    )
+    const searchResult = await transcript.searchTranscript(this, question, this.conversationHistorySettings?.endTime)
     const { chunks, timeWindow } = searchResult
 
     // Determine prompt type from search result if not provided
@@ -401,7 +397,7 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
       // For semantic searches, always include provided names so the LLM has
       // canonical speaker/moderator names even when RAG doesn't retrieve their metadata docs
       const participantNamesContext = compileSpeakerNames(this.conversation)
-      const liveTranscript = transcript.getTranscript(this.conversation, 300, this.conversationHistorySettings?.endTime)
+      const liveTranscript = transcript.getTranscript(this, 300, this.conversationHistorySettings?.endTime)
 
       const hasBackground = this.conversation.resources?.some((r) => r.source === 'speaker')
       let backgroundChunks = ''

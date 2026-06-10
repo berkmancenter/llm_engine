@@ -151,7 +151,7 @@ The message is entirely about solidarity — that their reaction is shared, not 
     ],
     evaluateShared: async ({ sharedChatHistory, agentInstance }) => {
       const windowSeconds = (agentInstance.agentConfig?.checkinScanInterval ?? 3) * 60
-      const recentTranscript = transcript.getTranscript(agentInstance.conversation, windowSeconds, sharedChatHistory.end)
+      const recentTranscript = transcript.getTranscript(agentInstance, windowSeconds, sharedChatHistory.end)
       if (!recentTranscript?.trim()) return { isDense: false, topic: null }
 
       try {

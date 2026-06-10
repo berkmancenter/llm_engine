@@ -133,11 +133,11 @@ async function runInterventionAnalysis(
   const privateMessages = privateConversationHistory ? formatMultiUserConversationHistory(privateConversationHistory) : []
 
   // Get recent transcript (last 10 minutes)
-  const recentTranscript = transcript.getTranscript(this.conversation, 600, sharedChatHistory.end)
+  const recentTranscript = transcript.getTranscript(this, 600, sharedChatHistory.end)
 
   // Get relevant context via RAG - use both private and public messages to find relevant transcript chunks
   const allMessages = [...sharedChatMessages, ...privateMessages].map((m) => m.content).join('\n')
-  const { chunks } = await transcript.searchTranscript(this.conversation, allMessages, sharedChatHistory.end)
+  const { chunks } = await transcript.searchTranscript(this, allMessages, sharedChatHistory.end)
 
   // Get agent's recent posts for self-awareness
   const agentRecentPosts = getAgentRecentPosts(sharedChatHistory, this.name, 5)
