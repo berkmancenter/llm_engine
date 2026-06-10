@@ -139,12 +139,23 @@ export enum Direction {
   BOTH = 'both'
 }
 
+export interface IChannelBreakout {
+  roomId: string
+  roundId: string
+  name?: string
+  description?: string
+  active?: boolean
+  parentChannel?: string
+  type?: 'chat' | 'transcript'
+}
+
 export interface IChannel {
   _id?: mongoose.Types.ObjectId
   name: string
   passcode: string | null
   direct: boolean
   participants?: IBaseUser[]
+  breakout?: IChannelBreakout
 }
 
 export interface AdapterChannelConfig {

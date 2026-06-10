@@ -10,6 +10,19 @@ interface ChannelMethods {
 
 type ChannelModel = Model<IChannel, Record<string, never>, ChannelMethods>
 
+const breakoutSchema = new mongoose.Schema(
+  {
+    roomId: { type: String, required: true },
+    roundId: { type: String, required: true },
+    name: { type: String },
+    description: { type: String },
+    active: { type: Boolean, default: true },
+    parentChannel: { type: String },
+    type: { type: String, enum: ['chat', 'transcript'] }
+  },
+  { _id: false }
+)
+
 const channelSchema = new mongoose.Schema<IChannel, ChannelModel>({
   name: {
     type: String,
@@ -28,6 +41,10 @@ const channelSchema = new mongoose.Schema<IChannel, ChannelModel>({
   participants: {
     type: [mongoose.Schema.Types.ObjectId],
     ref: 'BaseUser',
+    default: undefined
+  },
+  breakout: {
+    type: breakoutSchema,
     default: undefined
   }
 })
