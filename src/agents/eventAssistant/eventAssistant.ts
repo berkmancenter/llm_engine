@@ -21,6 +21,7 @@ import generateImageResponse from './imageGenerator.js'
 import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from '../helpers/slashCommandParser.js'
 import generateMindMap from './mindMapGenerator.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
+import { isOnChatChannel } from '../helpers/agentChannels.js'
 
 /**
  * Builds a dynamic capability description for the WELCOME check-in message.
@@ -320,7 +321,7 @@ export default verify({
       : supportedCommands.filter((c) => c.command !== 'mod')
     let modifiedMessage = parseSlashCommands(userMessage, activeCommands)
 
-    if (modifiedMessage?.channels?.includes('chat')) {
+    if (isOnChatChannel(this, modifiedMessage?.channels || [])) {
       const words = modifiedMessage?.body?.trim().split(/\s+/) ?? []
       if (matchBotMention(words, this.agentConfig?.botName)) {
         modifiedMessage = { ...modifiedMessage, body: normalizeBotMention(modifiedMessage.body, this.agentConfig?.botName) }
@@ -352,7 +353,7 @@ export default verify({
     }
 
     // Message on chat channel?
-    if (userMessage?.channels?.includes('chat')) {
+    if (isOnChatChannel(this, userMessage?.channels || [])) {
       const llm = await this.getLLM()
       if (!(await checkBotIntent(llm, this.agentConfig?.botName, userMessage))) {
         return []

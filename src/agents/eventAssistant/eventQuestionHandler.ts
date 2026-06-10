@@ -1,4 +1,5 @@
 import { getChatPromptResponse, getAgentStructuredResponse } from '../helpers/llmChain.js'
+import { isOnChatChannel } from '../helpers/agentChannels.js'
 import { formatMultiUserConversationHistory, formatSingleUserConversationHistory } from '../helpers/llmInputFormatters.js'
 import transcript from '../helpers/transcript.js'
 import rag from '../helpers/rag.js'
@@ -347,7 +348,7 @@ export function compileSpeakerNames(conversation): string {
 }
 
 export async function answerQuestion(userMessage, conversationHistory, options?) {
-  const chatHistory = userMessage?.channels?.includes('chat')
+  const chatHistory = isOnChatChannel(this, userMessage?.channels || [])
     ? formatMultiUserConversationHistory(conversationHistory, this)
     : formatSingleUserConversationHistory(conversationHistory)
 
@@ -527,7 +528,7 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
   let parentMessageId
 
   // Set parent for threading
-  if (userMessage?.channels?.includes('chat')) {
+  if (isOnChatChannel(this, userMessage?.channels || [])) {
     // For chat: thread under the original message or current message
     parentMessageId = userMessage.parentMessage || userMessage._id
   } else if (userMessage.parentMessage) {
