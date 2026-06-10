@@ -1,9 +1,9 @@
 import httpStatus from 'http-status'
 import ApiError from '../utils/ApiError.js'
-import Adapter from '../models/adapter.model.js'
 import config from '../config/config.js'
 import logger from '../config/logger.js'
 import validateSignature from './helpers/validateSignature.js'
+import findSlackAdapter from './helpers/findSlackAdapter.js'
 import webhookService from '../services/webhook.service.js'
 import slackInteractionHandler from './slackInteraction.js'
 
@@ -65,22 +65,8 @@ const handleEvent = async (req, res) => {
   }
   // Skip bot messages to prevent loops and skip messages with subtypes, which are not user messages (they represent events like user joining a channel, etc)
   if (event.type === 'message' && !event.bot_id && !event.subtype) {
-    let slackAdapter
     // TODO limit same Slack channel to one active Conversation
-    if (event.channel_type === 'im') {
-      // Only one Conversation can process Slack DMs, since they are not related to a specific "conversation" or "channel"
-      slackAdapter = await Adapter.findOne({
-        type: 'slack',
-        'config.channel': 'direct',
-        'config.workspace': event.team
-      })
-    } else {
-      slackAdapter = await Adapter.findOne({
-        type: 'slack',
-        'config.channel': event.channel,
-        'config.workspace': event.team
-      })
-    }
+    const slackAdapter = await findSlackAdapter({ appKey: req.params?.appKey, payload })
     if (!slackAdapter) {
       throw new ApiError(
         httpStatus.NOT_FOUND,
