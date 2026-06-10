@@ -14,7 +14,11 @@ const conversationEvent = async (job) => {
     logger.debug(`conversationEvent handler ${agent._id} - event type: ${event.type}`)
     const responses = await agent.onConversationEvent(event)
     for (const response of responses) {
-      AgentResponseZodSchema.parse(response)
+      const parsed = AgentResponseZodSchema.safeParse(response)
+      if (!parsed.success) {
+        logger.error(`conversationEvent handler ${agent._id} - invalid response shape, skipping`, parsed.error)
+        continue
+      }
       await messageService.newMessageHandler(agentResponseToMessageData(response, agent), agent)
     }
   } catch (error) {
