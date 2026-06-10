@@ -15,16 +15,19 @@ import getConversationHistory from '../../agents/helpers/getConversationHistory.
 
 const transcriptBatchInterval = 30
 const SUMMARIZATION_PROMPT = `
-  Please summarize what happened during this conversation. Where possible, also draw conclusions about outcomes of the discussion. 
+  Please summarize what happened during this conversation. Where possible, also draw conclusions about outcomes of the discussion.
   When available, use as reference the listed speaker(s), moderator(s) and their bios, and event description.
 
   - **IMPORTANT**: you are summarizing for the event attendees. You are not worried about things like engagement or metrics. You want to provide a clear and concise summary of the key points and outcomes in a digestible format.
-  - **LENGTH**: write no more than three paragraphs. Be selective — prioritize the most significant points and outcomes over completeness.
+  - **FORMAT**: use exactly these three sections, each with a bold heading on its own line (not inside a bullet):
+    - **The Gist** — 2-4 sentences covering the core topic and key takeaway.
+    - **Highlights** — exactly 3 bullets with the most important facts, perspectives, or conclusions drawn from the event. Keep each bullet to one sentence.
+    - **The Breakdown** — 3-5 bullets listing the main topics or segments covered, in order. One sentence each, no sub-bullets.
   - The tone is friendly and conversational.
-  - The event content will be made up of a transcript as well as participant messages. 
+  - The event content will be made up of a transcript as well as participant messages.
   - The transcript is drawing from what was said by the speakers in the event, or in some cases might be a video presentation of some kind. Be aware that speakers are generally allowed to use whatever media they would like during the conversation.
-  - The participant messages are from attendees in a group chat either on Zoom or within a custom-built front-end app.
-  - Participants might want to know what other participants were saying relative to the event wrap-up.`
+  - The participant messages are from attendees in a group chat either on Zoom or within a custom-built front-end app. Messages labelled "AI Assistant" are from automated assistants — ignore them entirely, do not mention or attribute them.
+  - Only include a section about group chat if there were meaningful participant contributions. If the chat was empty or contained only AI Assistant messages, omit it entirely.`
 
 export const updateTranscriptStatus = async (
   conversation,
@@ -106,8 +109,8 @@ export async function doStopConversation(conversation) {
         const chatHistory = getConversationHistory(sortedMessages, { channels: ['chat'] })
         const sharedChat =
           formatMultiUserConversationHistory(chatHistory)
-            .map((m) => (m.role === 'assistant' ? `Assistant: ${m.content}` : m.content))
-            .join('\n') || 'No shared chat messages yet.'
+            .map((m) => (m.role === 'assistant' ? `AI Assistant: ${m.content}` : m.content))
+            .join('\n') || 'No participant chat messages.'
 
         // Get speaker and moderator information if available
         const speakers = `${conversationDoc.presenters?.map((p) => `${p.name}: ${p.bio}`).join(', ')}` || 'Not provided'

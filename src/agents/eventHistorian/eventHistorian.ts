@@ -146,7 +146,7 @@ export default verify({
     return [
       {
         visible: true,
-        message: `*${name}* just wrapped up. Here's a summary:\n\n${conv.summary}`,
+        message: `*${name}* just wrapped up. Here's a summary:\n\n${conv.summary}\n\n*Have questions about the event? Ask me anything.*`,
         messageType: 'text' as const,
         channels: responseChannels
       }
