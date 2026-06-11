@@ -268,7 +268,7 @@ describe('POST /v1/webhooks/slack', () => {
       expect(receiveMessageSpy).not.toHaveBeenCalled()
     })
 
-    test('should return 404 if slack adapter not found for channel', async () => {
+    test('should return 401 if slack adapter not found for channel', async () => {
       const messageEvent = {
         type: 'message',
         text: 'Hello from unknown channel!',
@@ -281,17 +281,19 @@ describe('POST /v1/webhooks/slack', () => {
       const timestamp = Math.floor(Date.now() / 1000).toString()
       const signature = generateSlackSignature(timestamp, JSON.stringify(payload))
 
+      // 401 (not 404): the middleware refuses to confirm whether the adapter is missing or
+      // the signature is bad, so attackers can't enumerate which channels are wired up.
       await request(app)
         .post('/v1/webhooks/slack')
         .set('x-slack-signature', signature)
         .set('x-slack-request-timestamp', timestamp)
         .send(payload)
-        .expect(httpStatus.NOT_FOUND)
+        .expect(httpStatus.UNAUTHORIZED)
 
       expect(receiveMessageSpy).not.toHaveBeenCalled()
     })
 
-    test('should return 404 if slack adapter not found for workspace', async () => {
+    test('should return 401 if slack adapter not found for workspace', async () => {
       const messageEvent = {
         type: 'message',
         text: 'Hello!',
@@ -309,7 +311,7 @@ describe('POST /v1/webhooks/slack', () => {
         .set('x-slack-signature', signature)
         .set('x-slack-request-timestamp', timestamp)
         .send(payload)
-        .expect(httpStatus.NOT_FOUND)
+        .expect(httpStatus.UNAUTHORIZED)
 
       expect(receiveMessageSpy).not.toHaveBeenCalled()
     })
@@ -441,6 +443,84 @@ describe('POST /v1/webhooks/slack', () => {
         .set('x-slack-request-timestamp', timestamp)
         .send(payload)
         .expect(httpStatus.OK)
+
+      expect(receiveMessageSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('Per-adapter signing secret', () => {
+    test('accepts a webhook signed with the adapter-specific secret', async () => {
+      slackAdapter.config = { ...slackAdapter.config, signingSecret: 'per-adapter-secret' }
+      slackAdapter.markModified('config')
+      await slackAdapter.save()
+
+      const payload = {
+        event: { type: 'message', text: 'hi', channel: 'C1234567890', team: '123456' }
+      }
+      const timestamp = Math.floor(Date.now() / 1000).toString()
+      const signature = generateSlackSignature(timestamp, JSON.stringify(payload), 'per-adapter-secret')
+
+      await request(app)
+        .post('/v1/webhooks/slack')
+        .set('x-slack-signature', signature)
+        .set('x-slack-request-timestamp', timestamp)
+        .send(payload)
+        .expect(httpStatus.OK)
+
+      expect(receiveMessageSpy).toHaveBeenCalled()
+    })
+
+    test('rejects a webhook signed with the env secret when the adapter has its own secret', async () => {
+      slackAdapter.config = { ...slackAdapter.config, signingSecret: 'per-adapter-secret' }
+      slackAdapter.markModified('config')
+      await slackAdapter.save()
+
+      const payload = {
+        event: { type: 'message', text: 'hi', channel: 'C1234567890', team: '123456' }
+      }
+      const timestamp = Math.floor(Date.now() / 1000).toString()
+      const wrongSignature = generateSlackSignature(timestamp, JSON.stringify(payload), 'test-signing-secret')
+
+      await request(app)
+        .post('/v1/webhooks/slack')
+        .set('x-slack-signature', wrongSignature)
+        .set('x-slack-request-timestamp', timestamp)
+        .send(payload)
+        .expect(httpStatus.UNAUTHORIZED)
+
+      expect(receiveMessageSpy).not.toHaveBeenCalled()
+    })
+
+    test('falls back to the env secret when the adapter has no signingSecret of its own', async () => {
+      const payload = {
+        event: { type: 'message', text: 'hi', channel: 'C1234567890', team: '123456' }
+      }
+      const timestamp = Math.floor(Date.now() / 1000).toString()
+      const signature = generateSlackSignature(timestamp, JSON.stringify(payload), 'test-signing-secret')
+
+      await request(app)
+        .post('/v1/webhooks/slack')
+        .set('x-slack-signature', signature)
+        .set('x-slack-request-timestamp', timestamp)
+        .send(payload)
+        .expect(httpStatus.OK)
+
+      expect(receiveMessageSpy).toHaveBeenCalled()
+    })
+
+    test('rejects with 401 when no adapter matches the webhook payload', async () => {
+      const payload = {
+        event: { type: 'message', text: 'hi', channel: 'C_NONE', team: 'T_NONE' }
+      }
+      const timestamp = Math.floor(Date.now() / 1000).toString()
+      const signature = generateSlackSignature(timestamp, JSON.stringify(payload), 'test-signing-secret')
+
+      await request(app)
+        .post('/v1/webhooks/slack')
+        .set('x-slack-signature', signature)
+        .set('x-slack-request-timestamp', timestamp)
+        .send(payload)
+        .expect(httpStatus.UNAUTHORIZED)
 
       expect(receiveMessageSpy).not.toHaveBeenCalled()
     })

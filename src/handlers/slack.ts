@@ -4,6 +4,7 @@ import config from '../config/config.js'
 import logger from '../config/logger.js'
 import validateSignature from './helpers/validateSignature.js'
 import findSlackAdapter from './helpers/findSlackAdapter.js'
+import resolveSlackSigningSecret from './helpers/resolveSlackSigningSecret.js'
 import webhookService from '../services/webhook.service.js'
 import slackInteractionHandler from './slackInteraction.js'
 
@@ -66,7 +67,8 @@ const handleEvent = async (req, res) => {
   // Skip bot messages to prevent loops and skip messages with subtypes, which are not user messages (they represent events like user joining a channel, etc)
   if (event.type === 'message' && !event.bot_id && !event.subtype) {
     // TODO limit same Slack channel to one active Conversation
-    const slackAdapter = await findSlackAdapter({ appKey: req.params?.appKey, payload })
+    // Middleware already resolved and attached the adapter when validating the signature.
+    const slackAdapter = req.slackAdapter ?? (await findSlackAdapter({ appKey: req.params?.appKey, payload }))
     if (!slackAdapter) {
       throw new ApiError(
         httpStatus.NOT_FOUND,
@@ -95,11 +97,36 @@ const middleware = async (req, res, next) => {
     if (!rawBody) {
       throw new ApiError(httpStatus.BAD_REQUEST, 'Raw body missing')
     }
-    const isValid = validateSignature(slackTimestamp, rawBody, slackSignature, config.slack.signingSecret)
 
+    // A request can only be tied to a specific bot's signing secret if it carries either a
+    // :appKey route param or an event payload with a team ID we can look up by. URL verification
+    // (sent before any Adapter row exists), interactive payloads (form-encoded, JSON nested in a
+    // field), and other event-less callbacks don't, so they validate against the env-var secret.
+    const appKey: string | undefined = req.params?.appKey
+    const eventTeam: string | undefined = req.body?.event?.team
+    const canIdentifyAdapter = Boolean(appKey || eventTeam)
+
+    if (!canIdentifyAdapter) {
+      const isValid = validateSignature(slackTimestamp, rawBody, slackSignature, config.slack.signingSecret)
+      if (!isValid) {
+        throw new ApiError(httpStatus.UNAUTHORIZED, 'Invalid Slack signature')
+      }
+      next()
+      return
+    }
+
+    const slackAdapter = await findSlackAdapter({ appKey, payload: req.body })
+    if (!slackAdapter) {
+      // Stay deliberately vague: don't reveal whether the adapter is missing or the signature is bad.
+      throw new ApiError(httpStatus.UNAUTHORIZED, 'Invalid Slack signature')
+    }
+
+    const isValid = validateSignature(slackTimestamp, rawBody, slackSignature, resolveSlackSigningSecret(slackAdapter))
     if (!isValid) {
       throw new ApiError(httpStatus.UNAUTHORIZED, 'Invalid Slack signature')
     }
+
+    req.slackAdapter = slackAdapter
     next()
   } catch (err) {
     next(err)
