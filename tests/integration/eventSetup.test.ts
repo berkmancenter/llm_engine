@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken'
 import request from 'supertest'
 
 import setupIntTest from '../utils/setupIntTest.js'
-import { mintHandoffToken } from '../../src/services/handoffToken.service.js'
+import { mintSlackHandoffToken } from '../../src/adapters/slack/handoff.js'
 import config from '../../src/config/config.js'
 import tokenTypes from '../../src/config/tokens.js'
 import type { EventSetupPlan } from '../../src/services/eventSetup/planSchema.js'
@@ -101,7 +101,7 @@ describe('POST /v1/event-setup/plan', () => {
   })
 
   test('returns 400 when description is missing', async () => {
-    const token = mintHandoffToken(slackContext)
+    const token = mintSlackHandoffToken(slackContext)
     const res = await request(app).post('/v1/event-setup/plan').set('X-Handoff-Token', token).send({})
 
     expect(res.status).toBe(httpStatus.BAD_REQUEST)
@@ -109,7 +109,7 @@ describe('POST /v1/event-setup/plan', () => {
   })
 
   test('returns 400 when description exceeds the length cap', async () => {
-    const token = mintHandoffToken(slackContext)
+    const token = mintSlackHandoffToken(slackContext)
     const tooLong = 'a'.repeat(4001)
     const res = await request(app).post('/v1/event-setup/plan').set('X-Handoff-Token', token).send({ description: tooLong })
 
@@ -118,7 +118,7 @@ describe('POST /v1/event-setup/plan', () => {
   })
 
   test('returns 200 with the planner output when token + body are valid', async () => {
-    const token = mintHandoffToken(slackContext)
+    const token = mintSlackHandoffToken(slackContext)
     const res = await request(app)
       .post('/v1/event-setup/plan')
       .set('X-Handoff-Token', token)

@@ -18,13 +18,13 @@
 
 import httpStatus from 'http-status'
 import ApiError from '../utils/ApiError.js'
-import { verifyHandoffToken, VerifiedHandoff } from '../services/handoffToken.service.js'
+import { verifySlackHandoffToken, VerifiedSlackHandoff } from '../adapters/slack/handoff.js'
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
-      handoff?: VerifiedHandoff
+      handoff?: VerifiedSlackHandoff
     }
   }
 }
@@ -35,7 +35,7 @@ const handoffAuth = (req, res, next) => {
     return next(new ApiError(httpStatus.UNAUTHORIZED, 'Missing handoff token'))
   }
   try {
-    req.handoff = verifyHandoffToken(token)
+    req.handoff = verifySlackHandoffToken(token)
     return next()
   } catch {
     return next(new ApiError(httpStatus.UNAUTHORIZED, 'Invalid handoff token'))
