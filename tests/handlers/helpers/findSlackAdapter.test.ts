@@ -9,7 +9,7 @@ import findSlackAdapter from '../../../src/handlers/helpers/findSlackAdapter.js'
 setupIntTest()
 
 const makeAdapter = async (config: Record<string, unknown>) => {
-  // A fresh _id per call — the shared fixture pins one, which collides when reused.
+  // A fresh _id per call: the shared fixture pins one, which collides when reused.
   const conversation = new Conversation({ ...conversationAgentsEnabled, _id: new mongoose.Types.ObjectId() })
   await conversation.save()
   // botToken and botUserId satisfy the Slack adapter's pre-save validation without calling out

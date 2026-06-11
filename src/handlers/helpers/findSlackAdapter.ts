@@ -31,14 +31,15 @@ export default async function findSlackAdapter({
   appKey?: string
   payload: SlackPayload
 }): Promise<AdapterDocument | null> {
-  const eventTeam = payload?.event?.team
+  // Slack's API still calls workspaces "teams", so `event.team` is the workspace ID.
+  const slackWorkspaceId = payload?.event?.team
   if (appKey) {
     const byAppKey = await Adapter.findOne({ type: 'slack', 'config.appKey': appKey })
     if (byAppKey) {
       // A bot lives in one workspace. If the payload claims a different one, refuse the lookup
       // even though the URL matched a row. Keeps a leaked URL from being probed with forged
       // payloads from other workspaces.
-      if (eventTeam && byAppKey.config?.workspace !== eventTeam) return null
+      if (slackWorkspaceId && byAppKey.config?.workspace !== slackWorkspaceId) return null
       return byAppKey
     }
   }

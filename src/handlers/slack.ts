@@ -103,8 +103,9 @@ const middleware = async (req, res, next) => {
     // ID to look it up by. URL verification and button-click payloads have neither, so they fall
     // back to the global env-var secret.
     const appKey: string | undefined = req.params?.appKey
-    const eventTeam: string | undefined = req.body?.event?.team
-    const canIdentifyAdapter = Boolean(appKey || eventTeam)
+    // Slack's API still calls workspaces "teams", so `event.team` is the workspace ID.
+    const slackWorkspaceId: string | undefined = req.body?.event?.team
+    const canIdentifyAdapter = Boolean(appKey || slackWorkspaceId)
 
     if (!canIdentifyAdapter) {
       const isValid = validateSignature(slackTimestamp, rawBody, slackSignature, config.slack.signingSecret)

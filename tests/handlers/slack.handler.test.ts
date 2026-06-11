@@ -452,7 +452,7 @@ describe('POST /v1/webhooks/slack', () => {
     test('routes a request at /v1/webhooks/slack/:appKey to the matching bot', async () => {
       const mongoose = await import('mongoose')
       // A second bot in the same workspace, with a channel the incoming payload doesn't mention.
-      // That makes the bot identifier in the URL the only way to resolve this bot — falling back
+      // That makes the bot identifier in the URL the only way to resolve this bot; falling back
       // to workspace+channel wouldn't match.
       const secondConvo = new Conversation({ ...conversationAgentsEnabled, _id: new mongoose.Types.ObjectId() })
       await secondConvo.save()
