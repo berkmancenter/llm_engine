@@ -3,9 +3,8 @@
  * so callers deal in concrete Slack field names (slackUserId, slackTeamId,
  * etc.) without knowing about the generic context envelope underneath.
  *
- * The verified result is deliberately flat — the same shape callers and
- * middleware already expect on req.handoff — so nothing upstream needs
- * to change when we migrate from the old handoffToken.service.
+ * The verified result is deliberately flat (not wrapped in a context envelope)
+ * so middleware and route handlers can read req.handoff.slackUserId directly.
  */
 
 import { mintHandoffToken, verifyHandoffToken } from '../../services/handoff.service.js'
