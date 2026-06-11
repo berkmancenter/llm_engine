@@ -458,8 +458,11 @@ describe('POST /v1/webhooks/slack', () => {
       const vaAdapter = await Adapter.create({
         type: 'slack',
         config: {
+          // Same workspace as the payload (a single bot lives in one workspace), but a different
+          // channel than the payload's. That makes the appKey URL segment the only way to resolve
+          // this adapter — workspace+channel fallback would not match.
           channel: 'C_VA_NEVER_IN_PAYLOAD',
-          workspace: 'W_VA_NEVER_IN_PAYLOAD',
+          workspace: 'T_VA_WORKSPACE',
           appKey: 'va',
           signingSecret: 'va-secret',
           botToken: 'xoxb-va',
@@ -470,7 +473,7 @@ describe('POST /v1/webhooks/slack', () => {
       })
 
       const payload = {
-        event: { type: 'message', text: 'hi VA', channel: 'C_OTHER', team: 'T_OTHER' }
+        event: { type: 'message', text: 'hi VA', channel: 'C_OTHER', team: 'T_VA_WORKSPACE' }
       }
       const timestamp = Math.floor(Date.now() / 1000).toString()
       const signature = generateSlackSignature(timestamp, JSON.stringify(payload), 'va-secret')

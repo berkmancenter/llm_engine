@@ -53,6 +53,20 @@ describe('findSlackAdapter', () => {
     expect(found?._id.toString()).toBe(dm._id.toString())
   })
 
+  it('returns null when the appKey matches but the event came from a different workspace', async () => {
+    // Defense in depth: a single Slack bot lives in one workspace. If an event payload claims to
+    // come from a different one, refuse it even though the appKey lookup hit a row — the
+    // signature check should already catch this, but the cheap pre-check rejects forged shapes
+    // before we hand the bot's secret to the validator.
+    await makeAdapter({ channel: 'C_VA', workspace: 'W_VA', appKey: 'va' })
+
+    const found = await findSlackAdapter({
+      appKey: 'va',
+      payload: { event: { type: 'message', channel: 'C_VA', team: 'W_DIFFERENT' } }
+    })
+    expect(found).toBeNull()
+  })
+
   it('falls back to workspace+channel when appKey is provided but not found', async () => {
     const berkie = await makeAdapter({ channel: 'C123', workspace: 'T1' })
 

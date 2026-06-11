@@ -34,9 +34,17 @@ export default async function findSlackAdapter({
   appKey?: string
   payload: SlackPayload
 }): Promise<AdapterDocument | null> {
+  const eventTeam = payload?.event?.team
   if (appKey) {
     const byAppKey = await Adapter.findOne({ type: 'slack', 'config.appKey': appKey })
-    if (byAppKey) return byAppKey
+    if (byAppKey) {
+      // Defense in depth: a single Slack bot lives in one workspace. If the event payload claims
+      // to come from a different workspace, treat the lookup as unmatched. The signature check
+      // would normally catch a forged payload, but rejecting on shape here keeps a leaked appKey
+      // URL from being used to probe with payloads from arbitrary workspaces.
+      if (eventTeam && byAppKey.config?.workspace !== eventTeam) return null
+      return byAppKey
+    }
   }
 
   const event = payload?.event
