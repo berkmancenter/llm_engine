@@ -1,19 +1,3 @@
-/*
- * Issues and validates signed handoff tokens used when an agent hands control
- * to another part of the system to complete a task.
- *
- * A handoff token is a short-lived JWT that carries a platform identifier and
- * an opaque context blob. The platform identifies which adapter minted the
- * token (e.g. 'slack', 'web'). The context is whatever the minting adapter
- * needs to resume work after the handoff resolves — the service treats it as
- * opaque data and neither reads nor validates its contents.
- *
- * Tokens are signed with HS256 and expire after HANDOFF_TOKEN_EXPIRATION_MINUTES.
- * The type claim ('handoff') prevents tokens from other flows (auth, refresh)
- * being replayed here. Each token carries a random jti so a revocation
- * blacklist can be added later without changing the token format.
- */
-
 import jwt from 'jsonwebtoken'
 import { randomUUID } from 'node:crypto'
 import moment from 'moment'
@@ -51,10 +35,9 @@ export const mintHandoffToken = (params: HandoffContext): string => {
 }
 
 export const verifyHandoffToken = (token: string): VerifiedHandoffContext => {
-  /* Explicit algorithm allowlist: rejects tokens signed with anything else,
-     including 'none'. The type check is a second layer so tokens from other
-     flows can't be replayed against this one. */
+  /* Explicit algorithm allowlist: rejects anything other than HS256, including 'none'. */
   const payload = jwt.verify(token, config.jwt.secret, { algorithms: ['HS256'] }) as HandoffPayload
+  /* Type guard: prevents auth and refresh tokens from being replayed as handoff tokens. */
   if (payload.type !== tokenTypes.HANDOFF) {
     throw new Error('Invalid token type for handoff')
   }
