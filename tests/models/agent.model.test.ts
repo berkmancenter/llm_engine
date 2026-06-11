@@ -1746,7 +1746,12 @@ describe('agent tests', () => {
       })
       await room2Msg.save()
 
-      mockEvaluate.mockResolvedValue({ action: AgentMessageActions.CONTRIBUTE, userContributionVisible: true })
+      mockEvaluate.mockResolvedValue({
+        action: AgentMessageActions.CONTRIBUTE,
+        userContributionVisible: true,
+        userMessage: undefined,
+        suggestion: undefined
+      })
       mockRespond.mockResolvedValue([{ visible: true, message: 'response' }])
 
       await agent.evaluate()
@@ -1795,7 +1800,12 @@ describe('agent tests', () => {
       })
       await transcriptMsg.save()
 
-      mockEvaluate.mockResolvedValue({ action: AgentMessageActions.CONTRIBUTE, userContributionVisible: true })
+      mockEvaluate.mockResolvedValue({
+        action: AgentMessageActions.CONTRIBUTE,
+        userContributionVisible: true,
+        userMessage: undefined,
+        suggestion: undefined
+      })
       mockRespond.mockResolvedValue([{ visible: true, message: 'response' }])
 
       await agent.evaluate()
@@ -1843,7 +1853,12 @@ describe('agent tests', () => {
       })
       await breakoutMsg.save()
 
-      mockEvaluate.mockResolvedValue({ action: AgentMessageActions.CONTRIBUTE, userContributionVisible: true })
+      mockEvaluate.mockResolvedValue({
+        action: AgentMessageActions.CONTRIBUTE,
+        userContributionVisible: true,
+        userMessage: undefined,
+        suggestion: undefined
+      })
       mockRespond.mockResolvedValue([{ visible: true, message: 'response' }])
 
       await agent.evaluate()
@@ -1853,6 +1868,224 @@ describe('agent tests', () => {
       const bodies = mockRespond.mock.calls[0][0].messages.map((m) => m.body)
       expect(bodies).toContain('Main chat message')
       expect(bodies).not.toContain('Breakout message')
+    })
+  })
+
+  describe('Breakout room channel remapping in respond method', () => {
+    let testConversation
+    let chatChannel
+    let breakoutRoom1ChatChannel
+    let breakoutRoom2ChatChannel
+
+    beforeEach(async () => {
+      chatChannel = await Channel.create({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'chat',
+        direct: false
+      })
+      breakoutRoom1ChatChannel = await Channel.create({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'breakout-room1-chat',
+        direct: false,
+        breakout: { roomId: 'room-1', roundId: 'round-1', type: 'chat', parentChannel: 'chat' }
+      })
+      breakoutRoom2ChatChannel = await Channel.create({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'breakout-room2-chat',
+        direct: false,
+        breakout: { roomId: 'room-2', roundId: 'round-1', type: 'chat', parentChannel: 'chat' }
+      })
+
+      testConversation = new Conversation({
+        ...conversationAgentsEnabled,
+        _id: new mongoose.Types.ObjectId(),
+        channels: [chatChannel, breakoutRoom1ChatChannel, breakoutRoom2ChatChannel]
+      })
+      await testConversation.save()
+    })
+
+    test('should remap parent channel name in response to the matching breakout channel', async () => {
+      const agent = new Agent({
+        agentType: 'perMessage',
+        conversation: testConversation,
+        agentConfig: { breakout: { roomId: 'room-1' } }
+      })
+      await agent.save()
+      await agent.start()
+
+      const userMessage = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Hello from room 1',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['breakout-room1-chat']
+      })
+      await userMessage.save()
+      await testConversation.populate(['messages', 'channels'])
+
+      mockEvaluate.mockResolvedValue({
+        userMessage,
+        action: AgentMessageActions.CONTRIBUTE,
+        agentContributionVisible: true,
+        userContributionVisible: true,
+        suggestion: undefined
+      })
+      // Agent returns a logical parent channel name
+      mockRespond.mockResolvedValue([{ visible: true, message: 'Room response', channels: [{ name: 'chat' }] }])
+
+      await agent.evaluate(userMessage)
+      const responses = await agent.respond(userMessage)
+
+      // Response channel should be remapped to the room-1 breakout channel
+      expect(responses[0].channels![0].name).toBe('breakout-room1-chat')
+    })
+
+    test('should remap to the correct room when multiple breakout channels share the same parent', async () => {
+      const agent = new Agent({
+        agentType: 'perMessage',
+        conversation: testConversation,
+        agentConfig: { breakout: { roomId: 'room-2' } }
+      })
+      await agent.save()
+      await agent.start()
+
+      const userMessage = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Hello from room 2',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['breakout-room2-chat']
+      })
+      await userMessage.save()
+      await testConversation.populate(['messages', 'channels'])
+
+      mockEvaluate.mockResolvedValue({
+        userMessage,
+        action: AgentMessageActions.CONTRIBUTE,
+        agentContributionVisible: true,
+        userContributionVisible: true,
+        suggestion: undefined
+      })
+      mockRespond.mockResolvedValue([{ visible: true, message: 'Room 2 response', channels: [{ name: 'chat' }] }])
+
+      await agent.evaluate(userMessage)
+      const responses = await agent.respond(userMessage)
+
+      expect(responses[0].channels![0].name).toBe('breakout-room2-chat')
+    })
+
+    test('should leave response unchanged when it has no channels', async () => {
+      const agent = new Agent({
+        agentType: 'perMessage',
+        conversation: testConversation,
+        agentConfig: { breakout: { roomId: 'room-1' } }
+      })
+      await agent.save()
+      await agent.start()
+
+      const userMessage = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Hello',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['breakout-room1-chat']
+      })
+      await userMessage.save()
+      await testConversation.populate(['messages', 'channels'])
+
+      mockEvaluate.mockResolvedValue({
+        userMessage,
+        action: AgentMessageActions.CONTRIBUTE,
+        agentContributionVisible: true,
+        userContributionVisible: true,
+        suggestion: undefined
+      })
+      mockRespond.mockResolvedValue([{ visible: true, message: 'No channels response' }])
+
+      await agent.evaluate(userMessage)
+      const responses = await agent.respond(userMessage)
+
+      expect(responses[0].channels).toBeUndefined()
+    })
+
+    test('should not remap channels when agent has no breakout config', async () => {
+      const agent = new Agent({
+        agentType: 'perMessage',
+        conversation: testConversation
+      })
+      await agent.save()
+      await agent.start()
+
+      const userMessage = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Main chat message',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['chat']
+      })
+      await userMessage.save()
+      await testConversation.populate(['messages', 'channels'])
+
+      mockEvaluate.mockResolvedValue({
+        userMessage,
+        action: AgentMessageActions.CONTRIBUTE,
+        agentContributionVisible: true,
+        userContributionVisible: true,
+        suggestion: undefined
+      })
+      mockRespond.mockResolvedValue([{ visible: true, message: 'Main response', channels: [{ name: 'chat' }] }])
+
+      await agent.evaluate(userMessage)
+      const responses = await agent.respond(userMessage)
+
+      // Channel should remain unchanged
+      expect(responses[0].channels![0].name).toBe('chat')
+    })
+
+    test('should leave channel unchanged when no matching breakout channel exists', async () => {
+      const agent = new Agent({
+        agentType: 'perMessage',
+        conversation: testConversation,
+        agentConfig: { breakout: { roomId: 'room-1' } }
+      })
+      await agent.save()
+      await agent.start()
+
+      const userMessage = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Hello',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['breakout-room1-chat']
+      })
+      await userMessage.save()
+      await testConversation.populate(['messages', 'channels'])
+
+      mockEvaluate.mockResolvedValue({
+        userMessage,
+        action: AgentMessageActions.CONTRIBUTE,
+        agentContributionVisible: true,
+        userContributionVisible: true,
+        suggestion: undefined
+      })
+      // Return a channel that has no breakout equivalent (e.g. 'participant')
+      mockRespond.mockResolvedValue([{ visible: true, message: 'Response', channels: [{ name: 'participant' }] }])
+
+      await agent.evaluate(userMessage)
+      const responses = await agent.respond(userMessage)
+
+      // No breakout channel found, original channel object is kept
+      expect(responses[0].channels![0].name).toBe('participant')
     })
   })
 

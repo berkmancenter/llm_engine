@@ -436,6 +436,24 @@ agentSchema.method('respond', async function (userMessage = null) {
 
   await tracedRespond(traceInput)
 
+  // For breakout room agents, remap any parent channels in responses to their
+  // breakout equivalents. Agents return logical channel names; routing is handled here.
+  const breakout = this.agentConfig?.breakout as { roomId: string } | undefined
+  if (breakout) {
+    actualResponses = actualResponses.map((response) => {
+      if (!response.channels?.length) return response
+      return {
+        ...response,
+        channels: (response.channels as IChannel[]).map((channel) => {
+          const breakoutChannel = (this.conversation as IConversation).channels.find(
+            (c: IChannel) => c.breakout?.roomId === breakout.roomId && c.breakout?.parentChannel === channel.name
+          )
+          return breakoutChannel ?? channel
+        })
+      }
+    })
+  }
+
   return actualResponses
 })
 
