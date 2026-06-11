@@ -281,8 +281,8 @@ describe('POST /v1/webhooks/slack', () => {
       const timestamp = Math.floor(Date.now() / 1000).toString()
       const signature = generateSlackSignature(timestamp, JSON.stringify(payload))
 
-      // 401 (not 404): the middleware refuses to confirm whether the adapter is missing or
-      // the signature is bad, so attackers can't enumerate which channels are wired up.
+      // 401 instead of 404: the middleware refuses to confirm whether the bot is missing or
+      // the signature is bad, so attackers can't probe which channels are wired up.
       await request(app)
         .post('/v1/webhooks/slack')
         .set('x-slack-signature', signature)
@@ -449,48 +449,46 @@ describe('POST /v1/webhooks/slack', () => {
   })
 
   describe('Per-bot URL routing (:appKey)', () => {
-    test('routes a request at /v1/webhooks/slack/:appKey to the adapter with that appKey', async () => {
+    test('routes a request at /v1/webhooks/slack/:appKey to the matching bot', async () => {
       const mongoose = await import('mongoose')
-      // VA-style second bot. Workspace + channel deliberately mismatch the incoming payload so the
-      // ONLY way to resolve this adapter is via the :appKey URL segment.
-      const vaConvo = new Conversation({ ...conversationAgentsEnabled, _id: new mongoose.Types.ObjectId() })
-      await vaConvo.save()
-      const vaAdapter = await Adapter.create({
+      // A second bot in the same workspace, with a channel the incoming payload doesn't mention.
+      // That makes the bot identifier in the URL the only way to resolve this bot — falling back
+      // to workspace+channel wouldn't match.
+      const secondConvo = new Conversation({ ...conversationAgentsEnabled, _id: new mongoose.Types.ObjectId() })
+      await secondConvo.save()
+      const secondBot = await Adapter.create({
         type: 'slack',
         config: {
-          // Same workspace as the payload (a single bot lives in one workspace), but a different
-          // channel than the payload's. That makes the appKey URL segment the only way to resolve
-          // this adapter — workspace+channel fallback would not match.
-          channel: 'C_VA_NEVER_IN_PAYLOAD',
-          workspace: 'T_VA_WORKSPACE',
-          appKey: 'va',
-          signingSecret: 'va-secret',
-          botToken: 'xoxb-va',
-          botUserId: 'U_VA'
+          channel: 'C_NEVER_IN_PAYLOAD',
+          workspace: 'T_SHARED_WORKSPACE',
+          appKey: 'second-bot',
+          signingSecret: 'second-bot-secret',
+          botToken: 'xoxb-second-bot',
+          botUserId: 'U_SECOND'
         },
-        conversation: vaConvo._id,
+        conversation: secondConvo._id,
         active: true
       })
 
       const payload = {
-        event: { type: 'message', text: 'hi VA', channel: 'C_OTHER', team: 'T_VA_WORKSPACE' }
+        event: { type: 'message', text: 'hi', channel: 'C_OTHER', team: 'T_SHARED_WORKSPACE' }
       }
       const timestamp = Math.floor(Date.now() / 1000).toString()
-      const signature = generateSlackSignature(timestamp, JSON.stringify(payload), 'va-secret')
+      const signature = generateSlackSignature(timestamp, JSON.stringify(payload), 'second-bot-secret')
 
       await request(app)
-        .post('/v1/webhooks/slack/va')
+        .post('/v1/webhooks/slack/second-bot')
         .set('x-slack-signature', signature)
         .set('x-slack-request-timestamp', timestamp)
         .send(payload)
         .expect(httpStatus.OK)
 
-      expect(receiveMessageSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: vaAdapter._id }), payload.event)
+      expect(receiveMessageSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: secondBot._id }), payload.event)
     })
 
-    test('legacy /v1/webhooks/slack still works for the original bot with no appKey', async () => {
+    test('the shorter /v1/webhooks/slack URL still resolves a bot from the message body', async () => {
       const payload = {
-        event: { type: 'message', text: 'hi Berkie', channel: 'C1234567890', team: '123456' }
+        event: { type: 'message', text: 'hi', channel: 'C1234567890', team: '123456' }
       }
       const timestamp = Math.floor(Date.now() / 1000).toString()
       const signature = generateSlackSignature(timestamp, JSON.stringify(payload), 'test-signing-secret')

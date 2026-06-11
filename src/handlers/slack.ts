@@ -67,7 +67,7 @@ const handleEvent = async (req, res) => {
   // Skip bot messages to prevent loops and skip messages with subtypes, which are not user messages (they represent events like user joining a channel, etc)
   if (event.type === 'message' && !event.bot_id && !event.subtype) {
     // TODO limit same Slack channel to one active Conversation
-    // Middleware already resolved and attached the adapter when validating the signature.
+    // The middleware already looked up the bot when it validated the signature, so reuse it.
     const slackAdapter = req.slackAdapter ?? (await findSlackAdapter({ appKey: req.params?.appKey, payload }))
     if (!slackAdapter) {
       throw new ApiError(
@@ -98,10 +98,10 @@ const middleware = async (req, res, next) => {
       throw new ApiError(httpStatus.BAD_REQUEST, 'Raw body missing')
     }
 
-    // A request can only be tied to a specific bot's signing secret if it carries either a
-    // :appKey route param or an event payload with a team ID we can look up by. URL verification
-    // (sent before any Adapter row exists), interactive payloads (form-encoded, JSON nested in a
-    // field), and other event-less callbacks don't, so they validate against the env-var secret.
+    // To validate against a specific bot's secret, the request first has to identify the bot:
+    // either the URL carries a bot identifier, or the body has an event payload with a workspace
+    // ID to look it up by. URL verification and button-click payloads have neither, so they fall
+    // back to the global env-var secret.
     const appKey: string | undefined = req.params?.appKey
     const eventTeam: string | undefined = req.body?.event?.team
     const canIdentifyAdapter = Boolean(appKey || eventTeam)

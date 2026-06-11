@@ -2,14 +2,12 @@ import config from '../../config/config.js'
 import logger from '../../config/logger.js'
 
 /**
- * Resolve the Slack signing secret to validate a webhook against.
+ * Pick the Slack signing secret used to validate a bot's webhook signature.
  *
- * Precedence: per-adapter `config.signingSecret` first, then the global
- * env-var secret (`config.slack.signingSecret`). The env-var fallback exists
- * so Berkie keeps working during the rollout. Once every Slack-backed
- * adapter has its own row-stored secret, the env var (and this fallback)
- * can be deleted. A deprecation warning fires each time we fall through so
- * the cutover progress is visible in logs.
+ * Each bot can store its own secret on its database row. If a bot doesn't
+ * have one, this falls back to the global env-var secret and logs a warning
+ * so the gap is visible. Once every bot has its own secret stored, the
+ * env-var fallback can be removed.
  */
 export default function resolveSlackSigningSecret(adapter: { config?: Record<string, unknown> } | null | undefined): string {
   const adapterSecret = adapter?.config?.signingSecret

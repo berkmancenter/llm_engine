@@ -12,20 +12,17 @@ type SlackPayload = {
 }
 
 /**
- * Find the Slack Adapter row a webhook belongs to.
+ * Find the database row for the Slack bot that should receive a webhook.
  *
- * Lookup order:
- *   1. `config.appKey` if an appKey was provided (new per-bot URL shape:
- *      `/v1/webhooks/slack/:appKey`).
- *   2. `config.workspace` + `config.channel` derived from the event payload
- *      (the original Berkie URL shape, kept as a fallback so existing webhook
- *      URLs keep working through the rollout).
+ * Tries two lookup paths:
+ *   1. By the bot identifier carried in the webhook URL (when present).
+ *   2. By the workspace and channel found inside the event payload.
  *
- * DM events (`channel_type === 'im'`) match on the workspace's
- * `config.channel === 'direct'` adapter, mirroring the legacy handler.
+ * Direct-message events use a fixed channel name ("direct") on the row,
+ * since a DM isn't tied to a specific channel ID.
  *
- * Returns null when nothing matches, so callers can decide how to respond
- * (typically with a 401 to avoid leaking which side is wrong).
+ * Returns null if nothing matches. Callers should respond 401 rather than
+ * 404 so the response doesn't reveal which Slack channels are wired up.
  */
 export default async function findSlackAdapter({
   appKey,
@@ -38,10 +35,9 @@ export default async function findSlackAdapter({
   if (appKey) {
     const byAppKey = await Adapter.findOne({ type: 'slack', 'config.appKey': appKey })
     if (byAppKey) {
-      // Defense in depth: a single Slack bot lives in one workspace. If the event payload claims
-      // to come from a different workspace, treat the lookup as unmatched. The signature check
-      // would normally catch a forged payload, but rejecting on shape here keeps a leaked appKey
-      // URL from being used to probe with payloads from arbitrary workspaces.
+      // A bot lives in one workspace. If the payload claims a different one, refuse the lookup
+      // even though the URL matched a row. Keeps a leaked URL from being probed with forged
+      // payloads from other workspaces.
       if (eventTeam && byAppKey.config?.workspace !== eventTeam) return null
       return byAppKey
     }

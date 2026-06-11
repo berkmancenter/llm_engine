@@ -9,10 +9,11 @@ import findSlackAdapter from '../../../src/handlers/helpers/findSlackAdapter.js'
 setupIntTest()
 
 const makeAdapter = async (config: Record<string, unknown>) => {
-  // Fresh _id per call: the shared fixture pins one, which collides when used twice.
+  // A fresh _id per call — the shared fixture pins one, which collides when reused.
   const conversation = new Conversation({ ...conversationAgentsEnabled, _id: new mongoose.Types.ObjectId() })
   await conversation.save()
-  // botToken + botUserId satisfy the slack adapter pre-validate hook without hitting Slack.
+  // botToken and botUserId satisfy the Slack adapter's pre-save validation without calling out
+  // to Slack's auth.test endpoint.
   return Adapter.create({
     type: 'slack',
     config: { botToken: 'xoxb-test', botUserId: 'U_TEST', ...config },
@@ -54,10 +55,9 @@ describe('findSlackAdapter', () => {
   })
 
   it('returns null when the appKey matches but the event came from a different workspace', async () => {
-    // Defense in depth: a single Slack bot lives in one workspace. If an event payload claims to
-    // come from a different one, refuse it even though the appKey lookup hit a row — the
-    // signature check should already catch this, but the cheap pre-check rejects forged shapes
-    // before we hand the bot's secret to the validator.
+    // A bot lives in one workspace. If a payload claims a different one, refuse it even though
+    // the appKey lookup hit a row. The signature check would normally catch a forged payload,
+    // but rejecting on shape keeps a leaked URL from being probed with payloads from elsewhere.
     await makeAdapter({ channel: 'C_VA', workspace: 'W_VA', appKey: 'va' })
 
     const found = await findSlackAdapter({

@@ -12,10 +12,10 @@ describe('slack client cache', () => {
   })
 
   it('returns distinct WebClient instances for two different bot tokens in the same workspace', () => {
-    // Two bots (e.g. Berkie and VA) installed in the same Slack workspace must get
-    // separate clients, since the cache key is the bot token, not the workspace.
-    const berkie = slackClientPool.getClient('xoxb-berkie-token')
-    const va = slackClientPool.getClient('xoxb-va-token')
-    expect(berkie).not.toBe(va)
+    // Two bots installed in the same Slack workspace must get separate clients. The cache
+    // keys on the bot token so the bots can't collide on each other's connections.
+    const firstBot = slackClientPool.getClient('xoxb-first-bot-token')
+    const secondBot = slackClientPool.getClient('xoxb-second-bot-token')
+    expect(firstBot).not.toBe(secondBot)
   })
 })
