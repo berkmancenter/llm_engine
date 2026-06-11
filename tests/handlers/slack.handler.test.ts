@@ -448,6 +448,61 @@ describe('POST /v1/webhooks/slack', () => {
     })
   })
 
+  describe('Per-bot URL routing (:appKey)', () => {
+    test('routes a request at /v1/webhooks/slack/:appKey to the adapter with that appKey', async () => {
+      const mongoose = await import('mongoose')
+      // VA-style second bot. Workspace + channel deliberately mismatch the incoming payload so the
+      // ONLY way to resolve this adapter is via the :appKey URL segment.
+      const vaConvo = new Conversation({ ...conversationAgentsEnabled, _id: new mongoose.Types.ObjectId() })
+      await vaConvo.save()
+      const vaAdapter = await Adapter.create({
+        type: 'slack',
+        config: {
+          channel: 'C_VA_NEVER_IN_PAYLOAD',
+          workspace: 'W_VA_NEVER_IN_PAYLOAD',
+          appKey: 'va',
+          signingSecret: 'va-secret',
+          botToken: 'xoxb-va',
+          botUserId: 'U_VA'
+        },
+        conversation: vaConvo._id,
+        active: true
+      })
+
+      const payload = {
+        event: { type: 'message', text: 'hi VA', channel: 'C_OTHER', team: 'T_OTHER' }
+      }
+      const timestamp = Math.floor(Date.now() / 1000).toString()
+      const signature = generateSlackSignature(timestamp, JSON.stringify(payload), 'va-secret')
+
+      await request(app)
+        .post('/v1/webhooks/slack/va')
+        .set('x-slack-signature', signature)
+        .set('x-slack-request-timestamp', timestamp)
+        .send(payload)
+        .expect(httpStatus.OK)
+
+      expect(receiveMessageSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: vaAdapter._id }), payload.event)
+    })
+
+    test('legacy /v1/webhooks/slack still works for the original bot with no appKey', async () => {
+      const payload = {
+        event: { type: 'message', text: 'hi Berkie', channel: 'C1234567890', team: '123456' }
+      }
+      const timestamp = Math.floor(Date.now() / 1000).toString()
+      const signature = generateSlackSignature(timestamp, JSON.stringify(payload), 'test-signing-secret')
+
+      await request(app)
+        .post('/v1/webhooks/slack')
+        .set('x-slack-signature', signature)
+        .set('x-slack-request-timestamp', timestamp)
+        .send(payload)
+        .expect(httpStatus.OK)
+
+      expect(receiveMessageSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: slackAdapter._id }), payload.event)
+    })
+  })
+
   describe('Per-adapter signing secret', () => {
     test('accepts a webhook signed with the adapter-specific secret', async () => {
       slackAdapter.config = { ...slackAdapter.config, signingSecret: 'per-adapter-secret' }

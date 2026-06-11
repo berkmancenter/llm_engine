@@ -95,6 +95,10 @@ const router = express.Router()
  *         $ref: '#/components/responses/NotFound'
  *
  */
+// Per-bot Slack URL: identifies which Slack app this webhook belongs to. Registered before the
+// catch-all so req.params.appKey is populated. The legacy /v1/webhooks/slack URL (no segment)
+// still works via the catch-all and falls back to workspace+channel lookup.
+router.post('/slack/:appKey', useAdapter(), webhookController.processEvent)
 router.post('*', useAdapter(), webhookController.processEvent)
 
 export default router
