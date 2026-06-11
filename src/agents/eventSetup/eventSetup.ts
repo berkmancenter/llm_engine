@@ -1,7 +1,7 @@
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
 import { defaultLLMModel, defaultLLMPlatform, getModelChat } from '../helpers/getModelChat.js'
-import { mintHandoffToken } from '../../services/handoffToken.service.js'
+import { mintSlackHandoffToken } from '../../adapters/slack/handoff.js'
 import { checkEventSetupIntent } from './intentCheck.js'
 import config from '../../config/config.js'
 
@@ -124,7 +124,7 @@ export default verify({
       slackThreadTs !== ''
 
     if (hasFullSlackContext) {
-      const token = mintHandoffToken({ slackUserId, slackTeamId, slackChannelId, slackThreadTs })
+      const token = mintSlackHandoffToken({ slackUserId, slackTeamId, slackChannelId, slackThreadTs })
       /* The token goes in the URL fragment (after #) rather than the query
          string (after ?). Browsers never send fragments to the server, so
          the Nextspace server never sees the token in its access logs and the

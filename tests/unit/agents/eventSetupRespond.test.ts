@@ -1,5 +1,5 @@
 import eventSetup, { buildEventSetupBlocks } from '../../../src/agents/eventSetup/eventSetup.js'
-import { verifyHandoffToken } from '../../../src/services/handoffToken.service.js'
+import { verifySlackHandoffToken } from '../../../src/adapters/slack/handoff.js'
 import config from '../../../src/config/config.js'
 
 /* respond() accepts an optional third argument for the intent check function.
@@ -104,7 +104,7 @@ describe('eventSetup respond()', () => {
     expect(match).not.toBeNull()
     const token = decodeURIComponent(match![1])
 
-    const verified = verifyHandoffToken(token)
+    const verified = verifySlackHandoffToken(token)
     expect(verified.slackUserId).toBe('U456DEF')
     expect(verified.slackTeamId).toBe('T123ABC')
     expect(verified.slackChannelId).toBe('C789GHI')
