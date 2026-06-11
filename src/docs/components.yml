@@ -907,9 +907,9 @@ components:
           type: string
         url:
           type: string
-        fileName:
-          type: string
-          description: On-disk filename; present when the resource is an uploaded PDF file.
+        hasPdf:
+          type: boolean
+          description: True when a PDF file is attached to this resource. The on-disk filename is not exposed.
         citation:
           type: string
           description: Full formatted citation string. Used verbatim in RAG metadata when provided; falls back to title/authors/year otherwise.

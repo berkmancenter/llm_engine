@@ -28,8 +28,14 @@ const resourceSummarySchema = z.object({
     .describe('Why this matters or how it connects to real-world practice as 1–2 bullet points.')
 })
 
-function formatSummary(s: z.infer<typeof resourceSummarySchema>) {
-  const bullets = (items: string[]) => items.map((b) => `- ${b}`).join('\n')
+export function formatSummary(s: z.infer<typeof resourceSummarySchema>) {
+  /* The LLM occasionally returns a plain string for a single-item list field.
+     Coerce to an array so .map() doesn't crash on malformed Bedrock tool-call output. */
+  const toList = (items: unknown): string[] => (Array.isArray(items) ? (items as string[]) : [String(items)])
+  const bullets = (items: unknown) =>
+    toList(items)
+      .map((b) => `- ${b}`)
+      .join('\n')
   const sections = [
     `**Main Thesis**\n${bullets(s.mainThesis)}`,
     `**Key Findings**\n${bullets(s.keyFindings)}`,

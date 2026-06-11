@@ -1,7 +1,7 @@
 import mongoose, { HydratedDocument, Model } from 'mongoose'
 import slugify from 'slugify'
 
-import { toJSON, paginate, lock } from './plugins/index.js'
+import { toJSON, paginate, lock, hasPdf } from './plugins/index.js'
 import { IConversation, Profile, Resource } from '../types/index.types.js'
 import Message from './message.model.js'
 import transcriptSchema from './schemas/transcript.schema.js'
@@ -12,8 +12,8 @@ interface ConversationMethods {
 
 type ConversationModel = Model<IConversation, Record<string, never>, ConversationMethods>
 
-// Resources are embedded rather than standalone: they are never queried outside their
-// conversation, have no independent lifecycle, and cascade-delete naturally with the parent.
+/* Resources are embedded rather than standalone: they are never queried outside their
+   conversation, have no independent lifecycle, and cascade-delete naturally with the parent. */
 const resourceSchema = new mongoose.Schema<Resource>({
   source: { type: String, enum: ['speaker', 'ai'], required: true },
   category: { type: String, enum: ['required', 'referenced', 'suggested'], required: true },
@@ -30,6 +30,9 @@ const resourceSchema = new mongoose.Schema<Resource>({
   addedAt: { type: Date, default: Date.now }
 })
 resourceSchema.plugin(toJSON)
+/* hasPdf must run after toJSON so it can read fileName from doc after toJSON
+   has already stripped it from ret. */
+resourceSchema.plugin(hasPdf)
 
 const profileSchema = new mongoose.Schema<Profile>(
   {
@@ -73,8 +76,7 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
     conversationType: {
       type: String,
       trim: true,
-      required: false,
-      immutable: true
+      required: false
     },
     platforms: {
       type: [String],

@@ -249,6 +249,7 @@ const createConversationFromType = async (params, user) => {
 /**
  * Update a conversation
  * @param {Object} conversationBody
+ * @param {Object} user
  * @returns {Promise<Conversation>}
  */
 const updateConversation = async (conversationBody, user) => {
@@ -266,8 +267,222 @@ const updateConversation = async (conversationBody, user) => {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Cannot update an active conversation')
   }
 
-  const { resources: incomingResources, ...restBody } = conversationBody
+  const {
+    resources: incomingResources,
+    properties: incomingProperties,
+    features: incomingFeatures,
+    /* platforms is extracted manually so we can detect changes and recreate adapters.
+       Leaving it in restBody would let updateDocument overwrite platforms directly,
+       bypassing the adapter reconciliation below. */
+    platforms: incomingPlatforms,
+    topicId,
+    type,
+    ...restBody
+  } = conversationBody
+
   const oldResources = incomingResources !== undefined ? [...conversationDoc.resources] : null
+
+  /* updateDocument sets doc[key] = body[key] directly, so passing properties through
+     would overwrite all existing keys with only what the caller sent. We merge manually
+     so only the changed keys are affected. */
+  if (incomingProperties !== undefined) {
+    conversationDoc.properties = { ...conversationDoc.properties, ...incomingProperties }
+    conversationDoc.markModified('properties') // Mongoose won't detect changes inside a Mixed field without this
+
+    /* The Zoom adapter's meetingUrl and botName are set once at creation from Handlebars
+       templates. They don't sync automatically when the conversation's properties change,
+       so we update the adapter config here too. */
+    const adapterConfigUpdates: Record<string, unknown> = {}
+    if (incomingProperties.zoomMeetingUrl !== undefined) {
+      adapterConfigUpdates.meetingUrl = incomingProperties.zoomMeetingUrl
+    }
+    if (incomingProperties.botName !== undefined) {
+      adapterConfigUpdates.botName = incomingProperties.botName
+    }
+    if (Object.keys(adapterConfigUpdates).length > 0) {
+      const zoomAdapters = await Adapter.find({ conversation: conversationDoc._id, type: 'zoom' })
+      for (const adapter of zoomAdapters) {
+        adapter.config = { ...adapter.config, ...adapterConfigUpdates }
+        adapter.markModified('config')
+        await adapter.save()
+      }
+    }
+
+    /* Agents get their llmModel and llmPlatform baked in at creation time via $ref
+       resolution. They don't pick up property changes automatically, so push any
+       model update to Agent documents now. */
+    if (incomingProperties.llmModel !== undefined) {
+      /* llmModel is stored as { llmModel: string, llmPlatform: string }, an enum property
+         validated by the frontend. Check both keys before writing; a malformed payload
+         would otherwise null out the model on every agent. */
+      const modelObj = incomingProperties.llmModel as Record<string, string>
+      const { llmModel, llmPlatform } = modelObj
+      if (llmModel && llmPlatform) {
+        await Agent.updateMany({ conversation: conversationDoc._id }, { $set: { llmModel, llmPlatform } })
+      }
+    }
+  }
+
+  if (incomingFeatures !== undefined) {
+    conversationDoc.features = incomingFeatures
+    conversationDoc.markModified('features') // Mongoose won't detect changes inside a Mixed array without this
+
+    /* When features change without a type change, reconcile agents to match. Type changes
+       recreate all agents from scratch (see the block below), so skip this path when
+       type is also changing. */
+    if (type === undefined || type === conversationDoc.conversationType) {
+      // conversationDoc.conversationType is always set for a persisted conversation
+      const convType = conversationDoc.conversationType ? getConversationType(conversationDoc.conversationType) : null
+      if (convType) {
+        /* A feature is enabled if it's present in the array and its enabled flag is
+           not explicitly false. */
+        const enabledFeatureNames = new Set(incomingFeatures.filter((f) => f.enabled !== false).map((f) => f.name))
+
+        for (const featureDef of convType.features ?? []) {
+          for (const agentSpec of featureDef.agents ?? []) {
+            if (!enabledFeatureNames.has(featureDef.name)) {
+              /* Feature disabled: remove the agent document and drop the ref from
+                 the conversation's agents array. */
+              const agentToRemove = await Agent.findOne({
+                conversation: conversationDoc._id,
+                agentType: agentSpec.name
+              })
+              if (agentToRemove) {
+                await agentToRemove.deleteOne()
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                conversationDoc.agents = (conversationDoc.agents as any[]).filter(
+                  (a) => a.toString() !== agentToRemove._id.toString()
+                )
+              }
+            } else {
+              /* Feature enabled: create the agent if it doesn't exist yet. */
+              const exists = await Agent.findOne({ conversation: conversationDoc._id, agentType: agentSpec.name })
+              if (!exists) {
+                const resolved = resolveConversationType(
+                  {
+                    platforms: conversationDoc.platforms,
+                    properties: conversationDoc.properties,
+                    features: incomingFeatures
+                  },
+                  convType
+                )
+                const agentDef = resolved.agentTypes.find((a) => a.name === agentSpec.name)
+                if (agentDef) {
+                  const agent = await agentService.createAgent(agentDef.name, conversationDoc, agentDef.properties)
+                  /* Push the ObjectId, not the full document. conversationDoc.agents holds
+                     plain refs when not populated; mixing full docs in causes type errors
+                     later. */
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  conversationDoc.agents.push(agent._id as any)
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /* When platforms change without a type change, delete the existing adapters and recreate
+     them for the new combination. Without this, switching from Zoom-only to Zoom+NextSpace
+     keeps the old adapter config with the wrong dmChannels count. */
+  if (incomingPlatforms !== undefined && (type === undefined || type === conversationDoc.conversationType)) {
+    const currentSorted = (conversationDoc.platforms ?? []).slice().sort().join(',')
+    const newSorted = incomingPlatforms.slice().sort().join(',')
+    if (currentSorted !== newSorted) {
+      await Adapter.deleteMany({ conversation: conversationDoc._id })
+      conversationDoc.adapters = []
+
+      // conversationDoc.conversationType is always set for a persisted conversation
+      const convType = conversationDoc.conversationType ? getConversationType(conversationDoc.conversationType) : null
+      if (convType) {
+        const resolved = resolveConversationType(
+          {
+            platforms: incomingPlatforms,
+            properties: conversationDoc.properties,
+            features: incomingFeatures ?? conversationDoc.features
+          },
+          convType
+        )
+        for (const adapterProps of resolved.adapters) {
+          const adapter = await adapterService.createAdapter(adapterProps, conversationDoc)
+          conversationDoc.adapters.push(adapter)
+        }
+      }
+    }
+    conversationDoc.platforms = incomingPlatforms
+  }
+
+  if (topicId !== undefined) {
+    const newTopic = await Topic.findById(topicId)
+    if (!newTopic) {
+      throw new ApiError(httpStatus.NOT_FOUND, 'Topic not found')
+    }
+
+    /* Keep topic membership in sync on both sides. Without this, the old topic's
+       conversations list would still include this event after it's been reassigned. */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const oldTopic = conversationDoc.topic as any
+    if (oldTopic?._id?.toString() !== topicId) {
+      await Topic.findByIdAndUpdate(oldTopic._id, { $pull: { conversations: conversationDoc._id } })
+      newTopic.conversations.push(conversationDoc.toObject())
+      await newTopic.save()
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    conversationDoc.topic = newTopic._id as any
+  }
+
+  // Agents and adapters are wired to a specific conversation type, so switching types requires recreating them.
+  if (type !== undefined && type !== conversationDoc.conversationType) {
+    const conversationType = getConversationType(type)
+    if (!conversationType) {
+      throw new ApiError(httpStatus.NOT_FOUND, `Conversation type ${type} not found`)
+    }
+
+    /* If a platform list was sent alongside the type change, use it; otherwise keep
+       the existing platforms. The platform reconciliation block above is skipped when
+       type is also changing, so this is the one place incomingPlatforms gets applied. */
+    const effectivePlatforms = incomingPlatforms ?? conversationDoc.platforms
+
+    /* Verify the effective platforms are supported by the new type.
+       resolveConversationType silently produces no adapters for unrecognized platforms,
+       so we catch this here and return a clear error instead. */
+    const incompatiblePlatforms = effectivePlatforms?.filter((p) => !conversationType.platforms.some((cp) => cp.name === p))
+    if (incompatiblePlatforms?.length) {
+      throw new ApiError(httpStatus.BAD_REQUEST, `Platform(s) not supported by ${type}: ${incompatiblePlatforms.join(', ')}`)
+    }
+
+    await Agent.deleteMany({ conversation: conversationDoc._id })
+    await Adapter.deleteMany({ conversation: conversationDoc._id })
+    conversationDoc.agents = []
+    conversationDoc.adapters = []
+
+    /* Fall back to the conversation's existing features if none were sent with this
+       request. Without this, a type-only update would drop all feature-gated agents. */
+    const resolved = resolveConversationType(
+      {
+        platforms: effectivePlatforms,
+        properties: conversationDoc.properties,
+        features: incomingFeatures ?? conversationDoc.features
+      },
+      conversationType
+    )
+
+    for (const agentType of resolved.agentTypes) {
+      const agent = await agentService.createAgent(agentType.name, conversationDoc, agentType.properties)
+      conversationDoc.agents.push(agent)
+    }
+    for (const adapterProps of resolved.adapters) {
+      const adapter = await adapterService.createAdapter(adapterProps, conversationDoc)
+      conversationDoc.adapters.push(adapter)
+    }
+
+    conversationDoc.conversationType = type
+    if (incomingPlatforms !== undefined) {
+      conversationDoc.platforms = incomingPlatforms
+    }
+  }
 
   conversationDoc = updateDocument(restBody, conversationDoc)
 
@@ -282,6 +497,16 @@ const updateConversation = async (conversationBody, user) => {
   }
 
   await conversationDoc!.save()
+
+  /* Reschedule auto-start and auto-stop jobs whenever the scheduled times change.
+     scheduleConversationAutoStart cancels the existing job before creating the new one,
+     so this is safe to call even if a job was already registered. */
+  if (restBody.scheduledTime !== undefined && conversationDoc!.scheduledTime) {
+    await scheduleConversationAutoStart(conversationDoc!)
+  }
+  if (restBody.scheduledEndTime !== undefined && conversationDoc!.scheduledEndTime) {
+    await scheduleConversationAutoStop(conversationDoc!)
+  }
 
   await transcript.loadEventMetadataIntoVectorStore(conversationDoc!)
   websocketGateway.broadcastConversationUpdate(conversationDoc)
@@ -323,10 +548,11 @@ const findById = async (id) => {
 
 const findByIdFull = async (id, user) => {
   const conversation = await Conversation.findOne({ _id: id })
-    .select(`${returnFields} resources`)
+    .select(`${returnFields} resources topic`)
     .populate('agents')
     .populate('channels')
     .populate('adapters')
+    .populate({ path: 'topic', select: 'name slug description owner' })
     .exec()
   if (!conversation) {
     throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${id} not found`)
@@ -350,10 +576,10 @@ const findByIdFull = async (id, user) => {
         }) as any[]
       }
       const resources = cleanRet.resources?.map((r) => {
-        // strip internal fileName
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        /* Strip internal fileName and expose hasPdf so the client knows a PDF
+           is attached without seeing the on-disk path. */
         const { _id: resourceId, fileName, ...rest } = r as unknown as Record<string, unknown>
-        return { ...rest, id: (resourceId as { toString(): string }).toString() }
+        return { ...rest, id: (resourceId as { toString(): string }).toString(), hasPdf: !!fileName }
       })
       return {
         ...cleanRet,

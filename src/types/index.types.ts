@@ -305,7 +305,8 @@ export interface Resource {
   authors?: string[]
   year?: string
   url?: string
-  fileName?: string // on-disk name; present when resource is a PDF file
+  fileName?: string // on-disk name; present when resource is a PDF file (private — stripped from API responses)
+  hasPdf?: boolean // derived from fileName; true when a PDF is attached
   citation?: string // full formatted citation
   description?: string // creator-provided relevance note
   summary?: string // AI-generated; populated async for required readings
