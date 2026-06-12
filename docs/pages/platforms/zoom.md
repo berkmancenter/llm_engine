@@ -14,7 +14,7 @@ We provide a Zoom adapter that saves real-time transcription of a Zoom meeting t
 #### One Time Setup
 
 1. Create a Recall.ai account
-2. Select Create a new Webhook in the Recall.ai dashboard. Use [baseUrl]/v1/webhooks/recall/status as the endpoint. Subscribe to `bot.call_ended`, `bot.in_call_recording`, and `bot.in_call_not_recording` events. Copy the signing secret displayed on the webhook page for setting the `RECALL_SVIX_SECRET` environment variable.
+2. Select Create a new Webhook in the Recall.ai dashboard. Use [baseUrl]/v1/webhooks/recall/status as the endpoint. Subscribe to `bot.call_ended`, `bot.in_call_recording`, `bot.in_call_not_recording`, `bot.breakout_room_opened`, and `bot.breakout_room_closed` events. Copy the signing secret displayed on the webhook page for setting the `RECALL_SVIX_SECRET` environment variable.
 3. Set the Recall environment variables in `.env`
 
 - For legacy accounts (created before Dec 15, 2025), you need TWO secrets:

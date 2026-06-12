@@ -91,11 +91,19 @@ async function deployMeetingBot() {
   }
   const chatIntroMessage = chatIntroTexts.length > 0 ? chatIntroTexts.join('\n') : null
 
+  let breakoutRoomConfig = {}
+  if (this.config.breakoutRoom) {
+    breakoutRoomConfig = { breakout_room: this.config.breakoutRoom }
+  } else if (this.conversation.enableBreakouts) {
+    breakoutRoomConfig = { breakout_room: { mode: 'join_main_room' } }
+  }
+
   const options = {
     method: 'POST',
     headers: { accept: 'application/json', 'content-type': 'application/json', Authorization: config.recall.key },
     body: JSON.stringify({
       meeting_url: meetingUrl,
+      ...breakoutRoomConfig,
       bot_name: botName ?? defaultBotName,
       automatic_leave: {
         bot_detection: {
@@ -445,6 +453,8 @@ export default {
     return channels
   },
   getUniqueKeys() {
+    // breakout room adapters share a meetingUrl but have distinct botIds, so include botId when present
+    if (this.config?.breakoutRoom) return ['type', 'config.meetingUrl', 'config.botId']
     return ['type', 'config.meetingUrl']
   }
 }

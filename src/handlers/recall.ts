@@ -4,10 +4,12 @@ import { Buffer } from 'buffer'
 import ApiError from '../utils/ApiError.js'
 import config from '../config/config.js'
 import logger from '../config/logger.js'
-import Conversation from '../models/conversation.model.js'
-import Adapter from '../models/adapter.model.js'
+import Conversation, { ConversationDocument } from '../models/conversation.model.js'
+import Adapter, { AdapterDocument } from '../models/adapter.model.js'
 import webhookService from '../services/webhook.service.js'
 import conversationService from '../services/conversation.service/index.js'
+import breakoutService from '../services/breakout.service.js'
+import { Direction } from '../types/index.types.js'
 
 const verifyRequestFromRecall = (args: { secret: string; headers: Record<string, string>; payload: string | null }) => {
   const { secret, headers, payload } = args
@@ -118,7 +120,9 @@ const supportedEvents = [
   'participant_events.update',
   'bot.call_ended',
   'bot.in_call_recording',
-  'bot.in_call_not_recording'
+  'bot.in_call_not_recording',
+  'bot.breakout_room_opened',
+  'bot.breakout_room_closed'
 ]
 const handleEvent = async (req, _res) => {
   const { event } = req.body
@@ -140,6 +144,82 @@ const handleEvent = async (req, _res) => {
       return
     }
     await handleBotStatusChange(zoomAdapter, req.body)
+    _res.status(httpStatus.OK).send('ok')
+    return
+  }
+
+  if (event === 'bot.breakout_room_opened' || event === 'bot.breakout_room_closed') {
+    const coordinatorAdapter = await Adapter.findOne({ type: 'zoom', 'config.botId': botId }).populate('conversation').exec()
+    if (!coordinatorAdapter) {
+      logger.warn(`Received ${event} for unknown botId ${botId}`)
+      _res.status(httpStatus.OK).send('ok')
+      return
+    }
+    const conversation = coordinatorAdapter.conversation as ConversationDocument
+    await conversation.populate(['channels', 'agents', 'adapters'])
+
+    const { breakout_room: breakoutRoom } = req.body.data?.data || {}
+    const roomId: string = breakoutRoom?.id
+    const roomName: string = breakoutRoom?.name
+
+    if (!roomId) {
+      logger.warn(`Received ${event} with no room id`)
+      _res.status(httpStatus.OK).send('ok')
+      return
+    }
+
+    if (event === 'bot.breakout_room_opened') {
+      const namePrefix = (conversation.properties?.breakoutNamePrefix as string) || 'Breakout'
+
+      const { roundId, transcriptChannel, chatChannel } = await breakoutService.openBreakoutRoom(conversation, {
+        roomId,
+        name: roomName,
+        parentChatChannels: (coordinatorAdapter.chatChannels ?? []).flatMap((c) => (c.name ? [c.name] : [])),
+        parentTranscriptChannels: (coordinatorAdapter.audioChannels ?? []).flatMap((c) => (c.name ? [c.name] : []))
+      })
+
+      // Deploy a per-room bot
+      const roomAdapter = new Adapter({
+        type: 'zoom',
+        config: {
+          meetingUrl: coordinatorAdapter.config.meetingUrl,
+          botName: `${namePrefix} - ${roomName || roomId}`,
+          breakoutRoom: { mode: 'join_specific_room', room_id: roomId }
+        },
+        audioChannels: [{ name: transcriptChannel, direction: Direction.INCOMING }],
+        chatChannels: [{ name: chatChannel, direction: Direction.BOTH }],
+        conversation: conversation._id
+      })
+      await roomAdapter.save()
+      conversation.adapters.push(roomAdapter)
+      await conversation.save()
+      await roomAdapter.start()
+
+      logger.info(`Deployed room bot for breakout room ${roomName || roomId} (round ${roundId})`)
+    } else {
+      // bot.breakout_room_closed
+      const roomChannel = conversation.channels.find((c) => c.breakout?.roomId === roomId)
+      const roundId = roomChannel?.breakout?.roundId
+
+      await breakoutService.closeBreakoutRoom(conversation, { roomId })
+
+      // Stop and remove the room bot adapter
+      const roomAdapter = conversation.adapters.find(
+        (a) => a.type === 'zoom' && (a.config?.breakoutRoom as Record<string, unknown>)?.room_id === roomId
+      )
+      if (roomAdapter) await (roomAdapter as unknown as AdapterDocument).stop()
+
+      // If all rooms in this round are now closed, reconvene
+      if (roundId) {
+        const stillActive = conversation.channels.filter(
+          (c) => c.breakout?.roundId === roundId && c.breakout?.active !== false
+        )
+        if (stillActive.length === 0) {
+          await breakoutService.reconvene(conversation)
+        }
+      }
+    }
+
     _res.status(httpStatus.OK).send('ok')
     return
   }
