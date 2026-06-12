@@ -534,7 +534,7 @@ components:
           type: boolean
         type:
           type: string
-          enum: [string, number, boolean, object, enum]
+          enum: [string, number, boolean, object, array, enum]
         label:
           type: string
         default:
@@ -559,6 +559,9 @@ components:
           type: array
           items:
             type: object
+        internal:
+          type: boolean
+          description: When true, this property is not exposed in the UI or public API responses.
 
     PropertyRef:
       type: object
@@ -831,6 +834,9 @@ components:
           type: boolean
         enableAgents:
           type: boolean
+        enableBreakouts:
+          type: boolean
+          description: Whether this conversation supports breakout rooms. When true, the Zoom adapter deploys its bot in coordinator mode.
         owner:
           oneOf:
             - type: string

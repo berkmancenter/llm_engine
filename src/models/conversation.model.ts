@@ -97,6 +97,10 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
       default: [],
       index: true
     },
+    enableBreakouts: {
+      type: Boolean,
+      default: true
+    },
     active: {
       type: Boolean,
       default: false

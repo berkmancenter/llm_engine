@@ -48,6 +48,14 @@ const eventAssistant: ConversationType = {
       required: false,
       type: 'number',
       default: 3
+    },
+    {
+      name: 'breakoutAgentTypes',
+      required: false,
+      type: 'array',
+      internal: true,
+      description: 'Agent types to spawn per breakout room.',
+      default: ['eventAssistant', 'voiceAssistant', 'jargonFilterAgent']
     }
   ],
   /*

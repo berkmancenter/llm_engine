@@ -198,14 +198,15 @@ export interface ConfigProperty {
   name: string
   as?: string // destination key (supports dot notation for nesting); defaults to name
   required: boolean
-  type: 'string' | 'number' | 'boolean' | 'object' | 'enum'
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array' | 'enum'
   label?: string
-  default?: string | number | boolean | object
+  default?: string | number | boolean | object | unknown[]
   description?: string
   options?: Array<object>
   validationKeys?: string[]
   itemKey?: string
   schema?: Array<object>
+  internal?: boolean // not exposed in UI; can still be set by API callers
 }
 
 export interface PropertyRef {
@@ -343,6 +344,7 @@ export interface IConversation {
   endTime?: Date
   adapters: Array<IAdapter>
   enableDMs: string[]
+  enableBreakouts?: boolean
   experimental?: boolean
   experiments: IExperiment[]
   properties?: Record<string, unknown>
