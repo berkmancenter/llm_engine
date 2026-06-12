@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken'
 import config from '../../../../src/config/config.js'
 import tokenTypes from '../../../../src/config/tokens.js'
 import { mintSlackHandoffToken, verifySlackHandoffToken } from '../../../../src/adapters/slack/handoff.js'
+import { mintHandoffToken } from '../../../../src/services/handoff.service.js'
 
 describe('Slack handoff adapter', () => {
   const slackContext = {
@@ -51,5 +52,14 @@ describe('Slack handoff adapter', () => {
     )
 
     expect(() => verifySlackHandoffToken(wrongTypeToken)).toThrow()
+  })
+
+  test('rejects a handoff token from a different platform (cross-platform replay)', () => {
+    const webToken = mintHandoffToken({
+      platform: 'web',
+      context: slackContext as unknown as Record<string, unknown>
+    })
+
+    expect(() => verifySlackHandoffToken(webToken)).toThrow()
   })
 })

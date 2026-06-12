@@ -14,6 +14,9 @@ export const mintSlackHandoffToken = (context: SlackHandoffContext): string =>
 
 export const verifySlackHandoffToken = (token: string): VerifiedSlackHandoff => {
   const verified = verifyHandoffToken(token)
+  if (verified.platform !== 'slack') {
+    throw new Error('Invalid platform for Slack handoff token')
+  }
   const ctx = verified.context as unknown as SlackHandoffContext
   return {
     slackUserId: ctx.slackUserId,
