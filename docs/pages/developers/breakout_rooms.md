@@ -1,11 +1,10 @@
-# Breakout Rooms: Architecture & Implementation Plan
+# Breakout Rooms: Architecture & Implementation
 
-Status: Proposed (branch `jh/breakouts`)
+Status: Implemented — branch `jh/breakouts` (one item remaining, see [§5](#5-implementation-status))
 
 This document describes how breakout-room support is added to the LLM Engine. It
 covers the requirements, the architecture decisions (and the alternatives that
-were discarded and why), and a concrete, step-by-step implementation plan with
-file references.
+were discarded and why), and the implementation status of each piece.
 
 ---
 
@@ -28,9 +27,10 @@ file references.
 
 A short map of the pieces this feature builds on (verified in the codebase):
 
-- **Conversation** owns `channels`, `agents`, and `adapters`
+- **Conversation** owns `channels`, `agents`, `adapters`, and `features`
   (`src/models/conversation.model.ts`, `IConversation` in
-  `src/types/index.types.ts`).
+  `src/types/index.types.ts`). The `features` array stores `{ name, enabled?,
+config? }` entries and is already `Mixed`-typed.
 - **Channel** is a lightweight doc: `name`, `passcode`, `direct`, `participants`
   (`src/models/channel.model.ts`). Messages are tagged with channel **name
   strings** (`src/models/message.model.ts`).
@@ -43,7 +43,7 @@ A short map of the pieces this feature builds on (verified in the codebase):
 - **Adapters** translate a platform to internal messages; **handlers** are the
   webhook HTTP ingress. The Zoom adapter (`src/adapters/zoom.ts`) deploys a
   **Recall.ai** bot; Recall webhooks land in `src/handlers/recall.ts`.
-- **Crucially:** multiple Zoom bots per conversation are *already* supported.
+- **Crucially:** multiple Zoom bots per conversation are _already_ supported.
   `src/handlers/recall.ts` resolves the adapter by matching `botId` among
   `conversation.adapters` (line ~153), and `zoom.ts` already iterates multiple
   zoom adapters on one conversation (`participantJoined`, line ~400).
@@ -66,7 +66,7 @@ marker. Context isolation and reconvene are then expressed purely through the
 existing channel allow-list filter.
 
 - A room agent's context allow-list = `[parent channels] + [its own room
-  channels]`. Sibling rooms are excluded simply by not being on the list
+channels]`. Sibling rooms are excluded simply by not being on the list
   (Requirement 1).
 - On reconvene, the main agent's allow-list expands to include all breakout
   channels, so it sees everything, labeled per room (Requirement 2).
@@ -114,14 +114,14 @@ contract.)
 Room agents get an explicit channel allow-list at spawn time, so **no new
 primitive is needed for isolation**. The only dynamic case is the main agent
 needing to pull in breakout channels that did not exist when it was configured.
-We add `includeBreakouts?: 'none' | 'all'` to `ConversationHistorySettings`
+We add `includeBreakouts?: boolean` to `ConversationHistorySettings`
 (default `none`) and resolve it in `Agent.respond()` (where the populated
 conversation/channels are available) by expanding `settings.channels` before
 calling `getConversationHistory`.
 
-- `none` (default): breakout content is excluded from the main agent during a
+- `false` / absent (default): breakout content is excluded from the main agent during a
   live round.
-- `all`: breakout channels are merged in for the reconvened combined session.
+- `true`: breakout channels are merged in for the reconvened combined session.
 
 **Why here:** it keeps `getConversationHistory` a pure function (it already only
 knows about a flat message list + settings) and localizes breakout awareness to
@@ -134,45 +134,70 @@ breakout channels to avoid, inverting the existing allow-list model and leaking
 breakout knowledge into unrelated agents. The allow-list + `includeBreakouts`
 expansion keeps breakout logic in one place.
 
-### Decision C — Where breakout configuration lives: `agentConfig.breakout`
+### Decision C — Where breakout configuration lives: `enableBreakouts` + internal properties
 
-Breakout configuration is an optional nested block on the **coordinator** agent
-type (e.g. `eventAssistant`):
+Breakout configuration is split across two locations:
 
-```jsonc
-agentConfig: {
-  breakout: {
-    enabled: false,            // gate the coordinator into join_main_room mode
-    agentType: 'eventAssistant', // agent type spawned per room (default: same)
-    agentConfig: { /* overrides applied to each spawned room agent */ },
-    historySettings: { /* base conversationHistorySettings for room agents */ },
-    namePrefix: 'Breakout',    // optional naming convention
-    rooms: [                   // optional pre-declared enrichment, matched by name
-      { name: 'Room 1', description: '...' }
-    ]
-  }
-}
-```
+**`conversation.enableBreakouts: boolean`** — top-level schema field alongside
+`enableAgents` and `enableDMs`. Gates the capability: "does this conversation
+support breakout rooms?" The breakout service is platform-agnostic, so this flag
+is a conversation-level concern, not a Zoom-specific one. Any future adapter that
+surfaces a "room opened" event can check the same field.
 
-**Why `agentConfig`:** it matches the established nested-config pattern
-(`delegates` agent; `as: 'agentConfig.*'` wiring in
-`src/conversations/eventAssistant.ts`), requires no schema migration
-(`agentConfig` is `Mixed`), and keeps "what should happen inside breakouts" next
-to the agent that coordinates them. The generic breakout service consumes this
-config but does not depend on any particular agent type.
+**`conversation.properties.breakoutAgentTypes` / `breakoutNamePrefix`** —
+eventAssistant-specific wiring, stored as internal `ConfigProperty` entries
+(`type: 'array'` / `type: 'string'`, `internal: true`). These control which
+agent types to spawn per room and how to name the bots. They are conversation-type
+policy, not engine-level capability, so `properties` is the right home. They are
+not exposed in the event creation UI.
 
-#### Discarded: breakout config on the Conversation or Adapter
+The Zoom adapter checks `conversation.enableBreakouts` to decide coordinator mode.
+The breakout service reads `breakoutAgentTypes` from properties for agent
+spawning (defaulting to `[]` when absent — valid: breakout transcription without
+agents is a supported use case).
 
-Rejected for the behavioral parts: the conversation/adapter should not encode
-which agent type to spawn or its prompt/history behavior — that is agent policy.
-Platform plumbing (bot mode, room→bot mapping) does live on the adapter, but the
-*intent* (spawn agent X with config Y per room) belongs with the agent.
+**`agentTypes` must be listed explicitly.** There is no default or inference —
+if an agent type is not listed, it does not run in breakout rooms. Agents not
+listed (e.g. eventMediator, engagementAgent) still receive full breakout history
+after reconvene via the `includeBreakouts` mechanism.
+
+Note: there is no "coordinator agent." The Recall coordinator bot (the Zoom bot
+that stays in the main room to receive webhook events) is a platform/adapter
+concept. The main session agent is unchanged — it is simply scoped to main
+channels during breakouts and given an expanded allow-list on reconvene.
+
+#### Discarded: gating coordinator deployment on `breakoutAgentTypes` being non-empty
+
+Rejected. A conversation may want breakout room transcription and channel
+segmentation without any per-room agents. The capability flag (`enableBreakouts`)
+and the agent policy (`breakoutAgentTypes`) are independent concerns.
+
+#### Discarded: breakout config as a conversation feature
+
+Rejected. `conversation.features` is for organizer-controlled, UI-visible
+behavior. Breakout wiring is infrastructure that most organizers will never
+configure. A hidden property avoids cluttering the feature list and the event
+creation form.
+
+#### Discarded: breakout config on `agentConfig`
+
+Rejected. `agentConfig` is agent response policy (prompts, tools, history
+behavior). Whether to deploy a bot in coordinator mode and which agent type to
+spawn per room are conversation-level and infrastructure concerns, not agent
+policy. Putting them on `agentConfig` creates a dependency where the Zoom
+adapter must reach into agent internals to configure itself.
+
+#### Discarded: breakout config on the Adapter
+
+Rejected for the policy parts. The adapter should not encode which agent type to
+spawn or its history behavior — that is conversation intent, not platform
+plumbing.
 
 ### Decision D — Room definition: dynamic discovery + optional enrichment
 
 Rooms are discovered at runtime from Recall webhooks (`room.id`, `room.name`),
 because Zoom breakouts (whether pre-assigned or impromptu) only surface to us
-when they open. The optional `agentConfig.breakout.rooms[]` provides
+when they open. The optional `config.rooms[]` in the breakout feature provides
 name/description **enrichment** matched against the Zoom room name. Description
 is purely our own concept (Zoom has none), so it is a nice-to-have.
 
@@ -184,12 +209,12 @@ discovery with optional enrichment covers both planned and impromptu cases.
 
 ### Decision E — Zoom orchestration via coordinator + per-room bots
 
-When breakout is enabled, the main adapter deploys its bot in
-`join_main_room` mode (coordinator). On `bot.breakout_room_opened`, the handler
-creates a per-room zoom adapter and dispatches a `join_specific_room` bot, then
-calls the core breakout service. Each room bot's transcript/chat is routed to
-that room's channels via the room adapter's own `audioChannels`/`chatChannels`,
-so existing inbound/outbound routing is reused unchanged.
+When `conversation.enableBreakouts` is true, the main adapter deploys its Recall
+bot in `join_main_room` mode. On `bot.breakout_room_opened`, the handler creates a
+per-room zoom adapter and dispatches a `join_specific_room` bot, then calls the
+core breakout service. Each room bot's transcript/chat is routed to that room's
+channels via the room adapter's own `audioChannels`/`chatChannels`, so existing
+inbound/outbound routing is reused unchanged.
 
 #### Discarded: a single bot hopping between rooms
 
@@ -203,7 +228,7 @@ unable to capture N rooms concurrently.
 ```mermaid
 flowchart TB
   subgraph zoomLayer [Zoom/Recall layer - adapters + handlers]
-    Coord["Coordinator bot (join_main_room)"]
+    Coord["Recall coordinator bot (join_main_room)"]
     RoomBot["Per-room bot (join_specific_room)"]
     Recall["src/handlers/recall.ts"]
     ZAdapter["src/adapters/zoom.ts"]
@@ -228,183 +253,201 @@ flowchart TB
 
 Lifecycle:
 
-1. Session starts; if `agentConfig.breakout.enabled`, the coordinator bot joins
-   the main room in `join_main_room` mode.
-2. Host opens breakouts -> `bot.breakout_room_opened` per room -> handler creates
+1. Session starts; if `conversation.enableBreakouts` is true, the Zoom adapter
+   deploys the Recall bot in `join_main_room` mode.
+2. Host opens breakouts → `bot.breakout_room_opened` per room → handler creates
    per-room adapter + bot and calls `breakoutService.openBreakoutRoom`, which
-   creates the room's channels and spawns a scoped room agent.
+   creates the room's channels and spawns a scoped room agent per type in
+   `conversation.properties.breakoutAgentTypes` (may be empty — transcription
+   without agents is valid).
 3. During the round: each room agent sees parent + own channels only; the main
    agent excludes breakout channels.
-4. Host closes breakouts -> `bot.breakout_room_closed` per room ->
+4. Host closes breakouts → `bot.breakout_room_closed` per room →
    `closeBreakoutRoom`; when the round is empty, `closeBreakoutRound` +
-   `reconvene` flips the main agent to `includeBreakouts: 'all'`.
+   `reconvene` flips the main agent to `includeBreakouts: true`.
 5. Subsequent rounds repeat with a fresh `roundId`; all prior content remains in
    the reconvened context, labeled per room.
 
 ---
 
-## 5. Implementation plan
+## 5. Implementation status
 
-Ordered so core (generic) lands first, then the Zoom layer, then tests/docs.
+### ✅ Done — Channel breakout marker (core)
 
-### Step 1 — Channel breakout marker (core)
+`src/models/channel.model.ts`, `src/types/index.types.ts`.
 
-Files: `src/models/channel.model.ts`, `src/types/index.types.ts`.
+`IChannel` has an optional `breakout` field:
 
-- Add optional `breakout` to `IChannel`:
-  ```ts
-  breakout?: {
-    roomId: string      // normalized room id (from adapter)
-    roundId: string     // groups a simultaneous round
-    name?: string
-    description?: string
-    kind?: 'transcript' | 'chat'
-    active?: boolean     // false once the room closes
-  }
-  ```
-- Add the matching sub-schema to `channelSchema` (default `undefined`).
-- Add a small helper to query breakout channels for a conversation and to group
-  them by `roundId` (e.g. `getBreakoutChannels(conversation)` in
-  `src/utils/` or in the breakout service).
+```ts
+breakout?: {
+  roomId: string
+  roundId: string
+  type: 'chat' | 'transcript'
+  parentChannel: string
+  name?: string
+  description?: string
+  active?: boolean
+}
+```
 
-### Step 2 — Breakout service (core)
+### ✅ Done — Breakout service (core)
 
-File: new `src/services/breakout.service.ts`. Generic, no Zoom imports.
+`src/services/breakout.service.ts`.
 
-- `openBreakoutRoom(conversation, { roundId, roomId, name?, description?, sourceChannels?, breakoutConfig })`:
-  - Resolve/start a round (`roundId`): if none active, begin one; otherwise join
-    the active round.
-  - Create per-room channels via `channelService.createChannel` with the
-    `breakout` marker set (`kind: 'transcript'` and `kind: 'chat'`), e.g. names
-    `breakout/{roundId}/{roomId}/transcript` and `.../chat`.
-  - Spawn the scoped room agent via `agentService.createAgent(agentType,
-    conversation, props)` where `agentType = breakoutConfig.agentType` and props
-    set `triggers.perMessage.channels` + `conversationHistorySettings.channels`
-    to `[parent channels] + [this room's channels]` (merging
-    `breakoutConfig.historySettings` / `agentConfig`).
-  - Return handles `{ channels, agent }`.
-- `closeBreakoutRoom(conversation, { roomId })`: mark the room's channels
-  `breakout.active = false`; deactivate its room agent (`active = false`) without
-  deleting it (preserve authorship/pseudonyms for reconvened context).
-- `closeBreakoutRound(conversation, roundId)`: close all rooms in the round.
-- `reconvene(conversation, { roundId? })`: set the coordinator/main agent(s)
-  `conversationHistorySettings.includeBreakouts = 'all'` (and any
-  per-trigger overrides) so the combined session includes all breakout content.
+- `openBreakoutRoom`: creates per-room chat + transcript channels (named
+  `breakout/{roundId}/{roomId}/chat` and `.../transcript`), spawns room agents
+  per `conversation.properties.breakoutAgentTypes`, starts them.
+- `closeBreakoutRoom`: marks the room's channels `active: false`, deactivates
+  room agents.
+- `closeBreakoutRound` / `reconvene`: closes all rooms in a round and sets
+  `includeBreakouts: true` on all active non-room agents.
 
-### Step 3 — Context scoping (core)
+### ✅ Done — Context scoping (core)
 
-Files: `src/types/index.types.ts`, `src/models/user.model/agent.model/index.ts`
-(leave `src/agents/helpers/getConversationHistory.ts` pure).
+`src/types/index.types.ts`, `src/models/user.model/agent.model/index.ts`.
 
-- Add `includeBreakouts?: 'none' | 'all'` to `ConversationHistorySettings`
-  (default treated as `none`).
-- In `Agent.respond()`, where channel settings are resolved (around the existing
-  channel/direct-channel resolution): if `includeBreakouts === 'all'`, expand the
-  resolved `channels` allow-list with all breakout channel names from the
-  populated `conversation.channels`. Room agents need no change (their allow-list
-  is explicit from Step 2).
+`includeBreakouts?: boolean` added to `ConversationHistorySettings`. In
+`Agent.respond()`, when this flag is set, the resolved channel allow-list is
+expanded with all breakout channel names present on the conversation.
 
-### Step 4 — Transcript de-hardcoding (core)
+### ✅ Done — Agent chat/transcript channel resolution (core)
 
-File: `src/agents/helpers/transcript.ts`.
+`src/agents/helpers/agentChannels.ts`.
 
-- Parameterize the transcript channel name(s) (currently the literal
-  `'transcript'`) in `getTranscriptMessages` (line ~111), `getTranscript`, and
-  the in-memory filter in `searchTranscript` (line ~78), defaulting to
-  `['transcript']` for the main room and accepting the room's transcript channel
-  for a room agent.
-- In `loadTranscriptIntoVectorStore`, add breakout metadata (`roomId`,
-  `roundId`, `channel`) to chunks so vector search can be scoped to a room and
-  re-aggregated on reconvene. Keep the per-conversation RAG collection; filter by
-  metadata rather than creating per-room collections.
-- Audit `clearTranscript` / `deleteTranscript` /
-  `loadTopicTranscriptsIntoVectorStore` (lines ~306/351/387) so breakout
-  transcript channels are included in cleanup.
+`getChatHistoryChannelNames(agent)` and `getTranscriptHistoryChannelNames(agent)`
+return the correct channel names depending on context:
 
-### Step 5 — History formatting (core)
+| Agent context                                    | Chat channels                       | Transcript channels                             |
+| ------------------------------------------------ | ----------------------------------- | ----------------------------------------------- |
+| Breakout room agent                              | Room's breakout chat channel        | Room's breakout transcript channel              |
+| Reconvened main agent (`includeBreakouts: true`) | `chat` + all breakout chat channels | `transcript` + all breakout transcript channels |
+| Normal agent                                     | `['chat']`                          | `['transcript']`                                |
 
-File: `src/agents/helpers/llmInputFormatters.ts`.
+`isOnChatChannel(agent, channelNames)` is used in `evaluate()` to correctly gate
+bot-mention checks for room agents.
 
-- When formatting history for the reconvened main agent, label messages that
-  originate from a breakout channel with their room name (and description if
-  present) so the combined context is clearly attributable per room.
+### ✅ Done — Transcript parameterization (core, message-based)
 
-### Step 6 — agentConfig.breakout block (core/agent policy)
+`src/agents/helpers/transcript.ts`.
 
-Files: `src/agents/eventAssistant/eventAssistant.ts` (coordinator defaults),
-`src/conversations/eventAssistant.ts` (wiring), optionally
-`src/agents/helpers/verify.ts` docs.
+`searchTranscript`, `getTranscriptMessages`, and `getTranscript` all take `agent`
+rather than a raw conversation and call `getTranscriptHistoryChannelNames(agent)`
+for channel filtering. Room agents only see their own room's transcript messages;
+reconvened agents see all of them.
 
-- Add the optional `breakout` block to the coordinator agent type's default
-  `agentConfig` (Decision C shape).
-- Add conversation-type wiring (`$ref` / `as: 'agentConfig.breakout.*'`) so the
-  feature can be enabled/configured at conversation creation.
-- Read via `this.agentConfig?.breakout?.*` with safe defaults; no central schema
-  change.
+### ✅ Done — Response channel remapping (core)
 
-### Step 7 — Recall handler (Zoom-specific)
+`src/models/user.model/agent.model/index.ts`.
 
-File: `src/handlers/recall.ts`.
+After `agentType.respond()` returns, if the agent has `agentConfig.breakout`,
+any logical parent channel references in `response.channels` (e.g. `{ name: 'chat' }`)
+are remapped to the matching breakout channel for that room before the message
+is persisted. This means agent implementations return logical channel names and
+are unaware of the physical breakout channel naming.
 
-- Add `bot.breakout_room_opened`, `bot.breakout_room_closed`,
-  `bot.breakout_room_entered`, `bot.breakout_room_left` to `supportedEvents`.
-- On `breakout_room_opened` (received by the coordinator bot): create a per-room
-  zoom adapter, dispatch the room bot, and call
-  `breakoutService.openBreakoutRoom` with the room id/name and the coordinator's
-  `agentConfig.breakout` config.
-- On `breakout_room_closed`: call `breakoutService.closeBreakoutRoom` and stop
-  that bot; when the round empties, `closeBreakoutRound` + `reconvene`.
-- Use `entered`/`left` for bot-placement confirmation / participant tracking.
-- Reuse existing `botId`-based adapter resolution; per-room transcript/chat
-  routes to the room adapter automatically.
+### ✅ Done — History formatting for reconvened context (core)
 
-### Step 8 — Zoom adapter (Zoom-specific)
+`src/agents/helpers/llmInputFormatters.ts`.
 
-File: `src/adapters/zoom.ts`.
+When formatting conversation history for a reconvened agent, messages from
+breakout channels are labeled with their room name (e.g. `[Room A]`) so the LLM
+can attribute content per room.
 
-- When `agentConfig.breakout.enabled`, deploy the coordinator bot with
-  `breakout_room: { mode: 'join_main_room' }` and subscribe to the breakout
-  webhooks; otherwise keep current behavior.
-- Add room-bot deployment with `breakout_room: { mode: 'join_specific_room',
-  room_id }`. The room adapter's `audioChannels`/`chatChannels` point at that
-  room's channels so `receiveMessage` / `getChannels` / `sendMessage` work
-  unchanged.
-- Update `getUniqueKeys()` (line ~447) so breakout adapters sharing the same
-  `meetingUrl` do not collide (include `botId` or `roomId`).
+### ✅ Done — Schema and property wiring
 
-### Step 9 — Tests & docs
+`src/types/index.types.ts`, `src/models/conversation.model.ts`,
+`src/conversations/eventAssistant.ts`.
 
-- Core: `tests/services/breakout.service.test.ts` (open/close/reconvene, round
-  lifecycle); context isolation + reconvene aggregation tests alongside existing
-  `getConversationHistory` tests.
-- Adapter/handler: extend `tests/handlers/recall.handler.test.ts` and
-  `tests/adapters/zoom.adapter.test.ts` for breakout webhooks, room-bot
-  dispatch, and per-room routing.
-- Docs: update `docs/pages/platforms/zoom.md` (the Zoom "Let participants choose
-  room" requirement and new Recall webhook subscriptions) and reference this
-  document.
+- `enableBreakouts?: boolean` on `IConversation` and the Mongoose schema.
+- `breakoutAgentTypes` (internal array) and `breakoutNamePrefix` (internal
+  string) as `ConfigProperty` entries on the eventAssistant conversation type.
+
+### ✅ Done — Recall handler (Zoom-specific)
+
+`src/handlers/recall.ts`.
+
+Handles `bot.breakout_room_opened` and `bot.breakout_room_closed`. On open:
+creates per-room zoom adapter, dispatches `join_specific_room` bot, calls
+`breakoutService.openBreakoutRoom`. On close: stops the room bot, calls
+`closeBreakoutRoom`; when the round empties, calls `reconvene`. Routes inbound
+transcript/chat messages to the room adapter via `botId` resolution (unchanged
+from the multi-bot pattern).
+
+### ✅ Done — Zoom adapter (Zoom-specific)
+
+`src/adapters/zoom.ts`.
+
+When `conversation.enableBreakouts` is true, deploys the Recall bot in
+`join_main_room` mode. Room bots (those with `config.breakoutRoom` set) are
+deployed in `join_specific_room` mode. `getUniqueKeys()` includes `config.botId`
+for breakout adapters to prevent key collisions between adapters sharing the same
+`meetingUrl`.
 
 ---
 
-## 6. Risks & open items
+### 🔲 TODO — Transcript RAG scoping by breakout room
 
-- **Transcript RAG scoping** is the most invasive core change; the channel-name
-  parameterization plus chunk metadata must be applied consistently across
-  search, load, and cleanup paths.
-- **Recall webhook enablement**: workspaces created before 2025-10-13 may need
-  the breakout webhooks enabled by Recall support; `join_main_room`
-  opened/closed events require Zoom's "Let participants choose room".
-- **Round identity**: `roundId` is defined by the breakout service
-  (start-on-first-open, end-on-last-close); Recall provides only per-room ids.
-- **Bot cost/limits**: N rooms = N bots; surface clear logging and teardown to
-  avoid orphaned bots.
+`src/agents/helpers/transcript.ts`, `loadTranscriptIntoVectorStore`.
 
----
+The message-based transcript path (channel filtering) is fully breakout-aware.
+The **vector-store / RAG path** is not yet. Currently:
 
-## 7. Out of scope / assumptions
+- All transcript chunks — including breakout room transcripts — are stored in
+  the single per-conversation collection `event-transcript-{conversationId}`.
+- `searchTranscript` queries that collection without any room filter, so a
+  breakout room agent's semantic search can surface chunks from sibling rooms.
 
-- Description is optional enrichment only (Zoom has no native field).
-- Reuses the per-conversation RAG collection with added room metadata rather than
-  per-room collections.
-- No change to the child-conversation model; everything stays in one
-  conversation.
+What needs to be done:
+
+- Add breakout metadata (`roomId`, `roundId`, `channel`) to each chunk in
+  `loadTranscriptIntoVectorStore` when the message originated on a breakout
+  channel.
+- In `searchTranscript`, apply a metadata filter scoping the query to the
+  agent's room when the agent is a breakout room agent (use
+  `getTranscriptHistoryChannelNames` to derive the filter, consistent with the
+  message-based path).
+- Audit `clearTranscript` / `deleteTranscript` to ensure breakout-channel
+  transcript messages are included in cleanup operations.
+
+### 🔲 TODO — WebSocket events on breakout room opened/closed for FE
+
+Initial P0 idea was to have NextSpace construct separate URLs for each breakout room with appropriate
+channel passcodes and put the URLs in the moderator view for distribution to each room that was using the
+NextSpace front end. This would keep rooms siloed because they would not know the channel passcodes to construct the URLs to other rooms.
+
+Sending websocket events on breakout room opened and closed could be implemented to support this. The front end work would also need to be done to construct and display the URLs.
+
+### 🔲 TODO — Add ModeratorNotifier to breakout agent types?
+
+Right now there are no periodic agents configured to run in the eventAssistant conversation type breakout rooms, but there is theoretically no reason that wouldn't work. We determined it doesn't make sense to do proactive group chat interventions in breakouts like using eventMediator or engagementAgent. But if moderator support feature is enabled, should moderatorNotifier run in every breakout room?
+
+### 🔲 TODO — Breakout Room Reporting
+
+Message reports should include breakout group chat messages
+
+Should front end Matomo reports also be modified somehow to include stats on breakout URL usage?
+
+### 🔲 TODO — Post Event Summaries include breakout chat/transcript context?
+
+Should summaries generated by `lifecycle.ts` on conversation stop include chat and transcript from breakout rooms?
+
+## 5. Testing & known issues
+
+The first section of agent-level commits is pretty well unit/integration tested. The breakout service and Zoom layer definitely need more automated tests.
+
+I did a quick manual run through of creating breakouts in Zoom:
+
+1. I opened a breakout room in Zoom (NOTE: you MUST use the 'Let Participants Choose Room' option in order for Recall's coordinator bot approach to work).
+2. A bot was deployed into the breakout room
+3. I joined the breakout room. I verified that transcription from that breakout room was not recording on the main transcript channel (log messages indicated they were put on breakout channel and they were not visible in main transcript)
+4. Closed the breakout room
+
+Ran into these issues:
+
+1. Breakout room bots are deployed with the name 'Breakout-Room-[x]' rather than anything with 'Berkie' in it. This also makes the @ mention feature in group chat problematic (agent uses regex to recognize Berkie). Granted, we don't rely as heavily on the @ mention now that Berkie can just respond to anything, but should still be able to do it.
+2. The bot did not respond to DMs in the breakout room
+3. **Important** When I closed the breakout room, both the breakout bot and main bot left the meeting. Recall indicated a timeout_exceeded_everyone_left event. This may be a Recall bug.
+
+Testing with multiple participants in breakout rooms and main conversation and reconvene still needed. Also need to double check that agents have the correct context in both the main and breakout rooms.
+
+Need to verify multiple rounds of breakouts as well.
