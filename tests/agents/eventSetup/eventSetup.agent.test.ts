@@ -3,7 +3,7 @@ import defaultAgentTypes from '../../../src/agents/index.js'
 import { createUser, createConversation, createPublicTopic, createMessage } from '../../utils/agentTestHelpers.js'
 import { Agent, Channel } from '../../../src/models/index.js'
 import { AgentMessageActions, ConversationHistory } from '../../../src/types/index.types.js'
-import { verifyHandoffToken } from '../../../src/services/handoffToken.service.js'
+import { verifySlackHandoffToken } from '../../../src/adapters/slack/handoff.js'
 import config from '../../../src/config/config.js'
 
 type Block = Record<string, unknown>
@@ -111,7 +111,7 @@ describe('eventSetup agent tests', () => {
 
       const match = buttonUrl.match(/#token=([A-Za-z0-9._-]+)/)
       const token = decodeURIComponent(match![1])
-      const verified = verifyHandoffToken(token)
+      const verified = verifySlackHandoffToken(token)
       expect(verified.slackUserId).toBe('U456DEF')
     })
 

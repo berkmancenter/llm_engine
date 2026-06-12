@@ -18,13 +18,13 @@
 
 import httpStatus from 'http-status'
 import ApiError from '../utils/ApiError.js'
-import { verifyHandoffToken, VerifiedHandoff } from '../services/handoffToken.service.js'
+import { verifyHandoffToken, VerifiedHandoffContext } from '../services/handoff.service.js'
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
-      handoff?: VerifiedHandoff
+      handoff?: VerifiedHandoffContext
     }
   }
 }

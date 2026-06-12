@@ -4,7 +4,7 @@ const tokenTypes = {
   RESET_PASSWORD: 'resetPassword',
   VERIFY_EMAIL: 'verifyEmail',
   ARCHIVE_TOPIC: 'archiveTopic',
-  SLACK_HANDOFF: 'slackHandoff'
+  HANDOFF: 'handoff'
 }
 
 export default tokenTypes
