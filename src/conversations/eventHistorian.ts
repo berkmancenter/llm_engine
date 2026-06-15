@@ -38,6 +38,21 @@ const eventHistorian: ConversationType = {
       type: 'string'
     },
     {
+      name: 'slackSigningSecret',
+      label: 'Slack App Signing Secret',
+      description: 'The signing secret for the Slack app. Defaults to the system-wide signing secret if not provided.',
+      required: false,
+      type: 'string'
+    },
+    {
+      name: 'slackAppKey',
+      label: 'Slack App Key in Webhook',
+      description:
+        'The app key for the Slack app, used as last part ofwebhook URL to route incoming messages to the appropriate adapter.',
+      required: false,
+      type: 'string'
+    },
+    {
       name: 'botName',
       label: 'Bot Name',
       description: 'The display name for the bot',
@@ -83,7 +98,9 @@ const eventHistorian: ConversationType = {
         workspace: '{{{properties.slackWorkspace}}}',
         botToken: '{{{properties.slackBotToken}}}',
         botUserId: '{{{properties.slackBotUserId}}}', // for normalizing incoming messages
-        botName: '{{{properties.botName}}}'
+        botName: '{{{properties.botName}}}',
+        signingSecret: '{{{properties.slackSigningSecret}}}',
+        appKey: '{{{properties.slackAppKey}}}'
       },
       chatChannels: [
         {
