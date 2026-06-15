@@ -1,7 +1,7 @@
 import { ChatPostMessageResponse } from '@slack/web-api'
 import type { KnownBlock, Block } from '@slack/types'
 import logger from '../../config/logger.js'
-import slackClientPool from './slackClientPool.js'
+import slackClientPool from './client.js'
 import { AdapterMessage } from '../../types/adapter.types.js'
 import Message from '../../models/message.model.js'
 
@@ -80,7 +80,7 @@ export default {
     const text = markdownToMrkdwn(message.body)
       .replace(/(?<![<@\w])(U[A-Z0-9]{6,})\b/g, '<@$1>')
       .replace(/(?<!<)@(U[A-Z0-9]{6,})\b/g, '<@$1>')
-    const slackWebClient = slackClientPool.getClient(this.config.workspace, this.config.botToken)
+    const slackWebClient = slackClientPool.getClient(this.config.botToken)
 
     let threadTs: string | undefined
     if (message.parentMessage) {
@@ -123,7 +123,7 @@ export default {
       }
     })
     if (!this.config.botUserId) {
-      const slackWebClient = slackClientPool.getClient(this.config.workspace, this.config.botToken)
+      const slackWebClient = slackClientPool.getClient(this.config.botToken)
       const authResult = await slackWebClient.auth.test()
       if (!authResult.ok || !authResult.user_id) {
         throw new Error(`Failed to look up Slack bot user ID: ${authResult.error}`)
