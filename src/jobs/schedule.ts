@@ -39,6 +39,9 @@ const schedule = {
   },
   conversationEvent: async (data: { agentId: string; event: unknown }) => {
     await agenda.now('conversationEvent', data)
+  },
+  conversationEndingSoon: async (scheduledAt: Date, data: { conversationId: string }) => {
+    await agenda.schedule(scheduledAt, `conversationEndingSoon - ${data.conversationId}`, data)
   }
 }
 

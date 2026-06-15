@@ -14,7 +14,8 @@ const JobHandlers = {
   // Conversation handlers
   autoStartConversation: conversationHandlers.autoStartConversation,
   autoStopConversation: conversationHandlers.autoStopConversation,
-
+  conversationEndingSoon: conversationHandlers.conversationEndingSoon,
+  
   // Resource handlers
   summarizePdf: resourceHandlers.summarizePdf,
 

@@ -123,6 +123,21 @@ async function scheduleConversationAutoStop(conversation) {
   logger.debug(`Scheduled auto-stop for conversation ${conversation._id} at ${scheduledAt}`)
 }
 
+async function scheduleConversationEndingSoon(conversation) {
+  await schedule.cancelAutoStopConversation(conversation._id)
+  await defineJob.conversationEndingSoon(conversation._id)
+  // Schedule maxScheduledInterval before the scheduled end time;
+  // this could eventually become configurable in conversation object
+  // Failsafe: do nothing if event is somehow less than 10 minutes long as scheduled
+  if (conversation.scheduledEndTime.getTime() - maxScheduledInterval < new Date().getTime()) {
+    logger.debug(`Conversation ${conversation._id} ending soon event skipped due to short duration`)
+    return
+  }
+  const scheduledAt = new Date(conversation.scheduledEndTime.getTime() - maxScheduledInterval)
+  await schedule.conversationEndingSoon(scheduledAt, { conversationId: conversation._id })
+  logger.debug(`Scheduled conversation ending soon for conversation ${conversation._id} at ${scheduledAt}`)
+}
+
 const initializeConversations = async () => {
   const now = new Date()
   const pendingStart = await Conversation.find({ scheduledTime: { $gt: now }, active: false })
@@ -216,6 +231,8 @@ const createConversation = async (conversationBody, user) => {
     await scheduleConversationAutoStart(conversation)
     if (conversation.scheduledEndTime) {
       await scheduleConversationAutoStop(conversation)
+      await scheduleConversationEndingSoon(conversation)
+
     }
   } else {
     await startConversation(conversation, user)
@@ -506,6 +523,7 @@ const updateConversation = async (conversationBody, user) => {
   }
   if (restBody.scheduledEndTime !== undefined && conversationDoc!.scheduledEndTime) {
     await scheduleConversationAutoStop(conversationDoc!)
+    await scheduleConversationEndingSoon(conversationDoc!)
   }
 
   await transcript.loadEventMetadataIntoVectorStore(conversationDoc!)
