@@ -3,7 +3,11 @@ import httpStatus from 'http-status'
 import setupIntTest from '../utils/setupIntTest.js'
 import { insertUsers, registeredUser } from '../fixtures/user.fixture.js'
 import { insertTopics, newPublicTopic, newPrivateTopic } from '../fixtures/topic.fixture.js'
-import conversationService, { autoStartLeadTimeMs, autoStopDelayMs, maxScheduledInterval } from '../../src/services/conversation.service/index.js'
+import conversationService, {
+  autoStartLeadTimeMs,
+  autoStopDelayMs,
+  maxScheduledInterval
+} from '../../src/services/conversation.service/index.js'
 import { Feature } from '../../src/types/index.types.js'
 import { Agent, Adapter, Conversation, Topic } from '../../src/models/index.js'
 import { setConversationTypes, resetConversationTypes, getAllConversationTypes } from '../../src/conversations/index.js'
@@ -861,11 +865,17 @@ describe('Conversation service methods', () => {
 
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
 
-        expect(schedule.autoStartConversation).toHaveBeenCalledWith(new Date(scheduledTime.getTime() - autoStartLeadTimeMs), { conversationId: conversation._id })
-        expect(schedule.autoStopConversation).toHaveBeenCalledWith(new Date(scheduledEndTime.getTime() + autoStopDelayMs), expect.objectContaining({ conversationId: conversation._id }))
+        expect(schedule.autoStartConversation).toHaveBeenCalledWith(
+          new Date(scheduledTime.getTime() - autoStartLeadTimeMs),
+          { conversationId: conversation._id }
+        )
+        expect(schedule.autoStopConversation).toHaveBeenCalledWith(
+          new Date(scheduledEndTime.getTime() + autoStopDelayMs),
+          expect.objectContaining({ conversationId: conversation._id })
+        )
         expect(schedule.conversationEndingSoon).toHaveBeenCalledWith(
-           new Date(scheduledEndTime.getTime() - maxScheduledInterval),
-          expect.objectContaining({ conversationId: conversation._id }),
+          new Date(scheduledEndTime.getTime() - maxScheduledInterval),
+          expect.objectContaining({ conversationId: conversation._id })
         )
       })
     })
