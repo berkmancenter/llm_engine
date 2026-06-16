@@ -7,6 +7,7 @@ import Poll from '../../models/poll.model/poll.js'
 import PollChoice from '../../models/poll.model/choice.js'
 import PollResponse from '../../models/poll.model/response.js'
 import ApiError from '../../utils/ApiError.js'
+import access from '../../auth/access.js'
 import WHEN_RESULTS_VISIBLE from '../../models/poll.model/constants.js'
 import websocketGateway from '../../websockets/websocketGateway.js'
 import { IPollChoice } from '../../types/index.types.js'
@@ -19,9 +20,7 @@ const createPoll = async (pollBody, user) => {
   if (!conversation) {
     throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${conversationId} not found`)
   }
-  if (user._id.toString() !== conversation.owner.toString()) {
-    throw new ApiError(httpStatus.FORBIDDEN, 'Poll creation not allowed.')
-  }
+  await access.assertCanWrite(user, { type: 'conversation', id: conversationId.toString() })
   let choices
   if (pollBody.choices) choices = pollBody.choices
   const pollData = {

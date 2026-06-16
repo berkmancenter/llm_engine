@@ -372,6 +372,22 @@ export interface IPoll {
   choices?: IPollChoice[]
 }
 
+export type PollConfig = Partial<
+  Pick<
+    IPoll,
+    | 'multiSelect'
+    | 'allowNewChoices'
+    | 'choicesVisible'
+    | 'responseCountsVisible'
+    | 'onlyOwnChoicesVisible'
+    | 'whenResultsVisible'
+    | 'responsesVisible'
+    | 'responsesVisibleToNonParticipants'
+    | 'threshold'
+    | 'expirationDate'
+  >
+>
+
 export interface IPollChoice {
   _id?: mongoose.Types.ObjectId
   text: string
