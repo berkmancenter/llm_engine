@@ -5,12 +5,15 @@ import {
   createPublicTopic,
   createUser,
   loadPartTimeWorkTranscript,
+  loadDesignWorkshopTranscript,
   createMessage,
   prepareMessagesForAgent,
   createEngagementAgentConversation
 } from '../../utils/agentTestHelpers.js'
 
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
+import websocketGateway from '../../../src/websockets/websocketGateway.js'
+import schedule from '../../../src/jobs/schedule.js'
 
 jest.setTimeout(180000)
 
@@ -575,6 +578,56 @@ describe(`engagement agent tests`, () => {
       const msgs = await agentType.introduce.call(agent, chatChannel)
       expect(msgs).toEqual([])
     })
+  })
+
+  describe('POLL_REVEAL intervention scenarios', () => {
+    beforeEach(() => {
+      jest.spyOn(websocketGateway, 'broadcastNewPoll').mockResolvedValue(undefined as never)
+      jest.spyOn(schedule, 'pollExpired').mockResolvedValue(undefined as never)
+    })
+
+    afterEach(() => {
+      jest.restoreAllMocks()
+    })
+
+    it(
+      'SHOULD NOT use POLL_REVEAL when the speaker is actively soliciting a structured audience response',
+      async () => {
+        // Design workshop transcript at 00:35: Marcus says "Show of hands" —
+        // an explicit structured audience solicitation. The agent must not compete
+        // with that by posting its own poll; PROVOCATION or NONE is appropriate instead.
+        const workshopConversation = await createEngagementAgentConversation(
+          {
+            name: 'Reimagining the Employee Onboarding Experience',
+            description: 'A design thinking workshop on reimagining employee onboarding.',
+            presenters: [{ name: 'Marcus Chen', bio: 'Design thinking facilitator.' }],
+            moderators: []
+          },
+          user1,
+          topic,
+          startTime,
+          testConfig.llmPlatform,
+          testConfig.llmModel
+        )
+        await loadDesignWorkshopTranscript(workshopConversation)
+        const workshopAgent = workshopConversation.agents.find((a) => a.name === 'Engagement Agent')
+
+        const conversationHistory = getConversationHistory(workshopConversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 45 * 1000) // just after "Show of hands" at 00:35
+        })
+
+        const responses = await defaultAgentTypes.engagementAgent.respond.call(workshopAgent, conversationHistory)
+
+        if (responses.length > 0) {
+          const { interventionType } = responses[0]
+          console.log(`[speaker show of hands] Detected ${interventionType}:`, responses[0].message)
+          expect(interventionType).not.toBe('POLL_REVEAL')
+        }
+      },
+      testTimeout
+    )
   })
 
   describe('edge cases', () => {
