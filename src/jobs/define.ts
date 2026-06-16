@@ -42,7 +42,6 @@ const defineJob = {
     await agenda.start()
     await agenda.define(`conversationEndingSoon - ${conversationId}`, JobHandlers.conversationEndingSoon)
   }
-
 }
 
 export default defineJob
