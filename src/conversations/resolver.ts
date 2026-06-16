@@ -178,7 +178,7 @@ const resolvePropertyDefaults = (
 }
 
 const resolveFeatures = (
-  requestedFeatures: Array<{ name: string; config?: Record<string, unknown> }> | undefined,
+  requestedFeatures: Array<{ name: string; enabled?: boolean; config?: Record<string, unknown> }> | undefined,
   featureDefs: FeatureConfig[] | undefined
 ): Feature[] => {
   /* When no features array is provided, return empty. The guide falls back to
@@ -188,11 +188,12 @@ const resolveFeatures = (
   return (featureDefs ?? []).map((feature) => {
     const requested = requestedFeatures.find((f) => f.name === feature.name)
     if (!requested) return { name: feature.name, enabled: false }
+    const enabled = requested.enabled !== false
     const config: Record<string, unknown> = { ...requested.config }
     for (const prop of feature.properties ?? []) {
       if (!(prop.name in config) && prop.default !== undefined) config[prop.name] = prop.default
     }
-    return { name: feature.name, enabled: true, ...(Object.keys(config).length && { config }) }
+    return { name: feature.name, enabled, ...(enabled && Object.keys(config).length && { config }) }
   })
 }
 
@@ -217,7 +218,7 @@ export default function resolveConversationType(
   params: {
     platforms?: string[]
     properties?: Record<string, unknown>
-    features?: Array<{ name: string; config?: Record<string, unknown> }>
+    features?: Array<{ name: string; enabled?: boolean; config?: Record<string, unknown> }>
   },
   conversationType: ConversationType
 ): ResolvedConversationConfig {
@@ -229,7 +230,7 @@ export default function resolveConversationType(
 
   // Merge feature configs into a working object keyed by feature name for $ref resolution
   const workingProperties = { ...resolvedProperties }
-  for (const { name, config, enabled } of features) if (enabled) workingProperties[name] = config ?? true
+  for (const { name, config, enabled } of features) workingProperties[name] = enabled ? config ?? true : false
 
   const adapterDefs = conversationType.adapters || {}
   const sortedKey = (platforms || []).slice().sort().join(',')
