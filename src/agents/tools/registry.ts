@@ -68,5 +68,5 @@ registerTool('event_history', (context) => {
     logger.warn('Tool registry: event_history requested but no topics provided in context')
     return []
   }
-  return createEventHistoryTools(topics)
+  return createEventHistoryTools(topics, { excludeConversationId: context?.excludeConversationId })
 })

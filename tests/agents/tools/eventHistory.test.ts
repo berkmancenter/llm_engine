@@ -9,6 +9,7 @@ import {
   loadAliensTranscript
 } from '../../utils/agentTestHelpers.js'
 import createEventHistoryTools, { TopicRef } from '../../../src/agents/tools/eventHistory.js'
+import { getTools } from '../../../src/agents/tools/registry.js'
 import { newPublicTopic, insertTopics } from '../../fixtures/topic.fixture.js'
 
 jest.setTimeout(300000)
@@ -189,6 +190,63 @@ describe('eventHistory tools', () => {
       if (result !== 'No relevant content found in that event.') {
         expect(result.toLowerCase()).not.toContain('alien')
       }
+    })
+  })
+
+  describe('excludeConversationId (series history for eventAssistant)', () => {
+    let scopedTools
+    const scopedGetEventList = () => scopedTools.find((t) => t.name === 'get_event_list')
+    const scopedSearchTopic = () => scopedTools.find((t) => t.name === 'search_topic_transcripts')
+    const scopedSearchConv = () => scopedTools.find((t) => t.name === 'search_conversation_transcript')
+
+    beforeEach(() => {
+      // Tools scoped to the series, excluding conv2 (the "current" event)
+      const topicRefs: TopicRef[] = [{ id: topic._id.toString(), name: topic.name }]
+      scopedTools = createEventHistoryTools(topicRefs, { excludeConversationId: conv2._id.toString() })
+    })
+
+    it('get_event_list omits the excluded (current) event', async () => {
+      const result = JSON.parse(await scopedGetEventList().invoke({}))
+      const names = result.map((r) => r.name)
+      expect(names).toContain('Part-Time Work Panel')
+      expect(names).not.toContain('Aliens and Cinema')
+    })
+
+    it('search_topic_transcripts excludes chunks from the current event', async () => {
+      // conv2 (aliens) is excluded, so an aliens query should not surface conv2 content
+      const result = await scopedSearchTopic().invoke({ query: 'aliens film cinema extraterrestrial' })
+      console.log('search_topic_transcripts (excluded current):', result.slice(0, 200))
+      if (result !== 'No relevant content found.') {
+        expect(result).not.toContain('Aliens and Cinema')
+      }
+    })
+
+    it('search_topic_transcripts still finds content from other past events', async () => {
+      const result = await scopedSearchTopic().invoke({ query: 'part-time work flexibility employers' })
+      expect(result).not.toBe('No relevant content found.')
+      expect(result.toLowerCase()).toMatch(/part.time|work|employer|flexib/)
+    })
+
+    it('search_conversation_transcript refuses the excluded (current) event', async () => {
+      const result = await scopedSearchConv().invoke({
+        conversationId: conv2._id.toString(),
+        query: 'anything'
+      })
+      expect(result).toMatch(/current event/i)
+    })
+
+    it('honors excludeConversationId end-to-end when built through the tool registry', async () => {
+      // Verifies the registry forwards excludeConversationId into createEventHistoryTools, not just
+      // that the factory returns tools — exercises the same path the eventAssistant uses at runtime.
+      const registryTools = getTools(['event_history'], {
+        topics: [{ id: topic._id.toString(), name: topic.name }],
+        excludeConversationId: conv2._id.toString()
+      })
+      const getEventList = registryTools.find((t) => t.name === 'get_event_list')
+      const result = JSON.parse(await getEventList!.invoke({}))
+      const names = result.map((r) => r.name)
+      expect(names).toContain('Part-Time Work Panel')
+      expect(names).not.toContain('Aliens and Cinema')
     })
   })
 })

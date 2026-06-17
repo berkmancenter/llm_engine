@@ -267,6 +267,7 @@ export default verify({
     zoomChatIntroMessage:
       "Welcome! I'm {{agentConfig.botName}}, your AI event assistant. You can ask me questions in the chat with an @{{agentConfig.botName}} mention. Or send me a DM if you want to talk privately.",
     tools: getDefaultEventAssistantToolNames(),
+    seriesHistory: false, // when true, gives the assistant access to other past events in the same series
     minInterval: 10, // minimum minutes between check-ins per participant
     checkinScanInterval: DEFAULT_CHECKIN_SCAN_INTERVAL_MINUTES // how often the check-in handler runs (minutes); also controls transcript density window and quiet window
   },

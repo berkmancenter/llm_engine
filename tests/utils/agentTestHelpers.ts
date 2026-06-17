@@ -1246,6 +1246,36 @@ export async function createEventAssistantWithModSupportConversation(
   return conversation
 }
 
+export async function createEventAssistantWithSeriesHistoryConversation(
+  conversationObj,
+  owner,
+  topic,
+  startTime,
+  llmPlatform?,
+  llmModel?
+) {
+  const conversation = await createConversation(conversationObj, owner, topic, startTime)
+  const agent = new Agent({
+    agentType: 'eventAssistant',
+    conversation,
+    llmPlatform,
+    llmModel,
+    agentConfig: { seriesHistory: true }
+  })
+  const channels = await Channel.create([
+    { name: 'transcript' },
+    { name: 'chat' },
+    { name: 'image-gen' },
+    { name: `direct-agents-${owner._id}`, direct: true, participants: [owner, agent] }
+  ])
+  conversation.channels.push(...channels)
+  await agent.save()
+  conversation.agents.push(agent)
+  await conversation.save()
+  await agent.start()
+  return conversation
+}
+
 export async function createJargonFilterConversation(
   conversationObj,
   owner,

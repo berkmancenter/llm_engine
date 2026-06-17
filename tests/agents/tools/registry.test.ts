@@ -71,4 +71,20 @@ describe('Tool Registry', () => {
     const tools = getTools(['event_history'])
     expect(tools).toHaveLength(0)
   })
+
+  test('event_history factory returns the three tools when topics are provided', () => {
+    const tools = getTools(['event_history'], { topics: [{ id: '507f1f77bcf86cd799439011', name: 'My Series' }] })
+    const names = tools.map((t) => t.name)
+    expect(names).toEqual(
+      expect.arrayContaining(['get_event_list', 'search_topic_transcripts', 'search_conversation_transcript'])
+    )
+  })
+
+  test('event_history factory accepts excludeConversationId context without error', () => {
+    const tools = getTools(['event_history'], {
+      topics: [{ id: '507f1f77bcf86cd799439011', name: 'My Series' }],
+      excludeConversationId: '507f1f77bcf86cd799439012'
+    })
+    expect(tools).toHaveLength(3)
+  })
 })

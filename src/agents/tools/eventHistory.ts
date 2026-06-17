@@ -12,14 +12,32 @@ export interface TopicRef {
   description?: string
 }
 
-export default function createEventHistoryTools(topics: TopicRef[]) {
+export interface EventHistoryToolOptions {
+  /**
+   * When set, results exclude this conversation — used by the eventAssistant so its
+   * series-history search returns only *other* past events, not the current live event
+   * (whose transcript is already in the assistant's normal context).
+   */
+  excludeConversationId?: string
+}
+
+export default function createEventHistoryTools(topics: TopicRef[], options: EventHistoryToolOptions = {}) {
   const topicIds = topics.map((t) => t.id)
+  const { excludeConversationId } = options
+
+  // Only honor a caller-supplied topicId if it is one of the configured series — otherwise a
+  // hallucinated/invalid id (e.g. the series name) would point at a non-existent collection.
+  const resolveSearchTopicIds = (topicId?: string) =>
+    topicId && topicIds.includes(topicId) ? [topicId] : topicIds
 
   const getEventListTool = tool(
     async ({ since, until, topicId }) => {
-      const searchTopicIds = topicId ? [topicId] : topicIds
+      const searchTopicIds = resolveSearchTopicIds(topicId)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const query: Record<string, any> = { topic: { $in: searchTopicIds.map((id) => new mongoose.Types.ObjectId(id)) } }
+      if (excludeConversationId) {
+        query._id = { $ne: new mongoose.Types.ObjectId(excludeConversationId) }
+      }
       if (since || until) {
         query.startTime = {}
         if (since) query.startTime.$gte = new Date(since)
@@ -77,7 +95,10 @@ export default function createEventHistoryTools(topics: TopicRef[]) {
 
   const searchTopicTranscriptsTool = tool(
     async ({ query, topicId }) => {
-      const searchTopicIds = topicId ? [topicId] : topicIds
+      const searchTopicIds = resolveSearchTopicIds(topicId)
+
+      // Exclude the current event's own chunks so series history returns only other events.
+      const chunkFilter = excludeConversationId ? { conversationId: { $ne: excludeConversationId } } : undefined
 
       const allChunks: string[] = []
       await Promise.all(
@@ -88,7 +109,7 @@ export default function createEventHistoryTools(topics: TopicRef[]) {
               collectionName,
               query,
               formatChunk,
-              undefined,
+              chunkFilter,
               10,
               undefined,
               undefined,
@@ -127,6 +148,9 @@ export default function createEventHistoryTools(topics: TopicRef[]) {
     async ({ conversationId, query }) => {
       if (!mongoose.Types.ObjectId.isValid(conversationId)) {
         return `Invalid conversationId "${conversationId}". You must pass the "id" field from get_event_list results, not the event name.`
+      }
+      if (excludeConversationId && conversationId === excludeConversationId) {
+        return 'That is the current event — its transcript is already in your context. Use this tool only for other past events in the series.'
       }
       const collectionName = `${TRANSCRIPT_COLLECTION_PREFIX}-${conversationId}`
       try {

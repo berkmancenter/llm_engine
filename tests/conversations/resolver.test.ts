@@ -231,6 +231,37 @@ describe('resolveConversationType', () => {
       expect(agent?.properties).toEqual({ agentConfig: { greeting: 'hello' } })
     })
 
+    test('resolves a feature toggle into agentConfig as a boolean (seriesHistory pattern)', () => {
+      const type: ConversationType = {
+        ...baseType,
+        properties: [],
+        features: [
+          {
+            name: 'seriesHistory',
+            label: 'Series History',
+            default: false,
+            category: 'assistant',
+            userControlled: false,
+            agents: [],
+            properties: []
+          }
+        ],
+        agents: [{ name: 'myAgent', properties: [{ $ref: 'seriesHistory', as: 'agentConfig.seriesHistory' }] }]
+      }
+
+      // Disabled (default OFF) when not requested
+      const offResult = resolveConversationType({ properties: {}, features: [] }, type)
+      expect(offResult.agentTypes.find((a) => a.name === 'myAgent')?.properties).toEqual({
+        agentConfig: { seriesHistory: false }
+      })
+
+      // Enabled when requested
+      const onResult = resolveConversationType({ properties: {}, features: [{ name: 'seriesHistory' }] }, type)
+      expect(onResult.agentTypes.find((a) => a.name === 'myAgent')?.properties).toEqual({
+        agentConfig: { seriesHistory: true }
+      })
+    })
+
     test('resolves agent properties via ConfigProperty name/default', () => {
       const type: ConversationType = {
         ...baseType,

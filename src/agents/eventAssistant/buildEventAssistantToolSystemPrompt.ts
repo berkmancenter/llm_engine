@@ -24,10 +24,53 @@ export const EVENT_ASSISTANT_TOOL_USER_MANDATE = `**Tool policy (mandatory):** U
 
 `
 
-export function buildEventAssistantToolSystemPrompt(systemTemplate: string, topic: string, contextString: string) {
-  return `${systemTemplate}
+/**
+ * System instructions for the event assistant when the series-history (event_history) tools are
+ * enabled. Tells the model it can reach the transcripts of *other past events* in the same series
+ * and which tool does what. Exported as a builder so unit tests can lock the wording without an LLM.
+ */
+export function buildSeriesHistoryRules(seriesName: string): string {
+  return `**Event series history tools:**
+This event is part of the "${seriesName}" series. You can search the transcripts of **other past events in this series** to answer questions that reference earlier sessions, recurring speakers, or topics covered before — use them whenever a question touches on the series' history rather than only the current event.
 
-${EVENT_ASSISTANT_TOOL_USAGE_RULES}
+- \`get_event_list\`: list the other events in this series by name and date
+- \`search_topic_transcripts\`: semantic search across the other events' transcripts; each result is prefixed with the event name it came from
+- \`search_conversation_transcript\`: deep search within a specific past event's transcript after identifying it via the tools above
+
+Prefer \`search_topic_transcripts\` for broad questions; use \`search_conversation_transcript\` for specific quotes once you know which past event to drill into. You do not need to pass a \`topicId\` — these tools are already scoped to this series. These tools cover only *other* events — the current event's own transcript is already in your Context below. For questions answerable from the current event or general knowledge, respond without calling them.
+
+These transcripts are private to this series and are **not** on the public web, so \`web_search\` cannot answer questions about earlier sessions, past speakers, or what was discussed before — use these event-history tools for anything about the series' past, and reserve \`web_search\` for facts about the wider world.`
+}
+
+export interface EventAssistantToolPromptOptions {
+  /** Whether web_search is among the active tools — gates the web-search-specific usage rules. */
+  hasWebSearch?: boolean
+  /** When present, the assistant has series-history tools scoped to this series. */
+  series?: { name: string }
+}
+
+/**
+ * Appended to the web_search user mandate when the series-history tools are ALSO active. The web
+ * mandate is absolute ("you MUST call web_search"); without this carve-out it crowds out the series
+ * tools for prior-event questions, sending the model to the public web for content that lives only in
+ * the private series transcripts. Scoped to the both-tools case so web search is untouched otherwise.
+ */
+export const EVENT_ASSISTANT_SERIES_HISTORY_USER_CARVEOUT = `**Series-history exception:** Questions about prior events in this series — earlier sessions, past speakers, or what was discussed before — are answered from the event-history tools, NOT \`web_search\` (that content is private to this series and not on the public web). Use the event-history tools for those; reserve \`web_search\` for facts about the wider world.
+
+`
+
+export function buildEventAssistantToolSystemPrompt(
+  systemTemplate: string,
+  topic: string,
+  contextString: string,
+  options: EventAssistantToolPromptOptions = {}
+) {
+  const { hasWebSearch = true, series } = options
+  const ruleBlocks = [hasWebSearch ? EVENT_ASSISTANT_TOOL_USAGE_RULES : '', series ? buildSeriesHistoryRules(series.name) : '']
+    .filter(Boolean)
+    .join('\n\n')
+
+  return `${systemTemplate}${ruleBlocks ? `\n\n${ruleBlocks}` : ''}
 
 ## Event topic:
 ${topic}

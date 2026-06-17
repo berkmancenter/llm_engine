@@ -211,6 +211,16 @@ const eventAssistant: ConversationType = {
       default: true,
       agents: [],
       properties: []
+    },
+    {
+      name: 'seriesHistory',
+      label: 'Series History',
+      description: 'Lets the assistant draw on transcripts from past events in the same series when answering questions.',
+      default: false,
+      category: 'assistant',
+      userControlled: false,
+      agents: [],
+      properties: []
     }
   ],
 
@@ -222,7 +232,8 @@ const eventAssistant: ConversationType = {
         { $ref: 'llmModel.llmModel' },
         { $ref: 'llmModel.llmPlatform' },
         { $ref: 'botName', as: 'agentConfig.botName' },
-        { $ref: 'moderatorSupport', as: 'agentConfig.moderatorSupport' }
+        { $ref: 'moderatorSupport', as: 'agentConfig.moderatorSupport' },
+        { $ref: 'seriesHistory', as: 'agentConfig.seriesHistory' }
       ]
     },
     {
