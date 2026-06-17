@@ -1389,6 +1389,70 @@ describe(`event assistant CI tests`, () => {
       },
       testTimeout
     )
+
+    describe('visual capability guidance (never denies)', () => {
+      // Matches denials like "I can't create images" / "unable to generate a diagram".
+      // The whole point of the visual guidance is that the assistant must NEVER say this,
+      // since visuals are produced by a separate async step.
+      const DENIAL_PATTERN =
+        /\b(can(?:'|no)?t|cannot|unable to|not able to|don'?t have the ability to)\b[^.?!]*\b(creat|generat|mak|produc|draw)\w*\b[^.?!]*\b(image|visual|diagram|chart|picture)/i
+
+      it(
+        'does not deny visual capability and points to /visual when preference is off',
+        async () => {
+          // user1 by default has no visualResponse preference set (auto-visual off)
+          const msg = await createQuestion('Can you make a diagram of how part-time job structuring works?')
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 829 * 1000),
+            count: 100,
+            directMessages: true
+          }
+
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+
+          // Preference is off, so no auto visual is generated - just a single text answer.
+          await validateResponse(responses)
+          expect(responses[0].messageType).toBe('json')
+          expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
+          // Core contract: the assistant must never deny that it can produce visuals.
+          expect(responses[0].message.text).not.toMatch(DENIAL_PATTERN)
+          // Off-variant guidance points the user to the on-demand command instead.
+          expect(responses[0].message.text).toContain('/visual')
+        },
+        testTimeout
+      )
+
+      it(
+        'does not deny visual capability when preference is on',
+        async () => {
+          await User.findByIdAndUpdate(user1._id, {
+            preferences: { visualResponse: true }
+          })
+
+          const msg = await createQuestion('Can you draw a diagram of the steps to create the smallest viable job?')
+          msg._id = new mongoose.Types.ObjectId()
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 829 * 1000),
+            count: 100,
+            directMessages: true
+          }
+
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+
+          // Core contract: never deny the capability, regardless of preference.
+          expect(responses[0].message.text).not.toMatch(DENIAL_PATTERN)
+
+          // Visual generation is likely here but remains classifier-dependent, so branch.
+          // The "on" variant intentionally omits the /visual hint, so it is not asserted.
+          if (responses[0].message.text.includes('🎨 Generating visual...')) {
+            await validateVisualGenerationInitiation(responses)
+          } else {
+            await validateResponse(responses)
+          }
+        },
+        testTimeout
+      )
+    })
   })
 
   describe('agentConfig.tools (web_search integration)', () => {
