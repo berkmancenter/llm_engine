@@ -72,18 +72,26 @@ function formatAndFilterMessages(messages, settings: ConversationHistorySettings
   return formatMessages(convHistory.messages)
 }
 
+function extractMessageText(message) {
+  const body = message.body as Record<string, unknown>
+  if (message.bodyType === 'json' || message.bodyType === 'multimodal') {
+    if (body?.type === 'poll') {
+      const choices = (body.choices as string[]) ?? []
+      const choiceList = choices.map((c) => `- ${c}`).join('\n')
+      return `${body.text}\n[Poll: "${body.title}"]\nChoices:\n${choiceList}`
+    }
+    if (!body?.text) {
+      logger.warn(`Message with ID ${message._id} has bodyType '${message.bodyType}' but no 'text' property. Defaulting to empty string.`)
+      return ''
+    }
+    return body.text as string
+  }
+  return message.body
+}
+
 function formatSingleUserConversationHistory(conversationHistory: ConversationHistory) {
   return conversationHistory.messages?.map((message) => {
-    let messageText = message.body
-    // conversation history messsages must be strings. If json or multimodal, assume it has a 'text' property
-    if (message.bodyType === 'json' || message.bodyType === 'multimodal') {
-      if (!(message.body as Record<string, unknown>).text) {
-        logger.warn(`Message with ID ${message._id} has bodyType '${message.bodyType}' but no 'text' property. Defaulting to empty string.`)
-        messageText = ''
-      } else {
-        messageText = (message.body as Record<string, unknown>).text as string
-      }
-    }
+    const messageText = extractMessageText(message)
     if (message.fromAgent) {
       return { role: 'assistant', content: messageText }
     }
@@ -93,16 +101,7 @@ function formatSingleUserConversationHistory(conversationHistory: ConversationHi
 
 function formatMultiUserConversationHistory(conversationHistory: ConversationHistory) {
   return conversationHistory.messages?.flatMap((message) => {
-    let messageText = message.body
-    // conversation history messsages must be strings. If json or multimodal, assume it has a 'text' property
-    if (message.bodyType === 'json' || message.bodyType === 'multimodal') {
-      if (!(message.body as Record<string, unknown>).text) {
-        logger.warn(`Message with ID ${message._id} has bodyType '${message.bodyType}' but no 'text' property. Defaulting to empty string.`)
-        messageText = ''
-      } else {
-        messageText = (message.body as Record<string, unknown>).text as string
-      }
-    }
+    const messageText = extractMessageText(message)
     if (message.fromAgent) {
       // For voice assistant responses, prepend the original question so other agents
       // see the full exchange rather than an unexplained answer

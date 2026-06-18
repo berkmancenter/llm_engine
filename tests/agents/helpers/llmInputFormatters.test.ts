@@ -206,6 +206,40 @@ describe('LLM Input Formatter Tests', () => {
     ])
   })
 
+  it('should render poll choices in multi-user conversation history', async () => {
+    const pollMsg = await createMessage(
+      { type: 'poll', text: 'Let us find out what you think!', title: 'Best programming language?', choices: ['TypeScript', 'Python', 'Rust'], pollId: 'abc123', multiSelect: false, allowNewChoices: false, whenResultsVisible: 'always' },
+      'BOT',
+      undefined,
+      true,
+      'json'
+    )
+    const userMsg = await createMessage('Great poll!', 'Pro AI Urban Woman')
+    const convHistory = getConversationHistory([pollMsg, userMsg], { count: 100 })
+    const formattedMessages = formatMultiUserConversationHistory(convHistory)
+    expect(formattedMessages).toEqual([
+      { role: 'assistant', content: 'Let us find out what you think!\n[Poll: "Best programming language?"]\nChoices:\n- TypeScript\n- Python\n- Rust' },
+      { role: 'user', content: 'Pro AI Urban Woman: Great poll!' }
+    ])
+  })
+
+  it('should render poll choices in single-user conversation history', async () => {
+    const pollMsg = await createMessage(
+      { type: 'poll', text: 'Let us find out what you think!', title: 'Best programming language?', choices: ['TypeScript', 'Python', 'Rust'], pollId: 'abc123', multiSelect: false, allowNewChoices: false, whenResultsVisible: 'always' },
+      'BOT',
+      undefined,
+      true,
+      'json'
+    )
+    const userMsg = await createMessage('Great poll!', 'User')
+    const convHistory = getConversationHistory([pollMsg, userMsg], { count: 100 })
+    const formattedMessages = formatSingleUserConversationHistory(convHistory)
+    expect(formattedMessages).toEqual([
+      { role: 'assistant', content: 'Let us find out what you think!\n[Poll: "Best programming language?"]\nChoices:\n- TypeScript\n- Python\n- Rust' },
+      { role: 'user', content: 'Great poll!' }
+    ])
+  })
+
   it('should format multi-user conversation history with json body type', async () => {
     const msg1 = await createMessage('I think AI should have rights if it demonstrates consciousness.', 'Pro AI Urban Woman')
     const msg2 = await createMessage(

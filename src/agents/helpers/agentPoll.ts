@@ -3,6 +3,7 @@ import { IAgent, PollConfig } from '../../types/index.types.js'
 import { getChatPromptResponse } from './llmChain.js'
 import pollService from '../../services/poll.service/index.js'
 import logger from '../../config/logger.js'
+import WHEN_RESULTS_VISIBLE from '../../models/poll.model/constants.js'
 
 const pollSchema = z.object({
   title: z.string().describe('The poll question posed to participants'),
@@ -10,7 +11,7 @@ const pollSchema = z.object({
     .array(z.string())
     .min(2)
     .max(5)
-    .describe('2–5 distinct options reflecting genuine positions participants might hold'),
+    .describe('2-5 distinct options reflecting genuine positions participants might hold'),
   introMessage: z.string().describe('A brief 1-2 sentence message introducing the poll to the group')
 })
 
@@ -85,7 +86,7 @@ export default async function createAgentPoll(
       choices: result.choices,
       multiSelect: pollConfig.multiSelect ?? false,
       allowNewChoices: pollConfig.allowNewChoices ?? false,
-      whenResultsVisible: pollConfig.whenResultsVisible ?? 'always'
+      whenResultsVisible: pollConfig.whenResultsVisible ?? WHEN_RESULTS_VISIBLE.ALWAYS
     }
   } catch (error) {
     logger.error('createAgentPoll: failed to create poll', error)
