@@ -68,6 +68,20 @@ const pollThreeBody = {
   ]
 }
 
+const pollFourBody = {
+  title: 'Single select always-visible poll with visible choices, counts, and responses',
+  conversationId: conversationOne._id.toString(),
+  multiSelect: false,
+  allowNewChoices: false,
+  choicesVisible: true,
+  responseCountsVisible: true,
+  onlyOwnChoicesVisible: false,
+  whenResultsVisible: WHEN_RESULTS_VISIBLE.ALWAYS,
+  responsesVisibleToNonParticipants: true,
+  responsesVisible: true,
+  choices: [{ text: 'Choice 1' }, { text: 'Choice 2' }, { text: 'Choice 3' }]
+}
+
 const insertPolls = async (polls) => {
   await Poll.insertMany(polls)
 }
@@ -78,4 +92,4 @@ const getPollChoices = async (pollId) => PollChoice.find({ poll: pollId }).sort(
 
 const getPollResponses = async (pollId) => PollResponse.find({ poll: pollId }).sort({ createdAt: 1 })
 
-export { pollOneBody, pollTwoBody, pollThreeBody, insertPolls, getPolls, getPollChoices, getPollResponses }
+export { pollOneBody, pollTwoBody, pollThreeBody, pollFourBody, insertPolls, getPolls, getPollChoices, getPollResponses }

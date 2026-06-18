@@ -153,7 +153,19 @@ const respondPoll = async (pollId, choiceData, user) => {
   if (response.isModified()) await response.save()
   logger.info('Response poll %s %s', pollId, user._id, choice._id)
   const responseWithIds = response.replaceObjectsWithIds()
-  websocketGateway.broadcastNewPollChoice(poll.conversation, responseWithIds)
+
+  // Build aggregate counts to embed in the broadcast so clients don't need to re-fetch.
+  // All choices are included (dense) — unvoted choices appear with count 0.
+  const [allChoices, allResponses] = await Promise.all([
+    PollChoice.find({ poll: poll._id }, { text: 1 }).lean(),
+    PollResponse.find({ poll: poll._id }, { choice: 1 }).lean()
+  ])
+  const countByChoiceId: Record<string, number> = {}
+  for (const r of allResponses) countByChoiceId[r.choice.toString()] = (countByChoiceId[r.choice.toString()] ?? 0) + 1
+  const counts: Record<string, number> = {}
+  for (const c of allChoices) counts[c.text] = countByChoiceId[c._id.toString()] ?? 0
+
+  websocketGateway.broadcastNewPollChoice(poll.conversation, { ...responseWithIds, pollId: poll._id.toString(), counts })
   if (poll.threshold) {
     const choiceCount = await PollResponse.countDocuments({ poll: poll._id, choice: choice._id })
     if (choiceCount === poll.threshold) {
