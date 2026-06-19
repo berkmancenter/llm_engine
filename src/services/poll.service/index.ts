@@ -98,6 +98,8 @@ const respondPoll = async (pollId, choiceData, user) => {
   }
   const poll = await Poll.findById(pollId)
   if (!poll) throw new ApiError(httpStatus.NOT_FOUND, 'No such poll')
+  const conversation = await Conversation.findById(poll.conversation, { active: 1 }).lean()
+  if (!conversation?.active) throw new ApiError(httpStatus.FORBIDDEN, 'This event has ended. Voting is no longer allowed.')
   // cannot respond to an expired poll
   const nowTime = Date.now()
   if (

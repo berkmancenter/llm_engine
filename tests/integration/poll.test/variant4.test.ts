@@ -10,6 +10,7 @@ import { pollFourBody } from '../../fixtures/poll.fixture.js'
 import config from '../../../src/config/config.js'
 import websocketGateway from '../../../src/websockets/websocketGateway.js'
 import schedule from '../../../src/jobs/schedule.js'
+import Conversation from '../../../src/models/conversation.model.js'
 
 jest.setTimeout(10000)
 
@@ -87,5 +88,17 @@ describe(`Poll API - Variant 4: ${pollFourBody.title}`, () => {
 
     expect(resp.body[CHOICE1_TEXT]).toBe(1)
     expect(resp.body[CHOICE2_TEXT]).toBe(1)
+  })
+
+  test('Voting is rejected after conversation is deactivated', async () => {
+    await Conversation.findByIdAndUpdate(conversationOne._id, { active: false })
+
+    const resp = await request(app)
+      .post(`${BASE_API}/${pollId}/respond`)
+      .set('Authorization', `Bearer ${userOneAccessToken}`)
+      .send({ choice: { text: CHOICE2_TEXT } })
+      .expect(httpStatus.FORBIDDEN)
+
+    expect(resp.body.message).toBe('This event has ended. Voting is no longer allowed.')
   })
 })
