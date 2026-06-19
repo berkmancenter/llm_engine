@@ -37,6 +37,9 @@ const envVarsSchema = Joi.object()
     SMTP_PASSWORD: Joi.string().description('password for email server'),
     EMAIL_FROM: Joi.string().description('the from field in the emails sent by the app'),
     APP_HOST: Joi.string().description('the host url for the frontend app'),
+    NEXTSPACE_URL: Joi.string().description(
+      'Base URL of the NextSpace frontend, used to generate links in external adapters'
+    ),
     TRULY_RANDOM_PSEUDONYMS: Joi.string()
       .default('false')
       .description('true/false if pseudonyms are made truly random with UID'),
@@ -236,6 +239,7 @@ const config = {
   },
   transcriptRetentionPeriod: envVars.TRANSCRIPT_RETENTION_PERIOD,
   appHost: envVars.APP_HOST,
+  nextspaceUrl: envVars.NEXTSPACE_URL,
   trulyRandomPseudonyms: envVars.TRULY_RANDOM_PSEUDONYMS,
   DAYS_FOR_GOOD_REPUTATION: envVars.DAYS_FOR_GOOD_REPUTATION,
   conversationBotName: envVars.CONVERSATION_BOT_NAME,

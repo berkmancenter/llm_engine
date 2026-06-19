@@ -2048,6 +2048,71 @@ describe('zoom adapter tests', () => {
       })
     })
 
+    describe('poll messages', () => {
+      const pollMessage = {
+        bodyType: 'json',
+        body: {
+          type: 'poll',
+          pollId: 'poll-abc',
+          title: 'Favorite framework?',
+          text: 'Cast your vote!',
+          choices: ['React', 'Vue'],
+          multiSelect: false,
+          allowNewChoices: false,
+          whenResultsVisible: 'always'
+        },
+        fromAgent: true,
+        channels: ['participant']
+      }
+
+      beforeEach(async () => {
+        await createConversation('Test Meeting with Poll')
+        adapter.chatChannels = [{ name: 'participant', direction: Direction.OUTGOING }]
+      })
+
+      it('sends poll as formatted text with URL when nextspace platform is set and NEXTSPACE_URL is configured', async () => {
+        const chatChannel = await Channel.create({ name: 'chat', passcode: 'chat-pass' })
+        const transcriptChannel = await Channel.create({ name: 'transcript', passcode: 'trans-pass' })
+        conversation.channels.push(chatChannel, transcriptChannel)
+        conversation.platforms = ['nextspace']
+        await conversation.save()
+        ;(fetch as jest.Mock).mockResolvedValue({ status: httpStatus.OK, json: jest.fn() })
+        const restore = jest.replaceProperty(config, 'nextspaceUrl', 'https://nextspace.example.com')
+
+        await adapter.sendMessage(pollMessage)
+
+        restore.restore()
+
+        expect(fetch).toHaveBeenCalledTimes(1)
+        const sentBody = JSON.parse((fetch as jest.Mock).mock.calls[0][1].body)
+        expect(sentBody.message).toEqual(
+          `🗳️ Favorite framework?\nCast your vote!\nhttps://nextspace.example.com/assistant?conversationId=${conversation._id.toString()}&channel=transcript%2Ctrans-pass&channel=chat%2Cchat-pass`
+        )
+      })
+
+      it('does not send poll when conversation does not have nextspace platform', async () => {
+        conversation.platforms = []
+        await conversation.save()
+        const restore = jest.replaceProperty(config, 'nextspaceUrl', 'https://nextspace.example.com')
+        await adapter.sendMessage(pollMessage)
+        restore.restore()
+
+        expect(fetch).not.toHaveBeenCalled()
+      })
+
+      it('does not send poll when NEXTSPACE_URL is not configured', async () => {
+        conversation.platforms = ['nextspace']
+        await conversation.save()
+
+        const restore = jest.replaceProperty(config, 'nextspaceUrl', undefined)
+
+        await adapter.sendMessage(pollMessage)
+        restore.restore()
+
+        expect(fetch).not.toHaveBeenCalled()
+      })
+    })
+
     it('does not prepend pseudonym to messages from agents in direct messages', async () => {
       await createConversation('Test Meeting with Agent DMs')
       const mockResponse = {
