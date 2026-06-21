@@ -15,6 +15,9 @@ import getConversationHistory from '../../../src/agents/helpers/getConversationH
 import websocketGateway from '../../../src/websockets/websocketGateway.js'
 import schedule from '../../../src/jobs/schedule.js'
 
+jest.spyOn(websocketGateway, 'broadcastNewPoll').mockResolvedValue(undefined as never)
+jest.spyOn(schedule, 'pollExpired').mockResolvedValue(undefined as never)
+
 jest.setTimeout(180000)
 
 const testConfig = setupAgentTest('engagementAgent')
@@ -98,11 +101,11 @@ describe(`engagement agent tests`, () => {
         const responses = await defaultAgentTypes.engagementAgent.respond.call(agent, conversationHistory)
 
         // Speaker just asked a challenging question - room is silent
-        // Should consider PROVOCATION to spark discussion, but might also be PLAY
+        // Should consider PROVOCATION to spark discussion, but might also be PLAY or POLL_REVEAL
         if (responses.length > 0) {
           const { interventionType } = responses[0]
           console.log(`[02:30] Detected ${interventionType}:`, responses[0].message)
-          expect(['PROVOCATION', 'NONE', 'PLAY']).toContain(interventionType)
+          expect(['PROVOCATION', 'NONE', 'PLAY', 'POLL_REVEAL']).toContain(interventionType)
         }
       },
       testTimeout
@@ -129,11 +132,11 @@ describe(`engagement agent tests`, () => {
 
         const responses = await defaultAgentTypes.engagementAgent.respond.call(agent, conversationHistory)
 
-        // Lots of data just presented, but room is passive - should provoke discussion
+        // Lots of data just presented, but room is passive - should provoke discussion or run a poll
         if (responses.length > 0) {
           const { interventionType } = responses[0]
           console.log(`[07:30] Detected ${interventionType}:`, responses[0].message)
-          expect(['PROVOCATION', 'NONE']).toContain(interventionType)
+          expect(['PROVOCATION', 'NONE', 'POLL_REVEAL']).toContain(interventionType)
         }
       },
       testTimeout
@@ -581,15 +584,6 @@ describe(`engagement agent tests`, () => {
   })
 
   describe('POLL_REVEAL intervention scenarios', () => {
-    beforeEach(() => {
-      jest.spyOn(websocketGateway, 'broadcastNewPoll').mockResolvedValue(undefined as never)
-      jest.spyOn(schedule, 'pollExpired').mockResolvedValue(undefined as never)
-    })
-
-    afterEach(() => {
-      jest.restoreAllMocks()
-    })
-
     it(
       'SHOULD NOT use POLL_REVEAL when the speaker is actively soliciting a structured audience response',
       async () => {

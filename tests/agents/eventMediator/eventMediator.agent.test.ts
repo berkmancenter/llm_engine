@@ -14,6 +14,11 @@ import {
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
 import { InterventionType } from '../../../src/agents/helpers/interventionTypes.js'
 import Agent from '../../../src/models/user.model/agent.model/index.js'
+import websocketGateway from '../../../src/websockets/websocketGateway.js'
+import schedule from '../../../src/jobs/schedule.js'
+
+jest.spyOn(websocketGateway, 'broadcastNewPoll').mockResolvedValue(undefined)
+jest.spyOn(schedule, 'pollExpired').mockResolvedValue(undefined)
 
 jest.setTimeout(180000)
 
