@@ -347,17 +347,21 @@ export function compileSpeakerNames(conversation): string {
 }
 
 /**
- * Visual-awareness guidance appended to the semantic answer prompt so the text model
- * (Opus) never falsely claims it cannot produce images/diagrams. Visuals are rendered by a
- * separate async step, so the wording depends on whether that step will fire for this turn:
+ * Visual-awareness guidance appended to the answer prompt (both the semantic and the
+ * time-window/catchup paths) so the text model (Opus) never falsely claims it cannot
+ * produce images/diagrams. Visuals are rendered by a separate async step, but the guidance
+ * frames that as the assistant's *own* first-person capability: if the wording attributes
+ * visuals to "the platform" / "a separate step", the model disowns the capability and starts
+ * referring to itself in the third person ("Berkie can generate that") instead of "I can".
+ * Wording depends on whether that step will fire for this turn:
  * - autoVisualActive: a visual is already coming (via /visual or the user's visualResponse
  *   preference), so just don't deny the capability.
  * - otherwise: no visual is queued, so additionally point the user to the /visual command.
  */
 export function buildVisualGuidance(autoVisualActive: boolean): string {
   return autoVisualActive
-    ? `\n- **Visuals & images:** Never tell the user you are unable to create images, diagrams, charts, or other visuals — this platform generates them automatically through a separate step. Treat any request for a picture/diagram/visual as possible; just answer the underlying concept helpfully and do not deny the capability.`
-    : `\n- **Visuals & images:** Never tell the user you are unable to create images, diagrams, charts, or other visuals — this platform can generate them. If the user asks for a picture/diagram/visual, answer the underlying concept helpfully and tell them they can use the /visual command to have one generated. Do not deny the capability.`
+    ? `\n- **Visuals & images:** You can create images, diagrams, charts, and other visuals. Another part of the system renders them for you automatically, so never tell the user you are unable to make one. Always speak about this in the first person (e.g. "I'll put together a diagram for you") — never refer to yourself in the third person, and never describe the visual as something a separate "platform" or "system" produces. Answer the underlying concept helpfully and do not deny the capability.`
+    : `\n- **Visuals & images:** You can create images, diagrams, charts, and other visuals, so never tell the user you are unable to make one. When the user asks for a picture/diagram/visual, answer the underlying concept helpfully and invite them to use the /visual command so you can generate one for them. Always speak about this in the first person (e.g. "I can create that for you") — never refer to yourself in the third person. Do not deny the capability.`
 }
 
 export async function answerQuestion(userMessage, conversationHistory, options?) {
@@ -475,7 +479,9 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
   let classification: QuestionClassification
 
   if (isTimeWindow) {
-    systemTemplate = templates.timeWindowSystem
+    // Catchup answers can also trigger visual generation (allowGenerateVisual stays true here),
+    // so they need the same visual awareness as the semantic path.
+    systemTemplate = templates.timeWindowSystem + buildVisualGuidance(autoVisualActive)
     templateType = 'timeWindow'
     classification = QuestionClassification.CATCHUP
   } else {
