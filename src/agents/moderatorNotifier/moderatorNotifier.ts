@@ -44,7 +44,8 @@ Return a JSON object:
   "shouldEscalate": boolean,
   "isNewPattern": boolean,
   "reasoning": "Internal analysis of what you see and why you are or are not escalating",
-  "moderatorMessage": "Concise briefing for the moderator (null if not escalating). Include: what is happening, how many signals, and a suggested question or action.",
+  "observation": "1–2 sentence factual summary of what is happening and how many participants are involved. No action items. Null if not escalating.",
+  "recommendations": ["Short, specific suggested action for the moderator (maximum 2 items)"],
   "detectedPattern": "Brief description of the pattern (null if none)",
   "affectedUsers": number,
   "confidenceScore": 0-100
@@ -78,7 +79,8 @@ const MODERATOR_SCHEMA = z.object({
   shouldEscalate: z.boolean(),
   isNewPattern: z.boolean(),
   reasoning: z.string(),
-  moderatorMessage: z.string().nullable().optional(),
+  observation: z.string().nullable().optional(),
+  recommendations: z.array(z.string()).max(2).nullable().optional(),
   detectedPattern: z.string().nullable().optional(),
   affectedUsers: z.number().nullable().optional(),
   confidenceScore: z.number().min(0).max(100)
@@ -214,7 +216,7 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
       MODERATOR_SCHEMA
     )) as z.infer<typeof MODERATOR_SCHEMA>
 
-    if (!analysis.shouldEscalate || analysis.confidenceScore < 60 || !analysis.moderatorMessage) {
+    if (!analysis.shouldEscalate || analysis.confidenceScore < 60 || !analysis.observation) {
       logger.debug(`${this.name}: No escalation needed. Reasoning: ${analysis.reasoning}`)
       return []
     }
@@ -228,7 +230,9 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
       },
       insights: [
         {
-          value: analysis.moderatorMessage,
+          value: analysis.observation,
+          source: 'ai',
+          recommendations: analysis.recommendations ?? [],
           type: 'insight'
         }
       ]
