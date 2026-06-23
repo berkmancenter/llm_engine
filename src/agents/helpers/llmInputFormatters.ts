@@ -2,6 +2,17 @@ import logger from '../../config/logger.js'
 import { IMessage, ConversationHistory, ConversationHistorySettings } from '../../types/index.types'
 import getConversationHistory from './getConversationHistory.js'
 
+function extractMessageText(message: IMessage): string {
+  if (message.bodyType === 'json' || message.bodyType === 'multimodal') {
+    if (!(message.body as Record<string, unknown>).text) {
+      logger.warn(`Message with ID ${message._id} has bodyType '${message.bodyType}' but no 'text' property. Defaulting to empty string.`)
+      return ''
+    }
+    return (message.body as Record<string, unknown>).text as string
+  }
+  return message.body as string
+}
+
 function formatTime(date, timezone = 'UTC') {
   return date.toLocaleTimeString('en-US', {
     hour: 'numeric',
@@ -74,16 +85,7 @@ function formatAndFilterMessages(messages, settings: ConversationHistorySettings
 
 function formatSingleUserConversationHistory(conversationHistory: ConversationHistory) {
   return conversationHistory.messages?.map((message) => {
-    let messageText = message.body
-    // conversation history messsages must be strings. If json or multimodal, assume it has a 'text' property
-    if (message.bodyType === 'json' || message.bodyType === 'multimodal') {
-      if (!(message.body as Record<string, unknown>).text) {
-        logger.warn(`Message with ID ${message._id} has bodyType '${message.bodyType}' but no 'text' property. Defaulting to empty string.`)
-        messageText = ''
-      } else {
-        messageText = (message.body as Record<string, unknown>).text as string
-      }
-    }
+    const messageText = extractMessageText(message)
     if (message.fromAgent) {
       return { role: 'assistant', content: messageText }
     }
@@ -93,16 +95,7 @@ function formatSingleUserConversationHistory(conversationHistory: ConversationHi
 
 function formatMultiUserConversationHistory(conversationHistory: ConversationHistory) {
   return conversationHistory.messages?.flatMap((message) => {
-    let messageText = message.body
-    // conversation history messsages must be strings. If json or multimodal, assume it has a 'text' property
-    if (message.bodyType === 'json' || message.bodyType === 'multimodal') {
-      if (!(message.body as Record<string, unknown>).text) {
-        logger.warn(`Message with ID ${message._id} has bodyType '${message.bodyType}' but no 'text' property. Defaulting to empty string.`)
-        messageText = ''
-      } else {
-        messageText = (message.body as Record<string, unknown>).text as string
-      }
-    }
+    const messageText = extractMessageText(message)
     if (message.fromAgent) {
       // For voice assistant responses, prepend the original question so other agents
       // see the full exchange rather than an unexplained answer
@@ -119,6 +112,46 @@ function formatMultiUserConversationHistory(conversationHistory: ConversationHis
     // For multi-user environments, include the pseudonym in the content
     return { role: 'user', content: `${message.pseudonym}: ${messageText}` }
   })
+}
+
+/**
+ * Formats DM history grouped by channel, clearly labelling which participant each
+ * agent message was sent to. This prevents LLMs from mistaking 50 separately-addressed
+ * checkin messages as duplicates, and from attributing another participant's conversation
+ * history to the participant currently being evaluated.
+ *
+ * Returns a plain string (not a role array) suitable for use as an LLM template variable.
+ */
+function formatDmHistoryByChannel(messages: IMessage[], dmChannelNames: string[]): string {
+  // Group messages by DM channel, preserving insertion order
+  const channelBuckets = new Map<string, IMessage[]>()
+  for (const name of dmChannelNames) {
+    channelBuckets.set(name, [])
+  }
+  for (const msg of messages) {
+    for (const ch of msg.channels ?? []) {
+      channelBuckets.get(ch)?.push(msg)
+    }
+  }
+
+  const sections: string[] = []
+  for (const [, msgs] of channelBuckets) {
+    if (msgs.length === 0) continue
+
+    // Derive the participant's pseudonym from their messages in this channel
+    const participantPseudonym = msgs.find((m) => !m.fromAgent)?.pseudonym ?? 'Participant'
+
+    const lines = msgs.map((msg) => {
+      const text = extractMessageText(msg)
+      return msg.fromAgent
+        ? `Assistant (to ${participantPseudonym}): "${text}"`
+        : `${participantPseudonym}: "${text}"`
+    })
+
+    sections.push(`[DM — ${participantPseudonym}]\n${lines.join('\n')}`)
+  }
+
+  return sections.join('\n\n')
 }
 
 /**
@@ -151,6 +184,7 @@ export {
   formatMessages,
   formatSingleUserConversationHistory,
   formatMultiUserConversationHistory,
+  formatDmHistoryByChannel,
   formatTranscript,
   formatTime
 }
