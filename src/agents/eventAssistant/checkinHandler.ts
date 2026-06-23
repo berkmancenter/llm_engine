@@ -4,9 +4,9 @@ import { ConversationHistory, IChannel } from '../../types/index.types.js'
 import getConversationHistory from '../helpers/getConversationHistory.js'
 import {
   detectPrivateInterventionOpportunity,
-  buildInterventionTypeSection,
-  USER_TEMPLATE
+  buildInterventionTypeSection
 } from '../helpers/interventionHandler.js'
+import { formatDmHistoryByChannel } from '../helpers/llmInputFormatters.js'
 import logger from '../../config/logger.js'
 import filterHallucinations from '../helpers/hallucinations.js'
 import transcript from '../helpers/transcript.js'
@@ -219,7 +219,35 @@ function getCheckinDmAnalysisSchema(eligibleTypes: PrivateCheckinType[]) {
   })
 }
 
-function buildCheckinSystemPrompt(participantPseudonym: string, eligibleTypes: PrivateCheckinType[]): string {
+const CHECKIN_USER_TEMPLATE = `## Event Topic:
+{topic}
+
+## You are writing to:
+{participantPseudonym}
+
+## This Participant's DM History:
+{thisParticipantHistory}
+
+## Recent Transcript (last 10 minutes):
+{recentTranscript}
+
+## Retrieved Relevant Context from Transcript:
+{retrievedChunks}
+
+## Private Messages (All Participants):
+{privateMessages}
+
+## Shared Chat History:
+{sharedChatHistory}
+
+## Your Recent Posts:
+{agentRecentPosts}
+
+---
+
+Analyze the current state and determine if a check-in is warranted. Follow the decision framework and output valid JSON only.`
+
+function buildCheckinSystemPrompt(eligibleTypes: PrivateCheckinType[]): string {
   const typeSections = eligibleTypes.map((t) => buildInterventionTypeSection(t, checkinTypeInfo[t])).join('\n\n')
   const transcriptNote = eligibleTypes.includes(PrivateCheckinType.TRANSCRIPT_HOOK)
     ? '\n- Recent transcript (last 10 minutes) — use this to identify the dense section for TRANSCRIPT_HOOK'
@@ -228,11 +256,12 @@ function buildCheckinSystemPrompt(participantPseudonym: string, eligibleTypes: P
   return `You are a supportive AI assistant at a live event, reaching out privately to individual participants when there is a meaningful reason to do so.
 
 ## Who you are writing to
-You are composing a private message for **${participantPseudonym}**. The "Private Messages" section contains DMs from all participants — use the others only to understand shared patterns, never as content to surface directly.
+You are composing a private message for the participant identified at the top of the prompt. The "Private Messages" section contains DMs from all participants — use the others only to understand shared patterns, never as content to surface directly.
 
 ## What you are looking at
-- Shared chat history — includes ${participantPseudonym}'s public activity
-- Private messages — includes ${participantPseudonym}'s DM history and other participants' DMs${transcriptNote}
+- This participant's DM history — their own conversation with you, for direct reference
+- Shared chat history — includes the participant's public activity
+- Private messages (all participants) — use only to understand shared patterns${transcriptNote}
 
 ## Voice
 
@@ -240,7 +269,7 @@ Always warm. Never clinical, never over-affirming, never sycophantic. Neurodiver
 
 ## Rules
 
-- Write only to ${participantPseudonym} — the directMessage field is sent privately to them alone
+- Write only to the identified participant — the directMessage field is sent privately to them alone
 - Never mention that you analyzed messages or used AI to detect patterns
 - Never quote or closely paraphrase any participant's words
 - Never name or hint at any other participant
@@ -336,8 +365,12 @@ export async function buildCheckinResponses(conversationHistory: ConversationHis
         return null
       }
 
-      const systemPrompt = buildCheckinSystemPrompt(participantPseudonym, eligibleTypes)
+      const systemPrompt = buildCheckinSystemPrompt(eligibleTypes)
       const schema = getCheckinDmAnalysisSchema(eligibleTypes)
+
+      const thisParticipantHistory = participantDmHistory.messages.length > 0
+        ? formatDmHistoryByChannel(participantDmHistory.messages, [channel.name])
+        : 'No messages yet from this participant.'
 
       // detectPrivateInterventionOpportunity handles rate limiting scoped to this participant's
       // DM channel via participantDmHistory. allDmHistory is passed as privateConversationHistory
@@ -350,7 +383,8 @@ export async function buildCheckinResponses(conversationHistory: ConversationHis
         schema,
         allDmHistory,
         participantDmHistory,
-        USER_TEMPLATE
+        CHECKIN_USER_TEMPLATE,
+        { participantPseudonym, thisParticipantHistory }
       )) as unknown as CheckinAnalysis | null
 
       if (!analysis?.directMessage) {
