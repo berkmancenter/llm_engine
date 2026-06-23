@@ -2,13 +2,14 @@ import mongoose from 'mongoose'
 import { Message } from '../../../src/models/index.js'
 import {
   formatConversationPhases,
+  formatDmHistoryByChannel,
   formatMessage,
   formatSingleUserConversationHistory,
   formatMultiUserConversationHistory,
   formatTime,
   formatTranscript
 } from '../../../src/agents/helpers/llmInputFormatters.js'
-import { IMessage } from '../../../src/types/index.types.js'
+import { IChannel, IMessage } from '../../../src/types/index.types.js'
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
 
 const owner = new mongoose.Types.ObjectId()
@@ -16,7 +17,14 @@ const conversation = new mongoose.Types.ObjectId()
 const ownerPseudo = new mongoose.Types.ObjectId()
 
 describe('LLM Input Formatter Tests', () => {
-  async function createMessage(body, pseudonym, createdAt: Date = new Date(), fromAgent?, bodyType = 'text') {
+  async function createMessage(
+    body,
+    pseudonym,
+    createdAt: Date = new Date(),
+    fromAgent?,
+    bodyType = 'text',
+    channels?: string[]
+  ) {
     const msg = new Message({
       _id: new mongoose.Types.ObjectId(),
       body,
@@ -27,7 +35,8 @@ describe('LLM Input Formatter Tests', () => {
       pseudonym,
       createdAt,
       updatedAt: createdAt,
-      fromAgent
+      fromAgent,
+      channels
     })
     return msg
   }
@@ -158,7 +167,12 @@ describe('LLM Input Formatter Tests', () => {
   it('should expand a voice assistant response into a question/answer pair in multi-user history', async () => {
     const msg1 = await createMessage('I think AI should have rights.', 'Pro AI Urban Woman')
     const msg2 = await createMessage(
-      { text: 'Part-time work is working fewer hours than a full-time schedule.', source: 'voice', sourceMessage: 'What is part-time work?', sourcePseudonym: 'Curious Corgi' },
+      {
+        text: 'Part-time work is working fewer hours than a full-time schedule.',
+        source: 'voice',
+        sourceMessage: 'What is part-time work?',
+        sourcePseudonym: 'Curious Corgi'
+      },
       'Voice Assistant',
       undefined,
       true,
@@ -177,7 +191,11 @@ describe('LLM Input Formatter Tests', () => {
 
   it('should fall back to "User" as asking pseudonym when sourcePseudonym is absent from voice response', async () => {
     const msg1 = await createMessage(
-      { text: 'Part-time work is working fewer hours than a full-time schedule.', source: 'voice', sourceMessage: 'What is part-time work?' },
+      {
+        text: 'Part-time work is working fewer hours than a full-time schedule.',
+        source: 'voice',
+        sourceMessage: 'What is part-time work?'
+      },
       'Voice Assistant',
       undefined,
       true,
@@ -201,9 +219,7 @@ describe('LLM Input Formatter Tests', () => {
     )
     const convHistory = getConversationHistory([msg1], { count: 100 })
     const formattedMessages = formatMultiUserConversationHistory(convHistory)
-    expect(formattedMessages).toEqual([
-      { role: 'assistant', content: 'Some agent response' }
-    ])
+    expect(formattedMessages).toEqual([{ role: 'assistant', content: 'Some agent response' }])
   })
 
   it('should render poll choices in multi-user conversation history', async () => {
@@ -428,6 +444,120 @@ describe('LLM Input Formatter Tests', () => {
 
       // UTC 20:00 = GMT 20:00 (8:00 PM)
       expect(formatted).toBe('[8:00:00 PM] Single message')
+    })
+  })
+
+  describe('formatDmHistoryByChannel', () => {
+    function dmChannel(name: string, participantPseudonym?: string) {
+      return {
+        name,
+        passcode: null,
+        direct: true,
+        participants: participantPseudonym
+          ? [
+              { __t: 'Agent', activePseudonym: 'Agent' },
+              { __t: 'User', activePseudonym: { pseudonym: participantPseudonym } }
+            ]
+          : []
+      } as IChannel
+    }
+
+    it('returns empty string when there are no messages', async () => {
+      const result = formatDmHistoryByChannel([], [dmChannel('dm-alice'), dmChannel('dm-bob')])
+      expect(result).toBe('')
+    })
+
+    it('formats a single participant channel with participant and agent messages', async () => {
+      const msg1 = await createMessage('Hello, I have a question.', 'Curious Corgi', new Date(), false, 'text', ['dm-alice'])
+      const msg2 = await createMessage('Happy to help — what is it?', 'Assistant', new Date(), true, 'text', ['dm-alice'])
+
+      const result = formatDmHistoryByChannel([msg1, msg2], [dmChannel('dm-alice')])
+
+      expect(result).toBe(
+        '[DM — Curious Corgi]\n' +
+          'Curious Corgi: "Hello, I have a question."\n' +
+          'Assistant (to Curious Corgi): "Happy to help — what is it?"'
+      )
+    })
+
+    it('labels agent messages with the recipient pseudonym, not sender', async () => {
+      const msg1 = await createMessage('I feel a bit lost.', 'Wandering Wolf', new Date(), false, 'text', ['dm-wolf'])
+      const msg2 = await createMessage('That is completely normal here.', 'Event Assistant', new Date(), true, 'text', [
+        'dm-wolf'
+      ])
+
+      const result = formatDmHistoryByChannel([msg1, msg2], [dmChannel('dm-wolf')])
+
+      expect(result).toContain('Assistant (to Wandering Wolf):')
+      expect(result).not.toContain('Event Assistant:')
+    })
+
+    it('groups messages from multiple participants into separate sections', async () => {
+      const aliceMsg = await createMessage('Is this on topic?', 'Curious Alice', new Date(), false, 'text', ['dm-alice'])
+      const aliceReply = await createMessage('Yes, great question!', 'Assistant', new Date(), true, 'text', ['dm-alice'])
+      const bobMsg1 = await createMessage('Can you explain that again?', 'Skeptical Bob', new Date(), false, 'text', [
+        'dm-bob'
+      ])
+      const bobReply1 = await createMessage('Of course — here is a simpler take.', 'Assistant', new Date(), true, 'text', [
+        'dm-bob'
+      ])
+      const bobMsg2 = await createMessage('Still not sure I follow.', 'Skeptical Bob', new Date(), false, 'text', ['dm-bob'])
+      const bobReply2 = await createMessage('Let me try a different angle.', 'Assistant', new Date(), true, 'text', [
+        'dm-bob'
+      ])
+
+      const result = formatDmHistoryByChannel(
+        [aliceMsg, aliceReply, bobMsg1, bobReply1, bobMsg2, bobReply2],
+        [dmChannel('dm-alice'), dmChannel('dm-bob')]
+      )
+
+      expect(result).toContain('[DM — Curious Alice]')
+      expect(result).toContain('Curious Alice: "Is this on topic?"')
+      expect(result).toContain('Assistant (to Curious Alice): "Yes, great question!"')
+      expect(result).toContain('[DM — Skeptical Bob]')
+      expect(result).toContain('Skeptical Bob: "Can you explain that again?"')
+      expect(result).toContain('Assistant (to Skeptical Bob): "Of course — here is a simpler take."')
+      expect(result).toContain('Skeptical Bob: "Still not sure I follow."')
+      expect(result).toContain('Assistant (to Skeptical Bob): "Let me try a different angle."')
+      expect(result).toContain('\n\n')
+    })
+
+    it('skips channels with no messages', async () => {
+      const msg = await createMessage('Just me here.', 'Solo Sam', new Date(), false, 'text', ['dm-sam'])
+
+      const result = formatDmHistoryByChannel([msg], [dmChannel('dm-sam'), dmChannel('dm-empty')])
+
+      expect(result).toContain('[DM — Solo Sam]')
+      expect(result.match(/\[DM —/g)?.length).toBe(1)
+      expect(result.split('\n\n')).toHaveLength(1)
+    })
+
+    it('formats json body type messages correctly', async () => {
+      const msg = await createMessage({ text: 'What does that mean?' }, 'Confused Cat', new Date(), false, 'json', [
+        'dm-cat'
+      ])
+      const reply = await createMessage({ text: 'Let me clarify.' }, 'Assistant', new Date(), true, 'json', ['dm-cat'])
+
+      const result = formatDmHistoryByChannel([msg, reply], [dmChannel('dm-cat')])
+
+      expect(result).toContain('Confused Cat: "What does that mean?"')
+      expect(result).toContain('Assistant (to Confused Cat): "Let me clarify."')
+    })
+
+    it('uses activePseudonym from channel.participants when channel has only agent messages', async () => {
+      const agentOnly = await createMessage('Just checking in.', 'Event Assistant', new Date(), true, 'text', ['dm-ghost'])
+
+      const result = formatDmHistoryByChannel([agentOnly], [dmChannel('dm-ghost', 'Silent Fox')])
+
+      expect(result).toContain('Assistant (to Silent Fox):')
+    })
+
+    it('falls back to "Participant" when channel has only agent messages and no participants metadata', async () => {
+      const agentOnly = await createMessage('Just checking in.', 'Event Assistant', new Date(), true, 'text', ['dm-ghost'])
+
+      const result = formatDmHistoryByChannel([agentOnly], [dmChannel('dm-ghost')])
+
+      expect(result).toContain('Assistant (to Participant):')
     })
   })
 })

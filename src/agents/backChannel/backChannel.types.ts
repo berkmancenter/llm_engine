@@ -18,6 +18,8 @@ export type Insight = {
   value: string
   comments: Comment[]
   type: 'insight' | 'question'
+  source?: 'ai' | 'participant'
+  recommendations?: string[]
 }
 
 export type BackChannelAgentResponse = {

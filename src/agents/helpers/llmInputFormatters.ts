@@ -1,6 +1,19 @@
 import logger from '../../config/logger.js'
-import { IMessage, ConversationHistory, ConversationHistorySettings } from '../../types/index.types'
+import { IMessage, IChannel, ConversationHistory, ConversationHistorySettings } from '../../types/index.types'
 import getConversationHistory from './getConversationHistory.js'
+
+function extractMessageText(message: IMessage): string {
+  if (message.bodyType === 'json' || message.bodyType === 'multimodal') {
+    if (!(message.body as Record<string, unknown>).text) {
+      logger.warn(
+        `Message with ID ${message._id} has bodyType '${message.bodyType}' but no 'text' property. Defaulting to empty string.`
+      )
+      return ''
+    }
+    return (message.body as Record<string, unknown>).text as string
+  }
+  return message.body as string
+}
 
 function formatTime(date, timezone = 'UTC') {
   return date.toLocaleTimeString('en-US', {
@@ -121,6 +134,57 @@ function formatMultiUserConversationHistory(conversationHistory: ConversationHis
 }
 
 /**
+ * Formats DM history grouped by channel, clearly labelling which participant each
+ * agent message was sent to. This prevents LLMs from mistaking 50 separately-addressed
+ * checkin messages as duplicates, and from attributing another participant's conversation
+ * history to the participant currently being evaluated.
+ *
+ * Accepts full IChannel objects so it can derive the participant pseudonym from
+ * channel.participants as a fallback — needed when a channel contains only agent-sent
+ * messages (e.g. a jargon filter DM before the user has replied).
+ *
+ * Returns a plain string suitable for use as an LLM template variable.
+ */
+function formatDmHistoryByChannel(messages: IMessage[], dmChannels: IChannel[]): string {
+  const channelBuckets = new Map<string, IMessage[]>()
+  for (const ch of dmChannels) {
+    channelBuckets.set(ch.name, [])
+  }
+  for (const msg of messages) {
+    for (const ch of msg.channels ?? []) {
+      channelBuckets.get(ch)?.push(msg)
+    }
+  }
+
+  // Build a fallback pseudonym map from channel.participants for channels where the user
+  // has not yet sent any messages (e.g. proactive agent outreach).
+  // Use the discriminator key __t to identify the non-agent participant.
+  const participantFallback: Record<string, string> = {}
+  for (const ch of dmChannels) {
+    const participant = ch.participants?.find((p) => p.__t !== 'Agent')
+    const pseudonym = participant?.activePseudonym?.pseudonym
+    if (pseudonym) participantFallback[ch.name] = pseudonym
+  }
+
+  const sections: string[] = []
+  for (const [channelName, msgs] of channelBuckets) {
+    if (msgs.length === 0) continue
+
+    const participantPseudonym =
+      msgs.find((m) => !m.fromAgent)?.pseudonym ?? participantFallback[channelName] ?? 'Participant'
+
+    const lines = msgs.map((msg) => {
+      const text = extractMessageText(msg)
+      return msg.fromAgent ? `Assistant (to ${participantPseudonym}): "${text}"` : `${participantPseudonym}: "${text}"`
+    })
+
+    sections.push(`[DM — ${participantPseudonym}]\n${lines.join('\n')}`)
+  }
+
+  return sections.join('\n\n')
+}
+
+/**
  *
  * @param {*} phases An array of ConversationPhases
  * @returns A string formatting the conversation into "chunks" to use for LLM prompting
@@ -150,6 +214,7 @@ export {
   formatMessages,
   formatSingleUserConversationHistory,
   formatMultiUserConversationHistory,
+  formatDmHistoryByChannel,
   formatTranscript,
   formatTime
 }

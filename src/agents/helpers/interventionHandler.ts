@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import { ConversationHistory } from '../../types/index.types.js'
-import { formatMultiUserConversationHistory } from './llmInputFormatters.js'
+import { ConversationHistory, IChannel } from '../../types/index.types.js'
+import { formatMultiUserConversationHistory, formatDmHistoryByChannel } from './llmInputFormatters.js'
 import transcript from './transcript.js'
 import { getChatPromptResponse } from './llmChain.js'
 
@@ -126,17 +126,28 @@ async function runInterventionAnalysis(
   baseSystemPrompt: string,
   schema: z.ZodSchema,
   privateConversationHistory: ConversationHistory | null,
-  userTemplate: string | undefined
+  userTemplate: string | undefined,
+  extraTemplateVars?: Record<string, string>
 ): Promise<InterventionAnalysis | null> {
   // Format conversation histories
   const sharedChatMessages = formatMultiUserConversationHistory(sharedChatHistory)
-  const privateMessages = privateConversationHistory ? formatMultiUserConversationHistory(privateConversationHistory) : []
+
+  // Format DM history grouped by channel so agent messages show their recipient.
+  // This prevents the LLM from seeing 50 separately-addressed checkins as duplicates,
+  // and from attributing another participant's conversation to the current participant.
+  const dmChannels = this.conversation.channels.filter((c: IChannel) => c.direct)
+  await Promise.all(
+    dmChannels.map((c) => (c as unknown as { populate(path: string): Promise<void> }).populate('participants'))
+  )
+  const privateMessagesText = privateConversationHistory
+    ? formatDmHistoryByChannel(privateConversationHistory.messages, dmChannels)
+    : ''
 
   // Get recent transcript (last 10 minutes)
   const recentTranscript = transcript.getTranscript(this.conversation, 600, sharedChatHistory.end)
 
   // Get relevant context via RAG - use both private and public messages to find relevant transcript chunks
-  const allMessages = [...sharedChatMessages, ...privateMessages].map((m) => m.content).join('\n')
+  const allMessages = [...sharedChatMessages.map((m) => m.content), privateMessagesText].join('\n')
   const { chunks } = await transcript.searchTranscript(this.conversation, allMessages, sharedChatHistory.end)
 
   // Get agent's recent posts for self-awareness
@@ -157,11 +168,12 @@ async function runInterventionAnalysis(
     topic: this.conversation.name,
     recentTranscript,
     retrievedChunks: chunks,
-    privateMessages: privateMessages.map((m) => m.content).join('\n') || 'No private messages.',
+    privateMessages: privateMessagesText || 'No private messages.',
     sharedChatHistory:
       sharedChatMessages.map((m) => (m.role === 'assistant' ? `Assistant: ${m.content}` : m.content)).join('\n') ||
       'No shared chat messages yet.',
-    agentRecentPosts
+    agentRecentPosts,
+    ...extraTemplateVars
   }
 
   const llm = await this.getLLM()
@@ -268,7 +280,8 @@ export async function detectPrivateInterventionOpportunity(
   schema: z.ZodSchema,
   allDmHistory: ConversationHistory,
   participantDmHistory: ConversationHistory,
-  userTemplate?: string
+  userTemplate?: string,
+  extraTemplateVars?: Record<string, string>
 ): Promise<InterventionAnalysis | null> {
   const now = sharedChatHistory.end ? sharedChatHistory.end.getTime() : Date.now()
   const minInterval = (this.agentConfig?.minInterval || 2) * 60 * 1000
@@ -278,5 +291,13 @@ export async function detectPrivateInterventionOpportunity(
     return null
   }
 
-  return runInterventionAnalysis.call(this, sharedChatHistory, baseSystemPrompt, schema, allDmHistory, userTemplate)
+  return runInterventionAnalysis.call(
+    this,
+    sharedChatHistory,
+    baseSystemPrompt,
+    schema,
+    allDmHistory,
+    userTemplate,
+    extraTemplateVars
+  )
 }
