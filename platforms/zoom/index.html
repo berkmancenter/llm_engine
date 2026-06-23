@@ -542,7 +542,14 @@ RECALL_ENDPOINT_BASE_URL: The URL Recall should use to send events to this serve
 # Verification secrets for webhook signature validation
 RECALL_REALTIME_SECRET=whsec_...
 RECALL_SVIX_SECRET=whsec_...
+# Optional: base URL of the NextSpace frontend. In hybrid events where some attendees are on Zoom and others
+# are in NextSpace, certain features (e.g. polls) are only available in NextSpace. When set, LLM Engine may
+# post a link into Zoom chat directing remote attendees to the relevant NextSpace page so they can participate.
+NEXTSPACE_URL=https://your-nextspace-domain.com
 </code></pre></div>
+<blockquote>
+<p><strong>Note:</strong> Zoom blocks <code>localhost</code> URLs in chat messages for security reasons. If testing locally, set <code>NEXTSPACE_URL</code> to an ngrok tunnel pointing to your NextSpace frontend (e.g. <code>https://abc123.ngrok.io</code>) rather than <code>http://localhost:PORT</code>.</p>
+</blockquote>
 <h4 id="zoom-webinar-one-time-setup">Zoom Webinar One Time Setup</h4>
 <p>Recall bots can join Zoom webinars as well as meetings, but they must be added to the webinar as panelists. To enable this, create a dedicated email address for your bots. Then update this environment variable in <code>.env</code></p>
 <div class="highlight"><pre><span></span><code>ZOOM_WEBINAR_USER_EMAIL=[bot email address]
