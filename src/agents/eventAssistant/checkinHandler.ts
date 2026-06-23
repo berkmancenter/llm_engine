@@ -2,10 +2,7 @@ import { z } from 'zod'
 import { ConversationHistory, IChannel } from '../../types/index.types.js'
 
 import getConversationHistory from '../helpers/getConversationHistory.js'
-import {
-  detectPrivateInterventionOpportunity,
-  buildInterventionTypeSection
-} from '../helpers/interventionHandler.js'
+import { detectPrivateInterventionOpportunity, buildInterventionTypeSection } from '../helpers/interventionHandler.js'
 import { formatDmHistoryByChannel } from '../helpers/llmInputFormatters.js'
 import logger from '../../config/logger.js'
 import filterHallucinations from '../helpers/hallucinations.js'
@@ -289,6 +286,12 @@ ${typeSections}`
  * Called with `this` = agent instance.
  */
 export async function buildCheckinResponses(conversationHistory: ConversationHistory) {
+  // Participants may not be deep-populated when the conversation loads — populate them now so the
+  // pseudonym fallback in formatDmHistoryByChannel has full user docs.
+  const allDirect = this.conversation.channels.filter((c: IChannel) => c.direct)
+  await Promise.all(
+    allDirect.map((c) => (c as unknown as { populate(path: string): Promise<void> }).populate('participants'))
+  )
   // Small chance there are duplicate direct channels with the same name due to React StrictMode double-invoking effects in development. De-dup just in case, to avoid duplicate messages.
   const directChannels: IChannel[] = Array.from(
     new Map<string, IChannel>(
@@ -337,9 +340,13 @@ export async function buildCheckinResponses(conversationHistory: ConversationHis
     directChannels.map(async (channel) => {
       const channelMessages = conversationHistory.messages.filter((m) => m.channels?.includes(channel.name))
 
-      // Resolve pseudonym — needed for the system prompt regardless of intervention type
+      // Resolve pseudonym from message history first; fall back to channel.participants for users
+      // who haven't sent any DMs yet (e.g. TRANSCRIPT_HOOK targets quiet participants).
       const participantMessage = channelMessages.find((m) => !m.fromAgent)
-      const participantPseudonym = participantMessage?.pseudonym || 'participant'
+      const participantPseudonym =
+        participantMessage?.pseudonym ||
+        channel.participants?.find((p) => p._id?.toString() !== this._id.toString())?.activePseudonym?.pseudonym ||
+        'participant'
 
       const participantDmHistory = getConversationHistory(channelMessages, {
         count: 50,
@@ -368,9 +375,10 @@ export async function buildCheckinResponses(conversationHistory: ConversationHis
       const systemPrompt = buildCheckinSystemPrompt(eligibleTypes)
       const schema = getCheckinDmAnalysisSchema(eligibleTypes)
 
-      const thisParticipantHistory = participantDmHistory.messages.length > 0
-        ? formatDmHistoryByChannel(participantDmHistory.messages, [channel.name])
-        : 'No messages yet from this participant.'
+      const thisParticipantHistory =
+        participantDmHistory.messages.length > 0
+          ? formatDmHistoryByChannel(participantDmHistory.messages, [channel])
+          : 'No messages yet from this participant.'
 
       // detectPrivateInterventionOpportunity handles rate limiting scoped to this participant's
       // DM channel via participantDmHistory. allDmHistory is passed as privateConversationHistory

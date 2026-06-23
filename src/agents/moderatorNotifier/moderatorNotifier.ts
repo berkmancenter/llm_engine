@@ -191,10 +191,9 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
 
     // Format DM history grouped by channel so agent messages clearly show their recipient.
     // Without this, 50 separately-addressed checkins appear as 50 duplicate messages.
-    const dmChannelNames = this.conversation.channels
-      .filter((c: IChannel) => c.direct)
-      .map((c: IChannel) => c.name)
-    const privateMessagesText = formatDmHistoryByChannel(privateHistory.messages, dmChannelNames)
+    const dmChannels = this.conversation.channels.filter((c: IChannel) => c.direct)
+    await Promise.all(dmChannels.map((c) => (c as unknown as { populate(path: string): Promise<void> }).populate('participants')))
+    const privateMessagesText = formatDmHistoryByChannel(privateHistory.messages, dmChannels)
 
     const recentTranscript = transcript.getTranscript(this.conversation, 600, conversationHistory.end)
     const allMessages = [...sharedChatMessages.map((m) => m.content), privateMessagesText].join('\n')
