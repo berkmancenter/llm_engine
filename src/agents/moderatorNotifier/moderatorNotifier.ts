@@ -4,7 +4,7 @@ import { AgentMessageActions, AgentResponse, ConversationHistory, IChannel } fro
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import getConversationHistory from '../helpers/getConversationHistory.js'
-import { formatMultiUserConversationHistory } from '../helpers/llmInputFormatters.js'
+import { formatMultiUserConversationHistory, formatDmHistoryByChannel } from '../helpers/llmInputFormatters.js'
 import transcript from '../helpers/transcript.js'
 import logger from '../../config/logger.js'
 
@@ -188,10 +188,16 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
     privateHistory.messages = privateHistory.messages.filter((msg) => !isModCommand(msg))
 
     const sharedChatMessages = formatMultiUserConversationHistory(sharedChatHistory)
-    const privateMessages = formatMultiUserConversationHistory(privateHistory)
+
+    // Format DM history grouped by channel so agent messages clearly show their recipient.
+    // Without this, 50 separately-addressed checkins appear as 50 duplicate messages.
+    const dmChannelNames = this.conversation.channels
+      .filter((c: IChannel) => c.direct)
+      .map((c: IChannel) => c.name)
+    const privateMessagesText = formatDmHistoryByChannel(privateHistory.messages, dmChannelNames)
 
     const recentTranscript = transcript.getTranscript(this.conversation, 600, conversationHistory.end)
-    const allMessages = [...sharedChatMessages, ...privateMessages].map((m) => m.content).join('\n')
+    const allMessages = [...sharedChatMessages.map((m) => m.content), privateMessagesText].join('\n')
     const { chunks } = await transcript.searchTranscript(this.conversation, allMessages, conversationHistory.end)
 
     const previousAlerts = getPreviousAlerts(this.conversation.messages, this.name)
@@ -206,7 +212,7 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
         previousAlerts,
         recentTranscript,
         retrievedChunks: chunks,
-        privateMessages: privateMessages.map((m) => m.content).join('\n') || 'No private messages.',
+        privateMessages: privateMessagesText || 'No private messages.',
         sharedChatHistory:
           sharedChatMessages
             .map((m) => (m.role === 'assistant' ? `Assistant: ${m.content}` : m.content))
