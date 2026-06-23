@@ -218,7 +218,7 @@ async function runInterventionAnalysis(
   )
 
   const result = analysis as InterventionAnalysis
-  result.context = [`## System Prompt:\n${systemPrompt}`, `## User Prompt:\n${renderedUserPrompt}`].join('\n\n')
+  result.context = renderedUserPrompt
 
   return result
 }

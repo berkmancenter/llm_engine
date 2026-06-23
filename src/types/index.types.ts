@@ -360,7 +360,7 @@ export interface IPoll {
   owner: IUser
   threshold?: number
   expirationDate?: Date
-  topic: ITopic
+  conversation: IConversation
   multiSelect: boolean
   allowNewChoices: boolean
   choicesVisible: boolean
@@ -371,6 +371,22 @@ export interface IPoll {
   responsesVisible: boolean
   choices?: IPollChoice[]
 }
+
+export type PollConfig = Partial<
+  Pick<
+    IPoll,
+    | 'multiSelect'
+    | 'allowNewChoices'
+    | 'choicesVisible'
+    | 'responseCountsVisible'
+    | 'onlyOwnChoicesVisible'
+    | 'whenResultsVisible'
+    | 'responsesVisible'
+    | 'responsesVisibleToNonParticipants'
+    | 'threshold'
+    | 'expirationDate'
+  >
+>
 
 export interface IPollChoice {
   _id?: mongoose.Types.ObjectId

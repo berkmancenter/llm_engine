@@ -44,9 +44,9 @@ const pollSchema = new mongoose.Schema<IPoll>(
       type: Date,
       index: true
     },
-    topic: {
+    conversation: {
       type: mongoose.SchemaTypes.ObjectId,
-      ref: 'Topic',
+      ref: 'Conversation',
       required: true,
       index: true
     },

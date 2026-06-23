@@ -12,6 +12,7 @@ import { coreLLMModel, coreLLMPlatform, getModelChat } from '../../agents/helper
 import { Conversation, User } from '../../models/index.js'
 import { formatTranscript, formatMultiUserConversationHistory } from '../../agents/helpers/llmInputFormatters.js'
 import getConversationHistory from '../../agents/helpers/getConversationHistory.js'
+import Poll from '../../models/poll.model/poll.js'
 
 const transcriptBatchInterval = 30
 const SUMMARIZATION_PROMPT = `
@@ -83,6 +84,8 @@ export async function doStopConversation(conversation) {
     await agentService.stopAgent(agent)
   }
   await schedule.cancelBatchTranscript(doc._id)
+  const activePolls = await Poll.find({ conversation: doc._id, expirationDate: { $gt: new Date() } }, '_id')
+  await Promise.all(activePolls.map((poll) => schedule.cancelPollExpired(poll._id.toString())))
   for (const adapter of doc.adapters) {
     adapter.conversation = doc
     await adapterService.stop(adapter)

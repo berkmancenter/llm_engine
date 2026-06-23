@@ -2,19 +2,6 @@ import logger from '../../config/logger.js'
 import { IMessage, IChannel, ConversationHistory, ConversationHistorySettings } from '../../types/index.types'
 import getConversationHistory from './getConversationHistory.js'
 
-function extractMessageText(message: IMessage): string {
-  if (message.bodyType === 'json' || message.bodyType === 'multimodal') {
-    if (!(message.body as Record<string, unknown>).text) {
-      logger.warn(
-        `Message with ID ${message._id} has bodyType '${message.bodyType}' but no 'text' property. Defaulting to empty string.`
-      )
-      return ''
-    }
-    return (message.body as Record<string, unknown>).text as string
-  }
-  return message.body as string
-}
-
 function formatTime(date, timezone = 'UTC') {
   return date.toLocaleTimeString('en-US', {
     hour: 'numeric',
@@ -83,6 +70,23 @@ function formatMessages(messages, structured = false, transcriptMessages?, trans
 function formatAndFilterMessages(messages, settings: ConversationHistorySettings = { count: 10 }) {
   const convHistory = getConversationHistory(messages, settings)
   return formatMessages(convHistory.messages)
+}
+
+function extractMessageText(message: IMessage) {
+  const body = message.body as Record<string, unknown>
+  if (message.bodyType === 'json' || message.bodyType === 'multimodal') {
+    if (body?.type === 'poll') {
+      const choices = (body.choices as string[]) ?? []
+      const choiceList = choices.map((c) => `- ${c}`).join('\n')
+      return `${body.text}\n[Poll: "${body.title}"]\nChoices:\n${choiceList}`
+    }
+    if (!body?.text) {
+      logger.warn(`Message with ID ${message._id} has bodyType '${message.bodyType}' but no 'text' property. Defaulting to empty string.`)
+      return ''
+    }
+    return body.text as string
+  }
+  return message.body as string
 }
 
 function formatSingleUserConversationHistory(conversationHistory: ConversationHistory) {

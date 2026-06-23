@@ -23,6 +23,7 @@ const conversationOne: any = {
   topic: publicTopic._id,
   agents: [],
   messages: [],
+  active: true,
   transcript: {
     status: 'stopped'
   }

@@ -5,12 +5,18 @@ import {
   createPublicTopic,
   createUser,
   loadPartTimeWorkTranscript,
+  loadDesignWorkshopTranscript,
   createMessage,
   prepareMessagesForAgent,
   createEngagementAgentConversation
 } from '../../utils/agentTestHelpers.js'
 
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
+import websocketGateway from '../../../src/websockets/websocketGateway.js'
+import schedule from '../../../src/jobs/schedule.js'
+
+jest.spyOn(websocketGateway, 'broadcastNewPoll').mockResolvedValue(undefined as never)
+jest.spyOn(schedule, 'pollExpired').mockResolvedValue(undefined as never)
 
 jest.setTimeout(180000)
 
@@ -95,11 +101,11 @@ describe(`engagement agent tests`, () => {
         const responses = await defaultAgentTypes.engagementAgent.respond.call(agent, conversationHistory)
 
         // Speaker just asked a challenging question - room is silent
-        // Should consider PROVOCATION to spark discussion, but might also be PLAY
+        // Should consider PROVOCATION to spark discussion, but might also be PLAY or POLL_REVEAL
         if (responses.length > 0) {
           const { interventionType } = responses[0]
           console.log(`[02:30] Detected ${interventionType}:`, responses[0].message)
-          expect(['PROVOCATION', 'NONE', 'PLAY']).toContain(interventionType)
+          expect(['PROVOCATION', 'NONE', 'PLAY', 'POLL_REVEAL']).toContain(interventionType)
         }
       },
       testTimeout
@@ -126,11 +132,11 @@ describe(`engagement agent tests`, () => {
 
         const responses = await defaultAgentTypes.engagementAgent.respond.call(agent, conversationHistory)
 
-        // Lots of data just presented, but room is passive - should provoke discussion
+        // Lots of data just presented, but room is passive - should provoke discussion or run a poll
         if (responses.length > 0) {
           const { interventionType } = responses[0]
           console.log(`[07:30] Detected ${interventionType}:`, responses[0].message)
-          expect(['PROVOCATION', 'NONE']).toContain(interventionType)
+          expect(['PROVOCATION', 'NONE', 'POLL_REVEAL']).toContain(interventionType)
         }
       },
       testTimeout
@@ -575,6 +581,47 @@ describe(`engagement agent tests`, () => {
       const msgs = await agentType.introduce.call(agent, chatChannel)
       expect(msgs).toEqual([])
     })
+  })
+
+  describe('POLL_REVEAL intervention scenarios', () => {
+    it(
+      'SHOULD NOT use POLL_REVEAL when the speaker is actively soliciting a structured audience response',
+      async () => {
+        // Design workshop transcript at 00:35: Marcus says "Show of hands" —
+        // an explicit structured audience solicitation. The agent must not compete
+        // with that by posting its own poll; PROVOCATION or NONE is appropriate instead.
+        const workshopConversation = await createEngagementAgentConversation(
+          {
+            name: 'Reimagining the Employee Onboarding Experience',
+            description: 'A design thinking workshop on reimagining employee onboarding.',
+            presenters: [{ name: 'Marcus Chen', bio: 'Design thinking facilitator.' }],
+            moderators: []
+          },
+          user1,
+          topic,
+          startTime,
+          testConfig.llmPlatform,
+          testConfig.llmModel
+        )
+        await loadDesignWorkshopTranscript(workshopConversation)
+        const workshopAgent = workshopConversation.agents.find((a) => a.name === 'Engagement Agent')
+
+        const conversationHistory = getConversationHistory(workshopConversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 45 * 1000) // just after "Show of hands" at 00:35
+        })
+
+        const responses = await defaultAgentTypes.engagementAgent.respond.call(workshopAgent, conversationHistory)
+
+        if (responses.length > 0) {
+          const { interventionType } = responses[0]
+          console.log(`[speaker show of hands] Detected ${interventionType}:`, responses[0].message)
+          expect(interventionType).not.toBe('POLL_REVEAL')
+        }
+      },
+      testTimeout
+    )
   })
 
   describe('edge cases', () => {

@@ -2241,6 +2241,7 @@ describe('Conversation routes', () => {
     let broadcastSpy
 
     beforeEach(async () => {
+      await Conversation.findByIdAndUpdate(conversationOne._id, { active: false })
       broadcastSpy = jest.spyOn(websocketGateway, 'broadcastConversationUpdate').mockResolvedValue()
     })
 
