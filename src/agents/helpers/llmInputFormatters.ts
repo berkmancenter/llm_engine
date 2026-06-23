@@ -2,19 +2,6 @@ import logger from '../../config/logger.js'
 import { IMessage, IChannel, ConversationHistory, ConversationHistorySettings } from '../../types/index.types'
 import getConversationHistory from './getConversationHistory.js'
 
-function extractMessageText(message: IMessage): string {
-  if (message.bodyType === 'json' || message.bodyType === 'multimodal') {
-    if (!(message.body as Record<string, unknown>).text) {
-      logger.warn(
-        `Message with ID ${message._id} has bodyType '${message.bodyType}' but no 'text' property. Defaulting to empty string.`
-      )
-      return ''
-    }
-    return (message.body as Record<string, unknown>).text as string
-  }
-  return message.body as string
-}
-
 function formatTime(date, timezone = 'UTC') {
   return date.toLocaleTimeString('en-US', {
     hour: 'numeric',
@@ -85,7 +72,7 @@ function formatAndFilterMessages(messages, settings: ConversationHistorySettings
   return formatMessages(convHistory.messages)
 }
 
-function extractMessageText(message) {
+function extractMessageText(message: IMessage) {
   const body = message.body as Record<string, unknown>
   if (message.bodyType === 'json' || message.bodyType === 'multimodal') {
     if (body?.type === 'poll') {
@@ -99,7 +86,7 @@ function extractMessageText(message) {
     }
     return body.text as string
   }
-  return message.body
+  return message.body as string
 }
 
 function formatSingleUserConversationHistory(conversationHistory: ConversationHistory) {
