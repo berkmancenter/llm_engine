@@ -9,7 +9,7 @@ import {
   formatTime,
   formatTranscript
 } from '../../../src/agents/helpers/llmInputFormatters.js'
-import { IMessage } from '../../../src/types/index.types.js'
+import { IChannel, IMessage } from '../../../src/types/index.types.js'
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
 
 const owner = new mongoose.Types.ObjectId()
@@ -414,8 +414,22 @@ describe('LLM Input Formatter Tests', () => {
   })
 
   describe('formatDmHistoryByChannel', () => {
+    function dmChannel(name: string, participantPseudonym?: string) {
+      return {
+        name,
+        passcode: null,
+        direct: true,
+        participants: participantPseudonym
+          ? [
+              { __t: 'Agent', activePseudonym: 'Agent' },
+              { __t: 'User', activePseudonym: { pseudonym: participantPseudonym } }
+            ]
+          : []
+      } as IChannel
+    }
+
     it('returns empty string when there are no messages', async () => {
-      const result = formatDmHistoryByChannel([], ['dm-alice', 'dm-bob'])
+      const result = formatDmHistoryByChannel([], [dmChannel('dm-alice'), dmChannel('dm-bob')])
       expect(result).toBe('')
     })
 
@@ -423,7 +437,7 @@ describe('LLM Input Formatter Tests', () => {
       const msg1 = await createMessage('Hello, I have a question.', 'Curious Corgi', new Date(), false, 'text', ['dm-alice'])
       const msg2 = await createMessage('Happy to help — what is it?', 'Assistant', new Date(), true, 'text', ['dm-alice'])
 
-      const result = formatDmHistoryByChannel([msg1, msg2], ['dm-alice'])
+      const result = formatDmHistoryByChannel([msg1, msg2], [dmChannel('dm-alice')])
 
       expect(result).toBe(
         '[DM — Curious Corgi]\n' +
@@ -438,7 +452,7 @@ describe('LLM Input Formatter Tests', () => {
         'dm-wolf'
       ])
 
-      const result = formatDmHistoryByChannel([msg1, msg2], ['dm-wolf'])
+      const result = formatDmHistoryByChannel([msg1, msg2], [dmChannel('dm-wolf')])
 
       expect(result).toContain('Assistant (to Wandering Wolf):')
       expect(result).not.toContain('Event Assistant:')
@@ -460,7 +474,7 @@ describe('LLM Input Formatter Tests', () => {
 
       const result = formatDmHistoryByChannel(
         [aliceMsg, aliceReply, bobMsg1, bobReply1, bobMsg2, bobReply2],
-        ['dm-alice', 'dm-bob']
+        [dmChannel('dm-alice'), dmChannel('dm-bob')]
       )
 
       expect(result).toContain('[DM — Curious Alice]')
@@ -471,17 +485,15 @@ describe('LLM Input Formatter Tests', () => {
       expect(result).toContain('Assistant (to Skeptical Bob): "Of course — here is a simpler take."')
       expect(result).toContain('Skeptical Bob: "Still not sure I follow."')
       expect(result).toContain('Assistant (to Skeptical Bob): "Let me try a different angle."')
-      // Sections are separated by a blank line
       expect(result).toContain('\n\n')
     })
 
     it('skips channels with no messages', async () => {
       const msg = await createMessage('Just me here.', 'Solo Sam', new Date(), false, 'text', ['dm-sam'])
 
-      const result = formatDmHistoryByChannel([msg], ['dm-sam', 'dm-empty'])
+      const result = formatDmHistoryByChannel([msg], [dmChannel('dm-sam'), dmChannel('dm-empty')])
 
       expect(result).toContain('[DM — Solo Sam]')
-      // Only one section header — dm-empty produces nothing
       expect(result.match(/\[DM —/g)?.length).toBe(1)
       expect(result.split('\n\n')).toHaveLength(1)
     })
@@ -492,16 +504,24 @@ describe('LLM Input Formatter Tests', () => {
       ])
       const reply = await createMessage({ text: 'Let me clarify.' }, 'Assistant', new Date(), true, 'json', ['dm-cat'])
 
-      const result = formatDmHistoryByChannel([msg, reply], ['dm-cat'])
+      const result = formatDmHistoryByChannel([msg, reply], [dmChannel('dm-cat')])
 
       expect(result).toContain('Confused Cat: "What does that mean?"')
       expect(result).toContain('Assistant (to Confused Cat): "Let me clarify."')
     })
 
-    it('uses "Participant" as fallback pseudonym when channel has only agent messages', async () => {
+    it('uses activePseudonym from channel.participants when channel has only agent messages', async () => {
       const agentOnly = await createMessage('Just checking in.', 'Event Assistant', new Date(), true, 'text', ['dm-ghost'])
 
-      const result = formatDmHistoryByChannel([agentOnly], ['dm-ghost'])
+      const result = formatDmHistoryByChannel([agentOnly], [dmChannel('dm-ghost', 'Silent Fox')])
+
+      expect(result).toContain('Assistant (to Silent Fox):')
+    })
+
+    it('falls back to "Participant" when channel has only agent messages and no participants metadata', async () => {
+      const agentOnly = await createMessage('Just checking in.', 'Event Assistant', new Date(), true, 'text', ['dm-ghost'])
+
+      const result = formatDmHistoryByChannel([agentOnly], [dmChannel('dm-ghost')])
 
       expect(result).toContain('Assistant (to Participant):')
     })

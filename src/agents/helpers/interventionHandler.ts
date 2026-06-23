@@ -135,9 +135,12 @@ async function runInterventionAnalysis(
   // Format DM history grouped by channel so agent messages show their recipient.
   // This prevents the LLM from seeing 50 separately-addressed checkins as duplicates,
   // and from attributing another participant's conversation to the current participant.
-  const dmChannelNames = this.conversation.channels.filter((c: IChannel) => c.direct).map((c: IChannel) => c.name)
+  const dmChannels = this.conversation.channels.filter((c: IChannel) => c.direct)
+  await Promise.all(
+    dmChannels.map((c) => (c as unknown as { populate(path: string): Promise<void> }).populate('participants'))
+  )
   const privateMessagesText = privateConversationHistory
-    ? formatDmHistoryByChannel(privateConversationHistory.messages, dmChannelNames)
+    ? formatDmHistoryByChannel(privateConversationHistory.messages, dmChannels)
     : ''
 
   // Get recent transcript (last 10 minutes)
