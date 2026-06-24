@@ -19,6 +19,7 @@ import schedule from '../../src/jobs/schedule.js'
 import defineJob from '../../src/jobs/define.js'
 import transcript from '../../src/agents/helpers/transcript.js'
 import agentDispatcher from '../../src/jobs/agentDispatcher.js'
+import analyticsSources from '../../src/services/analyticsSources/index.js'
 
 jest.setTimeout(10000)
 jest.mock('agenda')
@@ -846,6 +847,33 @@ describe('Conversation service methods', () => {
     })
   })
 
+  describe('createConversation() analytics source refs', () => {
+    beforeEach(async () => {
+      await insertUsers([registeredUser])
+      await insertTopics([topicOne])
+    })
+
+    // scheduledTime in the future keeps the conversation from auto-starting mid-test.
+    const baseParams = () => ({
+      name: 'Tracked Event',
+      topicId: topicOne._id.toString(),
+      scheduledTime: new Date(Date.now() + 3600000)
+    })
+
+    test('stores the analytics source refs the caller opted into', async () => {
+      const conversation = await conversationService.createConversation(
+        { ...baseParams(), analyticsRefs: { matomo: 'dimension7' } },
+        registeredUser
+      )
+      expect(conversation.analyticsRefs?.get('matomo')).toBe('dimension7')
+    })
+
+    test('leaves analyticsRefs unset when the caller opts into nothing', async () => {
+      const conversation = await conversationService.createConversation(baseParams(), registeredUser)
+      expect(conversation.analyticsRefs).toBeUndefined()
+    })
+  })
+
   describe('generateConversationReport()', () => {
     let periodicConversation
     let perMessageConversation
@@ -1133,6 +1161,18 @@ describe('Conversation service methods', () => {
         expect.objectContaining({ type: 'conversationStopped', conversationId: conversation._id.toString() }),
         expect.objectContaining({ type: 'conversation', id: conversation._id.toString() })
       )
+    })
+
+    test('does not capture analytics snapshots at stop time; that is deferred to the analytics consumer off the request path', async () => {
+      const snapshotSpy = jest.spyOn(analyticsSources, 'fetchAndStoreSnapshot').mockResolvedValue(undefined)
+      const dispatchSpy = jest.spyOn(agentDispatcher, 'dispatch').mockResolvedValue(undefined)
+
+      await conversationService.stopConversation(conversation._id.toString(), registeredUser)
+
+      // The stop request must not block on Matomo's archive build. The Vibes Analyst
+      // pulls the snapshot from its own dispatched job, where it can retry patiently.
+      expect(snapshotSpy).not.toHaveBeenCalled()
+      expect(dispatchSpy).toHaveBeenCalledTimes(1)
     })
   })
 

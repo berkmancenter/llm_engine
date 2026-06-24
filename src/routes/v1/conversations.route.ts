@@ -66,6 +66,11 @@ const router = express.Router()
  *                 type: string
  *                 format: date-time
  *                 description: When the conversation should start (if scheduled)
+ *               analyticsRefs:
+ *                 type: object
+ *                 additionalProperties:
+ *                   type: string
+ *                 description: 'Analytics sources this event opts into, keyed by source name with that source''s ref (e.g. matomo set to dimension7)'
  *           examples:
  *             zoomEventAssistant:
  *               summary: Create Zoom eventAssistant conversation
@@ -194,6 +199,11 @@ router.route('/').post(auth('createConversation'), conversationsController.creat
  *                 format: date-time
  *                 description: When the conversation should start (if scheduled)
  *                 example: "2025-11-01T10:00:00Z"
+ *               analyticsRefs:
+ *                 type: object
+ *                 additionalProperties:
+ *                   type: string
+ *                 description: 'Analytics sources this event opts into, keyed by source name with that source''s ref (e.g. matomo set to dimension7)'
  *           examples:
  *             eventAssistantZoom:
  *               summary: Create event assistant with Zoom

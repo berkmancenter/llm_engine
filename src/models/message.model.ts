@@ -128,6 +128,15 @@ const messageSchema = new mongoose.Schema<IMessage, MessageModel>(
        when forwarding the message to chat.postMessage. */
     blocks: {
       type: mongoose.SchemaTypes.Mixed
+    },
+    /* Neutral render instruction. The Slack adapter renders responseKind +
+       renderData into blocks when sending; stored as Mixed so any payload
+       shape round-trips without a schema per response kind. */
+    responseKind: {
+      type: String
+    },
+    renderData: {
+      type: mongoose.SchemaTypes.Mixed
     }
   },
   {

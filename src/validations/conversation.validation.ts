@@ -80,7 +80,10 @@ const createConversation = {
         alternateName: Joi.string().allow('', null)
       })
     ),
-    resources: Joi.array().items(resourceSchema)
+    resources: Joi.array().items(resourceSchema),
+    // Opt the event into analytics sources by name, each with that source's ref
+    // (e.g. { matomo: 'dimension7' }). Stored opaquely; each adapter interprets its own ref.
+    analyticsRefs: Joi.object().pattern(Joi.string(), Joi.string())
   })
 }
 const agentAllowedProperties = {

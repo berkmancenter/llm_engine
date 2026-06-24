@@ -138,6 +138,11 @@ export async function doStopConversation(conversation) {
   }
   await doc.save()
 
+  /* External analytics (e.g. Matomo tracked sessions) are intentionally NOT fetched
+     here. The provider may not have archived the just-ended event's visits yet, and
+     stopping the event must stay fast and not block on a slow or cold archive. The
+     Vibes Analyst pulls and stores that snapshot from its own dispatched job below,
+     where it can retry patiently off this request path. */
   const topicId = doc.topic?._id?.toString() ?? doc.topic?.toString()
   const topicIsPrivate = doc.topic?.private ?? true
   await agentDispatcher.dispatch(

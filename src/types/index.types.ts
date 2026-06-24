@@ -119,6 +119,10 @@ export interface IMessage {
      Slack adapter can read it when forwarding the message to Slack's API.
      Kept as unknown[] to avoid platform-specific types in the shared model. */
   blocks?: unknown[]
+  /* Neutral render instruction persisted alongside blocks. The Slack adapter
+     renders responseKind + renderData into blocks when sending. */
+  responseKind?: string
+  renderData?: unknown
 }
 
 export interface IFollower {
@@ -335,6 +339,7 @@ export interface IConversation {
   adapters: Array<IAdapter>
   enableDMs: string[]
   experimental?: boolean
+  analyticsRefs?: Map<string, string> // Which analytics source(s) hold this event's data, by name, e.g. { matomo: "<segment id>" }.
   experiments: IExperiment[]
   properties?: Record<string, unknown>
   features?: Feature[]
@@ -418,7 +423,9 @@ export const AgentResponseZodSchema = z.object({
   visible: z.boolean(),
   message: z.union([z.string(), z.record(z.unknown())]),
   messageType: z.enum(['text', 'json', 'multimodal']).optional(),
-  channels: z.array(ChannelZodSchema).optional()
+  channels: z.array(ChannelZodSchema).optional(),
+  responseKind: z.string().optional(),
+  renderData: z.unknown().optional()
 })
 
 export interface AgentResponse<T> {
@@ -434,6 +441,236 @@ export interface AgentResponse<T> {
      here to avoid pulling platform-specific types into the shared interface.
      The Slack adapter reads this field when sending a message. */
   blocks?: unknown[]
+  /* Platform-neutral render instruction. responseKind names the kind of card
+     (e.g. 'curatedVibesSummary'); renderData is the neutral payload. The Slack
+     adapter looks up responseKind in its block registry and renders renderData
+     into blocks at send time. Other adapters ignore these and send `message`. */
+  responseKind?: string
+  renderData?: unknown
+}
+
+/* The raw counts an analytics source fetcher returns for one event, before we
+   stamp the source name and capture time and store them as a ConversationAnalytics
+   document. Only additive counts and sums live here; every ratio (average dwell)
+   is derived later at read time, never stored. */
+export interface AnalyticsSnapshot {
+  attendeeCount: number
+  totalVisits: number
+  totalActions: number
+  totalDwellSeconds: number
+  deviceBreakdown: Record<string, number>
+}
+
+/*
+ * Engagement vocabulary (project-wide, use these terms consistently in code, prompts,
+ * and the recap):
+ *
+ * - Participant: anyone who opens the participant link and joins the session in a
+ *   browser, whether or not they post. Counted by tracked sessions (the Matomo
+ *   visit-scope dimension), because that measures page visits, not accounts.
+ * - Lurker: a participant who watches but never posts. Derived as participants minus
+ *   posters; only knowable when tracked-session data is available.
+ * - Poster: anyone who sends at least one message, in group chat or a direct message
+ *   to the bot. Exact, from our own database.
+ * - Frequent poster: a poster who posts noticeably more than the typical poster.
+ *   Defined as the top 10% of posters by message count (at least one when there are
+ *   any posters), along with their share of all messages.
+ *
+ * Participation rate: posters divided by participants ("what share of the room
+ * spoke"). It is APPROXIMATE, because participants comes from tracked sessions, which
+ * can undercount. So it is computed only when tracked-session data exists, always
+ * labeled as an estimate that may undercount, and clamped/annotated when it exceeds
+ * 100% (more posters than tracked visits). Never the old posters-over-followers rate.
+ *
+ * "Registered" / followers is a SEPARATE, pre-existing platform concept: an explicit,
+ * account-based follow of a conversation or topic. It is not the participant
+ * denominator for events. Open-link events create no followers, so a follower-based
+ * participation rate does not apply to them. Use "poster" for message senders and
+ * "participant" for browser visitors, never "registered".
+ */
+
+/* Participation, taken from our own database, so it is exact. posterCount is the
+   number of distinct people who sent at least one message; messageCount is the total
+   non-bot messages. frequentPosterCount is the top 10% of posters by message volume
+   (at least one once anyone has posted), and frequentPosterMessageShare is the fraction
+   of all messages those frequent posters sent (0 to 1), so the card can say whether a
+   few people dominated the conversation. */
+export interface ParticipationMetrics {
+  posterCount: number
+  frequentPosterCount: number
+  frequentPosterMessageShare: number
+  messageCount: number
+}
+
+/* Web-analytics numbers for one event from one provider (e.g. Matomo), computed
+   from a stored ConversationAnalytics summary. These providers can undercount (see
+   nextspace #230), so we call them "tracked sessions" and never treat them as
+   exact. We avoid the word "attention" on purpose: session data cannot tell whether
+   a person was actually paying attention. Averages and rates are computed when read,
+   not stored. */
+export interface TrackedSessionMetrics {
+  source: string
+  capturedAt: Date
+  trackedSessions: number
+  attendeeCount: number
+  avgDwellSeconds: number
+  totalActions: number
+  deviceBreakdown: Record<string, number>
+}
+
+/* The audience-engagement view: how the exact poster count relates to the estimated
+   participant count (unique tracked-session visitors). This is the ONE place posters
+   (exact) and participants (an estimate that can undercount) are combined, so it is
+   always approximate. It is null when no tracked-session data exists, because without a
+   participant count there is no denominator.
+
+   When more people posted than were tracked as sessions, the two counts do not
+   reconcile: they come from different systems (posters from our database, participants
+   from web analytics), so a poster who blocked tracking or joined without a tracked page
+   visit can push posterCount past participantCount. In that case we do not invent
+   numbers. lurkerCount and participationRate are null and postersExceedTrackedSessions
+   is true, so the card can state the two raw counts and explain the gap as a
+   possibility rather than show an impossible "0 lurkers, 100% participation".
+
+   When the counts do reconcile (posterCount <= participantCount), lurkerCount is
+   participants minus posters, participationRate is posters / participants, and
+   postersExceedTrackedSessions is false. */
+export interface AudienceEngagement {
+  participantCount: number
+  lurkerCount: number | null
+  participationRate: number | null
+  postersExceedTrackedSessions: boolean
+}
+
+/* One bar of the activity chart: a time window of the event and how many of the
+   people's (non-bot) messages happened in it. */
+export interface ActivityBucket {
+  label: string
+  messageCount: number
+}
+
+/* One point on the engagement-history chart: a past event in the same topic (or
+   "Today"), with how many people posted and how many lurked (watched without posting).
+   lurkerCount is null when that event had no tracked-session data, since lurkers can
+   only be derived when the participant count is known. */
+export interface ParticipationHistoryPoint {
+  label: string
+  posterCount: number
+  lurkerCount: number | null
+}
+
+/* The topic's recent average, used to judge whether today was high or low. It averages
+   up to the 10 most recent past events in the same topic.
+
+   Two different spans are exposed because the averages cover different sets of past
+   events. eventCount is the poster span: every past event has a known poster count, so
+   avgPosterCount is averaged over all of them. trackedEventCount is the tracked span:
+   only past events with stored web-analytics data contribute a lurker count and a dwell
+   time, so avgLurkerCount and avgDwellSeconds are averaged over just those. Both of those
+   averages are gated on the same tracked-session condition, so the one count backs both.
+   trackedEventCount is therefore at most eventCount and can be smaller, which is why it is
+   reported separately rather than implying the lurker and dwell averages span every past
+   event. avgLurkerCount and avgDwellSeconds are null when no past event had tracked data
+   (trackedEventCount is 0). */
+export interface SameTopicBaseline {
+  eventCount: number
+  trackedEventCount: number
+  avgPosterCount: number
+  avgLurkerCount: number | null
+  avgDwellSeconds: number | null
+}
+
+/* Whether web-analytics data exists for this event. notTracked: no analytics source
+   is set on the event, so nothing was ever tracked. unavailable: a source is set
+   but no data has been stored yet (the fetch failed or has not run). available: at
+   least one source has stored data. The card uses this to word its "data may be
+   limited" note. */
+export type TrackedSessionStatus = 'available' | 'notTracked' | 'unavailable'
+
+/* The bundle of numbers the recap card and the curating LLM both read for one
+   event. Participation (from our own database) is always present and exact. Tracked
+   sessions are a separate layer (one entry per analytics source that has stored
+   data) and are never merged into a single combined score. */
+export interface ConversationMetrics {
+  participation: ParticipationMetrics
+  // One entry per analytics source that has stored data; empty when none.
+  trackedSessionSources: TrackedSessionMetrics[]
+  trackedSessionStatus: TrackedSessionStatus
+  // Posters vs participants (rate + lurkers); null when no tracked-session data.
+  audienceEngagement: AudienceEngagement | null
+  // People's messages per time window; empty when the event had no messages.
+  activitySeries: ActivityBucket[]
+  // This event plus recent past events in the same topic; just this event if new.
+  participationHistory: ParticipationHistoryPoint[]
+  // The topic's recent average, or null when this is the topic's only event.
+  baseline: SameTopicBaseline | null
+  // Counts of people's messages: public chat vs private one-to-one with the bot.
+  channelSplit: { public: number; private: number }
+}
+
+/* One point on a bar/line/area chart: an x-axis category and its y value. */
+export interface VibesChartDataPoint {
+  label: string
+  value: number
+}
+
+/* A named data series (one set of bars/a line/an area). Slack allows 1-6 series
+   per chart, each with 1-20 points. */
+export interface VibesChartSeries {
+  name: string
+  data: VibesChartDataPoint[]
+}
+
+/* The x-axis for a bar/line/area chart. `categories` fixes the order and must
+   line up with each series' point labels. */
+export interface VibesChartAxisConfig {
+  categories: string[]
+  xLabel?: string
+  yLabel?: string
+}
+
+/* One slice of a pie chart (1-6 per chart). */
+export interface VibesChartSegment {
+  label: string
+  value: number
+}
+
+/* A chart that illustrates a standout, rendered with Slack's native
+   data_visualization block (no image backend). Bar/line/area carry series plus
+   an axis config; pie carries segments. Slack renders it from this data and
+   offers no alt-text field, so the standout prose stays the accessible fallback. */
+export type CuratedVibesChart =
+  | { type: 'bar' | 'line' | 'area'; series: VibesChartSeries[]; axisConfig: VibesChartAxisConfig }
+  | { type: 'pie'; segments: VibesChartSegment[] }
+
+export interface CuratedVibesVisual {
+  title: string
+  chart: CuratedVibesChart
+  /* Optional one-line caption rendered as a context block under the chart. The
+     data_visualization block has no alt-text field, so this caption is also the
+     chart's screen-reader description; keep it a plain-language read of the chart. */
+  caption?: string
+}
+
+/* One standout: a finished mrkdwn string that names one metric, its direction,
+   and (for tracked sessions) its can-undercount caveat inline, so the two data
+   sources stay distinct without a separate section. An optional visual renders
+   right after it; the design aims for at least one chart per insight. */
+export interface CuratedVibesStandout {
+  text: string
+  visual?: CuratedVibesVisual
+}
+
+/* The curated card's render payload (responseKind 'curatedVibesSummary'),
+   following the design's block grammar. The curating LLM (Phase 6) writes the
+   prose and picks the charts; this phase renders from mock-curated data. The
+   footer carries only the event duration. */
+export interface CuratedVibesData {
+  header: string
+  framing?: string
+  availabilityNote?: string
+  standouts: CuratedVibesStandout[]
+  durationMinutes: number
 }
 
 export interface ConversationHistorySettings {
