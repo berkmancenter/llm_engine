@@ -65,14 +65,15 @@ describe('handleSummon', () => {
     mockFindCandidates.mockResolvedValue([])
     mockResolve.mockReset()
     mockBuildSummary.mockReset()
-    mockBuildSummary.mockResolvedValue({ header: 'Recap' })
+    // buildVibesSummary returns the card alongside the metrics; summon uses only the card.
+    mockBuildSummary.mockResolvedValue({ renderData: { header: 'Recap' }, metrics: {} })
   })
 
   it('posts the engagement card threaded under the summon when the event resolves', async () => {
     mockResolve.mockReturnValue({ status: 'resolved', event: { id: 'c1', name: 'Spring Town Hall' } })
     mockResolvedConversation(false)
     const verifiedCard = { header: 'Recap', standouts: [] }
-    mockBuildSummary.mockResolvedValue(verifiedCard)
+    mockBuildSummary.mockResolvedValue({ renderData: verifiedCard, metrics: {} })
 
     const responses = await handleSummon(buildContext(), summonMessage, fakeLlm)
 

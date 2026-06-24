@@ -24,6 +24,10 @@ const mockLoadReadableMessages = jest.fn<(...args: any[]) => Promise<any>>()
 // agent feeds the allowed messages and poster count in, and the receptions to the curator.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockAnnotateReceptions = jest.fn<(...args: any[]) => Promise<any>>()
+// Snapshot persistence is exercised in eventMetricsSnapshot.service.test.ts; here we only
+// check the agent persists the computed metrics on the stop path.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockPersistSnapshot = jest.fn<(...args: any[]) => Promise<any>>()
 
 jest.unstable_mockModule('../src/agents/vibesAnalyst/curate.js', () => ({
   default: mockCurate
@@ -48,6 +52,9 @@ jest.unstable_mockModule('../src/agents/helpers/getModelChat.js', () => ({
 }))
 jest.unstable_mockModule('../src/services/analyticsSources/index.js', () => ({
   default: { fetchAndStoreSnapshot: mockFetchAndStoreSnapshot }
+}))
+jest.unstable_mockModule('../src/services/eventMetricsSnapshot.service.js', () => ({
+  default: { persistSnapshot: mockPersistSnapshot }
 }))
 
 const { default: vibesAnalyst } = await import('../../../../src/agents/vibesAnalyst/index.js')
@@ -134,6 +141,8 @@ describe('vibesAnalyst agent', () => {
       mockAnnotateSpikes.mockImplementation((_messages, _start, spikes) => Promise.resolve(spikes))
       mockAnnotateReceptions.mockReset()
       mockAnnotateReceptions.mockResolvedValue([])
+      mockPersistSnapshot.mockReset()
+      mockPersistSnapshot.mockResolvedValue(undefined)
     })
 
     it('returns empty for non-conversationStopped events', async () => {
@@ -180,6 +189,47 @@ describe('vibesAnalyst agent', () => {
       expect(response.responseKind).toBe('curatedVibesSummary')
       expect(response.renderData).toBe(verifiedCard)
       expect(response.channels).toEqual([adminChannel])
+    })
+
+    it('persists the computed metrics as a snapshot for the ended event', async () => {
+      mockStoppedConversation(false)
+      jest
+        .spyOn(conversationAnalyticsService, 'computeConversationMetrics')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .mockResolvedValue(sampleMetrics as any)
+      mockCurate.mockResolvedValue({ header: 'Draft', standouts: [], durationMinutes: 60 })
+      mockVerify.mockResolvedValue(verifiedCard)
+
+      await vibesAnalyst.onConversationEvent.call(buildContext(), {
+        type: 'conversationStopped',
+        conversationId: 'c1',
+        topicId: 't1'
+      })
+
+      // The snapshot is written from the enriched metrics the card was built from, keyed by
+      // the ended conversation.
+      expect(mockPersistSnapshot).toHaveBeenCalledWith(expect.objectContaining({ _id: 'c1' }), sampleMetrics)
+    })
+
+    it('still posts the card when the snapshot write fails', async () => {
+      mockStoppedConversation(false)
+      jest
+        .spyOn(conversationAnalyticsService, 'computeConversationMetrics')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .mockResolvedValue(sampleMetrics as any)
+      mockCurate.mockResolvedValue({ header: 'Draft', standouts: [], durationMinutes: 60 })
+      mockVerify.mockResolvedValue(verifiedCard)
+      mockPersistSnapshot.mockRejectedValue(new Error('mongo down'))
+
+      const responses = await vibesAnalyst.onConversationEvent.call(buildContext(), {
+        type: 'conversationStopped',
+        conversationId: 'c1',
+        topicId: 't1'
+      })
+
+      // A snapshot failure is best-effort: it is logged and swallowed, never blocking the card.
+      expect(responses).toHaveLength(1)
+      expect(responses[0].renderData).toBe(verifiedCard)
     })
 
     it('annotates spikes from the allowed messages before curating, when the event had spikes', async () => {
@@ -266,6 +316,8 @@ describe('vibesAnalyst agent', () => {
       expect(computeSpy).not.toHaveBeenCalled()
       // Access is checked before any work, so no snapshot fetch on a private event.
       expect(mockFetchAndStoreSnapshot).not.toHaveBeenCalled()
+      // And nothing is persisted for an event the analyst may not read.
+      expect(mockPersistSnapshot).not.toHaveBeenCalled()
     })
 
     it('throws AccessDeniedError and reads no metrics when the topic did not populate', async () => {

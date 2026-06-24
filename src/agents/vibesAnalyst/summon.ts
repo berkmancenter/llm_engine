@@ -88,7 +88,9 @@ export default async function handleSummon(context, userMessage, llm): Promise<A
     return [reply(context, parent, `I can only recap public events, and "${conversation.name}" isn't one I can share.`)]
   }
 
-  const renderData = await buildVibesSummary(conversation, llm)
+  // A summon recaps a past event on demand. Only the auto path persists a metrics snapshot
+  // (an event is snapshotted once, when it ends), so the metrics are unused here.
+  const { renderData } = await buildVibesSummary(conversation, llm)
   // Fallback text for adapters that do not render the card (e.g. zoom); the card itself
   // rides along as responseKind + renderData for adapters that do (Slack).
   return [

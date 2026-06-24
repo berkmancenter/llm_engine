@@ -5,7 +5,7 @@ import verifyCuratedCard from './verifyCuration.js'
 import annotateSpikes from './spikeAnnotation.js'
 import annotateReceptions from './quoteReception.js'
 import { loadReadableMessages } from './capabilities.js'
-import { CuratedVibesData } from '../../types/index.types.js'
+import { ConversationMetrics, CuratedVibesData } from '../../types/index.types.js'
 
 /* How long the event ran, in whole minutes, for the card footer. Returns 0 when
    either timestamp is missing so the card still renders. */
@@ -24,8 +24,15 @@ function eventDurationMinutes(startTime?: Date, endTime?: Date): number {
  * identical card from one pipeline. The content annotations are best-effort: a failure
  * in either leaves the card with its numbers and still returns. This does NOT fetch
  * external tracked-session snapshots; that is an event-stop concern the caller handles.
+ *
+ * Returns the rendered card alongside the enriched metrics it was built from, so the
+ * event-stop path can persist a metrics snapshot without recomputing. The metrics are the
+ * post-enrichment bundle, so the reception count reflects the analyst's reading pass.
  */
-export default async function buildVibesSummary(conversation, llm): Promise<CuratedVibesData> {
+export default async function buildVibesSummary(
+  conversation,
+  llm
+): Promise<{ renderData: CuratedVibesData; metrics: ConversationMetrics }> {
   const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
 
   /* Read message text once, only from the channels the VA is allowed to (see
@@ -75,5 +82,6 @@ export default async function buildVibesSummary(conversation, llm): Promise<Cura
     durationMinutes: eventDurationMinutes(conversation.startTime, conversation.endTime)
   }
   const draftCard = await curateVibesCard(metrics, eventMeta, llm)
-  return verifyCuratedCard(draftCard, metrics, llm)
+  const renderData = await verifyCuratedCard(draftCard, metrics, llm)
+  return { renderData, metrics }
 }

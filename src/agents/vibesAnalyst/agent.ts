@@ -7,6 +7,7 @@ import analyticsSources from '../../services/analyticsSources/index.js'
 import logger from '../../config/logger.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 import buildVibesSummary from './buildSummary.js'
+import eventMetricsSnapshotService from '../../services/eventMetricsSnapshot.service.js'
 import handleSummon from './summon.js'
 import { HELLO_MESSAGE } from './prompt.js'
 import defaultTriggers from './triggers.js'
@@ -110,7 +111,21 @@ export default verify({
     // annotate from the allowed channels, curate, then fact-check). The snapshot fetch
     // above is the only event-stop-specific step; the rest is reused by the summon path.
     const llm = await getModelChat(defaultLLMPlatform as LlmPlatforms, defaultLLMModel)
-    const renderData = await buildVibesSummary(conversation, llm)
+    const { renderData, metrics } = await buildVibesSummary(conversation, llm)
+
+    /* Persist this event's metrics as a per-event snapshot so every metric can be trended
+       over time, not just the few the baseline re-derives. Best-effort, like the analytics
+       fetch above: a snapshot write must never block the recap card from posting. The
+       snapshot stores counts only and drops the verbatim spike and reception quotes. */
+    try {
+      await eventMetricsSnapshotService.persistSnapshot(conversation, metrics)
+    } catch (error: unknown) {
+      logger.error(
+        `Vibes Analyst could not persist metrics snapshot for ${conversation._id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
+    }
 
     return [
       {
