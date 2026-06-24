@@ -309,6 +309,35 @@ const updateConversation = async (conversationBody, user) => {
       }
     }
 
+    /* The Slack adapter's identity and routing fields are rendered from properties once at
+       creation, like the Zoom config above. They don't resync on a later properties change,
+       so adding slackBotUserId to turn on summon (or rotating the token or signing secret)
+       would update properties but never reach the live adapter. Map any changed Slack
+       properties to their adapter config keys and push them. */
+    const slackPropertyToConfigKey: Record<string, string> = {
+      slackBotUserId: 'botUserId',
+      botName: 'botName',
+      slackBotToken: 'botToken',
+      slackSigningSecret: 'signingSecret',
+      slackChannel: 'channel',
+      slackWorkspace: 'workspace',
+      slackAppKey: 'appKey'
+    }
+    const slackConfigUpdates: Record<string, unknown> = {}
+    for (const [property, configKey] of Object.entries(slackPropertyToConfigKey)) {
+      if (incomingProperties[property] !== undefined) {
+        slackConfigUpdates[configKey] = incomingProperties[property]
+      }
+    }
+    if (Object.keys(slackConfigUpdates).length > 0) {
+      const slackAdapters = await Adapter.find({ conversation: conversationDoc._id, type: 'slack' })
+      for (const adapter of slackAdapters) {
+        adapter.config = { ...adapter.config, ...slackConfigUpdates }
+        adapter.markModified('config')
+        await adapter.save()
+      }
+    }
+
     /* Agents get their llmModel and llmPlatform baked in at creation time via $ref
        resolution. They don't pick up property changes automatically, so push any
        model update to Agent documents now. */

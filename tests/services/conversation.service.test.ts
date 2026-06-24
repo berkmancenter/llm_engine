@@ -38,6 +38,11 @@ const testAdapterTypes = {
     start: mockAdapterStart,
     stop: mockAdapterStop,
     getUniqueKeys: mockGetUniqueKeys
+  },
+  slack: {
+    start: mockAdapterStart,
+    stop: mockAdapterStop,
+    getUniqueKeys: mockGetUniqueKeys
   }
 }
 
@@ -1602,6 +1607,45 @@ describe('Conversation service methods', () => {
 
       const agentsAfter = await Agent.find({ conversation: featureConv._id })
       expect(agentsAfter.map((a) => a.agentType)).not.toContain('eventMediator')
+    })
+
+    test('syncs slackBotUserId into the slack adapter config on a properties update', async () => {
+      /* A Slack-backed bot (the Vibes Analyst) renders its bot user id into the adapter
+         config once at creation. Adding or changing slackBotUserId later has to reach that
+         adapter, or summon never recognizes the bot's @-mentions. */
+      await Adapter.create({
+        type: 'slack',
+        conversation: conversation._id,
+        config: { botUserId: 'UOLD', botName: 'OriginalBot', channel: 'C123' }
+      })
+
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), properties: { slackBotUserId: 'UNEW' } },
+        registeredUser
+      )
+
+      const [updated] = await Adapter.find({ conversation: conversation._id, type: 'slack' })
+      expect(updated.config.botUserId).toBe('UNEW')
+      // Only the changed key is touched; unrelated config is left alone.
+      expect(updated.config.botName).toBe('OriginalBot')
+      expect(updated.config.channel).toBe('C123')
+    })
+
+    test('syncs botName into the slack adapter config on a properties update', async () => {
+      await Adapter.create({
+        type: 'slack',
+        conversation: conversation._id,
+        config: { botUserId: 'U123', botName: 'OldName' }
+      })
+
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), properties: { botName: 'NewName' } },
+        registeredUser
+      )
+
+      const [updated] = await Adapter.find({ conversation: conversation._id, type: 'slack' })
+      expect(updated.config.botName).toBe('NewName')
+      expect(updated.config.botUserId).toBe('U123')
     })
   })
 
