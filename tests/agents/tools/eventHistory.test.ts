@@ -113,7 +113,7 @@ describe('eventHistory tools', () => {
       expect(result.toLowerCase()).toMatch(/part.time|work|employer|flexib/)
 
       // ensure prefixed with event name
-      expect(result).toContain('[Event:')
+      expect(result).toContain('[Past Event:')
     })
 
     it('finds presenter metadata by name and subject', async () => {
@@ -130,11 +130,10 @@ describe('eventHistory tools', () => {
       expect(result).not.toBe('No relevant content found.')
     })
 
-    it('returns no relevant content for completely unrelated query', async () => {
-      // Score threshold of 0.8 should filter out very weak matches
+    it('returns a string for completely unrelated queries (no threshold — always returns top-k)', async () => {
       const result = await searchTopicTool().invoke({ query: 'quantum physics subatomic particles' })
       console.log('search_topic_transcripts (off-topic):', result.slice(0, 100))
-      // Either no results or low-relevance — just ensure it doesn't throw
+      // No score threshold — tool always returns best matches, so result is always a string
       expect(typeof result).toBe('string')
     })
   })
@@ -157,7 +156,7 @@ describe('eventHistory tools', () => {
         query: 'employers workers'
       })
 
-      expect(result).toContain('[Event:')
+      expect(result).toContain('[Past Event:')
     })
 
     it('returns invalid conversation for malformed conversation id', async () => {
@@ -248,5 +247,218 @@ describe('eventHistory tools', () => {
       expect(names).toContain('Part-Time Work Panel')
       expect(names).not.toContain('Aliens and Cinema')
     })
+  })
+
+  describe('[Past Event: name] chunk prefix', () => {
+    it('search_topic_transcripts prefixes every result chunk with [Past Event:]', async () => {
+      const result = await searchTopicTool().invoke({ query: 'aliens film cinema' })
+      expect(result).not.toBe('No relevant content found.')
+      expect(result).toContain('[Past Event:')
+      // Must NOT use the old [Event:] prefix
+      expect(result).not.toMatch(/^\[Event:/)
+    })
+
+    it('search_conversation_transcript prefixes every result chunk with [Past Event:]', async () => {
+      const result = await searchConvTool().invoke({
+        conversationId: conv1._id.toString(),
+        query: 'part-time work employers'
+      })
+      expect(result).not.toBe('No relevant content found in that event.')
+      expect(result).toContain('[Past Event:')
+      expect(result).not.toMatch(/^\[Event:/)
+    })
+  })
+
+  describe('search_topic_transcripts – no score threshold', () => {
+    it('returns content for a broad discovery query that would have failed the old 0.8 threshold', async () => {
+      // Prior to the fix this tool applied a 0.8 cosine-distance threshold and returned nothing
+      // for broad/meta queries. With the threshold removed, the top-k results are always returned.
+      const result = await searchTopicTool().invoke({ query: 'what happened at this event' })
+      console.log('search_topic_transcripts (broad query):', result.slice(0, 200))
+      expect(result).not.toBe('No relevant content found.')
+      expect(typeof result).toBe('string')
+      expect(result.length).toBeGreaterThan(0)
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Additional describes with their own setup — test specific bug-fix behaviors
+// ---------------------------------------------------------------------------
+
+describe('get_event_list – Chroma-indexed conversation filtering', () => {
+  let topic; let user
+
+  beforeEach(async () => {
+    user = await createUser('Chroma Filter Test User')
+    topic = await createPublicTopic()
+  })
+
+  it('excludes conversations that have no indexed transcript data in Chroma', async () => {
+    const conv1 = await createConversation(
+      { name: 'Indexed Part-Time Work' },
+      user,
+      topic,
+      new Date('2025-01-01T18:00:00Z')
+    )
+    const conv2 = await createConversation(
+      { name: 'Indexed Aliens' },
+      user,
+      topic,
+      new Date('2025-02-01T18:00:00Z')
+    )
+    await createConversation({ name: 'Not Indexed Event' }, user, topic, new Date('2025-03-01T18:00:00Z'))
+
+    await loadPartTimeWorkTranscript(conv1, true)
+    await loadAliensTranscript(conv2, true)
+    // third conversation intentionally NOT indexed
+
+    const topicRefs: TopicRef[] = [{ id: topic._id.toString(), name: topic.name }]
+    const tools = createEventHistoryTools(topicRefs)
+    const result = JSON.parse(await tools.find((t) => t.name === 'get_event_list')!.invoke({}))
+
+    const names = result.map((r) => r.name)
+    expect(names).toContain('Indexed Part-Time Work')
+    expect(names).toContain('Indexed Aliens')
+    expect(names).not.toContain('Not Indexed Event')
+    expect(result).toHaveLength(2)
+  })
+
+  it('falls back to returning all conversations when no Chroma data exists for the topic', async () => {
+    // Neither conversation is indexed — the topic collection won't exist in Chroma.
+    // In this state getIndexedConversationIds returns an empty Set and the tool falls back
+    // to all conversations (same behavior as before the Chroma-filtering feature was added).
+    await createConversation({ name: 'Event A' }, user, topic, new Date('2025-01-01T18:00:00Z'))
+    await createConversation({ name: 'Event B' }, user, topic, new Date('2025-02-01T18:00:00Z'))
+
+    const topicRefs: TopicRef[] = [{ id: topic._id.toString(), name: topic.name }]
+    const tools = createEventHistoryTools(topicRefs)
+    const result = JSON.parse(await tools.find((t) => t.name === 'get_event_list')!.invoke({}))
+
+    expect(result).toHaveLength(2)
+  })
+})
+
+describe('get_event_list – ordinal session ordering (most-recent-first)', () => {
+  let topic; let user; let convOlder; let convNewer; let currentConv
+
+  beforeEach(async () => {
+    user = await createUser('Ordinal Test User')
+    topic = await createPublicTopic()
+
+    const now = new Date()
+    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000)
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+
+    // The "2 sessions ago" event
+    convOlder = await createConversation({ name: 'Aliens Session' }, user, topic, fourteenDaysAgo)
+    await loadAliensTranscript(convOlder, true)
+
+    // The "1 session ago" event
+    convNewer = await createConversation({ name: 'Part-Time Work Session' }, user, topic, sevenDaysAgo)
+    await loadPartTimeWorkTranscript(convNewer, true)
+
+    // The "current" event — not indexed; excluded via excludeConversationId
+    currentConv = await createConversation({ name: 'Current Session' }, user, topic, now)
+  })
+
+  it('returns past events sorted most-recent-first, excluding the current event', async () => {
+    const topicRefs: TopicRef[] = [{ id: topic._id.toString(), name: topic.name }]
+    const tools = createEventHistoryTools(topicRefs, {
+      excludeConversationId: currentConv._id.toString()
+    })
+    const result = JSON.parse(await tools.find((t) => t.name === 'get_event_list')!.invoke({}))
+
+    expect(result).toHaveLength(2)
+    expect(result[0].name).toBe('Part-Time Work Session') // 1 session ago (more recent)
+    expect(result[1].name).toBe('Aliens Session') // 2 sessions ago (older)
+    expect(result.map((r) => r.name)).not.toContain('Current Session')
+  })
+
+  it('index [0] is 1 session ago and index [1] is 2 sessions ago', async () => {
+    const topicRefs: TopicRef[] = [{ id: topic._id.toString(), name: topic.name }]
+    const tools = createEventHistoryTools(topicRefs, {
+      excludeConversationId: currentConv._id.toString()
+    })
+    const result = JSON.parse(await tools.find((t) => t.name === 'get_event_list')!.invoke({}))
+
+    expect(result[0].id).toBe(convNewer._id.toString())
+    expect(result[1].id).toBe(convOlder._id.toString())
+  })
+
+  it('the event at index [1] (2 sessions ago) has searchable transcript content', async () => {
+    const topicRefs: TopicRef[] = [{ id: topic._id.toString(), name: topic.name }]
+    const tools = createEventHistoryTools(topicRefs, {
+      excludeConversationId: currentConv._id.toString()
+    })
+    const eventList = JSON.parse(await tools.find((t) => t.name === 'get_event_list')!.invoke({}))
+    const twoSessionsAgoId = eventList[1].id
+
+    const result = await tools.find((t) => t.name === 'search_conversation_transcript')!.invoke({
+      conversationId: twoSessionsAgoId,
+      query: 'aliens film cinema'
+    })
+    console.log('ordinal 2-sessions-ago transcript:', result.slice(0, 200))
+
+    expect(result).not.toBe('No relevant content found in that event.')
+    expect(result.toLowerCase()).toMatch(/alien|film|cinema/)
+  })
+})
+
+describe('get_event_list – calendar date filtering', () => {
+  let topic; let user; let convRecent; let convMidMonth; let convOld
+
+  beforeEach(async () => {
+    user = await createUser('Calendar Test User')
+    topic = await createPublicTopic()
+
+    const now = new Date()
+    const oneDayAgo = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000)
+    const eightDaysAgo = new Date(now.getTime() - 8 * 24 * 60 * 60 * 1000)
+    const fifteenDaysAgo = new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000)
+
+    convRecent = await createConversation({ name: 'Recent Event' }, user, topic, oneDayAgo)
+    convMidMonth = await createConversation({ name: 'Mid-Month Event' }, user, topic, eightDaysAgo)
+    convOld = await createConversation({ name: 'Older Event' }, user, topic, fifteenDaysAgo)
+
+    await loadAliensTranscript(convRecent, true)
+    await loadPartTimeWorkTranscript(convMidMonth, true)
+    await loadAliensTranscript(convOld, true)
+  })
+
+  it('returns only events on or after a since date', async () => {
+    const now = new Date()
+    const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)
+
+    const topicRefs: TopicRef[] = [{ id: topic._id.toString(), name: topic.name }]
+    const tools = createEventHistoryTools(topicRefs)
+    const result = JSON.parse(
+      await tools.find((t) => t.name === 'get_event_list')!.invoke({
+        since: threeDaysAgo.toISOString().slice(0, 10)
+      })
+    )
+
+    expect(result).toHaveLength(1)
+    expect(result[0].name).toBe('Recent Event')
+  })
+
+  it('returns only events within a since/until window, mimicking a "last week" lookup', async () => {
+    const now = new Date()
+    // Window: 4–12 days ago, which contains only the 8-day-ago event
+    const fourDaysAgo = new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000)
+    const twelveDaysAgo = new Date(now.getTime() - 12 * 24 * 60 * 60 * 1000)
+
+    const topicRefs: TopicRef[] = [{ id: topic._id.toString(), name: topic.name }]
+    const tools = createEventHistoryTools(topicRefs)
+    const result = JSON.parse(
+      await tools.find((t) => t.name === 'get_event_list')!.invoke({
+        since: twelveDaysAgo.toISOString().slice(0, 10),
+        until: fourDaysAgo.toISOString().slice(0, 10)
+      })
+    )
+
+    expect(result).toHaveLength(1)
+    expect(result[0].name).toBe('Mid-Month Event')
+    expect(result[0].id).toBe(convMidMonth._id.toString())
   })
 })

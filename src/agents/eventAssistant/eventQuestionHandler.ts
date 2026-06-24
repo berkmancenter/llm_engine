@@ -519,6 +519,10 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
       ? `${EVENT_ASSISTANT_TOOL_USER_MANDATE}${series ? EVENT_ASSISTANT_SERIES_HISTORY_USER_CARVEOUT : ''}`
       : ''
     const userPrompt = `${userMandate}## User question:\n${question}`
+    // Series history adds 3 tools (get_event_list, search_topic_transcripts, search_conversation_transcript);
+    // a full research workflow across past events consumes more LangGraph supersteps than the
+    // web-search-only case, so give more headroom when that feature is active.
+    const agentRecursionLimit = series ? 20 : 10
     const agentBundle = (await getAgentStructuredResponse(
       llm,
       tools,
@@ -526,7 +530,7 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
       userPrompt,
       undefined,
       chatHistory,
-      10,
+      agentRecursionLimit,
       { returnToolTrace: true }
     )) as { text: string; toolTrace: { invoked: boolean; calls: Array<{ name: string; args: unknown }> } }
     llmResponse = agentBundle.text

@@ -1,6 +1,7 @@
 import { tool } from '@langchain/core/tools'
 import { z } from 'zod'
 import mongoose from 'mongoose'
+import { IncludeEnum } from 'chromadb'
 import Conversation from '../../models/conversation.model.js'
 import rag, { TRANSCRIPT_COLLECTION_PREFIX } from '../helpers/rag.js'
 import { TOPIC_TRANSCRIPT_COLLECTION_PREFIX } from '../helpers/transcript.js'
@@ -21,6 +22,25 @@ export interface EventHistoryToolOptions {
   excludeConversationId?: string
 }
 
+async function getIndexedConversationIds(topicIds: string[]): Promise<Set<string>> {
+  const ids = new Set<string>()
+  await Promise.all(
+    topicIds.map(async (topicId) => {
+      try {
+        const collection = await rag.getCollection(`${TOPIC_TRANSCRIPT_COLLECTION_PREFIX}-${topicId}`)
+        const result = await collection.get({ include: [IncludeEnum.Metadatas] })
+        for (const meta of result.metadatas ?? []) {
+          const convId = meta?.conversationId
+          if (typeof convId === 'string') ids.add(convId)
+        }
+      } catch (e) {
+        logger.warn(`getIndexedConversationIds: could not query topic collection for ${topicId}: ${e.message}`)
+      }
+    })
+  )
+  return ids
+}
+
 export default function createEventHistoryTools(topics: TopicRef[], options: EventHistoryToolOptions = {}) {
   const topicIds = topics.map((t) => t.id)
   const { excludeConversationId } = options
@@ -35,7 +55,17 @@ export default function createEventHistoryTools(topics: TopicRef[], options: Eve
       const searchTopicIds = resolveSearchTopicIds(topicId)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const query: Record<string, any> = { topic: { $in: searchTopicIds.map((id) => new mongoose.Types.ObjectId(id)) } }
-      if (excludeConversationId) {
+
+      // Filter to only conversations that have actual transcript data indexed in Chroma.
+      // We query the topic-level collection (scoped to this series) and extract distinct
+      // conversationId values from chunk metadata — no cross-series data is fetched.
+      const indexedIds = await getIndexedConversationIds(searchTopicIds)
+      const objectIds = [...indexedIds].map((id) => new mongoose.Types.ObjectId(id))
+      if (objectIds.length > 0) {
+        query._id = excludeConversationId
+          ? { $in: objectIds, $ne: new mongoose.Types.ObjectId(excludeConversationId) }
+          : { $in: objectIds }
+      } else if (excludeConversationId) {
         query._id = { $ne: new mongoose.Types.ObjectId(excludeConversationId) }
       }
       if (since || until) {
@@ -67,9 +97,13 @@ export default function createEventHistoryTools(topics: TopicRef[], options: Eve
     {
       name: 'get_event_list',
       description:
-        'List events (conversations) across all event series with their names, dates, and descriptions. ' +
-        'Use this to answer questions about which events have occurred, when they happened, or to ' +
-        'identify a specific event by name or date before drilling into its transcript. ' +
+        'List past events in this series that have searchable transcript data, sorted most-recent-first. ' +
+        'The current event is already excluded — every result is a PRIOR session, not the current one. ' +
+        'If you get 1 result, that IS the previous session. ' +
+        'Use this to identify a specific event by name or date before drilling into its transcript, ' +
+        'or to answer questions about when events occurred. ' +
+        'For questions about what past events covered, prefer search_topic_transcripts (searches all at once) ' +
+        'rather than listing events first. ' +
         'Optionally filter by a specific series topicId or a date range.',
       schema: z.object({
         since: z
@@ -89,8 +123,8 @@ export default function createEventHistoryTools(topics: TopicRef[], options: Eve
   )
 
   const formatChunk = (doc) => {
-    const event = doc.metadata?.conversationName ? `[Event: ${doc.metadata.conversationName}]` : null
-    return event ? `${event}\n${doc.pageContent}` : doc.pageContent
+    const label = doc.metadata?.conversationName ? `[Past Event: ${doc.metadata.conversationName}]` : '[Past Event]'
+    return `${label}\n${doc.pageContent}`
   }
 
   const searchTopicTranscriptsTool = tool(
@@ -105,15 +139,14 @@ export default function createEventHistoryTools(topics: TopicRef[], options: Eve
         searchTopicIds.map(async (id) => {
           const collectionName = `${TOPIC_TRANSCRIPT_COLLECTION_PREFIX}-${id}`
           try {
+            // No score threshold — this tool is for discovery; always return the best matches
+            // so the LLM can see what past events covered even for broad/meta queries.
             const { chunks } = await rag.getContextChunksForQuestion(
               collectionName,
               query,
               formatChunk,
               chunkFilter,
-              10,
-              undefined,
-              undefined,
-              0.8
+              10
             )
             if (chunks) allChunks.push(chunks)
           } catch (error) {

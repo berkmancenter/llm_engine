@@ -7,8 +7,10 @@ import {
 
 describe('series history guidance', () => {
   describe('buildSeriesHistoryRules', () => {
+    const TODAY = '2026-01-15'
+
     test('names the series and the three event_history tools', () => {
-      const rules = buildSeriesHistoryRules('AI Ethics Salon')
+      const rules = buildSeriesHistoryRules('AI Ethics Salon', TODAY)
       expect(rules).toContain('AI Ethics Salon')
       expect(rules).toMatch(/get_event_list/)
       expect(rules).toMatch(/search_topic_transcripts/)
@@ -16,15 +18,23 @@ describe('series history guidance', () => {
     })
 
     test('scopes the search to OTHER past events, not the current one', () => {
-      const rules = buildSeriesHistoryRules('Weekly Standup')
+      const rules = buildSeriesHistoryRules('Weekly Standup', TODAY)
       expect(rules).toMatch(/other past events|other events/i)
-      expect(rules).toMatch(/current event.*already in your Context/i)
+      expect(rules).toMatch(/current event.*transcript.*in your Context/i)
     })
 
     test('routes series questions to these tools rather than web_search', () => {
-      const rules = buildSeriesHistoryRules('Weekly Standup')
+      const rules = buildSeriesHistoryRules('Weekly Standup', TODAY)
       expect(rules).toMatch(/not.*on the public web/i)
-      expect(rules).toMatch(/web_search.{0,3}cannot answer/i)
+      expect(rules).toMatch(/web_search.{0,20}cannot find/i)
+    })
+
+    test('includes today date and ordinal/calendar reference guidance', () => {
+      const rules = buildSeriesHistoryRules('Weekly Standup', TODAY)
+      expect(rules).toContain(TODAY)
+      expect(rules).toMatch(/sessions ago|ordinal/i)
+      expect(rules).toMatch(/last week|calendar/i)
+      expect(rules).toMatch(/since.*until|until.*since/i)
     })
   })
 

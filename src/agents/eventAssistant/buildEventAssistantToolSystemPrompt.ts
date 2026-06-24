@@ -29,17 +29,30 @@ export const EVENT_ASSISTANT_TOOL_USER_MANDATE = `**Tool policy (mandatory):** U
  * enabled. Tells the model it can reach the transcripts of *other past events* in the same series
  * and which tool does what. Exported as a builder so unit tests can lock the wording without an LLM.
  */
-export function buildSeriesHistoryRules(seriesName: string): string {
+export function buildSeriesHistoryRules(seriesName: string, today: string): string {
   return `**Event series history tools:**
-This event is part of the "${seriesName}" series. You can search the transcripts of **other past events in this series** to answer questions that reference earlier sessions, recurring speakers, or topics covered before — use them whenever a question touches on the series' history rather than only the current event.
+This event is part of the "${seriesName}" series. You can search the transcripts of **other past events in this series** to answer questions that reference earlier sessions, recurring speakers, or topics covered before.
 
-- \`get_event_list\`: list the other events in this series by name and date
-- \`search_topic_transcripts\`: semantic search across the other events' transcripts; each result is prefixed with the event name it came from
-- \`search_conversation_transcript\`: deep search within a specific past event's transcript after identifying it via the tools above
+Today's date is ${today}.
 
-Prefer \`search_topic_transcripts\` for broad questions; use \`search_conversation_transcript\` for specific quotes once you know which past event to drill into. You do not need to pass a \`topicId\` — these tools are already scoped to this series. These tools cover only *other* events — the current event's own transcript is already in your Context below. For questions answerable from the current event or general knowledge, respond without calling them.
+- \`search_topic_transcripts\`: semantic search across ALL past events' transcripts at once; each result chunk is prefixed with \`[Past Event: name]\`. **Start here for any question about what past sessions covered.** Results labeled \`[Past Event: ...]\` are NEVER from the current session — always from a prior one, even if the name matches the current event.
+- \`get_event_list\`: list past events by name and date, sorted most-recent-first. Use this when you need to identify a specific event by name/date, for ordinal references ("2 sessions ago"), or for calendar references ("last week").
+- \`search_conversation_transcript\`: deep search within one specific past event's transcript, after identifying it via \`get_event_list\`.
 
-These transcripts are private to this series and are **not** on the public web, so \`web_search\` cannot answer questions about earlier sessions, past speakers, or what was discussed before — use these event-history tools for anything about the series' past, and reserve \`web_search\` for facts about the wider world.`
+**Workflow for "what was the previous session about?" or similar:**
+Call \`search_topic_transcripts\` directly. Use the user's question as your query — do NOT use generic phrases like "main topics discussed". Do NOT call \`get_event_list\` first for content questions — it only lists events, it does not retrieve what was discussed.
+
+**Workflow for ordinal references ("2 sessions ago", "the third-to-last event"):**
+Call \`get_event_list\` first. The list is sorted most-recent-first, so the first result is 1 session ago, the second result is 2 sessions ago, etc. Then search that event's transcript.
+
+**Workflow for calendar references ("last week", "the session in March", "last month"):**
+Use today's date (${today}) to compute an ISO date range, then call \`get_event_list\` with the appropriate \`since\`/\`until\` params to identify the event(s). Then search their transcripts.
+
+**Important:** These tools already exclude the current event — every result is from a prior session. You do not need to pass a \`topicId\`. The current event's transcript is in your Context below; use these tools only for past events.
+
+**Same-name events:** Past events may share the same name as the current session — they are still distinct prior sessions, identifiable by their ID and date in \`get_event_list\` results.
+
+These transcripts are private to this series and are **not** on the public web — \`web_search\` cannot find them. Use these event-history tools for anything about past sessions, and reserve \`web_search\` for facts about the wider world.`
 }
 
 export interface EventAssistantToolPromptOptions {
@@ -47,6 +60,8 @@ export interface EventAssistantToolPromptOptions {
   hasWebSearch?: boolean
   /** When present, the assistant has series-history tools scoped to this series. */
   series?: { name: string }
+  /** ISO date string for today (e.g. "2026-06-22") — lets the LLM resolve calendar references like "last week". */
+  today?: string
 }
 
 /**
@@ -65,8 +80,8 @@ export function buildEventAssistantToolSystemPrompt(
   contextString: string,
   options: EventAssistantToolPromptOptions = {}
 ) {
-  const { hasWebSearch = true, series } = options
-  const ruleBlocks = [hasWebSearch ? EVENT_ASSISTANT_TOOL_USAGE_RULES : '', series ? buildSeriesHistoryRules(series.name) : '']
+  const { hasWebSearch = true, series, today = new Date().toISOString().slice(0, 10) } = options
+  const ruleBlocks = [hasWebSearch ? EVENT_ASSISTANT_TOOL_USAGE_RULES : '', series ? buildSeriesHistoryRules(series.name, today) : '']
     .filter(Boolean)
     .join('\n\n')
 
