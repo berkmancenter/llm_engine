@@ -132,6 +132,13 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
       type: Boolean,
       default: false
     },
+    // Which analytics source holds this event's data, by name. A Matomo "segment"
+    // is a saved filter that isolates this event's visits, e.g. { matomo: "<segment id>" }.
+    analyticsRefs: {
+      type: Map,
+      of: String,
+      default: undefined
+    },
     transcript: transcriptSchema,
     adapters: [{ type: mongoose.SchemaTypes.ObjectId, ref: 'Adapter' }],
     followers: [{ type: mongoose.SchemaTypes.ObjectId, ref: 'Follower' }],
