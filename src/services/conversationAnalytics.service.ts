@@ -1,7 +1,7 @@
 import Message from '../models/message.model.js'
 import Channel from '../models/channel.model.js'
-import Conversation from '../models/conversation.model.js'
 import ConversationAnalytics from '../models/conversationAnalytics.model.js'
+import EventMetricsSnapshot from '../models/eventMetricsSnapshot.model.js'
 import { matchBotMention } from '../agents/helpers/intentChecks.js'
 import config from '../config/config.js'
 import {
@@ -19,6 +19,15 @@ import {
   TrackedSessionMetrics,
   TrackedSessionStatus
 } from '../types/index.types.js'
+
+/* The version of the metric definitions this service computes. Every persisted
+   EventMetricsSnapshot is stamped with it, and the baseline only averages snapshots that
+   share the current version, so a trend that crosses a definition change is never read as a
+   continuous line. Bump it by one whenever a metric's meaning or calculation changes (the
+   same change that METRICS.md asks you to document), so old values keep the meaning they had
+   when they were captured. Adding a brand-new metric does not require a bump, since it cannot
+   make an existing value misleading. */
+export const METRICS_VERSION = 1
 
 /* Six windows keeps the activity chart readable and under Slack's 20-point limit. */
 const ACTIVITY_BUCKET_COUNT = 6
@@ -441,37 +450,44 @@ function eventHistoryLabel(name: string | undefined, endTime: Date | undefined):
 /* Looks at up to the 10 most recent past events in the same topic and builds two
    things: a chart-ready history (each past event labeled by its name and date, this
    event labeled "Today") and a baseline
-   that averages their poster counts, lurker counts, and dwell time. A past event's
-   lurker count and dwell only count when it has stored tracked-session data AND its
-   participation reconciles, meaning its poster count did not exceed its tracked visitor
-   count, which is the same rule the current event uses. An event that lacks tracked data,
-   or whose posters exceed tracked visitors, still contributes its poster count but leaves
-   lurkers unknown (null) and is left out of the dwell average. The baseline is null on a
-   topic's first event, since there is nothing earlier to compare against.
+   that averages their poster counts, lurker counts, and dwell time.
+
+   Past events are read from their persisted EventMetricsSnapshot, not recomputed from raw
+   messages: each event's numbers were frozen when its recap was built, so a recurring
+   series is compared to what it actually was then rather than re-derived on every recap.
+   Only snapshots on the current METRICS_VERSION are read, so a metric whose definition
+   changed never makes a trend read as one continuous line. Experimental events are never
+   snapshotted (the write skips them), so they need no filtering here. The current (live)
+   event has no snapshot yet, so its numbers are passed in and appended as "Today".
+
+   A past event's lurker count is whatever was stored: non-null only when that event's
+   tracking reconciled against its poster count (the same rule the current event uses), and
+   null when it had no tracked data or its posters exceeded its tracked visitors. An event
+   with a null lurker count still contributes its poster count but is left out of the dwell
+   average. The baseline is null on a topic's first event, since there is nothing earlier to
+   compare against (and nothing earlier to have a snapshot).
 
    The baseline carries two different spans because the averages cover different sets of
-   past events. eventCount is the poster span: every past event has a known poster count.
-   trackedEventCount is the tracked span: only events with stored tracked-session data that
-   also reconciled contribute a lurker count and a dwell time, so avgLurkerCount and
-   avgDwellSeconds are averaged over just those (pastLurkerCounts.length, which equals
-   pastDwells.length since both are gated on the same reconciles condition).
-   trackedEventCount can be smaller than eventCount, so it is reported separately rather
-   than letting a reader assume the lurker and dwell averages span every past event. */
+   past events. eventCount is the poster span: every past snapshot has a poster count.
+   trackedEventCount is the tracked span: only snapshots whose tracking reconciled carry a
+   lurker count and a dwell time, so avgLurkerCount and avgDwellSeconds are averaged over
+   just those (pastLurkerCounts.length, which equals pastDwells.length since both are gated
+   on the same non-null lurker condition). trackedEventCount can be smaller than eventCount,
+   so it is reported separately rather than letting a reader assume the lurker and dwell
+   averages span every past event. */
 async function computeHistoryAndBaseline(
   conversation,
   current: { posterCount: number; lurkerCount: number | null }
 ): Promise<{ participationHistory: ParticipationHistoryPoint[]; baseline: SameTopicBaseline | null }> {
-  /* experimental conversations are test runs, not real events, so they are excluded
-     from the baseline to match how the rest of the codebase scopes real events. */
-  const recentPast = await Conversation.find({
-    topic: conversation.topic,
-    _id: { $ne: conversation._id },
-    endTime: { $exists: true, $ne: null },
-    experimental: { $ne: true }
+  const recentPast = await EventMetricsSnapshot.find({
+    topicId: conversation.topic,
+    conversationId: { $ne: conversation._id },
+    metricsVersion: METRICS_VERSION,
+    eventEndTime: { $exists: true, $ne: null }
   })
-    .sort({ endTime: -1 })
+    .sort({ eventEndTime: -1 })
     .limit(BASELINE_EVENT_LIMIT)
-    .select('_id name endTime')
+    .select('eventName eventEndTime posterCount lurkerCount avgDwellSeconds')
 
   const oldestFirst = [...recentPast].reverse()
   const participationHistory: ParticipationHistoryPoint[] = []
@@ -479,27 +495,26 @@ async function computeHistoryAndBaseline(
   const pastLurkerCounts: number[] = []
   const pastDwells: number[] = []
 
-  for (const pastEvent of oldestFirst) {
-    const { posterCount } = await computeParticipation(pastEvent._id)
+  for (const snapshot of oldestFirst) {
+    const { posterCount } = snapshot
+    const lurkerCount = snapshot.lurkerCount ?? null
     pastPosterCounts.push(posterCount)
 
-    const snapshot = await ConversationAnalytics.findOne({ conversationId: pastEvent._id })
-    const hasTracked = !!snapshot && (snapshot.totalVisits ?? 0) > 0
-    /* Apply the same reconciliation rule the current event uses: a past event reconciles
-       only when it has tracked data AND its tracked visitor count is at least its poster
-       count. When more people posted than were tracked, the two counts come from different
-       systems and do not reconcile, so we do not invent a lurker count. The >= posterCount
-       guard means the difference is never negative, which is why no Math.max clamp is needed. */
-    const reconciles = hasTracked && (snapshot.attendeeCount ?? 0) >= posterCount
-    const lurkerCount = reconciles ? (snapshot.attendeeCount ?? 0) - posterCount : null
-    if (lurkerCount !== null) pastLurkerCounts.push(lurkerCount)
-    /* Gate the dwell sample on reconciliation too, not just on hasTracked. If participation
-       and tracking did not reconcile, the event's tracking under-captured the audience, so it
-       is not a clean audience comparison for dwell either. Dropping it from both keeps the
-       lurker and dwell baselines over one identical span of past events (trackedEventCount). */
-    if (reconciles) pastDwells.push((snapshot.totalDwellSeconds ?? 0) / snapshot.totalVisits)
+    /* A non-null lurker count means that event's tracking reconciled, so its stored dwell is
+       a clean audience comparison. Gate both samples on that one condition so the lurker and
+       dwell baselines span one identical set of past events (trackedEventCount). A reconciled
+       snapshot always carries a dwell number, so the ?? 0 only guards a malformed document and
+       keeps pastDwells.length equal to pastLurkerCounts.length. */
+    if (lurkerCount !== null) {
+      pastLurkerCounts.push(lurkerCount)
+      pastDwells.push(snapshot.avgDwellSeconds ?? 0)
+    }
 
-    participationHistory.push({ label: eventHistoryLabel(pastEvent.name, pastEvent.endTime), posterCount, lurkerCount })
+    participationHistory.push({
+      label: eventHistoryLabel(snapshot.eventName ?? undefined, snapshot.eventEndTime),
+      posterCount,
+      lurkerCount
+    })
   }
   participationHistory.push({ label: 'Today', posterCount: current.posterCount, lurkerCount: current.lurkerCount })
 

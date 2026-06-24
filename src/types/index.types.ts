@@ -716,6 +716,60 @@ export interface ResourceSummary {
    'both' when it ran on Nextspace and Zoom together. */
 export type EventPlatform = 'nextspace' | 'zoom' | 'both'
 
+/* One persisted per-event snapshot of the Vibes Analyst metrics, one document per event in
+   its own collection. It is written when an event's recap is built, so every metric can be
+   trended over time instead of recomputed from raw messages on each recap. The shape mirrors
+   ConversationMetrics but keeps only scalar aggregates: the verbatim quote text that spikes
+   and receptions carry (spike.annotation, reception.sparkQuote/reactionQuote) is deliberately
+   dropped, because this is a long-lived analytics store and those quotes are word-for-word
+   chat and backchannel content. Counts are kept; the words are not.
+
+   metricsVersion stamps the metric definitions in force when the snapshot was taken, so a
+   trend that crosses a definition change is never read as a continuous line (see
+   METRICS_VERSION in conversationAnalytics.service). The estimate block, everything sourced
+   from web analytics, is captured "as of" capturedAt and is never chased when late provider
+   data lands after the event.
+
+   The tracked-session fields are nullable because an event may have had no web-analytics data
+   at all. receptionCount is nullable for a separate reason: it is filled by the analyst's LLM
+   when the live card is built, so a recompute that skips that step (the backfill) records null
+   ("not computed") rather than a misleading 0. */
+export interface EventMetricsSnapshotData {
+  conversationId: mongoose.Types.ObjectId
+  topicId: mongoose.Types.ObjectId
+  eventName?: string
+  eventEndTime: Date
+  eventPlatform: EventPlatform
+  metricsVersion: number
+  capturedAt: Date
+  // Participation (exact, from our own database).
+  posterCount: number
+  messageCount: number
+  frequentPosterCount: number
+  frequentPosterMessageShare: number | null
+  // Audience engagement (estimate, as of capturedAt). Null fields mean no tracked-session
+  // data, or a count that could not be reconciled against the poster count.
+  trackedSessionStatus: TrackedSessionStatus
+  trackedSessions: number
+  participantCount: number | null
+  lurkerCount: number | null
+  participationRate: number | null
+  postersExceedTrackedSessions: boolean | null
+  avgDwellSeconds: number | null
+  totalActions: number | null
+  // Channel split (exact): people's messages, public chat vs private one-to-one with the bot.
+  channelSplit: { public: number; private: number }
+  // Bot invocations (exact): how many times participants called on the assistant by name.
+  botInvocationCount: number
+  // Resource counts (exact), from participant-visible resources only.
+  resourceSummary: ResourceSummary
+  // How many time windows stood out as spikes; the quote/topic annotation is not stored.
+  spikeCount: number
+  // How many speaker moments drew a chat reaction; quotes are not stored. Null when the
+  // reception pass did not run (e.g. a backfill that recomputes scalars only).
+  receptionCount: number | null
+}
+
 /* One point on a bar/line/area chart: an x-axis category and its y value. */
 export interface VibesChartDataPoint {
   label: string

@@ -1,11 +1,12 @@
 import mongoose from 'mongoose'
 import setupIntTest from '../../utils/setupIntTest.js'
-import { Conversation, Message, ConversationAnalytics, Channel } from '../../../src/models/index.js'
+import { Conversation, Message, ConversationAnalytics, EventMetricsSnapshot, Channel } from '../../../src/models/index.js'
 import conversationAnalyticsService, {
   attributeSpikeSources,
   computeResourceSummary,
   deriveEventPlatform,
-  spikeSourceForChannels
+  spikeSourceForChannels,
+  METRICS_VERSION
 } from '../../../src/services/conversationAnalytics.service.js'
 import { ChatSpike } from '../../../src/types/index.types.js'
 import config from '../../../src/config/config.js'
@@ -1008,20 +1009,66 @@ describe('computeConversationMetrics hidden message exclusion', () => {
   })
 })
 
+/* Seeds one past event as a persisted metrics snapshot, the source of truth history and the
+   baseline now read from. lurkerCount null marks an event whose tracking did not reconcile
+   (or had no tracked data), so it contributes a poster count but no lurker or dwell sample,
+   exactly as the snapshot would have been written. */
+async function seedPastSnapshot(
+  topicId: mongoose.Types.ObjectId,
+  options: {
+    endTime: Date
+    posterCount: number
+    lurkerCount: number | null
+    avgDwellSeconds?: number | null
+    metricsVersion?: number
+  }
+) {
+  return EventMetricsSnapshot.create({
+    conversationId: new mongoose.Types.ObjectId(),
+    topicId,
+    eventName: 'Topic series event',
+    eventEndTime: options.endTime,
+    eventPlatform: 'nextspace',
+    metricsVersion: options.metricsVersion ?? METRICS_VERSION,
+    capturedAt: options.endTime,
+    posterCount: options.posterCount,
+    messageCount: options.posterCount,
+    frequentPosterCount: 0,
+    frequentPosterMessageShare: null,
+    trackedSessionStatus: options.lurkerCount !== null ? 'available' : 'notTracked',
+    trackedSessions: 0,
+    participantCount: options.lurkerCount !== null ? options.posterCount + options.lurkerCount : null,
+    lurkerCount: options.lurkerCount,
+    participationRate: null,
+    postersExceedTrackedSessions: options.lurkerCount === null ? null : false,
+    avgDwellSeconds: options.avgDwellSeconds ?? null,
+    totalActions: null,
+    channelSplit: { public: 0, private: 0 },
+    botInvocationCount: 0,
+    resourceSummary: { total: 0, required: 0, referenced: 0, suggested: 0, withLinks: 0 },
+    spikeCount: 0,
+    receptionCount: null
+  })
+}
+
 describe('computeConversationMetrics history and baseline', () => {
-  it('builds poster/lurker history and averages past same-topic events', async () => {
+  it('reads past events from their snapshots and averages them, recomputing only today', async () => {
     const topicId = new mongoose.Types.ObjectId()
-    await seedTopicEvent(topicId, {
+    // Past events carry no messages here, only snapshots: if history still recomputed from raw
+    // messages these would read as 0 posters, so the 5 and 6 below prove it reads the snapshot.
+    await seedPastSnapshot(topicId, {
       endTime: new Date('2026-06-01T12:00:00.000Z'),
-      speakers: ['a', 'b', 'c', 'd', 'e'], // 5 posters
-      tracked: { attendeeCount: 20, totalVisits: 20, totalDwellSeconds: 24000 } // 15 lurkers, dwell 1200
+      posterCount: 5,
+      lurkerCount: 15,
+      avgDwellSeconds: 1200
     })
-    await seedTopicEvent(topicId, {
+    await seedPastSnapshot(topicId, {
       endTime: new Date('2026-06-08T12:00:00.000Z'),
-      speakers: ['a', 'b', 'c', 'd', 'e', 'f'] // 6 posters, no tracked data -> lurker unknown
+      posterCount: 6,
+      lurkerCount: null // no tracked data -> lurker unknown, left out of both averages
     })
     const current = await seedTopicEvent(topicId, {
-      speakers: ['a', 'b'], // 2 posters
+      speakers: ['a', 'b'], // 2 posters, recomputed live from messages
       tracked: { attendeeCount: 10, totalVisits: 10, totalDwellSeconds: 5000 } // 8 lurkers
     })
 
@@ -1041,21 +1088,23 @@ describe('computeConversationMetrics history and baseline', () => {
     })
   })
 
-  it('excludes a tracked past event from both averages when posters exceed tracked sessions', async () => {
+  it('excludes a past snapshot with an unknown lurker count from both tracked averages', async () => {
     const topicId = new mongoose.Types.ObjectId()
-    // Reconciling tracked event: 5 posters, 20 tracked visitors -> 15 lurkers, dwell 1200.
-    await seedTopicEvent(topicId, {
+    // Reconciled snapshot: 5 posters, 15 lurkers, dwell 1200.
+    await seedPastSnapshot(topicId, {
       endTime: new Date('2026-06-01T12:00:00.000Z'),
-      speakers: ['a', 'b', 'c', 'd', 'e'],
-      tracked: { attendeeCount: 20, totalVisits: 20, totalDwellSeconds: 24000 }
+      posterCount: 5,
+      lurkerCount: 15,
+      avgDwellSeconds: 1200
     })
-    // Non-reconciling tracked event: 5 posters but only 2 tracked visitors. Tracking
-    // under-captured the audience, so it is not an honest lurker or dwell comparison and
-    // must not fold a fake "0 lurkers" into either average.
-    await seedTopicEvent(topicId, {
+    // A snapshot whose tracking did not reconcile carries a null lurker count, so it must not
+    // fold a fake "0 lurkers" or its dwell into either tracked average, though its poster
+    // count still counts. avgDwellSeconds is present but ignored because the lurker count is null.
+    await seedPastSnapshot(topicId, {
       endTime: new Date('2026-06-08T12:00:00.000Z'),
-      speakers: ['a', 'b', 'c', 'd', 'e'],
-      tracked: { attendeeCount: 2, totalVisits: 2, totalDwellSeconds: 600 }
+      posterCount: 5,
+      lurkerCount: null,
+      avgDwellSeconds: 300
     })
     const current = await seedTopicEvent(topicId, {
       speakers: ['a', 'b'],
@@ -1078,30 +1127,32 @@ describe('computeConversationMetrics history and baseline', () => {
     })
   })
 
-  it('excludes an experimental past event in the same topic from the baseline and history', async () => {
+  it('ignores snapshots stamped with a different metrics version', async () => {
     const topicId = new mongoose.Types.ObjectId()
-    // Normal past event: 5 posters, 20 tracked visitors -> 15 lurkers, dwell 1200.
-    await seedTopicEvent(topicId, {
+    // Current-version snapshot that should count.
+    await seedPastSnapshot(topicId, {
       endTime: new Date('2026-06-01T12:00:00.000Z'),
-      speakers: ['a', 'b', 'c', 'd', 'e'],
-      tracked: { attendeeCount: 20, totalVisits: 20, totalDwellSeconds: 24000 }
+      posterCount: 5,
+      lurkerCount: 15,
+      avgDwellSeconds: 1200
     })
-    // Experimental past event (a test run) in the same topic. It ended and would otherwise
-    // pollute the baseline, but experimental events must not count toward real-event averages.
-    await seedTopicEvent(topicId, {
+    // An older-version snapshot whose metrics meant something different. Mixing it into the
+    // average would compare unlike numbers, so the version filter must leave it out.
+    await seedPastSnapshot(topicId, {
       endTime: new Date('2026-06-08T12:00:00.000Z'),
-      speakers: ['x', 'y', 'z', 'w', 'v', 'u', 't'], // 7 posters, would skew avgPosterCount if counted
-      experimental: true,
-      tracked: { attendeeCount: 50, totalVisits: 50, totalDwellSeconds: 60000 }
+      posterCount: 99,
+      lurkerCount: 99,
+      avgDwellSeconds: 9999,
+      metricsVersion: METRICS_VERSION + 1
     })
     const current = await seedTopicEvent(topicId, {
       speakers: ['a', 'b'],
-      tracked: { attendeeCount: 10, totalVisits: 10, totalDwellSeconds: 5000 } // 8 lurkers
+      tracked: { attendeeCount: 10, totalVisits: 10, totalDwellSeconds: 5000 }
     })
 
     const metrics = await conversationAnalyticsService.computeConversationMetrics(current)
 
-    // Only the one normal past event appears, labeled by name and date; the experimental event is absent.
+    // Only the current-version past event appears; the other-version one is absent everywhere.
     expect(metrics.participationHistory).toEqual([
       { label: 'Topic series event (Jun 1)', posterCount: 5, lurkerCount: 15 },
       { label: 'Today', posterCount: 2, lurkerCount: 8 }
@@ -1115,7 +1166,7 @@ describe('computeConversationMetrics history and baseline', () => {
     })
   })
 
-  it('returns a null baseline when the topic has only this event', async () => {
+  it('returns a null baseline when the topic has no past snapshots', async () => {
     const topicId = new mongoose.Types.ObjectId()
     const only = await seedTopicEvent(topicId, { speakers: ['a', 'b'] }) // 2 posters, no tracked data
 
