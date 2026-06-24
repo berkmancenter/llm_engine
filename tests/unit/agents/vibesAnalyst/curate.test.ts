@@ -14,12 +14,17 @@ function metricsFixture(overrides: Partial<ConversationMetrics> = {}): Conversat
       { label: '0-10', messageCount: 5 },
       { label: '10-20', messageCount: 15 }
     ],
+    spikes: [],
     participationHistory: [
       { label: 'E1', posterCount: 18, lurkerCount: null },
       { label: 'Today', posterCount: 20, lurkerCount: null }
     ],
     baseline: { eventCount: 3, trackedEventCount: 0, avgPosterCount: 18, avgLurkerCount: null, avgDwellSeconds: null },
     channelSplit: { public: 30, private: 20 },
+    botInvocations: { botName: 'Berkie', count: 0 },
+    receptions: [],
+    resourceSummary: { total: 0, required: 0, referenced: 0, suggested: 0, withLinks: 0 },
+    eventPlatform: 'nextspace',
     ...overrides
   }
 }
