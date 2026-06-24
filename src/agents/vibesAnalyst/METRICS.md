@@ -5,7 +5,20 @@ and what it cannot tell you. All of these are computed in
 [`conversationAnalytics.service.ts`](../../services/conversationAnalytics.service.ts) as a
 `ConversationMetrics` object (its shape is in
 [`index.types.ts`](../../types/index.types.ts)), then handed to the curator and the
-fact-checking critic that write the card. Keep this file in sync when a metric changes.
+fact-checking critic that write the card. Keep this file in sync when a metric changes, and
+bump `METRICS_VERSION` (in the same service) in the same change: every per-event snapshot is
+stamped with it, and a trend that crosses a definition change is misleading without it.
+
+## Persisted snapshots and trends
+
+When an event ends and the card is built, its metrics are also written to a separate
+`EventMetricsSnapshot` collection, one document per event, so every metric can be trended over
+time rather than recomputed on demand. The snapshot stores the scalar counts below and the
+event platform, but never the verbatim quote text from spikes or receptions: a long-lived
+analytics store keeps how many, not the words. Each snapshot is stamped with the
+`metricsVersion` in force when it was written, and the participation baseline (below) compares
+only snapshots that share the current version. The web-analytics estimates are frozen "as of"
+the snapshot's `capturedAt` and are not revised when late provider data arrives.
 
 Each metric has a plain-English meaning. The code names and formulas in `monospace` are
 there for developers; a non-technical reader can skip them.
@@ -99,7 +112,11 @@ of the activity stretches above that ran much busier than the rest.
 ## Participation history and baseline (mixed)
 
 Source: `computeHistoryAndBaseline`, over up to 10 recent past events in the same topic (the
-recurring space these events live under).
+recurring space these events live under). Past events are read from their stored
+`EventMetricsSnapshot`, frozen when each one ended, so a series is compared to what it actually
+was then; only the current (live) event is computed fresh. Only snapshots on the current
+metrics version are averaged, so a definition change never makes a trend read as one
+continuous line.
 
 | Metric                     | Meaning                                                                                                                                                                              | How it is calculated                                                                                                              | Known limitations                                                                                                                                                                                                                                   |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

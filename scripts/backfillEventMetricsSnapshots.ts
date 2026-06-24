@@ -25,14 +25,31 @@
  * By default an event that already has a snapshot for the current metrics version is left
  * untouched, so the script is safe to re-run. Pass --overwrite to recompute and replace them.
  *
- * USAGE:
- *   NODE_ENV=... node --loader ts-node/esm scripts/backfillEventMetricsSnapshots.ts \
- *     [--dry-run] [--overwrite] [--min-age-days=N] [--max-age-days=N]
+ * Flags:
+ *   --dry-run            Compute and report what would be written, but persist nothing.
+ *   --overwrite          Recompute and replace snapshots that already exist for this version.
+ *   --min-age-days=N     Only events that ended at least N days ago (default 0).
+ *   --max-age-days=N     Only events that ended within N days (default: no older bound).
  *
- *   # Seed in 30-day batches, newest first, previewing each before committing:
- *   ... --min-age-days=0  --max-age-days=30 --dry-run
- *   ... --min-age-days=0  --max-age-days=30
- *   ... --min-age-days=30 --max-age-days=60
+ * RUNNING IT IN PRODUCTION (seed newest-first in 30-day batches, previewing each one):
+ *
+ *   cd into the repo, then for each batch preview, commit, and move the window back:
+ *
+ *   # Batch 1: preview the most recent 30 days, write nothing
+ *   NODE_ENV=production node --loader ts-node/esm scripts/backfillEventMetricsSnapshots.ts \
+ *     --min-age-days=0 --max-age-days=30 --dry-run
+ *
+ *   # Batch 1: commit it
+ *   NODE_ENV=production node --loader ts-node/esm scripts/backfillEventMetricsSnapshots.ts \
+ *     --min-age-days=0 --max-age-days=30
+ *
+ *   # Batch 2: 30-60 days old, and so on (30-60, 60-90, ...)
+ *   NODE_ENV=production node --loader ts-node/esm scripts/backfillEventMetricsSnapshots.ts \
+ *     --min-age-days=30 --max-age-days=60
+ *
+ *   Each batch prints a summary line plus, per event, posters / messages / lurkers / dwell /
+ *   spikes / receptions, showing before->after when a value changed (before is null on a first
+ *   run). Omit the window flags entirely to process all past events in one pass.
  */
 /* eslint-disable no-console */
 
