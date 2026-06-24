@@ -2,7 +2,8 @@
 
 How to stand up the Vibes Analyst (VA) bot as its own Slack app and wire it to an
 llm_engine instance, both for local development and for production. VA posts an
-engagement summary to a private admin channel whenever a public event ends.
+engagement summary to a private admin channel whenever a public event ends, and members
+of that channel can also summon it to recap a past public event on demand (Part D).
 
 VA is a normal agent anchored to a long-lived admin Conversation, provisioned from the
 `vibesAnalyst` conversation type. It uses the per-bot Slack identity: its webhook is
@@ -44,9 +45,12 @@ Do this once per environment (one app for dev, one for prod).
    [`assets/lens-icon.svg`](assets/lens-icon.svg) (export it to PNG first; Slack icons
    want a square raster). The icon is the bot's identity in Slack and is configured on
    the app, not in any message payload.
-2. Request bot token scopes. VA only needs **`chat:write`**. It posts to channels it has
-   been invited to, so it does NOT need `chat:write.public`. Add `channels:read` only if
-   you later want it to enumerate channels (not required for posting).
+2. Request bot token scopes. For posting alone, VA only needs **`chat:write`** (not
+   `chat:write.public`, since it posts only to channels it has been invited to). To also
+   answer summons (Part D), it must receive message events from its admin channel, which
+   needs the channel-history scope Slack prompts for when you subscribe to those events:
+   **`groups:history`** for a private admin channel, or **`channels:history`** for a
+   public one. `channels:read` is only needed if you later want it to enumerate channels.
 3. Install the app to the workspace and copy the **Bot User OAuth token** (`xoxb-...`).
    Make sure it is the Bot token, not the User token.
 4. From Basic Information, copy the **Signing Secret**.
@@ -95,9 +99,10 @@ instance:
 ```
 
 `slackBotUserId` and `slackSigningSecret` are optional in the type, but set them: the
-bot user ID normalizes incoming mentions (used by Q&A later), and the signing secret is
-what makes the per-bot identity real (the handler validates VA's webhooks against this,
-not the global env var).
+bot user ID normalizes incoming `@`-mentions so the summon flow (Part D) recognizes when a
+message is addressed to VA, and the signing secret is what makes the per-bot identity real
+(the handler validates VA's webhooks against this, not the global env var). `botName` is
+also used to match the mention, so set it to the name people will type.
 
 ---
 
@@ -109,9 +114,39 @@ Now that VA's Adapter row exists in the target instance:
 2. In the Slack app's Event Subscriptions, set the Request URL to
    `https://<host>/v1/webhooks/slack/<appKey>`. Slack sends a challenge; the handler
    echoes it and the URL turns verified.
-3. Event subscriptions (`message.channels`, `message.im`, etc.) are only needed once VA
-   answers questions in Slack (a later phase). For auto-posting alone you do not need to
-   subscribe to message events, but the Request URL must still verify.
+3. For auto-posting alone you do not need to subscribe to message events, but the Request
+   URL must still verify. To enable on-demand summon (Part D), subscribe to the message
+   event for VA's admin channel: `message.groups` for a private channel, `message.channels`
+   for a public one (and `message.im` only if you allow DMs).
+
+---
+
+## Part D: Enable on-demand summon (optional)
+
+Auto-posting needs nothing here. This part is only to let people summon VA in its admin
+channel to recap a past public event on demand.
+
+What summon does: a member of VA's admin channel `@`-mentions VA with a past public
+event's name (for example "@Vibes Analyst recap the Future of Work session"). VA resolves
+the event, re-checks its public-topic read grant for that specific event, and threads the
+same engagement card under the request. If several public events match the name it lists
+them; if none match it asks for a clearer name; if the named event is on a private topic
+it declines and reads nothing.
+
+To turn it on:
+
+1. **Subscribe to the message event** for the admin channel (Part C step 3):
+   `message.groups` for a private channel, `message.channels` for a public one.
+2. **Grant the matching history scope** (Part A step 2): `groups:history` or
+   `channels:history`. Slack prompts for it when you add the event, and re-installing the
+   app may be required for the new scope to take effect.
+3. **Set `slackBotUserId` and `botName`** in provisioning (Part B). VA uses the bot user
+   ID to recognize an `@`-mention and the name to match a plain-text address.
+4. **Keep VA in the channel** (Part A step 6). It only hears messages in channels it is a
+   member of.
+
+Summon never reaches private events: it re-runs the same public-topic read check the
+auto path uses and declines anything that is not an explicitly public topic.
 
 ---
 
@@ -168,6 +203,31 @@ Block Kit renderer), which deploys with the rest of llm_engine. What does NOT ca
 is any provisioned state: every environment gets its own Slack app, Adapter row,
 Conversation, channel, and secrets.
 
+### Updating bot identity on an existing conversation
+
+If a production VA was provisioned before `slackBotUserId` was set, or you need to change
+the bot user id, name, token, or signing secret later, you do not have to re-provision or
+recreate the bot. `PUT /v1/conversations` with the conversation id and only the changed
+properties. The update merges them into the Conversation's `properties` and syncs the live
+Slack Adapter row, so the new value takes effect (summon included) without recreating the
+adapter or losing the long-lived admin Conversation and its history.
+
+`PUT <API host>/v1/conversations` with an admin bearer token for the conversation or topic
+owner:
+
+```json
+{
+  "id": "<VA conversation id>",
+  "properties": {
+    "slackBotUserId": "<bot user ID, U...>"
+  }
+}
+```
+
+Only the keys you send change; the rest of the properties are left alone. The conversation
+must be inactive, which VA's admin Conversation always is, since it never starts as an
+event.
+
 ---
 
 ## Smoke test the outbound path
@@ -195,6 +255,15 @@ End a public (non-private) event in that environment. The dispatcher matches VA'
 `allPublicTopics` read grant, fires the `conversationEvent` job, and VA posts its metrics
 card to the admin channel within a minute.
 
+## Verify summon (if you enabled Part D)
+
+In VA's admin channel, `@`-mention VA with a recent public event's name, e.g.
+"@Vibes Analyst recap the Future of Work session". VA threads its engagement card under
+your message. If several public events match it lists them; if none match it asks for a
+clearer name; if the named event is on a private topic it declines without reading
+anything. Nothing happens if you only set up auto-posting and skipped Part D, since VA
+never received the message event.
+
 ## Gotchas, in one place
 
 - Provision (create the Adapter row) BEFORE setting the Slack Request URL, or challenge
@@ -208,3 +277,8 @@ card to the admin channel within a minute.
 - VA must be invited to its admin channel.
 - VA reacts only to non-private topics (its `allPublicTopics` grant). private/dev events
   are ignored by design.
+- Summon (Part D) needs a message-event subscription (`message.groups` for a private admin
+  channel, `message.channels` for a public one) and the matching history scope. Auto-posting
+  alone needs neither.
+- Summon recaps public events only. it re-checks the read grant per request and declines
+  private topics, so it can never recap a private event even by name.
