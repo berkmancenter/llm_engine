@@ -8,83 +8,89 @@ setupIntTest()
 
 const ownerId = new mongoose.Types.ObjectId()
 
+// A fixed reference "now" so the age-window filtering is deterministic regardless of the clock.
+const NOW = new Date('2026-07-01T00:00:00.000Z')
+
 /* An ended event with a couple of posters, optionally with a stored web-analytics summary
    (Matomo data) and optionally experimental. The summary is what marks Matomo as "wired up";
-   without it the backfill should skip the event. */
-async function seedEndedEvent(options: { tracked?: boolean; experimental?: boolean } = {}) {
+   without it the backfill should skip the event. endTime sets how long ago the event ended,
+   which is what the age window filters on. */
+async function seedEndedEvent(
+  options: { tracked?: boolean; experimental?: boolean; endTime?: Date; speakers?: string[] } = {}
+) {
   const conversation = await Conversation.create({
     name: 'Past event',
     slug: `past-${new mongoose.Types.ObjectId().toString()}`,
     owner: ownerId,
     topic: new mongoose.Types.ObjectId(),
-    endTime: new Date('2026-06-01T12:00:00.000Z'),
+    endTime: options.endTime ?? new Date('2026-06-20T12:00:00.000Z'),
     experimental: options.experimental ?? false,
     transcript: { status: 'stopped' }
   })
-  await Message.create([
-    {
+  const speakers = options.speakers ?? ['a', 'b']
+  await Message.create(
+    speakers.map((pseudonym) => ({
       body: 'hi',
       conversation: conversation._id,
       owner: new mongoose.Types.ObjectId(),
       pseudonymId: ownerId,
-      pseudonym: 'a',
+      pseudonym,
       fromAgent: false
-    },
-    {
-      body: 'yo',
-      conversation: conversation._id,
-      owner: new mongoose.Types.ObjectId(),
-      pseudonymId: ownerId,
-      pseudonym: 'b',
-      fromAgent: false
-    }
-  ])
+    }))
+  )
   if (options.tracked) {
     await ConversationAnalytics.create({
       conversationId: conversation._id,
       attendeeCount: 10,
       totalVisits: 10,
       totalActions: 100,
-      totalDwellSeconds: 5000,
+      totalDwellSeconds: 5000, // avg dwell 500s
       deviceBreakdown: {},
       source: 'matomo',
-      capturedAt: new Date('2026-06-01T12:05:00.000Z')
+      capturedAt: new Date('2026-06-20T12:05:00.000Z')
     })
   }
   return conversation
 }
 
 describe('backfillEventMetricsSnapshots', () => {
-  it('snapshots ended events that had web analytics wired up', async () => {
+  it('snapshots ended events that had web analytics wired up and reports their metrics', async () => {
     const tracked = await seedEndedEvent({ tracked: true })
 
-    const summary = await backfillEventMetricsSnapshots()
+    const summary = await backfillEventMetricsSnapshots({ now: NOW })
 
     expect(summary.backfilled).toBe(1)
+    expect(summary.events).toHaveLength(1)
+    const [event] = summary.events
+    // First run: nothing existed before, so before is null and after carries the written metrics.
+    expect(event.before).toBeNull()
+    expect(event.after.posterCount).toBe(2)
+    expect(event.after.lurkerCount).toBe(8)
+    expect(event.after.avgDwellSeconds).toBe(500)
+    expect(event.after.receptionCount).toBeNull()
+
     const stored = await EventMetricsSnapshot.findOne({ conversationId: tracked._id })
-    expect(stored).not.toBeNull()
     expect(stored!.posterCount).toBe(2)
     expect(stored!.metricsVersion).toBe(METRICS_VERSION)
-    // The reception pass never ran in a scalar recompute, so the count is unknown, not zero.
-    expect(stored!.receptionCount).toBeNull()
   })
 
   it('skips events that never had web analytics wired up', async () => {
     const untracked = await seedEndedEvent({ tracked: false })
 
-    const summary = await backfillEventMetricsSnapshots()
+    const summary = await backfillEventMetricsSnapshots({ now: NOW })
 
     expect(summary.skippedNoTrackedData).toBe(1)
     expect(summary.backfilled).toBe(0)
+    expect(summary.events).toHaveLength(0)
     const stored = await EventMetricsSnapshot.findOne({ conversationId: untracked._id })
     expect(stored).toBeNull()
   })
 
   it('skips an event that already has a snapshot for this metrics version', async () => {
     const tracked = await seedEndedEvent({ tracked: true })
-    await backfillEventMetricsSnapshots()
+    await backfillEventMetricsSnapshots({ now: NOW })
 
-    const summary = await backfillEventMetricsSnapshots()
+    const summary = await backfillEventMetricsSnapshots({ now: NOW })
 
     expect(summary.skippedExisting).toBe(1)
     expect(summary.backfilled).toBe(0)
@@ -95,20 +101,67 @@ describe('backfillEventMetricsSnapshots', () => {
   it('never snapshots experimental events', async () => {
     const experimental = await seedEndedEvent({ tracked: true, experimental: true })
 
-    const summary = await backfillEventMetricsSnapshots()
+    const summary = await backfillEventMetricsSnapshots({ now: NOW })
 
     expect(summary.backfilled).toBe(0)
     const stored = await EventMetricsSnapshot.findOne({ conversationId: experimental._id })
     expect(stored).toBeNull()
   })
 
-  it('writes nothing on a dry run but still reports what it would do', async () => {
+  it('previews the would-be metrics on a dry run but writes nothing', async () => {
     const tracked = await seedEndedEvent({ tracked: true })
 
-    const summary = await backfillEventMetricsSnapshots({ dryRun: true })
+    const summary = await backfillEventMetricsSnapshots({ now: NOW, dryRun: true })
 
     expect(summary.backfilled).toBe(1)
+    // The preview still shows what each event would store.
+    expect(summary.events[0].after.posterCount).toBe(2)
     const stored = await EventMetricsSnapshot.findOne({ conversationId: tracked._id })
     expect(stored).toBeNull()
+  })
+
+  it('only processes events whose end falls inside the age window', async () => {
+    // 11 days old (inside a 0-30 day window).
+    const recent = await seedEndedEvent({ tracked: true, endTime: new Date('2026-06-20T00:00:00.000Z') })
+    // 47 days old (outside 0-30, inside 30-60).
+    const older = await seedEndedEvent({ tracked: true, endTime: new Date('2026-05-15T00:00:00.000Z') })
+
+    const firstBatch = await backfillEventMetricsSnapshots({ now: NOW, minAgeDays: 0, maxAgeDays: 30 })
+    expect(firstBatch.scanned).toBe(1)
+    expect(firstBatch.backfilled).toBe(1)
+    expect(await EventMetricsSnapshot.findOne({ conversationId: recent._id })).not.toBeNull()
+    expect(await EventMetricsSnapshot.findOne({ conversationId: older._id })).toBeNull()
+
+    const secondBatch = await backfillEventMetricsSnapshots({ now: NOW, minAgeDays: 30, maxAgeDays: 60 })
+    expect(secondBatch.scanned).toBe(1)
+    expect(secondBatch.backfilled).toBe(1)
+    expect(await EventMetricsSnapshot.findOne({ conversationId: older._id })).not.toBeNull()
+  })
+
+  it('overwrites an existing snapshot and reports the before and after when asked', async () => {
+    const tracked = await seedEndedEvent({ tracked: true, speakers: ['a', 'b'] })
+    await backfillEventMetricsSnapshots({ now: NOW })
+
+    // A third person posts after the first snapshot was taken, so the recomputed poster count rises.
+    await Message.create({
+      body: 'late',
+      conversation: tracked._id,
+      owner: new mongoose.Types.ObjectId(),
+      pseudonymId: ownerId,
+      pseudonym: 'c',
+      fromAgent: false
+    })
+
+    const summary = await backfillEventMetricsSnapshots({ now: NOW, overwrite: true })
+
+    expect(summary.backfilled).toBe(1)
+    expect(summary.skippedExisting).toBe(0)
+    const [event] = summary.events
+    expect(event.before!.posterCount).toBe(2)
+    expect(event.after.posterCount).toBe(3)
+
+    const stored = await EventMetricsSnapshot.find({ conversationId: tracked._id })
+    expect(stored).toHaveLength(1)
+    expect(stored[0].posterCount).toBe(3)
   })
 })

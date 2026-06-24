@@ -15,11 +15,24 @@
  *     Their estimate metrics (lurkers, participation rate, dwell) would be missing, so a
  *     snapshot would trend a partial picture. Exact metrics alone are not enough to seed on.
  *
- * An event that already has a snapshot for the current metrics version is left untouched, so
- * the script is safe to re-run.
+ * It runs in age-based batches so a long history can be seeded a window at a time, checking the
+ * result between each: --min-age-days and --max-age-days bound how long ago an event ended.
+ * Batch one is the most recent 30 days (0 to 30), batch two is 30 to 60, and so on. With no
+ * window it processes every past event. After each batch it prints, per event, the metrics it
+ * wrote, with the prior values alongside (null on a first run, the old values on an overwrite),
+ * so the effect of the batch is visible.
+ *
+ * By default an event that already has a snapshot for the current metrics version is left
+ * untouched, so the script is safe to re-run. Pass --overwrite to recompute and replace them.
  *
  * USAGE:
- *   NODE_ENV=... node --loader ts-node/esm scripts/backfillEventMetricsSnapshots.ts [--dry-run]
+ *   NODE_ENV=... node --loader ts-node/esm scripts/backfillEventMetricsSnapshots.ts \
+ *     [--dry-run] [--overwrite] [--min-age-days=N] [--max-age-days=N]
+ *
+ *   # Seed in 30-day batches, newest first, previewing each before committing:
+ *   ... --min-age-days=0  --max-age-days=30 --dry-run
+ *   ... --min-age-days=0  --max-age-days=30
+ *   ... --min-age-days=30 --max-age-days=60
  */
 /* eslint-disable no-console */
 
@@ -32,37 +45,126 @@ import EventMetricsSnapshot from '../src/models/eventMetricsSnapshot.model.js'
 import conversationAnalyticsService, { METRICS_VERSION } from '../src/services/conversationAnalytics.service.js'
 import eventMetricsSnapshotService from '../src/services/eventMetricsSnapshot.service.js'
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000
+
+/* The readable slice of a snapshot the backfill reports per event, so a run can be eyeballed
+   without dumping every field. These are the metrics most worth sanity-checking as a trend. */
+export interface SnapshotMetricsView {
+  posterCount: number
+  messageCount: number
+  lurkerCount: number | null
+  participationRate: number | null
+  avgDwellSeconds: number | null
+  channelSplit: { public: number; private: number }
+  botInvocationCount: number
+  spikeCount: number
+  receptionCount: number | null
+}
+
+/* One event the backfill acted on: its identity plus the snapshot metrics before and after the
+   write. before is null when no snapshot existed for this metrics version (a first run). */
+export interface BackfilledEvent {
+  conversationId: string
+  eventName?: string
+  eventEndTime?: Date
+  before: SnapshotMetricsView | null
+  after: SnapshotMetricsView
+}
+
 export interface BackfillSummary {
+  window: { minAgeDays: number; maxAgeDays: number | null }
   scanned: number
   backfilled: number
   skippedExisting: number
   skippedNoTrackedData: number
+  events: BackfilledEvent[]
+}
+
+interface BackfillOptions {
+  dryRun?: boolean
+  /* Only events whose end is at least this many days before `now` (default 0, i.e. now). */
+  minAgeDays?: number
+  /* Only events whose end is within this many days of `now`. Omit for no older bound. */
+  maxAgeDays?: number
+  /* Recompute and replace snapshots that already exist for this metrics version. */
+  overwrite?: boolean
+  /* The reference point ages are measured from. Defaults to the current time; injectable so
+     the window is deterministic in tests. */
+  now?: Date
+}
+
+/* Pulls the reported slice out of either a persisted snapshot document or a freshly built
+   payload. A stored document types its nested and nullable fields loosely (optional, possibly
+   undefined), so the fields are read tolerantly and coerced to the view's shape. */
+function metricsView(snapshot: {
+  posterCount: number
+  messageCount: number
+  lurkerCount?: number | null
+  participationRate?: number | null
+  avgDwellSeconds?: number | null
+  channelSplit?: { public?: number; private?: number } | null
+  botInvocationCount: number
+  spikeCount: number
+  receptionCount?: number | null
+}): SnapshotMetricsView {
+  return {
+    posterCount: snapshot.posterCount,
+    messageCount: snapshot.messageCount,
+    lurkerCount: snapshot.lurkerCount ?? null,
+    participationRate: snapshot.participationRate ?? null,
+    avgDwellSeconds: snapshot.avgDwellSeconds ?? null,
+    channelSplit: { public: snapshot.channelSplit?.public ?? 0, private: snapshot.channelSplit?.private ?? 0 },
+    botInvocationCount: snapshot.botInvocationCount,
+    spikeCount: snapshot.spikeCount,
+    receptionCount: snapshot.receptionCount ?? null
+  }
 }
 
 /**
- * Walks every ended, non-experimental event oldest-first and writes a metrics snapshot for
- * each one that had web analytics wired up and does not already have a snapshot for the
- * current metrics version. Returns a summary of what it did. With dryRun set it computes the
- * same decisions and counts but writes nothing, so a run can be previewed first.
+ * Walks the ended, non-experimental events whose end falls inside the age window (oldest-first)
+ * and snapshots each one that had web analytics wired up. By default it skips events that
+ * already have a snapshot for the current metrics version; with overwrite it recomputes and
+ * replaces them. dryRun still computes each event's metrics so the preview shows what would be
+ * written, but persists nothing. Returns a summary with the per-event before and after metrics.
  */
 export async function backfillEventMetricsSnapshots({
-  dryRun = false
-}: { dryRun?: boolean } = {}): Promise<BackfillSummary> {
-  const summary: BackfillSummary = { scanned: 0, backfilled: 0, skippedExisting: 0, skippedNoTrackedData: 0 }
+  dryRun = false,
+  minAgeDays = 0,
+  maxAgeDays,
+  overwrite = false,
+  now
+}: BackfillOptions = {}): Promise<BackfillSummary> {
+  const reference = (now ?? new Date()).getTime()
+  // Older bound on endTime: the event must have ended at least minAgeDays ago.
+  const endedBefore = new Date(reference - minAgeDays * MS_PER_DAY)
+  // Newer bound: when maxAgeDays is set, the event must have ended within that many days.
+  const endedAfter = maxAgeDays !== undefined ? new Date(reference - maxAgeDays * MS_PER_DAY) : null
 
-  const events = await Conversation.find({
-    endTime: { $exists: true, $ne: null },
+  const endTimeFilter: Record<string, unknown> = { $exists: true, $ne: null, $lte: endedBefore }
+  if (endedAfter) endTimeFilter.$gt = endedAfter
+
+  const summary: BackfillSummary = {
+    window: { minAgeDays, maxAgeDays: maxAgeDays ?? null },
+    scanned: 0,
+    backfilled: 0,
+    skippedExisting: 0,
+    skippedNoTrackedData: 0,
+    events: []
+  }
+
+  const conversations = await Conversation.find({
+    endTime: endTimeFilter,
     experimental: { $ne: true }
   }).sort({ endTime: 1 })
 
-  for (const conversation of events) {
+  for (const conversation of conversations) {
     summary.scanned += 1
 
-    const alreadyHasSnapshot = await EventMetricsSnapshot.exists({
+    const existing = await EventMetricsSnapshot.findOne({
       conversationId: conversation._id,
       metricsVersion: METRICS_VERSION
     })
-    if (alreadyHasSnapshot) {
+    if (existing && !overwrite) {
       summary.skippedExisting += 1
       continue
     }
@@ -73,31 +175,77 @@ export async function backfillEventMetricsSnapshots({
       continue
     }
 
-    if (!dryRun) {
-      const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
-      await eventMetricsSnapshotService.persistSnapshot(conversation, metrics, { receptionCount: null })
-    }
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+    // Build the payload either way so the dry-run preview shows the real would-be values; only
+    // the write is gated on dryRun.
+    const after = dryRun
+      ? eventMetricsSnapshotService.buildSnapshotPayload(conversation, metrics, { receptionCount: null })
+      : await eventMetricsSnapshotService.persistSnapshot(conversation, metrics, { receptionCount: null })
+
     summary.backfilled += 1
+    summary.events.push({
+      conversationId: conversation._id.toString(),
+      eventName: conversation.name,
+      eventEndTime: conversation.endTime,
+      before: existing ? metricsView(existing) : null,
+      after: metricsView(after!)
+    })
   }
 
   return summary
 }
 
+function parseNumberFlag(flag: string): number | undefined {
+  const match = process.argv.find((arg) => arg.startsWith(`${flag}=`))
+  if (!match) return undefined
+  const value = Number(match.split('=')[1])
+  if (Number.isNaN(value)) throw new Error(`${flag} must be a number`)
+  return value
+}
+
+/* A compact one-line rendering of one event's before/after, so a batch reads at a glance. */
+function formatEvent(event: BackfilledEvent): string {
+  const field = (name: string, before: number | null, after: number | null) => {
+    const a = after === null ? 'null' : after
+    return event.before && before !== after ? `${name} ${before === null ? 'null' : before}->${a}` : `${name} ${a}`
+  }
+  const label = `${event.eventName ?? 'Past event'} (${event.eventEndTime?.toISOString().slice(0, 10) ?? '?'})`
+  const b = event.before
+  const a = event.after
+  const fields = [
+    field('posters', b?.posterCount ?? null, a.posterCount),
+    field('messages', b?.messageCount ?? null, a.messageCount),
+    field('lurkers', b?.lurkerCount ?? null, a.lurkerCount),
+    field('dwell', b?.avgDwellSeconds ?? null, a.avgDwellSeconds),
+    field('spikes', b?.spikeCount ?? null, a.spikeCount),
+    field('receptions', b?.receptionCount ?? null, a.receptionCount)
+  ].join('  ')
+  return `  ${label}: ${fields}`
+}
+
 async function main() {
   const dryRun = process.argv.includes('--dry-run')
+  const overwrite = process.argv.includes('--overwrite')
+  const minAgeDays = parseNumberFlag('--min-age-days') ?? 0
+  const maxAgeDays = parseNumberFlag('--max-age-days')
 
   mongoose.set('strict', true)
   await mongoose.connect(config.mongoose.url, config.mongoose.options)
-  console.log(`Connected to MongoDB${dryRun ? ' (dry run, no writes)' : ''}`)
+  const windowLabel = maxAgeDays !== undefined ? `${minAgeDays}-${maxAgeDays} days old` : `${minAgeDays}+ days old`
+  console.log(`Connected to MongoDB. Batch: ${windowLabel}${dryRun ? ' (dry run, no writes)' : ''}`)
 
   try {
-    const summary = await backfillEventMetricsSnapshots({ dryRun })
+    const summary = await backfillEventMetricsSnapshots({ dryRun, minAgeDays, maxAgeDays, overwrite })
     console.log(
       `Scanned ${summary.scanned} ended events: ` +
         `${dryRun ? 'would backfill' : 'backfilled'} ${summary.backfilled}, ` +
         `skipped ${summary.skippedExisting} already snapshotted, ` +
         `skipped ${summary.skippedNoTrackedData} with no web-analytics data.`
     )
+    if (summary.events.length > 0) {
+      console.log(dryRun ? 'Would write (before -> after):' : 'Wrote (before -> after):')
+      for (const event of summary.events) console.log(formatEvent(event))
+    }
   } finally {
     await mongoose.connection.close()
     console.log('Connection closed.')
