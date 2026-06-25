@@ -398,7 +398,7 @@ export async function buildCheckinResponses(conversationHistory: ConversationHis
 
       if (!analysis?.directMessage) {
         logger.debug(
-          `Checkin Handler: No intervention opportunity detected or rate limited for participant ${participantPseudonym}`
+          `${this.agentType} ${this._id}: no intervention opportunity detected for participant ${participantPseudonym}`
         )
         return null
       }

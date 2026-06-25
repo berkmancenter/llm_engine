@@ -240,6 +240,8 @@ export async function detectPublicInterventionOpportunity(
 
   const lastIntervention = getRecentAgentInterventions(sharedChatHistory).at(-1)
   if (lastIntervention && now - lastIntervention.timestamp.getTime() < minInterval) {
+    const secondsAgo = Math.round((now - lastIntervention.timestamp.getTime()) / 1000)
+    logger.debug(`${this.agentType} ${this._id}: rate limited — last intervention ${secondsAgo}s ago (min ${minInterval / 1000}s)`)
     return null
   }
 
@@ -288,6 +290,8 @@ export async function detectPrivateInterventionOpportunity(
 
   const lastIntervention = getRecentAgentInterventions(participantDmHistory).at(-1)
   if (lastIntervention && now - lastIntervention.timestamp.getTime() < minInterval) {
+    const secondsAgo = Math.round((now - lastIntervention.timestamp.getTime()) / 1000)
+    logger.debug(`${this.agentType} ${this._id}: rate limited for participant — last intervention ${secondsAgo}s ago (min ${minInterval / 1000}s)`)
     return null
   }
 

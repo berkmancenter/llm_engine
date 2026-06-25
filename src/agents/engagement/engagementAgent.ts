@@ -231,7 +231,7 @@ export default verify({
     )
 
     if (!interventionAnalysis) {
-      logger.debug('Engagement Agent: No intervention opportunity detected or rate limited')
+      logger.debug(`${this.agentType} ${this._id}: no intervention opportunity detected`)
       return []
     }
 
