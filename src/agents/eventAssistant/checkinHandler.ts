@@ -10,7 +10,8 @@ import transcript from '../helpers/transcript.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 
 interface AgentLike {
-  agentConfig?: { checkinScanInterval?: number; minInterval?: number; [key: string]: unknown }
+  agentConfig?: { minInterval?: number; [key: string]: unknown }
+  triggers?: { periodic?: { timerPeriod?: number } }
   conversation: { channels: IChannel[]; [key: string]: unknown }
   getLLM(): Promise<unknown>
   name: string
@@ -146,7 +147,7 @@ The message is entirely about solidarity — that their reaction is shared, not 
       '"That [topic] section moved fast. If anything in there didn\'t land, just point me at it — one word is enough."'
     ],
     evaluateShared: async ({ sharedChatHistory, agentInstance }) => {
-      const windowSeconds = (agentInstance.agentConfig?.checkinScanInterval ?? 3) * 60
+      const windowSeconds = agentInstance.triggers?.periodic?.timerPeriod ?? 180
       const recentTranscript = transcript.getTranscript(agentInstance.conversation, windowSeconds, sharedChatHistory.end)
       if (!recentTranscript?.trim()) return { isDense: false, topic: null }
 
@@ -167,7 +168,7 @@ The message is entirely about solidarity — that their reaction is shared, not 
     },
     isEligible: ({ participantDmHistory, endTime, agentInstance }, sharedResult) => {
       if (!sharedResult?.isDense) return false
-      const windowMs = (agentInstance.agentConfig?.checkinScanInterval ?? 3) * 60 * 1000
+      const windowMs = (agentInstance.triggers?.periodic?.timerPeriod ?? 180) * 1000
       const cutoff = endTime ? new Date(endTime.getTime() - windowMs) : new Date(0)
       return !participantDmHistory.messages.some((m) => !m.fromAgent && m.createdAt && m.createdAt > cutoff)
     }
