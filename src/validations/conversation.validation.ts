@@ -51,7 +51,8 @@ const updateConversation = {
         alternateName: Joi.string().allow('', null)
       })
     ),
-    resources: Joi.array().items(updateResourceSchema)
+    resources: Joi.array().items(updateResourceSchema),
+    analyticsRefs: Joi.object().pattern(Joi.string(), Joi.string())
   })
 }
 
