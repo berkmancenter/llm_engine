@@ -130,6 +130,27 @@ export function transformPayloadForClaude(bodyContent: unknown, defaultLLMModel:
   })
 }
 
+// Reject ids with characters that could alter the URL path (e.g. "/", "?", "#"); the colon is allowed.
+const BEDROCK_MODEL_ID_PATTERN = /^[A-Za-z0-9._:-]+$/
+
+/**
+ * Builds the Bedrock V2 invoke URL for a model: {baseUrl}/model/{modelId}/invoke.
+ *
+ * The model id goes straight into the URL path and can come from user-set config, so this
+ * validates it against the known Bedrock character set first and rejects anything else. It
+ * keeps the colon in dated ids (for example ...-v1:0) raw to match HUIT's documented URLs.
+ *
+ * @throws if the model id contains characters that are not valid in a Bedrock model id.
+ */
+export function buildBedrockInvokeUrl(baseUrl: string, modelId: string): string {
+  if (!BEDROCK_MODEL_ID_PATTERN.test(modelId)) {
+    throw new Error(`Invalid Bedrock model id: "${modelId}"`)
+  }
+  // Drop any trailing slash so a base url like ".../v2/" does not produce a double slash.
+  const normalizedBaseUrl = baseUrl.replace(/\/+$/, '')
+  return `${normalizedBaseUrl}/model/${modelId}/invoke`
+}
+
 // Create a custom fetch function for Bedrock Claude or legacy LLM
 export function createClaudeFetchFn(defaultLLMModel: string, defaultLLMPlatform: string) {
   return async function fetchFn(url: string, init: Parameters<typeof fetch>[1]) {
@@ -155,13 +176,8 @@ export function createClaudeFetchFn(defaultLLMModel: string, defaultLLMPlatform:
         // Transform payload for Claude if needed
         bodyContent = transformPayloadForClaude(bodyContent, defaultLLMModel, defaultLLMPlatform)
 
-        const body = {
-          body: bodyContent,
-          modelId: defaultLLMModel,
-          contentType: 'application/json',
-          accept: 'application/json'
-        }
-        const bodyString = JSON.stringify(body)
+        // V2 sends the native Bedrock body directly, with no V1 { body, modelId, ... } envelope.
+        const bodyString = JSON.stringify(bodyContent)
         const modifiedInit = {
           ...(init || {}),
           body: bodyString,
@@ -170,7 +186,9 @@ export function createClaudeFetchFn(defaultLLMModel: string, defaultLLMPlatform:
             'x-api-key': config.llms.bedrock.key
           }
         }
-        const response = await fetch(config.llms.bedrock.baseUrl, modifiedInit)
+        // V2 routes by model id in the path; buildBedrockInvokeUrl validates the id first.
+        const invokeUrl = buildBedrockInvokeUrl(config.llms.bedrock.baseUrl, defaultLLMModel)
+        const response = await fetch(invokeUrl, modifiedInit)
         const contentType = response.headers.get('content-type') || ''
         if (!response.ok) {
           const responseText = await response.text()
