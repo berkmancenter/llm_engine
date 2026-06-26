@@ -5,7 +5,7 @@ import { google } from 'googleapis'
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import config from '../../config/config.js'
-import { createClaudeFetchFn } from './claudeHandler.js'
+import { createClaudeFetchFn } from './bedrockGateway.js'
 import { LlmPlatforms, LlmPlatformDetails, LlmModelDetails } from '../../types/index.types.js'
 
 const PERSPECTIVE_API_URL = 'https://commentanalyzer.googleapis.com/$discovery/rest?version=v1alpha1'
