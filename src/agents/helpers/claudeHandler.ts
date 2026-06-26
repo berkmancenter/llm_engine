@@ -1,6 +1,3 @@
-import logger from '../../config/logger.js'
-import config from '../../config/config.js'
-
 // Helper to determine if Bedrock Claude format should be used
 export function shouldUseClaudeFormat(model: string | undefined, platform: string | undefined): boolean {
   if (platform && typeof platform === 'string') {
@@ -128,65 +125,4 @@ export function transformPayloadForClaude(bodyContent: unknown, defaultLLMModel:
     temperature,
     tools
   })
-}
-
-// Create a custom fetch function for Bedrock Claude or legacy LLM
-export function createClaudeFetchFn(defaultLLMModel: string, defaultLLMPlatform: string) {
-  return async function fetchFn(url: string, init: Parameters<typeof fetch>[1]) {
-    const fetchImpl = async () => {
-      try {
-        let bodyContent: unknown = {}
-        if (init?.body) {
-          if (
-            typeof init.body === 'string' &&
-            (init.body.trim().toLowerCase().startsWith('<!doctype') || init.body.trim().toLowerCase().startsWith('<html'))
-          ) {
-            logger.error('init.body appears to be HTML, not JSON:', init.body)
-            throw new Error('init.body is HTML, not JSON')
-          }
-          try {
-            bodyContent = JSON.parse(init.body as string)
-          } catch (err) {
-            logger.error('init.body is not valid JSON:', init.body)
-            throw err
-          }
-        }
-
-        // Transform payload for Claude if needed
-        bodyContent = transformPayloadForClaude(bodyContent, defaultLLMModel, defaultLLMPlatform)
-
-        const body = {
-          body: bodyContent,
-          modelId: defaultLLMModel,
-          contentType: 'application/json',
-          accept: 'application/json'
-        }
-        const bodyString = JSON.stringify(body)
-        const modifiedInit = {
-          ...(init || {}),
-          body: bodyString,
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': config.llms.bedrock.key
-          }
-        }
-        const response = await fetch(config.llms.bedrock.baseUrl, modifiedInit)
-        const contentType = response.headers.get('content-type') || ''
-        if (!response.ok) {
-          const responseText = await response.text()
-          logger.error('Error response Text from proxy:', responseText)
-          throw new Error(`Bedrock proxy error: ${response.status} ${response.statusText}\n${responseText}`)
-        }
-        if (contentType.includes('application/json')) {
-          return response
-        }
-        const responseText = await response.text()
-        throw new Error(`Expected JSON from Bedrock proxy, got ${contentType}: ${responseText}`)
-      } catch (err) {
-        logger.error('Error in fetchFn:', err)
-        throw err
-      }
-    }
-    return fetchImpl()
-  }
 }
