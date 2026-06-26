@@ -735,6 +735,8 @@
 <li>Configure <code>BEDROCK_API_KEY</code> and <code>BEDROCK_BASE_URL</code> in your <code>.env</code> file.</li>
 <li>When creating a Conversation with an Agent, specify <code>llmPlatform</code> to be <code>bedrock</code> and <code>llmModel</code> to be an available Bedrock model.</li>
 </ol>
+<p>Set <code>BEDROCK_BASE_URL</code> to the endpoint up to (but not including) the <code>/model</code> path segment. LLM Engine appends the standard Amazon Bedrock InvokeModel path, so each request goes to <code>{BEDROCK_BASE_URL}/model/{llmModel}/invoke</code>. Point it at the Amazon Bedrock runtime host or any gateway that fronts it.</p>
+<p>Authentication sends <code>BEDROCK_API_KEY</code> as an <code>x-api-key</code> header, which assumes a gateway that signs the upstream AWS request for you. To call Amazon Bedrock directly (AWS requires SigV4-signed requests), replace the transport in <code>src/agents/helpers/bedrockGateway.ts</code>, or use LangChain's BedrockChat with AWS credentials instead.</p>
 <h3 id="google-generative-ai-including-gemini">Google Generative AI (including Gemini)</h3>
 <ol>
 <li>Configure <code>GOOGLE_API_KEY</code> and <code>GOOGLE_BASE_URL</code> in your <code>.env</code> file.</li>
