@@ -32,4 +32,25 @@ describe('extractEventReference', () => {
 
     expect(reference.latestOverall).toBe(true)
   })
+
+  it('does not flag a single-event recap as a trend', async () => {
+    const reference = await extractEventReference('@Vibes can you recap the Spring Town Hall for me?', llm)
+
+    expect(reference.trend).toBe(false)
+  })
+
+  it('flags a cross-event question as a trend and reads the count', async () => {
+    const reference = await extractEventReference('@Vibes how was engagement across the last 3 events?', llm)
+
+    expect(reference.trend).toBe(true)
+    expect(reference.eventCount).toBe(3)
+  })
+
+  it('flags a trend without a count when none is stated', async () => {
+    const reference = await extractEventReference('@Vibes has participation been trending up in the AI Ethics series?', llm)
+
+    expect(reference.trend).toBe(true)
+    expect(reference.eventCount).toBeNull()
+    expect(reference.eventQuery.toLowerCase()).toContain('ethics')
+  })
 })

@@ -1,6 +1,8 @@
 import * as fuzzball from 'fuzzball'
 import { z } from 'zod'
 import Conversation from '../../models/conversation.model.js'
+import EventMetricsSnapshot from '../../models/eventMetricsSnapshot.model.js'
+import { METRICS_VERSION } from '../../services/conversationAnalytics.service.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { VIBES_EVENT_REFERENCE_SYSTEM_PROMPT, VIBES_EVENT_REFERENCE_USER_TEMPLATE } from './prompt.js'
 
@@ -15,11 +17,19 @@ export interface EventCandidate {
 /* What the user asked for, extracted from their summon message: the text naming the
    event (a title, or a topic when they want its latest), and which "most recent" shortcut
    they used, if any. latestInTopic means the newest event in a named topic; latestOverall
-   means the single newest event with no event or topic named ("the last event"). */
+   means the single newest event with no event or topic named ("the last event").
+
+   trend is set when the user asks about several events at once or how something changed over
+   time ("how was engagement across the last 3 events?"), which is answered from snapshots
+   rather than one live recap. eventCount is how many recent events they named (null when
+   unspecified). Both are optional so callers that only resolve a single event need not set
+   them. */
 export interface EventReference {
   eventQuery: string
   latestInTopic: boolean
   latestOverall?: boolean
+  trend?: boolean
+  eventCount?: number | null
 }
 
 /* The outcome of matching a reference against the public events on offer. */
@@ -81,6 +91,48 @@ export function resolveSummonedEvent(reference: EventReference, candidates: Even
   return { status: 'ambiguous', candidates: ranked.slice(0, MAX_AMBIGUOUS).map((scored) => scored.candidate) }
 }
 
+/* How many recent events a trend compares when the user does not say. */
+export const DEFAULT_TREND_EVENTS = 5
+/* The most a trend ever compares, so a vague "how have things been going?" cannot pull an
+   unbounded run of snapshots into one card. */
+const MAX_TREND_EVENTS = 10
+
+/* Picks which public events a trend query covers. When the query names a topic that matches
+   a series, the trend is scoped to that series; otherwise it falls back to every public event,
+   newest first, so a generic "the last few events" still answers. Candidates arrive already
+   sorted newest-first, and that order is preserved so the caller can take the most recent N.
+   Pure over the privacy-filtered candidates, so a private series can never enter scope. */
+export function resolveTrendScope(reference: EventReference, candidates: EventCandidate[]): EventCandidate[] {
+  const query = reference.eventQuery.trim()
+  if (query) {
+    const inTopic = candidates.filter((candidate) => titleScore(query, candidate.topicName) >= MATCH_THRESHOLD)
+    if (inTopic.length > 0) return inTopic
+  }
+  return candidates
+}
+
+/* Resolves how many events to compare: the requested count, the default when none was given,
+   clamped to at least one and at most MAX_TREND_EVENTS. */
+export function trendEventCount(reference: EventReference): number {
+  const requested = reference.eventCount ?? DEFAULT_TREND_EVENTS
+  return Math.min(Math.max(1, requested), MAX_TREND_EVENTS)
+}
+
+/* Loads the stored metrics snapshots for a trend, newest first and capped at the limit. It
+   reads only snapshots whose conversation is in the scoped (public) candidate set, so the
+   privacy filter the candidates already passed carries through: a private event's snapshot can
+   never be read here. Only the current metrics version is read, so a trend never compares
+   numbers whose definitions changed underneath it. */
+export async function fetchTrendSnapshots(scopedCandidates: EventCandidate[], limit: number) {
+  const conversationIds = scopedCandidates.map((candidate) => candidate.id)
+  return EventMetricsSnapshot.find({
+    conversationId: { $in: conversationIds },
+    metricsVersion: METRICS_VERSION
+  })
+    .sort({ eventEndTime: -1 })
+    .limit(limit)
+}
+
 /* At most this many recent public events are pulled as candidates. The summon matches
    by name in memory, so this bounds the work; very old events past the window are not
    summonable, which is an acceptable first cut. */
@@ -133,7 +185,14 @@ const EventReferenceSchema = z.object({
     .describe('True when they asked for the most recent event in a named topic rather than a specific named one'),
   latestOverall: z
     .boolean()
-    .describe('True when they asked for the single most recent event overall, naming no event or topic')
+    .describe('True when they asked for the single most recent event overall, naming no event or topic'),
+  trend: z
+    .boolean()
+    .describe('True when they asked about several events or how something changed over time, not one specific event'),
+  eventCount: z
+    .number()
+    .nullable()
+    .describe('How many recent events to compare when trend is true (e.g. "last 3" gives 3); null when unspecified')
 })
 
 /* Asks the model which past event a summon message is referring to. */

@@ -218,26 +218,68 @@ export const VIBES_EVENT_REFERENCE_SYSTEM_PROMPT = `# Role
 You read a short message where someone asks an assistant to recap a past event, and you pull out which event they mean.
 
 # Task
-Return three fields:
-- eventQuery: the name of the event or its topic, as the user referred to it, with the assistant's name and filler words removed. Keep only the words that identify the event. Leave it empty when they named no event or topic.
-- latestInTopic: true if the user asked for the most recent, latest, or newest event in a named series or topic rather than a specific named event; false otherwise.
+Return five fields:
+- eventQuery: the name of the event or its topic, as the user referred to it, with the assistant's name and filler words removed. Keep only the words that identify the event. Leave it empty when the user names no event or series at all.
+- latestInTopic: true if the user asked for the most recent, latest, or newest event in a named series or topic rather than a specific named event; false if they named a specific event.
 - latestOverall: true if the user asked for the single most recent or last event without naming any event or topic; false otherwise.
+- trend: true if the user asked about several events together or how something changed over time (a comparison, a trend, "the last few events", "across our events"), rather than one specific event.
+- eventCount: when trend is true, how many recent events they asked to compare (e.g. "the last 3 events" gives 3); null when they did not say a number, or when trend is false.
 
 # Examples
-- "@Vibes recap the Spring Town Hall" gives eventQuery "Spring Town Hall", latestInTopic false, latestOverall false
-- "@Vibes how did the latest AI Ethics session go?" gives eventQuery "AI Ethics", latestInTopic true, latestOverall false
-- "summarize our most recent standup" gives eventQuery "standup", latestInTopic true, latestOverall false
-- "@Vibes tell me about the last event" gives eventQuery "", latestInTopic false, latestOverall true
-- "what was our most recent session like?" gives eventQuery "", latestInTopic false, latestOverall true
+- "@Vibes recap the Spring Town Hall" gives eventQuery "Spring Town Hall", latestInTopic false, latestOverall false, trend false, eventCount null
+- "@Vibes how did the latest AI Ethics session go?" gives eventQuery "AI Ethics", latestInTopic true, latestOverall false, trend false, eventCount null
+- "summarize our most recent standup" gives eventQuery "standup", latestInTopic true, latestOverall false, trend false, eventCount null
+- "@Vibes tell me about the last event" gives eventQuery "", latestInTopic false, latestOverall true, trend false, eventCount null
+- "how was engagement across the last 3 events?" gives eventQuery "", latestInTopic false, latestOverall false, trend true, eventCount 3
+- "has participation been trending up in the AI Ethics series?" gives eventQuery "AI Ethics", latestInTopic false, latestOverall false, trend true, eventCount null
+- "compare our last few town halls" gives eventQuery "town halls", latestInTopic false, latestOverall false, trend true, eventCount null
 
 # Hard rules
 - eventQuery must be only the identifying words. Strip the assistant mention, verbs like recap or summarize, and articles.
 - Set latestInTopic true only when the user named a topic or series and asked for its newest one.
 - Set latestOverall true only when the user asked for the single most recent event and named no event or topic.
-- For a request about several past events or a trend across events (for example "the past 2 events"), set both flags false and leave the identifying words in eventQuery.`
+- Set trend true only for a genuine multi-event ask: a comparison, a trend over time, or a count of recent events. A single event, even "the latest", is not a trend.
+- eventCount is a number only when the user states one; otherwise null.`
 
 /* The per-message input for the summon parser. */
 export const VIBES_EVENT_REFERENCE_USER_TEMPLATE = `The message:
 {message}
 
-Return the event query, whether they want the latest in a named topic, and whether they want the single most recent event overall.`
+Return the event query, which "most recent" shortcut they meant (latest in a named topic, or the single most recent event overall), and whether they asked about several events as a trend.`
+
+/* The instructions for the trend writer. It is given the stored metrics of several past
+   events in one space, oldest to newest, and writes a short comparative read of how
+   engagement moved across them. It is the cross-event sibling of the single-event curator:
+   same two-tier trust rule (exact vs estimate), same no-invention discipline, but its job is
+   the comparison, not one event. A chart of posters per event is attached for it, so its
+   prose should describe the trend rather than restate every number. */
+export const VIBES_TREND_SYSTEM_PROMPT = `# Role
+You compare engagement across several past events in the same space and write a brief, honest read of how it has moved.
+
+# Input
+You get the stored metrics for {eventCount} events, oldest first, each with its name, date, and counts.
+
+# Task
+Return:
+- header: one short line naming what is being compared (e.g. "Engagement across the last 3 AI Ethics sessions").
+- framing (optional): one sentence of context for the comparison.
+- standouts: 1 to 3 mrkdwn lines, each naming one cross-event movement: a metric, its direction over the events (rose, fell, held steady), and the rough size of the change. A chart of posters per event is shown after the first standout, so lead with the participation trend.
+
+# Two trust tiers (state them differently)
+- Exact, stated plainly: poster count, message count, public/private split, spike count, bot invocations. These are counted from our own records.
+- Estimate, always caveated as a possible undercount: lurker count, participation rate, dwell time. These come from web analytics that miss people who block tracking. Never state an estimate without noting it may run low, and never mix it with an exact count in the same claim.
+
+# Hard rules
+- Use only the numbers given. Do not invent events, values, or reasons for a change.
+- An event with a null estimate (lurkers, rate, dwell) simply lacks that data; do not read null as zero.
+- If a metric did not move meaningfully, say it held steady rather than inventing a trend.
+- Keep each standout to one sentence. No headers or bullets inside a standout.`
+
+/* The per-trend input for the writer: how many events, and their stored metrics oldest-first
+   as JSON (scalar counts only; no verbatim quote text is ever stored in a snapshot). */
+export const VIBES_TREND_USER_TEMPLATE = `Number of events: {eventCount}
+
+The events, oldest first, with their stored metrics (JSON):
+{metricsJson}
+
+Write the cross-event comparison.`
