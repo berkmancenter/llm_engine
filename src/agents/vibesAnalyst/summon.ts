@@ -3,7 +3,17 @@ import access from '../../auth/access.js'
 import logger from '../../config/logger.js'
 import { AgentResponse } from '../../types/index.types.js'
 import buildVibesSummary from './buildSummary.js'
-import { extractEventReference, findCandidatePublicEvents, resolveSummonedEvent, EventCandidate } from './eventResolution.js'
+import buildTrendSummary from './trendSummary.js'
+import {
+  extractEventReference,
+  findCandidatePublicEvents,
+  resolveSummonedEvent,
+  resolveTrendScope,
+  trendEventCount,
+  fetchTrendSnapshots,
+  EventCandidate,
+  EventReference
+} from './eventResolution.js'
 
 /* The channel the vibes analyst lives in and answers summons from. */
 const SUMMON_CHANNEL = 'vibesAnalyst'
@@ -29,6 +39,11 @@ export function ambiguousMessage(candidates: EventCandidate[]): string {
   return `A few public events match that. Which one did you mean?\n${list}`
 }
 
+/* The reply when a trend was asked for but no stored snapshots exist to compare. */
+export function noTrendDataMessage(): string {
+  return "I don't have stored metrics for those events yet, so I can't compare them. Once they've each been recapped (or the backfill has run), I can."
+}
+
 /* Builds a reply that threads under the summoning message, in the channel it came from.
    Threading keeps each recap attached to the question that asked for it. An optional
    card turns the plain reply into the rendered engagement summary. */
@@ -43,36 +58,24 @@ function reply(
 }
 
 /**
- * Handles one on-demand summon. Works out which past public event the message refers to,
- * then either posts that event's engagement card or replies asking for a clearer name.
- * The candidate set is privacy-filtered, and access is re-checked on the resolved event
- * before its content is read, so a summon can never recap a private event. Every reply
- * threads under the summoning message in the channel it came from.
+ * Recaps one resolved public event on demand. Loads the event, re-checks read access (fail
+ * closed: anything but an explicit public topic is refused, not recapped), and posts its
+ * engagement card threaded under the summon. Shared by the single-event path and the trend
+ * path's one-event fallback. Returns a not-found reply if the event has since disappeared.
  */
-export default async function handleSummon(context, userMessage, llm): Promise<AgentResponse<string>[]> {
-  const parent = userMessage._id
-
-  const reference = await extractEventReference(userMessage.body ?? '', llm)
-  const candidates = await findCandidatePublicEvents()
-  const resolution = resolveSummonedEvent(reference, candidates)
-
-  // Newest first, capped, so a miss can suggest real recent events instead of dead-ending.
-  const recent = [...candidates].sort((a, b) => b.endTime.getTime() - a.endTime.getTime()).slice(0, MAX_RECENT_SUGGESTIONS)
-
-  if (resolution.status === 'notFound') {
-    return [reply(context, parent, notFoundMessage(reference.eventQuery, recent))]
-  }
-  if (resolution.status === 'ambiguous') {
-    return [reply(context, parent, ambiguousMessage(resolution.candidates))]
-  }
-
-  const conversation = await Conversation.findById(resolution.event.id).populate('topic')
+async function recapResolvedEvent(
+  context,
+  parent: AgentResponse<string>['parent'],
+  conversationId: string,
+  fallbackQuery: string,
+  recent: EventCandidate[],
+  llm
+): Promise<AgentResponse<string>[]> {
+  const conversation = await Conversation.findById(conversationId).populate('topic')
   if (!conversation) {
-    return [reply(context, parent, notFoundMessage(reference.eventQuery, recent))]
+    return [reply(context, parent, notFoundMessage(fallbackQuery, recent))]
   }
 
-  // Re-check read access on the resolved event before reading it. Fail closed, same as
-  // the auto path: anything but an explicit public topic is refused, not recapped.
   const topic = conversation.topic as { _id?: { toString(): string }; private?: boolean } | undefined
   try {
     access.assertCanRead(context, {
@@ -96,4 +99,67 @@ export default async function handleSummon(context, userMessage, llm): Promise<A
   return [
     reply(context, parent, `Vibes summary for *${conversation.name}*`, { responseKind: 'curatedVibesSummary', renderData })
   ]
+}
+
+/**
+ * Answers a cross-event trend question from stored snapshots rather than a live recap. Scopes
+ * to the named series (or all public events when none is named), reads the most recent N
+ * snapshots at the current metrics version, and posts a comparative card. The snapshot read is
+ * confined to the privacy-filtered candidate set, so a private event can never enter a trend.
+ * With no snapshots it says so; with exactly one it falls back to a normal single-event recap,
+ * since one event is not a trend.
+ */
+async function handleTrendSummon(
+  context,
+  parent: AgentResponse<string>['parent'],
+  reference: EventReference,
+  candidates: EventCandidate[],
+  recent: EventCandidate[],
+  llm
+): Promise<AgentResponse<string>[]> {
+  const scoped = resolveTrendScope(reference, candidates)
+  const snapshots = await fetchTrendSnapshots(scoped, trendEventCount(reference))
+
+  if (snapshots.length === 0) {
+    return [reply(context, parent, noTrendDataMessage())]
+  }
+  if (snapshots.length === 1) {
+    return recapResolvedEvent(context, parent, snapshots[0].conversationId.toString(), reference.eventQuery, recent, llm)
+  }
+
+  const renderData = await buildTrendSummary(snapshots, llm)
+  return [
+    reply(context, parent, 'Engagement trend across recent events', { responseKind: 'curatedVibesSummary', renderData })
+  ]
+}
+
+/**
+ * Handles one on-demand summon. First works out whether the message asks about one event or a
+ * cross-event trend, then routes accordingly: a trend is answered from stored snapshots, a
+ * single event is resolved by name and recapped live. The candidate set is privacy-filtered and
+ * access is re-checked before any content is read, so a summon can never surface a private
+ * event. Every reply threads under the summoning message in the channel it came from.
+ */
+export default async function handleSummon(context, userMessage, llm): Promise<AgentResponse<string>[]> {
+  const parent = userMessage._id
+
+  const reference = await extractEventReference(userMessage.body ?? '', llm)
+  const candidates = await findCandidatePublicEvents()
+
+  // Newest first, capped, so a miss can suggest real recent events instead of dead-ending.
+  const recent = [...candidates].sort((a, b) => b.endTime.getTime() - a.endTime.getTime()).slice(0, MAX_RECENT_SUGGESTIONS)
+
+  if (reference.trend) {
+    return handleTrendSummon(context, parent, reference, candidates, recent, llm)
+  }
+
+  const resolution = resolveSummonedEvent(reference, candidates)
+  if (resolution.status === 'notFound') {
+    return [reply(context, parent, notFoundMessage(reference.eventQuery, recent))]
+  }
+  if (resolution.status === 'ambiguous') {
+    return [reply(context, parent, ambiguousMessage(resolution.candidates))]
+  }
+
+  return recapResolvedEvent(context, parent, resolution.event.id, reference.eventQuery, recent, llm)
 }

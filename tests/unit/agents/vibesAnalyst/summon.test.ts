@@ -13,14 +13,30 @@ const mockFindCandidates = jest.fn<(...args: any[]) => Promise<any>>()
 const mockResolve = jest.fn<(...args: any[]) => any>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockBuildSummary = jest.fn<(...args: any[]) => Promise<any>>()
+// Trend resolution and the comparative pipeline are tested in their own files; mocked here to
+// drive handleSummon's trend branch.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockResolveTrendScope = jest.fn<(...args: any[]) => any>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockTrendEventCount = jest.fn<(...args: any[]) => number>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockFetchTrendSnapshots = jest.fn<(...args: any[]) => Promise<any>>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockBuildTrend = jest.fn<(...args: any[]) => Promise<any>>()
 
 jest.unstable_mockModule('../src/agents/vibesAnalyst/eventResolution.js', () => ({
   extractEventReference: mockExtract,
   findCandidatePublicEvents: mockFindCandidates,
-  resolveSummonedEvent: mockResolve
+  resolveSummonedEvent: mockResolve,
+  resolveTrendScope: mockResolveTrendScope,
+  trendEventCount: mockTrendEventCount,
+  fetchTrendSnapshots: mockFetchTrendSnapshots
 }))
 jest.unstable_mockModule('../src/agents/vibesAnalyst/buildSummary.js', () => ({
   default: mockBuildSummary
+}))
+jest.unstable_mockModule('../src/agents/vibesAnalyst/trendSummary.js', () => ({
+  default: mockBuildTrend
 }))
 
 const {
@@ -60,13 +76,21 @@ describe('handleSummon', () => {
   beforeEach(() => {
     jest.restoreAllMocks()
     mockExtract.mockReset()
-    mockExtract.mockResolvedValue({ eventQuery: 'Spring Town Hall', latestInTopic: false })
+    mockExtract.mockResolvedValue({ eventQuery: 'Spring Town Hall', latestInTopic: false, trend: false })
     mockFindCandidates.mockReset()
     mockFindCandidates.mockResolvedValue([])
     mockResolve.mockReset()
     mockBuildSummary.mockReset()
     // buildVibesSummary returns the card alongside the metrics; summon uses only the card.
     mockBuildSummary.mockResolvedValue({ renderData: { header: 'Recap' }, metrics: {} })
+    mockResolveTrendScope.mockReset()
+    mockResolveTrendScope.mockImplementation((_reference, candidates) => candidates)
+    mockTrendEventCount.mockReset()
+    mockTrendEventCount.mockReturnValue(5)
+    mockFetchTrendSnapshots.mockReset()
+    mockFetchTrendSnapshots.mockResolvedValue([])
+    mockBuildTrend.mockReset()
+    mockBuildTrend.mockResolvedValue({ header: 'Engagement trend', standouts: [] })
   })
 
   it('posts the engagement card threaded under the summon when the event resolves', async () => {
@@ -143,5 +167,68 @@ describe('handleSummon', () => {
     expect(responses[0].responseKind).toBeUndefined()
     expect(responses[0].message).toContain('can only recap public events')
     expect(mockBuildSummary).not.toHaveBeenCalled()
+  })
+
+  describe('trend queries', () => {
+    const trendMessage = { _id: 'summon-msg', body: '@Vibes how was engagement across the last 3 AI Ethics sessions?' }
+
+    beforeEach(() => {
+      mockExtract.mockResolvedValue({ eventQuery: 'AI Ethics', latestInTopic: false, trend: true, eventCount: 3 })
+    })
+
+    it('posts a comparative trend card when several snapshots are found', async () => {
+      const snapshots = [{ conversationId: 'c3' }, { conversationId: 'c2' }, { conversationId: 'c1' }]
+      mockFetchTrendSnapshots.mockResolvedValue(snapshots)
+      const trendCard = { header: 'Engagement across 3 AI Ethics sessions', standouts: [] }
+      mockBuildTrend.mockResolvedValue(trendCard)
+
+      const responses = await handleSummon(buildContext(), trendMessage, fakeLlm)
+
+      // The trend reads snapshots, not a live event, and never runs the single-event recap.
+      expect(mockBuildTrend).toHaveBeenCalledWith(snapshots, fakeLlm)
+      expect(mockBuildSummary).not.toHaveBeenCalled()
+      expect(mockResolve).not.toHaveBeenCalled()
+
+      expect(responses).toHaveLength(1)
+      const [response] = responses
+      expect(response.responseKind).toBe('curatedVibesSummary')
+      expect(response.renderData).toBe(trendCard)
+      expect(response.parent).toBe('summon-msg')
+      expect(response.channels).toEqual([vibesChannel])
+    })
+
+    it('honours the resolved event count when fetching snapshots', async () => {
+      mockTrendEventCount.mockReturnValue(3)
+      mockFetchTrendSnapshots.mockResolvedValue([{ conversationId: 'c1' }, { conversationId: 'c2' }])
+
+      await handleSummon(buildContext(), trendMessage, fakeLlm)
+
+      expect(mockFetchTrendSnapshots).toHaveBeenCalledWith(expect.anything(), 3)
+    })
+
+    it('replies that there is no trend data when no snapshots exist yet', async () => {
+      mockFetchTrendSnapshots.mockResolvedValue([])
+
+      const responses = await handleSummon(buildContext(), trendMessage, fakeLlm)
+
+      expect(responses).toHaveLength(1)
+      expect(responses[0].responseKind).toBeUndefined()
+      expect(responses[0].message).toMatch(/don't have stored metrics|can't compare/i)
+      expect(mockBuildTrend).not.toHaveBeenCalled()
+    })
+
+    it('degrades to a single-event recap when only one event matches the trend', async () => {
+      mockFetchTrendSnapshots.mockResolvedValue([{ conversationId: 'c1' }])
+      mockResolvedConversation(false)
+      const singleCard = { header: 'Recap', standouts: [] }
+      mockBuildSummary.mockResolvedValue({ renderData: singleCard, metrics: {} })
+
+      const responses = await handleSummon(buildContext(), trendMessage, fakeLlm)
+
+      // One event is not a trend, so it recaps that event through the normal pipeline.
+      expect(mockBuildTrend).not.toHaveBeenCalled()
+      expect(mockBuildSummary).toHaveBeenCalledWith(expect.objectContaining({ _id: 'c1' }), fakeLlm)
+      expect(responses[0].renderData).toBe(singleCard)
+    })
   })
 })
