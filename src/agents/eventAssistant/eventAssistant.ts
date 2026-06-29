@@ -5,12 +5,7 @@ import renderAgentTemplate from '../helpers/renderAgentTemplate.js'
 
 import Message from '../../models/message.model.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
-import {
-  eventAssistantLLMTemplates,
-  eventAssistantLlmTemplateVars,
-  answerQuestion,
-  QuestionClassification
-} from './eventQuestionHandler.js'
+import { eventAssistantLLMTemplates, eventAssistantLlmTemplateVars, answerQuestion } from './eventQuestionHandler.js'
 import { buildSystemPromptWithPersonality } from '../helpers/agentPersonality.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 
@@ -90,62 +85,35 @@ ${capabilityDescription}`
   } Your pseudonym keeps you anonymous, and nothing you share is ever used to train AI models. No need to respond, just know I'm here.`
 }
 
-const MODERATOR_MESSAGE_TYPES = new Set(['moderator_offered', 'moderator_submitted', 'moderator_declined'])
-
-// Filter out moderator interaction messages before passing history to the LLM.
-// Seeing these in history causes the model to spontaneously replicate the offer.
-// Also drops the user's confirmed yes/no reply (sandwiched between moderator_offered
-// and moderator_submitted/declined) since without the offer it becomes a non-sequitur.
+// Filter /mod and /escalate command messages and moderator_submitted replies from LLM history so
+// they don't appear as unanswered questions, causing the LLM to re-answer them on the next turn.
 function filterModeratorHistory(conversationHistory) {
   return {
     ...conversationHistory,
-    messages: conversationHistory.messages?.filter((msg, i, msgs) => {
-      if (msg.bodyType === 'json' && MODERATOR_MESSAGE_TYPES.has((msg.body as Record<string, unknown>)?.type as string)) {
-        return false
-      }
-      const prev = msgs[i - 1]
-      const next = msgs[i + 1]
-      if (
-        prev?.bodyType === 'json' &&
-        (prev.body as Record<string, unknown>)?.type === 'moderator_offered' &&
-        next?.bodyType === 'json' &&
-        ((next.body as Record<string, unknown>)?.type === 'moderator_submitted' ||
-          (next.body as Record<string, unknown>)?.type === 'moderator_declined')
-      ) {
-        return false
+    messages: conversationHistory.messages?.filter((msg) => {
+      if (msg.bodyType === 'json') {
+        const body = msg.body as Record<string, unknown>
+        const command = body?.command
+        if (command === 'mod' || command === 'escalate') return false
+        if (body?.type === 'moderator_submitted') return false
       }
       return true
     })
   }
 }
 
-const submitToModeratorQuestion = 'Would you like to submit this question anonymously to the moderator for Q&A?'
 const submitToModeratorReply = 'Your message has been submitted to the moderator.'
-const declineModeratorReply = "OK, I won't submit it. Feel free to ask me anything else!"
 const submitToModeratorCommand = '/mod'
 const mindMapCommand = '/mindmap'
 
+const escalateCommand = '/escalate '
+
 const supportedCommands: SlashCommand[] = [
   { command: 'mod', prefix: submitToModeratorCommand, addToChannels: ['participant'] },
+  { command: 'escalate', prefix: escalateCommand },
   { command: 'visual', prefix: '/visual ' },
   { command: 'mindmap', prefix: mindMapCommand }
 ]
-
-function isAffirmative(text) {
-  const normalized = text.trim().toLowerCase()
-  const affirmativePatterns =
-    /^(yes|yeah|yep|yup|sure|okay|ok|absolutely|definitely|certainly|affirmative|correct|right|indeed|of course|you bet|sounds good)/
-
-  return affirmativePatterns.test(normalized)
-}
-
-function isNegative(text) {
-  const normalized = text.trim().toLowerCase()
-  const negativePatterns =
-    /^(no|nah|nope|naw|not really|don't|dont|never mind|nevermind|no thanks|no thank you|negative|not now|maybe later|i'm good|im good)/
-
-  return negativePatterns.test(normalized)
-}
 
 function submitToModeratorResponse(userMessage, message) {
   return [
@@ -160,82 +128,6 @@ function submitToModeratorResponse(userMessage, message) {
     }
   ]
 }
-
-function declineModeratorResponse(userMessage, message) {
-  return [
-    {
-      visible: true,
-      message: { type: 'moderator_declined', text: declineModeratorReply, message: message._id.toString() },
-      messageType: 'json',
-      channels: this.conversation.channels.filter(
-        (channel) => userMessage.channels.includes(channel.name) && channel.direct === true
-      ),
-      parent: userMessage.parentMessage
-    }
-  ]
-}
-
-async function handleModeratorReply(conversationHistory, userMessage) {
-  const lastMessage = conversationHistory.messages[conversationHistory.messages.length - 1]
-  if (
-    conversationHistory.messages.length > 1 &&
-    lastMessage.bodyType === 'json' &&
-    (lastMessage.body as Record<string, unknown>).text === submitToModeratorQuestion
-  ) {
-    const originalMessageId = (lastMessage.body as Record<string, unknown>).message
-    const message = await Message.findById(originalMessageId)
-    const responseText = extractMessageText(userMessage)
-
-    if (isAffirmative(responseText)) {
-      if (!message) {
-        logger.error(`Could not find original message with ID ${originalMessageId} to submit to moderator`)
-        return []
-      }
-      message.channels = message.channels ?? []
-      message.channels.push('participant')
-      await message.save()
-      return submitToModeratorResponse.call(this, userMessage, message)
-    }
-
-    if (isNegative(responseText)) {
-      if (!message) {
-        logger.error(`Could not find original message with ID ${originalMessageId} to send acknowledgement of decline`)
-        return []
-      }
-      return declineModeratorResponse.call(this, userMessage, message)
-    }
-    // Neither affirmative nor negative — fall through to process as a new question
-  }
-  return null
-}
-
-function offerModeratorSubmission(userMessage, agentResponses, conversation) {
-  const { classification } = agentResponses[0]
-  if (
-    classification === QuestionClassification.UNANSWERABLE ||
-    classification === QuestionClassification.ON_TOPIC_ASK_SPEAKER
-  ) {
-    agentResponses.push({
-      visible: true,
-      message: {
-        type: 'moderator_offered',
-        text: submitToModeratorQuestion,
-        message: userMessage._id.toString()
-      },
-      messageType: 'json',
-      channels: conversation.channels.filter((channel) => userMessage.channels.includes(channel.name)),
-      replyFormat: {
-        type: 'singleChoice',
-        options: [
-          { value: 'no', label: 'No' },
-          { value: 'yes', label: 'Yes' }
-        ]
-      },
-      parent: userMessage.parentMessage
-    })
-  }
-}
-
 
 type TraceResponse = {
   message?: unknown
@@ -315,7 +207,7 @@ export default verify({
     // Parse slash commands using shared parser
     const activeCommands = this.agentConfig?.moderatorSupport
       ? supportedCommands
-      : supportedCommands.filter((c) => c.command !== 'mod')
+      : supportedCommands.filter((c) => c.command !== 'mod' && c.command !== 'escalate')
     let modifiedMessage = parseSlashCommands(userMessage, activeCommands)
 
     if (modifiedMessage?.channels?.includes('chat')) {
@@ -358,13 +250,24 @@ export default verify({
       return await answerQuestion.call(this, userMessage, filterModeratorHistory(conversationHistory))
     }
 
-    if (this.agentConfig?.moderatorSupport) {
-      const moderatorReply = await handleModeratorReply.call(this, conversationHistory, userMessage)
-      if (moderatorReply !== null) return moderatorReply
-
-      if (userMessage.channels?.includes('participant')) {
-        return submitToModeratorResponse.call(this, userMessage, userMessage)
+    if (this.agentConfig?.moderatorSupport && hasCommand(userMessage, 'escalate')) {
+      const questionId = userMessage.body?.text
+      const originalMessage = await Message.findById(questionId)
+      if (originalMessage) {
+        originalMessage.channels = originalMessage.channels ?? []
+        if (!originalMessage.channels.includes('participant')) {
+          originalMessage.channels.push('participant')
+          await originalMessage.save()
+        }
+      } else {
+        logger.error(`escalate: could not find original message ${questionId}`)
+        return []
       }
+      return submitToModeratorResponse.call(this, userMessage, { _id: questionId })
+    }
+
+    if (this.agentConfig?.moderatorSupport && userMessage.channels?.includes('participant')) {
+      return submitToModeratorResponse.call(this, userMessage, userMessage)
     }
 
     // Check for visual command (set in evaluate)
@@ -374,15 +277,10 @@ export default verify({
     const modifiedMessage = { ...userMessage }
     modifiedMessage.body = extractMessageText(userMessage)
 
-    const agentResponses = await answerQuestion.call(this, modifiedMessage, filterModeratorHistory(conversationHistory), {
-      forceVisual
+    return answerQuestion.call(this, modifiedMessage, filterModeratorHistory(conversationHistory), {
+      forceVisual,
+      moderatorSupport: !!this.agentConfig?.moderatorSupport
     })
-
-    if (this.agentConfig?.moderatorSupport) {
-      offerModeratorSubmission(userMessage, agentResponses, this.conversation)
-    }
-
-    return agentResponses
   },
   async start() {
     return true

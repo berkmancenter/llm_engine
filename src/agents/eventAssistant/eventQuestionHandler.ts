@@ -612,11 +612,17 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
     }
   }
 
+  const moderatorSuggested =
+    options?.moderatorSupport &&
+    (classification === QuestionClassification.ON_TOPIC_ASK_SPEAKER ||
+      classification === QuestionClassification.UNANSWERABLE)
+
   const agentResponse = {
     visible: true,
     message: {
       text: responseMessage,
-      type: classification.toLowerCase()
+      type: classification.toLowerCase(),
+      ...(moderatorSuggested ? { moderatorSuggested: true, message: userMessage._id?.toString() } : {})
     },
     messageType: 'json',
     channels: responseChannels,
