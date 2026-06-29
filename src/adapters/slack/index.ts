@@ -74,6 +74,18 @@ function markdownToMrkdwn(text: string): string {
 export default {
   name: 'slack',
   label: 'Slack',
+  /* Maps conversation property keys to the adapter config keys they should write.
+     The conversation service reads this at update time to push changed properties
+     to Slack adapter documents without needing to know which keys Slack cares about. */
+  configSyncMap: {
+    slackBotUserId: 'botUserId',
+    botName: 'botName',
+    slackBotToken: 'botToken',
+    slackSigningSecret: 'signingSecret',
+    slackChannel: 'channel',
+    slackWorkspace: 'workspace',
+    slackAppKey: 'appKey'
+  },
   async sendMessage(message, channelConfig?) {
     const channel = channelConfig?.channel ? channelConfig?.channel : this.config.channel
     // Convert markdown to Slack mrkdwn format, then convert Slack user ID mentions to Slack format.
