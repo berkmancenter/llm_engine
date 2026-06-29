@@ -84,7 +84,7 @@ describe('conversation handler tests', () => {
         startTime: new Date(),
         scheduledEndTime: new Date(Date.now() + 20 * 60 * 1000)
       }) // scheduled to end in 20 minutes
-      const broadcastSpy = jest.spyOn(websocketGateway, 'broadcastConversationAlmostEnding')
+      const broadcastSpy = jest.spyOn(websocketGateway, 'broadcastConversationAlmostEnding').mockResolvedValue(undefined)
 
       await JobHandlers.conversationEndingSoon({ attrs: { data: { conversationId: conversation._id } } })
 
