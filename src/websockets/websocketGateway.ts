@@ -82,7 +82,7 @@ class WebsocketGateway {
   }
 
   async broadcastConversationAlmostEnding(conversation) {
-    await this.broadcast(conversation.topic._id.toString(), 'conversation:ending', conversation)
+    await this.broadcast(conversation._id.toString(), 'conversation:ending', conversation)
   }
 
   async broadcastResourcesUpdated(conversationId: string, resources) {
