@@ -1,9 +1,10 @@
 import { ChatPostMessageResponse } from '@slack/web-api'
 import type { KnownBlock, Block } from '@slack/types'
 import logger from '../../config/logger.js'
-import slackClientPool from './slackClientPool.js'
+import slackClientPool from './client.js'
 import { AdapterMessage } from '../../types/adapter.types.js'
 import Message from '../../models/message.model.js'
+import renderResponseBlocks from './blocks/index.js'
 
 function normalizeBotMention(text: string, botUserId: string, botName: string): string {
   if (!botUserId || !botName) return text
@@ -80,7 +81,7 @@ export default {
     const text = markdownToMrkdwn(message.body)
       .replace(/(?<![<@\w])(U[A-Z0-9]{6,})\b/g, '<@$1>')
       .replace(/(?<!<)@(U[A-Z0-9]{6,})\b/g, '<@$1>')
-    const slackWebClient = slackClientPool.getClient(this.config.workspace, this.config.botToken)
+    const slackWebClient = slackClientPool.getClient(this.config.botToken)
 
     let threadTs: string | undefined
     if (message.parentMessage) {
@@ -88,13 +89,18 @@ export default {
       threadTs = parent?.source?.id
     }
 
+    // Prefer blocks rendered from a neutral render instruction (responseKind +
+    // renderData); fall back to any pre-built blocks the message already carries.
+    const renderedBlocks = renderResponseBlocks(message.responseKind, message.renderData)
+    const blocks = (renderedBlocks ?? (message.blocks as (KnownBlock | Block)[])) as (KnownBlock | Block)[] | undefined
+
     const result = (await slackWebClient.chat.postMessage({
       channel,
       text,
       ...(threadTs && { thread_ts: threadTs }),
       // Include Block Kit blocks when provided. text is still required alongside blocks
       // as Slack uses it for notifications and accessibility fallback.
-      ...(message.blocks?.length && { blocks: message.blocks as (KnownBlock | Block)[] })
+      ...(blocks?.length && { blocks })
     })) as ChatPostMessageResponse
     if (!result.ok) {
       throw new Error(`Slack message failed to send: ${result.error}`)
@@ -123,7 +129,7 @@ export default {
       }
     })
     if (!this.config.botUserId) {
-      const slackWebClient = slackClientPool.getClient(this.config.workspace, this.config.botToken)
+      const slackWebClient = slackClientPool.getClient(this.config.botToken)
       const authResult = await slackWebClient.auth.test()
       if (!authResult.ok || !authResult.user_id) {
         throw new Error(`Failed to look up Slack bot user ID: ${authResult.error}`)

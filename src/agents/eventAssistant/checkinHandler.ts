@@ -2,18 +2,16 @@ import { z } from 'zod'
 import { ConversationHistory, IChannel } from '../../types/index.types.js'
 
 import getConversationHistory from '../helpers/getConversationHistory.js'
-import {
-  detectPrivateInterventionOpportunity,
-  buildInterventionTypeSection,
-  USER_TEMPLATE
-} from '../helpers/interventionHandler.js'
+import { detectPrivateInterventionOpportunity, buildInterventionTypeSection } from '../helpers/interventionHandler.js'
+import { formatDmHistoryByChannel } from '../helpers/llmInputFormatters.js'
 import logger from '../../config/logger.js'
 import filterHallucinations from '../helpers/hallucinations.js'
 import transcript from '../helpers/transcript.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 
 interface AgentLike {
-  agentConfig?: { checkinScanInterval?: number; minInterval?: number; [key: string]: unknown }
+  agentConfig?: { minInterval?: number; [key: string]: unknown }
+  triggers?: { periodic?: { timerPeriod?: number } }
   conversation: { channels: IChannel[]; [key: string]: unknown }
   getLLM(): Promise<unknown>
   name: string
@@ -149,7 +147,7 @@ The message is entirely about solidarity — that their reaction is shared, not 
       '"That [topic] section moved fast. If anything in there didn\'t land, just point me at it — one word is enough."'
     ],
     evaluateShared: async ({ sharedChatHistory, agentInstance }) => {
-      const windowSeconds = (agentInstance.agentConfig?.checkinScanInterval ?? 3) * 60
+      const windowSeconds = agentInstance.triggers?.periodic?.timerPeriod ?? 180
       const recentTranscript = transcript.getTranscript(agentInstance.conversation, windowSeconds, sharedChatHistory.end)
       if (!recentTranscript?.trim()) return { isDense: false, topic: null }
 
@@ -170,7 +168,7 @@ The message is entirely about solidarity — that their reaction is shared, not 
     },
     isEligible: ({ participantDmHistory, endTime, agentInstance }, sharedResult) => {
       if (!sharedResult?.isDense) return false
-      const windowMs = (agentInstance.agentConfig?.checkinScanInterval ?? 3) * 60 * 1000
+      const windowMs = (agentInstance.triggers?.periodic?.timerPeriod ?? 180) * 1000
       const cutoff = endTime ? new Date(endTime.getTime() - windowMs) : new Date(0)
       return !participantDmHistory.messages.some((m) => !m.fromAgent && m.createdAt && m.createdAt > cutoff)
     }
@@ -219,7 +217,35 @@ function getCheckinDmAnalysisSchema(eligibleTypes: PrivateCheckinType[]) {
   })
 }
 
-function buildCheckinSystemPrompt(participantPseudonym: string, eligibleTypes: PrivateCheckinType[]): string {
+const CHECKIN_USER_TEMPLATE = `## Event Topic:
+{topic}
+
+## You are writing to:
+{participantPseudonym}
+
+## This Participant's DM History:
+{thisParticipantHistory}
+
+## Recent Transcript (last 10 minutes):
+{recentTranscript}
+
+## Retrieved Relevant Context from Transcript:
+{retrievedChunks}
+
+## Private Messages (All Participants):
+{privateMessages}
+
+## Shared Chat History:
+{sharedChatHistory}
+
+## Your Recent Posts:
+{agentRecentPosts}
+
+---
+
+Analyze the current state and determine if a check-in is warranted. Follow the decision framework and output valid JSON only.`
+
+function buildCheckinSystemPrompt(eligibleTypes: PrivateCheckinType[]): string {
   const typeSections = eligibleTypes.map((t) => buildInterventionTypeSection(t, checkinTypeInfo[t])).join('\n\n')
   const transcriptNote = eligibleTypes.includes(PrivateCheckinType.TRANSCRIPT_HOOK)
     ? '\n- Recent transcript (last 10 minutes) — use this to identify the dense section for TRANSCRIPT_HOOK'
@@ -228,11 +254,12 @@ function buildCheckinSystemPrompt(participantPseudonym: string, eligibleTypes: P
   return `You are a supportive AI assistant at a live event, reaching out privately to individual participants when there is a meaningful reason to do so.
 
 ## Who you are writing to
-You are composing a private message for **${participantPseudonym}**. The "Private Messages" section contains DMs from all participants — use the others only to understand shared patterns, never as content to surface directly.
+You are composing a private message for the participant identified at the top of the prompt. The "Private Messages" section contains DMs from all participants — use the others only to understand shared patterns, never as content to surface directly.
 
 ## What you are looking at
-- Shared chat history — includes ${participantPseudonym}'s public activity
-- Private messages — includes ${participantPseudonym}'s DM history and other participants' DMs${transcriptNote}
+- This participant's DM history — their own conversation with you, for direct reference
+- Shared chat history — includes the participant's public activity
+- Private messages (all participants) — use only to understand shared patterns${transcriptNote}
 
 ## Voice
 
@@ -240,7 +267,7 @@ Always warm. Never clinical, never over-affirming, never sycophantic. Neurodiver
 
 ## Rules
 
-- Write only to ${participantPseudonym} — the directMessage field is sent privately to them alone
+- Write only to the identified participant — the directMessage field is sent privately to them alone
 - Never mention that you analyzed messages or used AI to detect patterns
 - Never quote or closely paraphrase any participant's words
 - Never name or hint at any other participant
@@ -260,8 +287,12 @@ ${typeSections}`
  * Called with `this` = agent instance.
  */
 export async function buildCheckinResponses(conversationHistory: ConversationHistory) {
-  const responses: object[] = []
-
+  // Participants may not be deep-populated when the conversation loads — populate them now so the
+  // pseudonym fallback in formatDmHistoryByChannel has full user docs.
+  const allDirect = this.conversation.channels.filter((c: IChannel) => c.direct)
+  await Promise.all(
+    allDirect.map((c) => (c as unknown as { populate(path: string): Promise<void> }).populate('participants'))
+  )
   // Small chance there are duplicate direct channels with the same name due to React StrictMode double-invoking effects in development. De-dup just in case, to avoid duplicate messages.
   const directChannels: IChannel[] = Array.from(
     new Map<string, IChannel>(
@@ -274,7 +305,7 @@ export async function buildCheckinResponses(conversationHistory: ConversationHis
     ).values()
   )
 
-  if (directChannels.length === 0) return responses
+  if (directChannels.length === 0) return []
 
   const sharedChatHistory = getConversationHistory(conversationHistory.messages, {
     count: 100,
@@ -304,95 +335,108 @@ export async function buildCheckinResponses(conversationHistory: ConversationHis
     )
   )
 
-  for (const channel of directChannels) {
-    const channelMessages = conversationHistory.messages.filter((m) => m.channels?.includes(channel.name))
+  // Run per-participant LLM calls in parallel — each call is independent (rate limiting
+  // is scoped to the individual participant's DM history, not shared state).
+  const participantResults = await Promise.all(
+    directChannels.map(async (channel) => {
+      const channelMessages = conversationHistory.messages.filter((m) => m.channels?.includes(channel.name))
 
-    // Resolve pseudonym — needed for the system prompt regardless of intervention type
-    const participantMessage = channelMessages.find((m) => !m.fromAgent)
-    const participantPseudonym = participantMessage?.pseudonym || 'participant'
+      // Resolve pseudonym from message history first; fall back to channel.participants for users
+      // who haven't sent any DMs yet (e.g. TRANSCRIPT_HOOK targets quiet participants).
+      const participantMessage = channelMessages.find((m) => !m.fromAgent)
+      const participantPseudonym =
+        participantMessage?.pseudonym ||
+        channel.participants?.find((p) => p._id?.toString() !== this._id.toString())?.activePseudonym?.pseudonym ||
+        'participant'
 
-    const participantDmHistory = getConversationHistory(channelMessages, {
-      count: 50,
-      endTime: conversationHistory.end
-    })
+      const participantDmHistory = getConversationHistory(channelMessages, {
+        count: 50,
+        endTime: conversationHistory.end
+      })
 
-    const participantContext: ParticipantCheckinContext = {
-      participantDmHistory,
-      participantPseudonym,
-      allDmHistory,
-      endTime: conversationHistory.end ?? undefined,
-      agentInstance: this
-    }
-
-    // Filter to types eligible for this participant. Types without isEligible always pass through.
-    const eligibleTypes = activeTypes.filter((t) => {
-      const { isEligible } = checkinTypeInfo[t]
-      return !isEligible || isEligible(participantContext, sharedResults[t] ?? null)
-    })
-
-    if (eligibleTypes.length === 0) {
-      logger.debug(`[checkinHandler] no eligible types for ${participantPseudonym} — skipping LLM call`)
-      continue
-    }
-
-    const systemPrompt = buildCheckinSystemPrompt(participantPseudonym, eligibleTypes)
-    const schema = getCheckinDmAnalysisSchema(eligibleTypes)
-
-    // detectInterventionOpportunity handles rate limiting (scoped to this DM channel via
-    // participantDmHistory as rateLimitHistory) and the DB race guard (scoped to channel.name).
-    // allDmHistory is passed as privateConversationHistory so the LLM has full cross-participant
-    // context for reasoning. The schema uses `directMessage` instead of
-    // `sharedChatMessage`, so the professionalism check inside is skipped — appropriate here.
-    const analysis = (await detectPrivateInterventionOpportunity.call(
-      this,
-      sharedChatHistory,
-      systemPrompt,
-      schema,
-      allDmHistory,
-      participantDmHistory,
-      USER_TEMPLATE
-    )) as unknown as CheckinAnalysis | null
-
-    if (!analysis?.directMessage) {
-      logger.debug(
-        `Checkin Handler: No intervention opportunity detected or rate limited for participant ${participantPseudonym}`
-      )
-      continue
-    }
-
-    // If the message implies cross-participant patterns, verify cited participant+text pairs are real.
-    // Mirrors backChannel hallucination filtering: the LLM must cite sources it can actually see.
-    if (analysis.sourceMessages?.length) {
-      const otherParticipantMessages = [...allDmHistory.messages, ...sharedChatHistory.messages].filter(
-        (m) => !m.fromAgent && m.pseudonym !== participantPseudonym
-      )
-      if (!filterHallucinations(analysis.sourceMessages, otherParticipantMessages)) {
-        logger.warn(
-          `CheckinHandler: suppressed hallucinated cross-participant claim for ${participantPseudonym}: cited ${JSON.stringify(
-            analysis.sourceMessages
-          )}`
-        )
-        continue
+      const participantContext: ParticipantCheckinContext = {
+        participantDmHistory,
+        participantPseudonym,
+        allDmHistory,
+        endTime: conversationHistory.end ?? undefined,
+        agentInstance: this
       }
-    }
 
-    logger.info(
-      `Checkin Handler: ${analysis.checkinType} → ${participantPseudonym} (${channel.name}): ${analysis.detectedPattern}`
-    )
-    responses.push({
-      visible: true,
-      message: { type: 'checkin', text: analysis.directMessage },
-      messageType: 'json',
-      channels: [channel],
-      context: analysis.context,
-      participantPseudonym,
-      eligibleTypes,
-      checkinType: analysis.checkinType,
-      reasoning: analysis.reasoning,
-      confidenceScore: analysis.confidenceScore,
-      detectedPattern: analysis.detectedPattern
+      // Filter to types eligible for this participant. Types without isEligible always pass through.
+      const eligibleTypes = activeTypes.filter((t) => {
+        const { isEligible } = checkinTypeInfo[t]
+        return !isEligible || isEligible(participantContext, sharedResults[t] ?? null)
+      })
+
+      if (eligibleTypes.length === 0) {
+        logger.debug(`[checkinHandler] no eligible types for ${participantPseudonym} — skipping LLM call`)
+        return null
+      }
+
+      const systemPrompt = buildCheckinSystemPrompt(eligibleTypes)
+      const schema = getCheckinDmAnalysisSchema(eligibleTypes)
+
+      const thisParticipantHistory =
+        participantDmHistory.messages.length > 0
+          ? formatDmHistoryByChannel(participantDmHistory.messages, [channel])
+          : 'No messages yet from this participant.'
+
+      // detectPrivateInterventionOpportunity handles rate limiting scoped to this participant's
+      // DM channel via participantDmHistory. allDmHistory is passed as privateConversationHistory
+      // so the LLM has full cross-participant context. The schema uses `directMessage` instead of
+      // `sharedChatMessage`, so the professionalism check inside is skipped — appropriate here.
+      const analysis = (await detectPrivateInterventionOpportunity.call(
+        this,
+        sharedChatHistory,
+        systemPrompt,
+        schema,
+        allDmHistory,
+        participantDmHistory,
+        CHECKIN_USER_TEMPLATE,
+        { participantPseudonym, thisParticipantHistory }
+      )) as unknown as CheckinAnalysis | null
+
+      if (!analysis?.directMessage) {
+        logger.debug(
+          `${this.agentType} ${this._id}: no intervention opportunity detected for participant ${participantPseudonym}`
+        )
+        return null
+      }
+
+      // If the message implies cross-participant patterns, verify cited participant+text pairs are real.
+      // Mirrors backChannel hallucination filtering: the LLM must cite sources it can actually see.
+      if (analysis.sourceMessages?.length) {
+        const otherParticipantMessages = [...allDmHistory.messages, ...sharedChatHistory.messages].filter(
+          (m) => !m.fromAgent && m.pseudonym !== participantPseudonym
+        )
+        if (!filterHallucinations(analysis.sourceMessages, otherParticipantMessages)) {
+          logger.warn(
+            `CheckinHandler: suppressed hallucinated cross-participant claim for ${participantPseudonym}: cited ${JSON.stringify(
+              analysis.sourceMessages
+            )}`
+          )
+          return null
+        }
+      }
+
+      logger.info(
+        `Checkin Handler: ${analysis.checkinType} → ${participantPseudonym} (${channel.name}): ${analysis.detectedPattern}`
+      )
+      return {
+        visible: true,
+        message: { type: 'checkin', text: analysis.directMessage },
+        messageType: 'json',
+        channels: [channel],
+        context: analysis.context,
+        participantPseudonym,
+        eligibleTypes,
+        checkinType: analysis.checkinType,
+        reasoning: analysis.reasoning,
+        confidenceScore: analysis.confidenceScore,
+        detectedPattern: analysis.detectedPattern
+      }
     })
-  }
+  )
 
-  return responses
+  return participantResults.filter(Boolean)
 }

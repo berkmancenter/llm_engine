@@ -7,7 +7,7 @@ import { publicTopic } from '../fixtures/conversation.fixture.js'
 import { insertTopics } from '../fixtures/topic.fixture.js'
 import Adapter from '../../src/models/adapter.model.js'
 import websocketGateway from '../../src/websockets/websocketGateway.js'
-import slackClientPool from '../../src/adapters/slack/slackClientPool.js'
+import slackClientPool from '../../src/adapters/slack/client.js'
 
 import { Direction } from '../../src/types/index.types.js'
 
@@ -403,6 +403,47 @@ describe('slack adapter tests', () => {
 
         const call = mockWebClient.chat.postMessage.mock.calls[0][0]
         expect(call).not.toHaveProperty('blocks')
+      })
+    })
+
+    describe('neutral render instruction (responseKind)', () => {
+      beforeEach(async () => {
+        await createConversation('Vibes Render Test')
+        adapter.chatChannels = [{ name: 'general', direction: Direction.OUTGOING }]
+        mockWebClient.chat.postMessage.mockResolvedValue({ ok: true, ts: '1234567890.123456', channel: '#test-channel' })
+      })
+
+      it('renders responseKind/renderData into Slack blocks at send time', async () => {
+        const renderData = {
+          header: 'The Future of Work recap',
+          standouts: [{ text: '17 of 53 registered sent a message (32%).' }],
+          durationMinutes: 58
+        }
+        await adapter.sendMessage({
+          body: 'Vibes summary for The Future of Work',
+          channels: ['general'],
+          responseKind: 'curatedVibesSummary',
+          renderData
+        })
+
+        const call = mockWebClient.chat.postMessage.mock.calls[0][0]
+        expect(call.blocks).toBeDefined()
+        const serialized = JSON.stringify(call.blocks)
+        expect(serialized).toContain('The Future of Work recap')
+        expect(serialized).toContain('32%')
+      })
+
+      it('falls back to plain text when responseKind has no registered renderer', async () => {
+        await adapter.sendMessage({
+          body: 'plain text fallback',
+          channels: ['general'],
+          responseKind: 'unknownKind',
+          renderData: {}
+        })
+
+        const call = mockWebClient.chat.postMessage.mock.calls[0][0]
+        expect(call).not.toHaveProperty('blocks')
+        expect(call.text).toBe('plain text fallback')
       })
     })
   })

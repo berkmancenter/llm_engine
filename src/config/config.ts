@@ -37,6 +37,9 @@ const envVarsSchema = Joi.object()
     SMTP_PASSWORD: Joi.string().description('password for email server'),
     EMAIL_FROM: Joi.string().description('the from field in the emails sent by the app'),
     APP_HOST: Joi.string().description('the host url for the frontend app'),
+    NEXTSPACE_URL: Joi.string().description(
+      'Base URL of the NextSpace frontend, used to generate links in external adapters'
+    ),
     TRULY_RANDOM_PSEUDONYMS: Joi.string()
       .default('false')
       .description('true/false if pseudonyms are made truly random with UID'),
@@ -81,6 +84,9 @@ const envVarsSchema = Joi.object()
       'Email address to support adding agents to Zoom webinars as additional panelists'
     ),
     SLACK_SIGNING_SECRET: Joi.string().description('Signing secret from LLM Engine Slack app'),
+    MATOMO_BASE_URL: Joi.string().description('Base URL of the Matomo instance, e.g. https://analytics.example.org'),
+    MATOMO_TOKEN: Joi.string().description('Matomo API auth token (token_auth) used to read the Reporting API'),
+    MATOMO_SITE_ID: Joi.string().description('Matomo site id whose visits hold the tracked-session data'),
     LANGSMITH_TRACING_V2: Joi.boolean().description('Enables Langsmith Tracing'),
     LANGSMITH_API_KEY: Joi.string().description('API Key for Langsmith'),
     TRANSCRIPT_RETENTION_PERIOD: Joi.string()
@@ -234,8 +240,14 @@ const config = {
   slack: {
     signingSecret: envVars.SLACK_SIGNING_SECRET
   },
+  matomo: {
+    baseUrl: envVars.MATOMO_BASE_URL,
+    token: envVars.MATOMO_TOKEN,
+    siteId: envVars.MATOMO_SITE_ID
+  },
   transcriptRetentionPeriod: envVars.TRANSCRIPT_RETENTION_PERIOD,
   appHost: envVars.APP_HOST,
+  nextspaceUrl: envVars.NEXTSPACE_URL,
   trulyRandomPseudonyms: envVars.TRULY_RANDOM_PSEUDONYMS,
   DAYS_FOR_GOOD_REPUTATION: envVars.DAYS_FOR_GOOD_REPUTATION,
   conversationBotName: envVars.CONVERSATION_BOT_NAME,

@@ -54,11 +54,19 @@ class WebsocketGateway {
   }
 
   async broadcastNewPoll(poll) {
-    await this.broadcast(poll.topic._id.toString(), 'poll:new', poll)
+    await this.broadcast(poll.conversation._id.toString(), 'poll:new', poll)
   }
 
-  async broadcastNewPollChoice(topicId, pollResponse) {
-    await this.broadcast(topicId, 'choice:new', pollResponse)
+  async broadcastNewPollChoice(conversationId, pollResponse) {
+    await this.broadcast(conversationId, 'choice:new', pollResponse)
+  }
+
+  async broadcastPollThreshold(conversationId: string, pollId: string) {
+    await this.broadcast(conversationId, 'poll:threshold', { pollId })
+  }
+
+  async broadcastPollExpired(conversationId: string, pollId: string) {
+    await this.broadcast(conversationId, 'poll:expired', { pollId })
   }
 
   async broadcastNewVote(message) {

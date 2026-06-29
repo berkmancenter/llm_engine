@@ -1389,6 +1389,140 @@ describe(`event assistant CI tests`, () => {
       },
       testTimeout
     )
+
+    describe('visual capability guidance (never denies)', () => {
+      // Matches denials like "I can't create images" / "unable to generate a diagram".
+      // The whole point of the visual guidance is that the assistant must NEVER say this,
+      // since visuals are produced by a separate async step. Gaps between the denial, the
+      // verb, and the visual noun are bounded (not a whole sentence) so an unrelated "can't"
+      // and "diagram" co-occurring in one long sentence does not produce a false positive.
+      const DENIAL_PATTERN =
+        /\b(can(?:'|no)?t|cannot|unable to|not able to|don'?t have the ability to)\b[^.?!]{0,30}\b(creat|generat|mak|produc|draw|provid)\w*\b[^.?!]{0,30}\b(image|visual|diagram|chart|picture)/i
+
+      it(
+        'does not deny visual capability and points to /visual when preference is off',
+        async () => {
+          // user1 by default has no visualResponse preference set (auto-visual off)
+          const msg = await createQuestion('Can you make a diagram of how part-time job structuring works?')
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 829 * 1000),
+            count: 100,
+            directMessages: true
+          }
+
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+
+          // Preference is off, so no auto visual is generated - just a single text answer.
+          await validateResponse(responses)
+          expect(responses[0].messageType).toBe('json')
+          expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
+          // Core contract: the assistant must never deny that it can produce visuals.
+          expect(responses[0].message.text).not.toMatch(DENIAL_PATTERN)
+          // Off-variant guidance points the user to the on-demand command instead.
+          expect(responses[0].message.text).toContain('/visual')
+        },
+        testTimeout
+      )
+
+      it(
+        'does not deny visual capability when preference is on',
+        async () => {
+          await User.findByIdAndUpdate(user1._id, {
+            preferences: { visualResponse: true }
+          })
+
+          const msg = await createQuestion('Can you draw a diagram of the steps to create the smallest viable job?')
+          msg._id = new mongoose.Types.ObjectId()
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 829 * 1000),
+            count: 100,
+            directMessages: true
+          }
+
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+
+          // Core contract: never deny the capability, regardless of preference.
+          expect(responses[0].message.text).not.toMatch(DENIAL_PATTERN)
+
+          // Visual generation is likely here but remains classifier-dependent, so branch.
+          // The "on" variant intentionally omits the /visual hint, so it is not asserted.
+          if (responses[0].message.text.includes('🎨 Generating visual...')) {
+            await validateVisualGenerationInitiation(responses)
+          } else {
+            await validateResponse(responses)
+          }
+        },
+        testTimeout
+      )
+
+      it(
+        'carries visual guidance on the catchup/time-window path and does not deny capability',
+        async () => {
+          // Explicit duration phrasing routes through the time-window/catchup answer path
+          // (promptType = timeWindow). "/visual" forces a visual there, so this exercises the
+          // guidance that was added to timeWindowSystem (otherwise that path had none).
+          const msg = await createQuestion('/visual What was discussed in the last 2 minutes?')
+          msg._id = new mongoose.Types.ObjectId()
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 829 * 1000),
+            count: 100,
+            directMessages: true
+          }
+
+          // Call evaluate first to parse the /visual slash command (sets forceVisual).
+          const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, msg)
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(
+            agent,
+            { messages: [] },
+            evaluation.userMessage
+          )
+
+          // Confirm we actually took the time-window branch, not the semantic one.
+          expect(responses[0].promptType).toBe('timeWindow')
+          expect(responses[0].classification).toBe(QuestionClassification.CATCHUP)
+          // forceVisual guarantees a visual is initiated even on the catchup path.
+          await validateVisualGenerationInitiation(responses)
+          // Core contract: never deny the capability on this path either.
+          expect(responses[0].message.text).not.toMatch(DENIAL_PATTERN)
+        },
+        testTimeout
+      )
+
+      it(
+        'speaks in the first person about producing a visual (not third person)',
+        async () => {
+          await User.findByIdAndUpdate(user1._id, { preferences: { visualResponse: true } })
+
+          // "Can you ...?" forces the assistant to talk about itself, surfacing the
+          // first-vs-third-person behavior the reworded guidance fixes.
+          const msg = await createQuestion('Can you create a diagram showing how part-time work benefits companies?')
+          msg._id = new mongoose.Types.ObjectId()
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 829 * 1000),
+            count: 100,
+            directMessages: true
+          }
+
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+          const { text } = responses[0].message
+
+          // First-person voice (e.g. "I can ...", "I'll ...", "Here's the diagram ...").
+          expect(text).toMatch(/\b(I|I'm|I'll|I've|my|me|here's|here is|let me)\b/i)
+          // Never denies the capability.
+          expect(text).not.toMatch(DENIAL_PATTERN)
+          // Never refers to itself in the third person — the regression that the previous
+          // "this platform generates them" wording introduced ("Berkie can generate that").
+          const { botName } = agent.agentConfig
+          // eslint-disable-next-line security/detect-non-literal-regexp
+          const thirdPersonSelf = new RegExp(
+            `\\b(?:${botName}|the (?:assistant|bot)|this (?:assistant|bot))\\s+(?:can|will|could|would|is able to|generates?|creates?|makes?|produces?)`,
+            'i'
+          )
+          expect(text).not.toMatch(thirdPersonSelf)
+        },
+        testTimeout
+      )
+    })
   })
 
   describe('agentConfig.tools (web_search integration)', () => {

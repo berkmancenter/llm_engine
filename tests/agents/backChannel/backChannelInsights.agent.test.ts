@@ -116,6 +116,7 @@ describe('back channel agent CI tests', () => {
     await validateResponse(responses)
     const { insights } = responses[0].message
     expect(insights.some((insight) => insight.type === 'insight')).toBeFalsy()
+    expect(insights.every((insight) => insight.source === 'participant')).toBeTruthy()
   }, 120000)
 
   it('surfaces standalone questions phrased as statements from an individual user with transcript', async () => {
@@ -209,6 +210,7 @@ describe('back channel agent CI tests', () => {
     await validateResponse(responses)
     const { insights } = responses[0].message
     expect(insights.some((insight) => insight.type === 'insight')).toBeFalsy()
+    expect(insights.every((insight) => insight.source === 'participant')).toBeTruthy()
   }, 120000)
 
   it('surfaces standalone questions from an individual user without transcript', async () => {
@@ -267,6 +269,7 @@ describe('back channel agent CI tests', () => {
     await validateResponse(responses)
     const { insights } = responses[0].message
     expect(insights.some((insight) => insight.type === 'insight')).toBeFalsy()
+    expect(insights.every((insight) => insight.source === 'participant')).toBeTruthy()
   }, 120000)
 
   it('it adds context from the transcript to its insights and correctly parses insights to string', async () => {
@@ -332,6 +335,7 @@ describe('back channel agent CI tests', () => {
     const { insights } = responses[0].message
     // should be all insight, no standalone question
     expect(insights.some((insight) => insight.type === 'question')).toBeFalsy()
+    expect(insights.every((insight) => insight.source === 'ai')).toBeTruthy()
 
     const agentMsg = new Message({
       body: responses[0].message,
@@ -417,6 +421,8 @@ describe('back channel agent CI tests', () => {
     const { insights } = responses[0].message
     // should be some insights, not just standalone questions
     expect(insights.some((insight) => insight.type === 'insight')).toBeTruthy()
+    expect(insights.filter((i) => i.type === 'insight').every((i) => i.source === 'ai')).toBeTruthy()
+    expect(insights.filter((i) => i.type === 'question').every((i) => i.source === 'participant')).toBeTruthy()
   }, 120000)
 
   it('does not respond if no messages are found', async () => {
@@ -576,6 +582,9 @@ describe('back channel agent CI tests', () => {
 
     const duplicates = questionCommentTexts.filter((text) => allInsightCommentTexts.includes(text))
     expect(duplicates).toHaveLength(0)
+
+    expect(insights.filter((i) => i.type === 'insight').every((i) => i.source === 'ai')).toBeTruthy()
+    expect(insights.filter((i) => i.type === 'question').every((i) => i.source === 'participant')).toBeTruthy()
   }, 120000)
 
   it('introduces itself on new DM channels', async () => {

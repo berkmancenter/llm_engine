@@ -31,7 +31,7 @@ const router = express.Router()
  *             type: object
  *             required:
  *               - title
- *               - topicId
+ *               - conversationId
  *             properties:
  *               title:
  *                 type: string
@@ -41,9 +41,9 @@ const router = express.Router()
  *                 type: string
  *                 description: Detailed description of the poll
  *                 example: "This is a poll to decide where we should go to lunch"
- *               topicId:
+ *               conversationId:
  *                 type: string
- *                 description: ID of the topic this poll belongs to
+ *                 description: ID of the conversation this poll belongs to
  *                 example: "6733fe79ca20209f1fa02168"
  *               choices:
  *                 type: array
@@ -115,7 +115,7 @@ const router = express.Router()
  *               value:
  *                 title: "Single select closed poll"
  *                 description: "Poll description here"
- *                 topicId: "{{defaultTopic}}"
+ *                 conversationId: "{{defaultTopic}}"
  *                 allowNewChoices: false
  *                 multiSelect: false
  *                 choicesVisible: true
@@ -130,7 +130,7 @@ const router = express.Router()
  *               value:
  *                 title: "Multiselect open poll"
  *                 description: "Poll description here"
- *                 topicId: "{{defaultTopic}}"
+ *                 conversationId: "{{defaultTopic}}"
  *                 allowNewChoices: true
  *                 multiSelect: true
  *                 choicesVisible: true
@@ -141,7 +141,7 @@ const router = express.Router()
  *               value:
  *                 title: "My poll"
  *                 description: "Poll description here"
- *                 topicId: "{{defaultTopic}}"
+ *                 conversationId: "{{defaultTopic}}"
  *                 allowNewChoices: true
  *                 multiSelect: true
  *                 choicesVisible: false
@@ -152,7 +152,7 @@ const router = express.Router()
  *               value:
  *                 title: "Vote count visible poll"
  *                 description: "Poll description here"
- *                 topicId: "{{defaultTopic}}"
+ *                 conversationId: "{{defaultTopic}}"
  *                 allowNewChoices: false
  *                 multiSelect: false
  *                 choicesVisible: true

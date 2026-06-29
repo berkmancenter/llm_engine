@@ -1,0 +1,227 @@
+import { z } from 'zod'
+import { getChatPromptResponse } from '../helpers/llmChain.js'
+import { VIBES_CURATION_SYSTEM_PROMPT, VIBES_CURATION_USER_TEMPLATE } from './prompt.js'
+import { ConversationMetrics, CuratedVibesChart, CuratedVibesData, CuratedVibesStandout } from '../../types/index.types.js'
+
+/* What the model returns: a header, optional framing, an overall mood, and 2 to 3
+   short insights. Each insight can name one chart to show (by key) and a caption
+   for it. The model only ever references chart keys we hand it; it never sends raw
+   chart data, so the numbers on every chart stay first-party and trustworthy. */
+const CurationSchema = z.object({
+  header: z.string().describe('One-line verdict headline that includes the event name'),
+  framing: z.string().optional().describe('Optional one-line gist shown under the header'),
+  state: z.enum(['negative', 'positive', 'participationOnly', 'quiet']),
+  standouts: z
+    .array(
+      z.object({
+        text: z.string().describe('Slack mrkdwn insight naming the specific numbers, with caveats inline'),
+        chartKey: z.string().optional().describe('One of the provided chart keys, or omit if no chart fits'),
+        caption: z.string().optional().describe('One-line plain-language description of the attached chart')
+      })
+    )
+    .min(2)
+    .max(3)
+})
+
+/* A chart we have already built from real numbers, offered to the model to attach.
+   `description` tells the model what the chart shows so it can decide whether to
+   use it; `title` and `chart` are what actually get rendered. */
+interface ChartCandidate {
+  description: string
+  title: string
+  chart: CuratedVibesChart
+}
+
+/* Builds the set of charts the model is allowed to attach, each from real computed
+   numbers. A chart only appears when its data exists, so the model can never pick a
+   chart we cannot back with data. Keys are stable so the model can reference them. */
+export function buildChartCandidates(metrics: ConversationMetrics): Record<string, ChartCandidate> {
+  const candidates: Record<string, ChartCandidate> = {}
+
+  if (metrics.activitySeries.length > 0) {
+    candidates.activity = {
+      description: 'Messages over time, showing when the room was busy or quiet',
+      title: 'Messages over time',
+      chart: {
+        type: 'bar',
+        series: [{ name: 'Messages', data: metrics.activitySeries.map((b) => ({ label: b.label, value: b.messageCount })) }],
+        axisConfig: { categories: metrics.activitySeries.map((b) => b.label), yLabel: 'Messages' }
+      }
+    }
+  }
+
+  // Posters vs lurkers for this event. Only when tracked-session data exists and the
+  // counts reconcile, since lurkers (visitors who never posted) can only be derived from
+  // a participant count. When more people posted than were tracked as sessions,
+  // lurkerCount is null and there is no honest split to draw, so we skip the chart.
+  if (metrics.audienceEngagement && metrics.audienceEngagement.lurkerCount !== null) {
+    candidates.audienceSplit = {
+      description:
+        'How many people posted versus lurked (watched without posting); lurkers come from tracked sessions and may be undercounted',
+      title: 'Posters vs lurkers',
+      chart: {
+        type: 'pie',
+        segments: [
+          { label: 'Posted', value: metrics.participation.posterCount },
+          { label: 'Lurked (est.)', value: metrics.audienceEngagement.lurkerCount }
+        ]
+      }
+    }
+  }
+
+  // Needs at least one past event alongside "Today" to read as a trend. Posters are
+  // always exact; a lurkers series is added only when every point has tracked data, so
+  // the chart never implies zero lurkers where the number is simply unknown.
+  if (metrics.participationHistory.length >= 2) {
+    const labels = metrics.participationHistory.map((p) => p.label)
+    const series = [
+      { name: 'Posters', data: metrics.participationHistory.map((p) => ({ label: p.label, value: p.posterCount })) }
+    ]
+    const everyPointTracked = metrics.participationHistory.every((p) => p.lurkerCount !== null)
+    if (everyPointTracked) {
+      series.push({
+        name: 'Lurkers (est.)',
+        data: metrics.participationHistory.map((p) => ({ label: p.label, value: p.lurkerCount as number }))
+      })
+    }
+    candidates.engagementHistory = {
+      description: everyPointTracked
+        ? 'Posters and estimated lurkers across recent events in this topic, ending with today'
+        : 'Posters across recent events in this topic, ending with today',
+      title: 'Engagement over recent events',
+      chart: {
+        type: 'bar',
+        series,
+        axisConfig: { categories: labels, yLabel: 'People' }
+      }
+    }
+  }
+
+  if (metrics.baseline) {
+    candidates.postersVsBaseline = {
+      description: "This event's poster count next to the topic's recent average",
+      title: 'This event vs recent average',
+      chart: {
+        type: 'bar',
+        series: [
+          {
+            name: 'Posters',
+            data: [
+              { label: 'This event', value: metrics.participation.posterCount },
+              { label: 'Recent avg', value: metrics.baseline.avgPosterCount }
+            ]
+          }
+        ],
+        axisConfig: { categories: ['This event', 'Recent avg'], yLabel: 'Posters' }
+      }
+    }
+  }
+
+  const total = metrics.channelSplit.public + metrics.channelSplit.private
+  if (total > 0) {
+    candidates.channelSplit = {
+      description: 'How messages split between public chat and private one-to-one with the bot',
+      title: 'Where messages went',
+      chart: {
+        type: 'pie',
+        segments: [
+          { label: 'Public chat', value: metrics.channelSplit.public },
+          { label: 'Private (bot)', value: metrics.channelSplit.private }
+        ]
+      }
+    }
+  }
+
+  const [firstSource] = metrics.trackedSessionSources
+  if (firstSource && Object.keys(firstSource.deviceBreakdown).length > 0) {
+    candidates.devices = {
+      description: 'Device mix of tracked sessions (can undercount)',
+      title: 'Devices (tracked sessions)',
+      chart: {
+        type: 'pie',
+        segments: Object.entries(firstSource.deviceBreakdown).map(([label, value]) => ({ label, value }))
+      }
+    }
+  }
+
+  return candidates
+}
+
+/* The fixed wording for when tracked-session data is missing, so the card states
+   the limitation consistently rather than leaving the model to phrase it. Returns
+   undefined when the data is present and no caveat is needed. */
+function availabilityNoteFor(status: ConversationMetrics['trackedSessionStatus']): string | undefined {
+  if (status === 'notTracked') {
+    return 'No tracked-session data this time, so this is built only on the messages people sent, which is exact.'
+  }
+  if (status === 'unavailable') {
+    return "Tracked-session data couldn't be retrieved this time, so this is built only on the messages people sent."
+  }
+  return undefined
+}
+
+/* Strips each candidate down to what the model needs to choose (description plus
+   the underlying data), so it can write accurate prose without us shipping the full
+   render shape into the prompt. */
+function candidateCatalogForPrompt(candidates: Record<string, ChartCandidate>) {
+  return Object.fromEntries(
+    Object.entries(candidates).map(([key, candidate]) => [
+      key,
+      { description: candidate.description, chart: candidate.chart }
+    ])
+  )
+}
+
+/**
+ * Asks the model to read one event's metrics and write the recap card: a verdict
+ * header, optional framing, and the 2 to 3 most notable insights across all the
+ * data. The model picks which pre-built chart (if any) illustrates each insight by
+ * key, so chart numbers always come from our computed metrics, never the model.
+ * The data-availability note is set from trackedSessionStatus here, not by the
+ * model, so the limitation is always stated consistently.
+ */
+export default async function curateVibesCard(
+  metrics: ConversationMetrics,
+  eventMeta: { eventName: string; durationMinutes: number },
+  llm
+): Promise<CuratedVibesData> {
+  const candidates = buildChartCandidates(metrics)
+
+  const curation = (await getChatPromptResponse(
+    llm,
+    VIBES_CURATION_SYSTEM_PROMPT,
+    VIBES_CURATION_USER_TEMPLATE,
+    {
+      eventName: eventMeta.eventName,
+      durationMinutes: eventMeta.durationMinutes,
+      trackedSessionStatus: metrics.trackedSessionStatus,
+      metricsJson: JSON.stringify(metrics),
+      candidatesJson: JSON.stringify(candidateCatalogForPrompt(candidates))
+    },
+    undefined,
+    CurationSchema
+  )) as z.infer<typeof CurationSchema>
+
+  const standouts: CuratedVibesStandout[] = curation.standouts.slice(0, 3).map((standout) => {
+    const candidate = standout.chartKey ? candidates[standout.chartKey] : undefined
+    if (!candidate) return { text: standout.text }
+    return {
+      text: standout.text,
+      visual: {
+        title: candidate.title,
+        chart: candidate.chart,
+        ...(standout.caption && { caption: standout.caption })
+      }
+    }
+  })
+
+  const availabilityNote = availabilityNoteFor(metrics.trackedSessionStatus)
+
+  return {
+    header: curation.header,
+    ...(curation.framing && { framing: curation.framing }),
+    ...(availabilityNote && { availabilityNote }),
+    standouts,
+    durationMinutes: eventMeta.durationMinutes
+  }
+}

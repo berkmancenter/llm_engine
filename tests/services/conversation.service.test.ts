@@ -3,11 +3,7 @@ import httpStatus from 'http-status'
 import setupIntTest from '../utils/setupIntTest.js'
 import { insertUsers, registeredUser } from '../fixtures/user.fixture.js'
 import { insertTopics, newPublicTopic, newPrivateTopic } from '../fixtures/topic.fixture.js'
-import conversationService, {
-  autoStartLeadTimeMs,
-  autoStopDelayMs,
-  maxScheduledInterval
-} from '../../src/services/conversation.service/index.js'
+import conversationService from '../../src/services/conversation.service/index.js'
 import { Feature } from '../../src/types/index.types.js'
 import { Agent, Adapter, Conversation, Topic } from '../../src/models/index.js'
 import { setConversationTypes, resetConversationTypes, getAllConversationTypes } from '../../src/conversations/index.js'
@@ -23,6 +19,7 @@ import schedule from '../../src/jobs/schedule.js'
 import defineJob from '../../src/jobs/define.js'
 import transcript from '../../src/agents/helpers/transcript.js'
 import agentDispatcher from '../../src/jobs/agentDispatcher.js'
+import analyticsSources from '../../src/services/analyticsSources/index.js'
 
 jest.setTimeout(10000)
 jest.mock('agenda')
@@ -223,9 +220,6 @@ describe('Conversation service methods', () => {
     jest.spyOn(schedule, 'cancelPeriodicAgent').mockResolvedValue()
     jest.spyOn(schedule, 'periodicAgent').mockResolvedValue()
     jest.spyOn(schedule, 'agentResponse').mockResolvedValue()
-    jest.spyOn(schedule, 'autoStartConversation').mockResolvedValue()
-    jest.spyOn(schedule, 'autoStopConversation').mockResolvedValue()
-    jest.spyOn(schedule, 'conversationEndingSoon').mockResolvedValue()
     jest.spyOn(defineJob, 'batchTranscript').mockResolvedValue()
     jest.spyOn(defineJob, 'periodicAgent').mockResolvedValue()
     jest.spyOn(defineJob, 'agentResponse').mockResolvedValue()
@@ -850,927 +844,929 @@ describe('Conversation service methods', () => {
           expect(agent.llmPlatform).toBe(defaultLLMPlatform)
         })
       })
+    })
+  })
 
-      test('should have scheduled all periodic jobs if scheduledTime and scheduledEndTime are provided', async () => {
-        const scheduledTime = new Date(Date.now() + 3600000)
-        const scheduledEndTime = new Date(Date.now() + 7200000)
-        const params = {
-          ...baseParams,
-          scheduledTime,
-          scheduledEndTime,
-          topicId: topicOne._id.toString(),
-          properties: { zoomMeetingUrl: 'https://zoom.us/j/123456789' },
-          features: [{ name: 'collectiveVoice' }, { name: 'catalyst' }]
+  describe('createConversation() analytics source refs', () => {
+    beforeEach(async () => {
+      await insertUsers([registeredUser])
+      await insertTopics([topicOne])
+    })
+
+    // scheduledTime in the future keeps the conversation from auto-starting mid-test.
+    const baseParams = () => ({
+      name: 'Tracked Event',
+      topicId: topicOne._id.toString(),
+      scheduledTime: new Date(Date.now() + 3600000)
+    })
+
+    test('stores the analytics source refs the caller opted into', async () => {
+      const conversation = await conversationService.createConversation(
+        { ...baseParams(), analyticsRefs: { matomo: 'dimension7' } },
+        registeredUser
+      )
+      expect(conversation.analyticsRefs?.get('matomo')).toBe('dimension7')
+    })
+
+    test('leaves analyticsRefs unset when the caller opts into nothing', async () => {
+      const conversation = await conversationService.createConversation(baseParams(), registeredUser)
+      expect(conversation.analyticsRefs).toBeUndefined()
+    })
+  })
+
+  describe('generateConversationReport()', () => {
+    let periodicConversation
+    let perMessageConversation
+    let mockGenerateReport
+
+    beforeEach(async () => {
+      await insertUsers([registeredUser])
+      await insertTopics([topicOne])
+
+      // Mock reportService.generateReport
+      const reportService = await import('../../src/services/report.service.js')
+      mockGenerateReport = jest.spyOn(reportService.default, 'generateReport').mockResolvedValue('mock report output')
+
+      // Use different scheduled times to prevent adapter conflicts (must be > 10 minutes apart)
+      const periodicTime = new Date(Date.now() + 3600000) // 1 hour in future
+      const perMessageTime = new Date(Date.now() + 7200000) // 2 hours in future (more than 10 min apart)
+
+      // Create conversation with periodic agent (eventMediator)
+      const periodicParams = {
+        type: 'eventAssistant',
+        name: 'Periodic Test Conversation',
+        platforms: ['zoom'],
+        topicId: topicOne._id.toString(),
+        scheduledTime: periodicTime,
+        properties: {
+          zoomMeetingUrl: 'https://zoom.us/j/periodic123report'
         }
+      }
+      periodicConversation = await conversationService.createConversationFromType(periodicParams, registeredUser)
 
-        const conversation = await conversationService.createConversationFromType(params, registeredUser)
+      // Create conversation with perMessage agent (eventAssistant has perMessage triggers)
+      const perMessageParams = {
+        type: 'eventAssistant',
+        name: 'PerMessage Test Conversation',
+        platforms: ['zoom'],
+        topicId: topicOne._id.toString(),
+        scheduledTime: perMessageTime,
+        properties: {
+          zoomMeetingUrl: 'https://zoom.us/j/permessage123report'
+        }
+      }
+      perMessageConversation = await conversationService.createConversationFromType(perMessageParams, registeredUser)
+    })
 
-        expect(schedule.autoStartConversation).toHaveBeenCalledWith(
-          new Date(scheduledTime.getTime() - autoStartLeadTimeMs),
-          { conversationId: conversation._id }
+    afterEach(() => {
+      mockGenerateReport.mockRestore()
+    })
+
+    describe('periodicResponses report', () => {
+      test('should generate report for conversation with periodic agents', async () => {
+        const result = await conversationService.generateConversationReport(
+          periodicConversation._id.toString(),
+          'periodicResponses',
+          'text',
+          'UTC'
         )
-        expect(schedule.autoStopConversation).toHaveBeenCalledWith(
-          new Date(scheduledEndTime.getTime() + autoStopDelayMs),
-          expect.objectContaining({ conversationId: conversation._id })
+
+        expect(result).toBe('mock report output')
+        expect(mockGenerateReport).toHaveBeenCalledWith(
+          expect.objectContaining({ _id: periodicConversation._id }),
+          'periodicResponses',
+          'text',
+          'UTC',
+          [],
+          undefined,
+          {
+            name: periodicConversation.name,
+            description: periodicConversation.description,
+            executedAt: periodicConversation.endTime || periodicConversation.startTime
+          }
         )
-        expect(schedule.conversationEndingSoon).toHaveBeenCalledWith(
-          new Date(scheduledEndTime.getTime() - maxScheduledInterval),
-          expect.objectContaining({ conversationId: conversation._id })
-        )
+      })
+
+      test('should throw error if conversation has no periodic agents', async () => {
+        // Create a conversation with only perMessage agents (no periodic)
+        const onlyPerMessageParams = {
+          name: 'Only PerMessage',
+          topicId: topicOne._id.toString(),
+          agentTypes: ['eventAssistant'], // only has perMessage triggers, not periodic
+          scheduledTime: new Date(Date.now() + 3600000) // prevent auto-start
+        }
+        const onlyPerMessageConv = await conversationService.createConversation(onlyPerMessageParams, registeredUser)
+
+        await expect(
+          conversationService.generateConversationReport(onlyPerMessageConv._id.toString(), 'periodicResponses')
+        ).rejects.toThrow(ApiError)
+        await expect(
+          conversationService.generateConversationReport(onlyPerMessageConv._id.toString(), 'periodicResponses')
+        ).rejects.toMatchObject({
+          statusCode: httpStatus.BAD_REQUEST,
+          message: 'Conversation has no periodic agents for periodicResponses report'
+        })
       })
     })
 
-    describe('generateConversationReport()', () => {
-      let periodicConversation
-      let perMessageConversation
-      let mockGenerateReport
+    describe('directMessageResponses report', () => {
+      test('should generate report for conversation with perMessage agents', async () => {
+        const additionalChannels = ['moderator', 'participant']
+        const result = await conversationService.generateConversationReport(
+          perMessageConversation._id.toString(),
+          'directMessageResponses',
+          'text',
+          'America/New_York',
+          additionalChannels
+        )
 
-      beforeEach(async () => {
-        await insertUsers([registeredUser])
-        await insertTopics([topicOne])
-
-        // Mock reportService.generateReport
-        const reportService = await import('../../src/services/report.service.js')
-        mockGenerateReport = jest.spyOn(reportService.default, 'generateReport').mockResolvedValue('mock report output')
-
-        // Use different scheduled times to prevent adapter conflicts (must be > 10 minutes apart)
-        const periodicTime = new Date(Date.now() + 3600000) // 1 hour in future
-        const perMessageTime = new Date(Date.now() + 7200000) // 2 hours in future (more than 10 min apart)
-
-        // Create conversation with periodic agent (eventMediator)
-        const periodicParams = {
-          type: 'eventAssistant',
-          name: 'Periodic Test Conversation',
-          platforms: ['zoom'],
-          topicId: topicOne._id.toString(),
-          scheduledTime: periodicTime,
-          properties: {
-            zoomMeetingUrl: 'https://zoom.us/j/periodic123report'
+        expect(result).toBe('mock report output')
+        expect(mockGenerateReport).toHaveBeenCalledWith(
+          expect.objectContaining({ _id: perMessageConversation._id }),
+          'directMessageResponses',
+          'text',
+          'America/New_York',
+          additionalChannels,
+          undefined,
+          {
+            name: perMessageConversation.name,
+            description: perMessageConversation.description,
+            executedAt: perMessageConversation.endTime || perMessageConversation.startTime
           }
-        }
-        periodicConversation = await conversationService.createConversationFromType(periodicParams, registeredUser)
-
-        // Create conversation with perMessage agent (eventAssistant has perMessage triggers)
-        const perMessageParams = {
-          type: 'eventAssistant',
-          name: 'PerMessage Test Conversation',
-          platforms: ['zoom'],
-          topicId: topicOne._id.toString(),
-          scheduledTime: perMessageTime,
-          properties: {
-            zoomMeetingUrl: 'https://zoom.us/j/permessage123report'
-          }
-        }
-        perMessageConversation = await conversationService.createConversationFromType(perMessageParams, registeredUser)
+        )
       })
 
-      afterEach(() => {
-        mockGenerateReport.mockRestore()
+      test('should throw error if conversation has no perMessage agents', async () => {
+        // Create a conversation with only periodic agents (no perMessage)
+        const onlyPeriodicParams = {
+          name: 'Only Periodic',
+          topicId: topicOne._id.toString(),
+          agentTypes: ['eventMediator'],
+          scheduledTime: new Date(Date.now() + 3600000) // prevent auto-start
+        }
+        const onlyPeriodicConv = await conversationService.createConversation(onlyPeriodicParams, registeredUser)
+
+        await expect(
+          conversationService.generateConversationReport(onlyPeriodicConv._id.toString(), 'directMessageResponses')
+        ).rejects.toThrow(ApiError)
+        await expect(
+          conversationService.generateConversationReport(onlyPeriodicConv._id.toString(), 'directMessageResponses')
+        ).rejects.toMatchObject({
+          statusCode: httpStatus.BAD_REQUEST,
+          message: 'Conversation has no perMessage agents for this report type'
+        })
+      })
+    })
+
+    describe('userMetrics report', () => {
+      test('should generate report for specific agent type', async () => {
+        const additionalChannels = ['moderator']
+        const result = await conversationService.generateConversationReport(
+          perMessageConversation._id.toString(),
+          'userMetrics',
+          'text',
+          'UTC',
+          additionalChannels,
+          'eventAssistant'
+        )
+
+        expect(result).toBe('mock report output')
+        expect(mockGenerateReport).toHaveBeenCalledWith(
+          expect.objectContaining({ _id: perMessageConversation._id }),
+          'userMetrics',
+          'text',
+          'UTC',
+          additionalChannels,
+          'eventAssistant',
+          {
+            name: perMessageConversation.name,
+            description: perMessageConversation.description,
+            executedAt: perMessageConversation.endTime || perMessageConversation.startTime
+          }
+        )
       })
 
-      describe('periodicResponses report', () => {
-        test('should generate report for conversation with periodic agents', async () => {
-          const result = await conversationService.generateConversationReport(
-            periodicConversation._id.toString(),
-            'periodicResponses',
-            'text',
-            'UTC'
-          )
-
-          expect(result).toBe('mock report output')
-          expect(mockGenerateReport).toHaveBeenCalledWith(
-            expect.objectContaining({ _id: periodicConversation._id }),
-            'periodicResponses',
+      test('should throw error if agent type not found in conversation', async () => {
+        await expect(
+          conversationService.generateConversationReport(
+            perMessageConversation._id.toString(),
+            'userMetrics',
             'text',
             'UTC',
             [],
-            undefined,
-            {
-              name: periodicConversation.name,
-              description: periodicConversation.description,
-              executedAt: periodicConversation.endTime || periodicConversation.startTime
-            }
+            'nonExistentAgent'
           )
-        })
-
-        test('should throw error if conversation has no periodic agents', async () => {
-          // Create a conversation with only perMessage agents (no periodic)
-          const onlyPerMessageParams = {
-            name: 'Only PerMessage',
-            topicId: topicOne._id.toString(),
-            agentTypes: ['eventAssistant'], // only has perMessage triggers, not periodic
-            scheduledTime: new Date(Date.now() + 3600000) // prevent auto-start
-          }
-          const onlyPerMessageConv = await conversationService.createConversation(onlyPerMessageParams, registeredUser)
-
-          await expect(
-            conversationService.generateConversationReport(onlyPerMessageConv._id.toString(), 'periodicResponses')
-          ).rejects.toThrow(ApiError)
-          await expect(
-            conversationService.generateConversationReport(onlyPerMessageConv._id.toString(), 'periodicResponses')
-          ).rejects.toMatchObject({
-            statusCode: httpStatus.BAD_REQUEST,
-            message: 'Conversation has no periodic agents for periodicResponses report'
-          })
-        })
-      })
-
-      describe('directMessageResponses report', () => {
-        test('should generate report for conversation with perMessage agents', async () => {
-          const additionalChannels = ['moderator', 'participant']
-          const result = await conversationService.generateConversationReport(
-            perMessageConversation._id.toString(),
-            'directMessageResponses',
-            'text',
-            'America/New_York',
-            additionalChannels
-          )
-
-          expect(result).toBe('mock report output')
-          expect(mockGenerateReport).toHaveBeenCalledWith(
-            expect.objectContaining({ _id: perMessageConversation._id }),
-            'directMessageResponses',
-            'text',
-            'America/New_York',
-            additionalChannels,
-            undefined,
-            {
-              name: perMessageConversation.name,
-              description: perMessageConversation.description,
-              executedAt: perMessageConversation.endTime || perMessageConversation.startTime
-            }
-          )
-        })
-
-        test('should throw error if conversation has no perMessage agents', async () => {
-          // Create a conversation with only periodic agents (no perMessage)
-          const onlyPeriodicParams = {
-            name: 'Only Periodic',
-            topicId: topicOne._id.toString(),
-            agentTypes: ['eventMediator'],
-            scheduledTime: new Date(Date.now() + 3600000) // prevent auto-start
-          }
-          const onlyPeriodicConv = await conversationService.createConversation(onlyPeriodicParams, registeredUser)
-
-          await expect(
-            conversationService.generateConversationReport(onlyPeriodicConv._id.toString(), 'directMessageResponses')
-          ).rejects.toThrow(ApiError)
-          await expect(
-            conversationService.generateConversationReport(onlyPeriodicConv._id.toString(), 'directMessageResponses')
-          ).rejects.toMatchObject({
-            statusCode: httpStatus.BAD_REQUEST,
-            message: 'Conversation has no perMessage agents for this report type'
-          })
-        })
-      })
-
-      describe('userMetrics report', () => {
-        test('should generate report for specific agent type', async () => {
-          const additionalChannels = ['moderator']
-          const result = await conversationService.generateConversationReport(
+        ).rejects.toThrow(ApiError)
+        await expect(
+          conversationService.generateConversationReport(
             perMessageConversation._id.toString(),
             'userMetrics',
             'text',
             'UTC',
-            additionalChannels,
-            'eventAssistant'
+            [],
+            'nonExistentAgent'
           )
+        ).rejects.toMatchObject({
+          statusCode: httpStatus.NOT_FOUND,
+          message: "Agent 'nonExistentAgent' not found in conversation"
+        })
+      })
 
-          expect(result).toBe('mock report output')
-          expect(mockGenerateReport).toHaveBeenCalledWith(
-            expect.objectContaining({ _id: perMessageConversation._id }),
+      test('should throw error if conversation has no perMessage agents', async () => {
+        // Create a conversation with only periodic agents
+        const onlyPeriodicParams = {
+          name: 'Only Periodic UserMetrics',
+          topicId: topicOne._id.toString(),
+          agentTypes: ['eventMediator'],
+          scheduledTime: new Date(Date.now() + 3600000) // prevent auto-start
+        }
+        const onlyPeriodicConv = await conversationService.createConversation(onlyPeriodicParams, registeredUser)
+
+        await expect(
+          conversationService.generateConversationReport(
+            onlyPeriodicConv._id.toString(),
             'userMetrics',
             'text',
             'UTC',
-            additionalChannels,
-            'eventAssistant',
-            {
-              name: perMessageConversation.name,
-              description: perMessageConversation.description,
-              executedAt: perMessageConversation.endTime || perMessageConversation.startTime
-            }
+            [],
+            'eventMediator'
           )
-        })
-
-        test('should throw error if agent type not found in conversation', async () => {
-          await expect(
-            conversationService.generateConversationReport(
-              perMessageConversation._id.toString(),
-              'userMetrics',
-              'text',
-              'UTC',
-              [],
-              'nonExistentAgent'
-            )
-          ).rejects.toThrow(ApiError)
-          await expect(
-            conversationService.generateConversationReport(
-              perMessageConversation._id.toString(),
-              'userMetrics',
-              'text',
-              'UTC',
-              [],
-              'nonExistentAgent'
-            )
-          ).rejects.toMatchObject({
-            statusCode: httpStatus.NOT_FOUND,
-            message: "Agent 'nonExistentAgent' not found in conversation"
-          })
-        })
-
-        test('should throw error if conversation has no perMessage agents', async () => {
-          // Create a conversation with only periodic agents
-          const onlyPeriodicParams = {
-            name: 'Only Periodic UserMetrics',
-            topicId: topicOne._id.toString(),
-            agentTypes: ['eventMediator'],
-            scheduledTime: new Date(Date.now() + 3600000) // prevent auto-start
-          }
-          const onlyPeriodicConv = await conversationService.createConversation(onlyPeriodicParams, registeredUser)
-
-          await expect(
-            conversationService.generateConversationReport(
-              onlyPeriodicConv._id.toString(),
-              'userMetrics',
-              'text',
-              'UTC',
-              [],
-              'eventMediator'
-            )
-          ).rejects.toThrow(ApiError)
-          await expect(
-            conversationService.generateConversationReport(
-              onlyPeriodicConv._id.toString(),
-              'userMetrics',
-              'text',
-              'UTC',
-              [],
-              'eventMediator'
-            )
-          ).rejects.toMatchObject({
-            statusCode: httpStatus.BAD_REQUEST,
-            message: 'Conversation has no perMessage agents for this report type'
-          })
-        })
-      })
-
-      describe('error handling', () => {
-        test('should throw error if conversation not found', async () => {
-          const fakeId = new mongoose.Types.ObjectId().toString()
-
-          await expect(conversationService.generateConversationReport(fakeId, 'periodicResponses')).rejects.toThrow(ApiError)
-          await expect(conversationService.generateConversationReport(fakeId, 'periodicResponses')).rejects.toMatchObject({
-            statusCode: httpStatus.NOT_FOUND,
-            message: 'Conversation not found'
-          })
-        })
-
-        test('should use default parameters when not provided', async () => {
-          await conversationService.generateConversationReport(periodicConversation._id.toString(), 'periodicResponses')
-
-          expect(mockGenerateReport).toHaveBeenCalledWith(
-            expect.anything(),
-            'periodicResponses',
-            'text', // default format
-            'UTC', // default timezone
-            [], // default additionalChannels
-            undefined, // default agentType
-            expect.anything()
+        ).rejects.toThrow(ApiError)
+        await expect(
+          conversationService.generateConversationReport(
+            onlyPeriodicConv._id.toString(),
+            'userMetrics',
+            'text',
+            'UTC',
+            [],
+            'eventMediator'
           )
+        ).rejects.toMatchObject({
+          statusCode: httpStatus.BAD_REQUEST,
+          message: 'Conversation has no perMessage agents for this report type'
         })
       })
     })
 
-    describe('stopConversation()', () => {
-      let conversation
+    describe('error handling', () => {
+      test('should throw error if conversation not found', async () => {
+        const fakeId = new mongoose.Types.ObjectId().toString()
 
-      beforeEach(async () => {
-        await insertUsers([registeredUser])
-        await insertTopics([topicOne])
-        conversation = new Conversation({
-          name: 'Test Stop',
-          owner: registeredUser._id,
-          topic: topicOne._id,
-          active: true,
-          agents: [],
-          messages: []
-        })
-        await conversation.save()
-      })
-
-      test('dispatches conversationStopped event when conversation is stopped', async () => {
-        const dispatchSpy = jest.spyOn(agentDispatcher, 'dispatch').mockResolvedValue(undefined)
-
-        await conversationService.stopConversation(conversation._id.toString(), registeredUser)
-
-        expect(dispatchSpy).toHaveBeenCalledWith(
-          expect.objectContaining({ type: 'conversationStopped', conversationId: conversation._id.toString() }),
-          expect.objectContaining({ type: 'conversation', id: conversation._id.toString() })
-        )
-      })
-    })
-
-    describe('updateConversation()', () => {
-      let conversation
-      let topicTwo
-
-      beforeEach(async () => {
-        jest.spyOn(websocketGateway, 'broadcastConversationUpdate').mockImplementation()
-        await insertUsers([registeredUser])
-        topicTwo = newPublicTopic()
-        await insertTopics([topicOne, topicTwo])
-
-        conversation = await conversationService.createConversationFromType(
-          {
-            type: 'eventAssistant',
-            name: 'Original Name',
-            platforms: ['zoom'],
-            topicId: topicOne._id.toString(),
-            scheduledTime: new Date(Date.now() + 3600000),
-            description: 'Original description',
-            properties: {
-              zoomMeetingUrl: 'https://zoom.us/j/111111111',
-              botName: 'OriginalBot'
-            }
-          },
-          registeredUser
-        )
-      })
-
-      test('should save changes to event name and description', async () => {
-        const result = await conversationService.updateConversation(
-          { id: conversation._id.toString(), name: 'Updated Name', description: 'Updated description' },
-          registeredUser
-        )
-        expect(result!.name).toBe('Updated Name')
-        expect(result!.description).toBe('Updated description')
-      })
-
-      test('should preserve other settings when only one property is updated', async () => {
-        const result = await conversationService.updateConversation(
-          { id: conversation._id.toString(), properties: { zoomMeetingUrl: 'https://zoom.us/j/999999999' } },
-          registeredUser
-        )
-        expect(result!.properties!.zoomMeetingUrl).toBe('https://zoom.us/j/999999999')
-        expect(result!.properties!.botName).toBe('OriginalBot')
-      })
-
-      test('should update the Zoom meeting URL on the linked adapter', async () => {
-        await conversationService.updateConversation(
-          { id: conversation._id.toString(), properties: { zoomMeetingUrl: 'https://zoom.us/j/999999999' } },
-          registeredUser
-        )
-        const adapters = await Adapter.find({ conversation: conversation._id })
-        expect(adapters[0].config.meetingUrl).toBe('https://zoom.us/j/999999999')
-      })
-
-      test('should update the bot name on the linked adapter', async () => {
-        await conversationService.updateConversation(
-          { id: conversation._id.toString(), properties: { botName: 'NewBotName' } },
-          registeredUser
-        )
-        const adapters = await Adapter.find({ conversation: conversation._id })
-        expect(adapters[0].config.botName).toBe('NewBotName')
-      })
-
-      test('should save changes to event start and end times', async () => {
-        const newStart = new Date(Date.now() + 7200000)
-        const newEnd = new Date(Date.now() + 10800000)
-        const result = await conversationService.updateConversation(
-          { id: conversation._id.toString(), scheduledTime: newStart, scheduledEndTime: newEnd },
-          registeredUser
-        )
-        expect(result!.scheduledTime).toEqual(newStart)
-        expect(result!.scheduledEndTime).toEqual(newEnd)
-      })
-
-      test('should save changes to moderators and speakers', async () => {
-        const result = await conversationService.updateConversation(
-          {
-            id: conversation._id.toString(),
-            moderators: [{ name: 'New Moderator', bio: 'Moderates things' }],
-            presenters: [{ name: 'New Speaker', bio: 'Speaks about things' }]
-          },
-          registeredUser
-        )
-        expect(result!.moderators).toHaveLength(1)
-        expect(result!.moderators![0].name).toBe('New Moderator')
-        expect(result!.presenters).toHaveLength(1)
-        expect(result!.presenters![0].name).toBe('New Speaker')
-      })
-
-      test('should move the event to a different topic', async () => {
-        const result = await conversationService.updateConversation(
-          { id: conversation._id.toString(), topicId: topicTwo._id.toString() },
-          registeredUser
-        )
-        expect(result!.topic.toString()).toBe(topicTwo._id.toString())
-      })
-
-      test('should reject an update referencing a non-existent topic', async () => {
-        await expect(
-          conversationService.updateConversation(
-            { id: conversation._id.toString(), topicId: new mongoose.Types.ObjectId().toString() },
-            registeredUser
-          )
-        ).rejects.toMatchObject({ statusCode: httpStatus.NOT_FOUND, message: 'Topic not found' })
-      })
-
-      test('should replace the AI agent and adapter when the conversation type changes', async () => {
-        const originalAgents = await Agent.find({ conversation: conversation._id })
-        const originalAdapters = await Adapter.find({ conversation: conversation._id })
-        expect(originalAgents.map((a) => a.agentType)).toContain('eventAssistant')
-
-        await conversationService.updateConversation(
-          { id: conversation._id.toString(), type: 'backChannel' },
-          registeredUser
-        )
-
-        const newAgents = await Agent.find({ conversation: conversation._id })
-        const newAdapters = await Adapter.find({ conversation: conversation._id })
-
-        expect(newAgents.map((a) => a.agentType)).not.toContain('eventAssistant')
-        expect(newAgents.map((a) => a.agentType).sort()).toEqual(['backChannelInsights', 'backChannelMetrics'])
-
-        const originalAdapterIds = originalAdapters.map((a) => a._id.toString())
-        newAdapters.forEach((a) => expect(originalAdapterIds).not.toContain(a._id.toString()))
-      })
-
-      test('should save new features to the database when updated', async () => {
-        await conversationService.updateConversation(
-          {
-            id: conversation._id.toString(),
-            features: [{ name: 'moderatorSupport', config: {} }]
-          },
-          registeredUser
-        )
-        const updated = await Conversation.findById(conversation._id)
-        const features = updated!.features as Feature[]
-        expect(features).toHaveLength(1)
-        expect(features[0].name).toBe('moderatorSupport')
-      })
-
-      test('should update existing features in the database when sub-properties change', async () => {
-        await conversationService.updateConversation(
-          {
-            id: conversation._id.toString(),
-            features: [{ name: 'moderatorSupport', config: { minContributionInterval: 5 } }]
-          },
-          registeredUser
-        )
-        // Now update the sub-property value
-        await conversationService.updateConversation(
-          {
-            id: conversation._id.toString(),
-            features: [{ name: 'moderatorSupport', config: { minContributionInterval: 15 } }]
-          },
-          registeredUser
-        )
-        const updated = await Conversation.findById(conversation._id)
-        const features = updated!.features as Feature[]
-        expect(features).toHaveLength(1)
-        expect(features[0].config?.minContributionInterval).toBe(15)
-      })
-
-      test('should clear features in the database when updated to an empty array', async () => {
-        // First add a feature
-        await conversationService.updateConversation(
-          { id: conversation._id.toString(), features: [{ name: 'moderatorSupport', config: {} }] },
-          registeredUser
-        )
-
-        // Now clear it
-        await conversationService.updateConversation({ id: conversation._id.toString(), features: [] }, registeredUser)
-
-        const updated = await Conversation.findById(conversation._id)
-        expect(updated!.features).toHaveLength(0)
-      })
-
-      test('should persist the updated conversationType when the type changes', async () => {
-        await conversationService.updateConversation(
-          { id: conversation._id.toString(), type: 'backChannel' },
-          registeredUser
-        )
-
-        const updated = await Conversation.findById(conversation._id)
-        expect(updated!.conversationType).toBe('backChannel')
-      })
-
-      test('should persist alternateName for speakers and moderators in the database', async () => {
-        await conversationService.updateConversation(
-          {
-            id: conversation._id.toString(),
-            presenters: [{ name: 'Dr. Smith', bio: 'Researcher', alternateName: 'John Smith' }],
-            moderators: [{ name: 'Ms. Jones', bio: 'Host', alternateName: 'Alice Jones' }]
-          },
-          registeredUser
-        )
-        const updated = await Conversation.findById(conversation._id)
-        expect(updated!.presenters![0].alternateName).toBe('John Smith')
-        expect(updated!.moderators![0].alternateName).toBe('Alice Jones')
-      })
-
-      test('should persist resources to the database when updated', async () => {
-        await conversationService.updateConversation(
-          {
-            id: conversation._id.toString(),
-            resources: [
-              {
-                title: 'Attention Is All You Need',
-                url: 'https://arxiv.org/abs/1706.03762',
-                authors: ['Vaswani', 'Shazeer'],
-                year: '2017',
-                source: 'speaker',
-                category: 'required',
-                participantVisible: true
-              }
-            ]
-          },
-          registeredUser
-        )
-        const updated = await Conversation.findById(conversation._id)
-        expect(updated!.resources).toHaveLength(1)
-        expect(updated!.resources![0].title).toBe('Attention Is All You Need')
-        expect(updated!.resources![0].url).toBe('https://arxiv.org/abs/1706.03762')
-        expect(updated!.resources![0].source).toBe('speaker')
-        expect(updated!.resources![0].category).toBe('required')
-      })
-
-      test('should clear resources from the database when updated to an empty array', async () => {
-        // First add a resource
-        await conversationService.updateConversation(
-          {
-            id: conversation._id.toString(),
-            resources: [{ title: 'A Paper', source: 'speaker', category: 'suggested' }]
-          },
-          registeredUser
-        )
-        // Then clear it
-        await conversationService.updateConversation({ id: conversation._id.toString(), resources: [] }, registeredUser)
-        const updated = await Conversation.findById(conversation._id)
-        expect(updated!.resources).toHaveLength(0)
-      })
-
-      test('should reject updates from users who do not own the event', async () => {
-        const otherUser = { _id: new mongoose.Types.ObjectId(), role: 'user' }
-        await expect(
-          conversationService.updateConversation({ id: conversation._id.toString(), name: 'Hacked' }, otherUser)
-        ).rejects.toMatchObject({ statusCode: httpStatus.FORBIDDEN })
-      })
-
-      test('should reject updates to an event that is currently live', async () => {
-        await conversation.updateOne({ active: true })
-        await expect(
-          conversationService.updateConversation({ id: conversation._id.toString(), name: 'New Name' }, registeredUser)
-        ).rejects.toMatchObject({ statusCode: httpStatus.BAD_REQUEST, message: 'Cannot update an active conversation' })
-      })
-
-      /* Fix #1: auto-start and auto-stop jobs should be rescheduled when the event's
-       scheduled times change. Before this fix, updating times had no effect on
-       already-queued Agenda jobs. */
-      test('should reschedule the auto-start job when scheduledTime changes', async () => {
-        const cancelSpy = jest.spyOn(schedule, 'cancelAutoStartConversation').mockResolvedValue(undefined)
-        const scheduleSpy = jest.spyOn(schedule, 'autoStartConversation').mockResolvedValue(undefined)
-
-        const newStart = new Date(Date.now() + 7200000)
-        await conversationService.updateConversation(
-          { id: conversation._id.toString(), scheduledTime: newStart },
-          registeredUser
-        )
-
-        expect(cancelSpy).toHaveBeenCalledWith(conversation._id)
-        expect(scheduleSpy).toHaveBeenCalled()
-      })
-
-      test('should reschedule the auto-stop job when scheduledEndTime changes', async () => {
-        const cancelSpy = jest.spyOn(schedule, 'cancelAutoStopConversation').mockResolvedValue(undefined)
-        const scheduleSpy = jest.spyOn(schedule, 'autoStopConversation').mockResolvedValue(undefined)
-
-        const newEnd = new Date(Date.now() + 10800000)
-        await conversationService.updateConversation(
-          { id: conversation._id.toString(), scheduledEndTime: newEnd },
-          registeredUser
-        )
-
-        expect(cancelSpy).toHaveBeenCalledWith(conversation._id)
-        expect(scheduleSpy).toHaveBeenCalled()
-      })
-
-      /* Fix #2: when a conversation moves to a different topic, the old topic's
-       conversations list should no longer include it. Before this fix, only the
-       new topic was updated. */
-      test('should remove the conversation from the old topic when reassigned', async () => {
-        await conversationService.updateConversation(
-          { id: conversation._id.toString(), topicId: topicTwo._id.toString() },
-          registeredUser
-        )
-
-        const oldTopic = await Topic.findById(topicOne._id)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const oldTopicConvIds = oldTopic!.conversations.map((c: any) => c._id?.toString() ?? c.toString())
-        expect(oldTopicConvIds).not.toContain(conversation._id.toString())
-      })
-
-      /* Fix #4: features with enabled: false should be saved as false, not dropped.
-       Before this fix, the Joi validation schema stripped the enabled field,
-       so disabled features would silently revert to their type defaults. */
-      test('should persist a feature with enabled: false to the database', async () => {
-        await conversationService.updateConversation(
-          {
-            id: conversation._id.toString(),
-            features: [{ name: 'moderatorSupport', enabled: false, config: {} }]
-          },
-          registeredUser
-        )
-
-        const updated = await Conversation.findById(conversation._id)
-        const features = updated!.features as Feature[]
-        expect(features).toHaveLength(1)
-        expect(features[0].name).toBe('moderatorSupport')
-        expect(features[0].enabled).toBe(false)
-      })
-
-      /* Fix #5: switching to a conversation type that doesn't support the event's
-       current platform should return a clear 400 error, not silently drop adapters. */
-      test('should reject a type change when the existing platform is not supported by the new type', async () => {
-        /* Register a minimal conversation type that supports no platforms, so switching
-         to it from a zoom-based event should fail the platform compatibility check. */
-        const zoomlessType = {
-          name: 'zoomlessType',
-          label: 'Zoomless Type',
-          description: 'A type that does not support zoom',
-          platforms: [],
-          properties: [],
-          features: [],
-          agentTypes: []
-        }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        setConversationTypes({ ...getAllConversationTypes(), zoomlessType } as any)
-
-        try {
-          await expect(
-            conversationService.updateConversation({ id: conversation._id.toString(), type: 'zoomlessType' }, registeredUser)
-          ).rejects.toMatchObject({ statusCode: httpStatus.BAD_REQUEST })
-        } finally {
-          resetConversationTypes()
-        }
-      })
-
-      /* Fix #6: a type-only update (no features field sent) should keep the event's
-       existing features. Before this fix, resolveConversationType was always called
-       with an empty features array, dropping any features that were already saved. */
-      test('should preserve existing features when only the type changes', async () => {
-        await conversationService.updateConversation(
-          {
-            id: conversation._id.toString(),
-            features: [{ name: 'moderatorSupport', config: { minContributionInterval: 5 } }]
-          },
-          registeredUser
-        )
-
-        await conversationService.updateConversation(
-          { id: conversation._id.toString(), type: 'backChannel' },
-          registeredUser
-        )
-
-        const updated = await Conversation.findById(conversation._id)
-        const features = updated!.features as Feature[]
-        expect(features.some((f) => f.name === 'moderatorSupport')).toBe(true)
-      })
-
-      test('should recreate the adapter with the correct config when platforms change', async () => {
-        /* The beforeEach conversation uses platforms: ['zoom'], which resolves to the
-         zoom-only adapter config (2 dmChannels: direct agent DM + moderator DM).
-         Switching to nextspace+zoom should produce the 'nextspace,zoom' config
-         (1 dmChannel: direct agent DM only — moderator DMs go through NextSpace). */
-        const adapterBefore = await Adapter.findOne({ conversation: conversation._id, type: 'zoom' })
-        expect(adapterBefore!.dmChannels).toHaveLength(2)
-
-        await conversationService.updateConversation(
-          { id: conversation._id.toString(), platforms: ['nextspace', 'zoom'] },
-          registeredUser
-        )
-
-        const adapterAfter = await Adapter.findOne({ conversation: conversation._id, type: 'zoom' })
-        /* After the fix, the adapter should be recreated with the nextspace,zoom config
-         (1 dmChannel). Before the fix, the old adapter is not recreated and still has 2. */
-        expect(adapterAfter!.dmChannels).toHaveLength(1)
-      })
-
-      test('should update the llmModel on all agents when the property changes', async () => {
-        /* Agents inherit llmModel from conversation properties at creation time via $ref
-         resolution, but updateConversation currently only writes the new llmModel into
-         the conversation's properties object. The Agent documents are not updated,
-         so a model change set on the edit form has no effect on running agents. */
-        const newModel = supportedModels[1]
-
-        await conversationService.updateConversation(
-          { id: conversation._id.toString(), properties: { llmModel: newModel } },
-          registeredUser
-        )
-
-        const agents = await Agent.find({ conversation: conversation._id })
-        agents.forEach((agent) => {
-          expect(agent.llmModel).toBe(newModel.llmModel)
-          expect(agent.llmPlatform).toBe(newModel.llmPlatform)
+        await expect(conversationService.generateConversationReport(fakeId, 'periodicResponses')).rejects.toThrow(ApiError)
+        await expect(conversationService.generateConversationReport(fakeId, 'periodicResponses')).rejects.toMatchObject({
+          statusCode: httpStatus.NOT_FOUND,
+          message: 'Conversation not found'
         })
       })
 
-      test('should remove the agent for a feature when that feature is disabled', async () => {
-        /* Feature-gated agents are created at conversation-creation time. When a feature is
-         later disabled via updateConversation, only the features array on the Conversation
-         document is updated — the Agent documents are not reconciled, so the agent stays. */
-        const featureConv = await conversationService.createConversationFromType(
-          {
-            type: 'eventAssistant',
-            name: 'Feature Test Event',
-            platforms: ['zoom'],
-            topicId: topicOne._id.toString(),
-            /* Use a different scheduledTime to avoid a uniqueness conflict with the
-             beforeEach conversation (both are Zoom events). */
-            scheduledTime: new Date(Date.now() + 7200000),
-            properties: { zoomMeetingUrl: 'https://zoom.us/j/feature-test' },
-            features: [{ name: 'collectiveVoice' }]
-          },
-          registeredUser
+      test('should use default parameters when not provided', async () => {
+        await conversationService.generateConversationReport(periodicConversation._id.toString(), 'periodicResponses')
+
+        expect(mockGenerateReport).toHaveBeenCalledWith(
+          expect.anything(),
+          'periodicResponses',
+          'text', // default format
+          'UTC', // default timezone
+          [], // default additionalChannels
+          undefined, // default agentType
+          expect.anything()
         )
-
-        const agentsBefore = await Agent.find({ conversation: featureConv._id })
-        expect(agentsBefore.map((a) => a.agentType)).toContain('eventMediator')
-
-        await conversationService.updateConversation(
-          { id: featureConv._id.toString(), features: [{ name: 'collectiveVoice', enabled: false }] },
-          registeredUser
-        )
-
-        const agentsAfter = await Agent.find({ conversation: featureConv._id })
-        expect(agentsAfter.map((a) => a.agentType)).not.toContain('eventMediator')
       })
     })
+  })
 
-    describe('findByIdFull()', () => {
-      let conversation
+  describe('stopConversation()', () => {
+    let conversation
 
-      beforeEach(async () => {
-        await insertUsers([registeredUser])
-        await insertTopics([topicOne])
+    beforeEach(async () => {
+      await insertUsers([registeredUser])
+      await insertTopics([topicOne])
+      conversation = new Conversation({
+        name: 'Test Stop',
+        owner: registeredUser._id,
+        topic: topicOne._id,
+        active: true,
+        agents: [],
+        messages: []
+      })
+      await conversation.save()
+    })
 
-        const params = {
+    test('dispatches conversationStopped event when conversation is stopped', async () => {
+      const dispatchSpy = jest.spyOn(agentDispatcher, 'dispatch').mockResolvedValue(undefined)
+
+      await conversationService.stopConversation(conversation._id.toString(), registeredUser)
+
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'conversationStopped', conversationId: conversation._id.toString() }),
+        expect.objectContaining({ type: 'conversation', id: conversation._id.toString() })
+      )
+    })
+
+    test('does not capture analytics snapshots at stop time; that is deferred to the analytics consumer off the request path', async () => {
+      const snapshotSpy = jest.spyOn(analyticsSources, 'fetchAndStoreSnapshot').mockResolvedValue(undefined)
+      const dispatchSpy = jest.spyOn(agentDispatcher, 'dispatch').mockResolvedValue(undefined)
+
+      await conversationService.stopConversation(conversation._id.toString(), registeredUser)
+
+      // The stop request must not block on Matomo's archive build. The Vibes Analyst
+      // pulls the snapshot from its own dispatched job, where it can retry patiently.
+      expect(snapshotSpy).not.toHaveBeenCalled()
+      expect(dispatchSpy).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('updateConversation()', () => {
+    let conversation
+    let topicTwo
+
+    beforeEach(async () => {
+      jest.spyOn(websocketGateway, 'broadcastConversationUpdate').mockImplementation()
+      await insertUsers([registeredUser])
+      topicTwo = newPublicTopic()
+      await insertTopics([topicOne, topicTwo])
+
+      conversation = await conversationService.createConversationFromType(
+        {
           type: 'eventAssistant',
-          name: 'Test Conversation',
+          name: 'Original Name',
           platforms: ['zoom'],
           topicId: topicOne._id.toString(),
           scheduledTime: new Date(Date.now() + 3600000),
+          description: 'Original description',
           properties: {
-            zoomMeetingUrl: 'https://zoom.us/j/123456789'
+            zoomMeetingUrl: 'https://zoom.us/j/111111111',
+            botName: 'OriginalBot'
           }
+        },
+        registeredUser
+      )
+    })
+
+    test('should save changes to event name and description', async () => {
+      const result = await conversationService.updateConversation(
+        { id: conversation._id.toString(), name: 'Updated Name', description: 'Updated description' },
+        registeredUser
+      )
+      expect(result!.name).toBe('Updated Name')
+      expect(result!.description).toBe('Updated description')
+    })
+
+    test('should preserve other settings when only one property is updated', async () => {
+      const result = await conversationService.updateConversation(
+        { id: conversation._id.toString(), properties: { zoomMeetingUrl: 'https://zoom.us/j/999999999' } },
+        registeredUser
+      )
+      expect(result!.properties!.zoomMeetingUrl).toBe('https://zoom.us/j/999999999')
+      expect(result!.properties!.botName).toBe('OriginalBot')
+    })
+
+    test('should update the Zoom meeting URL on the linked adapter', async () => {
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), properties: { zoomMeetingUrl: 'https://zoom.us/j/999999999' } },
+        registeredUser
+      )
+      const adapters = await Adapter.find({ conversation: conversation._id })
+      expect(adapters[0].config.meetingUrl).toBe('https://zoom.us/j/999999999')
+    })
+
+    test('should update the bot name on the linked adapter', async () => {
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), properties: { botName: 'NewBotName' } },
+        registeredUser
+      )
+      const adapters = await Adapter.find({ conversation: conversation._id })
+      expect(adapters[0].config.botName).toBe('NewBotName')
+    })
+
+    test('should save changes to event start and end times', async () => {
+      const newStart = new Date(Date.now() + 7200000)
+      const newEnd = new Date(Date.now() + 10800000)
+      const result = await conversationService.updateConversation(
+        { id: conversation._id.toString(), scheduledTime: newStart, scheduledEndTime: newEnd },
+        registeredUser
+      )
+      expect(result!.scheduledTime).toEqual(newStart)
+      expect(result!.scheduledEndTime).toEqual(newEnd)
+    })
+
+    test('should save changes to moderators and speakers', async () => {
+      const result = await conversationService.updateConversation(
+        {
+          id: conversation._id.toString(),
+          moderators: [{ name: 'New Moderator', bio: 'Moderates things' }],
+          presenters: [{ name: 'New Speaker', bio: 'Speaks about things' }]
+        },
+        registeredUser
+      )
+      expect(result!.moderators).toHaveLength(1)
+      expect(result!.moderators![0].name).toBe('New Moderator')
+      expect(result!.presenters).toHaveLength(1)
+      expect(result!.presenters![0].name).toBe('New Speaker')
+    })
+
+    test('should move the event to a different topic', async () => {
+      const result = await conversationService.updateConversation(
+        { id: conversation._id.toString(), topicId: topicTwo._id.toString() },
+        registeredUser
+      )
+      expect(result!.topic.toString()).toBe(topicTwo._id.toString())
+    })
+
+    test('should reject an update referencing a non-existent topic', async () => {
+      await expect(
+        conversationService.updateConversation(
+          { id: conversation._id.toString(), topicId: new mongoose.Types.ObjectId().toString() },
+          registeredUser
+        )
+      ).rejects.toMatchObject({ statusCode: httpStatus.NOT_FOUND, message: 'Topic not found' })
+    })
+
+    test('should replace the AI agent and adapter when the conversation type changes', async () => {
+      const originalAgents = await Agent.find({ conversation: conversation._id })
+      const originalAdapters = await Adapter.find({ conversation: conversation._id })
+      expect(originalAgents.map((a) => a.agentType)).toContain('eventAssistant')
+
+      await conversationService.updateConversation({ id: conversation._id.toString(), type: 'backChannel' }, registeredUser)
+
+      const newAgents = await Agent.find({ conversation: conversation._id })
+      const newAdapters = await Adapter.find({ conversation: conversation._id })
+
+      expect(newAgents.map((a) => a.agentType)).not.toContain('eventAssistant')
+      expect(newAgents.map((a) => a.agentType).sort()).toEqual(['backChannelInsights', 'backChannelMetrics'])
+
+      const originalAdapterIds = originalAdapters.map((a) => a._id.toString())
+      newAdapters.forEach((a) => expect(originalAdapterIds).not.toContain(a._id.toString()))
+    })
+
+    test('should save new features to the database when updated', async () => {
+      await conversationService.updateConversation(
+        {
+          id: conversation._id.toString(),
+          features: [{ name: 'moderatorSupport', config: {} }]
+        },
+        registeredUser
+      )
+      const updated = await Conversation.findById(conversation._id)
+      const features = updated!.features as Feature[]
+      expect(features).toHaveLength(1)
+      expect(features[0].name).toBe('moderatorSupport')
+    })
+
+    test('should update existing features in the database when sub-properties change', async () => {
+      await conversationService.updateConversation(
+        {
+          id: conversation._id.toString(),
+          features: [{ name: 'moderatorSupport', config: { minContributionInterval: 5 } }]
+        },
+        registeredUser
+      )
+      // Now update the sub-property value
+      await conversationService.updateConversation(
+        {
+          id: conversation._id.toString(),
+          features: [{ name: 'moderatorSupport', config: { minContributionInterval: 15 } }]
+        },
+        registeredUser
+      )
+      const updated = await Conversation.findById(conversation._id)
+      const features = updated!.features as Feature[]
+      expect(features).toHaveLength(1)
+      expect(features[0].config?.minContributionInterval).toBe(15)
+    })
+
+    test('should clear features in the database when updated to an empty array', async () => {
+      // First add a feature
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), features: [{ name: 'moderatorSupport', config: {} }] },
+        registeredUser
+      )
+
+      // Now clear it
+      await conversationService.updateConversation({ id: conversation._id.toString(), features: [] }, registeredUser)
+
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.features).toHaveLength(0)
+    })
+
+    test('should persist the updated conversationType when the type changes', async () => {
+      await conversationService.updateConversation({ id: conversation._id.toString(), type: 'backChannel' }, registeredUser)
+
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.conversationType).toBe('backChannel')
+    })
+
+    test('should persist alternateName for speakers and moderators in the database', async () => {
+      await conversationService.updateConversation(
+        {
+          id: conversation._id.toString(),
+          presenters: [{ name: 'Dr. Smith', bio: 'Researcher', alternateName: 'John Smith' }],
+          moderators: [{ name: 'Ms. Jones', bio: 'Host', alternateName: 'Alice Jones' }]
+        },
+        registeredUser
+      )
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.presenters![0].alternateName).toBe('John Smith')
+      expect(updated!.moderators![0].alternateName).toBe('Alice Jones')
+    })
+
+    test('should persist resources to the database when updated', async () => {
+      await conversationService.updateConversation(
+        {
+          id: conversation._id.toString(),
+          resources: [
+            {
+              title: 'Attention Is All You Need',
+              url: 'https://arxiv.org/abs/1706.03762',
+              authors: ['Vaswani', 'Shazeer'],
+              year: '2017',
+              source: 'speaker',
+              category: 'required',
+              participantVisible: true
+            }
+          ]
+        },
+        registeredUser
+      )
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.resources).toHaveLength(1)
+      expect(updated!.resources![0].title).toBe('Attention Is All You Need')
+      expect(updated!.resources![0].url).toBe('https://arxiv.org/abs/1706.03762')
+      expect(updated!.resources![0].source).toBe('speaker')
+      expect(updated!.resources![0].category).toBe('required')
+    })
+
+    test('should clear resources from the database when updated to an empty array', async () => {
+      // First add a resource
+      await conversationService.updateConversation(
+        {
+          id: conversation._id.toString(),
+          resources: [{ title: 'A Paper', source: 'speaker', category: 'suggested' }]
+        },
+        registeredUser
+      )
+      // Then clear it
+      await conversationService.updateConversation({ id: conversation._id.toString(), resources: [] }, registeredUser)
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.resources).toHaveLength(0)
+    })
+
+    test('should reject updates from users who do not own the event', async () => {
+      const otherUser = { _id: new mongoose.Types.ObjectId(), role: 'user' }
+      await expect(
+        conversationService.updateConversation({ id: conversation._id.toString(), name: 'Hacked' }, otherUser)
+      ).rejects.toMatchObject({ statusCode: httpStatus.FORBIDDEN })
+    })
+
+    test('should reject updates to an event that is currently live', async () => {
+      await conversation.updateOne({ active: true })
+      await expect(
+        conversationService.updateConversation({ id: conversation._id.toString(), name: 'New Name' }, registeredUser)
+      ).rejects.toMatchObject({ statusCode: httpStatus.BAD_REQUEST, message: 'Cannot update an active conversation' })
+    })
+
+    /* Fix #1: auto-start and auto-stop jobs should be rescheduled when the event's
+       scheduled times change. Before this fix, updating times had no effect on
+       already-queued Agenda jobs. */
+    test('should reschedule the auto-start job when scheduledTime changes', async () => {
+      const cancelSpy = jest.spyOn(schedule, 'cancelAutoStartConversation').mockResolvedValue(undefined)
+      const scheduleSpy = jest.spyOn(schedule, 'autoStartConversation').mockResolvedValue(undefined)
+
+      const newStart = new Date(Date.now() + 7200000)
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), scheduledTime: newStart },
+        registeredUser
+      )
+
+      expect(cancelSpy).toHaveBeenCalledWith(conversation._id)
+      expect(scheduleSpy).toHaveBeenCalled()
+    })
+
+    test('should reschedule the auto-stop job when scheduledEndTime changes', async () => {
+      const cancelSpy = jest.spyOn(schedule, 'cancelAutoStopConversation').mockResolvedValue(undefined)
+      const scheduleSpy = jest.spyOn(schedule, 'autoStopConversation').mockResolvedValue(undefined)
+
+      const newEnd = new Date(Date.now() + 10800000)
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), scheduledEndTime: newEnd },
+        registeredUser
+      )
+
+      expect(cancelSpy).toHaveBeenCalledWith(conversation._id)
+      expect(scheduleSpy).toHaveBeenCalled()
+    })
+
+    /* Fix #2: when a conversation moves to a different topic, the old topic's
+       conversations list should no longer include it. Before this fix, only the
+       new topic was updated. */
+    test('should remove the conversation from the old topic when reassigned', async () => {
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), topicId: topicTwo._id.toString() },
+        registeredUser
+      )
+
+      const oldTopic = await Topic.findById(topicOne._id)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const oldTopicConvIds = oldTopic!.conversations.map((c: any) => c._id?.toString() ?? c.toString())
+      expect(oldTopicConvIds).not.toContain(conversation._id.toString())
+    })
+
+    /* Fix #4: features with enabled: false should be saved as false, not dropped.
+       Before this fix, the Joi validation schema stripped the enabled field,
+       so disabled features would silently revert to their type defaults. */
+    test('should persist a feature with enabled: false to the database', async () => {
+      await conversationService.updateConversation(
+        {
+          id: conversation._id.toString(),
+          features: [{ name: 'moderatorSupport', enabled: false, config: {} }]
+        },
+        registeredUser
+      )
+
+      const updated = await Conversation.findById(conversation._id)
+      const features = updated!.features as Feature[]
+      expect(features).toHaveLength(1)
+      expect(features[0].name).toBe('moderatorSupport')
+      expect(features[0].enabled).toBe(false)
+    })
+
+    /* Fix #5: switching to a conversation type that doesn't support the event's
+       current platform should return a clear 400 error, not silently drop adapters. */
+    test('should reject a type change when the existing platform is not supported by the new type', async () => {
+      /* Register a minimal conversation type that supports no platforms, so switching
+         to it from a zoom-based event should fail the platform compatibility check. */
+      const zoomlessType = {
+        name: 'zoomlessType',
+        label: 'Zoomless Type',
+        description: 'A type that does not support zoom',
+        platforms: [],
+        properties: [],
+        features: [],
+        agentTypes: []
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setConversationTypes({ ...getAllConversationTypes(), zoomlessType } as any)
+
+      try {
+        await expect(
+          conversationService.updateConversation({ id: conversation._id.toString(), type: 'zoomlessType' }, registeredUser)
+        ).rejects.toMatchObject({ statusCode: httpStatus.BAD_REQUEST })
+      } finally {
+        resetConversationTypes()
+      }
+    })
+
+    /* Fix #6: a type-only update (no features field sent) should keep the event's
+       existing features. Before this fix, resolveConversationType was always called
+       with an empty features array, dropping any features that were already saved. */
+    test('should preserve existing features when only the type changes', async () => {
+      await conversationService.updateConversation(
+        {
+          id: conversation._id.toString(),
+          features: [{ name: 'moderatorSupport', config: { minContributionInterval: 5 } }]
+        },
+        registeredUser
+      )
+
+      await conversationService.updateConversation({ id: conversation._id.toString(), type: 'backChannel' }, registeredUser)
+
+      const updated = await Conversation.findById(conversation._id)
+      const features = updated!.features as Feature[]
+      expect(features.some((f) => f.name === 'moderatorSupport')).toBe(true)
+    })
+
+    test('should recreate the adapter with the correct config when platforms change', async () => {
+      /* The beforeEach conversation uses platforms: ['zoom'], which resolves to the
+         zoom-only adapter config (2 dmChannels: direct agent DM + moderator DM).
+         Switching to nextspace+zoom should produce the 'nextspace,zoom' config
+         (1 dmChannel: direct agent DM only — moderator DMs go through NextSpace). */
+      const adapterBefore = await Adapter.findOne({ conversation: conversation._id, type: 'zoom' })
+      expect(adapterBefore!.dmChannels).toHaveLength(2)
+
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), platforms: ['nextspace', 'zoom'] },
+        registeredUser
+      )
+
+      const adapterAfter = await Adapter.findOne({ conversation: conversation._id, type: 'zoom' })
+      /* After the fix, the adapter should be recreated with the nextspace,zoom config
+         (1 dmChannel). Before the fix, the old adapter is not recreated and still has 2. */
+      expect(adapterAfter!.dmChannels).toHaveLength(1)
+    })
+
+    test('should update the llmModel on all agents when the property changes', async () => {
+      /* Agents inherit llmModel from conversation properties at creation time via $ref
+         resolution, but updateConversation currently only writes the new llmModel into
+         the conversation's properties object. The Agent documents are not updated,
+         so a model change set on the edit form has no effect on running agents. */
+      const newModel = supportedModels[1]
+
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), properties: { llmModel: newModel } },
+        registeredUser
+      )
+
+      const agents = await Agent.find({ conversation: conversation._id })
+      agents.forEach((agent) => {
+        expect(agent.llmModel).toBe(newModel.llmModel)
+        expect(agent.llmPlatform).toBe(newModel.llmPlatform)
+      })
+    })
+
+    test('should remove the agent for a feature when that feature is disabled', async () => {
+      /* Feature-gated agents are created at conversation-creation time. When a feature is
+         later disabled via updateConversation, only the features array on the Conversation
+         document is updated — the Agent documents are not reconciled, so the agent stays. */
+      const featureConv = await conversationService.createConversationFromType(
+        {
+          type: 'eventAssistant',
+          name: 'Feature Test Event',
+          platforms: ['zoom'],
+          topicId: topicOne._id.toString(),
+          /* Use a different scheduledTime to avoid a uniqueness conflict with the
+             beforeEach conversation (both are Zoom events). */
+          scheduledTime: new Date(Date.now() + 7200000),
+          properties: { zoomMeetingUrl: 'https://zoom.us/j/feature-test' },
+          features: [{ name: 'collectiveVoice' }]
+        },
+        registeredUser
+      )
+
+      const agentsBefore = await Agent.find({ conversation: featureConv._id })
+      expect(agentsBefore.map((a) => a.agentType)).toContain('eventMediator')
+
+      await conversationService.updateConversation(
+        { id: featureConv._id.toString(), features: [{ name: 'collectiveVoice', enabled: false }] },
+        registeredUser
+      )
+
+      const agentsAfter = await Agent.find({ conversation: featureConv._id })
+      expect(agentsAfter.map((a) => a.agentType)).not.toContain('eventMediator')
+    })
+  })
+
+  describe('findByIdFull()', () => {
+    let conversation
+
+    beforeEach(async () => {
+      await insertUsers([registeredUser])
+      await insertTopics([topicOne])
+
+      const params = {
+        type: 'eventAssistant',
+        name: 'Test Conversation',
+        platforms: ['zoom'],
+        topicId: topicOne._id.toString(),
+        scheduledTime: new Date(Date.now() + 3600000),
+        properties: {
+          zoomMeetingUrl: 'https://zoom.us/j/123456789'
         }
-        conversation = await conversationService.createConversationFromType(params, registeredUser)
-      })
+      }
+      conversation = await conversationService.createConversationFromType(params, registeredUser)
+    })
 
-      test('should return full conversation with id instead of _id, is pojo', async () => {
-        const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
+    test('should return full conversation with id instead of _id, is pojo', async () => {
+      const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
 
-        expect(result).toBeDefined()
-        // is pojo
-        expect(result).not.toBeInstanceOf(mongoose.Document)
-        expect((result as unknown as Record<string, unknown>).id).toBeDefined()
-      })
+      expect(result).toBeDefined()
+      // is pojo
+      expect(result).not.toBeInstanceOf(mongoose.Document)
+      expect((result as unknown as Record<string, unknown>).id).toBeDefined()
+    })
 
-      test('should return conversation with expected fields', async () => {
-        const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
+    test('should return conversation with expected fields', async () => {
+      const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
 
-        expect(result.name).toBe('Test Conversation')
-        expect(result.platforms).toEqual(['zoom'])
-        expect(result.conversationType).toBe('eventAssistant')
-      })
+      expect(result.name).toBe('Test Conversation')
+      expect(result.platforms).toEqual(['zoom'])
+      expect(result.conversationType).toBe('eventAssistant')
+    })
 
-      test('should return populated agents', async () => {
-        const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
+    test('should return populated agents', async () => {
+      const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
 
-        expect(result.agents).toBeDefined()
-        expect(Array.isArray(result.agents)).toBe(true)
-        expect(result.agents.length).toBeGreaterThan(0)
-      })
+      expect(result.agents).toBeDefined()
+      expect(Array.isArray(result.agents)).toBe(true)
+      expect(result.agents.length).toBeGreaterThan(0)
+    })
 
-      test('should return populated channels', async () => {
-        const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
+    test('should return populated channels', async () => {
+      const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
 
-        expect(result.channels).toBeDefined()
-        expect(Array.isArray(result.channels)).toBe(true)
-      })
+      expect(result.channels).toBeDefined()
+      expect(Array.isArray(result.channels)).toBe(true)
+    })
 
-      test('should return populated adapters', async () => {
-        const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
+    test('should return populated adapters', async () => {
+      const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
 
-        expect(result.adapters).toBeDefined()
-        expect(Array.isArray(result.adapters)).toBe(true)
-      })
+      expect(result.adapters).toBeDefined()
+      expect(Array.isArray(result.adapters)).toBe(true)
+    })
 
-      test('should include followed field', async () => {
-        const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
+    test('should include followed field', async () => {
+      const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
 
-        expect(result).toHaveProperty('followed')
-      })
+      expect(result).toHaveProperty('followed')
+    })
 
-      test('should hide channel passcode from non-owner user', async () => {
-        const nonOwner = {
-          _id: new mongoose.Types.ObjectId(),
-          role: 'user'
-        }
+    test('should hide channel passcode from non-owner user', async () => {
+      const nonOwner = {
+        _id: new mongoose.Types.ObjectId(),
+        role: 'user'
+      }
 
-        const result = await conversationService.findByIdFull(conversation._id.toString(), nonOwner)
+      const result = await conversationService.findByIdFull(conversation._id.toString(), nonOwner)
 
-        if (result.channels && result.channels.length > 0) {
-          result.channels.forEach((channel) => {
-            expect(channel).not.toHaveProperty('passcode')
-          })
-        }
-      })
-
-      test('should show channel passcode to conversation owner', async () => {
-        const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
-
-        // Owner should get channels with passcode field present (even if null)
-        expect(result.channels).toBeDefined()
-      })
-
-      test('should throw NOT_FOUND error when conversation does not exist', async () => {
-        const fakeId = new mongoose.Types.ObjectId().toString()
-
-        await expect(conversationService.findByIdFull(fakeId, registeredUser)).rejects.toThrow(ApiError)
-        await expect(conversationService.findByIdFull(fakeId, registeredUser)).rejects.toMatchObject({
-          statusCode: httpStatus.NOT_FOUND,
-          message: `Conversation with id ${fakeId} not found`
+      if (result.channels && result.channels.length > 0) {
+        result.channels.forEach((channel) => {
+          expect(channel).not.toHaveProperty('passcode')
         })
+      }
+    })
+
+    test('should show channel passcode to conversation owner', async () => {
+      const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
+
+      // Owner should get channels with passcode field present (even if null)
+      expect(result.channels).toBeDefined()
+    })
+
+    test('should throw NOT_FOUND error when conversation does not exist', async () => {
+      const fakeId = new mongoose.Types.ObjectId().toString()
+
+      await expect(conversationService.findByIdFull(fakeId, registeredUser)).rejects.toThrow(ApiError)
+      await expect(conversationService.findByIdFull(fakeId, registeredUser)).rejects.toMatchObject({
+        statusCode: httpStatus.NOT_FOUND,
+        message: `Conversation with id ${fakeId} not found`
       })
+    })
 
-      test('should show channel passcode to admin user', async () => {
-        const adminUser = {
-          _id: new mongoose.Types.ObjectId(),
-          role: 'admin'
-        }
+    test('should show channel passcode to admin user', async () => {
+      const adminUser = {
+        _id: new mongoose.Types.ObjectId(),
+        role: 'admin'
+      }
 
-        const result = await conversationService.findByIdFull(conversation._id.toString(), adminUser)
+      const result = await conversationService.findByIdFull(conversation._id.toString(), adminUser)
 
-        expect(result).toBeDefined()
-        expect(result.channels).toBeDefined()
-      })
+      expect(result).toBeDefined()
+      expect(result.channels).toBeDefined()
+    })
 
-      /* Fix #3: private topic fields (like passcode) should not appear in the response.
+    /* Fix #3: private topic fields (like passcode) should not appear in the response.
        Before this fix, topic was populated with toObject() which bypasses the toJSON
        plugin transform, leaking fields marked private: true. */
-      test('should not expose private fields from the topic', async () => {
-        /* Override owner so registeredUser (the test caller) can create a conversation
+    test('should not expose private fields from the topic', async () => {
+      /* Override owner so registeredUser (the test caller) can create a conversation
          on this private topic. Private topics only allow their owner to create events. */
-        const privateTopic = { ...newPrivateTopic(), owner: registeredUser._id }
-        await insertTopics([privateTopic])
+      const privateTopic = { ...newPrivateTopic(), owner: registeredUser._id }
+      await insertTopics([privateTopic])
 
-        const params = {
-          type: 'eventAssistant',
-          name: 'Private Topic Event',
-          platforms: ['zoom'],
-          topicId: privateTopic._id.toString(),
-          /* Schedule 2 hours out so it doesn't conflict with the beforeEach conversation
+      const params = {
+        type: 'eventAssistant',
+        name: 'Private Topic Event',
+        platforms: ['zoom'],
+        topicId: privateTopic._id.toString(),
+        /* Schedule 2 hours out so it doesn't conflict with the beforeEach conversation
            (1 hour out). The adapter service rejects two Zoom events within 10 minutes. */
-          scheduledTime: new Date(Date.now() + 7200000),
-          properties: {
-            zoomMeetingUrl: 'https://zoom.us/j/555555555'
-          }
+        scheduledTime: new Date(Date.now() + 7200000),
+        properties: {
+          zoomMeetingUrl: 'https://zoom.us/j/555555555'
         }
-        const privateConversation = await conversationService.createConversationFromType(params, registeredUser)
+      }
+      const privateConversation = await conversationService.createConversationFromType(params, registeredUser)
 
-        const result = await conversationService.findByIdFull(privateConversation._id.toString(), registeredUser)
+      const result = await conversationService.findByIdFull(privateConversation._id.toString(), registeredUser)
 
-        expect(result.topic).toBeDefined()
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        expect((result.topic as any).passcode).toBeUndefined()
-      })
+      expect(result.topic).toBeDefined()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((result.topic as any).passcode).toBeUndefined()
+    })
 
-      test('should expose hasPdf: true and omit fileName when a resource has a PDF attached', async () => {
-        /* Insert a resource with fileName directly in the DB to simulate what savePdf does.
+    test('should expose hasPdf: true and omit fileName when a resource has a PDF attached', async () => {
+      /* Insert a resource with fileName directly in the DB to simulate what savePdf does.
          findByIdFull should strip fileName and expose hasPdf: true instead. */
-        await Conversation.updateOne(
-          { _id: conversation._id },
-          {
-            $push: {
-              resources: {
-                source: 'speaker',
-                category: 'required',
-                title: 'Test Paper',
-                participantVisible: true,
-                fileName: 'test-resource.pdf'
-              }
+      await Conversation.updateOne(
+        { _id: conversation._id },
+        {
+          $push: {
+            resources: {
+              source: 'speaker',
+              category: 'required',
+              title: 'Test Paper',
+              participantVisible: true,
+              fileName: 'test-resource.pdf'
             }
           }
-        )
+        }
+      )
 
-        const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
-        const resource = result.resources![0] as unknown as Record<string, unknown>
+      const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
+      const resource = result.resources![0] as unknown as Record<string, unknown>
 
-        expect(resource.hasPdf).toBe(true)
-        expect(resource.fileName).toBeUndefined()
-      })
+      expect(resource.hasPdf).toBe(true)
+      expect(resource.fileName).toBeUndefined()
     })
   })
 })

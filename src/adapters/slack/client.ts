@@ -10,12 +10,12 @@ class SlackClientPool {
     this.maxSize = maxSize
   }
 
-  getClient(workspaceId, botToken): WebClient {
-    if (this.clients.has(workspaceId)) {
+  getClient(botToken: string): WebClient {
+    if (this.clients.has(botToken)) {
       // Move to end (most recently used)
-      const client = this.clients.get(workspaceId)
-      this.clients.delete(workspaceId)
-      this.clients.set(workspaceId, client!)
+      const client = this.clients.get(botToken)
+      this.clients.delete(botToken)
+      this.clients.set(botToken, client!)
       return client!
     }
     const client = new WebClient(botToken)
@@ -24,7 +24,7 @@ class SlackClientPool {
       const firstKey = this.clients.keys().next().value
       this.clients.delete(firstKey)
     }
-    this.clients.set(workspaceId, client)
+    this.clients.set(botToken, client)
     return client
   }
 

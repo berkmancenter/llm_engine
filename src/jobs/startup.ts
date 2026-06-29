@@ -12,6 +12,7 @@ export async function startJobs() {
     await schedule.cleanUpTranscripts()
     await defineJob.summarizePdf()
     await defineJob.conversationEvent()
+    await defineJob.pollExpired()
   }
 }
 

@@ -9,10 +9,12 @@ import { IChannel } from '../../types/index.types.js'
 
 async function collectChannelIntros(conversation, channelNames) {
   const intros: ReturnType<typeof agentResponseToMessageData>[] = []
+  if (!conversation.active) return intros
   for (const channelName of channelNames) {
     const channel = conversation.channels?.find((c) => c.name === channelName)
     if (!channel) continue
     for (const agent of conversation.agents) {
+      agent.conversation = conversation
       const agentIntros = await agent.introduce(channel)
       for (const intro of agentIntros) {
         intros.push(agentResponseToMessageData(intro, agent))

@@ -18,4 +18,7 @@ export interface AdapterMessage<T> {
   parentMessage?: string
   /** Adapter-specific rich content blocks (e.g. Slack Block Kit). Typed as unknown[] to keep this interface platform-agnostic. */
   blocks?: unknown[]
+  /** Neutral render instruction. The Slack adapter renders responseKind + renderData into blocks at send time; other adapters ignore them. */
+  responseKind?: string
+  renderData?: unknown
 }

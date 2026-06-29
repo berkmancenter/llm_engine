@@ -189,6 +189,7 @@ const createConversation = async (conversationBody, user) => {
     ...(conversationBody.moderators !== undefined && { moderators: conversationBody.moderators }),
     ...(conversationBody.presenters !== undefined && { presenters: conversationBody.presenters }),
     ...(conversationBody.properties !== undefined && { properties: conversationBody.properties }),
+    ...(conversationBody.analyticsRefs !== undefined && { analyticsRefs: conversationBody.analyticsRefs }),
     ...(conversationBody.features !== undefined && { features: conversationBody.features }),
     ...(conversationBody.resources !== undefined && { resources: conversationBody.resources }),
     agents: [],

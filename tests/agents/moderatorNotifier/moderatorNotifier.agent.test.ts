@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import setupAgentTest from '../../utils/setupAgentTest.js'
 import defaultAgentTypes from '../../../src/agents/index.js'
 import {
@@ -78,6 +79,15 @@ describe('moderator agent tests', () => {
     expect(Array.isArray(insights)).toBe(true)
     expect(insights.length).toBeGreaterThan(0)
     expect(insights[0]).toHaveProperty('value')
+    expect(insights[0].source).toBe('ai')
+    expect(Array.isArray(insights[0].recommendations)).toBe(true)
+    expect(insights[0].recommendations.length).toBeLessThanOrEqual(2)
+    for (const insight of insights) {
+      console.log(`Observation: ${insight.value}`)
+      for (const rec of insight.recommendations ?? []) {
+        console.log(`  Recommendation: ${rec}`)
+      }
+    }
     assertNoPseudonyms(insights.map((i: { value: string }) => i.value).join(' '))
   }
 

@@ -236,7 +236,6 @@ function offerModeratorSubmission(userMessage, agentResponses, conversation) {
   }
 }
 
-const DEFAULT_CHECKIN_SCAN_INTERVAL_MINUTES = 3
 
 type TraceResponse = {
   message?: unknown
@@ -259,7 +258,7 @@ export default verify({
   maxTokens: 2000,
   defaultTriggers: {
     perMessage: { directMessages: true, channels: ['chat', 'image-gen'], allowMessagesFromAgents: true },
-    periodic: { timerPeriod: DEFAULT_CHECKIN_SCAN_INTERVAL_MINUTES * 60 }
+    periodic: { timerPeriod: 180 }
   },
   agentConfig: {
     chatIntroMessage: `Welcome! I'm {{agentConfig.botName}}, your AI event assistant. This is a space to chat with other event participants. You can also ask me questions with an @{{agentConfig.botName}} mention. Just remember that everyone can see what you ask me here. Use the {{agentConfig.botName}} tab if you want to talk privately. Have fun!`,
@@ -267,8 +266,7 @@ export default verify({
     zoomChatIntroMessage:
       "Welcome! I'm {{agentConfig.botName}}, your AI event assistant. You can ask me questions in the chat with an @{{agentConfig.botName}} mention. Or send me a DM if you want to talk privately.",
     tools: getDefaultEventAssistantToolNames(),
-    minInterval: 10, // minimum minutes between check-ins per participant
-    checkinScanInterval: DEFAULT_CHECKIN_SCAN_INTERVAL_MINUTES // how often the check-in handler runs (minutes); also controls transcript density window and quiet window
+    minInterval: 10 // minimum minutes between check-ins per participant
   },
   llmTemplateVars: eventAssistantLlmTemplateVars,
   defaultLLMTemplates: eventAssistantLLMTemplates,

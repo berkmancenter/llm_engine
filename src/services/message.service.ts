@@ -84,7 +84,11 @@ const createMessage = async (messageBody, user, conversation) => {
     fromAgent: !!messageBody.fromAgent,
     source: messageBody.source,
     channels: messageBody.channels?.map((c) => c.name),
-    ...(messageBody.blocks !== undefined && { blocks: messageBody.blocks })
+    ...(messageBody.blocks !== undefined && { blocks: messageBody.blocks }),
+    // Neutral render instruction (responseKind + renderData) so an adapter can
+    // build its own blocks (e.g. Slack Block Kit) at send time.
+    ...(messageBody.responseKind !== undefined && { responseKind: messageBody.responseKind }),
+    ...(messageBody.renderData !== undefined && { renderData: messageBody.renderData })
   })
 
   message.parseOutput = messageBody.parseOutput
@@ -412,7 +416,11 @@ export const agentResponseToMessageData = (response, agent) => ({
   ...(response.parent !== undefined && { parentMessage: response.parent }),
   /* Pass adapter-specific blocks (e.g. Slack Block Kit) through to the
      message so the adapter can include them in the outbound API call. */
-  ...(response.blocks !== undefined && { blocks: response.blocks })
+  ...(response.blocks !== undefined && { blocks: response.blocks }),
+  /* Pass the neutral render instruction through so the Slack adapter can
+     render it into blocks at send time. */
+  ...(response.responseKind !== undefined && { responseKind: response.responseKind }),
+  ...(response.renderData !== undefined && { renderData: response.renderData })
 })
 
 const messageService = {

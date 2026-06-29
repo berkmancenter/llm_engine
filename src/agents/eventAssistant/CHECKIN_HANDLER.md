@@ -59,14 +59,14 @@ Any message that implies others share a sentiment (NOT_ALONE, INTEREST_BRIDGE) r
 
 `sourceMessages` is a server-side audit field — it is never shown to the recipient.
 
-## Configuration (`agentConfig`)
+## Configuration
 
 | Property | Default | Description |
 |---|---|---|
-| `checkinScanInterval` | `3` (minutes) | How often the handler runs and the transcript density window |
-| `minInterval` | `10` (minutes) | Minimum time between check-ins to the same participant |
+| `triggers.periodic.timerPeriod` | `180` (seconds) | How often the handler runs; also controls the transcript density window and quiet window |
+| `agentConfig.minInterval` | `10` (minutes) | Minimum time between check-ins to the same participant |
 
-`checkinScanInterval` controls three things in sync: the timer period, the transcript lookback window for density evaluation, and the quiet window used to determine whether a participant has been silent during the dense section.
+`timerPeriod` controls three things in sync: the firing cadence, the transcript lookback window for density evaluation, and the quiet window used to determine whether a participant has been silent during the dense section. To expose this to users as a conversation property, map it via `{ $ref: 'checkinInterval', as: 'triggers.periodic.timerPeriod' }` in the conversation type definition.
 
 ## SOCIAL_REASSURANCE: Signals
 

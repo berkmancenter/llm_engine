@@ -42,6 +42,12 @@ const schedule = {
   },
   conversationEndingSoon: async (scheduledAt: Date, data: { conversationId: string }) => {
     await agenda.schedule(scheduledAt, `conversationEndingSoon - ${data.conversationId}`, data)
+  },
+  pollExpired: async (expirationDate: Date, data: { pollId: string; conversationId: string }) => {
+    await agenda.schedule(expirationDate, 'poll expired', data)
+  },
+  cancelPollExpired: async (pollId: string) => {
+    await agenda.cancel({ name: 'poll expired', 'data.pollId': pollId })
   }
 }
 
