@@ -114,15 +114,31 @@ function isValidSentiment(value: string): value is ReceptionSentiment {
  * followed, and the sentiment must be one of the known labels. Anything the model
  * invented or mislabeled is dropped, so a sentiment never reaches the card on the back
  * of words no one said.
+ *
+ * The reaction quote is checked against both the raw message body and the
+ * "pseudonym: body" format the model sees, since the model sometimes copies the name
+ * prefix along with the text.
  */
 export function groundReception(
-  candidate: { sparkMessage: { body?: unknown }; reactionVolume: number; reactionChat: { body?: unknown }[] },
+  candidate: {
+    sparkMessage: { body?: unknown }
+    reactionVolume: number
+    reactionChat: { body?: unknown; pseudonym?: string }[]
+  },
   result: { sparkQuote: string; reactionQuote: string; sentiment: string }
 ): QuoteReception | null {
   const { sentiment } = result
   if (!isValidSentiment(sentiment)) return null
   if (!quoteAppearsIn(result.sparkQuote, [candidate.sparkMessage])) return null
-  if (!quoteAppearsIn(result.reactionQuote, candidate.reactionChat)) return null
+
+  const reactionChatFormatted = candidate.reactionChat.map((m) => ({
+    body: m.pseudonym ? `${m.pseudonym}: ${m.body}` : m.body
+  }))
+  if (
+    !quoteAppearsIn(result.reactionQuote, candidate.reactionChat) &&
+    !quoteAppearsIn(result.reactionQuote, reactionChatFormatted)
+  )
+    return null
 
   return {
     sparkQuote: result.sparkQuote.trim(),

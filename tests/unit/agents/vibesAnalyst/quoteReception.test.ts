@@ -166,4 +166,24 @@ describe('groundReception', () => {
 
     expect(result).toBeNull()
   })
+
+  it('keeps a reception when the model included the pseudonym prefix in the reaction quote', () => {
+    const candidateWithPseudonym = {
+      sparkMessage: { body: 'We should ban gas stoves entirely.', channels: ['transcript'] },
+      reactionVolume: 4,
+      reactionChat: [
+        { body: 'No way, gas is better for cooking', pseudonym: 'ana' },
+        { body: 'agreed, electric is the future', pseudonym: 'bo' }
+      ]
+    }
+
+    const result = groundReception(candidateWithPseudonym, {
+      sparkQuote: 'ban gas stoves',
+      reactionQuote: 'ana: No way, gas is better for cooking',
+      sentiment: 'pushback'
+    })
+
+    expect(result).not.toBeNull()
+    expect(result?.reactionQuote).toBe('ana: No way, gas is better for cooking')
+  })
 })

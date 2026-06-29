@@ -196,6 +196,7 @@ You are given one line a speaker said, and the chat messages people posted right
 # Hard rules
 - Copy both quotes verbatim from the text provided. Do not paraphrase, shorten, fix, or combine messages, and never write a quote that is not there.
 - The sparkQuote must come from the speaker line. The reactionQuote must come from the chat messages.
+- Do not include a speaker name or pseudonym prefix in the reactionQuote. Copy only the message text itself, not any leading "name:" label.
 - Judge the sentiment only from the chat messages shown. If they do not clearly lean one way, use "mixed".`
 
 /* The per-event input for the reception labeler. The speaker line and the chat that
