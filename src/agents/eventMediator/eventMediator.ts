@@ -141,9 +141,9 @@ export default verify({
     'Makes strategic interventions in shared chat based on configurable intervention categories: collective consciousness, engagement, and facilitation',
   priority: 85,
   maxTokens: 3000,
-  // uses 67 seconds for now to prevent overlap with Engagement Agent (timer set to 60 seconds) - can be adjusted as needed
+  // uses 127 seconds for now to prevent overlap with Engagement Agent (timer set to 120 seconds) - can be adjusted as needed
   defaultTriggers: {
-    periodic: { timerPeriod: 67, conversationHistorySettings: { channels: ['transcript'] } }
+    periodic: { timerPeriod: 127, conversationHistorySettings: { channels: ['transcript'] } }
   },
   agentConfig: {
     personality: 'sarcastic-expert' // Use sarcastic-expert personality (set to null for no personality)
