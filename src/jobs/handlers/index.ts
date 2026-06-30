@@ -15,6 +15,8 @@ const JobHandlers = {
   // Conversation handlers
   autoStartConversation: conversationHandlers.autoStartConversation,
   autoStopConversation: conversationHandlers.autoStopConversation,
+  conversationEndingSoon: conversationHandlers.conversationEndingSoon,
+  
 
   // Poll handlers
   pollExpired: pollHandlers.pollExpired,

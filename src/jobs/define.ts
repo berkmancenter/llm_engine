@@ -38,6 +38,10 @@ const defineJob = {
     await agenda.start()
     await agenda.define('conversationEvent', JobHandlers.conversationEvent)
   },
+  conversationEndingSoon: async (conversationId) => {
+    await agenda.start()
+    await agenda.define(`conversationEndingSoon - ${conversationId}`, JobHandlers.conversationEndingSoon)
+  },
   pollExpired: async () => {
     await agenda.start()
     await agenda.define('poll expired', JobHandlers.pollExpired)

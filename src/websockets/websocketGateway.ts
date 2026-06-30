@@ -81,6 +81,10 @@ class WebsocketGateway {
     await this.broadcast(conversation.topic._id.toString(), 'conversation:update', conversation)
   }
 
+  async broadcastConversationAlmostEnding(conversation) {
+    await this.broadcast(conversation._id.toString(), 'conversation:ending', conversation)
+  }
+
   async broadcastResourcesUpdated(conversationId: string, resources) {
     await this.broadcast(conversationId, 'resources:updated', { resources: resources.map((r) => r.toJSON()) })
   }
