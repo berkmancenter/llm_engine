@@ -184,7 +184,7 @@ export default verify({
   priority: 85,
   maxTokens: 3000,
   defaultTriggers: {
-    periodic: { timerPeriod: 60, conversationHistorySettings: { channels: ['transcript'] } }
+    periodic: { timerPeriod: 120, conversationHistorySettings: { channels: ['transcript'] } }
   },
   agentConfig: {
     personality: 'sarcastic-expert'

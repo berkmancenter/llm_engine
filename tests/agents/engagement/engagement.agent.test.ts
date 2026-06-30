@@ -77,9 +77,9 @@ describe(`engagement agent tests`, () => {
       expect(agent.agentConfig.personality).toBe('sarcastic-expert')
     })
 
-    it('uses periodic trigger on transcript with 60 second interval', () => {
+    it('uses periodic trigger on transcript with 120 second interval', () => {
       expect(agent.triggers.periodic).toBeDefined()
-      expect(agent.triggers.periodic.timerPeriod).toBe(60)
+      expect(agent.triggers.periodic.timerPeriod).toBe(120)
       expect(agent.triggers.periodic.conversationHistorySettings.channels).toContain('transcript')
     })
   })
