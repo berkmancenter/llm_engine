@@ -11,14 +11,12 @@ stamped with it, and a trend that crosses a definition change is misleading with
 
 ## Persisted snapshots and trends
 
-When an event ends and the card is built, its metrics are also written to a separate
-`EventMetricsSnapshot` collection, one document per event, so every metric can be trended over
-time rather than recomputed on demand. The snapshot stores the scalar counts below and the
-event platform, but never the verbatim quote text from spikes or receptions: a long-lived
-analytics store keeps how many, not the words. Each snapshot is stamped with the
-`metricsVersion` in force when it was written, and the participation baseline (below) compares
-only snapshots that share the current version. The web-analytics estimates are frozen "as of"
-the snapshot's `capturedAt` and are not revised when late provider data arrives.
+When an event ends, its metrics are written to an `EventMetricsSnapshot` collection (one
+document per event) so they can be trended over time. Snapshots store the scalar counts below,
+never the verbatim quote text from spikes or receptions: the long-lived store keeps how many,
+not the words. Each is stamped with its `metricsVersion`, and the baseline averages only
+snapshots on the current version. Web-analytics estimates are frozen as of `capturedAt` and not
+revised when late data arrives.
 
 Each metric has a plain-English meaning. The code names and formulas in `monospace` are
 there for developers; a non-technical reader can skip them.
@@ -29,21 +27,21 @@ The card keeps two kinds of numbers separate, and so should a reader:
 
 - **Exact.** Counted directly from our own records, so the card states these plainly with
   no caveat. This covers who posted, the activity timeline, the busy spikes, the public
-  versus private split, how often people called on the bot, the resource list, the event
-  platform, and the audience-reaction quotes.
+  versus private split (including how many distinct people sent private versus public
+  messages), how often people called on the bot, the resource list, the event platform, and
+  the audience-reaction quotes.
 - **Estimate.** Pulled from a web-analytics tool (for example Matomo). These can run low,
   so the card always labels them as estimates and warns that the real number may be higher.
   This covers the visit counts and everything built on them (lurker counts, the share who
-  spoke, and the typical-event averages).
+  spoke, the typical-event averages, and the on-page feature usage in `actionBreakdown`).
 
 ## Which messages we count
 
-Most of the exact numbers below count the same group of messages: the live chat that real
-people typed during the event. We leave out three things: messages the bot itself sent,
-messages that were never shown in the open chat (hidden ones, and private notes people sent
-to the backchannel bot), and the speaker's spoken words written out as a transcript (that is
-talk, not chat). We do count replies posted inside a thread. Developers: this shared rule is
-`visibleHumanFilter` (`fromAgent: false`, `visible: true`, `channels != 'transcript'`).
+Most exact numbers below count the same messages: the live chat real people typed during the
+event. We exclude messages the bot sent, messages never shown in open chat (hidden ones and
+private notes to the backchannel bot), and the speaker's transcribed words (that is talk, not
+chat). Thread replies do count. Developers: the shared rule is `visibleHumanFilter`
+(`fromAgent: false`, `visible: true`, `channels != 'transcript'`).
 
 ## Participation (exact)
 
@@ -65,14 +63,17 @@ browser, recorded by a web-analytics tool (for example Matomo) that watches how 
 the page. These numbers describe the people who joined the event. There is one set of
 figures per analytics tool that recorded data.
 
-| Metric                 | Meaning                                                                                  | How it is calculated                                                                                                                                          | Known limitations                                                                                                                       |
-| ---------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `trackedSessions`      | How many times someone opened the event page in a browser                                | The tool's total visit count                                                                                                                                  | This runs low: people using privacy browsers or ad and tracker blockers are not counted, so the real number is higher                   |
-| `attendeeCount`        | How many people were registered or expected                                              | The figure the analytics tool reports                                                                                                                         | This comes straight from the analytics tool. It is not something we counted from the chat                                               |
-| `avgDwellSeconds`      | On average, how long each visit to the page lasted, in seconds                           | We add up the time spent across all visits and divide by the number of visits                                                                                 | This counts visits, not people. If one person opens the page twice, that is two visits, which pulls the average toward shorter sessions |
-| `totalActions`         | How many things people did on the page in total: clicks, page loads, and similar actions | The total the analytics tool reports                                                                                                                          | This is one lumped-together number. It cannot tell you which specific buttons or links people clicked (see "What we cannot track")      |
-| `deviceBreakdown`      | How many visits came from each kind of device (phone, desktop, and so on)                | The per-device counts the analytics tool reports                                                                                                              | Runs low for the same reason visits do (blockers and privacy browsers are not counted)                                                  |
-| `trackedSessionStatus` | Whether visit data exists for this event                                                 | One of three states: data is available; no analytics tool was set up for this event (`notTracked`); or a tool was set up but recorded nothing (`unavailable`) | This is just a status, not a number. The card uses it to decide which caveat to show                                                    |
+| Metric                 | Meaning                                                                                                                                                | How it is calculated                                                                                                                                                                                                                                                                                                                                              | Known limitations                                                                                                                                                                                                                                                                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `trackedSessions`      | How many times someone opened the event page in a browser                                                                                              | The tool's total visit count                                                                                                                                                                                                                                                                                                                                      | This runs low: people using privacy browsers or ad and tracker blockers are not counted, so the real number is higher                                                                                                                                                                                                                              |
+| `attendeeCount`        | How many people were registered or expected                                                                                                            | The figure the analytics tool reports                                                                                                                                                                                                                                                                                                                             | This comes straight from the analytics tool. It is not something we counted from the chat                                                                                                                                                                                                                                                          |
+| `avgDwellSeconds`      | On average, how long each visit to the page lasted, in seconds                                                                                         | We add up the time spent across all visits and divide by the number of visits                                                                                                                                                                                                                                                                                     | This counts visits, not people. If one person opens the page twice, that is two visits, which pulls the average toward shorter sessions                                                                                                                                                                                                            |
+| `totalActions`         | How many things people did on the page in total: clicks, page loads, and similar actions                                                               | The total the analytics tool reports                                                                                                                                                                                                                                                                                                                              | This is one lumped-together number. For the specific actions we can name, see `actionBreakdown` below; everything else stays lumped here                                                                                                                                                                                                           |
+| `deviceBreakdown`      | How many visits came from each kind of device (phone, desktop, and so on)                                                                              | The per-device counts the analytics tool reports                                                                                                                                                                                                                                                                                                                  | Runs low for the same reason visits do (blockers and privacy browsers are not counted)                                                                                                                                                                                                                                                             |
+| `actionBreakdown`      | How many times tracked visitors used each named on-page feature (assistant commands, tab switches, transcript open/close/scroll, backchannel messages) | We map the analytics tool's event actions through a fixed allowlist into neutral keys (e.g. `command:visual`, `tab:chat`, `transcript:scroll`) and count how many times each fired in the event window. Anything not on the allowlist is left out of this map but still counts toward `totalActions`. We never store the message text a backchannel event carries | Runs low like all tracked-session data (blockers and privacy browsers). It covers only the allowlisted features, not every click. A switch-type event such as `tab_switched` fires only when someone switches TO a tab, so `tab:X` means "switched to tab X" and undercounts the tab a visitor lands on and never leaves (the default/landing tab) |
+| `actionUserBreakdown`  | How many different visitors used each named feature, for the same keys as `actionBreakdown`                                                            | The same allowlisted keys, counting distinct visitors instead of occurrences: one person who fires a command ten times adds one here. Lets the recap say "X of N visitors did K", which the occurrence counts alone cannot show                                                                                                                                   | Same allowlist and same undercount as `actionBreakdown`. The same landing-tab caveat applies to `tab:X`                                                                                                                                                                                                                                            |
+| `activeVisitorCount`   | How many different visitors did anything at all on the page during the event                                                                           | The distinct visitors with at least one in-window action; the denominator for per-active-visitor feature averages                                                                                                                                                                                                                                                 | At most `attendeeCount`, since a visit can overlap the event window without any action inside it. Runs low like all tracked-session data                                                                                                                                                                                                           |
+| `trackedSessionStatus` | Whether visit data exists for this event                                                                                                               | One of three states: data is available; no analytics tool was set up for this event (`notTracked`); or a tool was set up but recorded nothing (`unavailable`)                                                                                                                                                                                                     | This is just a status, not a number. The card uses it to decide which caveat to show                                                                                                                                                                                                                                                               |
 
 ## Audience engagement (estimate, derived)
 
@@ -127,11 +128,27 @@ continuous line.
 
 ## Channel split (exact)
 
-Source: `computeChannelSplit`.
+Source: `computeChannelSplit`. We count how many messages were public versus private. We never
+read the content of private messages.
 
 | Metric                                         | Meaning                                                                            | How it is calculated                                                                                      | Known limitations                                                                             |
 | ---------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | `channelSplit.public` / `channelSplit.private` | How many messages went to public chat versus private one-on-one chats with the bot | A message counts as private when it was a one-on-one message to the bot; everything else counts as public | This counts messages, not people. A handful of chatty people can run up a large private total |
+
+## Private messaging (exact)
+
+Source: `computePrivateMessaging`. The private side of the channel split, broken out so the
+recap can compare how many people used each channel alongside how many messages each carried.
+All exact and first-party, counted per person the same way participation is. These are counts
+only: we never read or analyze the content of private messages, only that they were sent and by
+how many distinct people.
+
+| Metric                                         | Meaning                                                         | How it is calculated                                                                                            | Known limitations                                                                                                                              |
+| ---------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `privateMessaging.privateMessageCount`         | How many private one-on-one-with-the-bot messages were sent     | The same private count as `channelSplit.private`                                                                | Counts messages, not people                                                                                                                    |
+| `privateMessaging.distinctPrivateSenders`      | How many different people sent at least one private message     | Distinct senders among the private messages, grouped per person (the same identity participation uses)          | A signed-out guest who renamed mid-event can split into two, the same caveat as `posterCount`                                                  |
+| `privateMessaging.distinctPublicSenders`       | How many different people sent at least one public-chat message | Distinct senders among the public messages, grouped per person                                                  | Same per-person grouping caveat                                                                                                                |
+| `privateMessaging.avgPrivateMessagesPerPoster` | The average private messages per poster, as a decimal           | The private message count divided by the total number of distinct posters (`posterCount`); 0 when no one posted | An average across all posters, including those who only posted publicly, so it reads low when private chat was concentrated among a few people |
 
 ## Bot invocations (exact)
 
@@ -169,10 +186,11 @@ Source: `annotateReceptions`, filled in by the agent from the messages it is all
 
 ## What we cannot track on the backend
 
-Some signals the recap would want are not available here, because only the browser sees
-them: reading-link clicks, tab clicks (Berkie, Group chat, References), and quick-guide
-clicks. The engine cannot compute them. A client like Nextspace has to record them and send them to the
-analytics provider, which the engine then reads generically. They would be estimates (the
-same undercount as tracked sessions), so they would carry the may-undercount caveat, unlike
-the exact resource counts above. Until that tracking exists on the client side, the recap can say how many
-readings and links an event had, never whether anyone opened them.
+Some signals only the browser sees. When a client like Nextspace tracks the action and sends it
+to the analytics provider, the engine reads it through the `actionBreakdown` allowlist above
+(assistant commands, tab switches, transcript open/close/scroll already flow through). Those are
+estimates, so they carry the may-undercount caveat.
+
+Anything the client does not emit as a tracked event has no backend signal at all, notably
+reading-link and quick-guide clicks. The engine cannot compute those, so the recap can say how
+many readings and links an event had, never whether anyone opened them.
