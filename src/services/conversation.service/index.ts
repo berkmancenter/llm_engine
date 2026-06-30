@@ -24,7 +24,7 @@ import resourceService from '../resource.service.js'
 export { updateTranscriptStatus }
 
 const returnFields =
-  'name slug locked owner createdAt active conversationType platforms scheduledTime scheduledEndTime description moderators presenters transcript properties features'
+  'name slug locked owner createdAt active conversationType platforms scheduledTime scheduledEndTime startTime endTime description moderators presenters transcript properties features'
 export const maxScheduledInterval = 10 * 60 * 1000 // 10 minutes in milliseconds
 export const { autoStartLeadTimeMs } = config.conversation
 export const { autoStopDelayMs } = config.conversation
