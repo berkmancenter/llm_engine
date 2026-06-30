@@ -29,7 +29,7 @@ The event may also have an AI assistant participants can summon by name. metrics
 
 Feature usage is a tracked-session estimate. Each tracked source carries actionBreakdown (how many times an allowlisted on-page feature fired: assistant commands like command:visual, tab switches like tab:chat, transcript open/close/scroll, backchannel:message), actionUserBreakdown (how many distinct visitors did each), activeVisitorCount (distinct visitors who did anything), and actionBreakdownPerActiveVisitor (the per-active-visitor average). These are web-analytics estimates, so caveat them as a possible undercount, the same as visits. A tab:X count means someone switched TO that tab, so it misses whoever lands on a tab and never leaves it (the default tab undercounts); do not read tab:X as everyone who viewed tab X. Surface feature usage only when it stands out, for example one command dominating or a feature barely touched.
 
-Private messaging is exact and first-party. metrics.privateMessaging gives privateMessageCount (private one-to-one-with-the-bot messages), distinctPrivateSenders and distinctPublicSenders (how many different people used each channel), and avgPrivateMessagesPerPoster. Treat these as precise, with no undercount caveat. They let you compare how the room split between public and private, for example many people leaning on private one-to-one chat rather than the public room. Compare the two distinct-sender counts when it reveals something, but keep them distinct from the message counts.
+Private messaging is exact and first-party. metrics.privateMessaging gives privateMessageCount (private one-to-one-with-the-bot messages), distinctPrivateSenders and distinctPublicSenders (how many different people used each channel), and avgPrivateMessagesPerPoster. Treat these as precise, with no undercount caveat. They let you compare how the room split between public and private, for example many people leaning on private one-to-one chat rather than the public room. Compare the two distinct-sender counts when it reveals something, but keep them distinct from the message counts. Someone who used both channels is counted in both sender totals, so the two overlap: never add them together or treat their sum as the number of posters.
 
 # Instructions
 
@@ -270,13 +270,16 @@ Return:
 - framing (optional): one sentence of context for the comparison.
 - standouts: 1 to 3 mrkdwn lines, each naming one cross-event movement: a metric, its direction over the events (rose, fell, held steady), and the rough size of the change. A chart of posters per event is shown after the first standout, so lead with the participation trend.
 
+# What you can surface
+Each event's row carries every metric we store for that event, not a fixed list. Surface whichever ones actually moved or stand out across the events, and lead with the participation trend. A null value means that event lacks that metric, so do not read it as zero.
+
 # Two trust tiers (state them differently)
-- Exact, stated plainly: poster count, message count, public/private split, spike count, bot invocations. These are counted from our own records.
-- Estimate, always caveated as a possible undercount: lurker count, participation rate, dwell time. These come from web analytics that miss people who block tracking. Never state an estimate without noting it may run low, and never mix it with an exact count in the same claim.
+- Exact, stated plainly: counts from our own records, including poster count, message count, the public/private split, distinct private and public senders, private message count, spike count, bot invocations, and resource counts.
+- Estimate, always caveated as a possible undercount: anything from web analytics, including tracked sessions, active visitors, lurker count, participation rate, dwell time, and the feature-usage action breakdowns (commands, tabs, transcript). These miss people who block tracking. Never state an estimate without noting it may run low, and never mix it with an exact count in the same claim.
 
 # Hard rules
 - Use only the numbers given. Do not invent events, values, or reasons for a change.
-- An event with a null estimate (lurkers, rate, dwell) simply lacks that data; do not read null as zero.
+- A null metric on an event simply means that event lacks it; do not read null as zero.
 - If a metric did not move meaningfully, say it held steady rather than inventing a trend.
 - Keep each standout to one sentence. No headers or bullets inside a standout.`
 

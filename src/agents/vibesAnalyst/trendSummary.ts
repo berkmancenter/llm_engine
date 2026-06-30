@@ -1,11 +1,12 @@
 import { z } from 'zod'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { CuratedVibesData, CuratedVibesStandout, CuratedVibesVisual } from '../../types/index.types.js'
+import eventDateLabel from '../../utils/eventDateLabel.js'
 import { VIBES_TREND_SYSTEM_PROMPT, VIBES_TREND_USER_TEMPLATE } from './prompt.js'
 
-/* The slice of a stored snapshot a trend reads. A snapshot document carries more, but the
-   comparison only needs these scalar counts; quote text is never stored, so a trend is
-   quote-free by construction. */
+/* The fields the trend chart and label need off a stored snapshot. trendRow reads every other
+   metric generically, so a snapshot carrying more (any metric we store) reaches the writer
+   without a change here; quote text is never stored, so a trend is quote-free by construction. */
 export interface TrendSnapshotView {
   eventName?: string | null
   eventEndTime?: Date
@@ -20,27 +21,13 @@ export interface TrendSnapshotView {
   channelSplit?: { public: number; private: number } | null
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-/* A short label for one event on the trend axis: its name plus a UTC date, so events in a
-   recurring series (which share a name) stay distinguishable. Falls back to the date alone, or
-   a placeholder, when a name or date is missing. The date is the UTC calendar day, so it is
-   deterministic but can read a day off for a viewer in a far timezone, the same tradeoff the
-   single-event history labels make. */
-function trendLabel(name: string | null | undefined, endTime: Date | undefined): string {
-  const date = endTime ? `${MONTHS[endTime.getUTCMonth()]} ${endTime.getUTCDate()}` : ''
-  const trimmedName = name?.trim()
-  if (trimmedName && date) return `${trimmedName} (${date})`
-  return trimmedName || date || 'Event'
-}
-
 /* Builds the one chart a trend card carries: poster count per event, in the given order.
    Poster count is exact and present for every event, so it is the cleanest cross-event
    engagement signal and never needs null handling. The estimate metrics (lurkers, rate,
    dwell) can be null per event, so they are left to the prose, which can caveat them. */
 export function buildTrendChart(snapshots: TrendSnapshotView[]): CuratedVibesVisual {
   const data = snapshots.map((snapshot) => ({
-    label: trendLabel(snapshot.eventName, snapshot.eventEndTime),
+    label: eventDateLabel(snapshot.eventName, snapshot.eventEndTime, 'Event'),
     value: snapshot.posterCount
   }))
   return {
@@ -53,19 +40,37 @@ export function buildTrendChart(snapshots: TrendSnapshotView[]): CuratedVibesVis
   }
 }
 
-/* The compact per-event row handed to the writer: the label plus the scalar counts, with the
-   internal ids and document machinery dropped. */
-function trendRow(snapshot: TrendSnapshotView) {
-  return {
-    event: trendLabel(snapshot.eventName, snapshot.eventEndTime),
-    posterCount: snapshot.posterCount,
-    messageCount: snapshot.messageCount,
-    lurkerCount: snapshot.lurkerCount,
-    participationRate: snapshot.participationRate,
-    avgDwellSeconds: snapshot.avgDwellSeconds,
-    spikeCount: snapshot.spikeCount,
-    channelSplit: snapshot.channelSplit ?? { public: 0, private: 0 }
+/* Snapshot fields that identify or version a document rather than describe the event. They are
+   the only fields dropped from the per-event row; everything else is a metric and passes through,
+   so a newly snapshotted metric reaches the trend writer without a change here. */
+const TREND_ROW_OMIT = new Set([
+  '_id',
+  '__v',
+  'id',
+  'conversationId',
+  'topicId',
+  'metricsVersion',
+  'capturedAt',
+  'createdAt',
+  'updatedAt',
+  'eventName',
+  'eventEndTime'
+])
+
+/* The per-event row handed to the writer: a readable event label plus every metric the snapshot
+   carries, with the identifying and versioning fields stripped. There is no allowlist of metrics,
+   so anything we store reaches the comparison. Reads a Mongoose document (via toObject) or a plain
+   object alike. */
+export function trendRow(snapshot: TrendSnapshotView): Record<string, unknown> {
+  const source = snapshot as unknown as { toObject?: () => Record<string, unknown> } & Record<string, unknown>
+  const plain = typeof source.toObject === 'function' ? source.toObject() : { ...source }
+  const row: Record<string, unknown> = {
+    event: eventDateLabel(plain.eventName as string | null | undefined, plain.eventEndTime as Date | undefined, 'Event')
   }
+  for (const [key, value] of Object.entries(plain)) {
+    if (!TREND_ROW_OMIT.has(key)) row[key] = value
+  }
+  return row
 }
 
 const TrendCurationSchema = z.object({
