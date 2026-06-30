@@ -169,10 +169,16 @@ export async function backfillEventMetricsSnapshots({
     events: []
   }
 
+  // Loaded read-only with .lean(): the backfill only ever reads these conversations (its sole
+  // write target is the snapshot collection), and a lean plain object has no .save(), so it
+  // cannot accidentally persist a change back onto historical data. The downstream code reads
+  // scalar fields only, so plain objects are enough.
   const conversations = await Conversation.find({
     endTime: endTimeFilter,
     experimental: { $ne: true }
-  }).sort({ endTime: 1 })
+  })
+    .sort({ endTime: 1 })
+    .lean()
 
   for (const conversation of conversations) {
     summary.scanned += 1

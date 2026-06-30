@@ -46,7 +46,7 @@ export function buildSnapshotPayload(
     frequentPosterMessageShare: metrics.participation.frequentPosterMessageShare,
 
     trackedSessionStatus: metrics.trackedSessionStatus,
-    trackedSessions: primaryTracked?.trackedSessions ?? 0,
+    trackedSessions: primaryTracked ? primaryTracked.trackedSessions : null,
     participantCount: engagement ? engagement.participantCount : null,
     lurkerCount: engagement ? engagement.lurkerCount : null,
     participationRate: engagement ? engagement.participationRate : null,
@@ -55,7 +55,7 @@ export function buildSnapshotPayload(
     totalActions: primaryTracked ? primaryTracked.totalActions : null,
     actionBreakdown: primaryTracked ? primaryTracked.actionBreakdown : {},
     actionUserBreakdown: primaryTracked ? primaryTracked.actionUserBreakdown : {},
-    activeVisitorCount: primaryTracked ? primaryTracked.activeVisitorCount : 0,
+    activeVisitorCount: primaryTracked ? primaryTracked.activeVisitorCount : null,
 
     channelSplit: { public: metrics.channelSplit.public, private: metrics.channelSplit.private },
     privateMessageCount: metrics.privateMessaging.privateMessageCount,
