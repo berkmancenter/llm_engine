@@ -725,10 +725,12 @@ export interface ConversationMetrics {
 /* Private (one-to-one with the bot) messaging, all exact and first-party. privateMessageCount
    is the same private count as channelSplit.private. distinctPrivateSenders and
    distinctPublicSenders are how many different people sent at least one message in each
-   channel kind, grouped per person the same way participation is. avgPrivateMessagesPerPoster
-   is privateMessageCount over the total distinct posters (posterCount), derived at read time
-   and 0 when no one posted, so the read layer can compare the two sender counts (e.g. how much
-   more likely a poster was to message privately than publicly) without storing a ratio. */
+   channel kind, grouped per person the same way participation is. A person who used both
+   channels is counted in both, so the two sender totals overlap: they are not additive and
+   their sum can exceed posterCount. avgPrivateMessagesPerPoster is privateMessageCount over the
+   total distinct posters (posterCount), derived at read time and 0 when no one posted, so the
+   read layer can compare the two sender counts (e.g. how much more likely a poster was to
+   message privately than publicly) without storing a ratio. */
 export interface PrivateMessaging {
   privateMessageCount: number
   distinctPrivateSenders: number
@@ -787,7 +789,7 @@ export interface EventMetricsSnapshotData {
   // Audience engagement (estimate, as of capturedAt). Null fields mean no tracked-session
   // data, or a count that could not be reconciled against the poster count.
   trackedSessionStatus: TrackedSessionStatus
-  trackedSessions: number
+  trackedSessions: number | null
   participantCount: number | null
   lurkerCount: number | null
   participationRate: number | null
@@ -796,10 +798,11 @@ export interface EventMetricsSnapshotData {
   totalActions: number | null
   // Feature usage (estimate, as of capturedAt): allowlisted page actions off the primary
   // tracked source. Occurrence counts, distinct-visitor counts, and the active-visitor
-  // denominator. Empty maps / zero when no tracked source carried action data.
+  // denominator. Empty maps when no tracked source carried action data, where activeVisitorCount
+  // is null like the other estimate fields.
   actionBreakdown: Record<string, number>
   actionUserBreakdown: Record<string, number>
-  activeVisitorCount: number
+  activeVisitorCount: number | null
   // Channel split (exact): people's messages, public chat vs private one-to-one with the bot.
   channelSplit: { public: number; private: number }
   // Private messaging (exact): the private message count and distinct senders per channel

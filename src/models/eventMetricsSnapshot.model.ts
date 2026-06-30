@@ -72,7 +72,7 @@ const eventMetricsSnapshotSchema = new mongoose.Schema(
       enum: ['available', 'notTracked', 'unavailable'],
       default: 'notTracked'
     },
-    trackedSessions: { type: Number, default: 0 },
+    trackedSessions: { type: Number, default: null },
     participantCount: { type: Number, default: null },
     lurkerCount: { type: Number, default: null },
     participationRate: { type: Number, default: null },
@@ -82,8 +82,9 @@ const eventMetricsSnapshotSchema = new mongoose.Schema(
 
     // Feature usage (estimate, as of capturedAt): allowlisted page actions off the primary
     // tracked source. actionBreakdown is occurrence counts, actionUserBreakdown is distinct
-    // visitors per action; activeVisitorCount is the distinct-active-visitor denominator. Mixed
-    // for the same reason as deviceBreakdown: the key set varies and we store counts only.
+    // visitors per action; activeVisitorCount is the distinct-active-visitor denominator, null
+    // when no source was tracked, like the other estimate fields. Mixed for the same reason as
+    // deviceBreakdown: the key set varies and we store counts only.
     actionBreakdown: {
       type: mongoose.SchemaTypes.Mixed,
       default: {}
@@ -92,7 +93,7 @@ const eventMetricsSnapshotSchema = new mongoose.Schema(
       type: mongoose.SchemaTypes.Mixed,
       default: {}
     },
-    activeVisitorCount: { type: Number, default: 0 },
+    activeVisitorCount: { type: Number, default: null },
 
     // Channel split (exact): people's messages, public chat vs private one-to-one with the bot.
     channelSplit: {

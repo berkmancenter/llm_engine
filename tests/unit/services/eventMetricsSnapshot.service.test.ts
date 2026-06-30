@@ -157,12 +157,13 @@ describe('eventMetricsSnapshot.service', () => {
       expect(payload.postersExceedTrackedSessions).toBeNull()
       expect(payload.avgDwellSeconds).toBeNull()
       expect(payload.totalActions).toBeNull()
-      expect(payload.trackedSessions).toBe(0)
-      // With no tracked source there is no action data, so the breakdowns are empty and the
-      // active-visitor denominator is zero rather than null.
+      // No tracked source means the session count and active-visitor denominator are absent, not
+      // measured at zero, so both are null like the other estimate fields above. The action
+      // breakdowns are empty maps.
+      expect(payload.trackedSessions).toBeNull()
       expect(payload.actionBreakdown).toEqual({})
       expect(payload.actionUserBreakdown).toEqual({})
-      expect(payload.activeVisitorCount).toBe(0)
+      expect(payload.activeVisitorCount).toBeNull()
     })
 
     it('honours a reception-count override so a scalar-only recompute can record null', () => {

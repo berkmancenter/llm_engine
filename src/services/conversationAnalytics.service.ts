@@ -3,6 +3,7 @@ import Channel from '../models/channel.model.js'
 import ConversationAnalytics from '../models/conversationAnalytics.model.js'
 import EventMetricsSnapshot from '../models/eventMetricsSnapshot.model.js'
 import { matchBotMention } from '../agents/helpers/intentChecks.js'
+import eventDateLabel from '../utils/eventDateLabel.js'
 import config from '../config/config.js'
 import {
   ActivityBucket,
@@ -493,22 +494,6 @@ function computeAudienceEngagement(posterCount: number, sources: TrackedSessionM
   }
 }
 
-/* Month abbreviations for a compact event date label, indexed by getUTCMonth(). */
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-/* A history point's label: the event's own name plus a short date, e.g. "Future of Work
-   (Jun 3)". A topic's events often share a name (a recurring series), so the date sets
-   most of them apart and reads better than an opaque "E1". Two same-named events on the
-   same day still share a label, which is rare enough to accept. Falls back to the date
-   alone when an event has no name. The date is the UTC calendar day, so it is
-   deterministic but can read a day off for a viewer in a far timezone. */
-function eventHistoryLabel(name: string | undefined, endTime: Date | undefined): string {
-  const date = endTime ? `${MONTHS[endTime.getUTCMonth()]} ${endTime.getUTCDate()}` : ''
-  const trimmedName = name?.trim()
-  if (trimmedName && date) return `${trimmedName} (${date})`
-  return trimmedName || date || 'Past event'
-}
-
 /* Looks at up to the 10 most recent past events in the same topic and builds two
    things: a chart-ready history (each past event labeled by its name and date, this
    event labeled "Today") and a baseline
@@ -573,7 +558,7 @@ async function computeHistoryAndBaseline(
     }
 
     participationHistory.push({
-      label: eventHistoryLabel(snapshot.eventName ?? undefined, snapshot.eventEndTime),
+      label: eventDateLabel(snapshot.eventName, snapshot.eventEndTime, 'Past event'),
       posterCount,
       lurkerCount
     })
