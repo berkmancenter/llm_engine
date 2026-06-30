@@ -420,7 +420,8 @@ export const agentResponseToMessageData = (response, agent) => ({
   /* Pass the neutral render instruction through so the Slack adapter can
      render it into blocks at send time. */
   ...(response.responseKind !== undefined && { responseKind: response.responseKind }),
-  ...(response.renderData !== undefined && { renderData: response.renderData })
+  ...(response.renderData !== undefined && { renderData: response.renderData }),
+  source: { type: 'agent', ...(response.proactive === true && { proactive: true }) }
 })
 
 const messageService = {
