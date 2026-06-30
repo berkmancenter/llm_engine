@@ -21,7 +21,11 @@ function sampleMetrics(): ConversationMetrics {
         attendeeCount: 80,
         avgDwellSeconds: 420,
         totalActions: 950,
-        deviceBreakdown: { desktop: 60, mobile: 30 }
+        deviceBreakdown: { desktop: 60, mobile: 30 },
+        actionBreakdown: { 'command:visual': 12, 'tab:chat': 8 },
+        actionUserBreakdown: { 'command:visual': 5, 'tab:chat': 4 },
+        activeVisitorCount: 40,
+        actionBreakdownPerActiveVisitor: { 'command:visual': 0.3, 'tab:chat': 0.2 }
       }
     ],
     trackedSessionStatus: 'available',
@@ -56,6 +60,12 @@ function sampleMetrics(): ConversationMetrics {
     participationHistory: [{ label: 'Today', posterCount: 12, lurkerCount: 68 }],
     baseline: null,
     channelSplit: { public: 130, private: 10 },
+    privateMessaging: {
+      privateMessageCount: 10,
+      distinctPrivateSenders: 3,
+      distinctPublicSenders: 11,
+      avgPrivateMessagesPerPoster: 10 / 12
+    },
     botInvocations: { botName: 'Berkie', count: 7 },
     receptions: [
       {
@@ -111,6 +121,18 @@ describe('eventMetricsSnapshot.service', () => {
       expect(payload.totalActions).toBe(950)
 
       expect(payload.channelSplit).toEqual({ public: 130, private: 10 })
+
+      // Bucket 1: action breakdowns and the active-visitor denominator come off the primary
+      // tracked source so feature usage can be trended.
+      expect(payload.actionBreakdown).toEqual({ 'command:visual': 12, 'tab:chat': 8 })
+      expect(payload.actionUserBreakdown).toEqual({ 'command:visual': 5, 'tab:chat': 4 })
+      expect(payload.activeVisitorCount).toBe(40)
+
+      // Bucket 2: distinct private/public senders snapshot the share-of-posters signal.
+      expect(payload.privateMessageCount).toBe(10)
+      expect(payload.distinctPrivateSenders).toBe(3)
+      expect(payload.distinctPublicSenders).toBe(11)
+
       expect(payload.botInvocationCount).toBe(7)
       expect(payload.resourceSummary).toEqual({ total: 4, required: 2, referenced: 1, suggested: 1, withLinks: 3 })
 
@@ -136,6 +158,11 @@ describe('eventMetricsSnapshot.service', () => {
       expect(payload.avgDwellSeconds).toBeNull()
       expect(payload.totalActions).toBeNull()
       expect(payload.trackedSessions).toBe(0)
+      // With no tracked source there is no action data, so the breakdowns are empty and the
+      // active-visitor denominator is zero rather than null.
+      expect(payload.actionBreakdown).toEqual({})
+      expect(payload.actionUserBreakdown).toEqual({})
+      expect(payload.activeVisitorCount).toBe(0)
     })
 
     it('honours a reception-count override so a scalar-only recompute can record null', () => {

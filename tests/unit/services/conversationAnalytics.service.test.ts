@@ -157,6 +157,39 @@ describe('computeConversationMetrics', () => {
     expect(matomo.avgDwellSeconds).toBe(300) // 30000 / 100
     expect(matomo.deviceBreakdown).toMatchObject({ desktop: 70, mobile: 30 })
     expect(matomo.source).toBe('matomo')
+    // An older snapshot stored before action tracking existed has no breakdown or
+    // activeVisitorCount, so they coerce to empty/zero and the averages stay empty.
+    expect(matomo.actionBreakdown).toEqual({})
+    expect(matomo.actionUserBreakdown).toEqual({})
+    expect(matomo.activeVisitorCount).toBe(0)
+    expect(matomo.actionBreakdownPerActiveVisitor).toEqual({})
+  })
+
+  it('derives per-active-visitor action averages from the stored action breakdown', async () => {
+    const conversation = await makeConversation()
+    await seedParticipation(conversation._id)
+    await ConversationAnalytics.create({
+      conversationId: conversation._id,
+      attendeeCount: 40,
+      totalVisits: 100,
+      totalActions: 800,
+      totalDwellSeconds: 30000,
+      deviceBreakdown: { desktop: 70, mobile: 30 },
+      actionBreakdown: { 'command:visual': 20, 'tab:chat': 10 },
+      actionUserBreakdown: { 'command:visual': 4, 'tab:chat': 3 },
+      activeVisitorCount: 5,
+      source: 'matomo',
+      capturedAt: new Date('2026-06-12T00:00:00.000Z')
+    })
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+    const [matomo] = metrics.trackedSessionSources
+
+    expect(matomo.actionBreakdown).toEqual({ 'command:visual': 20, 'tab:chat': 10 })
+    expect(matomo.actionUserBreakdown).toEqual({ 'command:visual': 4, 'tab:chat': 3 })
+    expect(matomo.activeVisitorCount).toBe(5)
+    // Averages are per active visitor (the Bucket-1 denominator), computed at read time.
+    expect(matomo.actionBreakdownPerActiveVisitor).toEqual({ 'command:visual': 4, 'tab:chat': 2 })
   })
 
   it('returns participation and no tracked sessions when no source is referenced or stored', async () => {
@@ -920,6 +953,37 @@ describe('computeConversationMetrics channel split', () => {
     const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
 
     expect(metrics.channelSplit).toEqual({ public: 3, private: 2 })
+    // ana sent both private messages; bo and cy posted publicly. posterCount is 3.
+    expect(metrics.privateMessaging).toEqual({
+      privateMessageCount: 2,
+      distinctPrivateSenders: 1,
+      distinctPublicSenders: 2,
+      avgPrivateMessagesPerPoster: 2 / 3
+    })
+  })
+
+  it('reports zero distinct private senders and a zero average when no private messages were sent', async () => {
+    const conversation = await makeConversation()
+    await Message.create([
+      {
+        body: 'hi',
+        conversation: conversation._id,
+        owner: ownerFor('ana'),
+        pseudonymId: ownerId,
+        pseudonym: 'ana',
+        fromAgent: false,
+        channels: ['main']
+      }
+    ])
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+
+    expect(metrics.privateMessaging).toEqual({
+      privateMessageCount: 0,
+      distinctPrivateSenders: 0,
+      distinctPublicSenders: 1,
+      avgPrivateMessagesPerPoster: 0
+    })
   })
 })
 

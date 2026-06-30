@@ -144,6 +144,24 @@ export function buildChartCandidates(metrics: ConversationMetrics): Record<strin
     }
   }
 
+  if (firstSource && Object.keys(firstSource.actionBreakdown).length > 0) {
+    candidates.featureUsage = {
+      description:
+        'How many times tracked visitors used each on-page feature (commands, tabs, transcript); counts only, can undercount',
+      title: 'Feature usage (tracked sessions)',
+      chart: {
+        type: 'bar',
+        series: [
+          {
+            name: 'Actions',
+            data: Object.entries(firstSource.actionBreakdown).map(([label, value]) => ({ label, value }))
+          }
+        ],
+        axisConfig: { categories: Object.keys(firstSource.actionBreakdown), yLabel: 'Actions' }
+      }
+    }
+  }
+
   return candidates
 }
 

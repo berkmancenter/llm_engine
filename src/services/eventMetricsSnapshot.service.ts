@@ -53,8 +53,14 @@ export function buildSnapshotPayload(
     postersExceedTrackedSessions: engagement ? engagement.postersExceedTrackedSessions : null,
     avgDwellSeconds: primaryTracked ? primaryTracked.avgDwellSeconds : null,
     totalActions: primaryTracked ? primaryTracked.totalActions : null,
+    actionBreakdown: primaryTracked ? primaryTracked.actionBreakdown : {},
+    actionUserBreakdown: primaryTracked ? primaryTracked.actionUserBreakdown : {},
+    activeVisitorCount: primaryTracked ? primaryTracked.activeVisitorCount : 0,
 
     channelSplit: { public: metrics.channelSplit.public, private: metrics.channelSplit.private },
+    privateMessageCount: metrics.privateMessaging.privateMessageCount,
+    distinctPrivateSenders: metrics.privateMessaging.distinctPrivateSenders,
+    distinctPublicSenders: metrics.privateMessaging.distinctPublicSenders,
     botInvocationCount: metrics.botInvocations.count,
     resourceSummary: {
       total: metrics.resourceSummary.total,

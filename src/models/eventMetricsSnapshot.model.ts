@@ -80,11 +80,31 @@ const eventMetricsSnapshotSchema = new mongoose.Schema(
     avgDwellSeconds: { type: Number, default: null },
     totalActions: { type: Number, default: null },
 
+    // Feature usage (estimate, as of capturedAt): allowlisted page actions off the primary
+    // tracked source. actionBreakdown is occurrence counts, actionUserBreakdown is distinct
+    // visitors per action; activeVisitorCount is the distinct-active-visitor denominator. Mixed
+    // for the same reason as deviceBreakdown: the key set varies and we store counts only.
+    actionBreakdown: {
+      type: mongoose.SchemaTypes.Mixed,
+      default: {}
+    },
+    actionUserBreakdown: {
+      type: mongoose.SchemaTypes.Mixed,
+      default: {}
+    },
+    activeVisitorCount: { type: Number, default: 0 },
+
     // Channel split (exact): people's messages, public chat vs private one-to-one with the bot.
     channelSplit: {
       public: { type: Number, default: 0 },
       private: { type: Number, default: 0 }
     },
+
+    // Private messaging (exact): the private message count plus distinct senders in each
+    // channel kind, so the share-of-posters comparison can be trended over time.
+    privateMessageCount: { type: Number, default: 0 },
+    distinctPrivateSenders: { type: Number, default: 0 },
+    distinctPublicSenders: { type: Number, default: 0 },
 
     // Bot invocations (exact): how many times participants called on the assistant by name.
     botInvocationCount: { type: Number, default: 0 },

@@ -27,6 +27,10 @@ Relate the two when it reveals something, but never blend them into one number. 
 
 The event may also have an AI assistant participants can summon by name. metrics.botInvocations gives that assistant's configured name and the exact number of times participants called on it. Treat the count as precise, and surface it when the number stands out (the assistant was leaned on heavily, or barely used).
 
+Feature usage is a tracked-session estimate. Each tracked source carries actionBreakdown (how many times an allowlisted on-page feature fired: assistant commands like command:visual, tab switches like tab:chat, transcript open/close/scroll, backchannel:message), actionUserBreakdown (how many distinct visitors did each), activeVisitorCount (distinct visitors who did anything), and actionBreakdownPerActiveVisitor (the per-active-visitor average). These are web-analytics estimates, so caveat them as a possible undercount, the same as visits. A tab:X count means someone switched TO that tab, so it misses whoever lands on a tab and never leaves it (the default tab undercounts); do not read tab:X as everyone who viewed tab X. Surface feature usage only when it stands out, for example one command dominating or a feature barely touched.
+
+Private messaging is exact and first-party. metrics.privateMessaging gives privateMessageCount (private one-to-one-with-the-bot messages), distinctPrivateSenders and distinctPublicSenders (how many different people used each channel), and avgPrivateMessagesPerPoster. Treat these as precise, with no undercount caveat. They let you compare how the room split between public and private, for example many people leaning on private one-to-one chat rather than the public room. Compare the two distinct-sender counts when it reveals something, but keep them distinct from the message counts.
+
 # Instructions
 
 Finding what matters
@@ -111,7 +115,8 @@ You are given the event's computed numbers as a JSON object and a numbered list 
 - It states a number that is neither present in the JSON data nor correctly derived from it.
 - It describes a direction or trend (up, down, higher, lower) that the JSON data does not show.
 - It overstates the size of a change beyond what the numbers show.
-- It cites a tracked-session figure (visits, dwell time, devices) without an inline caveat that the figure may undercount.
+- It cites a tracked-session figure (visits, dwell time, devices, or feature usage from actionBreakdown / actionUserBreakdown / activeVisitorCount) without an inline caveat that the figure may undercount.
+- It treats a tab-switch feature count (a tab:X key) as everyone who viewed that tab, rather than those who switched to it.
 - It puts text in quotation marks that does not appear, word for word, as a quote inside one of the spikes (its annotation) or one of the receptions (sparkQuote or reactionQuote) in the JSON data.
 - It describes how the audience received a speaker's point (agreement, pushback, applause, praise, and so on) without a reception in the JSON data whose sentiment matches that description.
 
@@ -129,7 +134,7 @@ Each standout opens with a short plain-language takeaway in bold, for example "*
 Each spike in the JSON carries a source: "chat", "moderator", or "private". Treat a line that characterizes a spike by its source as SUPPORTED when it matches the source, even though the source is a label and not a number: calling a "private"-source spike a burst of private or one-to-one messages with the bot, or a "moderator"-source spike backchannel activity. A "private" spike has no readable content, so mark a line about it UNSUPPORTED if it quotes those messages or states what they said.
 
 # Readings and platform
-metrics.resourceSummary (total, required, referenced, suggested, withLinks) and metrics.eventPlatform are exact, first-party values. Treat a line that cites them as SUPPORTED when the number or platform matches the JSON, with no undercount caveat needed. The data shows only how many readings and links existed, never whether anyone opened them, so mark a line UNSUPPORTED if it claims a reading was read or a link was clicked.
+metrics.resourceSummary (total, required, referenced, suggested, withLinks), metrics.eventPlatform, and metrics.privateMessaging (privateMessageCount, distinctPrivateSenders, distinctPublicSenders, avgPrivateMessagesPerPoster) are exact, first-party values. Treat a line that cites them as SUPPORTED when the number or platform matches the JSON, with no undercount caveat needed. The data shows only how many readings and links existed, never whether anyone opened them, so mark a line UNSUPPORTED if it claims a reading was read or a link was clicked.
 
 # The posters-exceed-tracked-sessions case
 When audienceEngagement.postersExceedTrackedSessions is true in the JSON data, more people posted than were recorded as tracked sessions, and audienceEngagement.lurkerCount and audienceEngagement.participationRate are null. For lines about this mismatch, treat the following as SUPPORTED:

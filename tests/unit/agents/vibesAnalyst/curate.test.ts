@@ -1,5 +1,24 @@
 import { buildChartCandidates } from '../../../../src/agents/vibesAnalyst/curate.js'
-import { ConversationMetrics, CuratedVibesChart } from '../../../../src/types/index.types.js'
+import { ConversationMetrics, CuratedVibesChart, TrackedSessionMetrics } from '../../../../src/types/index.types.js'
+
+/* A tracked-session source with the given breakdown maps, so a test can opt into the
+   device and feature-usage charts that only appear when a source carries data. */
+function trackedSource(overrides: Partial<TrackedSessionMetrics> = {}): TrackedSessionMetrics {
+  return {
+    source: 'matomo',
+    capturedAt: new Date('2026-06-10T18:05:00.000Z'),
+    trackedSessions: 90,
+    attendeeCount: 80,
+    avgDwellSeconds: 420,
+    totalActions: 950,
+    deviceBreakdown: {},
+    actionBreakdown: {},
+    actionUserBreakdown: {},
+    activeVisitorCount: 0,
+    actionBreakdownPerActiveVisitor: {},
+    ...overrides
+  }
+}
 
 /* Metrics rich enough to build the trend and baseline charts (a two-point history and
    a baseline). audienceEngagement defaults to null (no tracked-session data), so a test
@@ -21,6 +40,12 @@ function metricsFixture(overrides: Partial<ConversationMetrics> = {}): Conversat
     ],
     baseline: { eventCount: 3, trackedEventCount: 0, avgPosterCount: 18, avgLurkerCount: null, avgDwellSeconds: null },
     channelSplit: { public: 30, private: 20 },
+    privateMessaging: {
+      privateMessageCount: 20,
+      distinctPrivateSenders: 6,
+      distinctPublicSenders: 18,
+      avgPrivateMessagesPerPoster: 1
+    },
     botInvocations: { botName: 'Berkie', count: 0 },
     receptions: [],
     resourceSummary: { total: 0, required: 0, referenced: 0, suggested: 0, withLinks: 0 },
@@ -103,5 +128,26 @@ describe('buildChartCandidates', () => {
       })
     )
     expect(seriesCount(someUntracked.engagementHistory)).toBe(1)
+  })
+
+  it('offers a feature-usage bar chart only when the first source has a non-empty action breakdown', () => {
+    expect(buildChartCandidates(metricsFixture()).featureUsage).toBeUndefined()
+    expect(buildChartCandidates(metricsFixture({ trackedSessionSources: [trackedSource()] })).featureUsage).toBeUndefined()
+
+    const candidates = buildChartCandidates(
+      metricsFixture({
+        trackedSessionSources: [trackedSource({ actionBreakdown: { 'command:visual': 20, 'tab:chat': 10 } })]
+      })
+    )
+
+    expect(candidates.featureUsage).toBeDefined()
+    const { chart } = candidates.featureUsage!
+    expect(chart.type).toBe('bar')
+    if (chart.type === 'bar') {
+      expect(chart.series[0].data).toEqual([
+        { label: 'command:visual', value: 20 },
+        { label: 'tab:chat', value: 10 }
+      ])
+    }
   })
 })

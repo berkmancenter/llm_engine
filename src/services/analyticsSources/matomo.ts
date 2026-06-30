@@ -98,13 +98,54 @@ async function callMatomoWithRetry(method: string, params: Record<string, string
   return result
 }
 
+/* One entry from a Matomo visit's actionDetails. Matomo's event-type actions carry a
+   type of 'event' plus an eventCategory/eventAction/eventName triple; other action kinds
+   (page views, downloads) leave those undefined. Read defensively, since a real response
+   can omit any of them. */
+interface MatomoActionDetail {
+  type?: string
+  eventCategory?: string
+  eventAction?: string
+  eventName?: string
+}
+
+/* Translates one Matomo action into a source-neutral breakdown key, or null when the
+   action is not one we count. Only event-type actions on an allowlisted category map; every
+   other action (page views, unknown categories, missing fields) returns null and is dropped.
+   The backchannel key deliberately omits eventName, which can carry the message text. Pure,
+   so the mapping is unit-testable on its own. */
+export function mapMatomoActionKey(action: MatomoActionDetail | null | undefined): string | null {
+  if (!action || action.type !== 'event') return null
+  const { eventCategory: category, eventAction, eventName: name } = action
+
+  if (category === 'assistant' && eventAction === 'command_sent') {
+    return name ? `command:${name}` : null
+  }
+  if (category === 'assistant' && eventAction === 'tab_switched') {
+    return name ? `tab:${name}` : null
+  }
+  if (category === 'feature' && (eventAction === 'open' || eventAction === 'close') && name === 'transcript') {
+    return `transcript:${eventAction}`
+  }
+  if (category === 'transcript' && typeof eventAction === 'string' && eventAction.startsWith('scroll')) {
+    return 'transcript:scroll'
+  }
+  if (category === 'backchannel' && (eventAction === 'quick_response_sent' || eventAction === 'custom_message_sent')) {
+    return 'backchannel:message'
+  }
+  return null
+}
+
 /* The windowed counts derived from one pass over Matomo's per-visit live log. */
 interface WindowedCounts {
   dwellSeconds: number
   visitCount: number
   visitorCount: number
   actionCount: number
+  activeVisitorCount: number
   deviceBreakdown: Record<string, number>
+  actionBreakdown: Record<string, number>
+  actionUserBreakdown: Record<string, number>
 }
 
 /* Derives every event-windowed count from the per-visit live log in a single pass, so
@@ -126,6 +167,16 @@ interface WindowedCounts {
    - actionCount adds only the visit's actionDetails entries whose own timestamp falls
      inside the window, dropping actions that happened before the event opened or after it
      closed even when the surrounding session overlaps.
+   - actionBreakdown runs each in-window action through mapMatomoActionKey and tallies the
+     allowlisted ones by occurrence (e.g. command:visual, tab:chat). Unmapped actions still
+     count toward actionCount but not the breakdown, so the breakdown sums to at most
+     actionCount.
+   - actionUserBreakdown tallies the same keys by distinct visitor: one visitor firing a key
+     ten times adds one, so the read layer can report what share of visitors did it, which
+     the occurrence total alone cannot show.
+   - activeVisitorCount is the distinct visitorId set among visits that took at least one
+     in-window action, so it is the denominator for per-active-visitor action averages. It is
+     at most visitorCount, since a visit can overlap the window without acting inside it.
    - deviceBreakdown tallies the visit's deviceType (e.g. "Desktop", "Smartphone") by visit,
      so the device counts sum to visitCount and reconcile with the other windowed totals. A
      visit with a missing or empty deviceType is bucketed under "Unknown" rather than dropped,
@@ -142,10 +193,23 @@ function windowedCountsFrom(visits: unknown, startTime: Date, endTime: Date): Wi
   let visitCount = 0
   let actionCount = 0
   const visitorIds = new Set<string>()
+  const activeVisitorIds = new Set<string>()
   const deviceBreakdown: Record<string, number> = {}
+  const actionBreakdown: Record<string, number> = {}
+  // One visitor set per action key, collapsed to sizes (the distinct-visitor breakdown) below.
+  const visitorsByActionKey = new Map<string, Set<string>>()
 
   if (!Array.isArray(visits)) {
-    return { dwellSeconds, visitCount, visitorCount: 0, actionCount, deviceBreakdown }
+    return {
+      dwellSeconds,
+      visitCount,
+      visitorCount: 0,
+      actionCount,
+      activeVisitorCount: 0,
+      deviceBreakdown,
+      actionBreakdown,
+      actionUserBreakdown: {}
+    }
   }
 
   for (const visit of visits) {
@@ -158,7 +222,8 @@ function windowedCountsFrom(visits: unknown, startTime: Date, endTime: Date): Wi
     if (!sessionStartsInWindow || !sessionEndsInWindow) continue
 
     visitCount += 1
-    if (visit?.visitorId) visitorIds.add(String(visit.visitorId))
+    const visitorId = visit?.visitorId ? String(visit.visitorId) : undefined
+    if (visitorId) visitorIds.add(visitorId)
 
     const deviceType = visit?.deviceType ? String(visit.deviceType) : 'Unknown'
     deviceBreakdown[deviceType] = (deviceBreakdown[deviceType] ?? 0) + 1
@@ -170,12 +235,34 @@ function windowedCountsFrom(visits: unknown, startTime: Date, endTime: Date): Wi
       for (const action of visit.actionDetails) {
         const actionSeconds = Number(action?.timestamp ?? 0)
         if (!actionSeconds) continue
-        if (actionSeconds >= windowStartSeconds && actionSeconds <= windowEndSeconds) actionCount += 1
+        if (actionSeconds < windowStartSeconds || actionSeconds > windowEndSeconds) continue
+        actionCount += 1
+        if (visitorId) activeVisitorIds.add(visitorId)
+        const key = mapMatomoActionKey(action)
+        if (!key) continue
+        actionBreakdown[key] = (actionBreakdown[key] ?? 0) + 1
+        if (visitorId) {
+          const visitors = visitorsByActionKey.get(key) ?? new Set<string>()
+          visitors.add(visitorId)
+          visitorsByActionKey.set(key, visitors)
+        }
       }
     }
   }
 
-  return { dwellSeconds, visitCount, visitorCount: visitorIds.size, actionCount, deviceBreakdown }
+  const actionUserBreakdown: Record<string, number> = {}
+  for (const [key, visitors] of visitorsByActionKey) actionUserBreakdown[key] = visitors.size
+
+  return {
+    dwellSeconds,
+    visitCount,
+    visitorCount: visitorIds.size,
+    actionCount,
+    activeVisitorCount: activeVisitorIds.size,
+    deviceBreakdown,
+    actionBreakdown,
+    actionUserBreakdown
+  }
 }
 
 /**
@@ -226,7 +313,10 @@ export async function fetchMatomoSnapshot(conversation): Promise<AnalyticsSnapsh
     totalVisits: counts.visitCount,
     totalActions: counts.actionCount,
     totalDwellSeconds: counts.dwellSeconds,
-    deviceBreakdown: counts.deviceBreakdown
+    deviceBreakdown: counts.deviceBreakdown,
+    actionBreakdown: counts.actionBreakdown,
+    actionUserBreakdown: counts.actionUserBreakdown,
+    activeVisitorCount: counts.activeVisitorCount
   }
 }
 

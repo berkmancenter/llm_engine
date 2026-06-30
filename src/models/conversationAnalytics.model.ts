@@ -39,6 +39,25 @@ const conversationAnalyticsSchema = new mongoose.Schema(
       type: mongoose.SchemaTypes.Mixed,
       default: {}
     },
+    // An allowlisted action-type-to-occurrence-count map (e.g. { 'command:visual', 'tab:chat' }).
+    // Mixed for the same reason as deviceBreakdown: the key set varies and we store counts only.
+    actionBreakdown: {
+      type: mongoose.SchemaTypes.Mixed,
+      default: {}
+    },
+    // The same keys mapped to distinct-visitor counts (how many different people did each
+    // action), so the read layer can report what share of visitors did it, which the
+    // occurrence counts alone cannot show.
+    actionUserBreakdown: {
+      type: mongoose.SchemaTypes.Mixed,
+      default: {}
+    },
+    // Distinct visitors who took at least one in-window action; the denominator for the
+    // per-active-visitor action averages derived at read time.
+    activeVisitorCount: {
+      type: Number,
+      default: 0
+    },
     source: {
       type: String,
       default: 'matomo'

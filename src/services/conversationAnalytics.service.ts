@@ -13,6 +13,7 @@ import {
   EventPlatform,
   ParticipationHistoryPoint,
   ParticipationMetrics,
+  PrivateMessaging,
   ResourceSummary,
   SameTopicBaseline,
   SpikeSource,
@@ -134,12 +135,26 @@ async function computeParticipation(conversationId): Promise<ParticipationMetric
   return { posterCount, frequentPosterCount, frequentPosterMessageShare, messageCount }
 }
 
+/* Averages an action breakdown over the active-visitor count, the Bucket-1 denominator.
+   Returns an empty map when no one was active, so a zero denominator never produces NaN.
+   Mirrors how avgDwellSeconds is derived at read time rather than stored. */
+function perActiveVisitor(breakdown: Record<string, number>, activeVisitorCount: number): Record<string, number> {
+  if (activeVisitorCount <= 0) return {}
+  const averages: Record<string, number> = {}
+  for (const [key, count] of Object.entries(breakdown)) {
+    averages[key] = count / activeVisitorCount
+  }
+  return averages
+}
+
 /* Converts one stored analytics summary (a ConversationAnalytics document: raw
    visit/dwell counts from a provider like Matomo) into the numbers the card shows.
    Averages and rates are computed here and never saved. A summary with zero visits
    yields 0 instead of NaN. */
 function deriveTrackedSessions(snapshot): TrackedSessionMetrics {
   const totalVisits = snapshot.totalVisits ?? 0
+  const actionBreakdown = (snapshot.actionBreakdown as Record<string, number>) ?? {}
+  const activeVisitorCount = snapshot.activeVisitorCount ?? 0
   return {
     source: snapshot.source,
     capturedAt: snapshot.capturedAt,
@@ -147,7 +162,11 @@ function deriveTrackedSessions(snapshot): TrackedSessionMetrics {
     attendeeCount: snapshot.attendeeCount ?? 0,
     avgDwellSeconds: totalVisits > 0 ? (snapshot.totalDwellSeconds ?? 0) / totalVisits : 0,
     totalActions: snapshot.totalActions ?? 0,
-    deviceBreakdown: (snapshot.deviceBreakdown as Record<string, number>) ?? {}
+    deviceBreakdown: (snapshot.deviceBreakdown as Record<string, number>) ?? {},
+    actionBreakdown,
+    actionUserBreakdown: (snapshot.actionUserBreakdown as Record<string, number>) ?? {},
+    activeVisitorCount,
+    actionBreakdownPerActiveVisitor: perActiveVisitor(actionBreakdown, activeVisitorCount)
   }
 }
 
@@ -296,6 +315,49 @@ function computeChannelSplit(
     else publicCount += 1
   }
   return { public: publicCount, private: privateCount }
+}
+
+/* The person a message is attributed to, the same identity participation groups on: the
+   owner (the real account) when present, else the pseudonymId. Stringified so it can key a
+   Set. Returns null for a message with neither, which is dropped from the distinct-sender
+   counts rather than collapsed into one phantom sender. */
+function senderKey(message: { owner?: unknown; pseudonymId?: unknown }): string | null {
+  const id = message.owner ?? message.pseudonymId
+  return id ? String(id) : null
+}
+
+/* Counts private (one-to-one with the bot) messaging from the already-fetched messages. It
+   reuses channelSplit's private count and groups senders the same way participation does, so
+   the distinct-sender counts reconcile with posterCount. avgPrivateMessagesPerPoster divides
+   the private count by the total distinct posters and is 0 when no one posted, mirroring how
+   the other read-time averages avoid a zero denominator. Pure over the fetched messages, the
+   resolved direct-channel names, and the poster count. */
+function computePrivateMessaging(
+  messages: { channels?: string[]; owner?: unknown; pseudonymId?: unknown }[],
+  directNames: Set<string>,
+  posterCount: number
+): PrivateMessaging {
+  let privateMessageCount = 0
+  const privateSenders = new Set<string>()
+  const publicSenders = new Set<string>()
+
+  for (const message of messages) {
+    const isPrivate = (message.channels ?? []).some((name) => directNames.has(name))
+    const sender = senderKey(message)
+    if (isPrivate) {
+      privateMessageCount += 1
+      if (sender) privateSenders.add(sender)
+    } else if (sender) {
+      publicSenders.add(sender)
+    }
+  }
+
+  return {
+    privateMessageCount,
+    distinctPrivateSenders: privateSenders.size,
+    distinctPublicSenders: publicSenders.size,
+    avgPrivateMessagesPerPoster: posterCount > 0 ? privateMessageCount / posterCount : 0
+  }
 }
 
 /* Sorts one message into the channel category a spike is attributed by: a private 1:1 with
@@ -593,12 +655,13 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
     conversation: conversation._id,
     ...visibleHumanFilter
   })
-    .select('createdAt channels')
+    .select('createdAt channels owner pseudonymId')
     .sort({ createdAt: 1 })
   const channelNames = [...new Set(humanMessages.flatMap((message) => message.channels ?? []))]
   const directNames = await resolveDirectNames(channelNames)
   const activityBuckets = bucketMessagesOverTime(humanMessages, conversation.startTime, conversation.endTime)
   const channelSplit = computeChannelSplit(humanMessages, directNames)
+  const privateMessaging = computePrivateMessaging(humanMessages, directNames, participation.posterCount)
   const spikes = attributeSpikeSources(
     computeSpikes(activityBuckets, participation.posterCount),
     humanMessages,
@@ -621,6 +684,7 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
     participationHistory,
     baseline,
     channelSplit,
+    privateMessaging,
     botInvocations,
     resourceSummary: computeResourceSummary(conversation),
     eventPlatform: deriveEventPlatform(conversation),

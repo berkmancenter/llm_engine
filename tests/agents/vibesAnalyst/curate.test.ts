@@ -20,7 +20,11 @@ function negativeEventMetrics(): ConversationMetrics {
         attendeeCount: 40,
         avgDwellSeconds: 1140,
         totalActions: 800,
-        deviceBreakdown: { desktop: 70, mobile: 30 }
+        deviceBreakdown: { desktop: 70, mobile: 30 },
+        actionBreakdown: { 'command:visual': 30, 'tab:resources': 22, 'transcript:open': 12 },
+        actionUserBreakdown: { 'command:visual': 18, 'tab:resources': 15, 'transcript:open': 10 },
+        activeVisitorCount: 38,
+        actionBreakdownPerActiveVisitor: { 'command:visual': 30 / 38, 'tab:resources': 22 / 38, 'transcript:open': 12 / 38 }
       }
     ],
     trackedSessionStatus: 'available',
@@ -49,6 +53,12 @@ function negativeEventMetrics(): ConversationMetrics {
     ],
     baseline: { eventCount: 5, trackedEventCount: 5, avgPosterCount: 29.8, avgLurkerCount: 59, avgDwellSeconds: 1440 },
     channelSplit: { public: 26, private: 38 },
+    privateMessaging: {
+      privateMessageCount: 38,
+      distinctPrivateSenders: 9,
+      distinctPublicSenders: 14,
+      avgPrivateMessagesPerPoster: 38 / 17
+    },
     botInvocations: { botName: 'Berkie', count: 4 },
     receptions: [
       {

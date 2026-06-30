@@ -476,6 +476,17 @@ export interface AnalyticsSnapshot {
   totalActions: number
   totalDwellSeconds: number
   deviceBreakdown: Record<string, number>
+  // Allowlisted, source-neutral OCCURRENCE counts of specific in-window page actions (e.g.
+  // command:visual, tab:chat). Sibling of deviceBreakdown: counts only, may undercount.
+  actionBreakdown: Record<string, number>
+  // Allowlisted DISTINCT-VISITOR counts for the same keys: how many different visitors took
+  // each action, so the read layer can say "X of N visitors did K", which the occurrence
+  // counts alone cannot show.
+  actionUserBreakdown: Record<string, number>
+  // Distinct visitors with at least one in-window action. The denominator for the
+  // per-active-visitor action averages, and at most attendeeCount (a visit can overlap
+  // the window without acting in it).
+  activeVisitorCount: number
 }
 
 /*
@@ -535,6 +546,15 @@ export interface TrackedSessionMetrics {
   avgDwellSeconds: number
   totalActions: number
   deviceBreakdown: Record<string, number>
+  // Raw per-event OCCURRENCE counts of allowlisted page actions (e.g. command:visual, tab:chat).
+  actionBreakdown: Record<string, number>
+  // The same keys mapped to distinct-visitor counts: how many different people did each action.
+  actionUserBreakdown: Record<string, number>
+  // Distinct visitors with at least one in-window action; the denominator below.
+  activeVisitorCount: number
+  // actionBreakdown divided by activeVisitorCount, computed at read time (never stored).
+  // Empty when there were no active visitors, so a zero denominator never yields NaN.
+  actionBreakdownPerActiveVisitor: Record<string, number>
 }
 
 /* The audience-engagement view: how the exact poster count relates to the estimated
@@ -689,6 +709,9 @@ export interface ConversationMetrics {
   baseline: SameTopicBaseline | null
   // Counts of people's messages: public chat vs private one-to-one with the bot.
   channelSplit: { public: number; private: number }
+  // Private (one-to-one with the bot) messaging: counts plus distinct senders, with the
+  // per-poster average derived at read time.
+  privateMessaging: PrivateMessaging
   // The configured assistant's name and how many times participants called on it.
   botInvocations: BotInvocations
   // Speaker moments that drew a chat reaction, with how the room responded; empty when none.
@@ -697,6 +720,20 @@ export interface ConversationMetrics {
   resourceSummary: ResourceSummary
   // Which platform(s) the event ran on: Nextspace, Zoom, or both.
   eventPlatform: EventPlatform
+}
+
+/* Private (one-to-one with the bot) messaging, all exact and first-party. privateMessageCount
+   is the same private count as channelSplit.private. distinctPrivateSenders and
+   distinctPublicSenders are how many different people sent at least one message in each
+   channel kind, grouped per person the same way participation is. avgPrivateMessagesPerPoster
+   is privateMessageCount over the total distinct posters (posterCount), derived at read time
+   and 0 when no one posted, so the read layer can compare the two sender counts (e.g. how much
+   more likely a poster was to message privately than publicly) without storing a ratio. */
+export interface PrivateMessaging {
+  privateMessageCount: number
+  distinctPrivateSenders: number
+  distinctPublicSenders: number
+  avgPrivateMessagesPerPoster: number
 }
 
 /* The event's readings and references, counted only from what participants could see
@@ -757,8 +794,19 @@ export interface EventMetricsSnapshotData {
   postersExceedTrackedSessions: boolean | null
   avgDwellSeconds: number | null
   totalActions: number | null
+  // Feature usage (estimate, as of capturedAt): allowlisted page actions off the primary
+  // tracked source. Occurrence counts, distinct-visitor counts, and the active-visitor
+  // denominator. Empty maps / zero when no tracked source carried action data.
+  actionBreakdown: Record<string, number>
+  actionUserBreakdown: Record<string, number>
+  activeVisitorCount: number
   // Channel split (exact): people's messages, public chat vs private one-to-one with the bot.
   channelSplit: { public: number; private: number }
+  // Private messaging (exact): the private message count and distinct senders per channel
+  // kind, so the share-of-posters comparison can be trended.
+  privateMessageCount: number
+  distinctPrivateSenders: number
+  distinctPublicSenders: number
   // Bot invocations (exact): how many times participants called on the assistant by name.
   botInvocationCount: number
   // Resource counts (exact), from participant-visible resources only.
