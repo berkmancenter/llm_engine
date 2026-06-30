@@ -6,7 +6,6 @@ import { getChatPromptResponse } from './llmChain.js'
 
 import config from '../../config/config.js'
 import logger from '../../config/logger.js'
-import Message from '../../models/message.model.js'
 import { InterventionAnalysis, InterventionType } from './interventionTypes.js'
 import { buildSystemPromptWithPersonality, getInterventionExamples } from './agentPersonality.js'
 import validateProfessionalism from './professionalismValidator.js'
@@ -223,9 +222,12 @@ async function runInterventionAnalysis(
   return result
 }
 
+const PUBLIC_INTERVENTION_RULES = `
+When weighing recent agent activity in Shared Chat History, distinguish between agents answering direct participant questions and agents making facilitative contributions — only the latter should count against intervening now.`
+
 /**
  * Detects whether to post a public intervention to the shared chat channel.
- * Rate limiting and the DB race guard are both scoped to the shared chat.
+ * The LLM decides on every invocation whether intervention is appropriate — no rate limiting.
  * Used by eventMediator and engagementAgent.
  */
 export async function detectPublicInterventionOpportunity(
@@ -235,39 +237,14 @@ export async function detectPublicInterventionOpportunity(
   privateConversationHistory?: ConversationHistory | null,
   userTemplate?: string
 ): Promise<InterventionAnalysis | null> {
-  const now = sharedChatHistory.end ? sharedChatHistory.end.getTime() : Date.now()
-  const minInterval = (this.agentConfig?.minInterval || 2) * 60 * 1000
-
-  const lastIntervention = getRecentAgentInterventions(sharedChatHistory).at(-1)
-  if (lastIntervention && now - lastIntervention.timestamp.getTime() < minInterval) {
-    const secondsAgo = Math.round((now - lastIntervention.timestamp.getTime()) / 1000)
-    logger.debug(`${this.agentType} ${this._id}: rate limited — last intervention ${secondsAgo}s ago (min ${minInterval / 1000}s)`)
-    return null
-  }
-
-  const result = await runInterventionAnalysis.call(
+  return runInterventionAnalysis.call(
     this,
     sharedChatHistory,
-    baseSystemPrompt,
+    baseSystemPrompt + PUBLIC_INTERVENTION_RULES,
     schema,
     privateConversationHistory ?? null,
     userTemplate
   )
-  if (!result) return null
-
-  const freshRecentIntervention = await Message.findOne({
-    conversation: this.conversation._id,
-    fromAgent: true,
-    visible: true,
-    channels: 'chat',
-    createdAt: { $gte: new Date(now - minInterval) }
-  })
-  if (freshRecentIntervention) {
-    logger.info(`Agent ${this.name} dropping intervention: another agent posted during LLM call`)
-    return null
-  }
-
-  return result
 }
 
 /**
