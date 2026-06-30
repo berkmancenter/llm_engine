@@ -93,23 +93,10 @@ const eventAssistant: ConversationType = {
       default: true,
       category: 'group-chat',
       userControlled: false,
-      properties: [
-        {
-          name: 'minContributionInterval',
-          label: 'Minimum Minutes Between Contributions',
-          required: false,
-          type: 'number',
-          default: 10
-        }
-      ],
       agents: [
         {
           name: 'eventMediator',
-          properties: [
-            { $ref: 'llmModel.llmModel' },
-            { $ref: 'llmModel.llmPlatform' },
-            { $ref: 'collectiveVoice.minContributionInterval', as: 'agentConfig.minInterval' }
-          ]
+          properties: [{ $ref: 'llmModel.llmModel' }, { $ref: 'llmModel.llmPlatform' }]
         }
       ]
     },
@@ -121,23 +108,10 @@ const eventAssistant: ConversationType = {
       default: true,
       category: 'group-chat',
       userControlled: false,
-      properties: [
-        {
-          name: 'minContributionInterval',
-          label: 'Minimum Minutes Between Contributions',
-          required: false,
-          type: 'number',
-          default: 10
-        }
-      ],
       agents: [
         {
           name: 'engagementAgent',
-          properties: [
-            { $ref: 'llmModel.llmModel' },
-            { $ref: 'llmModel.llmPlatform' },
-            { $ref: 'catalyst.minContributionInterval', as: 'agentConfig.minInterval' }
-          ]
+          properties: [{ $ref: 'llmModel.llmModel' }, { $ref: 'llmModel.llmPlatform' }]
         }
       ]
     },

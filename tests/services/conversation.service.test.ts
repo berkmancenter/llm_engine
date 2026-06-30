@@ -782,15 +782,15 @@ describe('Conversation service methods', () => {
           ...baseParams,
           topicId: topicOne._id.toString(),
           properties: { zoomMeetingUrl: 'https://zoom.us/j/123456789' },
-          features: [{ name: 'collectiveVoice', config: { minContributionInterval: 10 } }]
+          features: [{ name: 'librarian', config: { recommendationsPerInterval: 4 } }]
         }
 
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
 
         const agents = await Agent.find({ conversation: conversation._id })
-        const mediator = agents.find((a) => a.agentType === 'eventMediator')
-        expect(mediator).toBeDefined()
-        expect(mediator!.agentConfig?.minInterval).toBe(10)
+        const librarian = agents.find((a) => a.agentType === 'librarian')
+        expect(librarian).toBeDefined()
+        expect(librarian!.agentConfig?.recommendationsPerInterval).toBe(4)
       })
 
       test('should use feature sub-property default when not provided', async () => {
@@ -798,16 +798,16 @@ describe('Conversation service methods', () => {
           ...baseParams,
           topicId: topicOne._id.toString(),
           properties: { zoomMeetingUrl: 'https://zoom.us/j/123456789' },
-          features: [{ name: 'collectiveVoice' }]
-          // minContributionInterval not provided — feature default is 5
+          features: [{ name: 'librarian' }]
+          // recommendationsPerInterval not provided — feature default is 2
         }
 
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
 
         const agents = await Agent.find({ conversation: conversation._id })
-        const mediator = agents.find((a) => a.agentType === 'eventMediator')
-        expect(mediator).toBeDefined()
-        expect(mediator!.agentConfig?.minInterval).toBe(10)
+        const librarian = agents.find((a) => a.agentType === 'librarian')
+        expect(librarian).toBeDefined()
+        expect(librarian!.agentConfig?.recommendationsPerInterval).toBe(2)
       })
 
       test('should use provided feature sub-property value', async () => {
@@ -815,15 +815,15 @@ describe('Conversation service methods', () => {
           ...baseParams,
           topicId: topicOne._id.toString(),
           properties: { zoomMeetingUrl: 'https://zoom.us/j/123456789' },
-          features: [{ name: 'catalyst', config: { minContributionInterval: 7 } }]
+          features: [{ name: 'librarian', config: { recommendationsPerInterval: 7 } }]
         }
 
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
 
         const agents = await Agent.find({ conversation: conversation._id })
-        const engagement = agents.find((a) => a.agentType === 'engagementAgent')
-        expect(engagement).toBeDefined()
-        expect(engagement!.agentConfig?.minInterval).toBe(7)
+        const librarian = agents.find((a) => a.agentType === 'librarian')
+        expect(librarian).toBeDefined()
+        expect(librarian!.agentConfig?.recommendationsPerInterval).toBe(7)
       })
 
       test('should not set llmModel on agents when llmModel property is omitted', async () => {
