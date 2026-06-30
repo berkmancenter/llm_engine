@@ -21,13 +21,25 @@ function metricsFixture(): ConversationMetrics {
       { label: '40-50', messageCount: 3 },
       { label: '50-58', messageCount: 1 }
     ],
+    spikes: [],
     participationHistory: [
       { label: 'E1', posterCount: 30, lurkerCount: null },
       { label: 'E2', posterCount: 30, lurkerCount: null },
       { label: 'Today', posterCount: 16, lurkerCount: null }
     ],
     baseline: { eventCount: 2, trackedEventCount: 0, avgPosterCount: 30, avgLurkerCount: null, avgDwellSeconds: null },
-    channelSplit: { public: 40, private: 20 }
+    channelSplit: { public: 40, private: 20 },
+    botInvocations: { botName: 'Berkie', count: 0 },
+    receptions: [
+      {
+        sparkQuote: 'we should ban gas stoves entirely',
+        reactionVolume: 7,
+        reactionQuote: 'no way, gas is better for cooking',
+        sentiment: 'pushback'
+      }
+    ],
+    resourceSummary: { total: 0, required: 0, referenced: 0, suggested: 0, withLinks: 0 },
+    eventPlatform: 'nextspace'
   }
 }
 
@@ -71,5 +83,36 @@ describe('verifyCuratedCard critic', () => {
     const survivingText = result.standouts.map((standout) => standout.text)
     expect(survivingText).toContain('Only 16 people posted today, well below the topic recent average of about 30.')
     expect(survivingText).not.toContain('Posting surged to a record high today, the best this topic has ever seen.')
+  })
+
+  it('keeps a reception standout backed by a matching reception', async () => {
+    const card: CuratedVibesData = {
+      header: 'A divisive moment',
+      standouts: [
+        {
+          text: 'When a speaker said "we should ban gas stoves entirely", the room pushed back, one reply being "no way, gas is better for cooking".'
+        }
+      ],
+      durationMinutes: 58
+    }
+
+    const result = await verifyCuratedCard(card, metricsFixture(), llm)
+
+    expect(result.standouts).toHaveLength(1)
+  })
+
+  it('drops a reception standout whose sentiment the metrics contradict', async () => {
+    const card: CuratedVibesData = {
+      header: 'A crowd-pleaser',
+      standouts: [
+        // The reception's sentiment is pushback, so claiming agreement is unsupported.
+        { text: 'The room loved the call to "ban gas stoves entirely", cheering it on with near-universal agreement.' }
+      ],
+      durationMinutes: 58
+    }
+
+    const result = await verifyCuratedCard(card, metricsFixture(), llm)
+
+    expect(result.standouts).toHaveLength(0)
   })
 })

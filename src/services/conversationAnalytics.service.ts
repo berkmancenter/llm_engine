@@ -2,13 +2,20 @@ import Message from '../models/message.model.js'
 import Channel from '../models/channel.model.js'
 import Conversation from '../models/conversation.model.js'
 import ConversationAnalytics from '../models/conversationAnalytics.model.js'
+import { matchBotMention } from '../agents/helpers/intentChecks.js'
+import config from '../config/config.js'
 import {
   ActivityBucket,
   AudienceEngagement,
+  BotInvocations,
+  ChatSpike,
   ConversationMetrics,
+  EventPlatform,
   ParticipationHistoryPoint,
   ParticipationMetrics,
+  ResourceSummary,
   SameTopicBaseline,
+  SpikeSource,
   TrackedSessionMetrics,
   TrackedSessionStatus
 } from '../types/index.types.js'
@@ -35,9 +42,39 @@ const ACTIVITY_BUCKET_COUNT = 6
    still a message a participant sent, and an engagement recap should reflect every one. */
 const visibleHumanFilter = { fromAgent: false, visible: true, channels: { $ne: 'transcript' } }
 
+/* A chat spike is a window holding at least this many times the messages of the
+   average other window. The other-windows average is the baseline, so a single
+   busy window never inflates the bar it is judged against. */
+const SPIKE_MULTIPLE = 2
+
+/* The spike floor scales with how many people posted: a window must hold at least
+   this share of the poster count to count, so a busy minute in a small room still
+   registers while idle chatter in a large one does not. */
+const SPIKE_FLOOR_FRACTION = 0.1
+
+/* The floor never drops below this, so a two-message blip is never a spike even in
+   a tiny event. */
+const SPIKE_ABSOLUTE_FLOOR = 3
+
+/* Below three windows there is no meaningful baseline to stand out from, so a very
+   short event reports no spikes rather than a shaky one. */
+const MIN_BUCKETS_FOR_SPIKE = 3
+
+/* A time window with its message count, carrying the minute offsets from the event
+   start so a later step can pull the messages sent during it. */
+export interface TimedActivityBucket {
+  startMinute: number
+  endMinute: number
+  messageCount: number
+}
+
 /* The baseline averages at most this many recent past events in the same topic, so
    a long-running series is compared to its recent average rather than all of it. */
 const BASELINE_EVENT_LIMIT = 10
+
+/* A handful of posters. Below this, naming a "few voices dominated" share is
+   meaningless, so the frequent-poster share is reported as null instead. */
+const FREQUENT_POSTER_MIN_POSTERS = 5
 
 function average(values: number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length
@@ -52,22 +89,37 @@ function average(values: number[]): number {
    We group by owner (the BaseUser ref, the actual person) rather than pseudonym. A
    person's pseudonym can rotate during an event: addPseudonym flips the old one
    inactive and assigns a new active one, and each message stores whatever pseudonym was
-   active when it was sent. Grouping by pseudonym would therefore count one person who
-   renamed mid-event as several distinct posters and overcount the room. owner is
-   required:false on the schema, so we fall back to pseudonym when it is missing. */
+   active when it was sent. Grouping by the pseudonym string would therefore count one
+   person who rotated mid-event as several posters. owner is required:false on the schema,
+   so for the rare owner-less message we fall back to pseudonymId, the id of the pseudonym
+   that sent it. That id is steadier than the display string (which can differ for the
+   same pseudonym), though only owner ties a guest together across a rename. */
 async function computeParticipation(conversationId): Promise<ParticipationMetrics> {
   const byPoster: { _id: string; count: number }[] = await Message.aggregate([
     { $match: { conversation: conversationId, ...visibleHumanFilter } },
-    { $group: { _id: { $ifNull: ['$owner', '$pseudonym'] }, count: { $sum: 1 } } },
+    { $group: { _id: { $ifNull: ['$owner', '$pseudonymId'] }, count: { $sum: 1 } } },
     { $sort: { count: -1 } }
   ])
 
   const posterCount = byPoster.length
   const messageCount = byPoster.reduce((sum, poster) => sum + poster.count, 0)
 
-  // Top 10% of posters, rounded up, but always at least one once anyone has posted.
-  const frequentPosterCount = posterCount > 0 ? Math.max(1, Math.ceil(posterCount * 0.1)) : 0
-  const frequentPosterMessages = byPoster.slice(0, frequentPosterCount).reduce((sum, poster) => sum + poster.count, 0)
+  /* Below a handful of posters a "few voices dominated" share is meaningless, so report
+     no frequent posters and a null share rather than a misleading one. */
+  if (posterCount < FREQUENT_POSTER_MIN_POSTERS) {
+    return { posterCount, frequentPosterCount: 0, frequentPosterMessageShare: null, messageCount }
+  }
+
+  /* Top 10% of posters by message volume, rounded up. byPoster is sorted by count
+     descending, so the cutoff is the count of the last poster in that top slice. */
+  const topSlice = Math.max(1, Math.ceil(posterCount * 0.1))
+  const cutoffCount = byPoster[topSlice - 1].count
+
+  /* Include every poster tied at the cutoff count, not just the first topSlice of them,
+     so a boundary tie is resolved by message volume rather than arbitrary sort order. */
+  const frequentPosters = byPoster.filter((poster) => poster.count >= cutoffCount)
+  const frequentPosterCount = frequentPosters.length
+  const frequentPosterMessages = frequentPosters.reduce((sum, poster) => sum + poster.count, 0)
   const frequentPosterMessageShare = messageCount > 0 ? frequentPosterMessages / messageCount : 0
 
   return { posterCount, frequentPosterCount, frequentPosterMessageShare, messageCount }
@@ -100,9 +152,10 @@ function deriveTrackedSessions(snapshot): TrackedSessionMetrics {
    post-event goodbye would otherwise clamp onto an edge bucket and overstate how
    busy the room was at the very start or end of the talk. When start and end fall
    back to the first and last message times, every message is in window by
-   definition, so nothing is dropped. Returns [] when no messages land in the
+   definition, so nothing is dropped. Each window keeps its minute offsets so a later
+   step can pull the messages sent during it. Returns [] when no messages land in the
    window. */
-function computeActivitySeries(messages: { createdAt?: Date }[], startTime?: Date, endTime?: Date): ActivityBucket[] {
+function bucketMessagesOverTime(messages: { createdAt?: Date }[], startTime?: Date, endTime?: Date): TimedActivityBucket[] {
   const dated = messages.filter((message): message is { createdAt: Date } => message.createdAt instanceof Date)
   if (dated.length === 0) return []
 
@@ -119,16 +172,16 @@ function computeActivitySeries(messages: { createdAt?: Date }[], startTime?: Dat
 
   // A zero-length window (all messages in one minute) collapses to a single bucket.
   if (totalMinutes === 0) {
-    return [{ label: '0-0', messageCount: inWindow.length }]
+    return [{ startMinute: 0, endMinute: 0, messageCount: inWindow.length }]
   }
 
   const bucketSizeMinutes = Math.ceil(totalMinutes / ACTIVITY_BUCKET_COUNT)
-  const buckets: ActivityBucket[] = []
+  const buckets: TimedActivityBucket[] = []
   for (let index = 0; index < ACTIVITY_BUCKET_COUNT; index += 1) {
-    const bucketStart = index * bucketSizeMinutes
-    if (bucketStart >= totalMinutes) break
-    const bucketEnd = Math.min(bucketStart + bucketSizeMinutes, totalMinutes)
-    buckets.push({ label: `${bucketStart}-${bucketEnd}`, messageCount: 0 })
+    const startMinute = index * bucketSizeMinutes
+    if (startMinute >= totalMinutes) break
+    const endMinute = Math.min(startMinute + bucketSizeMinutes, totalMinutes)
+    buckets.push({ startMinute, endMinute, messageCount: 0 })
   }
 
   for (const message of inWindow) {
@@ -140,18 +193,93 @@ function computeActivitySeries(messages: { createdAt?: Date }[], startTime?: Dat
   return buckets
 }
 
-/* Counts people's messages as either public chat or private (one-to-one with the
-   bot). A message is private when it was sent in a "direct" channel, which is how
-   the database marks a private 1:1 channel between a person and the agent. */
-async function computeChannelSplit(conversationId): Promise<{ public: number; private: number }> {
-  const messages = await Message.find({
-    conversation: conversationId,
-    ...visibleHumanFilter
-  }).select('channels')
-  const channelNames = [...new Set(messages.flatMap((message) => message.channels ?? []))]
-  const directChannels = await Channel.find({ name: { $in: channelNames }, direct: true }).select('name')
-  const directNames = new Set(directChannels.map((channel) => channel.name))
+/* Builds the chart label for one window. A window runs from startMinute up to but not
+   including endMinute, so its last whole minute is endMinute - 1. Labeling by that
+   inclusive range ('0-9', '10-19') keeps adjacent windows from sharing a boundary
+   number the way '0-10' and '10-20' both claimed minute 10, so a reader can tell which
+   window owns any given minute. A one-minute window and a zero-length window (start and
+   end equal, all messages in one minute) collapse to a single number. */
+function bucketLabel(startMinute: number, endMinute: number): string {
+  const lastMinute = Math.max(startMinute, endMinute - 1)
+  return lastMinute === startMinute ? `${startMinute}` : `${startMinute}-${lastMinute}`
+}
 
+/* Maps the timed buckets to the chart-ready series the card renders: a minute-range
+   label and a count per window. */
+function toActivitySeries(buckets: TimedActivityBucket[]): ActivityBucket[] {
+  return buckets.map((bucket) => ({
+    label: bucketLabel(bucket.startMinute, bucket.endMinute),
+    messageCount: bucket.messageCount
+  }))
+}
+
+/**
+ * Flags the windows where chat volume stood out from the rest of the event. A
+ * window is a spike when it clears two bars at once: it holds at least SPIKE_MULTIPLE
+ * times the average of the other windows, and it clears a floor that scales with the
+ * poster count. The relative test catches a genuine burst; the floor stops a tiny
+ * absolute jump from reading as one in a quiet room. Spikes come back in chronological
+ * order, each carrying its window and how far above baseline it ran, so the recap can
+ * name when the room lit up and a later step can read what was said then.
+ */
+export function computeSpikes(buckets: TimedActivityBucket[], posterCount: number): ChatSpike[] {
+  if (buckets.length < MIN_BUCKETS_FOR_SPIKE) return []
+
+  const floor = Math.max(SPIKE_ABSOLUTE_FLOOR, Math.ceil(posterCount * SPIKE_FLOOR_FRACTION))
+  const totalMessages = buckets.reduce((sum, bucket) => sum + bucket.messageCount, 0)
+
+  const toSpike = (bucket: TimedActivityBucket, baselineAverage: number): ChatSpike => ({
+    label: bucketLabel(bucket.startMinute, bucket.endMinute),
+    startMinute: bucket.startMinute,
+    endMinute: bucket.endMinute,
+    messageCount: bucket.messageCount,
+    baselineAverage,
+    ratio: baselineAverage > 0 ? bucket.messageCount / baselineAverage : null,
+    // Detection works on counts alone and cannot see channels; attributeSpikeSources
+    // overwrites this from the window's messages once the spikes are known.
+    source: 'chat'
+  })
+
+  /* When every window but the busiest is empty, the busiest window's baseline (the
+     average of the others) is zero, and the multiple test count >= SPIKE_MULTIPLE * 0
+     passes any non-empty window on the floor alone. The multiple is meaningless against
+     a zero baseline, so fall back to raw counts: pick only the single window with the
+     most messages, and only if it clears the floor. */
+  const busiest = buckets.reduce((top, bucket) => (bucket.messageCount > top.messageCount ? bucket : top), buckets[0])
+  const busiestBaseline = (totalMessages - busiest.messageCount) / (buckets.length - 1)
+  if (busiestBaseline === 0) {
+    return busiest.messageCount >= floor ? [toSpike(busiest, 0)] : []
+  }
+
+  const spikes: ChatSpike[] = []
+  for (const bucket of buckets) {
+    const baselineAverage = (totalMessages - bucket.messageCount) / (buckets.length - 1)
+    const clearsRelative = bucket.messageCount >= SPIKE_MULTIPLE * baselineAverage
+    const clearsFloor = bucket.messageCount >= floor
+    if (!clearsRelative || !clearsFloor) continue
+
+    spikes.push(toSpike(bucket, baselineAverage))
+  }
+
+  return spikes
+}
+
+/* Resolves which of the given channel names are private 1:1 channels with the agent. The
+   database marks those with direct:true; every other channel (public chat, the moderator
+   backchannel, the no-channel main feed) is treated as public. Shared by the channel split
+   and the spike attribution so both read "private" the same way from one lookup. */
+async function resolveDirectNames(channelNames: string[]): Promise<Set<string>> {
+  const directChannels = await Channel.find({ name: { $in: channelNames }, direct: true }).select('name')
+  return new Set(directChannels.map((channel) => channel.name))
+}
+
+/* Counts people's messages as either public chat or private (one-to-one with the bot). A
+   message is private when it was sent in a direct channel. Pure over the already-fetched
+   messages and the resolved direct-channel names. */
+function computeChannelSplit(
+  messages: { channels?: string[] }[],
+  directNames: Set<string>
+): { public: number; private: number } {
   let publicCount = 0
   let privateCount = 0
   for (const message of messages) {
@@ -159,6 +287,94 @@ async function computeChannelSplit(conversationId): Promise<{ public: number; pr
     else publicCount += 1
   }
   return { public: publicCount, private: privateCount }
+}
+
+/* Sorts one message into the channel category a spike is attributed by: a private 1:1 with
+   the bot, the moderator backchannel, or the public chat (the default for any other
+   channel, including the no-channel main feed). */
+export function spikeSourceForChannels(channels: string[] | undefined, directNames: Set<string>): SpikeSource {
+  const names = channels ?? []
+  if (names.some((name) => directNames.has(name))) return 'private'
+  if (names.includes('moderator')) return 'moderator'
+  return 'chat'
+}
+
+/* Stamps each spike with the channel that drove it, read from the messages in its window.
+   A spike is 'private' only when its window holds no readable (chat or moderator) messages
+   at all, meaning the burst was entirely one-to-one with the bot; that spike is surfaced
+   by count alone, since the analyst never reads those messages. Otherwise it is attributed
+   to the dominant readable channel, so a later quote always comes from content the analyst
+   may read, and a chat-vs-moderator tie favors the public chat. The window runs from
+   startMinute (inclusive) to endMinute (exclusive) past the event start, the same bounds
+   the activity buckets use. */
+export function attributeSpikeSources(
+  spikes: ChatSpike[],
+  messages: { createdAt?: Date; channels?: string[] }[],
+  startTime: Date | undefined,
+  directNames: Set<string>
+): ChatSpike[] {
+  if (spikes.length === 0) return spikes
+  const dated = messages.filter(
+    (message): message is { createdAt: Date; channels?: string[] } => message.createdAt instanceof Date
+  )
+  const startMs = (startTime ?? dated[0]?.createdAt)?.getTime()
+  if (startMs === undefined) return spikes
+
+  return spikes.map((spike) => {
+    const windowStart = startMs + spike.startMinute * 60 * 1000
+    const windowEnd = startMs + spike.endMinute * 60 * 1000
+    let chat = 0
+    let moderator = 0
+    for (const message of dated) {
+      const sentAt = message.createdAt.getTime()
+      if (sentAt < windowStart || sentAt >= windowEnd) continue
+      const source = spikeSourceForChannels(message.channels, directNames)
+      if (source === 'chat') chat += 1
+      else if (source === 'moderator') moderator += 1
+    }
+    if (chat === 0 && moderator === 0) return { ...spike, source: 'private' }
+    return { ...spike, source: chat >= moderator ? 'chat' : 'moderator' }
+  })
+}
+
+/* Counts how many times participants called on the event's configured assistant by
+   name. It reads people's chat messages, the channel where the assistant is summoned,
+   and matches each against the bot name the same fuzzy way the assistant itself does,
+   so a misspelled or @-prefixed name still counts. The name comes from the event's
+   configuration and falls back to the platform default, so a renamed assistant is
+   still counted correctly. */
+/* Pulls the human-readable text out of a message body. A plain chat message stores a
+   string body; a rich or multimodal one stores an object whose typed text lives under
+   `text`, the same shape report.service reads. Returns '' for anything without text
+   (an image-only body, say), so a mention check never runs over a non-text payload. */
+function messageText(body: unknown): string {
+  if (typeof body === 'string') return body
+  if (body && typeof body === 'object') {
+    const { text } = body as Record<string, unknown>
+    if (typeof text === 'string') return text
+  }
+  return ''
+}
+
+async function computeBotInvocations(conversation): Promise<BotInvocations> {
+  const botName = conversation.properties?.botName || config.conversationBotName
+  /* visible:true matches every other human count (see visibleHumanFilter): a hidden or
+     backchannel message is not a summon a participant made in the open. */
+  const messages = await Message.find({
+    conversation: conversation._id,
+    fromAgent: false,
+    visible: true,
+    channels: 'chat'
+  }).select('body')
+
+  let count = 0
+  for (const message of messages) {
+    const text = messageText(message.body)
+    if (text.length === 0) continue
+    if (matchBotMention(text.trim().split(/\s+/), botName)) count += 1
+  }
+
+  return { botName, count }
 }
 
 /* Bridges the exact poster count with the estimated participant count (unique
@@ -206,8 +422,25 @@ function computeAudienceEngagement(posterCount: number, sources: TrackedSessionM
   }
 }
 
+/* Month abbreviations for a compact event date label, indexed by getUTCMonth(). */
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/* A history point's label: the event's own name plus a short date, e.g. "Future of Work
+   (Jun 3)". A topic's events often share a name (a recurring series), so the date sets
+   most of them apart and reads better than an opaque "E1". Two same-named events on the
+   same day still share a label, which is rare enough to accept. Falls back to the date
+   alone when an event has no name. The date is the UTC calendar day, so it is
+   deterministic but can read a day off for a viewer in a far timezone. */
+function eventHistoryLabel(name: string | undefined, endTime: Date | undefined): string {
+  const date = endTime ? `${MONTHS[endTime.getUTCMonth()]} ${endTime.getUTCDate()}` : ''
+  const trimmedName = name?.trim()
+  if (trimmedName && date) return `${trimmedName} (${date})`
+  return trimmedName || date || 'Past event'
+}
+
 /* Looks at up to the 10 most recent past events in the same topic and builds two
-   things: a chart-ready history (oldest is "E1", this event is "Today") and a baseline
+   things: a chart-ready history (each past event labeled by its name and date, this
+   event labeled "Today") and a baseline
    that averages their poster counts, lurker counts, and dwell time. A past event's
    lurker count and dwell only count when it has stored tracked-session data AND its
    participation reconciles, meaning its poster count did not exceed its tracked visitor
@@ -238,7 +471,7 @@ async function computeHistoryAndBaseline(
   })
     .sort({ endTime: -1 })
     .limit(BASELINE_EVENT_LIMIT)
-    .select('_id')
+    .select('_id name endTime')
 
   const oldestFirst = [...recentPast].reverse()
   const participationHistory: ParticipationHistoryPoint[] = []
@@ -246,7 +479,7 @@ async function computeHistoryAndBaseline(
   const pastLurkerCounts: number[] = []
   const pastDwells: number[] = []
 
-  for (const [index, pastEvent] of oldestFirst.entries()) {
+  for (const pastEvent of oldestFirst) {
     const { posterCount } = await computeParticipation(pastEvent._id)
     pastPosterCounts.push(posterCount)
 
@@ -266,7 +499,7 @@ async function computeHistoryAndBaseline(
        lurker and dwell baselines over one identical span of past events (trackedEventCount). */
     if (reconciles) pastDwells.push((snapshot.totalDwellSeconds ?? 0) / snapshot.totalVisits)
 
-    participationHistory.push({ label: `E${index + 1}`, posterCount, lurkerCount })
+    participationHistory.push({ label: eventHistoryLabel(pastEvent.name, pastEvent.endTime), posterCount, lurkerCount })
   }
   participationHistory.push({ label: 'Today', posterCount: current.posterCount, lurkerCount: current.lurkerCount })
 
@@ -306,6 +539,36 @@ function trackedSessionStatusFor(sources: TrackedSessionMetrics[], conversation)
  * undercount. trackedSessionStatus tells the card whether missing session data
  * means "nothing was tracked" or "not available yet".
  */
+/* Counts the event's readings and references from what participants could see. Only
+   participant-visible resources count, since the recap is about the audience's experience;
+   participantVisible defaults to true, so a resource counts unless it is explicitly hidden.
+   The counts cover how many readings existed and how many carried a link, never whether
+   anyone opened them. Resources are embedded on the conversation, so this needs no query. */
+export function computeResourceSummary(conversation: {
+  resources?: { category?: string; url?: string; participantVisible?: boolean }[]
+}): ResourceSummary {
+  const visible = (conversation.resources ?? []).filter((resource) => resource.participantVisible !== false)
+  return {
+    total: visible.length,
+    required: visible.filter((resource) => resource.category === 'required').length,
+    referenced: visible.filter((resource) => resource.category === 'referenced').length,
+    suggested: visible.filter((resource) => resource.category === 'suggested').length,
+    withLinks: visible.filter((resource) => typeof resource.url === 'string' && resource.url.trim().length > 0).length
+  }
+}
+
+/* Derives which platform(s) the event ran on from the conversation's platforms list, the
+   source of truth set at creation. 'both' when Nextspace and Zoom ran together. Defaults to
+   'nextspace' when nothing is recorded, since that is where the recap is read. */
+export function deriveEventPlatform(conversation: { platforms?: string[] }): EventPlatform {
+  const platforms = conversation.platforms ?? []
+  const hasZoom = platforms.includes('zoom')
+  const hasNextspace = platforms.includes('nextspace')
+  if (hasZoom && hasNextspace) return 'both'
+  if (hasZoom) return 'zoom'
+  return 'nextspace'
+}
+
 async function computeConversationMetrics(conversation): Promise<ConversationMetrics> {
   const participation = await computeParticipation(conversation._id)
   const snapshots = await ConversationAnalytics.find({ conversationId: conversation._id })
@@ -315,9 +578,19 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
     conversation: conversation._id,
     ...visibleHumanFilter
   })
-    .select('createdAt')
+    .select('createdAt channels')
     .sort({ createdAt: 1 })
-  const channelSplit = await computeChannelSplit(conversation._id)
+  const channelNames = [...new Set(humanMessages.flatMap((message) => message.channels ?? []))]
+  const directNames = await resolveDirectNames(channelNames)
+  const activityBuckets = bucketMessagesOverTime(humanMessages, conversation.startTime, conversation.endTime)
+  const channelSplit = computeChannelSplit(humanMessages, directNames)
+  const spikes = attributeSpikeSources(
+    computeSpikes(activityBuckets, participation.posterCount),
+    humanMessages,
+    conversation.startTime,
+    directNames
+  )
+  const botInvocations = await computeBotInvocations(conversation)
   const { participationHistory, baseline } = await computeHistoryAndBaseline(conversation, {
     posterCount: participation.posterCount,
     lurkerCount: audienceEngagement ? audienceEngagement.lurkerCount : null
@@ -328,10 +601,16 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
     trackedSessionSources,
     trackedSessionStatus: trackedSessionStatusFor(trackedSessionSources, conversation),
     audienceEngagement,
-    activitySeries: computeActivitySeries(humanMessages, conversation.startTime, conversation.endTime),
+    activitySeries: toActivitySeries(activityBuckets),
+    spikes,
     participationHistory,
     baseline,
-    channelSplit
+    channelSplit,
+    botInvocations,
+    resourceSummary: computeResourceSummary(conversation),
+    eventPlatform: deriveEventPlatform(conversation),
+    // Filled by the Vibes Analyst from message content; the service leaves it empty.
+    receptions: []
   }
 }
 

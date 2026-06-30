@@ -15,9 +15,14 @@ function metricsFixture(): ConversationMetrics {
       { label: '10-20', messageCount: 15 },
       { label: '20-30', messageCount: 30 }
     ],
+    spikes: [],
     participationHistory: [],
     baseline: null,
-    channelSplit: { public: 30, private: 20 }
+    channelSplit: { public: 30, private: 20 },
+    botInvocations: { botName: 'Berkie', count: 0 },
+    receptions: [],
+    resourceSummary: { total: 0, required: 0, referenced: 0, suggested: 0, withLinks: 0 },
+    eventPlatform: 'nextspace'
   }
 }
 

@@ -1,7 +1,14 @@
 import mongoose from 'mongoose'
 import setupIntTest from '../../utils/setupIntTest.js'
 import { Conversation, Message, ConversationAnalytics, Channel } from '../../../src/models/index.js'
-import conversationAnalyticsService from '../../../src/services/conversationAnalytics.service.js'
+import conversationAnalyticsService, {
+  attributeSpikeSources,
+  computeResourceSummary,
+  deriveEventPlatform,
+  spikeSourceForChannels
+} from '../../../src/services/conversationAnalytics.service.js'
+import { ChatSpike } from '../../../src/types/index.types.js'
+import config from '../../../src/config/config.js'
 
 setupIntTest()
 
@@ -92,6 +99,29 @@ async function seedMessageAt(
   await Message.collection.updateOne({ _id: message._id }, { $set: { createdAt } })
 }
 
+/* Seeds one participant message on the given channels at a set minute past the event
+   start, so a spike can be built from a specific channel like a private 1:1. */
+async function seedMessageOnChannelAt(
+  conversationId: mongoose.Types.ObjectId,
+  start: Date,
+  minutesFromStart: number,
+  channels: string[]
+) {
+  const [message] = await Message.create([
+    {
+      body: 'm',
+      conversation: conversationId,
+      owner: ownerId,
+      pseudonymId: ownerId,
+      pseudonym: 'ana',
+      fromAgent: false,
+      channels
+    }
+  ])
+  const createdAt = new Date(start.getTime() + minutesFromStart * 60 * 1000)
+  await Message.collection.updateOne({ _id: message._id }, { $set: { createdAt } })
+}
+
 describe('computeConversationMetrics', () => {
   it('computes participation from Mongo and derives attention ratios from the snapshot', async () => {
     const conversation = await makeConversation()
@@ -109,8 +139,9 @@ describe('computeConversationMetrics', () => {
 
     const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
 
-    expect(metrics.participation).toMatchObject({ posterCount: 2, frequentPosterCount: 1, messageCount: 3 })
-    expect(metrics.participation.frequentPosterMessageShare).toBeCloseTo(2 / 3, 5)
+    // Two posters is below the handful threshold, so no frequent posters and a null share.
+    expect(metrics.participation).toMatchObject({ posterCount: 2, frequentPosterCount: 0, messageCount: 3 })
+    expect(metrics.participation.frequentPosterMessageShare).toBeNull()
     expect(metrics.audienceEngagement).toEqual({
       participantCount: 40,
       lurkerCount: 38,
@@ -133,8 +164,8 @@ describe('computeConversationMetrics', () => {
 
     const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
 
-    expect(metrics.participation).toMatchObject({ posterCount: 2, frequentPosterCount: 1, messageCount: 3 })
-    expect(metrics.participation.frequentPosterMessageShare).toBeCloseTo(2 / 3, 5)
+    expect(metrics.participation).toMatchObject({ posterCount: 2, frequentPosterCount: 0, messageCount: 3 })
+    expect(metrics.participation.frequentPosterMessageShare).toBeNull()
     expect(metrics.audienceEngagement).toBeNull()
     expect(metrics.trackedSessionSources).toEqual([])
     expect(metrics.trackedSessionStatus).toBe('notTracked')
@@ -239,8 +270,37 @@ describe('computeConversationMetrics pseudonym rotation', () => {
 
     expect(metrics.participation.posterCount).toBe(1)
     expect(metrics.participation.messageCount).toBe(2)
-    expect(metrics.participation.frequentPosterCount).toBe(1)
-    expect(metrics.participation.frequentPosterMessageShare).toBe(1)
+    expect(metrics.participation.frequentPosterCount).toBe(0)
+    expect(metrics.participation.frequentPosterMessageShare).toBeNull()
+  })
+
+  it('counts an owner-less guest with one pseudonym id but differing display names as one poster', async () => {
+    const conversation = await makeConversation()
+    const guestPseudonymId = new mongoose.Types.ObjectId()
+    /* Two messages from one guest (no owner). The display pseudonym differs between them
+       but the pseudonym id is the same, so the stable id, not the string, proves they are
+       one person. */
+    await Message.create([
+      {
+        body: 'first',
+        conversation: conversation._id,
+        pseudonymId: guestPseudonymId,
+        pseudonym: 'guest-a',
+        fromAgent: false
+      },
+      {
+        body: 'second',
+        conversation: conversation._id,
+        pseudonymId: guestPseudonymId,
+        pseudonym: 'guest-b',
+        fromAgent: false
+      }
+    ])
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+
+    expect(metrics.participation.posterCount).toBe(1)
+    expect(metrics.participation.messageCount).toBe(2)
   })
 })
 
@@ -255,6 +315,63 @@ describe('computeConversationMetrics frequent posters', () => {
     expect(metrics.participation.frequentPosterCount).toBe(2) // ceil(0.1 * 12)
     expect(metrics.participation.messageCount).toBe(20)
     expect(metrics.participation.frequentPosterMessageShare).toBeCloseTo(0.5, 5) // 10 of 20
+  })
+
+  it('reports a null share and no frequent posters below a handful of posters', async () => {
+    const conversation = await makeConversation()
+    // Only one poster, well below the handful threshold, so a dominance share is meaningless.
+    await Message.create([
+      {
+        body: 'solo',
+        conversation: conversation._id,
+        owner: ownerFor('solo'),
+        pseudonymId: ownerId,
+        pseudonym: 'solo',
+        fromAgent: false
+      }
+    ])
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+
+    expect(metrics.participation.posterCount).toBe(1)
+    expect(metrics.participation.frequentPosterCount).toBe(0)
+    expect(metrics.participation.frequentPosterMessageShare).toBeNull()
+  })
+
+  it('includes every poster tied at the cutoff message count, not just the top slice', async () => {
+    const conversation = await makeConversation()
+    // Six posters: three tie at five messages each, three send one each (18 total). The
+    // top 10% of 6 is ceil(0.6) = 1, but two more posters tie that busiest at five, so a
+    // tie-aware cut includes all three heavy posters rather than picking one arbitrarily.
+    const heavy = ['h1', 'h2', 'h3']
+    const light = ['l1', 'l2', 'l3']
+    await Message.create([
+      ...heavy.flatMap((pseudonym) =>
+        Array.from({ length: 5 }, () => ({
+          body: 'm',
+          conversation: conversation._id,
+          owner: ownerFor(pseudonym),
+          pseudonymId: ownerId,
+          pseudonym,
+          fromAgent: false
+        }))
+      ),
+      ...light.map((pseudonym) => ({
+        body: 'm',
+        conversation: conversation._id,
+        owner: ownerFor(pseudonym),
+        pseudonymId: ownerId,
+        pseudonym,
+        fromAgent: false
+      }))
+    ])
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+
+    expect(metrics.participation.posterCount).toBe(6)
+    expect(metrics.participation.frequentPosterCount).toBe(3) // all three tied at five, not ceil(0.6)=1
+    expect(metrics.participation.messageCount).toBe(18)
+    expect(metrics.participation.frequentPosterMessageShare).toBeCloseTo(15 / 18, 5)
   })
 })
 
@@ -323,14 +440,34 @@ describe('computeConversationMetrics activity buckets', () => {
     const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
 
     expect(metrics.activitySeries.map((bucket) => bucket.label)).toEqual([
-      '0-10',
-      '10-20',
-      '20-30',
-      '30-40',
-      '40-50',
-      '50-58'
+      '0-9',
+      '10-19',
+      '20-29',
+      '30-39',
+      '40-49',
+      '50-57'
     ])
     expect(metrics.activitySeries.map((bucket) => bucket.messageCount)).toEqual([1, 2, 1, 0, 0, 0])
+  })
+
+  it('labels adjacent windows so they never share a boundary number', async () => {
+    const start = new Date('2026-06-10T10:00:00.000Z')
+    const end = new Date(start.getTime() + 58 * 60 * 1000)
+    const conversation = await makeConversationWithWindow(start, end)
+
+    await seedMessageAt(conversation._id, start, 5)
+    await seedMessageAt(conversation._id, start, 25)
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+    const labels = metrics.activitySeries.map((bucket) => bucket.label)
+
+    // Pull the trailing number of one label and the leading number of the next; an
+    // inclusive-range scheme means they must differ, so minute N belongs to one window.
+    for (let index = 0; index < labels.length - 1; index += 1) {
+      const endOfThis = Number(labels[index].split('-').at(-1))
+      const startOfNext = Number(labels[index + 1].split('-')[0])
+      expect(endOfThis).not.toBe(startOfNext)
+    }
   })
 
   it('excludes messages sent before the event start or after the event end', async () => {
@@ -350,6 +487,19 @@ describe('computeConversationMetrics activity buckets', () => {
     expect(metrics.activitySeries.map((bucket) => bucket.messageCount)).toEqual([1, 0, 1, 0, 0, 0])
   })
 
+  it('collapses a zero-length window to a single-number label', async () => {
+    const start = new Date('2026-06-10T10:00:00.000Z')
+    // Start and end at the same minute, so the whole event is one zero-length window.
+    const conversation = await makeConversationWithWindow(start, start)
+
+    await seedMessageAt(conversation._id, start, 0)
+    await seedMessageAt(conversation._id, start, 0)
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+
+    expect(metrics.activitySeries).toEqual([{ label: '0', messageCount: 2 }])
+  })
+
   it('returns an empty activity series when the event has no messages', async () => {
     const start = new Date('2026-06-10T10:00:00.000Z')
     const end = new Date(start.getTime() + 30 * 60 * 1000)
@@ -358,6 +508,304 @@ describe('computeConversationMetrics activity buckets', () => {
     const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
 
     expect(metrics.activitySeries).toEqual([])
+  })
+})
+
+describe('computeConversationMetrics spikes', () => {
+  it('flags the busy window as a spike carrying its minute range', async () => {
+    const start = new Date('2026-06-10T10:00:00.000Z')
+    const end = new Date(start.getTime() + 58 * 60 * 1000)
+    const conversation = await makeConversationWithWindow(start, end)
+
+    // One message early, then a burst of six in the 20-30 window.
+    await seedMessageAt(conversation._id, start, 5)
+    for (const minute of [21, 22, 23, 24, 25, 26]) {
+      await seedMessageAt(conversation._id, start, minute)
+    }
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+
+    expect(metrics.spikes).toHaveLength(1)
+    expect(metrics.spikes[0]).toMatchObject({ startMinute: 20, endMinute: 30, messageCount: 6 })
+  })
+
+  it('reports no spikes for an evenly spread event', async () => {
+    const start = new Date('2026-06-10T10:00:00.000Z')
+    const end = new Date(start.getTime() + 58 * 60 * 1000)
+    const conversation = await makeConversationWithWindow(start, end)
+
+    for (const minute of [5, 15, 25, 35, 45]) {
+      await seedMessageAt(conversation._id, start, minute)
+    }
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+
+    expect(metrics.spikes).toEqual([])
+  })
+
+  it('marks a spike driven by private one-to-one messages as a private-source spike', async () => {
+    const start = new Date('2026-06-10T10:00:00.000Z')
+    const end = new Date(start.getTime() + 58 * 60 * 1000)
+    const conversation = await makeConversationWithWindow(start, end)
+    const directChannel = await Channel.create({
+      name: `dm-${new mongoose.Types.ObjectId().toString()}`,
+      direct: true,
+      participants: [new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId()]
+    })
+
+    // One early public message, then a burst of six private messages to the bot.
+    await seedMessageAt(conversation._id, start, 5)
+    for (const minute of [21, 22, 23, 24, 25, 26]) {
+      await seedMessageOnChannelAt(conversation._id, start, minute, [directChannel.name])
+    }
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+
+    expect(metrics.spikes).toHaveLength(1)
+    expect(metrics.spikes[0].source).toBe('private')
+  })
+})
+
+/* A bare ChatSpike for the attribution unit tests: only the window and a placeholder
+   source matter, since attributeSpikeSources overwrites source from the messages. */
+function spikeWindow(startMinute: number, endMinute: number): ChatSpike {
+  return {
+    label: `${startMinute}-${endMinute}`,
+    startMinute,
+    endMinute,
+    messageCount: 6,
+    baselineAverage: 1,
+    ratio: 6,
+    source: 'chat'
+  }
+}
+
+describe('spikeSourceForChannels', () => {
+  const directNames = new Set(['dm-1'])
+
+  it('reads a public chat message as a chat source', () => {
+    expect(spikeSourceForChannels(['chat'], directNames)).toBe('chat')
+  })
+
+  it('reads a moderator backchannel message as a moderator source', () => {
+    expect(spikeSourceForChannels(['moderator'], directNames)).toBe('moderator')
+  })
+
+  it('reads a direct-channel message as a private source', () => {
+    expect(spikeSourceForChannels(['dm-1'], directNames)).toBe('private')
+  })
+
+  it('treats a message with no channel as public chat', () => {
+    expect(spikeSourceForChannels(undefined, directNames)).toBe('chat')
+  })
+})
+
+describe('attributeSpikeSources', () => {
+  const start = new Date('2026-06-10T10:00:00.000Z')
+  const at = (minutes: number) => new Date(start.getTime() + minutes * 60 * 1000)
+  const directNames = new Set(['dm-1'])
+
+  it('marks a spike private only when its window holds no readable messages', () => {
+    const messages = [
+      { createdAt: at(21), channels: ['dm-1'] },
+      { createdAt: at(22), channels: ['dm-1'] },
+      { createdAt: at(5), channels: ['chat'] } // outside the window, ignored
+    ]
+
+    const [attributed] = attributeSpikeSources([spikeWindow(20, 30)], messages, start, directNames)
+
+    expect(attributed.source).toBe('private')
+  })
+
+  it('attributes a mixed window to the dominant readable channel', () => {
+    const messages = [
+      { createdAt: at(21), channels: ['moderator'] },
+      { createdAt: at(22), channels: ['moderator'] },
+      { createdAt: at(23), channels: ['chat'] }
+    ]
+
+    const [attributed] = attributeSpikeSources([spikeWindow(20, 30)], messages, start, directNames)
+
+    expect(attributed.source).toBe('moderator')
+  })
+
+  it('prefers a readable channel over private when both are in the window', () => {
+    const messages = [
+      { createdAt: at(21), channels: ['dm-1'] },
+      { createdAt: at(22), channels: ['dm-1'] },
+      { createdAt: at(23), channels: ['chat'] }
+    ]
+
+    const [attributed] = attributeSpikeSources([spikeWindow(20, 30)], messages, start, directNames)
+
+    expect(attributed.source).toBe('chat')
+  })
+})
+
+describe('computeResourceSummary', () => {
+  it('counts visible readings by category and how many carry a link', () => {
+    const conversation = {
+      resources: [
+        { category: 'required', participantVisible: true, url: 'https://a' },
+        { category: 'required', participantVisible: true },
+        { category: 'referenced', participantVisible: true, url: 'https://b' },
+        { category: 'suggested', participantVisible: true }
+      ]
+    }
+
+    expect(computeResourceSummary(conversation)).toEqual({
+      total: 4,
+      required: 2,
+      referenced: 1,
+      suggested: 1,
+      withLinks: 2
+    })
+  })
+
+  it('excludes resources that participants could not see', () => {
+    const conversation = {
+      resources: [
+        { category: 'required', participantVisible: true, url: 'https://a' },
+        { category: 'referenced', participantVisible: false, url: 'https://b' }
+      ]
+    }
+
+    expect(computeResourceSummary(conversation)).toEqual({
+      total: 1,
+      required: 1,
+      referenced: 0,
+      suggested: 0,
+      withLinks: 1
+    })
+  })
+
+  it('returns zeros when the event has no resources', () => {
+    expect(computeResourceSummary({})).toEqual({ total: 0, required: 0, referenced: 0, suggested: 0, withLinks: 0 })
+  })
+})
+
+describe('deriveEventPlatform', () => {
+  it('reports both when the event ran on Nextspace and Zoom', () => {
+    expect(deriveEventPlatform({ platforms: ['nextspace', 'zoom'] })).toBe('both')
+  })
+
+  it('reports zoom for a Zoom-only event', () => {
+    expect(deriveEventPlatform({ platforms: ['zoom'] })).toBe('zoom')
+  })
+
+  it('reports nextspace for a Nextspace-only event', () => {
+    expect(deriveEventPlatform({ platforms: ['nextspace'] })).toBe('nextspace')
+  })
+
+  it('defaults to nextspace when no platform is recorded', () => {
+    expect(deriveEventPlatform({})).toBe('nextspace')
+  })
+})
+
+describe('computeConversationMetrics resources and platform', () => {
+  it('includes the visible resource summary and the event platform in the metrics', async () => {
+    const conversation = await Conversation.create({
+      name: 'Readings event',
+      slug: `readings-${new mongoose.Types.ObjectId().toString()}`,
+      owner: ownerId,
+      topic: new mongoose.Types.ObjectId(),
+      transcript: { status: 'stopped' },
+      platforms: ['nextspace', 'zoom'],
+      resources: [
+        { source: 'speaker', category: 'required', title: 'Required one', url: 'https://a', participantVisible: true },
+        { source: 'ai', category: 'suggested', title: 'Suggested one', participantVisible: true },
+        { source: 'speaker', category: 'referenced', title: 'Hidden ref', url: 'https://b', participantVisible: false }
+      ]
+    })
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+
+    // The hidden referenced resource drops out, so only the two visible ones count.
+    expect(metrics.resourceSummary).toEqual({ total: 2, required: 1, referenced: 0, suggested: 1, withLinks: 1 })
+    expect(metrics.eventPlatform).toBe('both')
+  })
+})
+
+/* Seeds one chat message with the given body. Defaults to a participant message in
+   the chat channel, where bot invocations happen. */
+async function seedChatMessage(
+  conversationId: mongoose.Types.ObjectId,
+  body: string,
+  options: { fromAgent?: boolean; channels?: string[]; visible?: boolean } = {}
+) {
+  const { fromAgent = false, channels = ['chat'], visible = true } = options
+  await Message.create([
+    {
+      body,
+      conversation: conversationId,
+      owner: ownerId,
+      pseudonymId: ownerId,
+      pseudonym: 'ana',
+      fromAgent,
+      channels,
+      visible
+    }
+  ])
+}
+
+describe('computeConversationMetrics bot invocations', () => {
+  it('counts participant chat messages that address the configured bot name', async () => {
+    const conversation = await Conversation.create({
+      name: 'Bot invocations event',
+      slug: `bot-${new mongoose.Types.ObjectId().toString()}`,
+      owner: ownerId,
+      topic: new mongoose.Types.ObjectId(),
+      properties: { botName: 'Athena' },
+      transcript: { status: 'stopped' }
+    })
+
+    await seedChatMessage(conversation._id, 'hey @Athena what did I miss?')
+    await seedChatMessage(conversation._id, 'athena, can you summarize?')
+    await seedChatMessage(conversation._id, 'athna are you there') // misspelling, fuzzy match
+    await seedChatMessage(conversation._id, 'this talk is great') // no mention
+    await seedChatMessage(conversation._id, 'good one Athena', { fromAgent: true }) // bot's own message
+    await seedChatMessage(conversation._id, 'ask Athena later', { channels: ['transcript'] }) // not chat
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+
+    expect(metrics.botInvocations).toEqual({ botName: 'Athena', count: 3 })
+  })
+
+  it('does not count a hidden chat message naming the bot, but counts a visible one', async () => {
+    const conversation = await Conversation.create({
+      name: 'Hidden invocation event',
+      slug: `bot-${new mongoose.Types.ObjectId().toString()}`,
+      owner: ownerId,
+      topic: new mongoose.Types.ObjectId(),
+      properties: { botName: 'Athena' },
+      transcript: { status: 'stopped' }
+    })
+
+    await seedChatMessage(conversation._id, 'hey Athena are you there', { visible: true })
+    await seedChatMessage(conversation._id, 'Athena can you help', { visible: false }) // hidden, excluded
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+
+    // Only the visible mention counts; the hidden one is dropped like every other human count.
+    expect(metrics.botInvocations).toEqual({ botName: 'Athena', count: 1 })
+  })
+
+  it('falls back to the default bot name when the event configured none', async () => {
+    const conversation = await Conversation.create({
+      name: 'Default bot event',
+      slug: `bot-${new mongoose.Types.ObjectId().toString()}`,
+      owner: ownerId,
+      topic: new mongoose.Types.ObjectId(),
+      transcript: { status: 'stopped' }
+    })
+
+    await seedChatMessage(conversation._id, `${config.conversationBotName} what is the agenda?`)
+    await seedChatMessage(conversation._id, 'no mention here')
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+
+    expect(metrics.botInvocations.botName).toBe(config.conversationBotName)
+    expect(metrics.botInvocations.count).toBe(1)
   })
 })
 
@@ -508,8 +956,9 @@ describe('computeConversationMetrics transcript exclusion', () => {
 
     const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
 
-    expect(metrics.participation).toMatchObject({ posterCount: 1, frequentPosterCount: 1, messageCount: 3 })
-    expect(metrics.participation.frequentPosterMessageShare).toBe(1)
+    // One poster is below the frequent-poster floor, so no dominance share is reported.
+    expect(metrics.participation).toMatchObject({ posterCount: 1, frequentPosterCount: 0, messageCount: 3 })
+    expect(metrics.participation.frequentPosterMessageShare).toBeNull()
     expect(metrics.channelSplit).toEqual({ public: 3, private: 0 })
     expect(metrics.activitySeries.reduce((sum, bucket) => sum + bucket.messageCount, 0)).toBe(3)
   })
@@ -552,8 +1001,8 @@ describe('computeConversationMetrics hidden message exclusion', () => {
     const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
 
     // Only 'mara' and her three visible messages count; 'ghost' and the hidden message drop out.
-    expect(metrics.participation).toMatchObject({ posterCount: 1, frequentPosterCount: 1, messageCount: 3 })
-    expect(metrics.participation.frequentPosterMessageShare).toBe(1)
+    expect(metrics.participation).toMatchObject({ posterCount: 1, frequentPosterCount: 0, messageCount: 3 })
+    expect(metrics.participation.frequentPosterMessageShare).toBeNull()
     expect(metrics.channelSplit).toEqual({ public: 3, private: 0 })
     expect(metrics.activitySeries.reduce((sum, bucket) => sum + bucket.messageCount, 0)).toBe(3)
   })
@@ -579,8 +1028,8 @@ describe('computeConversationMetrics history and baseline', () => {
     const metrics = await conversationAnalyticsService.computeConversationMetrics(current)
 
     expect(metrics.participationHistory).toEqual([
-      { label: 'E1', posterCount: 5, lurkerCount: 15 },
-      { label: 'E2', posterCount: 6, lurkerCount: null },
+      { label: 'Topic series event (Jun 1)', posterCount: 5, lurkerCount: 15 },
+      { label: 'Topic series event (Jun 8)', posterCount: 6, lurkerCount: null },
       { label: 'Today', posterCount: 2, lurkerCount: 8 }
     ])
     expect(metrics.baseline).toEqual({
@@ -616,8 +1065,8 @@ describe('computeConversationMetrics history and baseline', () => {
     const metrics = await conversationAnalyticsService.computeConversationMetrics(current)
 
     expect(metrics.participationHistory).toEqual([
-      { label: 'E1', posterCount: 5, lurkerCount: 15 },
-      { label: 'E2', posterCount: 5, lurkerCount: null },
+      { label: 'Topic series event (Jun 1)', posterCount: 5, lurkerCount: 15 },
+      { label: 'Topic series event (Jun 8)', posterCount: 5, lurkerCount: null },
       { label: 'Today', posterCount: 2, lurkerCount: 8 }
     ])
     expect(metrics.baseline).toEqual({
@@ -652,9 +1101,9 @@ describe('computeConversationMetrics history and baseline', () => {
 
     const metrics = await conversationAnalyticsService.computeConversationMetrics(current)
 
-    // Only the one normal past event appears as E1; the experimental event is absent.
+    // Only the one normal past event appears, labeled by name and date; the experimental event is absent.
     expect(metrics.participationHistory).toEqual([
-      { label: 'E1', posterCount: 5, lurkerCount: 15 },
+      { label: 'Topic series event (Jun 1)', posterCount: 5, lurkerCount: 15 },
       { label: 'Today', posterCount: 2, lurkerCount: 8 }
     ])
     expect(metrics.baseline).toEqual({

@@ -14,6 +14,7 @@ import adapterService from '../adapter.service.js'
 import channelService from '../channel.service.js'
 import { ConversationDocument } from '../../models/conversation.model.js'
 import { getConversationType } from '../../conversations/index.js'
+import adapterTypes from '../../adapters/index.js'
 import resolveConversationType from '../../conversations/resolver.js'
 import { supportedModels } from '../../agents/helpers/getEmbeddings.js'
 import transcript from '../../agents/helpers/transcript.js'
@@ -290,22 +291,26 @@ const updateConversation = async (conversationBody, user) => {
     conversationDoc.properties = { ...conversationDoc.properties, ...incomingProperties }
     conversationDoc.markModified('properties') // Mongoose won't detect changes inside a Mixed field without this
 
-    /* The Zoom adapter's meetingUrl and botName are set once at creation from Handlebars
-       templates. They don't sync automatically when the conversation's properties change,
-       so we update the adapter config here too. */
-    const adapterConfigUpdates: Record<string, unknown> = {}
-    if (incomingProperties.zoomMeetingUrl !== undefined) {
-      adapterConfigUpdates.meetingUrl = incomingProperties.zoomMeetingUrl
-    }
-    if (incomingProperties.botName !== undefined) {
-      adapterConfigUpdates.botName = incomingProperties.botName
-    }
-    if (Object.keys(adapterConfigUpdates).length > 0) {
-      const zoomAdapters = await Adapter.find({ conversation: conversationDoc._id, type: 'zoom' })
-      for (const adapter of zoomAdapters) {
-        adapter.config = { ...adapter.config, ...adapterConfigUpdates }
-        adapter.markModified('config')
-        await adapter.save()
+    /* Adapter config fields rendered from conversation properties at creation time don't
+       resync automatically when properties change later. Each adapter type declares a
+       configSyncMap from conversation property keys to adapter config keys; any changed
+       property that appears in a map is pushed to that type's adapter documents now. */
+    for (const [adapterType, adapterDef] of Object.entries(adapterTypes)) {
+      const syncMap = (adapterDef as { configSyncMap?: Record<string, string> }).configSyncMap
+      if (!syncMap) continue
+      const configUpdates: Record<string, unknown> = {}
+      for (const [convKey, configKey] of Object.entries(syncMap)) {
+        if (incomingProperties[convKey] !== undefined) {
+          configUpdates[configKey] = incomingProperties[convKey]
+        }
+      }
+      if (Object.keys(configUpdates).length > 0) {
+        const adapters = await Adapter.find({ conversation: conversationDoc._id, type: adapterType })
+        for (const adapter of adapters) {
+          adapter.config = { ...adapter.config, ...configUpdates }
+          adapter.markModified('config')
+          await adapter.save()
+        }
       }
     }
 

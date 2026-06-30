@@ -507,14 +507,16 @@ export interface AnalyticsSnapshot {
 
 /* Participation, taken from our own database, so it is exact. posterCount is the
    number of distinct people who sent at least one message; messageCount is the total
-   non-bot messages. frequentPosterCount is the top 10% of posters by message volume
-   (at least one once anyone has posted), and frequentPosterMessageShare is the fraction
-   of all messages those frequent posters sent (0 to 1), so the card can say whether a
-   few people dominated the conversation. */
+   non-bot messages. frequentPosterCount is the top 10% of posters by message volume,
+   widened to include everyone tied at the cutoff so a boundary tie is not split by sort
+   order. frequentPosterMessageShare is the fraction of all messages those frequent
+   posters sent (0 to 1), so the card can say whether a few people dominated. Below a
+   handful of posters a dominance share is meaningless, so frequentPosterMessageShare is
+   null and frequentPosterCount is 0 there. */
 export interface ParticipationMetrics {
   posterCount: number
   frequentPosterCount: number
-  frequentPosterMessageShare: number
+  frequentPosterMessageShare: number | null
   messageCount: number
 }
 
@@ -565,6 +567,41 @@ export interface ActivityBucket {
   messageCount: number
 }
 
+/* One detected chat spike: a time window whose message volume stood out from the
+   rest of the event. startMinute/endMinute are offsets from the event start, so a
+   later step can pull the messages sent during the window. baselineAverage is the
+   mean message count across the other windows; ratio is messageCount over that
+   average, or null when the rest of the event was silent and there is no baseline
+   to compare against. */
+/* A short, grounded label for what drove a spike. quote is verbatim text from a
+   message sent during the spike window, so the card never attributes words no one
+   wrote; topic is a brief phrase summarizing it. Present only when a quote was
+   confirmed against the window's messages. */
+export interface SpikeAnnotation {
+  topic: string
+  quote: string
+}
+
+/* Which channel category drove a spike. 'chat' and 'moderator' are channels the analyst
+   is allowed to read, so those spikes can carry a quote. 'private' is a burst of
+   one-to-one messages with the bot, which the analyst never reads, so it is surfaced by
+   its count alone. */
+export type SpikeSource = 'chat' | 'moderator' | 'private'
+
+export interface ChatSpike {
+  label: string
+  startMinute: number
+  endMinute: number
+  messageCount: number
+  baselineAverage: number
+  ratio: number | null
+  // Stamped by the service from the window's messages, before any content is read, so the
+  // analyst can label a private or backchannel burst without opening those messages.
+  source: SpikeSource
+  // Filled after detection, once a window quote is confirmed; absent otherwise.
+  annotation?: SpikeAnnotation
+}
+
 /* One point on the engagement-history chart: a past event in the same topic (or
    "Today"), with how many people posted and how many lurked (watched without posting).
    lurkerCount is null when that event had no tracked-session data, since lurkers can
@@ -596,6 +633,33 @@ export interface SameTopicBaseline {
   avgDwellSeconds: number | null
 }
 
+/* How many times participants called on the event's configured assistant by name.
+   botName is the name set at event creation (or the default); count is how many
+   participant chat messages addressed it, matched the same fuzzy way the assistant
+   itself detects a mention. */
+export interface BotInvocations {
+  botName: string
+  count: number
+}
+
+/* How the room received one speaker moment. agreement: the chat backed it up;
+   pushback: the chat challenged it; mixed: both showed up. The model reads the
+   reaction and labels it, but the label only stands when a real reaction quote and
+   the volume support it. */
+export type ReceptionSentiment = 'agreement' | 'pushback' | 'mixed'
+
+/* A speaker line that drew a visible chat reaction, with how the room responded.
+   sparkQuote is verbatim from the transcript; reactionQuote is a verbatim chat reply
+   that typifies the response; reactionVolume is how many public chat messages landed
+   in the window just after the line. Both quotes are confirmed against their source
+   before a reception is kept, so the sentiment never rides on invented words. */
+export interface QuoteReception {
+  sparkQuote: string
+  reactionVolume: number
+  reactionQuote: string
+  sentiment: ReceptionSentiment
+}
+
 /* Whether web-analytics data exists for this event. notTracked: no analytics source
    is set on the event, so nothing was ever tracked. unavailable: a source is set
    but no data has been stored yet (the fetch failed or has not run). available: at
@@ -616,13 +680,40 @@ export interface ConversationMetrics {
   audienceEngagement: AudienceEngagement | null
   // People's messages per time window; empty when the event had no messages.
   activitySeries: ActivityBucket[]
+  // Time windows whose message volume stood out from the rest; empty when none.
+  spikes: ChatSpike[]
   // This event plus recent past events in the same topic; just this event if new.
   participationHistory: ParticipationHistoryPoint[]
   // The topic's recent average, or null when this is the topic's only event.
   baseline: SameTopicBaseline | null
   // Counts of people's messages: public chat vs private one-to-one with the bot.
   channelSplit: { public: number; private: number }
+  // The configured assistant's name and how many times participants called on it.
+  botInvocations: BotInvocations
+  // Speaker moments that drew a chat reaction, with how the room responded; empty when none.
+  receptions: QuoteReception[]
+  // The event's readings and references, counted from participant-visible resources only.
+  resourceSummary: ResourceSummary
+  // Which platform(s) the event ran on: Nextspace, Zoom, or both.
+  eventPlatform: EventPlatform
 }
+
+/* The event's readings and references, counted only from what participants could see
+   (participant-visible resources). These are exact, first-party counts, like
+   participation. required, referenced, and suggested are the resource categories;
+   withLinks is how many of those visible resources carry a link. The counts say how many
+   readings existed and how many had links, never whether anyone opened them. */
+export interface ResourceSummary {
+  total: number
+  required: number
+  referenced: number
+  suggested: number
+  withLinks: number
+}
+
+/* Which platform(s) the event ran on, derived from the conversation's platforms list.
+   'both' when it ran on Nextspace and Zoom together. */
+export type EventPlatform = 'nextspace' | 'zoom' | 'both'
 
 /* One point on a bar/line/area chart: an x-axis category and its y value. */
 export interface VibesChartDataPoint {

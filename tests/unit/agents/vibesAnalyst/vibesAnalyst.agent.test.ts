@@ -14,12 +14,32 @@ const mockGetModelChat = jest.fn<(...args: any[]) => Promise<any>>()
 // agent runs it, off the stop path, before reading metrics.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockFetchAndStoreSnapshot = jest.fn<(...args: any[]) => Promise<void>>()
+// Spike annotation is exercised in spikeAnnotation tests; here we only check the
+// agent reads the allowed messages and feeds the annotated spikes to the curator.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockAnnotateSpikes = jest.fn<(...args: any[]) => Promise<any>>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockLoadReadableMessages = jest.fn<(...args: any[]) => Promise<any>>()
+// Reception annotation is exercised in quoteReception tests; here we only check the
+// agent feeds the allowed messages and poster count in, and the receptions to the curator.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockAnnotateReceptions = jest.fn<(...args: any[]) => Promise<any>>()
 
 jest.unstable_mockModule('../src/agents/vibesAnalyst/curate.js', () => ({
   default: mockCurate
 }))
 jest.unstable_mockModule('../src/agents/vibesAnalyst/verifyCuration.js', () => ({
   default: mockVerify
+}))
+jest.unstable_mockModule('../src/agents/vibesAnalyst/spikeAnnotation.js', () => ({
+  default: mockAnnotateSpikes
+}))
+jest.unstable_mockModule('../src/agents/vibesAnalyst/quoteReception.js', () => ({
+  default: mockAnnotateReceptions
+}))
+jest.unstable_mockModule('../src/agents/vibesAnalyst/capabilities.js', () => ({
+  default: () => ({ read: [], write: [] }),
+  loadReadableMessages: mockLoadReadableMessages
 }))
 jest.unstable_mockModule('../src/agents/helpers/getModelChat.js', () => ({
   getModelChat: mockGetModelChat,
@@ -65,7 +85,8 @@ describe('vibesAnalyst agent', () => {
     }
 
     const sampleMetrics = {
-      participation: { posterCount: 5, frequentPosterCount: 1, frequentPosterMessageShare: 0.4, messageCount: 20 }
+      participation: { posterCount: 5, frequentPosterCount: 1, frequentPosterMessageShare: 0.4, messageCount: 20 },
+      spikes: []
     }
     const verifiedCard = { header: 'Recap', standouts: [{ text: 'Half spoke up' }], durationMinutes: 60 }
 
@@ -82,6 +103,22 @@ describe('vibesAnalyst agent', () => {
       } as any)
     }
 
+    /* A conversation whose topic did not populate (e.g. it was deleted between
+       dispatch and this job running). The read-site re-check must fail closed and
+       treat the unknown privacy as private. */
+    function mockStoppedConversationWithMissingTopic() {
+      jest.spyOn(Conversation, 'findById').mockReturnValue({
+        populate: jest.fn<() => Promise<unknown>>().mockResolvedValue({
+          _id: 'c1',
+          name: 'The Future of Work',
+          startTime: new Date('2026-06-10T10:00:00.000Z'),
+          endTime: new Date('2026-06-10T11:00:00.000Z'),
+          topic: undefined
+        })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
+    }
+
     beforeEach(() => {
       jest.restoreAllMocks()
       mockCurate.mockReset()
@@ -90,6 +127,13 @@ describe('vibesAnalyst agent', () => {
       mockGetModelChat.mockResolvedValue({ fakeLlm: true })
       mockFetchAndStoreSnapshot.mockReset()
       mockFetchAndStoreSnapshot.mockResolvedValue(undefined)
+      mockLoadReadableMessages.mockReset()
+      mockLoadReadableMessages.mockResolvedValue([])
+      mockAnnotateSpikes.mockReset()
+      // By default, pass the spikes straight through so the wiring is transparent.
+      mockAnnotateSpikes.mockImplementation((_messages, _start, spikes) => Promise.resolve(spikes))
+      mockAnnotateReceptions.mockReset()
+      mockAnnotateReceptions.mockResolvedValue([])
     })
 
     it('returns empty for non-conversationStopped events', async () => {
@@ -138,6 +182,76 @@ describe('vibesAnalyst agent', () => {
       expect(response.channels).toEqual([adminChannel])
     })
 
+    it('annotates spikes from the allowed messages before curating, when the event had spikes', async () => {
+      mockStoppedConversation(false)
+      const rawSpike = { label: '20-30', startMinute: 20, endMinute: 30, messageCount: 8, baselineAverage: 1, ratio: 8 }
+      const spikeMetrics = { participation: { posterCount: 5 }, spikes: [rawSpike] }
+      jest
+        .spyOn(conversationAnalyticsService, 'computeConversationMetrics')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .mockResolvedValue(spikeMetrics as any)
+
+      const readableMessages = [{ body: 'remote work is banned now?', createdAt: new Date('2026-06-10T10:21:00.000Z') }]
+      mockLoadReadableMessages.mockResolvedValue(readableMessages)
+      const annotatedSpikes = [
+        { ...rawSpike, annotation: { topic: 'remote work policy', quote: 'remote work is banned now?' } }
+      ]
+      mockAnnotateSpikes.mockResolvedValue(annotatedSpikes)
+      mockCurate.mockResolvedValue({ header: 'Draft', standouts: [], durationMinutes: 60 })
+      mockVerify.mockResolvedValue(verifiedCard)
+
+      await vibesAnalyst.onConversationEvent.call(buildContext(), {
+        type: 'conversationStopped',
+        conversationId: 'c1',
+        topicId: 't1'
+      })
+
+      // Reads only the allowed messages for this conversation, then hands them and the
+      // raw spikes to the annotator with the event start.
+      expect(mockLoadReadableMessages).toHaveBeenCalledWith('c1')
+      expect(mockAnnotateSpikes).toHaveBeenCalledWith(readableMessages, expect.any(Date), [rawSpike], { fakeLlm: true })
+      // The curator sees the annotated spikes, not the bare ones.
+      expect(mockCurate).toHaveBeenCalledWith(expect.objectContaining({ spikes: annotatedSpikes }), expect.anything(), {
+        fakeLlm: true
+      })
+    })
+
+    it('annotates receptions from the allowed messages before curating', async () => {
+      mockStoppedConversation(false)
+      const receptionMetrics = { participation: { posterCount: 12 }, spikes: [] }
+      jest
+        .spyOn(conversationAnalyticsService, 'computeConversationMetrics')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .mockResolvedValue(receptionMetrics as any)
+
+      const readableMessages = [
+        {
+          body: 'we should ban gas stoves entirely',
+          channels: ['transcript'],
+          createdAt: new Date('2026-06-10T10:05:00.000Z')
+        }
+      ]
+      mockLoadReadableMessages.mockResolvedValue(readableMessages)
+      const receptions = [
+        { sparkQuote: 'ban gas stoves', reactionVolume: 7, reactionQuote: 'no way', sentiment: 'pushback' }
+      ]
+      mockAnnotateReceptions.mockResolvedValue(receptions)
+      mockCurate.mockResolvedValue({ header: 'Draft', standouts: [], durationMinutes: 60 })
+      mockVerify.mockResolvedValue(verifiedCard)
+
+      await vibesAnalyst.onConversationEvent.call(buildContext(), {
+        type: 'conversationStopped',
+        conversationId: 'c1',
+        topicId: 't1'
+      })
+
+      // Reads the allowed messages once and hands them, with the poster count, to the annotator.
+      expect(mockLoadReadableMessages).toHaveBeenCalledWith('c1')
+      expect(mockAnnotateReceptions).toHaveBeenCalledWith(readableMessages, 12, { fakeLlm: true })
+      // The curator sees the receptions the annotator produced.
+      expect(mockCurate).toHaveBeenCalledWith(expect.objectContaining({ receptions }), expect.anything(), { fakeLlm: true })
+    })
+
     it('throws AccessDeniedError and reads no metrics when the event is on a private topic', async () => {
       mockStoppedConversation(true)
       const computeSpy = jest.spyOn(conversationAnalyticsService, 'computeConversationMetrics')
@@ -151,6 +265,21 @@ describe('vibesAnalyst agent', () => {
       ).rejects.toThrow(AccessDeniedError)
       expect(computeSpy).not.toHaveBeenCalled()
       // Access is checked before any work, so no snapshot fetch on a private event.
+      expect(mockFetchAndStoreSnapshot).not.toHaveBeenCalled()
+    })
+
+    it('throws AccessDeniedError and reads no metrics when the topic did not populate', async () => {
+      mockStoppedConversationWithMissingTopic()
+      const computeSpy = jest.spyOn(conversationAnalyticsService, 'computeConversationMetrics')
+
+      await expect(
+        vibesAnalyst.onConversationEvent.call(buildContext(), {
+          type: 'conversationStopped',
+          conversationId: 'c1',
+          topicId: 't1'
+        })
+      ).rejects.toThrow(AccessDeniedError)
+      expect(computeSpy).not.toHaveBeenCalled()
       expect(mockFetchAndStoreSnapshot).not.toHaveBeenCalled()
     })
   })

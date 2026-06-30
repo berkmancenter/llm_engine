@@ -288,6 +288,13 @@ async function receiveChatMessage(data) {
 export default {
   name: 'zoom',
   label: 'Zoom',
+  /* Maps conversation property keys to the adapter config keys they should write.
+     The conversation service reads this at update time to push changed properties
+     to adapter documents without needing to know which keys each adapter type cares about. */
+  configSyncMap: {
+    zoomMeetingUrl: 'meetingUrl',
+    botName: 'botName'
+  },
   async sendMessage(message, channelConfig?) {
     if (this.config.botId === 'loadtest') {
       logger.info(`[LOAD TEST] Would send message: ${message.body}`)

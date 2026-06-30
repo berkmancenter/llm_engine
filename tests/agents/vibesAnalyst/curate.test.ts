@@ -38,6 +38,7 @@ function negativeEventMetrics(): ConversationMetrics {
       { label: '40-50', messageCount: 6 },
       { label: '50-58', messageCount: 4 }
     ],
+    spikes: [],
     participationHistory: [
       { label: 'E1', posterCount: 29, lurkerCount: 60 },
       { label: 'E2', posterCount: 30, lurkerCount: 58 },
@@ -47,7 +48,18 @@ function negativeEventMetrics(): ConversationMetrics {
       { label: 'Today', posterCount: 17, lurkerCount: 23 }
     ],
     baseline: { eventCount: 5, trackedEventCount: 5, avgPosterCount: 29.8, avgLurkerCount: 59, avgDwellSeconds: 1440 },
-    channelSplit: { public: 26, private: 38 }
+    channelSplit: { public: 26, private: 38 },
+    botInvocations: { botName: 'Berkie', count: 4 },
+    receptions: [
+      {
+        sparkQuote: 'remote work is here to stay',
+        reactionVolume: 9,
+        reactionQuote: 'finally someone said it out loud',
+        sentiment: 'agreement'
+      }
+    ],
+    resourceSummary: { total: 0, required: 0, referenced: 0, suggested: 0, withLinks: 0 },
+    eventPlatform: 'nextspace'
   }
 }
 
