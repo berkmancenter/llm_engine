@@ -124,7 +124,6 @@ async function scheduleConversationAutoStop(conversation) {
 }
 
 async function scheduleConversationEndingSoon(conversation) {
-  await schedule.cancelAutoStopConversation(conversation._id)
   await defineJob.conversationEndingSoon(conversation._id)
   // Schedule maxScheduledInterval before the scheduled end time;
   // this could eventually become configurable in conversation object

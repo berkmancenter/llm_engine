@@ -1,6 +1,10 @@
 import logger from '../../config/logger.js'
 import { Conversation } from '../../models/index.js'
-import { doStartConversation, doStopConversation } from '../../services/conversation.service/lifecycle.js'
+import {
+  doConversationEndingSoon,
+  doStartConversation,
+  doStopConversation
+} from '../../services/conversation.service/lifecycle.js'
 import websocketGateway from '../../websockets/websocketGateway.js'
 
 const autoStartConversation = async (job) => {
@@ -53,12 +57,8 @@ const conversationEndingSoon = async (job) => {
       logger.debug(`Conversation ending soon: conversation ${conversationId} already inactive, skipping`)
       return
     }
-    await conversation.populate(['topic', 'agents', 'adapters'])
-    // Agents can listen to this event and take appropriate actions (e.g. wrap up, save state, etc.)
-    websocketGateway.broadcastConversationAlmostEnding(conversation)
-
-  }
-  catch (err) {
+    await doConversationEndingSoon(conversation)
+  } catch (err) {
     logger.error(`Conversation ending soon failed for conversation ${conversationId}`, err)
   }
 }

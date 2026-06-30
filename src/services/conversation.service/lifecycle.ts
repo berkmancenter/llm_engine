@@ -155,3 +155,9 @@ export async function doStopConversation(conversation) {
 
   return doc
 }
+
+export async function doConversationEndingSoon(conversation) {
+  await conversation.populate(['topic', 'agents', 'adapters'])
+
+  await websocketGateway.broadcastConversationAlmostEnding(conversation)
+}
