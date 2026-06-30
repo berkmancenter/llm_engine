@@ -6,6 +6,7 @@ import { getChatPromptResponse } from './llmChain.js'
 
 import config from '../../config/config.js'
 import logger from '../../config/logger.js'
+import Message from '../../models/message.model.js'
 import { InterventionAnalysis, InterventionType } from './interventionTypes.js'
 import { buildSystemPromptWithPersonality, getInterventionExamples } from './agentPersonality.js'
 import validateProfessionalism from './professionalismValidator.js'
@@ -225,10 +226,28 @@ async function runInterventionAnalysis(
 const PUBLIC_INTERVENTION_RULES = `
 When weighing recent agent activity in Shared Chat History, distinguish between agents answering direct participant questions and agents making facilitative contributions — only the latter should count against intervening now.`
 
+const RACE_GUARD_WINDOW_MS = 60 * 1000
+
+/**
+ * Returns true if a proactive agent intervention was posted to chat within the race guard window.
+ * Exported for testing.
+ */
+export async function proactiveRaceGuard(conversationId, now = Date.now()): Promise<boolean> {
+  const fresh = await Message.findOne({
+    conversation: conversationId,
+    'source.proactive': true,
+    visible: true,
+    channels: 'chat',
+    createdAt: { $gte: new Date(now - RACE_GUARD_WINDOW_MS) }
+  })
+  return !!fresh
+}
+
 /**
  * Detects whether to post a public intervention to the shared chat channel.
  * The LLM decides on every invocation whether intervention is appropriate — no rate limiting.
- * Used by eventMediator and engagementAgent.
+ * A post-LLM DB race guard prevents two proactive agents from double-posting when both
+ * evaluate concurrently. Only proactive messages are considered (not Q&A agents).
  */
 export async function detectPublicInterventionOpportunity(
   sharedChatHistory: ConversationHistory,
@@ -237,7 +256,9 @@ export async function detectPublicInterventionOpportunity(
   privateConversationHistory?: ConversationHistory | null,
   userTemplate?: string
 ): Promise<InterventionAnalysis | null> {
-  return runInterventionAnalysis.call(
+  const now = sharedChatHistory.end ? sharedChatHistory.end.getTime() : Date.now()
+
+  const result = await runInterventionAnalysis.call(
     this,
     sharedChatHistory,
     baseSystemPrompt + PUBLIC_INTERVENTION_RULES,
@@ -245,6 +266,14 @@ export async function detectPublicInterventionOpportunity(
     privateConversationHistory ?? null,
     userTemplate
   )
+  if (!result) return null
+
+  if (await proactiveRaceGuard(this.conversation._id, now)) {
+    logger.info(`Agent ${this.name} dropping intervention: another proactive agent posted during LLM call`)
+    return null
+  }
+
+  return result
 }
 
 /**
@@ -268,7 +297,11 @@ export async function detectPrivateInterventionOpportunity(
   const lastIntervention = getRecentAgentInterventions(participantDmHistory).at(-1)
   if (lastIntervention && now - lastIntervention.timestamp.getTime() < minInterval) {
     const secondsAgo = Math.round((now - lastIntervention.timestamp.getTime()) / 1000)
-    logger.debug(`${this.agentType} ${this._id}: rate limited for participant — last intervention ${secondsAgo}s ago (min ${minInterval / 1000}s)`)
+    logger.debug(
+      `${this.agentType} ${this._id}: rate limited for participant — last intervention ${secondsAgo}s ago (min ${
+        minInterval / 1000
+      }s)`
+    )
     return null
   }
 

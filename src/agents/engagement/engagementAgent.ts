@@ -166,6 +166,7 @@ export async function executePollReveal(
         {
           ...interventionAnalysis,
           visible: true,
+          proactive: true,
           message: result,
           messageType: 'json',
           channels: chatChannels
@@ -250,6 +251,7 @@ export default verify({
         {
           ...interventionAnalysis,
           visible: true,
+          proactive: true,
           message: interventionAnalysis.sharedChatMessage,
           channels: this.conversation.channels.filter((c: IChannel) => c.name === 'chat')
         }

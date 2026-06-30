@@ -463,6 +463,7 @@ export interface AgentResponse<T> {
      into blocks at send time. Other adapters ignore these and send `message`. */
   responseKind?: string
   renderData?: unknown
+  proactive?: boolean
 }
 
 /* The raw counts an analytics source fetcher returns for one event, before we

@@ -213,6 +213,7 @@ export default verify({
       responses.push({
         ...interventionAnalysis,
         visible: true,
+        proactive: true,
         message: interventionAnalysis.sharedChatMessage,
         channels: this.conversation.channels.filter((c: IChannel) => c.name === 'chat')
       } as AgentResponse<string | Record<string, unknown>>)
