@@ -113,7 +113,7 @@ describe('eventHistory tools', () => {
       expect(result.toLowerCase()).toMatch(/part.time|work|employer|flexib/)
 
       // ensure prefixed with event name
-      expect(result).toContain('[Past Event:')
+      expect(result).toContain('[Event:')
     })
 
     it('finds presenter metadata by name and subject', async () => {
@@ -156,7 +156,7 @@ describe('eventHistory tools', () => {
         query: 'employers workers'
       })
 
-      expect(result).toContain('[Past Event:')
+      expect(result).toContain('[Event:')
     })
 
     it('returns invalid conversation for malformed conversation id', async () => {
@@ -192,7 +192,7 @@ describe('eventHistory tools', () => {
     })
   })
 
-  describe('excludeConversationId (series history for eventAssistant)', () => {
+  describe('activeConversationId (series history for eventAssistant)', () => {
     let scopedTools
     const scopedGetEventList = () => scopedTools.find((t) => t.name === 'get_event_list')
     const scopedSearchTopic = () => scopedTools.find((t) => t.name === 'search_topic_transcripts')
@@ -201,7 +201,7 @@ describe('eventHistory tools', () => {
     beforeEach(() => {
       // Tools scoped to the series, excluding conv2 (the "current" event)
       const topicRefs: TopicRef[] = [{ id: topic._id.toString(), name: topic.name }]
-      scopedTools = createEventHistoryTools(topicRefs, { excludeConversationId: conv2._id.toString() })
+      scopedTools = createEventHistoryTools(topicRefs, { activeConversationId: conv2._id.toString() })
     })
 
     it('get_event_list omits the excluded (current) event', async () => {
@@ -234,12 +234,12 @@ describe('eventHistory tools', () => {
       expect(result).toMatch(/current event/i)
     })
 
-    it('honors excludeConversationId end-to-end when built through the tool registry', async () => {
-      // Verifies the registry forwards excludeConversationId into createEventHistoryTools, not just
+    it('honors activeConversationId end-to-end when built through the tool registry', async () => {
+      // Verifies the registry forwards activeConversationId into createEventHistoryTools, not just
       // that the factory returns tools — exercises the same path the eventAssistant uses at runtime.
       const registryTools = getTools(['event_history'], {
         topics: [{ id: topic._id.toString(), name: topic.name }],
-        excludeConversationId: conv2._id.toString()
+        activeConversationId: conv2._id.toString()
       })
       const getEventList = registryTools.find((t) => t.name === 'get_event_list')
       const result = JSON.parse(await getEventList!.invoke({}))
@@ -249,23 +249,22 @@ describe('eventHistory tools', () => {
     })
   })
 
-  describe('[Past Event: name] chunk prefix', () => {
-    it('search_topic_transcripts prefixes every result chunk with [Past Event:]', async () => {
+  describe('chunk prefix — [Event:] without activeConversationId, [Past Event:] with it', () => {
+    it('search_topic_transcripts uses [Event:] prefix when no activeConversationId set', async () => {
       const result = await searchTopicTool().invoke({ query: 'aliens film cinema' })
       expect(result).not.toBe('No relevant content found.')
-      expect(result).toContain('[Past Event:')
-      // Must NOT use the old [Event:] prefix
-      expect(result).not.toMatch(/^\[Event:/)
+      expect(result).toContain('[Event:')
+      expect(result).not.toContain('[Past Event:')
     })
 
-    it('search_conversation_transcript prefixes every result chunk with [Past Event:]', async () => {
+    it('search_conversation_transcript uses [Event:] prefix when no activeConversationId set', async () => {
       const result = await searchConvTool().invoke({
         conversationId: conv1._id.toString(),
         query: 'part-time work employers'
       })
       expect(result).not.toBe('No relevant content found in that event.')
-      expect(result).toContain('[Past Event:')
-      expect(result).not.toMatch(/^\[Event:/)
+      expect(result).toContain('[Event:')
+      expect(result).not.toContain('[Past Event:')
     })
   })
 
@@ -358,14 +357,14 @@ describe('get_event_list – ordinal session ordering (most-recent-first)', () =
     convNewer = await createConversation({ name: 'Part-Time Work Session' }, user, topic, sevenDaysAgo)
     await loadPartTimeWorkTranscript(convNewer, true)
 
-    // The "current" event — not indexed; excluded via excludeConversationId
+    // The "current" event — not indexed; excluded via activeConversationId
     currentConv = await createConversation({ name: 'Current Session' }, user, topic, now)
   })
 
   it('returns past events sorted most-recent-first, excluding the current event', async () => {
     const topicRefs: TopicRef[] = [{ id: topic._id.toString(), name: topic.name }]
     const tools = createEventHistoryTools(topicRefs, {
-      excludeConversationId: currentConv._id.toString()
+      activeConversationId: currentConv._id.toString()
     })
     const result = JSON.parse(await tools.find((t) => t.name === 'get_event_list')!.invoke({}))
 
@@ -378,7 +377,7 @@ describe('get_event_list – ordinal session ordering (most-recent-first)', () =
   it('index [0] is 1 session ago and index [1] is 2 sessions ago', async () => {
     const topicRefs: TopicRef[] = [{ id: topic._id.toString(), name: topic.name }]
     const tools = createEventHistoryTools(topicRefs, {
-      excludeConversationId: currentConv._id.toString()
+      activeConversationId: currentConv._id.toString()
     })
     const result = JSON.parse(await tools.find((t) => t.name === 'get_event_list')!.invoke({}))
 
@@ -389,7 +388,7 @@ describe('get_event_list – ordinal session ordering (most-recent-first)', () =
   it('the event at index [1] (2 sessions ago) has searchable transcript content', async () => {
     const topicRefs: TopicRef[] = [{ id: topic._id.toString(), name: topic.name }]
     const tools = createEventHistoryTools(topicRefs, {
-      excludeConversationId: currentConv._id.toString()
+      activeConversationId: currentConv._id.toString()
     })
     const eventList = JSON.parse(await tools.find((t) => t.name === 'get_event_list')!.invoke({}))
     const twoSessionsAgoId = eventList[1].id

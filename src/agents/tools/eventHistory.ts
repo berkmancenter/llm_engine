@@ -15,11 +15,11 @@ export interface TopicRef {
 
 export interface EventHistoryToolOptions {
   /**
-   * When set, results exclude this conversation — used by the eventAssistant so its
-   * series-history search returns only *other* past events, not the current live event
-   * (whose transcript is already in the assistant's normal context).
+   * The currently active conversation ID. When set, it is excluded from all results —
+   * used by the eventAssistant so series-history search returns only prior events.
+   * Also gates "Past Event" labeling and past-event-specific tool descriptions.
    */
-  excludeConversationId?: string
+  activeConversationId?: string
 }
 
 async function getIndexedConversationIds(topicIds: string[]): Promise<Set<string>> {
@@ -41,14 +41,29 @@ async function getIndexedConversationIds(topicIds: string[]): Promise<Set<string
   return ids
 }
 
+/**
+ * Returns the system prompt block describing the event history tools.
+ * Pass hasActiveConversation=true when there is a current event being excluded from results
+ * (eventAssistant context) — surfaces "past events" framing and notes the current event is excluded.
+ */
+export function buildEventHistoryToolsPrompt(hasActiveConversation = false): string {
+  if (hasActiveConversation) {
+    return `- \`get_event_list\`: list past events by name/date in this series, sorted most-recent-first; the current event is already excluded
+- \`search_topic_transcripts\`: semantic search across all past event transcripts; results are prefixed with \`[Past Event: name]\`
+- \`search_conversation_transcript\`: deep search within one specific past event's transcript after identifying it via the above tools`
+  }
+  return `- \`get_event_list\`: list events by name/date across all series, with optional date or series filter
+- \`search_topic_transcripts\`: semantic search across all event transcripts; results are prefixed with the event name they came from
+- \`search_conversation_transcript\`: deep search within a specific event's transcript after identifying it via the above tools`
+}
+
 export default function createEventHistoryTools(topics: TopicRef[], options: EventHistoryToolOptions = {}) {
   const topicIds = topics.map((t) => t.id)
-  const { excludeConversationId } = options
+  const { activeConversationId } = options
 
   // Only honor a caller-supplied topicId if it is one of the configured series — otherwise a
   // hallucinated/invalid id (e.g. the series name) would point at a non-existent collection.
-  const resolveSearchTopicIds = (topicId?: string) =>
-    topicId && topicIds.includes(topicId) ? [topicId] : topicIds
+  const resolveSearchTopicIds = (topicId?: string) => (topicId && topicIds.includes(topicId) ? [topicId] : topicIds)
 
   const getEventListTool = tool(
     async ({ since, until, topicId }) => {
@@ -62,11 +77,11 @@ export default function createEventHistoryTools(topics: TopicRef[], options: Eve
       const indexedIds = await getIndexedConversationIds(searchTopicIds)
       const objectIds = [...indexedIds].map((id) => new mongoose.Types.ObjectId(id))
       if (objectIds.length > 0) {
-        query._id = excludeConversationId
-          ? { $in: objectIds, $ne: new mongoose.Types.ObjectId(excludeConversationId) }
+        query._id = activeConversationId
+          ? { $in: objectIds, $ne: new mongoose.Types.ObjectId(activeConversationId) }
           : { $in: objectIds }
-      } else if (excludeConversationId) {
-        query._id = { $ne: new mongoose.Types.ObjectId(excludeConversationId) }
+      } else if (activeConversationId) {
+        query._id = { $ne: new mongoose.Types.ObjectId(activeConversationId) }
       }
       if (since || until) {
         query.startTime = {}
@@ -97,14 +112,15 @@ export default function createEventHistoryTools(topics: TopicRef[], options: Eve
     {
       name: 'get_event_list',
       description:
-        'List past events in this series that have searchable transcript data, sorted most-recent-first. ' +
-        'The current event is already excluded — every result is a PRIOR session, not the current one. ' +
-        'If you get 1 result, that IS the previous session. ' +
-        'Use this to identify a specific event by name or date before drilling into its transcript, ' +
-        'or to answer questions about when events occurred. ' +
-        'For questions about what past events covered, prefer search_topic_transcripts (searches all at once) ' +
-        'rather than listing events first. ' +
-        'Optionally filter by a specific series topicId or a date range.',
+        `List events that have searchable transcript data, sorted most-recent-first. ${
+          activeConversationId
+            ? 'The current event is already excluded — every result is a PRIOR session, not the current one. If you get 1 result, that IS the previous session. '
+            : ''
+        }Use this to identify a specific event by name or date before drilling into its transcript, ` +
+        `or to answer questions about when events occurred. ` +
+        `For questions about what events covered, prefer search_topic_transcripts (searches all at once) ` +
+        `rather than listing events first. ` +
+        `Optionally filter by a specific series topicId or a date range.`,
       schema: z.object({
         since: z
           .string()
@@ -122,8 +138,9 @@ export default function createEventHistoryTools(topics: TopicRef[], options: Eve
     }
   )
 
+  const eventLabel = activeConversationId ? 'Past Event' : 'Event'
   const formatChunk = (doc) => {
-    const label = doc.metadata?.conversationName ? `[Past Event: ${doc.metadata.conversationName}]` : '[Past Event]'
+    const label = doc.metadata?.conversationName ? `[${eventLabel}: ${doc.metadata.conversationName}]` : `[${eventLabel}]`
     return `${label}\n${doc.pageContent}`
   }
 
@@ -132,7 +149,7 @@ export default function createEventHistoryTools(topics: TopicRef[], options: Eve
       const searchTopicIds = resolveSearchTopicIds(topicId)
 
       // Exclude the current event's own chunks so series history returns only other events.
-      const chunkFilter = excludeConversationId ? { conversationId: { $ne: excludeConversationId } } : undefined
+      const chunkFilter = activeConversationId ? { conversationId: { $ne: activeConversationId } } : undefined
 
       const allChunks: string[] = []
       await Promise.all(
@@ -141,13 +158,7 @@ export default function createEventHistoryTools(topics: TopicRef[], options: Eve
           try {
             // No score threshold — this tool is for discovery; always return the best matches
             // so the LLM can see what past events covered even for broad/meta queries.
-            const { chunks } = await rag.getContextChunksForQuestion(
-              collectionName,
-              query,
-              formatChunk,
-              chunkFilter,
-              10
-            )
+            const { chunks } = await rag.getContextChunksForQuestion(collectionName, query, formatChunk, chunkFilter, 10)
             if (chunks) allChunks.push(chunks)
           } catch (error) {
             logger.warn(`search_topic_transcripts: no data for topic ${id}: ${error.message}`)
@@ -182,7 +193,7 @@ export default function createEventHistoryTools(topics: TopicRef[], options: Eve
       if (!mongoose.Types.ObjectId.isValid(conversationId)) {
         return `Invalid conversationId "${conversationId}". You must pass the "id" field from get_event_list results, not the event name.`
       }
-      if (excludeConversationId && conversationId === excludeConversationId) {
+      if (activeConversationId && conversationId === activeConversationId) {
         return 'That is the current event — its transcript is already in your context. Use this tool only for other past events in the series.'
       }
       const collectionName = `${TRANSCRIPT_COLLECTION_PREFIX}-${conversationId}`

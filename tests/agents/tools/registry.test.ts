@@ -80,10 +80,10 @@ describe('Tool Registry', () => {
     )
   })
 
-  test('event_history factory accepts excludeConversationId context without error', () => {
+  test('event_history factory accepts activeConversationId context without error', () => {
     const tools = getTools(['event_history'], {
       topics: [{ id: '507f1f77bcf86cd799439011', name: 'My Series' }],
-      excludeConversationId: '507f1f77bcf86cd799439012'
+      activeConversationId: '507f1f77bcf86cd799439012'
     })
     expect(tools).toHaveLength(3)
   })

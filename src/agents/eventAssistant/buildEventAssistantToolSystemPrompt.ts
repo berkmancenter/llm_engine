@@ -1,3 +1,5 @@
+import { buildEventHistoryToolsPrompt } from '../tools/eventHistory.js'
+
 /**
  * System instructions for the event assistant when tools (e.g. web_search) are enabled.
  * Exported as a constant so unit tests can lock the decision rule without calling an LLM.
@@ -35,9 +37,7 @@ This event is part of the "${seriesName}" series. You can search the transcripts
 
 Today's date is ${today}.
 
-- \`search_topic_transcripts\`: semantic search across ALL past events' transcripts at once; each result chunk is prefixed with \`[Past Event: name]\`. **Start here for any question about what past sessions covered.** Results labeled \`[Past Event: ...]\` are NEVER from the current session — always from a prior one, even if the name matches the current event.
-- \`get_event_list\`: list past events by name and date, sorted most-recent-first. Use this when you need to identify a specific event by name/date, for ordinal references ("2 sessions ago"), or for calendar references ("last week").
-- \`search_conversation_transcript\`: deep search within one specific past event's transcript, after identifying it via \`get_event_list\`.
+${buildEventHistoryToolsPrompt(true /* hasActiveConversation */)}
 
 **Workflow for "what was the previous session about?" or similar:**
 Call \`search_topic_transcripts\` directly. Use the user's question as your query — do NOT use generic phrases like "main topics discussed". Do NOT call \`get_event_list\` first for content questions — it only lists events, it does not retrieve what was discussed.

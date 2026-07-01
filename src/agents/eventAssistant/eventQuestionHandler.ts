@@ -385,7 +385,7 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
     const topicDoc = await Topic.findById(topicId).select('_id name description').lean()
     if (topicDoc) {
       series = { id: topicDoc._id.toString(), name: topicDoc.name, description: topicDoc.description }
-      toolContext = { topics: [series], excludeConversationId: this.conversation._id.toString() }
+      toolContext = { topics: [series], activeConversationId: this.conversation._id.toString() }
     }
   }
 
