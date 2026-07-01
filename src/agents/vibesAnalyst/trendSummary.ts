@@ -1,25 +1,13 @@
 import { z } from 'zod'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
-import { CuratedVibesData, CuratedVibesStandout, CuratedVibesVisual } from '../../types/index.types.js'
+import {
+  CuratedVibesData,
+  CuratedVibesStandout,
+  CuratedVibesVisual,
+  TrendSnapshotView
+} from '../../types/index.types.js'
 import eventDateLabel from '../../utils/eventDateLabel.js'
 import { VIBES_TREND_SYSTEM_PROMPT, VIBES_TREND_USER_TEMPLATE } from './prompt.js'
-
-/* The fields the trend chart and label need off a stored snapshot. trendRow reads every other
-   metric generically, so a snapshot carrying more (any metric we store) reaches the writer
-   without a change here; quote text is never stored, so a trend is quote-free by construction. */
-export interface TrendSnapshotView {
-  eventName?: string | null
-  eventEndTime?: Date
-  posterCount: number
-  messageCount: number
-  lurkerCount: number | null
-  participationRate: number | null
-  avgDwellSeconds: number | null
-  spikeCount: number
-  // Optional/nullable to accept a Mongoose snapshot document directly, where a nested object
-  // is typed as possibly absent; coerced when read.
-  channelSplit?: { public: number; private: number } | null
-}
 
 /* Slack's data_visualization block caps every category and data point label at 20 characters,
    so the trend labels each event by its short UTC date (e.g. "Jun 3"), the part that actually

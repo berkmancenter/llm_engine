@@ -1,4 +1,5 @@
 import mongoose from 'mongoose'
+import { EventMetricsSnapshotData } from '../types/index.types.js'
 import { toJSON, paginate } from './plugins/index.js'
 
 /* One per-event snapshot of the Vibes Analyst metrics, one document per event in its own
@@ -18,7 +19,7 @@ import { toJSON, paginate } from './plugins/index.js'
    conversationAnalytics.service). The estimate fields (everything sourced from web
    analytics) are captured "as of" capturedAt and are never revised when late provider data
    arrives. */
-const eventMetricsSnapshotSchema = new mongoose.Schema(
+const eventMetricsSnapshotSchema = new mongoose.Schema<EventMetricsSnapshotData>(
   {
     conversationId: {
       type: mongoose.SchemaTypes.ObjectId,
@@ -142,6 +143,6 @@ eventMetricsSnapshotSchema.index({ conversationId: 1, metricsVersion: 1 }, { uni
 /**
  * @typedef EventMetricsSnapshot
  */
-const EventMetricsSnapshot = mongoose.model('EventMetricsSnapshot', eventMetricsSnapshotSchema)
+const EventMetricsSnapshot = mongoose.model<EventMetricsSnapshotData>('EventMetricsSnapshot', eventMetricsSnapshotSchema)
 
 export default EventMetricsSnapshot

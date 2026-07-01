@@ -1,4 +1,5 @@
-import { buildTrendChart, trendRow, TrendSnapshotView } from '../../../../src/agents/vibesAnalyst/trendSummary.js'
+import { buildTrendChart, trendRow } from '../../../../src/agents/vibesAnalyst/trendSummary.js'
+import { TrendSnapshotView } from '../../../../src/types/index.types.js'
 
 function snap(name: string, endTime: string, posterCount: number): TrendSnapshotView {
   return {

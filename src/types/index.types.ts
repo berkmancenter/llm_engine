@@ -821,13 +821,30 @@ export interface EventMetricsSnapshotData {
   receptionCount: number | null
 }
 
+/* The snapshot fields the trend chart and label read by name, off a stored snapshot or a live
+   recompute. A projection of EventMetricsSnapshotData so the two stay in lockstep: trendRow reads
+   every other metric generically, so a snapshot carrying more reaches the writer without a change
+   here, and quote text is never stored, so a trend is quote-free by construction. */
+export type TrendSnapshotView = Pick<
+  EventMetricsSnapshotData,
+  | 'eventName'
+  | 'eventEndTime'
+  | 'posterCount'
+  | 'messageCount'
+  | 'lurkerCount'
+  | 'participationRate'
+  | 'avgDwellSeconds'
+  | 'spikeCount'
+  | 'channelSplit'
+>
+
 /* One point on a bar/line/area chart: an x-axis category and its y value. */
 export interface VibesChartDataPoint {
   label: string
   value: number
 }
 
-/* A named data series (one set of bars/a line/an area). Slack allows 1-6 series
+/* A named data series (one set of bars/a line/an area). Slack allows 1-12 series
    per chart, each with 1-20 points. */
 export interface VibesChartSeries {
   name: string

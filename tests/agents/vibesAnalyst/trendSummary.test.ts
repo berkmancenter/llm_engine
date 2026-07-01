@@ -1,6 +1,6 @@
-import buildTrendSummary, { TrendSnapshotView } from '../../../src/agents/vibesAnalyst/trendSummary.js'
+import buildTrendSummary from '../../../src/agents/vibesAnalyst/trendSummary.js'
 import { getModelChat, supportedModels } from '../../../src/agents/helpers/getModelChat.js'
-import { LlmPlatforms } from '../../../src/types/index.types.js'
+import { LlmPlatforms, TrendSnapshotView } from '../../../src/types/index.types.js'
 
 jest.setTimeout(45000) // LLM calls can be slow
 
