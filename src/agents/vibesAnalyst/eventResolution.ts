@@ -2,7 +2,9 @@ import * as fuzzball from 'fuzzball'
 import { z } from 'zod'
 import Conversation from '../../models/conversation.model.js'
 import EventMetricsSnapshot from '../../models/eventMetricsSnapshot.model.js'
-import { METRICS_VERSION } from '../../services/conversationAnalytics.service.js'
+import conversationAnalyticsService, { METRICS_VERSION } from '../../services/conversationAnalytics.service.js'
+import { buildSnapshotPayload } from '../../services/eventMetricsSnapshot.service.js'
+import { EventMetricsSnapshotData } from '../../types/index.types.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { VIBES_EVENT_REFERENCE_SYSTEM_PROMPT, VIBES_EVENT_REFERENCE_USER_TEMPLATE } from './prompt.js'
 
@@ -14,6 +16,11 @@ export interface EventCandidate {
   endTime: Date
 }
 
+/* Why the message addressed VA: recap an event, a greeting/liveness check, a help or
+   capability question, or something off-topic. Only "recap" reads an event; the rest get a
+   canned reply. Optional so callers that predate intent classification default to a recap. */
+export type SummonIntent = 'recap' | 'greeting' | 'help' | 'offTopic'
+
 /* What the user asked for, extracted from their summon message: the text naming the
    event (a title, or a topic when they want its latest), and which "most recent" shortcut
    they used, if any. latestInTopic means the newest event in a named topic; latestOverall
@@ -22,7 +29,8 @@ export interface EventCandidate {
    trend is set when the user asks about several events at once or how something changed over
    time ("how was engagement across the last 3 events?"), which is answered from snapshots
    rather than one live recap. eventCount is how many recent events they named (null when
-   unspecified). Both are optional so callers that only resolve a single event need not set
+   unspecified). intent is why they addressed VA at all; when it is not "recap" the event
+   fields are empty. All are optional so callers that only resolve a single event need not set
    them. */
 export interface EventReference {
   eventQuery: string
@@ -30,6 +38,7 @@ export interface EventReference {
   latestOverall?: boolean
   trend?: boolean
   eventCount?: number | null
+  intent?: SummonIntent
 }
 
 /* The outcome of matching a reference against the public events on offer. */
@@ -133,6 +142,30 @@ export async function fetchTrendSnapshots(scopedCandidates: EventCandidate[], li
     .limit(limit)
 }
 
+/* Computes trend rows live for the scoped events, for the case where too few snapshots exist to
+   compare (a fresh deploy, or events that ended before the snapshot write shipped). It recomputes
+   each event's metrics with the same service the recap and snapshot use, then shapes them with
+   buildSnapshotPayload so the rows are identical to a stored snapshot. The metrics are current
+   definition, so a caller uses these for the WHOLE comparison rather than mixing them with stored
+   snapshots at a possibly older version. The candidates arrive newest-first and privacy-filtered,
+   so that order and filter carry through here just as they do for the stored read. The scalar
+   recompute never runs the LLM reception pass, so receptionCount is recorded as null ("not
+   computed") rather than a misleading 0, matching the backfill. */
+export async function computeTrendViewsLive(
+  scopedCandidates: EventCandidate[],
+  limit: number
+): Promise<EventMetricsSnapshotData[]> {
+  const targets = scopedCandidates.slice(0, limit)
+  const views: EventMetricsSnapshotData[] = []
+  for (const candidate of targets) {
+    const conversation = await Conversation.findById(candidate.id).populate('topic')
+    if (!conversation) continue
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+    views.push(buildSnapshotPayload(conversation, metrics, { receptionCount: null }))
+  }
+  return views
+}
+
 /* At most this many recent public events are pulled as candidates. The summon matches
    by name in memory, so this bounds the work; very old events past the window are not
    summonable, which is an acceptable first cut. */
@@ -177,6 +210,11 @@ export async function findCandidatePublicEvents(): Promise<EventCandidate[]> {
 /* The shape the summon parser returns: the identifying words and whether the user asked
    for the latest in a topic. Re-validated against real events afterward. */
 const EventReferenceSchema = z.object({
+  intent: z
+    .enum(['recap', 'greeting', 'help', 'offTopic'])
+    .describe(
+      'Why the message addressed the assistant: "recap" to summarize or compare past events, "greeting" for a hello or liveness check, "help" for a what-can-you-do question, "offTopic" for anything else'
+    ),
   eventQuery: z
     .string()
     .describe('Only the words that name the event or its topic, with the assistant mention and filler removed'),

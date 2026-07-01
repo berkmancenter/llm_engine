@@ -1,11 +1,12 @@
 import mongoose from 'mongoose'
 import setupIntTest from '../../../utils/setupIntTest.js'
-import { EventMetricsSnapshot } from '../../../../src/models/index.js'
+import { Conversation, Message, EventMetricsSnapshot } from '../../../../src/models/index.js'
 import { METRICS_VERSION } from '../../../../src/services/conversationAnalytics.service.js'
 import {
   resolveTrendScope,
   trendEventCount,
   fetchTrendSnapshots,
+  computeTrendViewsLive,
   DEFAULT_TREND_EVENTS,
   EventCandidate
 } from '../../../../src/agents/vibesAnalyst/eventResolution.js'
@@ -112,5 +113,70 @@ describe('fetchTrendSnapshots', () => {
 
     const snapshots = await fetchTrendSnapshots([ev(conversationId.toString(), 'Event', 'Series')], 5)
     expect(snapshots).toHaveLength(0)
+  })
+})
+
+describe('computeTrendViewsLive', () => {
+  const ownerId = new mongoose.Types.ObjectId()
+
+  /* An ended event with a couple of posters, returned as the EventCandidate a trend would scope
+     to. No stored snapshot: this is the case the live recompute exists for. */
+  async function seedEndedEvent(name: string, endTime: Date): Promise<EventCandidate> {
+    const conversation = await Conversation.create({
+      name,
+      slug: `live-${new mongoose.Types.ObjectId().toString()}`,
+      owner: ownerId,
+      topic: new mongoose.Types.ObjectId(),
+      endTime,
+      transcript: { status: 'stopped' }
+    })
+    await Message.create(
+      ['a', 'b'].map((pseudonym) => ({
+        body: 'hi',
+        conversation: conversation._id,
+        owner: new mongoose.Types.ObjectId(),
+        pseudonymId: ownerId,
+        pseudonym,
+        fromAgent: false
+      }))
+    )
+    return ev(conversation._id.toString(), name, 'Series')
+  }
+
+  it('recomputes snapshot-shaped rows for the scoped events, in the given order', async () => {
+    const newer = await seedEndedEvent('Newer', new Date('2026-05-30T00:00:00.000Z'))
+    const older = await seedEndedEvent('Older', new Date('2026-05-01T00:00:00.000Z'))
+
+    const views = await computeTrendViewsLive([newer, older], 5)
+
+    expect(views).toHaveLength(2)
+    expect(views[0].conversationId.toString()).toBe(newer.id)
+    expect(views[1].conversationId.toString()).toBe(older.id)
+    // Rows carry the same scalar fields a stored snapshot does, so the trend writer reads them
+    // identically. Reception is null because the live recompute never runs the LLM reception pass.
+    expect(typeof views[0].posterCount).toBe('number')
+    expect(views[0].receptionCount).toBeNull()
+    expect(views[0].metricsVersion).toBe(METRICS_VERSION)
+  })
+
+  it('caps the recompute at the requested limit', async () => {
+    const a = await seedEndedEvent('A', new Date('2026-05-30T00:00:00.000Z'))
+    const b = await seedEndedEvent('B', new Date('2026-05-20T00:00:00.000Z'))
+    const c = await seedEndedEvent('C', new Date('2026-05-10T00:00:00.000Z'))
+
+    const views = await computeTrendViewsLive([a, b, c], 2)
+
+    expect(views).toHaveLength(2)
+    expect(views.map((view) => view.conversationId.toString())).toEqual([a.id, b.id])
+  })
+
+  it('skips a scoped event that no longer exists rather than failing', async () => {
+    const real = await seedEndedEvent('Real', new Date('2026-05-30T00:00:00.000Z'))
+    const missing = ev(new mongoose.Types.ObjectId().toString(), 'Gone', 'Series')
+
+    const views = await computeTrendViewsLive([real, missing], 5)
+
+    expect(views).toHaveLength(1)
+    expect(views[0].conversationId.toString()).toBe(real.id)
   })
 })

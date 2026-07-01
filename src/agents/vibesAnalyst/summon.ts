@@ -11,6 +11,7 @@ import {
   resolveTrendScope,
   trendEventCount,
   fetchTrendSnapshots,
+  computeTrendViewsLive,
   EventCandidate,
   EventReference
 } from './eventResolution.js'
@@ -39,9 +40,45 @@ export function ambiguousMessage(candidates: EventCandidate[]): string {
   return `A few public events match that. Which one did you mean?\n${list}`
 }
 
-/* The reply when a trend was asked for but no stored snapshots exist to compare. */
+/* The reply when a trend was asked for but there is nothing to compare: no stored snapshots and
+   no past events to recompute live either. This is the genuinely-empty case (a space with fewer
+   than two past public events), not the "snapshots not seeded yet" case, which the live recompute
+   now covers. */
 export function noTrendDataMessage(): string {
-  return "I don't have stored metrics for those events yet, so I can't compare them. Once they've each been recapped (or the backfill has run), I can."
+  return "I don't have any past events to compare there yet. Once an event has wrapped up, I can read it and start building a trend."
+}
+
+/* The shared "here's how to ask" guidance, with a few recent public events to pick from.
+   Both the greeting and the help reply use it, so someone who addresses VA without naming an
+   event gets pointed at something concrete instead of a bare instruction. */
+function usageGuideWithEvents(recent: EventCandidate[]): string {
+  const howTo =
+    'Mention me with a past public event and I\'ll read its engagement data and tell you what stood out. You can ask for "the latest", or compare recent events to see how things have moved (for example "how was engagement across the last 3 events?").'
+  if (recent.length === 0) {
+    return `${howTo}\nNo public events have wrapped up yet, so there's nothing to read so far.`
+  }
+  const list = recent.map((candidate) => `• ${candidate.name}`).join('\n')
+  return `${howTo}\nRecent public events:\n${list}\nReply with one of these names, or ask for "the latest".`
+}
+
+/* The reply to a greeting or liveness check ("hi", "are you there?"): confirm VA is up, then
+   guide the asker toward a recap so the greeting turns into something useful. In the analyst's
+   voice (see VIBES_VOICE): present and paying attention to the numbers. */
+export function greetingMessage(recent: EventCandidate[]): string {
+  return `Here, and watching the numbers. ${usageGuideWithEvents(recent)}`
+}
+
+/* The reply to a help or capability question ("what can you do?", "how do I use you?"): the
+   same usage guidance, framed as an answer to what VA is for. */
+export function helpMessage(recent: EventCandidate[]): string {
+  return `Here's what I do. ${usageGuideWithEvents(recent)}`
+}
+
+/* The reply when a message is addressed to VA but is not a recap, greeting, or help question.
+   It redirects to what VA does without dumping the event list, since the asker was not looking
+   for one. */
+export function offTopicMessage(): string {
+  return 'That\'s outside what I read. I analyze engagement from public events: mention me with an event name, or ask for "the latest" and I\'ll take the most recent.'
 }
 
 /* Builds a reply that threads under the summoning message, in the channel it came from.
@@ -102,12 +139,15 @@ async function recapResolvedEvent(
 }
 
 /**
- * Answers a cross-event trend question from stored snapshots rather than a live recap. Scopes
- * to the named series (or all public events when none is named), reads the most recent N
- * snapshots at the current metrics version, and posts a comparative card. The snapshot read is
- * confined to the privacy-filtered candidate set, so a private event can never enter a trend.
- * With no snapshots it says so; with exactly one it falls back to a normal single-event recap,
- * since one event is not a trend.
+ * Answers a cross-event trend question. Scopes to the named series (or all public events when
+ * none is named) and posts a comparative card. It prefers stored snapshots, and when too few
+ * exist to compare (a fresh deploy, or events that ended before the snapshot write shipped) it
+ * recomputes the scoped events live instead of dead-ending, so a trend still answers when the
+ * data exists but was never snapshotted. Live rows are used for the WHOLE comparison rather than
+ * mixed with stored ones, so every event is measured the same way. Either source is confined to
+ * the privacy-filtered candidate set, so a private event can never enter a trend. With nothing to
+ * compare it says so; with exactly one event it falls back to a normal single-event recap, since
+ * one event is not a trend.
  */
 async function handleTrendSummon(
   context,
@@ -118,16 +158,18 @@ async function handleTrendSummon(
   llm
 ): Promise<AgentResponse<string>[]> {
   const scoped = resolveTrendScope(reference, candidates)
-  const snapshots = await fetchTrendSnapshots(scoped, trendEventCount(reference))
+  const limit = trendEventCount(reference)
+  const snapshots = await fetchTrendSnapshots(scoped, limit)
+  const views = snapshots.length >= 2 ? snapshots : await computeTrendViewsLive(scoped, limit)
 
-  if (snapshots.length === 0) {
+  if (views.length === 0) {
     return [reply(context, parent, noTrendDataMessage())]
   }
-  if (snapshots.length === 1) {
-    return recapResolvedEvent(context, parent, snapshots[0].conversationId.toString(), reference.eventQuery, recent, llm)
+  if (views.length === 1) {
+    return recapResolvedEvent(context, parent, views[0].conversationId.toString(), reference.eventQuery, recent, llm)
   }
 
-  const renderData = await buildTrendSummary(snapshots, llm)
+  const renderData = await buildTrendSummary(views, llm)
   return [
     reply(context, parent, 'Engagement trend across recent events', { responseKind: 'curatedVibesSummary', renderData })
   ]
@@ -149,8 +191,20 @@ export default async function handleSummon(context, userMessage, llm): Promise<A
   // Newest first, capped, so a miss can suggest real recent events instead of dead-ending.
   const recent = [...candidates].sort((a, b) => b.endTime.getTime() - a.endTime.getTime()).slice(0, MAX_RECENT_SUGGESTIONS)
 
+  // Addressed to VA but not asking for a recap: answer with a canned reply rather than
+  // resolving an event. Greeting and help both guide toward a recap; off-topic redirects.
+  if (reference.intent === 'greeting') return [reply(context, parent, greetingMessage(recent))]
+  if (reference.intent === 'help') return [reply(context, parent, helpMessage(recent))]
+  if (reference.intent === 'offTopic') return [reply(context, parent, offTopicMessage())]
+
   if (reference.trend) {
     return handleTrendSummon(context, parent, reference, candidates, recent, llm)
+  }
+
+  // A recap that names no event at all (a bare greeting the parser did not tag, or an empty
+  // ask): guide the asker instead of dumping the not-found event list.
+  if (!(reference.eventQuery ?? '').trim() && !reference.latestOverall && !reference.latestInTopic) {
+    return [reply(context, parent, helpMessage(recent))]
   }
 
   const resolution = resolveSummonedEvent(reference, candidates)

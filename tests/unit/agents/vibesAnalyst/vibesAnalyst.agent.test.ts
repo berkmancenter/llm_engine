@@ -54,7 +54,10 @@ jest.unstable_mockModule('../src/services/analyticsSources/index.js', () => ({
   default: { fetchAndStoreSnapshot: mockFetchAndStoreSnapshot }
 }))
 jest.unstable_mockModule('../src/services/eventMetricsSnapshot.service.js', () => ({
-  default: { persistSnapshot: mockPersistSnapshot }
+  default: { persistSnapshot: mockPersistSnapshot },
+  // eventResolution imports this named export (for the trend live-recompute path); it is not
+  // exercised here, but the mock must provide it or the module load fails.
+  buildSnapshotPayload: jest.fn()
 }))
 
 const { default: vibesAnalyst } = await import('../../../../src/agents/vibesAnalyst/index.js')

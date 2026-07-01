@@ -22,6 +22,8 @@ const mockTrendEventCount = jest.fn<(...args: any[]) => number>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockFetchTrendSnapshots = jest.fn<(...args: any[]) => Promise<any>>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockComputeTrendViewsLive = jest.fn<(...args: any[]) => Promise<any>>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockBuildTrend = jest.fn<(...args: any[]) => Promise<any>>()
 
 jest.unstable_mockModule('../src/agents/vibesAnalyst/eventResolution.js', () => ({
@@ -30,7 +32,8 @@ jest.unstable_mockModule('../src/agents/vibesAnalyst/eventResolution.js', () => 
   resolveSummonedEvent: mockResolve,
   resolveTrendScope: mockResolveTrendScope,
   trendEventCount: mockTrendEventCount,
-  fetchTrendSnapshots: mockFetchTrendSnapshots
+  fetchTrendSnapshots: mockFetchTrendSnapshots,
+  computeTrendViewsLive: mockComputeTrendViewsLive
 }))
 jest.unstable_mockModule('../src/agents/vibesAnalyst/buildSummary.js', () => ({
   default: mockBuildSummary
@@ -42,7 +45,10 @@ jest.unstable_mockModule('../src/agents/vibesAnalyst/trendSummary.js', () => ({
 const {
   default: handleSummon,
   notFoundMessage,
-  ambiguousMessage
+  ambiguousMessage,
+  greetingMessage,
+  helpMessage,
+  offTopicMessage
 } = await import('../../../../src/agents/vibesAnalyst/summon.js')
 const { default: Conversation } = await import('../../../../src/models/conversation.model.js')
 
@@ -89,6 +95,8 @@ describe('handleSummon', () => {
     mockTrendEventCount.mockReturnValue(5)
     mockFetchTrendSnapshots.mockReset()
     mockFetchTrendSnapshots.mockResolvedValue([])
+    mockComputeTrendViewsLive.mockReset()
+    mockComputeTrendViewsLive.mockResolvedValue([])
     mockBuildTrend.mockReset()
     mockBuildTrend.mockResolvedValue({ header: 'Engagement trend', standouts: [] })
   })
@@ -169,6 +177,76 @@ describe('handleSummon', () => {
     expect(mockBuildSummary).not.toHaveBeenCalled()
   })
 
+  describe('non-recap intents', () => {
+    // A member can address VA without asking for a recap: a greeting, a "what can you do?",
+    // or something off-topic. These get a canned reply, never the not-found event dump, and
+    // never read an event.
+    const recent = [
+      { id: '1', name: 'Mushrooms and the Future', topicName: 'Regenerative Futures', endTime: new Date('2026-06-10') },
+      { id: '2', name: 'Soil Health 101', topicName: 'Regenerative Futures', endTime: new Date('2026-06-03') }
+    ]
+
+    beforeEach(() => {
+      mockFindCandidates.mockResolvedValue(recent)
+    })
+
+    it('answers a greeting with a usage guide and recent events, reading nothing', async () => {
+      mockExtract.mockResolvedValue({ intent: 'greeting', eventQuery: '', latestInTopic: false, trend: false })
+
+      const responses = await handleSummon(buildContext(), { _id: 'm', body: '@Vibes are you there?' }, fakeLlm)
+
+      expect(responses).toHaveLength(1)
+      expect(responses[0].responseKind).toBeUndefined()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect(responses[0].message).toBe(greetingMessage(recent as any))
+      expect(responses[0].message).toContain('Mushrooms and the Future')
+      expect(mockResolve).not.toHaveBeenCalled()
+      expect(mockBuildSummary).not.toHaveBeenCalled()
+    })
+
+    it('answers a help question with the usage guide and recent events', async () => {
+      mockExtract.mockResolvedValue({ intent: 'help', eventQuery: '', latestInTopic: false, trend: false })
+
+      const responses = await handleSummon(buildContext(), { _id: 'm', body: '@Vibes what can you do?' }, fakeLlm)
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect(responses[0].message).toBe(helpMessage(recent as any))
+      expect(responses[0].message).toContain('Soil Health 101')
+      expect(mockResolve).not.toHaveBeenCalled()
+      expect(mockBuildSummary).not.toHaveBeenCalled()
+    })
+
+    it('deflects an off-topic message without listing events or reading anything', async () => {
+      mockExtract.mockResolvedValue({ intent: 'offTopic', eventQuery: '', latestInTopic: false, trend: false })
+
+      const responses = await handleSummon(buildContext(), { _id: 'm', body: '@Vibes whats the weather?' }, fakeLlm)
+
+      expect(responses[0].message).toBe(offTopicMessage())
+      expect(responses[0].message).not.toContain('Mushrooms and the Future')
+      expect(mockResolve).not.toHaveBeenCalled()
+      expect(mockBuildSummary).not.toHaveBeenCalled()
+    })
+
+    it('guides instead of dumping the event list when a recap names no event at all', async () => {
+      // Even if a bare greeting slips through tagged as a recap, an empty query must never
+      // reach the not-found dump; it falls back to the same help guidance.
+      mockExtract.mockResolvedValue({
+        intent: 'recap',
+        eventQuery: '   ',
+        latestInTopic: false,
+        latestOverall: false,
+        trend: false
+      })
+
+      const responses = await handleSummon(buildContext(), { _id: 'm', body: '@Vibes are you there?' }, fakeLlm)
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect(responses[0].message).toBe(helpMessage(recent as any))
+      expect(mockResolve).not.toHaveBeenCalled()
+      expect(mockBuildSummary).not.toHaveBeenCalled()
+    })
+  })
+
   describe('trend queries', () => {
     const trendMessage = { _id: 'summon-msg', body: '@Vibes how was engagement across the last 3 AI Ethics sessions?' }
 
@@ -184,8 +262,9 @@ describe('handleSummon', () => {
 
       const responses = await handleSummon(buildContext(), trendMessage, fakeLlm)
 
-      // The trend reads snapshots, not a live event, and never runs the single-event recap.
+      // Stored snapshots are preferred: no live recompute, no single-event recap.
       expect(mockBuildTrend).toHaveBeenCalledWith(snapshots, fakeLlm)
+      expect(mockComputeTrendViewsLive).not.toHaveBeenCalled()
       expect(mockBuildSummary).not.toHaveBeenCalled()
       expect(mockResolve).not.toHaveBeenCalled()
 
@@ -206,19 +285,38 @@ describe('handleSummon', () => {
       expect(mockFetchTrendSnapshots).toHaveBeenCalledWith(expect.anything(), 3)
     })
 
-    it('replies that there is no trend data when no snapshots exist yet', async () => {
+    it('recomputes the scoped events live and posts a trend when no snapshots exist yet', async () => {
+      // The events were never snapshotted (never stopped since the feature shipped, backfill
+      // not run), but their metrics can still be computed on demand, so the trend answers.
       mockFetchTrendSnapshots.mockResolvedValue([])
+      const liveViews = [{ conversationId: 'c3' }, { conversationId: 'c2' }, { conversationId: 'c1' }]
+      mockComputeTrendViewsLive.mockResolvedValue(liveViews)
+      const trendCard = { header: 'Engagement trend', standouts: [] }
+      mockBuildTrend.mockResolvedValue(trendCard)
+
+      const responses = await handleSummon(buildContext(), trendMessage, fakeLlm)
+
+      expect(mockComputeTrendViewsLive).toHaveBeenCalled()
+      expect(mockBuildTrend).toHaveBeenCalledWith(liveViews, fakeLlm)
+      expect(mockBuildSummary).not.toHaveBeenCalled()
+      expect(responses[0].renderData).toBe(trendCard)
+    })
+
+    it('says there is nothing to compare when neither snapshots nor live events exist', async () => {
+      mockFetchTrendSnapshots.mockResolvedValue([])
+      mockComputeTrendViewsLive.mockResolvedValue([])
 
       const responses = await handleSummon(buildContext(), trendMessage, fakeLlm)
 
       expect(responses).toHaveLength(1)
       expect(responses[0].responseKind).toBeUndefined()
-      expect(responses[0].message).toMatch(/don't have stored metrics|can't compare/i)
+      expect(responses[0].message).toMatch(/don't have any past events|build(ing)? a trend/i)
       expect(mockBuildTrend).not.toHaveBeenCalled()
     })
 
-    it('degrades to a single-event recap when only one event matches the trend', async () => {
-      mockFetchTrendSnapshots.mockResolvedValue([{ conversationId: 'c1' }])
+    it('degrades to a single-event recap when only one event is available to compare', async () => {
+      mockFetchTrendSnapshots.mockResolvedValue([])
+      mockComputeTrendViewsLive.mockResolvedValue([{ conversationId: 'c1' }])
       mockResolvedConversation(false)
       const singleCard = { header: 'Recap', standouts: [] }
       mockBuildSummary.mockResolvedValue({ renderData: singleCard, metrics: {} })

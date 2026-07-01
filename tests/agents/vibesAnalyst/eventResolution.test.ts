@@ -53,4 +53,29 @@ describe('extractEventReference', () => {
     expect(reference.eventCount).toBeNull()
     expect(reference.eventQuery.toLowerCase()).toContain('ethics')
   })
+
+  it('classifies a recap request as a recap intent', async () => {
+    const reference = await extractEventReference('@Vibes can you recap the Spring Town Hall for me?', llm)
+
+    expect(reference.intent).toBe('recap')
+  })
+
+  it('classifies a greeting as a greeting intent and names no event', async () => {
+    const reference = await extractEventReference('@Vibes are you there?', llm)
+
+    expect(reference.intent).toBe('greeting')
+    expect(reference.eventQuery.trim()).toBe('')
+  })
+
+  it('classifies a capability question as a help intent', async () => {
+    const reference = await extractEventReference('@Vibes what can you do?', llm)
+
+    expect(reference.intent).toBe('help')
+  })
+
+  it('classifies an unrelated question as an off-topic intent', async () => {
+    const reference = await extractEventReference("@Vibes what's the weather in Boston today?", llm)
+
+    expect(reference.intent).toBe('offTopic')
+  })
 })
