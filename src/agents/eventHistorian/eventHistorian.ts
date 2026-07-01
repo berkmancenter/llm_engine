@@ -5,7 +5,7 @@ import { formatMultiUserConversationHistory } from '../helpers/llmInputFormatter
 import { buildSystemPromptWithPersonality } from '../helpers/agentPersonality.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
-import createEventHistoryTools, { TopicRef } from '../tools/eventHistory.js'
+import createEventHistoryTools, { TopicRef, buildEventHistoryToolsPrompt } from '../tools/eventHistory.js'
 import Topic from '../../models/topic.model.js'
 import Conversation from '../../models/conversation.model.js'
 import config from '../../config/config.js'
@@ -25,9 +25,7 @@ const BASE_SYSTEM_PROMPT = `You are {botName}, a helpful, knowledgeable AI assis
 **Event history tools:**
 Your primary specialty is answering questions about past events and their transcripts. You have access to tools for this purpose — use them whenever a question touches on past events, speakers, topics discussed, or anything that may be in an event transcript.
 
-- \`get_event_list\`: list events by name/date across all series, with optional date or series filter
-- \`search_topic_transcripts\`: semantic search across all event transcripts; results are prefixed with the event name they came from
-- \`search_conversation_transcript\`: deep search within a specific event's transcript after identifying it via the above tools
+${buildEventHistoryToolsPrompt()}
 
 When searching, search across all series unless the question clearly refers to a specific one. Don't require the user to specify a series — use your judgment. Prefer \`search_topic_transcripts\` for broad questions; use \`search_conversation_transcript\` to retrieve specific quotes or details once you know which event to drill into. For questions that are clearly unrelated to past events, respond directly without calling any tools.
 {topicContext}`

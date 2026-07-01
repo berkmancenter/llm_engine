@@ -52,6 +52,12 @@ describe('event assistant tool system prompt', () => {
     expect(toolRulesPos).toBeLessThan(contextPos)
   })
 
+  test('buildEventAssistantToolSystemPrompt omits web-search rules when hasWebSearch is false', () => {
+    const full = buildEventAssistantToolSystemPrompt('BASE', 'topic', 'ctx', { hasWebSearch: false })
+    expect(full).not.toContain(EVENT_ASSISTANT_TOOL_USAGE_RULES)
+    expect(full.startsWith('BASE')).toBe(true)
+  })
+
   test('buildLLMTemplates with tool names produces tools-aware guidance in semanticSystem', () => {
     const { semanticSystem } = buildLLMTemplates(null, undefined, ['web_search'])
     expect(semanticSystem).not.toMatch(/Suggest specific resources or places to find more information/)

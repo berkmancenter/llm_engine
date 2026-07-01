@@ -10,9 +10,12 @@ import config from '../../config/config.js'
 import { getModelChat, classificationLLMPlatform, classificationLLMModel } from '../helpers/getModelChat.js'
 import { personalitySection } from '../helpers/agentPersonality.js'
 import { getTools } from '../tools/registry.js'
+import { TopicRef } from '../tools/eventHistory.js'
+import Topic from '../../models/topic.model.js'
 import {
   buildEventAssistantToolSystemPrompt,
-  EVENT_ASSISTANT_TOOL_USER_MANDATE
+  EVENT_ASSISTANT_TOOL_USER_MANDATE,
+  EVENT_ASSISTANT_SERIES_HISTORY_USER_CARVEOUT
 } from './buildEventAssistantToolSystemPrompt.js'
 
 export enum QuestionClassification {
@@ -386,10 +389,30 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
 
   // Resolve tools from the agent's configured tool list (if any)
   const configuredToolNames: string[] = this.agentConfig?.tools || []
-  const tools = configuredToolNames.length > 0 ? getTools(configuredToolNames) : []
+
+  /*
+   * Series history: when enabled, give the assistant the eventHistorian's event_history tools,
+   * scoped to this conversation's containing series (topic) and excluding the current event so the
+   * search returns only *other* past events (the live transcript is already in normal context).
+   */
+  let series: TopicRef | undefined
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let toolContext: Record<string, any> | undefined
+  if (this.agentConfig?.seriesHistory && this.conversation.topic) {
+    const topicId = this.conversation.topic._id?.toString() ?? this.conversation.topic.toString()
+    const topicDoc = await Topic.findById(topicId).select('_id name description').lean()
+    if (topicDoc) {
+      series = { id: topicDoc._id.toString(), name: topicDoc.name, description: topicDoc.description }
+      toolContext = { topics: [series], activeConversationId: this.conversation._id.toString() }
+    }
+  }
+
+  const toolNames = series ? [...configuredToolNames, 'event_history'] : configuredToolNames
+  const tools = toolNames.length > 0 ? getTools(toolNames, toolContext) : []
+  const hasWebSearch = toolNames.includes('web_search')
 
   // Get the appropriate templates based on personality setting
-  const templates = buildLLMTemplates(personalityName, this.agentConfig?.botName, configuredToolNames)
+  const templates = buildLLMTemplates(personalityName, this.agentConfig?.botName, toolNames)
 
   // Use provided context from options if available, otherwise search transcript
   let contextString: string
@@ -518,10 +541,23 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
 
   let llmResponse: string
   if (tools.length > 0) {
-    logger.debug(`Responding with tools enabled: [${configuredToolNames.join(', ')}], systemTemplate: ${templateType}`)
+    logger.debug(`Responding with tools enabled: [${toolNames.join(', ')}], systemTemplate: ${templateType}`)
     const llm = await this.getLLM()
-    const toolSystemPrompt = buildEventAssistantToolSystemPrompt(systemTemplate, topic, contextString)
-    const userPrompt = `${EVENT_ASSISTANT_TOOL_USER_MANDATE}## User question:\n${question}`
+    const toolSystemPrompt = buildEventAssistantToolSystemPrompt(systemTemplate, topic, contextString, {
+      hasWebSearch,
+      series: series ? { name: series.name } : undefined
+    })
+    // The user mandate forces a web_search every uncertain turn — only relevant when web_search is
+    // active. When series-history tools are also present, add a carve-out so the absolute web mandate
+    // doesn't crowd them out for prior-event questions (that content isn't on the public web).
+    const userMandate = hasWebSearch
+      ? `${EVENT_ASSISTANT_TOOL_USER_MANDATE}${series ? EVENT_ASSISTANT_SERIES_HISTORY_USER_CARVEOUT : ''}`
+      : ''
+    const userPrompt = `${userMandate}## User question:\n${question}`
+    // Series history adds 3 tools (get_event_list, search_topic_transcripts, search_conversation_transcript);
+    // a full research workflow across past events consumes more LangGraph supersteps than the
+    // web-search-only case, so give more headroom when that feature is active.
+    const agentRecursionLimit = series ? 20 : 10
     const agentBundle = (await getAgentStructuredResponse(
       llm,
       tools,
@@ -529,17 +565,17 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
       userPrompt,
       undefined,
       chatHistory,
-      10,
+      agentRecursionLimit,
       { returnToolTrace: true }
     )) as { text: string; toolTrace: { invoked: boolean; calls: Array<{ name: string; args: unknown }> } }
     llmResponse = agentBundle.text
     const toolCalls = agentBundle.toolTrace.calls.length
     logger.info(
-      `eventAssistant.toolPath toolsEnabled=true toolCalls=${toolCalls} toolNames=[${configuredToolNames.join(
+      `eventAssistant.toolPath toolsEnabled=true toolCalls=${toolCalls} toolNames=[${toolNames.join(
         ', '
       )}] systemTemplate=${templateType}`
     )
-    if (configuredToolNames.includes('web_search') && toolCalls === 0) {
+    if (hasWebSearch && toolCalls === 0) {
       logger.warn(
         `eventAssistant.toolPath web_search configured but toolCalls=0 systemTemplate=${templateType} - model may have skipped search`
       )

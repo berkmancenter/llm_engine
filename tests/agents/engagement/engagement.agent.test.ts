@@ -232,7 +232,7 @@ describe(`engagement agent tests`, () => {
     )
 
     it(
-      'SHOULD generate PLAY or PROVOCATION when participants react to surprising data',
+      'SHOULD generate PLAY, PROVOCATION, or POLL_REVEAL when participants react to surprising data',
       async () => {
         // Transcript at ~08:20-08:30: "Hundreds of applicants... incredibly high level individuals"
         // This is a perfect moment for playful commentary
@@ -268,7 +268,7 @@ describe(`engagement agent tests`, () => {
         if (responses.length > 0) {
           const { interventionType } = responses[0]
           console.log(`[08:50] Detected ${interventionType}:`, responses[0].message)
-          expect(['PLAY', 'NONE', 'PROVOCATION']).toContain(interventionType)
+          expect(['PLAY', 'NONE', 'PROVOCATION', 'POLL_REVEAL']).toContain(interventionType)
         }
       },
       testTimeout
