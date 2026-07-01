@@ -51,6 +51,7 @@ const {
   offTopicMessage
 } = await import('../../../../src/agents/vibesAnalyst/summon.js')
 const { default: Conversation } = await import('../../../../src/models/conversation.model.js')
+const { default: logger } = await import('../../../../src/config/logger.js')
 
 describe('handleSummon', () => {
   const vibesChannel = { name: 'vibesAnalyst' }
@@ -306,7 +307,27 @@ describe('handleSummon', () => {
       expect(responses[0].renderData).toBe(trendCard)
     })
 
+    it('warns to run the backfill when it recomputes a trend the snapshot store should have held', async () => {
+      // Snapshots came back short (a metrics-version bump orphaned them, or the store never got
+      // seeded) but the events still recompute into a real multi-event trend. That gap is silent
+      // otherwise, so it should log the remedy.
+      const warnSpy = jest.spyOn(logger, 'warn').mockReturnValue(logger)
+      mockFetchTrendSnapshots.mockResolvedValue([])
+      mockComputeTrendViewsLive.mockResolvedValue([
+        { conversationId: 'c3' },
+        { conversationId: 'c2' },
+        { conversationId: 'c1' }
+      ])
+      mockBuildTrend.mockResolvedValue({ header: 'Engagement trend', standouts: [] })
+
+      await handleSummon(buildContext(), trendMessage, fakeLlm, fastLlm)
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/backfill/i))
+      warnSpy.mockRestore()
+    })
+
     it('says there is nothing to compare when neither snapshots nor live events exist', async () => {
+      const warnSpy = jest.spyOn(logger, 'warn').mockReturnValue(logger)
       mockFetchTrendSnapshots.mockResolvedValue([])
       mockComputeTrendViewsLive.mockResolvedValue([])
 
@@ -316,6 +337,9 @@ describe('handleSummon', () => {
       expect(responses[0].responseKind).toBeUndefined()
       expect(responses[0].message).toMatch(/don't have any past events|build(ing)? a trend/i)
       expect(mockBuildTrend).not.toHaveBeenCalled()
+      // A genuinely empty topic is not a cold-store fault, so it must not warn.
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringMatching(/backfill/i))
+      warnSpy.mockRestore()
     })
 
     it('degrades to a single-event recap when only one event is available to compare', async () => {

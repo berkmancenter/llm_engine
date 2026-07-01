@@ -164,6 +164,17 @@ async function handleTrendSummon(
   const snapshots = await fetchTrendSnapshots(scoped, limit)
   const views = snapshots.length >= 2 ? snapshots : await computeTrendViewsLive(scoped, limit)
 
+  // When the live recompute turns up a real multi-event trend but the stored snapshots did not,
+  // the snapshot store has gone cold: usually a METRICS_VERSION bump orphaned every stored row, or
+  // it was never seeded. Left silent, the trend keeps answering while quietly recomputing every
+  // event on each request, so flag the remedy. A genuinely empty topic yields fewer than two live
+  // views and does not warn.
+  if (snapshots.length < 2 && views.length >= 2) {
+    logger.warn(
+      `Vibes Analyst recomputed a ${views.length}-event trend live because the snapshot store held ${snapshots.length}. Run the snapshot backfill so trends read from stored history.`
+    )
+  }
+
   if (views.length === 0) {
     return [reply(context, parent, noTrendDataMessage())]
   }
