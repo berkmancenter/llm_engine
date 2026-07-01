@@ -324,6 +324,34 @@ describe('Message service methods', () => {
       expect(sentMessage.bodyType).toBe('text')
     })
 
+    test('should carry responseKind and renderData through to the adapter', async () => {
+      // Neutral render fields (e.g. the Vibes Analyst card) must survive
+      // persistence so the adapter can turn them into Block Kit at send time.
+      testMessage.channels = [testZoomChannel]
+      testMessage.body = 'Vibes summary fallback text'
+      testMessage.bodyType = 'text'
+      testMessage.responseKind = 'curatedVibesSummary'
+      testMessage.renderData = {
+        header: 'The Future of Work recap',
+        standouts: [{ text: '4 of 10 registered sent a message (40%).' }],
+        durationMinutes: 58
+      }
+
+      zoomAdapter.chatChannels = [{ name: testZoomChannel.name, direction: Direction.OUTGOING }]
+      await zoomAdapter.save()
+
+      await messageService.newMessageHandler(testMessage, testUser)
+
+      expect(mockSendZoomMessage).toHaveBeenCalledTimes(1)
+      const sentMessage = mockSendZoomMessage.mock.calls[0][0]
+      expect(sentMessage.responseKind).toBe('curatedVibesSummary')
+      expect(sentMessage.renderData).toMatchObject({
+        header: 'The Future of Work recap',
+        standouts: [{ text: '4 of 10 registered sent a message (40%).' }],
+        durationMinutes: 58
+      })
+    })
+
     test('should handle empty adapters array', async () => {
       testMessage.adapters = []
       testMessage.body = 'Message with no channels'

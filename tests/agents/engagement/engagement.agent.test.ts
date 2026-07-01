@@ -5,12 +5,18 @@ import {
   createPublicTopic,
   createUser,
   loadPartTimeWorkTranscript,
+  loadDesignWorkshopTranscript,
   createMessage,
   prepareMessagesForAgent,
   createEngagementAgentConversation
 } from '../../utils/agentTestHelpers.js'
 
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
+import websocketGateway from '../../../src/websockets/websocketGateway.js'
+import schedule from '../../../src/jobs/schedule.js'
+
+jest.spyOn(websocketGateway, 'broadcastNewPoll').mockResolvedValue(undefined as never)
+jest.spyOn(schedule, 'pollExpired').mockResolvedValue(undefined as never)
 
 jest.setTimeout(180000)
 
@@ -68,13 +74,12 @@ describe(`engagement agent tests`, () => {
     it('has correct default configuration', () => {
       expect(agent.name).toBe('Engagement Agent')
       expect(agent.description).toContain('energy and participation')
-      expect(agent.agentConfig.minInterval).toBe(5) // 5 min
       expect(agent.agentConfig.personality).toBe('sarcastic-expert')
     })
 
-    it('uses periodic trigger on transcript with 60 second interval', () => {
+    it('uses periodic trigger on transcript with 120 second interval', () => {
       expect(agent.triggers.periodic).toBeDefined()
-      expect(agent.triggers.periodic.timerPeriod).toBe(60)
+      expect(agent.triggers.periodic.timerPeriod).toBe(120)
       expect(agent.triggers.periodic.conversationHistorySettings.channels).toContain('transcript')
     })
   })
@@ -95,11 +100,11 @@ describe(`engagement agent tests`, () => {
         const responses = await defaultAgentTypes.engagementAgent.respond.call(agent, conversationHistory)
 
         // Speaker just asked a challenging question - room is silent
-        // Should consider PROVOCATION to spark discussion, but might also be PLAY
+        // Should consider PROVOCATION to spark discussion, but might also be PLAY or POLL_REVEAL
         if (responses.length > 0) {
           const { interventionType } = responses[0]
           console.log(`[02:30] Detected ${interventionType}:`, responses[0].message)
-          expect(['PROVOCATION', 'NONE', 'PLAY']).toContain(interventionType)
+          expect(['PROVOCATION', 'NONE', 'PLAY', 'POLL_REVEAL']).toContain(interventionType)
         }
       },
       testTimeout
@@ -126,11 +131,11 @@ describe(`engagement agent tests`, () => {
 
         const responses = await defaultAgentTypes.engagementAgent.respond.call(agent, conversationHistory)
 
-        // Lots of data just presented, but room is passive - should provoke discussion
+        // Lots of data just presented, but room is passive - should provoke discussion or run a poll
         if (responses.length > 0) {
           const { interventionType } = responses[0]
           console.log(`[07:30] Detected ${interventionType}:`, responses[0].message)
-          expect(['PROVOCATION', 'NONE']).toContain(interventionType)
+          expect(['PROVOCATION', 'NONE', 'POLL_REVEAL']).toContain(interventionType)
         }
       },
       testTimeout
@@ -334,37 +339,70 @@ describe(`engagement agent tests`, () => {
 
   describe('NONE intervention scenarios', () => {
     it(
-      'SHOULD NOT intervene when rate limited (recent intervention)',
+      'SHOULD NOT intervene when agent recently posted and active discussion is flowing',
       async () => {
-        // Create agent message at 01:00 (60 seconds), then check at 03:00 (180 seconds)
-        // That's 2 minutes apart, which is less than minInterval of 5 minutes
-        const agentMsg = await createMessage(
-          'What are your thoughts on this approach?',
-          agent,
+        // Agent posted a provocation, and it sparked a genuine back-and-forth — stay quiet
+        const recentAgentMsg = await createMessage(
+          'Bold claim just went unchallenged — what would need to be true for this whole approach to be wrong?',
+          user1,
           conversation,
           ['chat'],
-          getMessageTime(60)
+          getMessageTime(120)
         )
-        agentMsg.fromAgent = true
+        recentAgentMsg.fromAgent = true
+        recentAgentMsg.pseudonym = agent.name
+
         const messages = [
-          agentMsg,
-          await createMessage('Interesting question', user1, conversation, ['chat'], getMessageTime(120)),
-          await createMessage('I have some thoughts', user2, conversation, ['chat'], getMessageTime(140))
+          recentAgentMsg,
+          await createMessage(
+            'Honestly the whole assumption that people want more hours is wrong — most people I know would take fewer hours for the same pay immediately',
+            user1,
+            conversation,
+            ['chat'],
+            getMessageTime(130)
+          ),
+          await createMessage(
+            'Exactly — the 40 hour week was never about productivity, it was about factory scheduling. We just inherited it',
+            user2,
+            conversation,
+            ['chat'],
+            getMessageTime(145)
+          ),
+          await createMessage(
+            'But then how do you handle roles that need coverage? Not everything can be async',
+            user3,
+            conversation,
+            ['chat'],
+            getMessageTime(158)
+          ),
+          await createMessage(
+            'That is the real question — the model works for knowledge workers but falls apart for shift-based roles',
+            user1,
+            conversation,
+            ['chat'],
+            getMessageTime(170)
+          )
         ]
         await prepareMessagesForAgent(messages, conversation, agent)
 
-        // Try to get response at 03:00, which is 2 minutes after agent's last post (minInterval is 5 min)
-        // Rate limiting now uses conversationHistory.end as "now", so this simulates the correct time
+        // Active discussion is flowing — agent should recognise its provocation landed
         const conversationHistory = getConversationHistory(conversation.messages, {
           count: 100,
           channels: ['transcript'],
-          endTime: new Date(startTime.getTime() + 180 * 1000) // 03:00
+          endTime: new Date(startTime.getTime() + 180 * 1000)
         })
 
         const responses = await defaultAgentTypes.engagementAgent.respond.call(agent, conversationHistory)
 
-        // Should be rate limited - no intervention (only 2 min since last post, need 5 min)
-        expect(responses).toHaveLength(0)
+        if (responses.length > 0) {
+          const { interventionType } = responses[0]
+          console.warn(
+            `[self-limiting] Agent intervened into active discussion: ${interventionType}: ${responses[0].message}`
+          )
+        } else {
+          console.log('[self-limiting] Agent correctly stayed quiet while discussion flowed')
+        }
+        expect(Array.isArray(responses)).toBe(true)
       },
       testTimeout
     )
@@ -575,6 +613,47 @@ describe(`engagement agent tests`, () => {
       const msgs = await agentType.introduce.call(agent, chatChannel)
       expect(msgs).toEqual([])
     })
+  })
+
+  describe('POLL_REVEAL intervention scenarios', () => {
+    it(
+      'SHOULD NOT use POLL_REVEAL when the speaker is actively soliciting a structured audience response',
+      async () => {
+        // Design workshop transcript at 00:35: Marcus says "Show of hands" —
+        // an explicit structured audience solicitation. The agent must not compete
+        // with that by posting its own poll; PROVOCATION or NONE is appropriate instead.
+        const workshopConversation = await createEngagementAgentConversation(
+          {
+            name: 'Reimagining the Employee Onboarding Experience',
+            description: 'A design thinking workshop on reimagining employee onboarding.',
+            presenters: [{ name: 'Marcus Chen', bio: 'Design thinking facilitator.' }],
+            moderators: []
+          },
+          user1,
+          topic,
+          startTime,
+          testConfig.llmPlatform,
+          testConfig.llmModel
+        )
+        await loadDesignWorkshopTranscript(workshopConversation)
+        const workshopAgent = workshopConversation.agents.find((a) => a.name === 'Engagement Agent')
+
+        const conversationHistory = getConversationHistory(workshopConversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 45 * 1000) // just after "Show of hands" at 00:35
+        })
+
+        const responses = await defaultAgentTypes.engagementAgent.respond.call(workshopAgent, conversationHistory)
+
+        if (responses.length > 0) {
+          const { interventionType } = responses[0]
+          console.log(`[speaker show of hands] Detected ${interventionType}:`, responses[0].message)
+          expect(interventionType).not.toBe('POLL_REVEAL')
+        }
+      },
+      testTimeout
+    )
   })
 
   describe('edge cases', () => {

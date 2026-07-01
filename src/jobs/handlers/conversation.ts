@@ -1,6 +1,11 @@
 import logger from '../../config/logger.js'
 import { Conversation } from '../../models/index.js'
-import { doStartConversation, doStopConversation } from '../../services/conversation.service/lifecycle.js'
+import {
+  doConversationEndingSoon,
+  doStartConversation,
+  doStopConversation
+} from '../../services/conversation.service/lifecycle.js'
+import websocketGateway from '../../websockets/websocketGateway.js'
 
 const autoStartConversation = async (job) => {
   const { conversationId } = job.attrs.data
@@ -40,5 +45,23 @@ const autoStopConversation = async (job) => {
   }
 }
 
-const conversationHandlers = { autoStartConversation, autoStopConversation }
+const conversationEndingSoon = async (job) => {
+  const { conversationId } = job.attrs.data
+  try {
+    const conversation = await Conversation.findOne({ _id: conversationId })
+    if (!conversation) {
+      logger.warn(`Conversation ending soon: conversation ${conversationId} not found`)
+      return
+    }
+    if (!conversation.active) {
+      logger.debug(`Conversation ending soon: conversation ${conversationId} already inactive, skipping`)
+      return
+    }
+    await doConversationEndingSoon(conversation)
+  } catch (err) {
+    logger.error(`Conversation ending soon failed for conversation ${conversationId}`, err)
+  }
+}
+
+const conversationHandlers = { autoStartConversation, autoStopConversation, conversationEndingSoon }
 export default conversationHandlers

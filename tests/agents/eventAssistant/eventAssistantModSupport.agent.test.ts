@@ -19,11 +19,6 @@ jest.setTimeout(180000)
 
 const testConfig = setupAgentTest('eventAssistant')
 
-const submitToModeratorQuestion = {
-  text: 'Would you like to submit this question anonymously to the moderator for Q&A?',
-  type: 'moderator_offered'
-}
-
 const testTimeout = 120000
 
 describe('eventAssistant moderator support tests', () => {
@@ -74,9 +69,9 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
     return createDirectMessage(body, user1, conversation)
   }
 
-  describe('moderator offer on on_topic_ask_speaker questions', () => {
+  describe('moderator suggested flag', () => {
     it(
-      'offers to submit to moderator for a speaker-directed question',
+      'suggests submitting to moderator for ask speaker classification',
       async () => {
         const questionMsg = await createQuestion(
           'What does Jessica think is the biggest misconception businesses have about part-time employees?'
@@ -89,251 +84,45 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
           savedQuestion.toObject()
         )
 
+        expect(responses.length).toBeGreaterThan(0)
+        expect(responses[0].classification).toBeDefined()
         const offer = responses.find((r) => r.message?.type === 'moderator_offered')
+        expect(offer).toBeUndefined()
+        // moderatorSuggested flag set on message body when classification warrants it
         if (responses[0].classification === QuestionClassification.ON_TOPIC_ASK_SPEAKER) {
-          expect(offer).toBeDefined()
-          expect(offer!.message).toMatchObject({
-            ...submitToModeratorQuestion,
-            message: savedQuestion._id.toString()
-          })
-          expect(offer!.replyFormat).toMatchObject({
-            type: 'singleChoice',
-            options: [
-              { value: 'no', label: 'No' },
-              { value: 'yes', label: 'Yes' }
-            ]
-          })
-          expect(offer!.visible).toBe(true)
+          expect(responses[0].message.moderatorSuggested).toBe(true)
+          expect(responses[0].message.message).toBe(savedQuestion._id.toString())
         }
       },
       testTimeout
     )
-  })
 
-  describe('submit to moderator functionality', () => {
     it(
-      'should submit to moderator when user responds with yes',
+      'does not set moderatorSuggested when moderatorSupport is disabled',
       async () => {
-        const questionMsg = await createQuestion('What is the meaning of life?')
-        const savedQuestion = await Message.create(questionMsg)
-
-        const affirmativeMsg = await createQuestion('yes')
-        const conversationHistory = {
-          messages: [
-            savedQuestion,
-            { body: "I don't have enough information.", bodyType: 'text', fromAgent: true },
-            { body: { ...submitToModeratorQuestion, message: savedQuestion._id }, bodyType: 'json', fromAgent: true }
-          ]
-        }
-
-        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, conversationHistory, affirmativeMsg)
-
-        await validateResponse(responses)
-        expect(responses).toHaveLength(1)
-        expect(responses[0].message).toMatchObject({
-          text: 'Your message has been submitted to the moderator.',
-          type: 'moderator_submitted',
-          message: savedQuestion._id.toString()
+        const agentWithoutModSupport = new Agent({
+          agentType: 'eventAssistant',
+          conversation,
+          llmPlatform: agent.llmPlatform,
+          llmModel: agent.llmModel,
+          agentConfig: { moderatorSupport: undefined }
         })
-        expect(responses[0].parent).toBeUndefined()
+        await agentWithoutModSupport.save()
+        agentWithoutModSupport.conversation = conversation
 
-        const updatedMessage = await Message.findById(savedQuestion._id)
-        expect(updatedMessage!.channels).toContain('participant')
-      },
-      testTimeout
-    )
-
-    it(
-      'should decline submission when user responds with no',
-      async () => {
-        const questionMsg = await createQuestion('What is the meaning of life?')
+        const questionMsg = await createQuestion(
+          'What does Jessica think is the biggest misconception businesses have about part-time employees?'
+        )
         const savedQuestion = await Message.create(questionMsg)
-
-        const negativeMsg = await createQuestion('no')
-        const conversationHistory = {
-          messages: [
-            savedQuestion,
-            { body: "I don't have enough information.", bodyType: 'text', fromAgent: true },
-            { body: { ...submitToModeratorQuestion, message: savedQuestion._id }, bodyType: 'json', fromAgent: true }
-          ]
-        }
-
-        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, conversationHistory, negativeMsg)
-
-        await validateResponse(responses)
-        expect(responses).toHaveLength(1)
-        expect(responses[0].message).toMatchObject({
-          type: 'moderator_declined',
-          text: "OK, I won't submit it. Feel free to ask me anything else!",
-          message: savedQuestion._id.toString()
-        })
-        expect(responses[0].parent).toBeUndefined()
-
-        const updatedMessage = await Message.findById(savedQuestion._id)
-        expect(updatedMessage!.channels).not.toContain('participant')
-      },
-      testTimeout
-    )
-
-    it(
-      'should submit to moderator for various affirmative responses',
-      async () => {
-        const affirmativeVariants = ['yes', 'yeah', 'yep', 'yup', 'sure', 'okay', 'ok', 'absolutely', 'definitely']
-
-        for (const variant of affirmativeVariants) {
-          const questionMsg = await createQuestion('What is the meaning of life?')
-          const savedQuestion = await Message.create(questionMsg)
-          const affirmativeMsg = await createQuestion(variant)
-          const conversationHistory = {
-            messages: [
-              savedQuestion,
-              { body: "I don't have enough information.", bodyType: 'text', fromAgent: true },
-              { body: { ...submitToModeratorQuestion, message: savedQuestion._id }, bodyType: 'json', fromAgent: true }
-            ]
-          }
-
-          const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, conversationHistory, affirmativeMsg)
-          await validateResponse(responses)
-          expect(responses).toHaveLength(1)
-          expect(responses[0].message).toMatchObject({
-            text: 'Your message has been submitted to the moderator.',
-            type: 'moderator_submitted',
-            message: savedQuestion._id.toString()
-          })
-        }
-      },
-      testTimeout
-    )
-
-    it(
-      'should decline submission for various negative responses',
-      async () => {
-        const negativeVariants = ['no', 'nope', 'nah', 'no thanks', "don't", 'never mind']
-
-        for (const variant of negativeVariants) {
-          const questionMsg = await createQuestion('What is the meaning of life?')
-          const savedQuestion = await Message.create(questionMsg)
-          const negativeMsg = await createQuestion(variant)
-          const conversationHistory = {
-            messages: [
-              savedQuestion,
-              { body: "I don't have enough information.", bodyType: 'text', fromAgent: true },
-              { body: { ...submitToModeratorQuestion, message: savedQuestion._id }, bodyType: 'json', fromAgent: true }
-            ]
-          }
-
-          const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, conversationHistory, negativeMsg)
-          await validateResponse(responses)
-          expect(responses).toHaveLength(1)
-          expect(responses[0].message).toMatchObject({
-            type: 'moderator_declined',
-            text: "OK, I won't submit it. Feel free to ask me anything else!",
-            message: savedQuestion._id.toString()
-          })
-        }
-      },
-      testTimeout
-    )
-
-    it(
-      'falls through to answer question when user ignores submit prompt',
-      async () => {
-        const questionMsg = await createQuestion('What is the meaning of life?')
-        const savedQuestion = await Message.create(questionMsg)
-
-        const newQuestion = await createQuestion("What was the speaker's main point?")
-        const savedNewQuestion = await Message.create(newQuestion)
-        const conversationHistory = {
-          messages: [
-            savedQuestion,
-            { body: "I don't have enough information.", bodyType: 'text', fromAgent: true },
-            {
-              body: {
-                message: savedQuestion._id.toString(),
-                text: submitToModeratorQuestion.text,
-                type: 'moderator_offered'
-              },
-              bodyType: 'json',
-              fromAgent: true
-            }
-          ]
-        }
 
         const responses = await defaultAgentTypes.eventAssistant.respond.call(
-          agent,
-          conversationHistory,
-          savedNewQuestion.toObject()
+          agentWithoutModSupport,
+          { messages: [] },
+          savedQuestion.toObject()
         )
 
-        // Should have answered the new question, not returned empty
         expect(responses.length).toBeGreaterThan(0)
-        expect(responses[0].message?.type).not.toBe('moderator_declined')
-        expect(responses[0].message?.type).not.toBe('moderator_submitted')
-
-        const updatedMessage = await Message.findById(savedQuestion._id)
-        expect(updatedMessage!.channels).not.toContain('participant')
-      },
-      testTimeout
-    )
-
-    it(
-      'should propagate parent thread when submitting to moderator',
-      async () => {
-        const parentMessageId = new mongoose.Types.ObjectId()
-        const questionMsg = await createQuestion('What is the meaning of life?')
-        questionMsg.parentMessage = parentMessageId
-        const savedQuestion = await Message.create(questionMsg)
-
-        const affirmativeMsg = await createQuestion('yes')
-        affirmativeMsg.parentMessage = parentMessageId
-        const conversationHistory = {
-          messages: [
-            savedQuestion,
-            { body: "I don't have enough information.", bodyType: 'text', fromAgent: true },
-            { body: { ...submitToModeratorQuestion, message: savedQuestion._id }, bodyType: 'json', fromAgent: true }
-          ]
-        }
-
-        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, conversationHistory, affirmativeMsg)
-
-        expect(responses).toHaveLength(1)
-        expect(responses[0].message).toMatchObject({
-          text: 'Your message has been submitted to the moderator.',
-          type: 'moderator_submitted',
-          message: savedQuestion._id.toString()
-        })
-        expect(responses[0].parent).toBe(parentMessageId)
-      },
-      testTimeout
-    )
-
-    it(
-      'should propagate parent thread when declining moderator submission',
-      async () => {
-        const parentMessageId = new mongoose.Types.ObjectId()
-        const questionMsg = await createQuestion('What is the meaning of life?')
-        questionMsg.parentMessage = parentMessageId
-        const savedQuestion = await Message.create(questionMsg)
-
-        const negativeMsg = await createQuestion('no')
-        negativeMsg.parentMessage = parentMessageId
-        const conversationHistory = {
-          messages: [
-            savedQuestion,
-            { body: "I don't have enough information.", bodyType: 'text', fromAgent: true },
-            { body: { ...submitToModeratorQuestion, message: savedQuestion._id }, bodyType: 'json', fromAgent: true }
-          ]
-        }
-
-        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, conversationHistory, negativeMsg)
-
-        expect(responses).toHaveLength(1)
-        expect(responses[0].message).toMatchObject({
-          type: 'moderator_declined',
-          text: "OK, I won't submit it. Feel free to ask me anything else!",
-          message: savedQuestion._id.toString()
-        })
-        expect(responses[0].parent).toBe(parentMessageId)
+        expect(responses[0].message.moderatorSuggested).toBeUndefined()
       },
       testTimeout
     )
@@ -341,88 +130,39 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
 
   describe('moderator history filtering', () => {
     it(
-      'LLM does not spontaneously offer moderator submission when prior moderator_offered messages are in history',
+      '/mod command messages and moderator_submitted replies are filtered from LLM history so they do not appear as unanswered questions',
       async () => {
-        const priorQuestion = await createQuestion('What percentage of U.S. workers are part-time?')
-        const savedPriorQuestion = await Message.create(priorQuestion)
+        const modQuestion = await createQuestion('/mod What is the return on investment for part-time staffing?')
+        modQuestion.bodyType = 'json'
+        modQuestion.body = { command: 'mod', text: 'What is the return on investment for part-time staffing?' }
+        const savedModQuestion = await Message.create(modQuestion)
 
-        const newQuestion = await createQuestion("What was Jessica's main argument?")
-        const savedNewQuestion = await Message.create(newQuestion)
+        const followUp = await createQuestion("What was Jessica's main argument?")
+        const savedFollowUp = await Message.create(followUp)
+
+        const moderatorSubmittedReply = {
+          body: {
+            type: 'moderator_submitted',
+            text: 'Your message has been submitted to the moderator.',
+            message: savedModQuestion._id.toString()
+          },
+          bodyType: 'json',
+          fromAgent: true
+        }
 
         const conversationHistory = {
-          messages: [
-            savedPriorQuestion,
-            {
-              body: 'According to the transcript, approximately 20% of workers are part-time.',
-              bodyType: 'text',
-              fromAgent: true
-            },
-            {
-              body: { ...submitToModeratorQuestion, message: savedPriorQuestion._id.toString() },
-              bodyType: 'json',
-              fromAgent: true
-            }
-          ]
+          messages: [savedModQuestion, moderatorSubmittedReply]
         }
 
         const responses = await defaultAgentTypes.eventAssistant.respond.call(
           agent,
           conversationHistory,
-          savedNewQuestion.toObject()
+          savedFollowUp.toObject()
         )
 
+        // Should answer only the follow-up — not attempt to also answer the /mod question
         expect(responses.length).toBeGreaterThan(0)
         const answerText = responses[0].message?.text ?? responses[0].message
-        expect(answerText).not.toMatch(/submit.*moderator|moderator.*Q&A|anonymously/i)
-      },
-      testTimeout
-    )
-
-    it(
-      'LLM answers normally when history contains a full moderator offer/accept exchange',
-      async () => {
-        const priorQuestion = await createQuestion('What percentage of U.S. workers are part-time?')
-        const savedPriorQuestion = await Message.create(priorQuestion)
-
-        const newQuestion = await createQuestion("What was Jessica's main argument?")
-        const savedNewQuestion = await Message.create(newQuestion)
-
-        const conversationHistory = {
-          messages: [
-            savedPriorQuestion,
-            {
-              body: 'According to the transcript, approximately 20% of workers are part-time.',
-              bodyType: 'text',
-              fromAgent: true
-            },
-            {
-              body: { ...submitToModeratorQuestion, message: savedPriorQuestion._id.toString() },
-              bodyType: 'json',
-              fromAgent: true
-            },
-            { body: 'yes', bodyType: 'text', fromAgent: false },
-            {
-              body: {
-                type: 'moderator_submitted',
-                text: 'Your message has been submitted to the moderator.',
-                message: savedPriorQuestion._id.toString()
-              },
-              bodyType: 'json',
-              fromAgent: true
-            }
-          ]
-        }
-
-        const responses = await defaultAgentTypes.eventAssistant.respond.call(
-          agent,
-          conversationHistory,
-          savedNewQuestion.toObject()
-        )
-
-        expect(responses.length).toBeGreaterThan(0)
-        const answerText = responses[0].message?.text ?? responses[0].message
-        expect(answerText).not.toMatch(/submit.*moderator|moderator.*Q&A|anonymously/i)
-        // Should be a substantive answer, not empty or an error
         expect(typeof answerText).toBe('string')
         expect((answerText as string).length).toBeGreaterThan(10)
       },
@@ -463,6 +203,128 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
           message: participantMsg._id.toString()
         })
         expect(responses[0].parent).toBeUndefined()
+      },
+      testTimeout
+    )
+  })
+
+  describe('/escalate command', () => {
+    it(
+      'should handle /escalate command in evaluate',
+      async () => {
+        const originalQuestion = await createQuestion('What is the meaning of life?')
+        const savedQuestion = await Message.create(originalQuestion)
+
+        const escalateMsg = await createQuestion(`/escalate ${savedQuestion._id}`)
+
+        const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agent, escalateMsg)
+
+        expect(evaluation.userMessage.body).toEqual({ command: 'escalate', text: savedQuestion._id.toString() })
+        expect(evaluation.userMessage.bodyType).toBe('json')
+        expect(evaluation.action).toBe(AgentMessageActions.CONTRIBUTE)
+      },
+      testTimeout
+    )
+
+    it(
+      'should add participant channel to original message and return moderator submission response',
+      async () => {
+        const originalQuestion = await createQuestion('What is the meaning of life?')
+        const savedQuestion = await Message.create(originalQuestion)
+
+        const escalateMsg = await createQuestion(`/escalate ${savedQuestion._id}`)
+        const savedEscalate = await Message.create(escalateMsg)
+        const parsedEscalate = {
+          ...savedEscalate.toObject(),
+          body: { command: 'escalate', text: savedQuestion._id.toString() },
+          bodyType: 'json'
+        }
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, parsedEscalate)
+
+        await validateResponse(responses)
+        expect(responses).toHaveLength(1)
+        expect(responses[0].message).toMatchObject({
+          type: 'moderator_submitted',
+          text: 'Your message has been submitted to the moderator.',
+          message: savedQuestion._id.toString()
+        })
+
+        const updatedQuestion = await Message.findById(savedQuestion._id)
+        expect(updatedQuestion!.channels).toContain('participant')
+      },
+      testTimeout
+    )
+
+    it(
+      'should return empty response when original message cannot be found',
+      async () => {
+        const nonExistentId = new mongoose.Types.ObjectId()
+        const escalateMsg = await createQuestion(`/escalate ${nonExistentId}`)
+        const savedEscalate = await Message.create(escalateMsg)
+        const parsedEscalate = {
+          ...savedEscalate.toObject(),
+          body: { command: 'escalate', text: nonExistentId.toString() },
+          bodyType: 'json'
+        }
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, parsedEscalate)
+
+        expect(responses).toHaveLength(0)
+      },
+      testTimeout
+    )
+
+    it(
+      'does not add participant channel twice if already escalated',
+      async () => {
+        const originalQuestion = await createQuestion('What is the meaning of life?')
+        const savedQuestion = await Message.create(originalQuestion)
+        savedQuestion.channels = [...(savedQuestion.channels ?? []), 'participant']
+        await savedQuestion.save()
+
+        const escalateMsg = await createQuestion(`/escalate ${savedQuestion._id}`)
+        const savedEscalate = await Message.create(escalateMsg)
+        const parsedEscalate = {
+          ...savedEscalate.toObject(),
+          body: { command: 'escalate', text: savedQuestion._id.toString() },
+          bodyType: 'json'
+        }
+
+        await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, parsedEscalate)
+
+        const updatedQuestion = await Message.findById(savedQuestion._id)
+        const participantCount = (updatedQuestion!.channels ?? []).filter((c) => c === 'participant').length
+        expect(participantCount).toBe(1)
+      },
+      testTimeout
+    )
+
+    it(
+      'does not route /escalate command when moderatorSupport is disabled',
+      async () => {
+        const agentWithoutModSupport = new Agent({
+          agentType: 'eventAssistant',
+          conversation,
+          llmPlatform: agent.llmPlatform,
+          llmModel: agent.llmModel,
+          agentConfig: { moderatorSupport: undefined }
+        })
+        await agentWithoutModSupport.save()
+        agentWithoutModSupport.conversation = conversation
+
+        const originalQuestion = await createQuestion('What is the meaning of life?')
+        const savedQuestion = await Message.create(originalQuestion)
+
+        const escalateMsg = await createQuestion(`/escalate ${savedQuestion._id}`)
+        const evaluation = await defaultAgentTypes.eventAssistant.evaluate.call(agentWithoutModSupport, escalateMsg)
+
+        // /escalate is not in the active commands when moderatorSupport is disabled,
+        // so the message body should be unparsed plain text
+        expect(evaluation.userMessage.bodyType).not.toBe('json')
+
+        const updatedQuestion = await Message.findById(savedQuestion._id)
+        expect(updatedQuestion!.channels).not.toContain('participant')
       },
       testTimeout
     )
@@ -511,7 +373,6 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
           participantMsg
         )
 
-        // No moderator_submitted response — falls through to normal answer
         const submitted = responses.find((r) => r.message?.type === 'moderator_submitted')
         expect(submitted).toBeUndefined()
       },
@@ -543,9 +404,9 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
   })
 
   describe('parseOutput', () => {
-    it('transforms moderator JSON messages into plain text', async () => {
+    it('transforms moderator_submitted JSON message into plain text', async () => {
       const agentMsg = new Message({
-        body: submitToModeratorQuestion,
+        body: { type: 'moderator_submitted', text: 'Your message has been submitted to the moderator.' },
         bodyType: 'json',
         conversation: conversation._id,
         pseudonym: agent.pseudonyms[0].pseudonym,
@@ -555,7 +416,7 @@ Since then, Jessica has led the company to a 7-figure annual business – all in
       const translatedMsg = await defaultAgentTypes.eventAssistant.parseOutput(agentMsg)
       expect(translatedMsg).toMatchObject({
         ...agentMsg.toObject(),
-        body: submitToModeratorQuestion.text,
+        body: 'Your message has been submitted to the moderator.',
         bodyType: 'text'
       })
     })

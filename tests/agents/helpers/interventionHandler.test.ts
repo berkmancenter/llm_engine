@@ -1,9 +1,15 @@
+import mongoose from 'mongoose'
 import {
   getInterventionAnalysisSchema,
   interventionLlmTemplateVars,
-  USER_TEMPLATE
+  USER_TEMPLATE,
+  proactiveRaceGuard
 } from '../../../src/agents/helpers/interventionHandler.js'
 import { InterventionType } from '../../../src/agents/helpers/interventionTypes.js'
+import Message from '../../../src/models/message.model.js'
+import setupIntTest from '../../utils/setupIntTest.js'
+
+setupIntTest()
 
 describe('interventionHandler', () => {
   describe('InterventionType enum', () => {
@@ -191,6 +197,59 @@ describe('interventionHandler', () => {
       expect(USER_TEMPLATE).toContain('{privateMessages}')
       expect(USER_TEMPLATE).toContain('{sharedChatHistory}')
       expect(USER_TEMPLATE).toContain('{agentRecentPosts}')
+    })
+  })
+
+  describe('proactiveRaceGuard', () => {
+    const conversationId = new mongoose.Types.ObjectId()
+    const userId = new mongoose.Types.ObjectId()
+    const pseudonymId = new mongoose.Types.ObjectId()
+
+    const makeMessage = (overrides = {}) =>
+      Message.create({
+        body: 'Test intervention',
+        bodyType: 'text',
+        conversation: conversationId,
+        owner: userId,
+        pseudonym: 'Test Agent',
+        pseudonymId,
+        fromAgent: true,
+        visible: true,
+        channels: ['chat'],
+        upVotes: [],
+        downVotes: [],
+        ...overrides
+      })
+
+    it('returns true when a proactive message exists within the window', async () => {
+      await makeMessage({ source: { type: 'agent', proactive: true }, createdAt: new Date() })
+      expect(await proactiveRaceGuard(conversationId)).toBe(true)
+    })
+
+    it('returns false when no proactive message exists', async () => {
+      expect(await proactiveRaceGuard(conversationId)).toBe(false)
+    })
+
+    it('returns false when proactive message is outside the window', async () => {
+      const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000)
+      await makeMessage({ source: { type: 'agent', proactive: true }, createdAt: twoMinutesAgo })
+      expect(await proactiveRaceGuard(conversationId)).toBe(false)
+    })
+
+    it('returns false for agent messages without source.proactive (e.g. Q&A agents)', async () => {
+      await makeMessage({ source: { type: 'agent' }, createdAt: new Date() })
+      expect(await proactiveRaceGuard(conversationId)).toBe(false)
+    })
+
+    it('returns false for proactive message on a different conversation', async () => {
+      const otherConversationId = new mongoose.Types.ObjectId()
+      await makeMessage({ source: { type: 'agent', proactive: true }, conversation: otherConversationId, createdAt: new Date() })
+      expect(await proactiveRaceGuard(conversationId)).toBe(false)
+    })
+
+    it('returns false for non-visible proactive messages', async () => {
+      await makeMessage({ source: { type: 'agent', proactive: true }, visible: false, createdAt: new Date() })
+      expect(await proactiveRaceGuard(conversationId)).toBe(false)
     })
   })
 })

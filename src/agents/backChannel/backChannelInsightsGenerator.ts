@@ -212,7 +212,7 @@ export async function processParticipantMessages(messages, startTime, endTime) {
         filteredComments = groupCommentsByUser(unusedComments)
       }
       // add the type property to distinguish insights from standalone questions
-      insights.results = insights.results.map((insight) => ({ ...insight, type: 'insight' }))
+      insights.results = insights.results.map((insight) => ({ ...insight, type: 'insight', source: 'ai' }))
       return {
         insightsFromInsights: filterInsightsByCommentDiversity(insights),
         comments: filteredComments,
@@ -244,7 +244,8 @@ export async function processParticipantMessages(messages, startTime, endTime) {
           userComments.map((commentMsg) => ({
             value: commentMsg.comment.text,
             comments: [{ user: commentMsg.comment.user, text: commentMsg.comment.text }],
-            type: 'question'
+            type: 'question',
+            source: 'participant'
           }))
         )
       }

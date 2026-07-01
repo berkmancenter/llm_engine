@@ -1,16 +1,31 @@
 import verify from '../helpers/verify.js'
-import { AgentMessageActions, ConversationHistory, IChannel } from '../../types/index.types.js'
+import { AgentMessageActions, ConversationHistory, IAgent, IChannel, PollConfig } from '../../types/index.types.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import logger from '../../config/logger.js'
 import getConversationHistory from '../helpers/getConversationHistory.js'
-import {
-  detectPublicInterventionOpportunity,
-  getInterventionAnalysisSchema,
-  buildInterventionTypeSection,
-  USER_TEMPLATE,
-  interventionLlmTemplateVars
-} from '../helpers/interventionHandler.js'
+import * as interventionHandler from '../helpers/interventionHandler.js'
 import { InterventionType, InterventionAnalysis } from '../helpers/interventionTypes.js'
+import createAgentPoll from '../helpers/agentPoll.js'
+import WHEN_RESULTS_VISIBLE from '../../models/poll.model/constants.js'
+
+const { getInterventionAnalysisSchema, buildInterventionTypeSection, USER_TEMPLATE, interventionLlmTemplateVars } =
+  interventionHandler
+
+const POLL_REVEAL_INSTRUCTIONS =
+  'Create a poll where results are shown immediately as votes come in. ' +
+  'Use when there are multiple genuine competing options and watching live votes accumulate would itself generate energy and discussion. ' +
+  'Best triggered by a moment of optionality — a speaker presenting alternatives, an open question with no clear consensus, or a bold claim worth testing against the room.'
+
+const pollRevealConfig: PollConfig = {
+  multiSelect: false,
+  allowNewChoices: false,
+  choicesVisible: true,
+  responseCountsVisible: true,
+  responsesVisible: true,
+  responsesVisibleToNonParticipants: true,
+  onlyOwnChoicesVisible: false,
+  whenResultsVisible: WHEN_RESULTS_VISIBLE.ALWAYS
+}
 
 /**
  * Default examples for engagement intervention types
@@ -36,6 +51,16 @@ const defaultEngagementExamples = {
       '"Filed under: things I\'ll be thinking about at 2am."'
     ]
   },
+  [InterventionType.POLL_REVEAL]: {
+    description:
+      'A live poll where results appear immediately as votes come in, generating energy and collective engagement through the reveal moment itself',
+    register: 'Either register',
+    examples: [
+      'Bold claim goes unchallenged and the room is passive → poll gives people a low-friction way to take a position; watching votes accumulate creates its own energy',
+      'Natural pause after a dense section → a well-chosen question gets people active again; the reveal drives the next beat of discussion',
+      'Topic has natural competing positions and the room has had a chance to absorb them → structured vote makes the collective view visible in a way that conversation alone cannot'
+    ]
+  },
   [InterventionType.NONE]: {
     description: 'Strategic silence',
     register: 'N/A',
@@ -48,7 +73,7 @@ const defaultEngagementExamples = {
  */
 function getEngagementSystemPrompt(personalityName?: string | null): string {
   // Build intervention types from defaultEngagementExamples
-  const activeTypes = [InterventionType.PROVOCATION, InterventionType.PLAY]
+  const activeTypes = [InterventionType.PROVOCATION, InterventionType.PLAY, InterventionType.POLL_REVEAL]
 
   const interventionSections = activeTypes
     .map((t) => buildInterventionTypeSection(t, defaultEngagementExamples[t], personalityName))
@@ -93,6 +118,10 @@ DON'T USE PLAY WHEN:
 - The emotional tone is heavy, raw, or sensitive
 - In these cases, use warm PROVOCATION or NONE instead
 
+DON'T USE POLL_REVEAL WHEN:
+- The speaker is actively soliciting a structured audience response — show of hands, a vote, humming, or any explicit ask for visible group participation. That is their engagement moment; a competing poll would step on it.
+- Use PROVOCATION instead if you want to amplify a speaker's direct question.
+
 Don't wait for problems. Participate. Generate energy and engagement.
 
 ## Intervention Types
@@ -118,16 +147,47 @@ Return a JSON object:
 Return ONLY raw JSON. No markdown, no backticks, no explanation.`
 }
 
+export async function executePollReveal(
+  this: IAgent & { getLLM: () => Promise<unknown> },
+  interventionAnalysis: InterventionAnalysis,
+  chatChannels: IChannel[]
+) {
+  try {
+    const result = await createAgentPoll.call(
+      this,
+      interventionAnalysis.detectedPattern ?? 'Create a poll',
+      interventionAnalysis.context ?? '',
+      pollRevealConfig,
+      POLL_REVEAL_INSTRUCTIONS
+    )
+    if (result) {
+      logger.info('Engagement Agent: POLL_REVEAL intervention executed')
+      return [
+        {
+          ...interventionAnalysis,
+          visible: true,
+          proactive: true,
+          message: result,
+          messageType: 'json',
+          channels: chatChannels
+        }
+      ]
+    }
+  } catch (error) {
+    logger.error('Engagement Agent: Failed to create poll via tool', error)
+  }
+  return []
+}
+
 export default verify({
   name: 'Engagement Agent',
   description: 'Generates energy and participation through provocations and playful commentary',
   priority: 85,
   maxTokens: 3000,
   defaultTriggers: {
-    periodic: { timerPeriod: 60, conversationHistorySettings: { channels: ['transcript'] } }
+    periodic: { timerPeriod: 120, conversationHistorySettings: { channels: ['transcript'] } }
   },
   agentConfig: {
-    minInterval: 5, // 5 min between interventions
     personality: 'sarcastic-expert'
   },
   llmTemplateVars: interventionLlmTemplateVars,
@@ -163,7 +223,7 @@ export default verify({
       endTime: conversationHistory.end
     })
 
-    const interventionAnalysis = await detectPublicInterventionOpportunity.call(
+    const interventionAnalysis = await interventionHandler.detectPublicInterventionOpportunity.call(
       this,
       sharedChatHistory,
       getEngagementSystemPrompt(this.agentConfig?.personality),
@@ -171,7 +231,7 @@ export default verify({
     )
 
     if (!interventionAnalysis) {
-      logger.debug('Engagement Agent: No intervention opportunity detected or rate limited')
+      logger.debug(`${this.agentType} ${this._id}: no intervention opportunity detected`)
       return []
     }
 
@@ -179,12 +239,19 @@ export default verify({
       `Engagement Agent: Detected ${interventionAnalysis.interventionType} opportunity - ${interventionAnalysis.detectedPattern}`
     )
 
-    // Post to shared chat
+    const chatChannels = this.conversation.channels.filter((c: IChannel) => c.name === 'chat')
+
+    if (interventionAnalysis.interventionType === InterventionType.POLL_REVEAL) {
+      return executePollReveal.call(this, interventionAnalysis, chatChannels)
+    }
+
+    // Post text message to shared chat
     if (interventionAnalysis.sharedChatMessage) {
       return [
         {
           ...interventionAnalysis,
           visible: true,
+          proactive: true,
           message: interventionAnalysis.sharedChatMessage,
           channels: this.conversation.channels.filter((c: IChannel) => c.name === 'chat')
         }

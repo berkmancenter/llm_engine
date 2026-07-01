@@ -14,6 +14,7 @@ import adapterService from '../adapter.service.js'
 import channelService from '../channel.service.js'
 import { ConversationDocument } from '../../models/conversation.model.js'
 import { getConversationType } from '../../conversations/index.js'
+import adapterTypes from '../../adapters/index.js'
 import resolveConversationType from '../../conversations/resolver.js'
 import { supportedModels } from '../../agents/helpers/getEmbeddings.js'
 import transcript from '../../agents/helpers/transcript.js'
@@ -24,7 +25,7 @@ import resourceService from '../resource.service.js'
 export { updateTranscriptStatus }
 
 const returnFields =
-  'name slug locked owner createdAt active conversationType platforms scheduledTime scheduledEndTime description moderators presenters transcript properties features'
+  'name slug locked owner createdAt active conversationType platforms scheduledTime scheduledEndTime startTime endTime description moderators presenters transcript properties features'
 export const maxScheduledInterval = 10 * 60 * 1000 // 10 minutes in milliseconds
 export const { autoStartLeadTimeMs } = config.conversation
 export const { autoStopDelayMs } = config.conversation
@@ -123,6 +124,20 @@ async function scheduleConversationAutoStop(conversation) {
   logger.debug(`Scheduled auto-stop for conversation ${conversation._id} at ${scheduledAt}`)
 }
 
+async function scheduleConversationEndingSoon(conversation) {
+  await defineJob.conversationEndingSoon(conversation._id)
+  // Schedule maxScheduledInterval before the scheduled end time;
+  // this could eventually become configurable in conversation object
+  // Failsafe: do nothing if event is somehow less than 10 minutes long as scheduled
+  if (conversation.scheduledEndTime.getTime() - maxScheduledInterval < new Date().getTime()) {
+    logger.debug(`Conversation ${conversation._id} ending soon event skipped due to short duration`)
+    return
+  }
+  const scheduledAt = new Date(conversation.scheduledEndTime.getTime() - maxScheduledInterval)
+  await schedule.conversationEndingSoon(scheduledAt, { conversationId: conversation._id })
+  logger.debug(`Scheduled conversation ending soon for conversation ${conversation._id} at ${scheduledAt}`)
+}
+
 const initializeConversations = async () => {
   const now = new Date()
   const pendingStart = await Conversation.find({ scheduledTime: { $gt: now }, active: false })
@@ -174,6 +189,7 @@ const createConversation = async (conversationBody, user) => {
     ...(conversationBody.moderators !== undefined && { moderators: conversationBody.moderators }),
     ...(conversationBody.presenters !== undefined && { presenters: conversationBody.presenters }),
     ...(conversationBody.properties !== undefined && { properties: conversationBody.properties }),
+    ...(conversationBody.analyticsRefs !== undefined && { analyticsRefs: conversationBody.analyticsRefs }),
     ...(conversationBody.features !== undefined && { features: conversationBody.features }),
     ...(conversationBody.resources !== undefined && { resources: conversationBody.resources }),
     agents: [],
@@ -216,6 +232,8 @@ const createConversation = async (conversationBody, user) => {
     await scheduleConversationAutoStart(conversation)
     if (conversation.scheduledEndTime) {
       await scheduleConversationAutoStop(conversation)
+      await scheduleConversationEndingSoon(conversation)
+
     }
   } else {
     await startConversation(conversation, user)
@@ -289,22 +307,26 @@ const updateConversation = async (conversationBody, user) => {
     conversationDoc.properties = { ...conversationDoc.properties, ...incomingProperties }
     conversationDoc.markModified('properties') // Mongoose won't detect changes inside a Mixed field without this
 
-    /* The Zoom adapter's meetingUrl and botName are set once at creation from Handlebars
-       templates. They don't sync automatically when the conversation's properties change,
-       so we update the adapter config here too. */
-    const adapterConfigUpdates: Record<string, unknown> = {}
-    if (incomingProperties.zoomMeetingUrl !== undefined) {
-      adapterConfigUpdates.meetingUrl = incomingProperties.zoomMeetingUrl
-    }
-    if (incomingProperties.botName !== undefined) {
-      adapterConfigUpdates.botName = incomingProperties.botName
-    }
-    if (Object.keys(adapterConfigUpdates).length > 0) {
-      const zoomAdapters = await Adapter.find({ conversation: conversationDoc._id, type: 'zoom' })
-      for (const adapter of zoomAdapters) {
-        adapter.config = { ...adapter.config, ...adapterConfigUpdates }
-        adapter.markModified('config')
-        await adapter.save()
+    /* Adapter config fields rendered from conversation properties at creation time don't
+       resync automatically when properties change later. Each adapter type declares a
+       configSyncMap from conversation property keys to adapter config keys; any changed
+       property that appears in a map is pushed to that type's adapter documents now. */
+    for (const [adapterType, adapterDef] of Object.entries(adapterTypes)) {
+      const syncMap = (adapterDef as { configSyncMap?: Record<string, string> }).configSyncMap
+      if (!syncMap) continue
+      const configUpdates: Record<string, unknown> = {}
+      for (const [convKey, configKey] of Object.entries(syncMap)) {
+        if (incomingProperties[convKey] !== undefined) {
+          configUpdates[configKey] = incomingProperties[convKey]
+        }
+      }
+      if (Object.keys(configUpdates).length > 0) {
+        const adapters = await Adapter.find({ conversation: conversationDoc._id, type: adapterType })
+        for (const adapter of adapters) {
+          adapter.config = { ...adapter.config, ...configUpdates }
+          adapter.markModified('config')
+          await adapter.save()
+        }
       }
     }
 
@@ -506,6 +528,7 @@ const updateConversation = async (conversationBody, user) => {
   }
   if (restBody.scheduledEndTime !== undefined && conversationDoc!.scheduledEndTime) {
     await scheduleConversationAutoStop(conversationDoc!)
+    await scheduleConversationEndingSoon(conversationDoc!)
   }
 
   await transcript.loadEventMetadataIntoVectorStore(conversationDoc!)

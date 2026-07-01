@@ -349,6 +349,24 @@ export function compileSpeakerNames(conversation): string {
   return `## Event Participants:\n${lines.join('\n')}\n\n`
 }
 
+/**
+ * Visual-awareness guidance appended to the answer prompt (both the semantic and the
+ * time-window/catchup paths) so the text model (Opus) never falsely claims it cannot
+ * produce images/diagrams. Visuals are rendered by a separate async step, but the guidance
+ * frames that as the assistant's *own* first-person capability: if the wording attributes
+ * visuals to "the platform" / "a separate step", the model disowns the capability and starts
+ * referring to itself in the third person ("Berkie can generate that") instead of "I can".
+ * Wording depends on whether that step will fire for this turn:
+ * - autoVisualActive: a visual is already coming (via /visual or the user's visualResponse
+ *   preference), so just don't deny the capability.
+ * - otherwise: no visual is queued, so additionally point the user to the /visual command.
+ */
+export function buildVisualGuidance(autoVisualActive: boolean): string {
+  return autoVisualActive
+    ? `\n- **Visuals & images:** You can create images, diagrams, charts, and other visuals. Another part of the system renders them for you automatically, so never tell the user you are unable to make one. Always speak about this in the first person (e.g. "I'll put together a diagram for you") — never refer to yourself in the third person, and never describe the visual as something a separate "platform" or "system" produces. Answer the underlying concept helpfully and do not deny the capability.`
+    : `\n- **Visuals & images:** You can create images, diagrams, charts, and other visuals, so never tell the user you are unable to make one. When the user asks for a picture/diagram/visual, answer the underlying concept helpfully and invite them to use the /visual command so you can generate one for them. Always speak about this in the first person (e.g. "I can create that for you") — never refer to yourself in the third person. Do not deny the capability.`
+}
+
 export async function answerQuestion(userMessage, conversationHistory, options?) {
   const chatHistory = userMessage?.channels?.includes('chat')
     ? formatMultiUserConversationHistory(conversationHistory)
@@ -464,12 +482,29 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
 
   const topic = options?.topic || this.conversation.name
 
+  // Determine up front whether a visual will be produced this turn, so the answer prompt can
+  // be made visual-aware. Visuals are rendered by a separate async step; the answer model must
+  // never deny the capability, and should point to /visual only when no visual is already queued.
+  // The actual visual-generation decision is made again below (and may still skip via classification).
+  const forceVisual = options?.forceVisual === true
+  const responseChannels = this.conversation.channels.filter((channel: IChannel) =>
+    userMessage.channels.includes(channel.name)
+  )
+  // Only use the visual preference on a user's private channel, not e.g. group chat
+  const isDirectChannel = responseChannels.some((channel: IChannel) => channel.direct)
+  // Load once and reuse for the visual-generation decision below. Not needed on the /visual
+  // (forceVisual) path, where the preference is irrelevant — keep that path query-free.
+  const user = isDirectChannel && !forceVisual ? await User.findById(userMessage.owner) : null
+  const autoVisualActive = forceVisual || (isDirectChannel && Boolean(user?.preferences?.visualResponse))
+
   let systemTemplate: string
   let templateType: 'offTopic' | 'unanswerable' | 'timeWindow' | 'semantic'
   let classification: QuestionClassification
 
   if (isTimeWindow) {
-    systemTemplate = templates.timeWindowSystem
+    // Catchup answers can also trigger visual generation (allowGenerateVisual stays true here),
+    // so they need the same visual awareness as the semantic path.
+    systemTemplate = templates.timeWindowSystem + buildVisualGuidance(autoVisualActive)
     templateType = 'timeWindow'
     classification = QuestionClassification.CATCHUP
   } else {
@@ -499,7 +534,7 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
       templateType = 'unanswerable'
       allowGenerateVisual = false
     } else {
-      systemTemplate = templates.semanticSystem
+      systemTemplate = templates.semanticSystem + buildVisualGuidance(autoVisualActive)
       templateType = 'semantic'
     }
   }
@@ -558,10 +593,6 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
     llmResponse = await getResponse.call(this, question, contextString, chatHistory, topic, systemTemplate)
   }
 
-  const responseChannels = this.conversation.channels.filter((channel: IChannel) =>
-    userMessage.channels.includes(channel.name)
-  )
-
   let responseMessage = llmResponse
   let imageGenResponse
   let parentMessageId
@@ -575,12 +606,6 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
     parentMessageId = userMessage.parentMessage
   }
 
-  // Check if visual generation should happen (either forced via /visual or user preference)
-  const forceVisual = options?.forceVisual === true
-
-  // Only use visual preference on a user's private channel, not e.g. group chat
-  const isDirectChannel = responseChannels.some((channel: IChannel) => channel.direct)
-
   if (!allowGenerateVisual) logger.debug('Visual generation skipped due to off-topic or unanswerable question')
 
   if ((forceVisual || isDirectChannel) && allowGenerateVisual) {
@@ -591,14 +616,11 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
       // For /visual command, always generate
       // User explicitly requested visual, so respect their intent
       shouldGenerate = true
-    } else {
-      // isDirectChannel - only now do we need the user's preferences
-      const user = await User.findById(userMessage.owner)
-      if (user?.preferences?.visualResponse) {
-        logger.debug(`User ${user._id} has visual response preference enabled`)
-        // Classify if this question/answer would benefit from a visual
-        shouldGenerate = await shouldGenerateVisual.call(this, question, classification, llmResponse, templates)
-      }
+    } else if (user?.preferences?.visualResponse) {
+      // isDirectChannel - user (with preferences) was loaded above
+      logger.debug(`User ${user._id} has visual response preference enabled`)
+      // Classify if this question/answer would benefit from a visual
+      shouldGenerate = await shouldGenerateVisual.call(this, question, classification, llmResponse, templates)
     }
 
     if (shouldGenerate) {
@@ -626,11 +648,17 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
     }
   }
 
+  const moderatorSuggested =
+    options?.moderatorSupport &&
+    (classification === QuestionClassification.ON_TOPIC_ASK_SPEAKER ||
+      classification === QuestionClassification.UNANSWERABLE)
+
   const agentResponse = {
     visible: true,
     message: {
       text: responseMessage,
-      type: classification.toLowerCase()
+      type: classification.toLowerCase(),
+      ...(moderatorSuggested ? { moderatorSuggested: true, message: userMessage._id?.toString() } : {})
     },
     messageType: 'json',
     channels: responseChannels,

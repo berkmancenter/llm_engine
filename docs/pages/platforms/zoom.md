@@ -29,7 +29,13 @@ RECALL_ENDPOINT_BASE_URL: The URL Recall should use to send events to this serve
 # Verification secrets for webhook signature validation
 RECALL_REALTIME_SECRET=whsec_...
 RECALL_SVIX_SECRET=whsec_...
+# Optional: base URL of the NextSpace frontend. In hybrid events where some attendees are on Zoom and others
+# are in NextSpace, certain features (e.g. polls) are only available in NextSpace. When set, LLM Engine may
+# post a link into Zoom chat directing remote attendees to the relevant NextSpace page so they can participate.
+NEXTSPACE_URL=https://your-nextspace-domain.com
 ```
+
+> **Note:** Zoom blocks `localhost` URLs in chat messages for security reasons. If testing locally, set `NEXTSPACE_URL` to an ngrok tunnel pointing to your NextSpace frontend (e.g. `https://abc123.ngrok.io`) rather than `http://localhost:PORT`.
 
 #### Zoom Webinar One Time Setup
 

@@ -1,6 +1,7 @@
 import agentHandlers from './agent.js'
 import conversationHandlers from './conversation.js'
 import conversationEventHandlers from './conversationEvent.js'
+import pollHandlers from './poll.js'
 import resourceHandlers from './resource.js'
 import topicHandlers from './topic.js'
 import transcriptHandlers from './transcript.js'
@@ -14,6 +15,11 @@ const JobHandlers = {
   // Conversation handlers
   autoStartConversation: conversationHandlers.autoStartConversation,
   autoStopConversation: conversationHandlers.autoStopConversation,
+  conversationEndingSoon: conversationHandlers.conversationEndingSoon,
+  
+
+  // Poll handlers
+  pollExpired: pollHandlers.pollExpired,
 
   // Resource handlers
   summarizePdf: resourceHandlers.summarizePdf,

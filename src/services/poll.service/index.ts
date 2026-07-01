@@ -2,33 +2,33 @@ import escapeStringRegexp from 'escape-string-regexp'
 import mongoose from 'mongoose'
 import httpStatus from 'http-status'
 import logger from '../../config/logger.js'
-import { Topic, Poll, PollChoice, PollResponse } from '../../models/index.js'
+import Conversation from '../../models/conversation.model.js'
+import Poll from '../../models/poll.model/poll.js'
+import PollChoice from '../../models/poll.model/choice.js'
+import PollResponse from '../../models/poll.model/response.js'
 import ApiError from '../../utils/ApiError.js'
+import access from '../../auth/access.js'
 import WHEN_RESULTS_VISIBLE from '../../models/poll.model/constants.js'
 import websocketGateway from '../../websockets/websocketGateway.js'
 import { IPollChoice } from '../../types/index.types.js'
+import schedule from '../../jobs/schedule.js'
 
 const createPoll = async (pollBody, user) => {
-  if (!pollBody.topicId) throw new ApiError(httpStatus.BAD_REQUEST, 'Topic ID must be passed in request body')
-  const topicId = new mongoose.Types.ObjectId(pollBody.topicId)
-  const topic = await Topic.findById(topicId)
-  if (!topic) {
-    throw new ApiError(httpStatus.NOT_FOUND, `Topic with id ${topicId} not found`)
+  if (!pollBody.conversationId) throw new ApiError(httpStatus.BAD_REQUEST, 'Conversation ID must be passed in request body')
+  const conversationId = new mongoose.Types.ObjectId(pollBody.conversationId)
+  const conversation = await Conversation.findById(conversationId)
+  if (!conversation) {
+    throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${conversationId} not found`)
   }
-  // TODO: Confirm if we want to separately allow control of conversation and poll creation or not
-  // For this MVP we are using conversationCreationAllowed, but it should probably be renamed
-  // spaceCreationAllowed or separated into two options for clarity
-  if (!topic.conversationCreationAllowed && user._id.toString() !== topic.owner.toString()) {
-    throw new ApiError(httpStatus.FORBIDDEN, 'Poll creation not allowed.')
-  }
+  await access.assertCanWrite(user, { type: 'conversation', id: conversationId.toString() })
   let choices
   if (pollBody.choices) choices = pollBody.choices
   const pollData = {
     ...pollBody,
     owner: user._id,
-    topic
+    conversation
   }
-  delete pollData.topicId
+  delete pollData.conversationId
   if (
     [WHEN_RESULTS_VISIBLE.THRESHOLD_ONLY, WHEN_RESULTS_VISIBLE.ALWAYS].includes(pollData.whenResultsVisible) &&
     pollData.expirationDate
@@ -57,13 +57,17 @@ const createPoll = async (pollBody, user) => {
   if (choices) {
     await PollChoice.create(choices.map((c) => ({ ...c, poll })))
   }
-  // NOTE! We specifically do NOT save polls in the topic objects because
+  // NOTE! We specifically do NOT save polls in the conversation objects because
   // it is important that poll owners not be exposed (in contrast with conversations)
-  // WEe can still look up polls for a topic with a query if needed
-  // NO: topic.polls.push(poll.toObject())
-  // NO: await topic.save()
+  // We can still look up polls for a conversation with a query if needed
   logger.info('Created poll %s %s %s', poll._id, poll.title, choices?.length ?? 0)
   websocketGateway.broadcastNewPoll(poll)
+  if (poll.expirationDate) {
+    await schedule.pollExpired(poll.expirationDate, {
+      pollId: poll._id.toString(),
+      conversationId: conversation._id.toString()
+    })
+  }
   return poll
 }
 const findById = async (pollId) => {
@@ -94,6 +98,8 @@ const respondPoll = async (pollId, choiceData, user) => {
   }
   const poll = await Poll.findById(pollId)
   if (!poll) throw new ApiError(httpStatus.NOT_FOUND, 'No such poll')
+  const conversation = await Conversation.findById(poll.conversation, { active: 1 }).lean()
+  if (!conversation?.active) throw new ApiError(httpStatus.FORBIDDEN, 'This event has ended. Voting is no longer allowed.')
   // cannot respond to an expired poll
   const nowTime = Date.now()
   if (
@@ -149,7 +155,25 @@ const respondPoll = async (pollId, choiceData, user) => {
   if (response.isModified()) await response.save()
   logger.info('Response poll %s %s', pollId, user._id, choice._id)
   const responseWithIds = response.replaceObjectsWithIds()
-  websocketGateway.broadcastNewPollChoice(poll.topic, responseWithIds)
+
+  // Build aggregate counts to embed in the broadcast so clients don't need to re-fetch.
+  // All choices are included (dense) — unvoted choices appear with count 0.
+  const [allChoices, allResponses] = await Promise.all([
+    PollChoice.find({ poll: poll._id }, { text: 1 }).lean(),
+    PollResponse.find({ poll: poll._id }, { choice: 1 }).lean()
+  ])
+  const countByChoiceId: Record<string, number> = {}
+  for (const r of allResponses) countByChoiceId[r.choice.toString()] = (countByChoiceId[r.choice.toString()] ?? 0) + 1
+  const counts: Record<string, number> = {}
+  for (const c of allChoices) counts[c.text] = countByChoiceId[c._id.toString()] ?? 0
+
+  websocketGateway.broadcastNewPollChoice(poll.conversation, { ...responseWithIds, pollId: poll._id.toString(), counts })
+  if (poll.threshold) {
+    const choiceCount = await PollResponse.countDocuments({ poll: poll._id, choice: choice._id })
+    if (choiceCount === poll.threshold) {
+      websocketGateway.broadcastPollThreshold(poll.conversation.toString(), poll._id.toString())
+    }
+  }
   return responseWithIds
 }
 const inspectPoll = async (pollId, user) => {

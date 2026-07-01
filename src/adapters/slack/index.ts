@@ -4,6 +4,7 @@ import logger from '../../config/logger.js'
 import slackClientPool from './client.js'
 import { AdapterMessage } from '../../types/adapter.types.js'
 import Message from '../../models/message.model.js'
+import renderResponseBlocks from './blocks/index.js'
 
 function normalizeBotMention(text: string, botUserId: string, botName: string): string {
   if (!botUserId || !botName) return text
@@ -73,6 +74,18 @@ function markdownToMrkdwn(text: string): string {
 export default {
   name: 'slack',
   label: 'Slack',
+  /* Maps conversation property keys to the adapter config keys they should write.
+     The conversation service reads this at update time to push changed properties
+     to Slack adapter documents without needing to know which keys Slack cares about. */
+  configSyncMap: {
+    slackBotUserId: 'botUserId',
+    botName: 'botName',
+    slackBotToken: 'botToken',
+    slackSigningSecret: 'signingSecret',
+    slackChannel: 'channel',
+    slackWorkspace: 'workspace',
+    slackAppKey: 'appKey'
+  },
   async sendMessage(message, channelConfig?) {
     const channel = channelConfig?.channel ? channelConfig?.channel : this.config.channel
     // Convert markdown to Slack mrkdwn format, then convert Slack user ID mentions to Slack format.
@@ -88,13 +101,18 @@ export default {
       threadTs = parent?.source?.id
     }
 
+    // Prefer blocks rendered from a neutral render instruction (responseKind +
+    // renderData); fall back to any pre-built blocks the message already carries.
+    const renderedBlocks = renderResponseBlocks(message.responseKind, message.renderData)
+    const blocks = (renderedBlocks ?? (message.blocks as (KnownBlock | Block)[])) as (KnownBlock | Block)[] | undefined
+
     const result = (await slackWebClient.chat.postMessage({
       channel,
       text,
       ...(threadTs && { thread_ts: threadTs }),
       // Include Block Kit blocks when provided. text is still required alongside blocks
       // as Slack uses it for notifications and accessibility fallback.
-      ...(message.blocks?.length && { blocks: message.blocks as (KnownBlock | Block)[] })
+      ...(blocks?.length && { blocks })
     })) as ChatPostMessageResponse
     if (!result.ok) {
       throw new Error(`Slack message failed to send: ${result.error}`)

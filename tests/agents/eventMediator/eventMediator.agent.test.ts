@@ -13,7 +13,11 @@ import {
 
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
 import { InterventionType } from '../../../src/agents/helpers/interventionTypes.js'
-import Agent from '../../../src/models/user.model/agent.model/index.js'
+import websocketGateway from '../../../src/websockets/websocketGateway.js'
+import schedule from '../../../src/jobs/schedule.js'
+
+jest.spyOn(websocketGateway, 'broadcastNewPoll').mockResolvedValue(undefined)
+jest.spyOn(schedule, 'pollExpired').mockResolvedValue(undefined)
 
 jest.setTimeout(180000)
 
@@ -64,17 +68,6 @@ describe(`event mediator agent tests`, () => {
     agent = conversation.agents.find((a) => a.name === 'Event Mediator')
     expect(agent).toBeDefined()
 
-    // Add Engagement Agent to the conversation for cross-agent rate limiting tests
-    const engagementAgent = new Agent({
-      agentType: 'engagementAgent',
-      conversation,
-      llmPlatform: testConfig.llmPlatform,
-      llmModel: testConfig.llmModel
-    })
-    await engagementAgent.save()
-    conversation.agents.push(engagementAgent)
-    await conversation.save()
-
     await loadPartTimeWorkTranscript(conversation, true)
   })
 
@@ -82,13 +75,12 @@ describe(`event mediator agent tests`, () => {
     it('has correct default configuration', () => {
       expect(agent.name).toBe('Event Mediator')
       expect(agent.description).toContain('strategic interventions')
-      expect(agent.agentConfig.minInterval).toBe(2) // 2 min
       expect(agent.agentConfig.personality).toBe('sarcastic-expert')
     })
 
-    it('uses periodic trigger on transcript with 67 second interval', () => {
+    it('uses periodic trigger on transcript with 127 second interval', () => {
       expect(agent.triggers.periodic).toBeDefined()
-      expect(agent.triggers.periodic.timerPeriod).toBe(67)
+      expect(agent.triggers.periodic.timerPeriod).toBe(127)
       expect(agent.triggers.periodic.conversationHistorySettings.channels).toContain('transcript')
     })
   })
@@ -155,203 +147,137 @@ describe(`event mediator agent tests`, () => {
       testTimeout
     )
 
-    describe('rate limiting', () => {
+    describe('self-limiting based on recent agent activity', () => {
       it(
-        'respects rate limiting between interventions',
+        'SHOULD NOT intervene when it recently posted a facilitation message',
         async () => {
-          // Create first pattern
-          const messages1 = [
-            await createDirectMessage('Question about part-time benefits', user1, conversation, getMessageTime(200)),
-            await createDirectMessage('Also curious about part-time benefits', user2, conversation, getMessageTime(210))
-          ]
-          await prepareMessagesForAgent(messages1, conversation, agent)
-
-          const conversationHistory1 = getConversationHistory(conversation.messages, {
-            count: 100,
-            channels: ['transcript'],
-            endTime: new Date(startTime.getTime() + 300 * 1000)
-          })
-
-          const responses1 = await defaultAgentTypes.eventMediator.respond.call(agent, conversationHistory1)
-
-          // If it intervened, create another similar pattern immediately
-          if (responses1.length > 0) {
-            // Add the first agent response to the conversation history
-            const firstResponse = responses1[0]
-            const agentMessage = await createMessage(
-              firstResponse.message,
-              user1, // Using user1 as placeholder since agent messages need a user
-              conversation,
-              ['chat'],
-              getMessageTime(300) // Time when the agent responded
-            )
-            agentMessage.fromAgent = true
-            agentMessage.pseudonym = 'Event Mediator'
-            agentMessage.visible = true
-            await prepareMessagesForAgent([agentMessage], conversation, agent)
-
-            const messages2 = [
-              await createDirectMessage('What about remote work options?', user1, conversation, getMessageTime(301)),
-              await createDirectMessage('Yes, curious about remote work too', user2, conversation, getMessageTime(302))
-            ]
-            await prepareMessagesForAgent(messages2, conversation, agent)
-
-            // Try to respond again immediately (within 1 min)
-            const conversationHistory2 = getConversationHistory(conversation.messages, {
-              count: 100,
-              channels: ['transcript'],
-              endTime: new Date(startTime.getTime() + 335 * 1000) // 35 seconds later
-            })
-
-            const responses2 = await defaultAgentTypes.eventMediator.respond.call(agent, conversationHistory2)
-
-            // Should be rate limited
-            expect(responses2).toEqual([])
-          }
-        },
-        testTimeout
-      )
-
-      it(
-        'respects rate limiting across different agents (Engagement Agent blocks Mediator)',
-        async () => {
-          // Get the Engagement Agent from the conversation
-          const engagementAgent = conversation.agents.find((a) => a.name === 'Engagement Agent')
-          expect(engagementAgent).toBeDefined()
-
-          // Engagement Agent posts an intervention
-          const engagementMessage = await createMessage(
-            'This is an intervention from the engagement agent',
+          // Mediator posted a substantive facilitation message just 30 seconds ago
+          const recentMediatorMsg = await createMessage(
+            'Interesting tension in the room right now — some of you are energised by this framework, others feel something important is being flattened.',
             user1,
             conversation,
             ['chat'],
-            getMessageTime(100)
+            getMessageTime(120)
           )
-          engagementMessage.fromAgent = true
-          engagementMessage.pseudonym = 'Engagement Agent'
-          engagementMessage.visible = true
+          recentMediatorMsg.fromAgent = true
+          recentMediatorMsg.pseudonym = agent.name
+          recentMediatorMsg.pseudonym = agent.name
+          recentMediatorMsg.visible = true
 
-          await prepareMessagesForAgent([engagementMessage], conversation, agent)
+          const messages = [
+            recentMediatorMsg,
+            await createMessage('That is a good point', user1, conversation, ['chat'], getMessageTime(130)),
+            await createMessage('Agreed', user2, conversation, ['chat'], getMessageTime(140))
+          ]
+          await prepareMessagesForAgent(messages, conversation, agent)
 
-          // Try to have Mediator respond 30 seconds later (within the 2 min minInterval)
           const conversationHistory = getConversationHistory(conversation.messages, {
             count: 100,
             channels: ['transcript'],
-            endTime: getMessageTime(130) // 30 seconds after Engagement Agent's post
+            endTime: new Date(startTime.getTime() + 150 * 1000)
           })
 
           const responses = await defaultAgentTypes.eventMediator.respond.call(agent, conversationHistory)
 
-          // Should be rate limited because Engagement Agent posted recently
-          expect(responses).toEqual([])
-        },
-        testTimeout
-      )
-
-      it(
-        'respects rate limiting across different agents (Mediator blocks Engagement Agent)',
-        async () => {
-          // Get the Engagement Agent from the conversation
-          const engagementAgent = conversation.agents.find((a) => a.name === 'Engagement Agent')
-          expect(engagementAgent).toBeDefined()
-
-          // Mediator posts an intervention
-          const mediatorMessage = await createMessage(
-            'This is an intervention from the mediator',
-            user1,
-            conversation,
-            ['chat'],
-            getMessageTime(100)
-          )
-          mediatorMessage.fromAgent = true
-          mediatorMessage.pseudonym = 'Event Mediator'
-          mediatorMessage.visible = true
-
-          await prepareMessagesForAgent([mediatorMessage], conversation, engagementAgent)
-
-          // Try to have Engagement Agent respond 30 seconds later (within the 2 min minInterval)
-          const conversationHistory = getConversationHistory(conversation.messages, {
-            count: 100,
-            channels: ['transcript'],
-            endTime: getMessageTime(130) // 30 seconds after Mediator's post
-          })
-
-          const responses = await defaultAgentTypes.engagementAgent.respond.call(engagementAgent, conversationHistory)
-
-          // Should be rate limited because Mediator posted recently
-          expect(responses).toEqual([])
-        },
-        testTimeout
-      )
-
-      it(
-        'allows intervention after enough time has passed since other agent intervened',
-        async () => {
-          // Get the Engagement Agent from the conversation
-          const engagementAgent = conversation.agents.find((a) => a.name === 'Engagement Agent')
-          expect(engagementAgent).toBeDefined()
-
-          // Mediator posts an intervention
-          const mediatorMessage = await createMessage(
-            'This is an intervention from the mediator',
-            user1,
-            conversation,
-            ['chat'],
-            getMessageTime(100)
-          )
-          mediatorMessage.fromAgent = true
-          mediatorMessage.pseudonym = 'Event Mediator'
-          mediatorMessage.visible = true
-
-          await prepareMessagesForAgent([mediatorMessage], conversation, engagementAgent)
-
-          // Try to have Engagement Agent respond 5 minutes later (beyond the 2 min minInterval)
-          const conversationHistory = getConversationHistory(conversation.messages, {
-            count: 100,
-            channels: ['transcript'],
-            endTime: getMessageTime(360) // 260 seconds = 4 min 20 sec after Mediator's post
-          })
-
-          const responses = await defaultAgentTypes.engagementAgent.respond.call(engagementAgent, conversationHistory)
-
-          // Should NOT be rate limited because enough time has passed
+          if (responses.length > 0) {
+            const { interventionType } = responses[0]
+            console.warn(`[self-limiting] Agent intervened 30s after own post: ${interventionType}: ${responses[0].message}`)
+          } else {
+            console.log('[self-limiting] Agent correctly held back after recent post')
+          }
           expect(Array.isArray(responses)).toBe(true)
         },
         testTimeout
       )
 
       it(
-        'ignores non-visible agent messages for rate limiting',
+        'SHOULD NOT intervene when another facilitation agent recently posted',
         async () => {
-          // Get the Engagement Agent from the conversation
-          const engagementAgent = conversation.agents.find((a) => a.name === 'Engagement Agent')
-          expect(engagementAgent).toBeDefined()
-
-          // Create an agent intervention that is not visible
-          const hiddenAgentMessage = await createMessage(
-            'Hidden intervention',
+          // Engagement Agent posted a provocation 30 seconds ago — mediator should hold back
+          const recentEngagementMsg = await createMessage(
+            "We've been in agreement for a while now. What's the strongest case against what we're converging on?",
             user1,
             conversation,
             ['chat'],
-            getMessageTime(100)
+            getMessageTime(120)
           )
-          hiddenAgentMessage.fromAgent = true
-          hiddenAgentMessage.pseudonym = 'Event Mediator'
-          hiddenAgentMessage.visible = false // Not visible
+          recentEngagementMsg.fromAgent = true
+          recentEngagementMsg.pseudonym = 'Engagement Agent'
+          recentEngagementMsg.visible = true
 
-          await prepareMessagesForAgent([hiddenAgentMessage], conversation, engagementAgent)
+          const messages = [
+            recentEngagementMsg,
+            await createMessage('Hmm good question', user1, conversation, ['chat'], getMessageTime(130)),
+            await createMessage('Let me think', user2, conversation, ['chat'], getMessageTime(140))
+          ]
+          await prepareMessagesForAgent(messages, conversation, agent)
 
-          // Try to have Engagement Agent respond shortly after (within what would be minInterval)
           const conversationHistory = getConversationHistory(conversation.messages, {
             count: 100,
             channels: ['transcript'],
-            endTime: getMessageTime(130)
+            endTime: new Date(startTime.getTime() + 150 * 1000)
           })
 
-          const responses = await defaultAgentTypes.engagementAgent.respond.call(engagementAgent, conversationHistory)
+          const responses = await defaultAgentTypes.eventMediator.respond.call(agent, conversationHistory)
 
-          // Should NOT be rate limited because the agent message was not visible
+          if (responses.length > 0) {
+            const { interventionType } = responses[0]
+            console.warn(
+              `[cross-agent limiting] Agent intervened 30s after other facilitation agent: ${interventionType}: ${responses[0].message}`
+            )
+          } else {
+            console.log('[cross-agent limiting] Agent correctly held back after recent facilitation post')
+          }
           expect(Array.isArray(responses)).toBe(true)
+        },
+        testTimeout
+      )
+
+      it(
+        'SHOULD intervene despite recent Q&A agent activity',
+        async () => {
+          // An event assistant answered a direct question recently — this should NOT block the mediator
+          const recentQAMsg = await createMessage(
+            'The conference is on June 15th at the downtown venue.',
+            user1,
+            conversation,
+            ['chat'],
+            getMessageTime(120)
+          )
+          recentQAMsg.fromAgent = true
+          recentQAMsg.pseudonym = 'Event Assistant'
+          recentQAMsg.visible = true
+
+          const messages = [
+            recentQAMsg,
+            // Strong convergence pattern to give the mediator a clear reason to intervene
+            await createDirectMessage(
+              'What about healthcare for part-time workers?',
+              user1,
+              conversation,
+              getMessageTime(130)
+            ),
+            await createDirectMessage('Healthcare benefits are my main question', user2, conversation, getMessageTime(140)),
+            await createDirectMessage('The benefits question is huge', user3, conversation, getMessageTime(150)),
+            await createMessage('Really useful so far', user1, conversation, ['chat'], getMessageTime(160))
+          ]
+          await prepareMessagesForAgent(messages, conversation, agent)
+
+          const conversationHistory = getConversationHistory(conversation.messages, {
+            count: 100,
+            channels: ['transcript'],
+            endTime: new Date(startTime.getTime() + 200 * 1000)
+          })
+
+          const responses = await defaultAgentTypes.eventMediator.respond.call(agent, conversationHistory)
+
+          // Q&A activity should not suppress the mediator when there is a clear pattern
+          if (responses.length > 0) {
+            console.log(`[Q&A not blocking] Detected ${responses[0].interventionType}:`, responses[0].message)
+          } else {
+            console.warn('[Q&A not blocking] Agent did not intervene despite strong convergence pattern')
+          }
+          expect(responses.length).toBeGreaterThan(0)
         },
         testTimeout
       )

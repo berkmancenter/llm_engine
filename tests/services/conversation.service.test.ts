@@ -19,6 +19,7 @@ import schedule from '../../src/jobs/schedule.js'
 import defineJob from '../../src/jobs/define.js'
 import transcript from '../../src/agents/helpers/transcript.js'
 import agentDispatcher from '../../src/jobs/agentDispatcher.js'
+import analyticsSources from '../../src/services/analyticsSources/index.js'
 
 jest.setTimeout(10000)
 jest.mock('agenda')
@@ -34,6 +35,11 @@ const mockAdapterStop = jest.fn()
 const mockGetUniqueKeys = jest.fn()
 const testAdapterTypes = {
   zoom: {
+    start: mockAdapterStart,
+    stop: mockAdapterStop,
+    getUniqueKeys: mockGetUniqueKeys
+  },
+  slack: {
     start: mockAdapterStart,
     stop: mockAdapterStop,
     getUniqueKeys: mockGetUniqueKeys
@@ -219,6 +225,7 @@ describe('Conversation service methods', () => {
     jest.spyOn(schedule, 'cancelPeriodicAgent').mockResolvedValue()
     jest.spyOn(schedule, 'periodicAgent').mockResolvedValue()
     jest.spyOn(schedule, 'agentResponse').mockResolvedValue()
+    jest.spyOn(schedule, 'conversationEndingSoon').mockResolvedValue()
     jest.spyOn(defineJob, 'batchTranscript').mockResolvedValue()
     jest.spyOn(defineJob, 'periodicAgent').mockResolvedValue()
     jest.spyOn(defineJob, 'agentResponse').mockResolvedValue()
@@ -781,15 +788,15 @@ describe('Conversation service methods', () => {
           ...baseParams,
           topicId: topicOne._id.toString(),
           properties: { zoomMeetingUrl: 'https://zoom.us/j/123456789' },
-          features: [{ name: 'collectiveVoice', config: { minContributionInterval: 10 } }]
+          features: [{ name: 'librarian', config: { recommendationsPerInterval: 4 } }]
         }
 
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
 
         const agents = await Agent.find({ conversation: conversation._id })
-        const mediator = agents.find((a) => a.agentType === 'eventMediator')
-        expect(mediator).toBeDefined()
-        expect(mediator!.agentConfig?.minInterval).toBe(10)
+        const librarian = agents.find((a) => a.agentType === 'librarian')
+        expect(librarian).toBeDefined()
+        expect(librarian!.agentConfig?.recommendationsPerInterval).toBe(4)
       })
 
       test('should use feature sub-property default when not provided', async () => {
@@ -797,16 +804,16 @@ describe('Conversation service methods', () => {
           ...baseParams,
           topicId: topicOne._id.toString(),
           properties: { zoomMeetingUrl: 'https://zoom.us/j/123456789' },
-          features: [{ name: 'collectiveVoice' }]
-          // minContributionInterval not provided — feature default is 5
+          features: [{ name: 'librarian' }]
+          // recommendationsPerInterval not provided — feature default is 2
         }
 
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
 
         const agents = await Agent.find({ conversation: conversation._id })
-        const mediator = agents.find((a) => a.agentType === 'eventMediator')
-        expect(mediator).toBeDefined()
-        expect(mediator!.agentConfig?.minInterval).toBe(10)
+        const librarian = agents.find((a) => a.agentType === 'librarian')
+        expect(librarian).toBeDefined()
+        expect(librarian!.agentConfig?.recommendationsPerInterval).toBe(2)
       })
 
       test('should use provided feature sub-property value', async () => {
@@ -814,15 +821,15 @@ describe('Conversation service methods', () => {
           ...baseParams,
           topicId: topicOne._id.toString(),
           properties: { zoomMeetingUrl: 'https://zoom.us/j/123456789' },
-          features: [{ name: 'catalyst', config: { minContributionInterval: 7 } }]
+          features: [{ name: 'librarian', config: { recommendationsPerInterval: 7 } }]
         }
 
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
 
         const agents = await Agent.find({ conversation: conversation._id })
-        const engagement = agents.find((a) => a.agentType === 'engagementAgent')
-        expect(engagement).toBeDefined()
-        expect(engagement!.agentConfig?.minInterval).toBe(7)
+        const librarian = agents.find((a) => a.agentType === 'librarian')
+        expect(librarian).toBeDefined()
+        expect(librarian!.agentConfig?.recommendationsPerInterval).toBe(7)
       })
 
       test('should not set llmModel on agents when llmModel property is omitted', async () => {
@@ -843,6 +850,33 @@ describe('Conversation service methods', () => {
           expect(agent.llmPlatform).toBe(defaultLLMPlatform)
         })
       })
+    })
+  })
+
+  describe('createConversation() analytics source refs', () => {
+    beforeEach(async () => {
+      await insertUsers([registeredUser])
+      await insertTopics([topicOne])
+    })
+
+    // scheduledTime in the future keeps the conversation from auto-starting mid-test.
+    const baseParams = () => ({
+      name: 'Tracked Event',
+      topicId: topicOne._id.toString(),
+      scheduledTime: new Date(Date.now() + 3600000)
+    })
+
+    test('stores the analytics source refs the caller opted into', async () => {
+      const conversation = await conversationService.createConversation(
+        { ...baseParams(), analyticsRefs: { matomo: 'dimension7' } },
+        registeredUser
+      )
+      expect(conversation.analyticsRefs?.get('matomo')).toBe('dimension7')
+    })
+
+    test('leaves analyticsRefs unset when the caller opts into nothing', async () => {
+      const conversation = await conversationService.createConversation(baseParams(), registeredUser)
+      expect(conversation.analyticsRefs).toBeUndefined()
     })
   })
 
@@ -1133,6 +1167,18 @@ describe('Conversation service methods', () => {
         expect.objectContaining({ type: 'conversationStopped', conversationId: conversation._id.toString() }),
         expect.objectContaining({ type: 'conversation', id: conversation._id.toString() })
       )
+    })
+
+    test('does not capture analytics snapshots at stop time; that is deferred to the analytics consumer off the request path', async () => {
+      const snapshotSpy = jest.spyOn(analyticsSources, 'fetchAndStoreSnapshot').mockResolvedValue(undefined)
+      const dispatchSpy = jest.spyOn(agentDispatcher, 'dispatch').mockResolvedValue(undefined)
+
+      await conversationService.stopConversation(conversation._id.toString(), registeredUser)
+
+      // The stop request must not block on Matomo's archive build. The Vibes Analyst
+      // pulls the snapshot from its own dispatched job, where it can retry patiently.
+      expect(snapshotSpy).not.toHaveBeenCalled()
+      expect(dispatchSpy).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -1562,6 +1608,45 @@ describe('Conversation service methods', () => {
 
       const agentsAfter = await Agent.find({ conversation: featureConv._id })
       expect(agentsAfter.map((a) => a.agentType)).not.toContain('eventMediator')
+    })
+
+    test('syncs slackBotUserId into the slack adapter config on a properties update', async () => {
+      /* A Slack-backed bot (the Vibes Analyst) renders its bot user id into the adapter
+         config once at creation. Adding or changing slackBotUserId later has to reach that
+         adapter, or summon never recognizes the bot's @-mentions. */
+      await Adapter.create({
+        type: 'slack',
+        conversation: conversation._id,
+        config: { botUserId: 'UOLD', botName: 'OriginalBot', channel: 'C123' }
+      })
+
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), properties: { slackBotUserId: 'UNEW' } },
+        registeredUser
+      )
+
+      const [updated] = await Adapter.find({ conversation: conversation._id, type: 'slack' })
+      expect(updated.config.botUserId).toBe('UNEW')
+      // Only the changed key is touched; unrelated config is left alone.
+      expect(updated.config.botName).toBe('OriginalBot')
+      expect(updated.config.channel).toBe('C123')
+    })
+
+    test('syncs botName into the slack adapter config on a properties update', async () => {
+      await Adapter.create({
+        type: 'slack',
+        conversation: conversation._id,
+        config: { botUserId: 'U123', botName: 'OldName' }
+      })
+
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), properties: { botName: 'NewName' } },
+        registeredUser
+      )
+
+      const [updated] = await Adapter.find({ conversation: conversation._id, type: 'slack' })
+      expect(updated.config.botName).toBe('NewName')
+      expect(updated.config.botUserId).toBe('U123')
     })
   })
 

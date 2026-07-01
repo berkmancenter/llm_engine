@@ -8,7 +8,7 @@ const createPoll = {
     owner: Joi.string(),
     threshold: Joi.number().min(1),
     expirationDate: Joi.date(),
-    topicId: Joi.string().required(),
+    conversationId: Joi.string().required(),
     multiSelect: Joi.boolean(),
     allowNewChoices: Joi.boolean(),
     choicesVisible: Joi.boolean(),
@@ -26,7 +26,6 @@ const respondPoll = {
       text: Joi.string().required(),
       remove: Joi.boolean()
     }),
-    topicId: Joi.string().required()
   })
 }
 

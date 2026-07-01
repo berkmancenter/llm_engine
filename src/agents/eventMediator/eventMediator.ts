@@ -141,12 +141,11 @@ export default verify({
     'Makes strategic interventions in shared chat based on configurable intervention categories: collective consciousness, engagement, and facilitation',
   priority: 85,
   maxTokens: 3000,
-  // uses 67 seconds for now to prevent overlap with Engagement Agent (timer set to 60 seconds) - can be adjusted as needed
+  // uses 127 seconds for now to prevent overlap with Engagement Agent (timer set to 120 seconds) - can be adjusted as needed
   defaultTriggers: {
-    periodic: { timerPeriod: 67, conversationHistorySettings: { channels: ['transcript'] } }
+    periodic: { timerPeriod: 127, conversationHistorySettings: { channels: ['transcript'] } }
   },
   agentConfig: {
-    minInterval: 2, // 2 min between interventions
     personality: 'sarcastic-expert' // Use sarcastic-expert personality (set to null for no personality)
   },
   llmTemplateVars: interventionLlmTemplateVars,
@@ -200,7 +199,7 @@ export default verify({
     )
 
     if (!interventionAnalysis) {
-      logger.debug(`${this.name}: No intervention opportunity detected or rate limited`)
+      logger.debug(`${this.agentType} ${this._id}: no intervention opportunity detected`)
       return []
     }
 
@@ -214,6 +213,7 @@ export default verify({
       responses.push({
         ...interventionAnalysis,
         visible: true,
+        proactive: true,
         message: interventionAnalysis.sharedChatMessage,
         channels: this.conversation.channels.filter((c: IChannel) => c.name === 'chat')
       } as AgentResponse<string | Record<string, unknown>>)

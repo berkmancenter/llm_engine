@@ -12,6 +12,7 @@ import { coreLLMModel, coreLLMPlatform, getModelChat } from '../../agents/helper
 import { Conversation, User } from '../../models/index.js'
 import { formatTranscript, formatMultiUserConversationHistory } from '../../agents/helpers/llmInputFormatters.js'
 import getConversationHistory from '../../agents/helpers/getConversationHistory.js'
+import Poll from '../../models/poll.model/poll.js'
 
 const transcriptBatchInterval = 30
 const SUMMARIZATION_PROMPT = `
@@ -83,6 +84,8 @@ export async function doStopConversation(conversation) {
     await agentService.stopAgent(agent)
   }
   await schedule.cancelBatchTranscript(doc._id)
+  const activePolls = await Poll.find({ conversation: doc._id, expirationDate: { $gt: new Date() } }, '_id')
+  await Promise.all(activePolls.map((poll) => schedule.cancelPollExpired(poll._id.toString())))
   for (const adapter of doc.adapters) {
     adapter.conversation = doc
     await adapterService.stop(adapter)
@@ -138,6 +141,11 @@ export async function doStopConversation(conversation) {
   }
   await doc.save()
 
+  /* External analytics (e.g. Matomo tracked sessions) are intentionally NOT fetched
+     here. The provider may not have archived the just-ended event's visits yet, and
+     stopping the event must stay fast and not block on a slow or cold archive. The
+     Vibes Analyst pulls and stores that snapshot from its own dispatched job below,
+     where it can retry patiently off this request path. */
   const topicId = doc.topic?._id?.toString() ?? doc.topic?.toString()
   const topicIsPrivate = doc.topic?.private ?? true
   await agentDispatcher.dispatch(
@@ -146,4 +154,10 @@ export async function doStopConversation(conversation) {
   )
 
   return doc
+}
+
+export async function doConversationEndingSoon(conversation) {
+  await conversation.populate(['topic', 'agents', 'adapters'])
+
+  await websocketGateway.broadcastConversationAlmostEnding(conversation)
 }

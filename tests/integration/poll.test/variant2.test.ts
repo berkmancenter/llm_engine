@@ -10,9 +10,11 @@ import {
   registeredUserAccessToken
 } from '../../fixtures/token.fixture.js'
 import { insertTopics } from '../../fixtures/topic.fixture.js'
-import { pollTwoBody, privateTopic, getPollChoices } from '../../fixtures/poll.fixture.js'
+import { conversationOne, insertConversations, publicTopic } from '../../fixtures/conversation.fixture.js'
+import { pollTwoBody, getPollChoices } from '../../fixtures/poll.fixture.js'
 import config from '../../../src/config/config.js'
 import websocketGateway from '../../../src/websockets/websocketGateway.js'
+import schedule from '../../../src/jobs/schedule.js'
 
 // allow more time
 jest.setTimeout(10000)
@@ -28,7 +30,8 @@ describe(`Poll API - Variant 2: ${pollTwoBody.title}`, () => {
     await mongoose.connect(config.mongoose.url, config.mongoose.options)
     await Promise.all(Object.values(mongoose.connection.collections).map(async (collection) => collection.deleteMany({})))
     await insertUsers([userOne, userTwo, admin, registeredUser])
-    await insertTopics([privateTopic])
+    await insertTopics([publicTopic])
+    await insertConversations([conversationOne])
   })
 
   afterAll(async () => {
@@ -36,13 +39,13 @@ describe(`Poll API - Variant 2: ${pollTwoBody.title}`, () => {
     await mongoose.disconnect()
   })
 
-  let topicId
   let pollId
   let pollData
 
   test('Create a poll', async () => {
     const body = { ...pollTwoBody }
     jest.spyOn(websocketGateway, 'broadcastNewPoll').mockResolvedValue()
+    jest.spyOn(schedule, 'pollExpired').mockResolvedValue()
     const resp = await request(app)
       .post(BASE_API)
       .set('Authorization', `Bearer ${userOneAccessToken}`)
@@ -53,22 +56,22 @@ describe(`Poll API - Variant 2: ${pollTwoBody.title}`, () => {
     pollId = resp.body.id
 
     pollData = { ...body }
-    topicId = pollData.topicId
-    delete pollData.topicId
+    delete pollData.conversationId
     delete pollData.owner
     delete pollData.choices
 
     expect(resp.body).toMatchObject(pollData)
-    expect(resp.body.topic.id).toMatch(pollTwoBody.topicId)
+    expect(resp.body.conversation.id).toMatch(pollTwoBody.conversationId)
     expect(resp.body.owner).toMatch(userOne._id.toString())
+    // THRESHOLD_ONLY polls strip expirationDate — no expiration job scheduled
+    expect(schedule.pollExpired).not.toHaveBeenCalled()
   })
 
   test('User 1 responds to poll with unavailable choice', async () => {
     const body = {
       choice: {
         text: 'NEW CHOICE NOT ALREADY AVAILABLE'
-      },
-      topicId
+      }
     }
 
     const resp = await request(app)
@@ -93,8 +96,7 @@ describe(`Poll API - Variant 2: ${pollTwoBody.title}`, () => {
     const body = {
       choice: {
         text: CHOICE1_TEXT
-      },
-      topicId
+      }
     }
     jest.spyOn(websocketGateway, 'broadcastNewPollChoice').mockResolvedValue()
     const resp = await request(app)
@@ -131,8 +133,7 @@ describe(`Poll API - Variant 2: ${pollTwoBody.title}`, () => {
     const body = {
       choice: {
         text: CHOICE2_TEXT
-      },
-      topicId
+      }
     }
     jest.spyOn(websocketGateway, 'broadcastNewPollChoice').mockResolvedValue()
     const resp = await request(app)
@@ -166,8 +167,7 @@ describe(`Poll API - Variant 2: ${pollTwoBody.title}`, () => {
     const body = {
       choice: {
         text: CHOICE2_TEXT
-      },
-      topicId
+      }
     }
 
     const resp = await request(app)
@@ -183,10 +183,10 @@ describe(`Poll API - Variant 2: ${pollTwoBody.title}`, () => {
     const body = {
       choice: {
         text: CHOICE1_TEXT
-      },
-      topicId
+      }
     }
     jest.spyOn(websocketGateway, 'broadcastNewPollChoice').mockResolvedValue()
+    jest.spyOn(websocketGateway, 'broadcastPollThreshold').mockResolvedValue()
     const resp = await request(app)
       .post(`${BASE_API}/${pollId}/respond`)
       .set('Authorization', `Bearer ${adminAccessToken}`)
@@ -203,6 +203,8 @@ describe(`Poll API - Variant 2: ${pollTwoBody.title}`, () => {
     }
 
     expect(resp.body).toMatchObject(expectedResp)
+    // threshold=2 is reached on second vote for Choice 1 (User 1 + Admin)
+    expect(websocketGateway.broadcastPollThreshold).toHaveBeenCalledWith(pollTwoBody.conversationId, pollId)
   })
 
   test('User 1 checks responses after poll threshold is reached', async () => {
