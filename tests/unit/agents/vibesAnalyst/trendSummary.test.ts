@@ -21,17 +21,14 @@ describe('buildTrendChart', () => {
     snap('AI Ethics Session 3', '2026-05-30T00:00:00.000Z', 20)
   ]
 
-  it('plots poster count per event in the given (chronological) order', () => {
+  it('plots poster count per event as a line, in the given (chronological) order', () => {
     const visual = buildTrendChart(ordered)
 
-    expect(visual.chart.type).not.toBe('pie')
-    if (visual.chart.type === 'pie') throw new Error('expected a bar chart')
+    if (visual.chart.type === 'pie') throw new Error('expected a line chart')
 
-    // Slack's data_visualization chart rejects a series type it does not allow (a line chart
-    // fails its schema at send time), and the recap charts that post successfully are bars with
-    // only a yLabel. Mirror that exact shape so the trend card actually posts.
-    expect(visual.chart.type).toBe('bar')
-    expect(visual.chart.axisConfig.xLabel).toBeUndefined()
+    // line is a valid data_visualization chart type and reads as a trend over time. The type was
+    // never why the block was rejected; the label length was (see the next test).
+    expect(visual.chart.type).toBe('line')
 
     expect(visual.chart.series).toHaveLength(1)
     expect(visual.chart.series[0].data.map((point) => point.value)).toEqual([8, 12, 20])
@@ -40,13 +37,42 @@ describe('buildTrendChart', () => {
     expect(visual.chart.series[0].data.map((point) => point.label)).toEqual(visual.chart.axisConfig.categories)
   })
 
-  it('labels each event by name and date so a repeated series name stays distinguishable', () => {
+  it("keeps every category and data point label within Slack's 20-character limit", () => {
+    // The real cause of the invalid_blocks rejection: Slack caps each data point label and each
+    // axis category at 20 characters, and a full "Name (date)" label runs well past that. Every
+    // data point label must also match a category, or the block is rejected.
+    const longName = snap('Regenerative Futures Monthly Roundtable', '2026-06-10T00:00:00.000Z', 5)
+    const visual = buildTrendChart([longName, ...ordered])
+    if (visual.chart.type === 'pie') throw new Error('expected a line chart')
+
+    for (const category of visual.chart.axisConfig.categories) {
+      expect(category.length).toBeLessThanOrEqual(20)
+    }
+    for (const point of visual.chart.series[0].data) {
+      expect(point.label.length).toBeLessThanOrEqual(20)
+      expect(visual.chart.axisConfig.categories).toContain(point.label)
+    }
+  })
+
+  it('labels each event by its short date and keeps categories unique', () => {
     const visual = buildTrendChart(ordered)
-    if (visual.chart.type === 'pie') throw new Error('expected a line/bar chart')
+    if (visual.chart.type === 'pie') throw new Error('expected a line chart')
     const { categories } = visual.chart.axisConfig
-    expect(categories[0]).toContain('May 1')
-    expect(categories[2]).toContain('May 30')
+    expect(categories[0]).toBe('May 1')
+    expect(categories[2]).toBe('May 30')
     expect(new Set(categories).size).toBe(3)
+  })
+
+  it('disambiguates events that fall on the same date so categories stay unique', () => {
+    const sameDay = [
+      snap('Morning Session', '2026-05-01T09:00:00.000Z', 4),
+      snap('Evening Session', '2026-05-01T18:00:00.000Z', 7)
+    ]
+    const visual = buildTrendChart(sameDay)
+    if (visual.chart.type === 'pie') throw new Error('expected a line chart')
+    const { categories } = visual.chart.axisConfig
+    expect(new Set(categories).size).toBe(2)
+    for (const category of categories) expect(category.length).toBeLessThanOrEqual(20)
   })
 })
 

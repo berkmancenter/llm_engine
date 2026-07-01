@@ -21,26 +21,43 @@ export interface TrendSnapshotView {
   channelSplit?: { public: number; private: number } | null
 }
 
+/* Slack's data_visualization block caps every category and data point label at 20 characters,
+   so the trend labels each event by its short UTC date (e.g. "Jun 3"), the part that actually
+   distinguishes events in a series, rather than the full "Name (date)", which runs past 20 and
+   is what got the block rejected before. Two events on the same day are disambiguated so the
+   categories stay unique, which the block also requires. Event names live in the prose standouts. */
+const MAX_LABEL_LENGTH = 20
+
+function buildTrendLabels(snapshots: TrendSnapshotView[]): string[] {
+  const seen = new Map<string, number>()
+  return snapshots.map((snapshot, index) => {
+    const base = eventDateLabel(null, snapshot.eventEndTime, `Event ${index + 1}`).slice(0, MAX_LABEL_LENGTH)
+    const priorCount = seen.get(base) ?? 0
+    seen.set(base, priorCount + 1)
+    if (priorCount === 0) return base
+    // Same-day collision: append a counter, trimming the base so the whole label still fits.
+    const suffix = ` (${priorCount + 1})`
+    return `${base.slice(0, MAX_LABEL_LENGTH - suffix.length)}${suffix}`
+  })
+}
+
 /* Builds the one chart a trend card carries: poster count per event, in the given order.
    Poster count is exact and present for every event, so it is the cleanest cross-event
    engagement signal and never needs null handling. The estimate metrics (lurkers, rate,
    dwell) can be null per event, so they are left to the prose, which can caveat them.
 
-   Rendered as a bar chart, not a line: Slack's data_visualization block rejects a chart type
-   it does not accept, and the recap charts that post successfully are all bars with only a
-   yLabel. Mirroring that exact shape (bars, no xLabel) is what lets the trend card actually
-   send; the bar heights across events read as the trend just as well. */
+   Drawn as a line, which reads as a trend over time. line is a valid data_visualization chart
+   type; the block was never rejected for its type, only for labels over the 20-character limit
+   (see buildTrendLabels). */
 export function buildTrendChart(snapshots: TrendSnapshotView[]): CuratedVibesVisual {
-  const data = snapshots.map((snapshot) => ({
-    label: eventDateLabel(snapshot.eventName, snapshot.eventEndTime, 'Event'),
-    value: snapshot.posterCount
-  }))
+  const labels = buildTrendLabels(snapshots)
+  const data = snapshots.map((snapshot, index) => ({ label: labels[index], value: snapshot.posterCount }))
   return {
     title: 'Posters per event',
     chart: {
-      type: 'bar',
+      type: 'line',
       series: [{ name: 'Posters', data }],
-      axisConfig: { categories: data.map((point) => point.label), yLabel: 'Posters' }
+      axisConfig: { categories: labels, yLabel: 'Posters' }
     }
   }
 }
@@ -94,7 +111,8 @@ const TrendCurationSchema = z.object({
  * A deterministic poster-per-event chart is built here and attached to the first standout, and
  * the model writes the header and 1 to 3 comparative lines over the scalar metrics only. No
  * live recompute and no LLM content pass run, so nothing here reads message text. durationMinutes
- * is 0 because a trend spans many events rather than one timed session.
+ * is left unset because a trend spans many events, so the card renders no single-event duration
+ * footer.
  */
 export default async function buildTrendSummary(snapshots: TrendSnapshotView[], llm): Promise<CuratedVibesData> {
   const ordered = [...snapshots].reverse()
@@ -121,7 +139,6 @@ export default async function buildTrendSummary(snapshots: TrendSnapshotView[], 
   return {
     header: curation.header,
     ...(curation.framing && { framing: curation.framing }),
-    standouts,
-    durationMinutes: 0
+    standouts
   }
 }

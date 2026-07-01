@@ -876,14 +876,15 @@ export interface CuratedVibesStandout {
 
 /* The curated card's render payload (responseKind 'curatedVibesSummary'),
    following the design's block grammar. The curating LLM (Phase 6) writes the
-   prose and picks the charts; this phase renders from mock-curated data. The
-   footer carries only the event duration. */
+   prose and picks the charts; this phase renders from mock-curated data. A
+   single-event card ends with a duration footer; a trend card leaves
+   durationMinutes unset, since one duration cannot describe many events. */
 export interface CuratedVibesData {
   header: string
   framing?: string
   availabilityNote?: string
   standouts: CuratedVibesStandout[]
-  durationMinutes: number
+  durationMinutes?: number
 }
 
 export interface ConversationHistorySettings {
