@@ -25,7 +25,13 @@ describe('buildTrendChart', () => {
     const visual = buildTrendChart(ordered)
 
     expect(visual.chart.type).not.toBe('pie')
-    if (visual.chart.type === 'pie') throw new Error('expected a line/bar chart')
+    if (visual.chart.type === 'pie') throw new Error('expected a bar chart')
+
+    // Slack's data_visualization chart rejects a series type it does not allow (a line chart
+    // fails its schema at send time), and the recap charts that post successfully are bars with
+    // only a yLabel. Mirror that exact shape so the trend card actually posts.
+    expect(visual.chart.type).toBe('bar')
+    expect(visual.chart.axisConfig.xLabel).toBeUndefined()
 
     expect(visual.chart.series).toHaveLength(1)
     expect(visual.chart.series[0].data.map((point) => point.value)).toEqual([8, 12, 20])

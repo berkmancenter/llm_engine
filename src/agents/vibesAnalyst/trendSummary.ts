@@ -24,7 +24,12 @@ export interface TrendSnapshotView {
 /* Builds the one chart a trend card carries: poster count per event, in the given order.
    Poster count is exact and present for every event, so it is the cleanest cross-event
    engagement signal and never needs null handling. The estimate metrics (lurkers, rate,
-   dwell) can be null per event, so they are left to the prose, which can caveat them. */
+   dwell) can be null per event, so they are left to the prose, which can caveat them.
+
+   Rendered as a bar chart, not a line: Slack's data_visualization block rejects a chart type
+   it does not accept, and the recap charts that post successfully are all bars with only a
+   yLabel. Mirroring that exact shape (bars, no xLabel) is what lets the trend card actually
+   send; the bar heights across events read as the trend just as well. */
 export function buildTrendChart(snapshots: TrendSnapshotView[]): CuratedVibesVisual {
   const data = snapshots.map((snapshot) => ({
     label: eventDateLabel(snapshot.eventName, snapshot.eventEndTime, 'Event'),
@@ -33,9 +38,9 @@ export function buildTrendChart(snapshots: TrendSnapshotView[]): CuratedVibesVis
   return {
     title: 'Posters per event',
     chart: {
-      type: 'line',
+      type: 'bar',
       series: [{ name: 'Posters', data }],
-      axisConfig: { categories: data.map((point) => point.label), xLabel: 'Event', yLabel: 'Posters' }
+      axisConfig: { categories: data.map((point) => point.label), yLabel: 'Posters' }
     }
   }
 }
