@@ -106,7 +106,8 @@ async function recapResolvedEvent(
   conversationId: string,
   fallbackQuery: string,
   recent: EventCandidate[],
-  llm
+  llm,
+  fastLlm = llm
 ): Promise<AgentResponse<string>[]> {
   const conversation = await Conversation.findById(conversationId).populate('topic')
   if (!conversation) {
@@ -130,7 +131,7 @@ async function recapResolvedEvent(
 
   // A summon recaps a past event on demand. Only the auto path persists a metrics snapshot
   // (an event is snapshotted once, when it ends), so the metrics are unused here.
-  const { renderData } = await buildVibesSummary(conversation, llm)
+  const { renderData } = await buildVibesSummary(conversation, llm, fastLlm)
   // Fallback text for adapters that do not render the card (e.g. zoom); the card itself
   // rides along as responseKind + renderData for adapters that do (Slack).
   return [
@@ -155,7 +156,8 @@ async function handleTrendSummon(
   reference: EventReference,
   candidates: EventCandidate[],
   recent: EventCandidate[],
-  llm
+  llm,
+  fastLlm = llm
 ): Promise<AgentResponse<string>[]> {
   const scoped = resolveTrendScope(reference, candidates)
   const limit = trendEventCount(reference)
@@ -166,7 +168,15 @@ async function handleTrendSummon(
     return [reply(context, parent, noTrendDataMessage())]
   }
   if (views.length === 1) {
-    return recapResolvedEvent(context, parent, views[0].conversationId.toString(), reference.eventQuery, recent, llm)
+    return recapResolvedEvent(
+      context,
+      parent,
+      views[0].conversationId.toString(),
+      reference.eventQuery,
+      recent,
+      llm,
+      fastLlm
+    )
   }
 
   const renderData = await buildTrendSummary(views, llm)
@@ -182,11 +192,16 @@ async function handleTrendSummon(
  * access is re-checked before any content is read, so a summon can never surface a private
  * event. Every reply threads under the summoning message in the channel it came from.
  */
-export default async function handleSummon(context, userMessage, llm): Promise<AgentResponse<string>[]> {
+export default async function handleSummon(context, userMessage, llm, fastLlm = llm): Promise<AgentResponse<string>[]> {
   const parent = userMessage._id
 
-  const reference = await extractEventReference(userMessage.body ?? '', llm)
-  const candidates = await findCandidatePublicEvents()
+  // Parsing the message and loading the candidate events are independent, so run them at once.
+  // The parse is a mechanical classification, so it runs on the faster model; the candidate
+  // lookup is a DB read that takes no model at all.
+  const [reference, candidates] = await Promise.all([
+    extractEventReference(userMessage.body ?? '', fastLlm),
+    findCandidatePublicEvents()
+  ])
 
   // Newest first, capped, so a miss can suggest real recent events instead of dead-ending.
   const recent = [...candidates].sort((a, b) => b.endTime.getTime() - a.endTime.getTime()).slice(0, MAX_RECENT_SUGGESTIONS)
@@ -198,7 +213,7 @@ export default async function handleSummon(context, userMessage, llm): Promise<A
   if (reference.intent === 'offTopic') return [reply(context, parent, offTopicMessage())]
 
   if (reference.trend) {
-    return handleTrendSummon(context, parent, reference, candidates, recent, llm)
+    return handleTrendSummon(context, parent, reference, candidates, recent, llm, fastLlm)
   }
 
   // A recap that names no event at all (a bare greeting the parser did not tag, or an empty
@@ -215,5 +230,5 @@ export default async function handleSummon(context, userMessage, llm): Promise<A
     return [reply(context, parent, ambiguousMessage(resolution.candidates))]
   }
 
-  return recapResolvedEvent(context, parent, resolution.event.id, reference.eventQuery, recent, llm)
+  return recapResolvedEvent(context, parent, resolution.event.id, reference.eventQuery, recent, llm, fastLlm)
 }

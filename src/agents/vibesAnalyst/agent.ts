@@ -1,5 +1,11 @@
 import verify from '../helpers/verify.js'
-import { defaultLLMModel, defaultLLMPlatform, getModelChat } from '../helpers/getModelChat.js'
+import {
+  classificationLLMModel,
+  classificationLLMPlatform,
+  defaultLLMModel,
+  defaultLLMPlatform,
+  getModelChat
+} from '../helpers/getModelChat.js'
 import Conversation from '../../models/conversation.model.js'
 import access from '../../auth/access.js'
 import { AgentMessageActions, LlmPlatforms } from '../../types/index.types.js'
@@ -11,6 +17,15 @@ import eventMetricsSnapshotService from '../../services/eventMetricsSnapshot.ser
 import handleSummon from './summon.js'
 import { HELLO_MESSAGE } from './prompt.js'
 import defaultTriggers from './triggers.js'
+
+/* Resolves the faster secondary model the mechanical passes run on (summon parsing, spike and
+   reception annotation). It reads the per-agent override first, then the shared classification
+   config, so the model is never hardcoded here and matches the pattern other agents use. */
+function resolveFastLlm(agentConfig?: { classificationPlatform?: string; classificationModel?: string }) {
+  const platform = agentConfig?.classificationPlatform || classificationLLMPlatform
+  const model = agentConfig?.classificationModel || classificationLLMModel
+  return getModelChat(platform as LlmPlatforms, model)
+}
 
 export default verify({
   name: 'Vibes Analyst',
@@ -67,7 +82,8 @@ export default verify({
     if (!userMessage) return []
     const llm = await this.getLLM()
     if (!(await checkBotIntent(llm, this.agentConfig.botName, userMessage))) return []
-    return handleSummon(this, userMessage, llm)
+    const fastLlm = await resolveFastLlm(this.agentConfig)
+    return handleSummon(this, userMessage, llm, fastLlm)
   },
 
   // Fires when a public event stops (the dispatcher matches VA's allPublicTopics
@@ -111,7 +127,8 @@ export default verify({
     // annotate from the allowed channels, curate, then fact-check). The snapshot fetch
     // above is the only event-stop-specific step; the rest is reused by the summon path.
     const llm = await getModelChat(defaultLLMPlatform as LlmPlatforms, defaultLLMModel)
-    const { renderData, metrics } = await buildVibesSummary(conversation, llm)
+    const fastLlm = await resolveFastLlm(this.agentConfig)
+    const { renderData, metrics } = await buildVibesSummary(conversation, llm, fastLlm)
 
     /* Persist this event's metrics as a per-event snapshot so every metric can be trended
        over time, not just the few the baseline re-derives. Best-effort, like the analytics

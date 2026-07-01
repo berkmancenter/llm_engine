@@ -48,7 +48,9 @@ jest.unstable_mockModule('../src/agents/vibesAnalyst/capabilities.js', () => ({
 jest.unstable_mockModule('../src/agents/helpers/getModelChat.js', () => ({
   getModelChat: mockGetModelChat,
   defaultLLMPlatform: 'bedrock',
-  defaultLLMModel: 'test-model'
+  defaultLLMModel: 'test-model',
+  classificationLLMPlatform: 'bedrock',
+  classificationLLMModel: 'fast-model'
 }))
 jest.unstable_mockModule('../src/services/analyticsSources/index.js', () => ({
   default: { fetchAndStoreSnapshot: mockFetchAndStoreSnapshot }
@@ -134,7 +136,12 @@ describe('vibesAnalyst agent', () => {
       mockCurate.mockReset()
       mockVerify.mockReset()
       mockGetModelChat.mockReset()
-      mockGetModelChat.mockResolvedValue({ fakeLlm: true })
+      // Route by model so the test can prove which pass runs on which model: the main
+      // Opus-tier model for curate and verify, the faster classification model for the
+      // mechanical spike and reception annotation.
+      mockGetModelChat.mockImplementation((_platform, model) =>
+        Promise.resolve(model === 'fast-model' ? { fastLlm: true } : { fakeLlm: true })
+      )
       mockFetchAndStoreSnapshot.mockReset()
       mockFetchAndStoreSnapshot.mockResolvedValue(undefined)
       mockLoadReadableMessages.mockReset()
@@ -262,7 +269,8 @@ describe('vibesAnalyst agent', () => {
       // Reads only the allowed messages for this conversation, then hands them and the
       // raw spikes to the annotator with the event start.
       expect(mockLoadReadableMessages).toHaveBeenCalledWith('c1')
-      expect(mockAnnotateSpikes).toHaveBeenCalledWith(readableMessages, expect.any(Date), [rawSpike], { fakeLlm: true })
+      // The annotation runs on the faster classification model, not the main Opus model.
+      expect(mockAnnotateSpikes).toHaveBeenCalledWith(readableMessages, expect.any(Date), [rawSpike], { fastLlm: true })
       // The curator sees the annotated spikes, not the bare ones.
       expect(mockCurate).toHaveBeenCalledWith(expect.objectContaining({ spikes: annotatedSpikes }), expect.anything(), {
         fakeLlm: true
@@ -300,7 +308,8 @@ describe('vibesAnalyst agent', () => {
 
       // Reads the allowed messages once and hands them, with the poster count, to the annotator.
       expect(mockLoadReadableMessages).toHaveBeenCalledWith('c1')
-      expect(mockAnnotateReceptions).toHaveBeenCalledWith(readableMessages, 12, { fakeLlm: true })
+      // Reception annotation also runs on the faster classification model.
+      expect(mockAnnotateReceptions).toHaveBeenCalledWith(readableMessages, 12, { fastLlm: true })
       // The curator sees the receptions the annotator produced.
       expect(mockCurate).toHaveBeenCalledWith(expect.objectContaining({ receptions }), expect.anything(), { fakeLlm: true })
     })

@@ -156,14 +156,18 @@ export async function computeTrendViewsLive(
   limit: number
 ): Promise<EventMetricsSnapshotData[]> {
   const targets = scopedCandidates.slice(0, limit)
-  const views: EventMetricsSnapshotData[] = []
-  for (const candidate of targets) {
-    const conversation = await Conversation.findById(candidate.id).populate('topic')
-    if (!conversation) continue
-    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
-    views.push(buildSnapshotPayload(conversation, metrics, { receptionCount: null }))
-  }
-  return views
+  // Each event's recompute is independent, so run them at once. A candidate that no longer
+  // exists yields null and is dropped afterward, so a deleted event skips rather than fails.
+  // Promise.all preserves order, so the newest-first candidate order carries through.
+  const views = await Promise.all(
+    targets.map(async (candidate) => {
+      const conversation = await Conversation.findById(candidate.id).populate('topic')
+      if (!conversation) return null
+      const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+      return buildSnapshotPayload(conversation, metrics, { receptionCount: null })
+    })
+  )
+  return views.filter((view): view is EventMetricsSnapshotData => view !== null)
 }
 
 /* At most this many recent public events are pulled as candidates. The summon matches

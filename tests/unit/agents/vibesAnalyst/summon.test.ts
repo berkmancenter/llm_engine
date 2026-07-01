@@ -54,7 +54,10 @@ const { default: Conversation } = await import('../../../../src/models/conversat
 
 describe('handleSummon', () => {
   const vibesChannel = { name: 'vibesAnalyst' }
+  // Two distinct models so the tests can prove routing: the main Opus-tier model writes the
+  // cards, the faster classification model parses the summon (extractEventReference).
   const fakeLlm = { fakeLlm: true }
+  const fastLlm = { fastLlm: true }
   const summonMessage = { _id: 'summon-msg', body: '@Vibes recap the Spring Town Hall' }
 
   // A fake agent context: __t marks it as an Agent for the access check, and the
@@ -107,11 +110,12 @@ describe('handleSummon', () => {
     const verifiedCard = { header: 'Recap', standouts: [] }
     mockBuildSummary.mockResolvedValue({ renderData: verifiedCard, metrics: {} })
 
-    const responses = await handleSummon(buildContext(), summonMessage, fakeLlm)
+    const responses = await handleSummon(buildContext(), summonMessage, fakeLlm, fastLlm)
 
-    // Reads the message the user sent, then builds the card from the resolved event.
-    expect(mockExtract).toHaveBeenCalledWith(summonMessage.body, fakeLlm)
-    expect(mockBuildSummary).toHaveBeenCalledWith(expect.objectContaining({ _id: 'c1' }), fakeLlm)
+    // Parses the message on the faster classification model, then builds the card on the main
+    // model, handing the fast model down so the card's own annotation passes reuse it.
+    expect(mockExtract).toHaveBeenCalledWith(summonMessage.body, fastLlm)
+    expect(mockBuildSummary).toHaveBeenCalledWith(expect.objectContaining({ _id: 'c1' }), fakeLlm, fastLlm)
 
     expect(responses).toHaveLength(1)
     const [response] = responses
@@ -125,7 +129,7 @@ describe('handleSummon', () => {
   it('asks for a clearer name and reads nothing when no public event matches', async () => {
     mockResolve.mockReturnValue({ status: 'notFound' })
 
-    const responses = await handleSummon(buildContext(), summonMessage, fakeLlm)
+    const responses = await handleSummon(buildContext(), summonMessage, fakeLlm, fastLlm)
 
     expect(responses).toHaveLength(1)
     expect(responses[0].message).toBe(notFoundMessage('Spring Town Hall', []))
@@ -142,7 +146,7 @@ describe('handleSummon', () => {
     ])
     mockResolve.mockReturnValue({ status: 'notFound' })
 
-    const responses = await handleSummon(buildContext(), summonMessage, fakeLlm)
+    const responses = await handleSummon(buildContext(), summonMessage, fakeLlm, fastLlm)
 
     expect(responses[0].message).toContain('Mushrooms and the Future')
     expect(responses[0].message).toContain('Soil Health 101')
@@ -156,7 +160,7 @@ describe('handleSummon', () => {
     ]
     mockResolve.mockReturnValue({ status: 'ambiguous', candidates })
 
-    const responses = await handleSummon(buildContext(), summonMessage, fakeLlm)
+    const responses = await handleSummon(buildContext(), summonMessage, fakeLlm, fastLlm)
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(responses[0].message).toBe(ambiguousMessage(candidates as any))
@@ -169,7 +173,7 @@ describe('handleSummon', () => {
     mockResolve.mockReturnValue({ status: 'resolved', event: { id: 'c1', name: 'Spring Town Hall' } })
     mockResolvedConversation(true) // private topic, beyond the allPublicTopics grant
 
-    const responses = await handleSummon(buildContext(), summonMessage, fakeLlm)
+    const responses = await handleSummon(buildContext(), summonMessage, fakeLlm, fastLlm)
 
     expect(responses).toHaveLength(1)
     expect(responses[0].responseKind).toBeUndefined()
@@ -193,7 +197,7 @@ describe('handleSummon', () => {
     it('answers a greeting with a usage guide and recent events, reading nothing', async () => {
       mockExtract.mockResolvedValue({ intent: 'greeting', eventQuery: '', latestInTopic: false, trend: false })
 
-      const responses = await handleSummon(buildContext(), { _id: 'm', body: '@Vibes are you there?' }, fakeLlm)
+      const responses = await handleSummon(buildContext(), { _id: 'm', body: '@Vibes are you there?' }, fakeLlm, fastLlm)
 
       expect(responses).toHaveLength(1)
       expect(responses[0].responseKind).toBeUndefined()
@@ -207,7 +211,7 @@ describe('handleSummon', () => {
     it('answers a help question with the usage guide and recent events', async () => {
       mockExtract.mockResolvedValue({ intent: 'help', eventQuery: '', latestInTopic: false, trend: false })
 
-      const responses = await handleSummon(buildContext(), { _id: 'm', body: '@Vibes what can you do?' }, fakeLlm)
+      const responses = await handleSummon(buildContext(), { _id: 'm', body: '@Vibes what can you do?' }, fakeLlm, fastLlm)
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect(responses[0].message).toBe(helpMessage(recent as any))
@@ -219,7 +223,7 @@ describe('handleSummon', () => {
     it('deflects an off-topic message without listing events or reading anything', async () => {
       mockExtract.mockResolvedValue({ intent: 'offTopic', eventQuery: '', latestInTopic: false, trend: false })
 
-      const responses = await handleSummon(buildContext(), { _id: 'm', body: '@Vibes whats the weather?' }, fakeLlm)
+      const responses = await handleSummon(buildContext(), { _id: 'm', body: '@Vibes whats the weather?' }, fakeLlm, fastLlm)
 
       expect(responses[0].message).toBe(offTopicMessage())
       expect(responses[0].message).not.toContain('Mushrooms and the Future')
@@ -238,7 +242,7 @@ describe('handleSummon', () => {
         trend: false
       })
 
-      const responses = await handleSummon(buildContext(), { _id: 'm', body: '@Vibes are you there?' }, fakeLlm)
+      const responses = await handleSummon(buildContext(), { _id: 'm', body: '@Vibes are you there?' }, fakeLlm, fastLlm)
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect(responses[0].message).toBe(helpMessage(recent as any))
@@ -260,7 +264,7 @@ describe('handleSummon', () => {
       const trendCard = { header: 'Engagement across 3 AI Ethics sessions', standouts: [] }
       mockBuildTrend.mockResolvedValue(trendCard)
 
-      const responses = await handleSummon(buildContext(), trendMessage, fakeLlm)
+      const responses = await handleSummon(buildContext(), trendMessage, fakeLlm, fastLlm)
 
       // Stored snapshots are preferred: no live recompute, no single-event recap.
       expect(mockBuildTrend).toHaveBeenCalledWith(snapshots, fakeLlm)
@@ -280,7 +284,7 @@ describe('handleSummon', () => {
       mockTrendEventCount.mockReturnValue(3)
       mockFetchTrendSnapshots.mockResolvedValue([{ conversationId: 'c1' }, { conversationId: 'c2' }])
 
-      await handleSummon(buildContext(), trendMessage, fakeLlm)
+      await handleSummon(buildContext(), trendMessage, fakeLlm, fastLlm)
 
       expect(mockFetchTrendSnapshots).toHaveBeenCalledWith(expect.anything(), 3)
     })
@@ -294,7 +298,7 @@ describe('handleSummon', () => {
       const trendCard = { header: 'Engagement trend', standouts: [] }
       mockBuildTrend.mockResolvedValue(trendCard)
 
-      const responses = await handleSummon(buildContext(), trendMessage, fakeLlm)
+      const responses = await handleSummon(buildContext(), trendMessage, fakeLlm, fastLlm)
 
       expect(mockComputeTrendViewsLive).toHaveBeenCalled()
       expect(mockBuildTrend).toHaveBeenCalledWith(liveViews, fakeLlm)
@@ -306,7 +310,7 @@ describe('handleSummon', () => {
       mockFetchTrendSnapshots.mockResolvedValue([])
       mockComputeTrendViewsLive.mockResolvedValue([])
 
-      const responses = await handleSummon(buildContext(), trendMessage, fakeLlm)
+      const responses = await handleSummon(buildContext(), trendMessage, fakeLlm, fastLlm)
 
       expect(responses).toHaveLength(1)
       expect(responses[0].responseKind).toBeUndefined()
@@ -321,11 +325,11 @@ describe('handleSummon', () => {
       const singleCard = { header: 'Recap', standouts: [] }
       mockBuildSummary.mockResolvedValue({ renderData: singleCard, metrics: {} })
 
-      const responses = await handleSummon(buildContext(), trendMessage, fakeLlm)
+      const responses = await handleSummon(buildContext(), trendMessage, fakeLlm, fastLlm)
 
       // One event is not a trend, so it recaps that event through the normal pipeline.
       expect(mockBuildTrend).not.toHaveBeenCalled()
-      expect(mockBuildSummary).toHaveBeenCalledWith(expect.objectContaining({ _id: 'c1' }), fakeLlm)
+      expect(mockBuildSummary).toHaveBeenCalledWith(expect.objectContaining({ _id: 'c1' }), fakeLlm, fastLlm)
       expect(responses[0].renderData).toBe(singleCard)
     })
   })
