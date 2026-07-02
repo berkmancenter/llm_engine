@@ -17,6 +17,7 @@ import conversationMetricsSnapshotService from '../../services/conversationMetri
 import handleSummon from './summon.js'
 import { HELLO_MESSAGE } from './prompt.js'
 import defaultTriggers from './triggers.js'
+import { threadContinuesFromAgent } from './thread.js'
 
 /* Resolves the faster secondary model the mechanical passes run on (summon parsing, spike and
    reception annotation). It reads the per-agent override first, then the shared classification
@@ -81,7 +82,14 @@ export default verify({
   async respond(_conversationHistory, userMessage) {
     if (!userMessage) return []
     const llm = await this.getLLM()
-    if (!(await checkBotIntent(llm, this.agentConfig.botName, userMessage))) return []
+    // A bare threaded reply to a message VA itself just posted (a disambiguation prompt, a
+    // recap) counts as addressed to VA even with no @mention: the intent check has no thread
+    // context, so a reply like a plain event title reads as unaddressed on its own. Once someone
+    // else has replied since, this stops applying and the normal intent check gates it again.
+    const addressed =
+      (await threadContinuesFromAgent(userMessage, this.conversation._id.toString(), this._id.toString())) ||
+      (await checkBotIntent(llm, this.agentConfig.botName, userMessage))
+    if (!addressed) return []
     const fastLlm = await resolveFastLlm(this.agentConfig)
     return handleSummon(this, userMessage, llm, fastLlm)
   },
