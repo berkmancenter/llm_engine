@@ -11,7 +11,7 @@ stamped with it, and a trend that crosses a definition change is misleading with
 
 ## Persisted snapshots and trends
 
-When an event ends, its metrics are written to an `EventMetricsSnapshot` collection (one
+When an event ends, its metrics are written to a `ConversationMetricsSnapshot` collection (one
 document per event) so they can be trended over time. Snapshots store the scalar counts below,
 never the verbatim quote text from spikes or receptions: the long-lived store keeps how many,
 not the words. Each is stamped with its `metricsVersion`, and the baseline averages only
@@ -114,7 +114,7 @@ of the activity stretches above that ran much busier than the rest.
 
 Source: `computeHistoryAndBaseline`, over up to 10 recent past events in the same topic (the
 recurring space these events live under). Past events are read from their stored
-`EventMetricsSnapshot`, frozen when each one ended, so a series is compared to what it actually
+`ConversationMetricsSnapshot`, frozen when each one ended, so a series is compared to what it actually
 was then; only the current (live) event is computed fresh. Only snapshots on the current
 metrics version are averaged, so a definition change never makes a trend read as one
 continuous line.

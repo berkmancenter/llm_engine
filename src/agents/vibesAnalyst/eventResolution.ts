@@ -1,10 +1,10 @@
 import * as fuzzball from 'fuzzball'
 import { z } from 'zod'
 import Conversation from '../../models/conversation.model.js'
-import EventMetricsSnapshot from '../../models/eventMetricsSnapshot.model.js'
+import ConversationMetricsSnapshot from '../../models/conversationMetricsSnapshot.model.js'
 import conversationAnalyticsService, { METRICS_VERSION } from '../../services/conversationAnalytics.service.js'
-import { buildSnapshotPayload } from '../../services/eventMetricsSnapshot.service.js'
-import { EventMetricsSnapshotData } from '../../types/index.types.js'
+import { buildSnapshotPayload } from '../../services/conversationMetricsSnapshot.service.js'
+import { ConversationMetricsSnapshotData } from '../../types/index.types.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { VIBES_EVENT_REFERENCE_SYSTEM_PROMPT, VIBES_EVENT_REFERENCE_USER_TEMPLATE } from './prompt.js'
 
@@ -134,11 +134,11 @@ export function trendEventCount(reference: EventReference): number {
    numbers whose definitions changed underneath it. */
 export async function fetchTrendSnapshots(scopedCandidates: EventCandidate[], limit: number) {
   const conversationIds = scopedCandidates.map((candidate) => candidate.id)
-  return EventMetricsSnapshot.find({
+  return ConversationMetricsSnapshot.find({
     conversationId: { $in: conversationIds },
     metricsVersion: METRICS_VERSION
   })
-    .sort({ eventEndTime: -1 })
+    .sort({ endTime: -1 })
     .limit(limit)
 }
 
@@ -154,7 +154,7 @@ export async function fetchTrendSnapshots(scopedCandidates: EventCandidate[], li
 export async function computeTrendViewsLive(
   scopedCandidates: EventCandidate[],
   limit: number
-): Promise<EventMetricsSnapshotData[]> {
+): Promise<ConversationMetricsSnapshotData[]> {
   const targets = scopedCandidates.slice(0, limit)
   // Each event's recompute is independent, so run them at once. A candidate that no longer
   // exists yields null and is dropped afterward, so a deleted event skips rather than fails.
@@ -167,7 +167,7 @@ export async function computeTrendViewsLive(
       return buildSnapshotPayload(conversation, metrics, { receptionCount: null })
     })
   )
-  return views.filter((view): view is EventMetricsSnapshotData => view !== null)
+  return views.filter((view): view is ConversationMetricsSnapshotData => view !== null)
 }
 
 /* At most this many recent public events are pulled as candidates. The summon matches

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Backfills a per-event metrics snapshot for past events, so the Vibes Analyst baseline and
- * history have something to read the moment this feature ships. Without it, every topic's
+ * Backfills a per-conversation metrics snapshot for past events, so the Vibes Analyst baseline
+ * and history have something to read the moment this feature ships. Without it, every topic's
  * trend would be empty until new events end and accrue their own snapshots.
  *
  * It recomputes each event's scalar metrics with the live service and persists them. It does
@@ -36,15 +36,15 @@
  *   cd into the repo, then for each batch preview, commit, and move the window back:
  *
  *   # Batch 1: preview the most recent 30 days, write nothing
- *   NODE_ENV=production node --loader ts-node/esm scripts/backfillEventMetricsSnapshots.ts \
+ *   NODE_ENV=production node --loader ts-node/esm scripts/backfillConversationMetricsSnapshots.ts \
  *     --min-age-days=0 --max-age-days=30 --dry-run
  *
  *   # Batch 1: commit it
- *   NODE_ENV=production node --loader ts-node/esm scripts/backfillEventMetricsSnapshots.ts \
+ *   NODE_ENV=production node --loader ts-node/esm scripts/backfillConversationMetricsSnapshots.ts \
  *     --min-age-days=0 --max-age-days=30
  *
  *   # Batch 2: 30-60 days old, and so on (30-60, 60-90, ...)
- *   NODE_ENV=production node --loader ts-node/esm scripts/backfillEventMetricsSnapshots.ts \
+ *   NODE_ENV=production node --loader ts-node/esm scripts/backfillConversationMetricsSnapshots.ts \
  *     --min-age-days=30 --max-age-days=60
  *
  *   Each batch prints a summary line plus, per event, posters / messages / lurkers / dwell /
@@ -58,9 +58,9 @@ import { pathToFileURL } from 'url'
 import config from '../src/config/config.js'
 import Conversation from '../src/models/conversation.model.js'
 import ConversationAnalytics from '../src/models/conversationAnalytics.model.js'
-import EventMetricsSnapshot from '../src/models/eventMetricsSnapshot.model.js'
+import ConversationMetricsSnapshot from '../src/models/conversationMetricsSnapshot.model.js'
 import conversationAnalyticsService, { METRICS_VERSION } from '../src/services/conversationAnalytics.service.js'
-import eventMetricsSnapshotService from '../src/services/eventMetricsSnapshot.service.js'
+import conversationMetricsSnapshotService from '../src/services/conversationMetricsSnapshot.service.js'
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 
@@ -82,8 +82,8 @@ export interface SnapshotMetricsView {
    write. before is null when no snapshot existed for this metrics version (a first run). */
 export interface BackfilledEvent {
   conversationId: string
-  eventName?: string
-  eventEndTime?: Date
+  name?: string
+  endTime?: Date
   before: SnapshotMetricsView | null
   after: SnapshotMetricsView
 }
@@ -144,7 +144,7 @@ function metricsView(snapshot: {
  * replaces them. dryRun still computes each event's metrics so the preview shows what would be
  * written, but persists nothing. Returns a summary with the per-event before and after metrics.
  */
-export async function backfillEventMetricsSnapshots({
+export async function backfillConversationMetricsSnapshots({
   dryRun = false,
   minAgeDays = 0,
   maxAgeDays,
@@ -183,7 +183,7 @@ export async function backfillEventMetricsSnapshots({
   for (const conversation of conversations) {
     summary.scanned += 1
 
-    const existing = await EventMetricsSnapshot.findOne({
+    const existing = await ConversationMetricsSnapshot.findOne({
       conversationId: conversation._id,
       metricsVersion: METRICS_VERSION
     })
@@ -202,14 +202,14 @@ export async function backfillEventMetricsSnapshots({
     // Build the payload either way so the dry-run preview shows the real would-be values; only
     // the write is gated on dryRun.
     const after = dryRun
-      ? eventMetricsSnapshotService.buildSnapshotPayload(conversation, metrics, { receptionCount: null })
-      : await eventMetricsSnapshotService.persistSnapshot(conversation, metrics, { receptionCount: null })
+      ? conversationMetricsSnapshotService.buildSnapshotPayload(conversation, metrics, { receptionCount: null })
+      : await conversationMetricsSnapshotService.persistSnapshot(conversation, metrics, { receptionCount: null })
 
     summary.backfilled += 1
     summary.events.push({
       conversationId: conversation._id.toString(),
-      eventName: conversation.name,
-      eventEndTime: conversation.endTime,
+      name: conversation.name,
+      endTime: conversation.endTime,
       before: existing ? metricsView(existing) : null,
       after: metricsView(after!)
     })
@@ -232,7 +232,7 @@ function formatEvent(event: BackfilledEvent): string {
     const a = after === null ? 'null' : after
     return event.before && before !== after ? `${name} ${before === null ? 'null' : before}->${a}` : `${name} ${a}`
   }
-  const label = `${event.eventName ?? 'Past event'} (${event.eventEndTime?.toISOString().slice(0, 10) ?? '?'})`
+  const label = `${event.name ?? 'Past event'} (${event.endTime?.toISOString().slice(0, 10) ?? '?'})`
   const b = event.before
   const a = event.after
   const fields = [
@@ -258,7 +258,7 @@ async function main() {
   console.log(`Connected to MongoDB. Batch: ${windowLabel}${dryRun ? ' (dry run, no writes)' : ''}`)
 
   try {
-    const summary = await backfillEventMetricsSnapshots({ dryRun, minAgeDays, maxAgeDays, overwrite })
+    const summary = await backfillConversationMetricsSnapshots({ dryRun, minAgeDays, maxAgeDays, overwrite })
     console.log(
       `Scanned ${summary.scanned} ended events: ` +
         `${dryRun ? 'would backfill' : 'backfilled'} ${summary.backfilled}, ` +

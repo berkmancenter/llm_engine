@@ -1,11 +1,11 @@
 import mongoose from 'mongoose'
-import { EventMetricsSnapshotData } from '../types/index.types.js'
+import { ConversationMetricsSnapshotData } from '../types/index.types.js'
 import { toJSON, paginate } from './plugins/index.js'
 
-/* One per-event snapshot of the Vibes Analyst metrics, one document per event in its own
-   collection (kept separate from the Conversation doc so the metrics can be queried as a
-   time series). It is written when an event's recap is built, so every metric trends over
-   time instead of being recomputed from raw messages on each recap.
+/* One persisted snapshot of a conversation's metrics, one document per conversation in its
+   own collection (kept separate from the Conversation doc so the metrics can be queried as a
+   time series). It is written when a conversation ends and its recap is built, so every metric
+   trends over time instead of being recomputed from raw messages on each recap.
 
    It stores scalar aggregates only. The verbatim quote text that spikes and receptions
    carry (spike.annotation, reception.sparkQuote/reactionQuote) is deliberately left out:
@@ -19,7 +19,7 @@ import { toJSON, paginate } from './plugins/index.js'
    conversationAnalytics.service). The estimate fields (everything sourced from web
    analytics) are captured "as of" capturedAt and are never revised when late provider data
    arrives. */
-const eventMetricsSnapshotSchema = new mongoose.Schema<EventMetricsSnapshotData>(
+const conversationMetricsSnapshotSchema = new mongoose.Schema<ConversationMetricsSnapshotData>(
   {
     conversationId: {
       type: mongoose.SchemaTypes.ObjectId,
@@ -27,25 +27,25 @@ const eventMetricsSnapshotSchema = new mongoose.Schema<EventMetricsSnapshotData>
       required: true,
       index: true
     },
-    /* The recurring space the event lives under. Indexed because the baseline and history
-       both query by topic to find an event's recent neighbours. */
+    /* The recurring space the conversation lives under. Indexed because the baseline and
+       history both query by topic to find a conversation's recent neighbours. */
     topicId: {
       type: mongoose.SchemaTypes.ObjectId,
       ref: 'Topic',
       required: true,
       index: true
     },
-    eventName: {
+    name: {
       type: String
     },
-    /* The event-end timestamp, the time axis a trend is plotted against and the sort key for
-       "recent past events". */
-    eventEndTime: {
+    /* The conversation-end timestamp, the time axis a trend is plotted against and the sort
+       key for "recent past conversations". */
+    endTime: {
       type: Date,
       required: true,
       index: true
     },
-    eventPlatform: {
+    platform: {
       type: String,
       enum: ['nextspace', 'zoom', 'both'],
       default: 'nextspace'
@@ -132,17 +132,21 @@ const eventMetricsSnapshotSchema = new mongoose.Schema<EventMetricsSnapshotData>
   }
 )
 
-eventMetricsSnapshotSchema.plugin(toJSON)
-eventMetricsSnapshotSchema.plugin(paginate)
+conversationMetricsSnapshotSchema.plugin(toJSON)
+conversationMetricsSnapshotSchema.plugin(paginate)
 
-/* One snapshot per event per metrics version. Re-running an event's recap overwrites its
-   snapshot for the same version rather than duplicating it (the service upserts on this
-   key); a version bump writes a fresh document so the old definition's value is preserved. */
-eventMetricsSnapshotSchema.index({ conversationId: 1, metricsVersion: 1 }, { unique: true })
+/* One snapshot per conversation per metrics version. Re-running a conversation's recap
+   overwrites its snapshot for the same version rather than duplicating it (the service upserts
+   on this key); a version bump writes a fresh document so the old definition's value is
+   preserved. */
+conversationMetricsSnapshotSchema.index({ conversationId: 1, metricsVersion: 1 }, { unique: true })
 
 /**
- * @typedef EventMetricsSnapshot
+ * @typedef ConversationMetricsSnapshot
  */
-const EventMetricsSnapshot = mongoose.model<EventMetricsSnapshotData>('EventMetricsSnapshot', eventMetricsSnapshotSchema)
+const ConversationMetricsSnapshot = mongoose.model<ConversationMetricsSnapshotData>(
+  'ConversationMetricsSnapshot',
+  conversationMetricsSnapshotSchema
+)
 
-export default EventMetricsSnapshot
+export default ConversationMetricsSnapshot

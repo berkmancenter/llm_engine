@@ -24,7 +24,7 @@ const mockLoadReadableMessages = jest.fn<(...args: any[]) => Promise<any>>()
 // agent feeds the allowed messages and poster count in, and the receptions to the curator.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockAnnotateReceptions = jest.fn<(...args: any[]) => Promise<any>>()
-// Snapshot persistence is exercised in eventMetricsSnapshot.service.test.ts; here we only
+// Snapshot persistence is exercised in conversationMetricsSnapshot.service.test.ts; here we only
 // check the agent persists the computed metrics on the stop path.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockPersistSnapshot = jest.fn<(...args: any[]) => Promise<any>>()
@@ -55,7 +55,7 @@ jest.unstable_mockModule('../src/agents/helpers/getModelChat.js', () => ({
 jest.unstable_mockModule('../src/services/analyticsSources/index.js', () => ({
   default: { fetchAndStoreSnapshot: mockFetchAndStoreSnapshot }
 }))
-jest.unstable_mockModule('../src/services/eventMetricsSnapshot.service.js', () => ({
+jest.unstable_mockModule('../src/services/conversationMetricsSnapshot.service.js', () => ({
   default: { persistSnapshot: mockPersistSnapshot },
   // eventResolution imports this named export (for the trend live-recompute path); it is not
   // exercised here, but the mock must provide it or the module load fails.

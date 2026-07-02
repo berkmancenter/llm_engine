@@ -1,7 +1,7 @@
 import Message from '../models/message.model.js'
 import Channel from '../models/channel.model.js'
 import ConversationAnalytics from '../models/conversationAnalytics.model.js'
-import EventMetricsSnapshot from '../models/eventMetricsSnapshot.model.js'
+import ConversationMetricsSnapshot from '../models/conversationMetricsSnapshot.model.js'
 import { matchBotMention } from '../agents/helpers/intentChecks.js'
 import eventDateLabel from '../utils/eventDateLabel.js'
 import config from '../config/config.js'
@@ -23,7 +23,7 @@ import {
 } from '../types/index.types.js'
 
 /* The version of the metric definitions this service computes. Every persisted
-   EventMetricsSnapshot is stamped with it, and the baseline only averages snapshots that
+   ConversationMetricsSnapshot is stamped with it, and the baseline only averages snapshots that
    share the current version, so a trend that crosses a definition change is never read as a
    continuous line. Bump it by one whenever a metric's meaning or calculation changes (the
    same change that METRICS.md asks you to document), so old values keep the meaning they had
@@ -499,7 +499,7 @@ function computeAudienceEngagement(posterCount: number, sources: TrackedSessionM
    event labeled "Today") and a baseline
    that averages their poster counts, lurker counts, and dwell time.
 
-   Past events are read from their persisted EventMetricsSnapshot, not recomputed from raw
+   Past events are read from their persisted ConversationMetricsSnapshot, not recomputed from raw
    messages: each event's numbers were frozen when its recap was built, so a recurring
    series is compared to what it actually was then rather than re-derived on every recap.
    Only snapshots on the current METRICS_VERSION are read, so a metric whose definition
@@ -526,15 +526,15 @@ async function computeHistoryAndBaseline(
   conversation,
   current: { posterCount: number; lurkerCount: number | null }
 ): Promise<{ participationHistory: ParticipationHistoryPoint[]; baseline: SameTopicBaseline | null }> {
-  const recentPast = await EventMetricsSnapshot.find({
+  const recentPast = await ConversationMetricsSnapshot.find({
     topicId: conversation.topic,
     conversationId: { $ne: conversation._id },
     metricsVersion: METRICS_VERSION,
-    eventEndTime: { $exists: true, $ne: null }
+    endTime: { $exists: true, $ne: null }
   })
-    .sort({ eventEndTime: -1 })
+    .sort({ endTime: -1 })
     .limit(BASELINE_EVENT_LIMIT)
-    .select('eventName eventEndTime posterCount lurkerCount avgDwellSeconds')
+    .select('name endTime posterCount lurkerCount avgDwellSeconds')
 
   const oldestFirst = [...recentPast].reverse()
   const participationHistory: ParticipationHistoryPoint[] = []
@@ -558,7 +558,7 @@ async function computeHistoryAndBaseline(
     }
 
     participationHistory.push({
-      label: eventDateLabel(snapshot.eventName, snapshot.eventEndTime, 'Past event'),
+      label: eventDateLabel(snapshot.name, snapshot.endTime, 'Past event'),
       posterCount,
       lurkerCount
     })

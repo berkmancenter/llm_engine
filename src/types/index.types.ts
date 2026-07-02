@@ -123,6 +123,11 @@ export interface IMessage {
      renders responseKind + renderData into blocks when sending. */
   responseKind?: string
   renderData?: unknown
+  /* The scalar metrics a curatedVibesSummary card was built from (one row for a single-event
+     recap, several for a trend), quote-free like a stored snapshot. Never rendered to Slack;
+     it lets a later thread reply answer a follow-up question from the same numbers rather than
+     recomputing or refusing. */
+  metricsContext?: unknown
 }
 
 export interface IFollower {
@@ -463,6 +468,10 @@ export interface AgentResponse<T> {
      into blocks at send time. Other adapters ignore these and send `message`. */
   responseKind?: string
   renderData?: unknown
+  /* Sibling of renderData: the scalar metrics a curatedVibesSummary card was built from, quote-
+     free like a stored snapshot. Persisted alongside the card so a later thread reply can
+     answer a follow-up question from the same numbers. Adapters never render this field. */
+  metricsContext?: unknown
   proactive?: boolean
 }
 
@@ -755,30 +764,30 @@ export interface ResourceSummary {
    'both' when it ran on Nextspace and Zoom together. */
 export type EventPlatform = 'nextspace' | 'zoom' | 'both'
 
-/* One persisted per-event snapshot of the Vibes Analyst metrics, one document per event in
-   its own collection. It is written when an event's recap is built, so every metric can be
-   trended over time instead of recomputed from raw messages on each recap. The shape mirrors
-   ConversationMetrics but keeps only scalar aggregates: the verbatim quote text that spikes
-   and receptions carry (spike.annotation, reception.sparkQuote/reactionQuote) is deliberately
-   dropped, because this is a long-lived analytics store and those quotes are word-for-word
-   chat and backchannel content. Counts are kept; the words are not.
+/* One persisted snapshot of a conversation's metrics, one document per conversation in its
+   own collection. It is written when a conversation ends and its recap is built, so every
+   metric can be trended over time instead of recomputed from raw messages on each recap. The
+   shape mirrors ConversationMetrics but keeps only scalar aggregates: the verbatim quote text
+   that spikes and receptions carry (spike.annotation, reception.sparkQuote/reactionQuote) is
+   deliberately dropped, because this is a long-lived analytics store and those quotes are
+   word-for-word chat and backchannel content. Counts are kept; the words are not.
 
    metricsVersion stamps the metric definitions in force when the snapshot was taken, so a
    trend that crosses a definition change is never read as a continuous line (see
    METRICS_VERSION in conversationAnalytics.service). The estimate block, everything sourced
    from web analytics, is captured "as of" capturedAt and is never chased when late provider
-   data lands after the event.
+   data lands after the conversation ends.
 
-   The tracked-session fields are nullable because an event may have had no web-analytics data
-   at all. receptionCount is nullable for a separate reason: it is filled by the analyst's LLM
+   The tracked-session fields are nullable because a conversation may have had no web-analytics
+   data at all. receptionCount is nullable for a separate reason: it is filled by an LLM pass
    when the live card is built, so a recompute that skips that step (the backfill) records null
    ("not computed") rather than a misleading 0. */
-export interface EventMetricsSnapshotData {
+export interface ConversationMetricsSnapshotData {
   conversationId: mongoose.Types.ObjectId
   topicId: mongoose.Types.ObjectId
-  eventName?: string
-  eventEndTime: Date
-  eventPlatform: EventPlatform
+  name?: string
+  endTime: Date
+  platform: EventPlatform
   metricsVersion: number
   capturedAt: Date
   // Participation (exact, from our own database).
@@ -822,13 +831,14 @@ export interface EventMetricsSnapshotData {
 }
 
 /* The snapshot fields the trend chart and label read by name, off a stored snapshot or a live
-   recompute. A projection of EventMetricsSnapshotData so the two stay in lockstep: trendRow reads
-   every other metric generically, so a snapshot carrying more reaches the writer without a change
-   here, and quote text is never stored, so a trend is quote-free by construction. */
+   recompute. A projection of ConversationMetricsSnapshotData so the two stay in lockstep:
+   trendRow reads every other metric generically, so a snapshot carrying more reaches the writer
+   without a change here, and quote text is never stored, so a trend is quote-free by
+   construction. */
 export type TrendSnapshotView = Pick<
-  EventMetricsSnapshotData,
-  | 'eventName'
-  | 'eventEndTime'
+  ConversationMetricsSnapshotData,
+  | 'name'
+  | 'endTime'
   | 'posterCount'
   | 'messageCount'
   | 'lurkerCount'

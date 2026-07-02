@@ -1,7 +1,7 @@
 import mongoose from 'mongoose'
 import setupIntTest from '../../utils/setupIntTest.js'
-import { EventMetricsSnapshot } from '../../../src/models/index.js'
-import eventMetricsSnapshotService, { buildSnapshotPayload } from '../../../src/services/eventMetricsSnapshot.service.js'
+import { ConversationMetricsSnapshot } from '../../../src/models/index.js'
+import conversationMetricsSnapshotService, { buildSnapshotPayload } from '../../../src/services/conversationMetricsSnapshot.service.js'
 import { METRICS_VERSION } from '../../../src/services/conversationAnalytics.service.js'
 import { ConversationMetrics } from '../../../src/types/index.types.js'
 
@@ -93,7 +93,7 @@ function sampleConversation(overrides = {}) {
   }
 }
 
-describe('eventMetricsSnapshot.service', () => {
+describe('conversationMetricsSnapshot.service', () => {
   describe('buildSnapshotPayload', () => {
     it('maps the scalar metrics and drops every verbatim quote', () => {
       const conversation = sampleConversation()
@@ -101,9 +101,9 @@ describe('eventMetricsSnapshot.service', () => {
 
       expect(payload.conversationId).toBe(conversation._id)
       expect(payload.topicId).toBe(conversation.topic._id)
-      expect(payload.eventName).toBe('Future of Work')
-      expect(payload.eventEndTime).toEqual(new Date('2026-06-10T18:00:00.000Z'))
-      expect(payload.eventPlatform).toBe('nextspace')
+      expect(payload.name).toBe('Future of Work')
+      expect(payload.endTime).toEqual(new Date('2026-06-10T18:00:00.000Z'))
+      expect(payload.platform).toBe('nextspace')
       expect(payload.metricsVersion).toBe(METRICS_VERSION)
 
       expect(payload.posterCount).toBe(12)
@@ -181,9 +181,9 @@ describe('eventMetricsSnapshot.service', () => {
   describe('persistSnapshot', () => {
     it('writes one snapshot for an ended event', async () => {
       const conversation = sampleConversation()
-      await eventMetricsSnapshotService.persistSnapshot(conversation, sampleMetrics())
+      await conversationMetricsSnapshotService.persistSnapshot(conversation, sampleMetrics())
 
-      const stored = await EventMetricsSnapshot.find({ conversationId: conversation._id })
+      const stored = await ConversationMetricsSnapshot.find({ conversationId: conversation._id })
       expect(stored).toHaveLength(1)
       expect(stored[0].posterCount).toBe(12)
       expect(stored[0].spikeCount).toBe(2)
@@ -192,23 +192,23 @@ describe('eventMetricsSnapshot.service', () => {
 
     it('upserts on a re-run rather than duplicating', async () => {
       const conversation = sampleConversation()
-      await eventMetricsSnapshotService.persistSnapshot(conversation, sampleMetrics())
+      await conversationMetricsSnapshotService.persistSnapshot(conversation, sampleMetrics())
 
       const updated = sampleMetrics()
       updated.participation.posterCount = 20
-      await eventMetricsSnapshotService.persistSnapshot(conversation, updated)
+      await conversationMetricsSnapshotService.persistSnapshot(conversation, updated)
 
-      const stored = await EventMetricsSnapshot.find({ conversationId: conversation._id })
+      const stored = await ConversationMetricsSnapshot.find({ conversationId: conversation._id })
       expect(stored).toHaveLength(1)
       expect(stored[0].posterCount).toBe(20)
     })
 
     it('skips experimental conversations', async () => {
       const conversation = sampleConversation({ experimental: true })
-      const result = await eventMetricsSnapshotService.persistSnapshot(conversation, sampleMetrics())
+      const result = await conversationMetricsSnapshotService.persistSnapshot(conversation, sampleMetrics())
 
       expect(result).toBeNull()
-      const stored = await EventMetricsSnapshot.find({ conversationId: conversation._id })
+      const stored = await ConversationMetricsSnapshot.find({ conversationId: conversation._id })
       expect(stored).toHaveLength(0)
     })
   })

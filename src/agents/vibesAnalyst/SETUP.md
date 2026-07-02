@@ -167,7 +167,7 @@ Set these in the target environment's `.env`, not in the provisioning call. See
 [`METRICS.md`](METRICS.md) for what each metric means and which are exact vs estimates.
 
 **Per-event metric snapshot.** The same event-end also writes a row to the
-`EventMetricsSnapshot` collection: a versioned copy of that event's scalar metrics, counts
+`ConversationMetricsSnapshot` collection: a versioned copy of that event's scalar metrics, counts
 only, no message text. Later cards read these to draw cross-event trend lines, so a summon
 can compare several past events without recomputing them. The Slack post and the snapshot
 are written together; confirm one landed by querying that collection for the event's
@@ -180,11 +180,11 @@ events once so trends work immediately. The script reads historical events and w
 to the snapshot collection, never editing the source data:
 
     # Preview the most recent 30 days, write nothing
-    node --loader ts-node/esm scripts/backfillEventMetricsSnapshots.ts \
+    node --loader ts-node/esm scripts/backfillConversationMetricsSnapshots.ts \
       --min-age-days=0 --max-age-days=30 --dry-run
 
     # Run the batch for real, then walk the window back (30-60, 60-90, ...)
-    node --loader ts-node/esm scripts/backfillEventMetricsSnapshots.ts \
+    node --loader ts-node/esm scripts/backfillConversationMetricsSnapshots.ts \
       --min-age-days=0 --max-age-days=30
 
 It connects to whatever `MONGODB_URL` points at, so target the environment you mean to
@@ -301,7 +301,7 @@ The message should appear in VA's admin channel.
 End a public (non-private) event in that environment. The dispatcher matches VA's
 `allPublicTopics` read grant, fires the `conversationEvent` job, and VA posts its metrics
 card to the admin channel within a minute. The same event-end writes a row to the
-`EventMetricsSnapshot` collection; query it by the event's `conversationId` to confirm the
+`ConversationMetricsSnapshot` collection; query it by the event's `conversationId` to confirm the
 snapshot landed alongside the card.
 
 ## Verify summon (if you enabled Part D)

@@ -1,6 +1,6 @@
 import mongoose from 'mongoose'
 import setupIntTest from '../../utils/setupIntTest.js'
-import { Conversation, Message, ConversationAnalytics, EventMetricsSnapshot, Channel } from '../../../src/models/index.js'
+import { Conversation, Message, ConversationAnalytics, ConversationMetricsSnapshot, Channel } from '../../../src/models/index.js'
 import conversationAnalyticsService, {
   attributeSpikeSources,
   computeResourceSummary,
@@ -1087,12 +1087,12 @@ async function seedPastSnapshot(
     metricsVersion?: number
   }
 ) {
-  return EventMetricsSnapshot.create({
+  return ConversationMetricsSnapshot.create({
     conversationId: new mongoose.Types.ObjectId(),
     topicId,
-    eventName: 'Topic series event',
-    eventEndTime: options.endTime,
-    eventPlatform: 'nextspace',
+    name: 'Topic series event',
+    endTime: options.endTime,
+    platform: 'nextspace',
     metricsVersion: options.metricsVersion ?? METRICS_VERSION,
     capturedAt: options.endTime,
     posterCount: options.posterCount,

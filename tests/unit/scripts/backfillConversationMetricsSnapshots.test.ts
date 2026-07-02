@@ -1,8 +1,8 @@
 import mongoose from 'mongoose'
 import setupIntTest from '../../utils/setupIntTest.js'
-import { Conversation, Message, ConversationAnalytics, EventMetricsSnapshot } from '../../../src/models/index.js'
+import { Conversation, Message, ConversationAnalytics, ConversationMetricsSnapshot } from '../../../src/models/index.js'
 import { METRICS_VERSION } from '../../../src/services/conversationAnalytics.service.js'
-import { backfillEventMetricsSnapshots } from '../../../scripts/backfillEventMetricsSnapshots.js'
+import { backfillConversationMetricsSnapshots } from '../../../scripts/backfillConversationMetricsSnapshots.js'
 
 setupIntTest()
 
@@ -53,11 +53,11 @@ async function seedEndedEvent(
   return conversation
 }
 
-describe('backfillEventMetricsSnapshots', () => {
+describe('backfillConversationMetricsSnapshots', () => {
   it('snapshots ended events that had web analytics wired up and reports their metrics', async () => {
     const tracked = await seedEndedEvent({ tracked: true })
 
-    const summary = await backfillEventMetricsSnapshots({ now: NOW })
+    const summary = await backfillConversationMetricsSnapshots({ now: NOW })
 
     expect(summary.backfilled).toBe(1)
     expect(summary.events).toHaveLength(1)
@@ -69,7 +69,7 @@ describe('backfillEventMetricsSnapshots', () => {
     expect(event.after.avgDwellSeconds).toBe(500)
     expect(event.after.receptionCount).toBeNull()
 
-    const stored = await EventMetricsSnapshot.findOne({ conversationId: tracked._id })
+    const stored = await ConversationMetricsSnapshot.findOne({ conversationId: tracked._id })
     expect(stored!.posterCount).toBe(2)
     expect(stored!.metricsVersion).toBe(METRICS_VERSION)
   })
@@ -77,46 +77,46 @@ describe('backfillEventMetricsSnapshots', () => {
   it('skips events that never had web analytics wired up', async () => {
     const untracked = await seedEndedEvent({ tracked: false })
 
-    const summary = await backfillEventMetricsSnapshots({ now: NOW })
+    const summary = await backfillConversationMetricsSnapshots({ now: NOW })
 
     expect(summary.skippedNoTrackedData).toBe(1)
     expect(summary.backfilled).toBe(0)
     expect(summary.events).toHaveLength(0)
-    const stored = await EventMetricsSnapshot.findOne({ conversationId: untracked._id })
+    const stored = await ConversationMetricsSnapshot.findOne({ conversationId: untracked._id })
     expect(stored).toBeNull()
   })
 
   it('skips an event that already has a snapshot for this metrics version', async () => {
     const tracked = await seedEndedEvent({ tracked: true })
-    await backfillEventMetricsSnapshots({ now: NOW })
+    await backfillConversationMetricsSnapshots({ now: NOW })
 
-    const summary = await backfillEventMetricsSnapshots({ now: NOW })
+    const summary = await backfillConversationMetricsSnapshots({ now: NOW })
 
     expect(summary.skippedExisting).toBe(1)
     expect(summary.backfilled).toBe(0)
-    const stored = await EventMetricsSnapshot.find({ conversationId: tracked._id })
+    const stored = await ConversationMetricsSnapshot.find({ conversationId: tracked._id })
     expect(stored).toHaveLength(1)
   })
 
   it('never snapshots experimental events', async () => {
     const experimental = await seedEndedEvent({ tracked: true, experimental: true })
 
-    const summary = await backfillEventMetricsSnapshots({ now: NOW })
+    const summary = await backfillConversationMetricsSnapshots({ now: NOW })
 
     expect(summary.backfilled).toBe(0)
-    const stored = await EventMetricsSnapshot.findOne({ conversationId: experimental._id })
+    const stored = await ConversationMetricsSnapshot.findOne({ conversationId: experimental._id })
     expect(stored).toBeNull()
   })
 
   it('previews the would-be metrics on a dry run but writes nothing', async () => {
     const tracked = await seedEndedEvent({ tracked: true })
 
-    const summary = await backfillEventMetricsSnapshots({ now: NOW, dryRun: true })
+    const summary = await backfillConversationMetricsSnapshots({ now: NOW, dryRun: true })
 
     expect(summary.backfilled).toBe(1)
     // The preview still shows what each event would store.
     expect(summary.events[0].after.posterCount).toBe(2)
-    const stored = await EventMetricsSnapshot.findOne({ conversationId: tracked._id })
+    const stored = await ConversationMetricsSnapshot.findOne({ conversationId: tracked._id })
     expect(stored).toBeNull()
   })
 
@@ -126,21 +126,21 @@ describe('backfillEventMetricsSnapshots', () => {
     // 47 days old (outside 0-30, inside 30-60).
     const older = await seedEndedEvent({ tracked: true, endTime: new Date('2026-05-15T00:00:00.000Z') })
 
-    const firstBatch = await backfillEventMetricsSnapshots({ now: NOW, minAgeDays: 0, maxAgeDays: 30 })
+    const firstBatch = await backfillConversationMetricsSnapshots({ now: NOW, minAgeDays: 0, maxAgeDays: 30 })
     expect(firstBatch.scanned).toBe(1)
     expect(firstBatch.backfilled).toBe(1)
-    expect(await EventMetricsSnapshot.findOne({ conversationId: recent._id })).not.toBeNull()
-    expect(await EventMetricsSnapshot.findOne({ conversationId: older._id })).toBeNull()
+    expect(await ConversationMetricsSnapshot.findOne({ conversationId: recent._id })).not.toBeNull()
+    expect(await ConversationMetricsSnapshot.findOne({ conversationId: older._id })).toBeNull()
 
-    const secondBatch = await backfillEventMetricsSnapshots({ now: NOW, minAgeDays: 30, maxAgeDays: 60 })
+    const secondBatch = await backfillConversationMetricsSnapshots({ now: NOW, minAgeDays: 30, maxAgeDays: 60 })
     expect(secondBatch.scanned).toBe(1)
     expect(secondBatch.backfilled).toBe(1)
-    expect(await EventMetricsSnapshot.findOne({ conversationId: older._id })).not.toBeNull()
+    expect(await ConversationMetricsSnapshot.findOne({ conversationId: older._id })).not.toBeNull()
   })
 
   it('overwrites an existing snapshot and reports the before and after when asked', async () => {
     const tracked = await seedEndedEvent({ tracked: true, speakers: ['a', 'b'] })
-    await backfillEventMetricsSnapshots({ now: NOW })
+    await backfillConversationMetricsSnapshots({ now: NOW })
 
     // A third person posts after the first snapshot was taken, so the recomputed poster count rises.
     await Message.create({
@@ -152,7 +152,7 @@ describe('backfillEventMetricsSnapshots', () => {
       fromAgent: false
     })
 
-    const summary = await backfillEventMetricsSnapshots({ now: NOW, overwrite: true })
+    const summary = await backfillConversationMetricsSnapshots({ now: NOW, overwrite: true })
 
     expect(summary.backfilled).toBe(1)
     expect(summary.skippedExisting).toBe(0)
@@ -160,7 +160,7 @@ describe('backfillEventMetricsSnapshots', () => {
     expect(event.before!.posterCount).toBe(2)
     expect(event.after.posterCount).toBe(3)
 
-    const stored = await EventMetricsSnapshot.find({ conversationId: tracked._id })
+    const stored = await ConversationMetricsSnapshot.find({ conversationId: tracked._id })
     expect(stored).toHaveLength(1)
     expect(stored[0].posterCount).toBe(3)
   })

@@ -13,7 +13,7 @@ import analyticsSources from '../../services/analyticsSources/index.js'
 import logger from '../../config/logger.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 import buildVibesSummary from './buildSummary.js'
-import eventMetricsSnapshotService from '../../services/eventMetricsSnapshot.service.js'
+import conversationMetricsSnapshotService from '../../services/conversationMetricsSnapshot.service.js'
 import handleSummon from './summon.js'
 import { HELLO_MESSAGE } from './prompt.js'
 import defaultTriggers from './triggers.js'
@@ -130,12 +130,12 @@ export default verify({
     const fastLlm = await resolveFastLlm(this.agentConfig)
     const { renderData, metrics } = await buildVibesSummary(conversation, llm, fastLlm)
 
-    /* Persist this event's metrics as a per-event snapshot so every metric can be trended
+    /* Persist this conversation's metrics as a snapshot so every metric can be trended
        over time, not just the few the baseline re-derives. Best-effort, like the analytics
        fetch above: a snapshot write must never block the recap card from posting. The
        snapshot stores counts only and drops the verbatim spike and reception quotes. */
     try {
-      await eventMetricsSnapshotService.persistSnapshot(conversation, metrics)
+      await conversationMetricsSnapshotService.persistSnapshot(conversation, metrics)
     } catch (error: unknown) {
       logger.error(
         `Vibes Analyst could not persist metrics snapshot for ${conversation._id}: ${

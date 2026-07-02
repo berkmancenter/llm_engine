@@ -1,6 +1,6 @@
-import EventMetricsSnapshot from '../models/eventMetricsSnapshot.model.js'
+import ConversationMetricsSnapshot from '../models/conversationMetricsSnapshot.model.js'
 import { METRICS_VERSION } from './conversationAnalytics.service.js'
-import { ConversationMetrics, EventMetricsSnapshotData } from '../types/index.types.js'
+import { ConversationMetrics, ConversationMetricsSnapshotData } from '../types/index.types.js'
 
 interface SnapshotOptions {
   /* Overrides the reception count. A live recap passes nothing, so the count is read from
@@ -13,7 +13,7 @@ interface SnapshotOptions {
 /* Reads the topic id off a conversation whether its topic is populated (a document with an
    _id, as the recap paths load it) or a raw ObjectId (as the backfill loads it). A raw
    ObjectId has no _id, so the optional chain falls through to the id itself. */
-function topicIdOf(conversation): EventMetricsSnapshotData['topicId'] {
+function topicIdOf(conversation): ConversationMetricsSnapshotData['topicId'] {
   return conversation.topic?._id ?? conversation.topic
 }
 
@@ -26,7 +26,7 @@ export function buildSnapshotPayload(
   conversation,
   metrics: ConversationMetrics,
   options: SnapshotOptions = {}
-): EventMetricsSnapshotData {
+): ConversationMetricsSnapshotData {
   const primaryTracked = metrics.trackedSessionSources[0]
   const engagement = metrics.audienceEngagement
   const receptionCount = options.receptionCount !== undefined ? options.receptionCount : metrics.receptions.length
@@ -34,9 +34,9 @@ export function buildSnapshotPayload(
   return {
     conversationId: conversation._id,
     topicId: topicIdOf(conversation),
-    eventName: conversation.name,
-    eventEndTime: conversation.endTime,
-    eventPlatform: metrics.eventPlatform,
+    name: conversation.name,
+    endTime: conversation.endTime,
+    platform: metrics.eventPlatform,
     metricsVersion: METRICS_VERSION,
     capturedAt: new Date(),
 
@@ -75,8 +75,8 @@ export function buildSnapshotPayload(
 }
 
 /**
- * Persists one event's metrics snapshot for trending. Experimental conversations are test
- * runs, not real events, so they are skipped to keep the trend store clean (the baseline
+ * Persists one conversation's metrics snapshot for trending. Experimental conversations are
+ * test runs, not real events, so they are skipped to keep the trend store clean (the baseline
  * already excludes them). The write upserts on (conversationId, metricsVersion), so a recap
  * that fires twice overwrites rather than duplicating, while a metrics-version bump writes a
  * fresh document and leaves the older definition's value intact. Returns the stored document,
@@ -86,16 +86,16 @@ export async function persistSnapshot(conversation, metrics: ConversationMetrics
   if (conversation.experimental === true) return null
 
   const payload = buildSnapshotPayload(conversation, metrics, options)
-  return EventMetricsSnapshot.findOneAndUpdate(
+  return ConversationMetricsSnapshot.findOneAndUpdate(
     { conversationId: payload.conversationId, metricsVersion: payload.metricsVersion },
     payload,
     { upsert: true, new: true, setDefaultsOnInsert: true }
   )
 }
 
-const eventMetricsSnapshotService = {
+const conversationMetricsSnapshotService = {
   buildSnapshotPayload,
   persistSnapshot
 }
 
-export default eventMetricsSnapshotService
+export default conversationMetricsSnapshotService

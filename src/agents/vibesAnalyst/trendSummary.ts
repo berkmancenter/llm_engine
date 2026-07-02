@@ -19,7 +19,7 @@ const MAX_LABEL_LENGTH = 20
 function buildTrendLabels(snapshots: TrendSnapshotView[]): string[] {
   const seen = new Map<string, number>()
   return snapshots.map((snapshot, index) => {
-    const base = eventDateLabel(null, snapshot.eventEndTime, `Event ${index + 1}`).slice(0, MAX_LABEL_LENGTH)
+    const base = eventDateLabel(null, snapshot.endTime, `Event ${index + 1}`).slice(0, MAX_LABEL_LENGTH)
     const priorCount = seen.get(base) ?? 0
     seen.set(base, priorCount + 1)
     if (priorCount === 0) return base
@@ -63,8 +63,8 @@ const TREND_ROW_OMIT = new Set([
   'capturedAt',
   'createdAt',
   'updatedAt',
-  'eventName',
-  'eventEndTime'
+  'name',
+  'endTime'
 ])
 
 /* The per-event row handed to the writer: a readable event label plus every metric the snapshot
@@ -75,7 +75,7 @@ export function trendRow(snapshot: TrendSnapshotView): Record<string, unknown> {
   const source = snapshot as unknown as { toObject?: () => Record<string, unknown> } & Record<string, unknown>
   const plain = typeof source.toObject === 'function' ? source.toObject() : { ...source }
   const row: Record<string, unknown> = {
-    event: eventDateLabel(plain.eventName as string | null | undefined, plain.eventEndTime as Date | undefined, 'Event')
+    event: eventDateLabel(plain.name as string | null | undefined, plain.endTime as Date | undefined, 'Event')
   }
   for (const [key, value] of Object.entries(plain)) {
     if (!TREND_ROW_OMIT.has(key)) row[key] = value

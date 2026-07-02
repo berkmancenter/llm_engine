@@ -1,6 +1,6 @@
 import mongoose from 'mongoose'
 import setupIntTest from '../../../utils/setupIntTest.js'
-import { Conversation, Message, EventMetricsSnapshot } from '../../../../src/models/index.js'
+import { Conversation, Message, ConversationMetricsSnapshot } from '../../../../src/models/index.js'
 import { METRICS_VERSION } from '../../../../src/services/conversationAnalytics.service.js'
 import {
   resolveTrendScope,
@@ -59,12 +59,12 @@ describe('trendEventCount', () => {
 
 describe('fetchTrendSnapshots', () => {
   async function seedSnapshot(conversationId: mongoose.Types.ObjectId, endTime: Date, version = METRICS_VERSION) {
-    return EventMetricsSnapshot.create({
+    return ConversationMetricsSnapshot.create({
       conversationId,
       topicId: new mongoose.Types.ObjectId(),
-      eventName: 'Series event',
-      eventEndTime: endTime,
-      eventPlatform: 'nextspace',
+      name: 'Series event',
+      endTime,
+      platform: 'nextspace',
       metricsVersion: version,
       capturedAt: endTime,
       posterCount: 5,
