@@ -2212,7 +2212,7 @@ describe('zoom adapter tests', () => {
               },
               {
                 type: 'webhook',
-                events: ['participant_events.join', 'participant_events.update'],
+                events: ['participant_events.join', 'participant_events.update', 'participant_events.leave'],
                 url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/join/?conversationId=${conversation._id}`
               }
             ],
@@ -2290,7 +2290,7 @@ describe('zoom adapter tests', () => {
               },
               {
                 type: 'webhook',
-                events: ['participant_events.join', 'participant_events.update'],
+                events: ['participant_events.join', 'participant_events.update', 'participant_events.leave'],
                 url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/join/?conversationId=${conversation._id}`
               }
             ],
@@ -3030,6 +3030,51 @@ describe('zoom adapter tests', () => {
         platform: 'zoom'
       }
       const adapterUser = await adapter.participantJoined(customBotParticipant)
+      expect(adapterUser).toBeUndefined()
+    })
+  })
+  describe('participantLeft', () => {
+    it('returns username when a real participant leaves', async () => {
+      await createConversation('Meeting with Leaving Participant')
+      conversation.enableDMs = ['agents']
+      await conversation.save()
+
+      const participant = { id: 200, name: 'Leaving User', is_host: false, platform: 'zoom' }
+
+      const adapterUser = await adapter.participantLeft(participant)
+      expect(adapterUser).toEqual({ username: 'Leaving User' })
+    })
+
+    it('returns undefined when the default bot leaves', async () => {
+      await createConversation('Meeting where Bot Leaves')
+      conversation.enableDMs = ['agents']
+      await conversation.save()
+
+      const botParticipant = { id: 600, name: 'LLM Engine', is_host: false, platform: 'zoom' }
+
+      const adapterUser = await adapter.participantLeft(botParticipant)
+      expect(adapterUser).toBeUndefined()
+    })
+
+    it('returns undefined when a configured bot name leaves', async () => {
+      await createConversation('Meeting with Custom Bot Leave')
+      conversation.enableDMs = ['agents']
+
+      const adapter2 = await Adapter.create({
+        type: 'zoom',
+        conversation,
+        config: {
+          botId: 'custom-bot-id-789',
+          meetingUrl: 'http://zoom.meeting.com',
+          botName: 'Custom Meeting Assistant'
+        },
+        active: true
+      })
+      conversation.adapters.push(adapter2)
+      await conversation.save()
+
+      const customBotParticipant = { id: 700, name: 'Custom Meeting Assistant', is_host: false, platform: 'zoom' }
+      const adapterUser = await adapter.participantLeft(customBotParticipant)
       expect(adapterUser).toBeUndefined()
     })
   })

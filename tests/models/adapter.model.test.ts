@@ -15,6 +15,7 @@ const mockStart = jest.fn()
 const mockStop = jest.fn()
 const mockGetChannels = jest.fn()
 const mockparticipantJoined = jest.fn()
+const mockParticipantLeft = jest.fn()
 const mockGetUniqueKeys = jest.fn()
 
 const testAdapterTypes = {
@@ -25,6 +26,7 @@ const testAdapterTypes = {
     stop: mockStop,
     getChannels: mockGetChannels,
     participantJoined: mockparticipantJoined,
+    participantLeft: mockParticipantLeft,
     getUniqueKeys: mockGetUniqueKeys
   },
   zoom: {
@@ -34,6 +36,7 @@ const testAdapterTypes = {
     stop: mockStop,
     getChannels: mockGetChannels,
     participantJoined: mockparticipantJoined,
+    participantLeft: mockParticipantLeft,
     getUniqueKeys: mockGetUniqueKeys
   }
 }
@@ -260,5 +263,23 @@ describe('adapter tests', () => {
     const adapterUser = await adapter.participantJoined(participant)
     expect(mockparticipantJoined).toHaveBeenCalledWith(participant)
     expect(adapterUser).toBe(mockUser)
+  })
+
+  test('should not call participantLeft on adapter type if inactive', async () => {
+    const adapter = new Adapter({ type: 'slack', conversation })
+    await adapter.save()
+    const participant = { id: 'participant1', name: 'Participant 1' }
+    await adapter.participantLeft(participant)
+    expect(mockParticipantLeft).not.toHaveBeenCalled()
+  })
+
+  test('should call participantLeft on adapter type when active', async () => {
+    const adapter = new Adapter({ type: 'slack', conversation })
+    await adapter.save()
+    await adapter.start()
+    const participant = { id: 'participant1', name: 'Participant 1' }
+    mockParticipantLeft.mockResolvedValue({ username: 'Participant 1' })
+    await adapter.participantLeft(participant)
+    expect(mockParticipantLeft).toHaveBeenCalledWith(participant)
   })
 })
