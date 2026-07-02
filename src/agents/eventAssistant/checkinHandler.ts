@@ -312,11 +312,14 @@ export async function buildCheckinResponses(conversationHistory: ConversationHis
   const now = conversationHistory.end ? conversationHistory.end.getTime() : Date.now()
   const minInterval = (this.agentConfig?.minInterval ?? 10) * 60 * 1000
 
+  // Use startTime as baseline for first checkin — resets on conversation restart, which is intentional.
+  const conversationStart = new Date(this.conversation.startTime).getTime()
   const anyEligible = directChannels.some((channel) => {
     const lastAgentMsg = conversationHistory.messages
       .filter((m) => m.channels?.includes(channel.name) && m.fromAgent && m.visible)
       .at(-1)
-    return !lastAgentMsg || now - new Date(lastAgentMsg.createdAt!).getTime() >= minInterval
+    const baseline = lastAgentMsg ? new Date(lastAgentMsg.createdAt!).getTime() : conversationStart
+    return now - baseline >= minInterval
   })
 
   if (!anyEligible) {
