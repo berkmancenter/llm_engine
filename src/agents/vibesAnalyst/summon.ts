@@ -7,7 +7,7 @@ import { buildSnapshotPayload } from '../../services/conversationMetricsSnapshot
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import buildVibesSummary from './buildSummary.js'
 import buildTrendSummary from './trendSummary.js'
-import { resolveFollowUpContext, answerFollowUp } from './followUp.js'
+import { resolveFollowUpContext, answerFollowUp, resolveDisambiguationContext } from './followUp.js'
 import { VIBES_SMALLTALK_SYSTEM_PROMPT, VIBES_SMALLTALK_USER_TEMPLATE } from './prompt.js'
 import {
   extractEventReference,
@@ -23,6 +23,13 @@ import {
   EventReference
 } from './eventResolution.js'
 
+/* The channel the vibes analyst lives in and answers summons from. */
+const SUMMON_CHANNEL = 'vibesAnalyst'
+
+/* How many recent public events to offer back when nothing matched, so the reply gives
+   the asker something to pick from instead of a dead end. */
+const MAX_RECENT_SUGGESTIONS = 5
+
 /* Reads a snapshot-shaped row whether it is a Mongoose document (a stored snapshot, read via
    toObject) or a plain object (a live recompute), so metricsContext always persists as plain
    JSON rather than a Mongoose document's internal shape. */
@@ -31,12 +38,18 @@ function plainMetricsRow(row: unknown): unknown {
   return typeof source.toObject === 'function' ? source.toObject() : row
 }
 
-/* The channel the vibes analyst lives in and answers summons from. */
-const SUMMON_CHANNEL = 'vibesAnalyst'
-
-/* How many recent public events to offer back when nothing matched, so the reply gives
-   the asker something to pick from instead of a dead end. */
-const MAX_RECENT_SUGGESTIONS = 5
+/* Builds a reply that threads under the summoning message, in the channel it came from.
+   Threading keeps each recap attached to the question that asked for it. An optional
+   card turns the plain reply into the rendered engagement summary. */
+function reply(
+  context,
+  parent: AgentResponse<string>['parent'],
+  message: string,
+  card?: { responseKind: string; renderData: unknown; metricsContext?: unknown }
+): AgentResponse<string> {
+  const channels = context.conversation.channels.filter((channel) => channel.name === SUMMON_CHANNEL)
+  return { visible: true, message, messageType: 'text', channels, parent, ...card }
+}
 
 /* The reply when nothing public matches what was asked for. When there are recent public
    events to suggest, it lists them so the asker can pick one or ask for the latest, rather
@@ -53,6 +66,21 @@ export function notFoundMessage(query: string, recent: EventCandidate[]): string
 export function ambiguousMessage(candidates: EventCandidate[]): string {
   const list = candidates.map((candidate) => `• ${candidate.name}`).join('\n')
   return `A few public events match that. Which one did you mean?\n${list}`
+}
+
+/* Builds the "which one did you mean?" reply, carrying the candidate list on the message itself
+   (responseKind 'eventDisambiguation' + metricsContext) so a bare threaded reply naming one of
+   the options can be resolved against this exact list rather than reclassified from scratch. */
+function ambiguousReply(
+  context,
+  parent: AgentResponse<string>['parent'],
+  candidates: EventCandidate[]
+): AgentResponse<string> {
+  return reply(context, parent, ambiguousMessage(candidates), {
+    responseKind: 'eventDisambiguation',
+    renderData: null,
+    metricsContext: candidates
+  })
 }
 
 /* The reply when a trend was asked for but there is nothing to compare: no stored snapshots and
@@ -152,23 +180,12 @@ export async function smallTalkReply(
     return response.text
   } catch (error: unknown) {
     logger.warn(
-      `Vibes Analyst smalltalk reply failed, falling back to a static reply: ${error instanceof Error ? error.message : String(error)}`
+      `Vibes Analyst smalltalk reply failed, falling back to a static reply: ${
+        error instanceof Error ? error.message : String(error)
+      }`
     )
     return staticSmallTalkFallback(intent, recent)
   }
-}
-
-/* Builds a reply that threads under the summoning message, in the channel it came from.
-   Threading keeps each recap attached to the question that asked for it. An optional
-   card turns the plain reply into the rendered engagement summary. */
-function reply(
-  context,
-  parent: AgentResponse<string>['parent'],
-  message: string,
-  card?: { responseKind: string; renderData: unknown; metricsContext?: unknown }
-): AgentResponse<string> {
-  const channels = context.conversation.channels.filter((channel) => channel.name === SUMMON_CHANNEL)
-  return { visible: true, message, messageType: 'text', channels, parent, ...card }
 }
 
 /**
@@ -319,7 +336,12 @@ async function handleTrendSummon(
  * thread carries metrics context, or the question turns out not to be answerable from that
  * card's numbers.
  */
-async function tryFollowUp(context, parent: AgentResponse<string>['parent'], userMessage, llm): Promise<AgentResponse<string> | null> {
+async function tryFollowUp(
+  context,
+  parent: AgentResponse<string>['parent'],
+  userMessage,
+  llm
+): Promise<AgentResponse<string> | null> {
   const conversationId = context.conversation._id.toString()
   const metricsContext = await resolveFollowUpContext(userMessage, conversationId)
   if (!metricsContext) return null
@@ -339,17 +361,39 @@ async function tryFollowUp(context, parent: AgentResponse<string>['parent'], use
  */
 export default async function handleSummon(context, userMessage, llm, fastLlm = llm): Promise<AgentResponse<string>[]> {
   const parent = userMessage._id
+  const conversationId = context.conversation._id.toString()
 
-  // Parsing the message and loading the candidate events are independent, so run them at once.
-  // The parse is a mechanical classification, so it runs on the faster model; the candidate
-  // lookup is a DB read that takes no model at all.
-  const [reference, candidates] = await Promise.all([
+  // Parsing the message, loading the candidate events, and checking for a pending disambiguation
+  // are all independent, so run them at once. The parse is a mechanical classification, so it
+  // runs on the faster model; the other two are DB reads that take no model at all. The parse
+  // still runs even when this turns out to answer a disambiguation (see below): it is cheap, and
+  // running it unconditionally keeps the common path exactly as fast as before.
+  const [reference, candidates, pendingCandidates] = await Promise.all([
     extractEventReference(userMessage.body ?? '', fastLlm),
-    findCandidatePublicEvents()
+    findCandidatePublicEvents(),
+    resolveDisambiguationContext(userMessage, conversationId)
   ])
 
   // Newest first, capped, so a miss can suggest real recent events instead of dead-ending.
   const recent = [...candidates].sort((a, b) => b.endTime.getTime() - a.endTime.getTime()).slice(0, MAX_RECENT_SUGGESTIONS)
+
+  // A threaded reply to VA's own "which one did you mean?" list is resolved against that exact
+  // list, not the full candidate set or the intent classifier: a bare reply naming one of the
+  // options ("Test Fancy Vibes #3") reads as unaddressed small talk to extractEventReference,
+  // since it has no thread context of its own and the reply itself asks nothing. When the reply
+  // doesn't match any listed option, fall through below in case it's a fresh, unrelated request.
+  if (pendingCandidates) {
+    const pendingResolution = resolveSummonedEvent(
+      { eventQuery: userMessage.body ?? '', latestInTopic: false },
+      pendingCandidates
+    )
+    if (pendingResolution.status === 'resolved') {
+      return recapResolvedEvent(context, parent, pendingResolution.event.id, userMessage.body ?? '', recent, llm, fastLlm)
+    }
+    if (pendingResolution.status === 'ambiguous') {
+      return [ambiguousReply(context, parent, pendingResolution.candidates)]
+    }
+  }
 
   // Addressed to VA but not asking for a recap: answer with an in-voice smalltalk reply rather
   // than resolving an event. Greeting and help both guide toward a recap; off-topic redirects,
@@ -382,7 +426,7 @@ export default async function handleSummon(context, userMessage, llm, fastLlm = 
     return [reply(context, parent, notFoundMessage(reference.eventQuery, recent))]
   }
   if (resolution.status === 'ambiguous') {
-    return [reply(context, parent, ambiguousMessage(resolution.candidates))]
+    return [ambiguousReply(context, parent, resolution.candidates)]
   }
 
   return recapResolvedEvent(context, parent, resolution.event.id, reference.eventQuery, recent, llm, fastLlm)

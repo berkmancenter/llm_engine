@@ -1,8 +1,9 @@
 import { z } from 'zod'
-import Message from '../../models/message.model.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { IMessage } from '../../types/index.types.js'
 import { VIBES_FOLLOWUP_SYSTEM_PROMPT, VIBES_FOLLOWUP_USER_TEMPLATE } from './prompt.js'
+import { fetchThread } from './thread.js'
+import { EventCandidate } from './eventResolution.js'
 
 /**
  * Walks this message's thread (its parent plus every reply to it) for the most recent card VA
@@ -13,16 +14,25 @@ import { VIBES_FOLLOWUP_SYSTEM_PROMPT, VIBES_FOLLOWUP_USER_TEMPLATE } from './pr
  * reply, or no card in the thread carries metrics context.
  */
 export async function resolveFollowUpContext(userMessage: IMessage, conversationId: string): Promise<unknown | null> {
-  if (!userMessage.parentMessage) return null
-
-  const thread = await Message.find({
-    conversation: conversationId,
-    $or: [{ _id: userMessage.parentMessage }, { parentMessage: userMessage.parentMessage }]
-  }).sort({ createdAt: -1 })
+  const thread = await fetchThread(userMessage, conversationId)
   const ancestorCard = thread.find(
     (message) => message.responseKind === 'curatedVibesSummary' && message.metricsContext !== undefined && message.metricsContext !== null
   )
   return ancestorCard ? ancestorCard.metricsContext : null
+}
+
+/**
+ * Walks this message's thread for the most recent disambiguation list VA posted (its "which one
+ * did you mean?" reply), so a bare reply naming one of those options can resolve directly
+ * against them. Without this, a reply like a plain event title never reaches extractEventReference
+ * looking like a fresh recap request: it has no thread context of its own, so it reads as
+ * unaddressed small talk on its own. Returns null when the message is not a threaded reply, or no
+ * disambiguation list exists in the thread.
+ */
+export async function resolveDisambiguationContext(userMessage: IMessage, conversationId: string): Promise<EventCandidate[] | null> {
+  const thread = await fetchThread(userMessage, conversationId)
+  const ancestorList = thread.find((message) => message.responseKind === 'eventDisambiguation' && Array.isArray(message.metricsContext))
+  return ancestorList ? (ancestorList.metricsContext as EventCandidate[]) : null
 }
 
 const FollowUpAnswerSchema = z.object({

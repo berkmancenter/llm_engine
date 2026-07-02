@@ -1,7 +1,7 @@
 import mongoose from 'mongoose'
 import setupIntTest from '../../../utils/setupIntTest.js'
 import { Message } from '../../../../src/models/index.js'
-import { resolveFollowUpContext } from '../../../../src/agents/vibesAnalyst/followUp.js'
+import { resolveFollowUpContext, resolveDisambiguationContext } from '../../../../src/agents/vibesAnalyst/followUp.js'
 
 setupIntTest()
 
@@ -144,6 +144,68 @@ describe('resolveFollowUpContext', () => {
 
     const result = await resolveFollowUpContext(
       { _id: new mongoose.Types.ObjectId(), conversation: conversationId, parentMessage: parent._id, body: 'and now?' } as never,
+      conversationId.toString()
+    )
+
+    expect(result).toBeNull()
+  })
+})
+
+describe('resolveDisambiguationContext', () => {
+  it('returns null when the message is not a threaded reply', async () => {
+    const conversationId = new mongoose.Types.ObjectId()
+
+    const result = await resolveDisambiguationContext(
+      { _id: new mongoose.Types.ObjectId(), body: 'Test Fancy Vibes #3' } as never,
+      conversationId.toString()
+    )
+
+    expect(result).toBeNull()
+  })
+
+  it("returns the candidate list from VA's disambiguation reply in the thread", async () => {
+    const conversationId = new mongoose.Types.ObjectId()
+    const candidates = [
+      { id: '1', name: 'Test Fancy Vibes #1', topicName: 'Series', endTime: new Date('2026-06-01') },
+      { id: '3', name: 'Test Fancy Vibes #3', topicName: 'Series', endTime: new Date('2026-06-03') }
+    ]
+    const parent = await seedMessage(
+      { conversation: conversationId, body: 'What happened at Test Fancy Vibes?' },
+      new Date('2026-06-10T18:00:00.000Z')
+    )
+    await seedMessage(
+      {
+        conversation: conversationId,
+        parentMessage: parent._id,
+        responseKind: 'eventDisambiguation',
+        renderData: null,
+        metricsContext: candidates
+      },
+      new Date('2026-06-10T18:00:05.000Z')
+    )
+
+    const result = await resolveDisambiguationContext(
+      { _id: new mongoose.Types.ObjectId(), conversation: conversationId, parentMessage: parent._id, body: 'Test Fancy Vibes #3' } as never,
+      conversationId.toString()
+    )
+
+    expect(result).toEqual(candidates)
+  })
+
+  it('returns null when the thread carries a metrics card but no disambiguation list', async () => {
+    const conversationId = new mongoose.Types.ObjectId()
+    const parent = await seedMessage(
+      {
+        conversation: conversationId,
+        responseKind: 'curatedVibesSummary',
+        renderData: { header: 'Recap' },
+        metricsContext: [{ posterCount: 5 }]
+      },
+      new Date('2026-06-10T18:00:00.000Z')
+    )
+
+    const result = await resolveDisambiguationContext(
+      { _id: new mongoose.Types.ObjectId(), conversation: conversationId, parentMessage: parent._id, body: 'so how many lurked?' } as never,
       conversationId.toString()
     )
 

@@ -37,6 +37,8 @@ const mockBuildSnapshotPayload = jest.fn<(...args: any[]) => any>()
 const mockResolveFollowUpContext = jest.fn<(...args: any[]) => Promise<any>>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockAnswerFollowUp = jest.fn<(...args: any[]) => Promise<any>>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockResolveDisambiguationContext = jest.fn<(...args: any[]) => Promise<any>>()
 // The smalltalk reply (greeting/help/offTopic) is the only place handleSummon calls the LLM
 // chain directly; mocked here so those tests can drive both the happy path and its fallback.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -64,7 +66,8 @@ jest.unstable_mockModule('../src/services/conversationMetricsSnapshot.service.js
 }))
 jest.unstable_mockModule('../src/agents/vibesAnalyst/followUp.js', () => ({
   resolveFollowUpContext: mockResolveFollowUpContext,
-  answerFollowUp: mockAnswerFollowUp
+  answerFollowUp: mockAnswerFollowUp,
+  resolveDisambiguationContext: mockResolveDisambiguationContext
 }))
 jest.unstable_mockModule('../src/agents/helpers/llmChain.js', () => ({
   getChatPromptResponse: mockGetChatPromptResponse
@@ -140,6 +143,8 @@ describe('handleSummon', () => {
     mockResolveFollowUpContext.mockResolvedValue(null)
     mockAnswerFollowUp.mockReset()
     mockAnswerFollowUp.mockResolvedValue({ answerable: false, text: null })
+    mockResolveDisambiguationContext.mockReset()
+    mockResolveDisambiguationContext.mockResolvedValue(null)
     mockGetChatPromptResponse.mockReset()
     mockGetChatPromptResponse.mockResolvedValue({ text: 'An in-voice smalltalk reply.' })
   })
@@ -193,7 +198,7 @@ describe('handleSummon', () => {
     expect(mockBuildSummary).not.toHaveBeenCalled()
   })
 
-  it('lists the options when several public events match', async () => {
+  it('lists the options when several public events match, carrying the list on the reply for a later bare-name reply to match against', async () => {
     const candidates = [
       { id: '1', name: 'Spring Town Hall' },
       { id: '2', name: 'Fall Town Hall' }
@@ -206,7 +211,60 @@ describe('handleSummon', () => {
     expect(responses[0].message).toBe(ambiguousMessage(candidates as any))
     expect(responses[0].message).toContain('Spring Town Hall')
     expect(responses[0].message).toContain('Fall Town Hall')
+    expect(responses[0].responseKind).toBe('eventDisambiguation')
+    expect(responses[0].metricsContext).toBe(candidates)
     expect(mockBuildSummary).not.toHaveBeenCalled()
+  })
+
+  describe('continuing a pending disambiguation', () => {
+    // resolveDisambiguationContext finds VA's own "which one did you mean?" list in the thread;
+    // these tests drive handleSummon's branch that answers a bare reply against that list
+    // directly, instead of letting extractEventReference's classification decide.
+    const pendingCandidates = [
+      { id: '1', name: 'Test Fancy Vibes #1', topicName: 'Series', endTime: new Date('2026-06-01') },
+      { id: '3', name: 'Test Fancy Vibes #3', topicName: 'Series', endTime: new Date('2026-06-03') }
+    ]
+    const bareReplyMessage = { _id: 'reply-msg', body: 'Test Fancy Vibes #3', parentMessage: 'disambig-msg' }
+
+    it('recaps the event named in a bare reply that answers a pending disambiguation, without trusting the classifier', async () => {
+      mockResolveDisambiguationContext.mockResolvedValue(pendingCandidates)
+      mockResolve.mockReturnValue({ status: 'resolved', event: pendingCandidates[1] })
+      mockExtract.mockResolvedValue({ intent: 'offTopic', eventQuery: '', latestInTopic: false, trend: false })
+      mockResolvedConversation(false)
+      const verifiedCard = { header: 'Recap', standouts: [] }
+      mockBuildSummary.mockResolvedValue({ renderData: verifiedCard, metrics: {} })
+
+      const responses = await handleSummon(buildContext(), bareReplyMessage, fakeLlm, fastLlm)
+
+      expect(mockResolveDisambiguationContext).toHaveBeenCalledWith(bareReplyMessage, 'va-conv')
+      expect(responses).toHaveLength(1)
+      expect(responses[0].responseKind).toBe('curatedVibesSummary')
+      expect(responses[0].renderData).toBe(verifiedCard)
+    })
+
+    it('re-lists a still-ambiguous pending answer instead of falling back to the classifier', async () => {
+      mockResolveDisambiguationContext.mockResolvedValue(pendingCandidates)
+      mockResolve.mockReturnValue({ status: 'ambiguous', candidates: pendingCandidates })
+      mockExtract.mockResolvedValue({ intent: 'offTopic', eventQuery: '', latestInTopic: false, trend: false })
+
+      const responses = await handleSummon(buildContext(), { ...bareReplyMessage, body: 'Test Fancy Vibes' }, fakeLlm, fastLlm)
+
+      expect(responses[0].responseKind).toBe('eventDisambiguation')
+      expect(mockBuildSummary).not.toHaveBeenCalled()
+    })
+
+    it('falls through to normal handling when the reply matches none of the pending options', async () => {
+      mockResolveDisambiguationContext.mockResolvedValue(pendingCandidates)
+      mockResolve.mockReturnValue({ status: 'notFound' })
+      mockExtract.mockResolvedValue({ intent: 'offTopic', eventQuery: '', latestInTopic: false, trend: false })
+
+      const responses = await handleSummon(buildContext(), { ...bareReplyMessage, body: 'never mind' }, fakeLlm, fastLlm)
+
+      // Classified offTopic by extractEventReference, same as any other unaddressed reply: no
+      // event recapped, no disambiguation re-posted.
+      expect(responses[0].responseKind).toBeUndefined()
+      expect(mockBuildSummary).not.toHaveBeenCalled()
+    })
   })
 
   it('refuses and never reads content when the resolved event is on a private topic', async () => {
