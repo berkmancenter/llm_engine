@@ -137,6 +137,11 @@ const messageSchema = new mongoose.Schema<IMessage, MessageModel>(
     },
     renderData: {
       type: mongoose.SchemaTypes.Mixed
+    },
+    /* The scalar metrics a curatedVibesSummary card was built from. Never rendered; read back
+       by a later thread reply that needs to answer a follow-up question about the same card. */
+    metricsContext: {
+      type: mongoose.SchemaTypes.Mixed
     }
   },
   {

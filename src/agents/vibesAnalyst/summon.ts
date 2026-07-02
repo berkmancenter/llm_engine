@@ -2,8 +2,10 @@ import Conversation from '../../models/conversation.model.js'
 import access from '../../auth/access.js'
 import logger from '../../config/logger.js'
 import { AgentResponse } from '../../types/index.types.js'
+import { buildSnapshotPayload } from '../../services/conversationMetricsSnapshot.service.js'
 import buildVibesSummary from './buildSummary.js'
 import buildTrendSummary from './trendSummary.js'
+import { resolveFollowUpContext, answerFollowUp } from './followUp.js'
 import {
   extractEventReference,
   findCandidatePublicEvents,
@@ -15,6 +17,14 @@ import {
   EventCandidate,
   EventReference
 } from './eventResolution.js'
+
+/* Reads a snapshot-shaped row whether it is a Mongoose document (a stored snapshot, read via
+   toObject) or a plain object (a live recompute), so metricsContext always persists as plain
+   JSON rather than a Mongoose document's internal shape. */
+function plainMetricsRow(row: unknown): unknown {
+  const source = row as { toObject?: () => unknown }
+  return typeof source.toObject === 'function' ? source.toObject() : row
+}
 
 /* The channel the vibes analyst lives in and answers summons from. */
 const SUMMON_CHANNEL = 'vibesAnalyst'
@@ -88,7 +98,7 @@ function reply(
   context,
   parent: AgentResponse<string>['parent'],
   message: string,
-  card?: { responseKind: string; renderData: unknown }
+  card?: { responseKind: string; renderData: unknown; metricsContext?: unknown }
 ): AgentResponse<string> {
   const channels = context.conversation.channels.filter((channel) => channel.name === SUMMON_CHANNEL)
   return { visible: true, message, messageType: 'text', channels, parent, ...card }
@@ -130,12 +140,19 @@ async function recapResolvedEvent(
   }
 
   // A summon recaps a past event on demand. Only the auto path persists a metrics snapshot
-  // (an event is snapshotted once, when it ends), so the metrics are unused here.
-  const { renderData } = await buildVibesSummary(conversation, llm, fastLlm)
+  // (an event is snapshotted once, when it ends), so the metrics computed here are not written
+  // to the snapshot store; they are still shaped the same quote-free way and carried alongside
+  // the card so a thread reply can answer a follow-up question about this recap's numbers.
+  const { renderData, metrics } = await buildVibesSummary(conversation, llm, fastLlm)
+  const metricsContext = [buildSnapshotPayload(conversation, metrics)]
   // Fallback text for adapters that do not render the card (e.g. zoom); the card itself
   // rides along as responseKind + renderData for adapters that do (Slack).
   return [
-    reply(context, parent, `Vibes summary for *${conversation.name}*`, { responseKind: 'curatedVibesSummary', renderData })
+    reply(context, parent, `Vibes summary for *${conversation.name}*`, {
+      responseKind: 'curatedVibesSummary',
+      renderData,
+      metricsContext
+    })
   ]
 }
 
@@ -191,9 +208,34 @@ async function handleTrendSummon(
   }
 
   const renderData = await buildTrendSummary(views, llm)
+  const metricsContext = views.map(plainMetricsRow)
   return [
-    reply(context, parent, 'Engagement trend across recent events', { responseKind: 'curatedVibesSummary', renderData })
+    reply(context, parent, 'Engagement trend across recent events', {
+      responseKind: 'curatedVibesSummary',
+      renderData,
+      metricsContext
+    })
   ]
+}
+
+/**
+ * Answers a message the intent classifier could not place, on the chance it is a genuine
+ * follow-up question about a card VA already posted in this thread ("so that's 3 posters and 3
+ * lurkers?"), rather than something truly off-topic. Only threaded replies are considered: a
+ * fresh, unthreaded message has nothing to follow up on. Returns null (so the caller falls back
+ * to the canned off-topic reply) when the message is not threaded, no ancestor card in the
+ * thread carries metrics context, or the question turns out not to be answerable from that
+ * card's numbers.
+ */
+async function tryFollowUp(context, parent: AgentResponse<string>['parent'], userMessage, llm): Promise<AgentResponse<string> | null> {
+  const conversationId = context.conversation._id.toString()
+  const metricsContext = await resolveFollowUpContext(userMessage, conversationId)
+  if (!metricsContext) return null
+
+  const answer = await answerFollowUp(userMessage.body ?? '', metricsContext, llm)
+  if (!answer.answerable || !answer.text) return null
+
+  return reply(context, parent, answer.text)
 }
 
 /**
@@ -218,10 +260,16 @@ export default async function handleSummon(context, userMessage, llm, fastLlm = 
   const recent = [...candidates].sort((a, b) => b.endTime.getTime() - a.endTime.getTime()).slice(0, MAX_RECENT_SUGGESTIONS)
 
   // Addressed to VA but not asking for a recap: answer with a canned reply rather than
-  // resolving an event. Greeting and help both guide toward a recap; off-topic redirects.
+  // resolving an event. Greeting and help both guide toward a recap; off-topic redirects,
+  // unless this is a threaded reply under a card VA already posted, in which case it may be a
+  // genuine follow-up question about that card's numbers rather than something truly off-topic.
   if (reference.intent === 'greeting') return [reply(context, parent, greetingMessage(recent))]
   if (reference.intent === 'help') return [reply(context, parent, helpMessage(recent))]
-  if (reference.intent === 'offTopic') return [reply(context, parent, offTopicMessage())]
+  if (reference.intent === 'offTopic') {
+    const followUp = await tryFollowUp(context, parent, userMessage, llm)
+    if (followUp) return [followUp]
+    return [reply(context, parent, offTopicMessage())]
+  }
 
   if (reference.trend) {
     return handleTrendSummon(context, parent, reference, candidates, recent, llm, fastLlm)

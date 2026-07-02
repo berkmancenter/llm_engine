@@ -25,6 +25,16 @@ const mockFetchTrendSnapshots = jest.fn<(...args: any[]) => Promise<any>>()
 const mockComputeTrendViewsLive = jest.fn<(...args: any[]) => Promise<any>>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockBuildTrend = jest.fn<(...args: any[]) => Promise<any>>()
+// buildSnapshotPayload is exercised in its own service tests; here it only needs to shape
+// whatever metricsContext gets carried alongside a card.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockBuildSnapshotPayload = jest.fn<(...args: any[]) => any>()
+// Follow-up resolution and answering are exercised in their own file; mocked here to drive
+// handleSummon's offTopic-to-follow-up routing.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockResolveFollowUpContext = jest.fn<(...args: any[]) => Promise<any>>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockAnswerFollowUp = jest.fn<(...args: any[]) => Promise<any>>()
 
 jest.unstable_mockModule('../src/agents/vibesAnalyst/eventResolution.js', () => ({
   extractEventReference: mockExtract,
@@ -40,6 +50,13 @@ jest.unstable_mockModule('../src/agents/vibesAnalyst/buildSummary.js', () => ({
 }))
 jest.unstable_mockModule('../src/agents/vibesAnalyst/trendSummary.js', () => ({
   default: mockBuildTrend
+}))
+jest.unstable_mockModule('../src/services/conversationMetricsSnapshot.service.js', () => ({
+  buildSnapshotPayload: mockBuildSnapshotPayload
+}))
+jest.unstable_mockModule('../src/agents/vibesAnalyst/followUp.js', () => ({
+  resolveFollowUpContext: mockResolveFollowUpContext,
+  answerFollowUp: mockAnswerFollowUp
 }))
 
 const {
@@ -103,6 +120,12 @@ describe('handleSummon', () => {
     mockComputeTrendViewsLive.mockResolvedValue([])
     mockBuildTrend.mockReset()
     mockBuildTrend.mockResolvedValue({ header: 'Engagement trend', standouts: [] })
+    mockBuildSnapshotPayload.mockReset()
+    mockBuildSnapshotPayload.mockReturnValue({ posterCount: 0 })
+    mockResolveFollowUpContext.mockReset()
+    mockResolveFollowUpContext.mockResolvedValue(null)
+    mockAnswerFollowUp.mockReset()
+    mockAnswerFollowUp.mockResolvedValue({ answerable: false, text: null })
   })
 
   it('posts the engagement card threaded under the summon when the event resolves', async () => {
@@ -230,6 +253,42 @@ describe('handleSummon', () => {
       expect(responses[0].message).not.toContain('Mushrooms and the Future')
       expect(mockResolve).not.toHaveBeenCalled()
       expect(mockBuildSummary).not.toHaveBeenCalled()
+      // Not a threaded reply, so there is nothing to follow up on.
+      expect(mockResolveFollowUpContext).toHaveBeenCalled()
+      expect(mockAnswerFollowUp).not.toHaveBeenCalled()
+    })
+
+    it('answers a threaded follow-up question from a prior card instead of deflecting it', async () => {
+      mockExtract.mockResolvedValue({ intent: 'offTopic', eventQuery: '', latestInTopic: false, trend: false })
+      const priorMetrics = [{ posterCount: 12, lurkerCount: 68, participantCount: 80 }]
+      mockResolveFollowUpContext.mockResolvedValue(priorMetrics)
+      mockAnswerFollowUp.mockResolvedValue({
+        answerable: true,
+        text: '80 people showed up as tracked visits, and 12 of them posted.'
+      })
+      const followUpMessage = { _id: 'm', parentMessage: 'root-1', body: 'how many total participants were there?' }
+
+      const responses = await handleSummon(buildContext(), followUpMessage, fakeLlm, fastLlm)
+
+      expect(mockResolveFollowUpContext).toHaveBeenCalledWith(followUpMessage, 'va-conv')
+      expect(mockAnswerFollowUp).toHaveBeenCalledWith(followUpMessage.body, priorMetrics, fakeLlm)
+      expect(responses).toHaveLength(1)
+      expect(responses[0].message).toBe('80 people showed up as tracked visits, and 12 of them posted.')
+      expect(responses[0].responseKind).toBeUndefined()
+      expect(responses[0].parent).toBe('m')
+      expect(mockResolve).not.toHaveBeenCalled()
+      expect(mockBuildSummary).not.toHaveBeenCalled()
+    })
+
+    it('falls back to the canned off-topic reply when the follow-up question is not answerable from the prior card', async () => {
+      mockExtract.mockResolvedValue({ intent: 'offTopic', eventQuery: '', latestInTopic: false, trend: false })
+      mockResolveFollowUpContext.mockResolvedValue([{ posterCount: 12 }])
+      mockAnswerFollowUp.mockResolvedValue({ answerable: false, text: null })
+      const followUpMessage = { _id: 'm', parentMessage: 'root-1', body: 'what did the speaker actually say?' }
+
+      const responses = await handleSummon(buildContext(), followUpMessage, fakeLlm, fastLlm)
+
+      expect(responses[0].message).toBe(offTopicMessage())
     })
 
     it('guides instead of dumping the event list when a recap names no event at all', async () => {

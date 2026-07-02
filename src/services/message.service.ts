@@ -421,6 +421,9 @@ export const agentResponseToMessageData = (response, agent) => ({
      render it into blocks at send time. */
   ...(response.responseKind !== undefined && { responseKind: response.responseKind }),
   ...(response.renderData !== undefined && { renderData: response.renderData }),
+  /* Sibling of renderData: the scalar metrics a curatedVibesSummary card was built from, so a
+     later thread reply can answer a follow-up question about the same numbers. */
+  ...(response.metricsContext !== undefined && { metricsContext: response.metricsContext }),
   source: { type: 'agent', ...(response.proactive === true && { proactive: true }) }
 })
 
