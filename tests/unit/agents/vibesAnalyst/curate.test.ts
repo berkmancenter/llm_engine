@@ -21,14 +21,15 @@ function trackedSource(overrides: Partial<TrackedSessionMetrics> = {}): TrackedS
 }
 
 /* Metrics rich enough to build the trend and baseline charts (a two-point history and
-   a baseline). audienceEngagement defaults to null (no tracked-session data), so a test
-   opts into the audience split by overriding it. */
+   a baseline). audienceEngagement defaults to the no-direct-channel-data mismatch case
+   (0 participants against 20 posters), so a test opts into the audience split by
+   overriding it with a reconciled count. */
 function metricsFixture(overrides: Partial<ConversationMetrics> = {}): ConversationMetrics {
   return {
     participation: { posterCount: 20, frequentPosterCount: 2, frequentPosterMessageShare: 0.4, messageCount: 50 },
     trackedSessionSources: [],
     trackedSessionStatus: 'notTracked',
-    audienceEngagement: null,
+    audienceEngagement: { participantCount: 0, lurkerCount: null, participationRate: null, postersExceedTrackedSessions: true },
     activitySeries: [
       { label: '0-10', messageCount: 5 },
       { label: '10-20', messageCount: 15 }
@@ -76,8 +77,8 @@ describe('buildChartCandidates', () => {
     expect(candidates.postersVsBaseline).toBeDefined()
   })
 
-  it('offers the posters-vs-lurkers split only when tracked-session data exists', () => {
-    expect(buildChartCandidates(metricsFixture({ audienceEngagement: null })).audienceSplit).toBeUndefined()
+  it('offers the posters-vs-lurkers split only when the participant count reconciles', () => {
+    expect(buildChartCandidates(metricsFixture()).audienceSplit).toBeUndefined()
 
     const tracked = buildChartCandidates(
       metricsFixture({
@@ -93,7 +94,7 @@ describe('buildChartCandidates', () => {
     expect(tracked.audienceSplit).toBeDefined()
   })
 
-  it('omits the posters-vs-lurkers split when posters exceed tracked sessions', () => {
+  it('omits the posters-vs-lurkers split when posters exceed direct-channel participants', () => {
     const mismatched = buildChartCandidates(
       metricsFixture({
         audienceEngagement: {

@@ -28,7 +28,7 @@ export function buildSnapshotPayload(
   options: SnapshotOptions = {}
 ): ConversationMetricsSnapshotData {
   const primaryTracked = metrics.trackedSessionSources[0]
-  const engagement = metrics.audienceEngagement
+  const { audienceEngagement } = metrics
   const receptionCount = options.receptionCount !== undefined ? options.receptionCount : metrics.receptions.length
 
   return {
@@ -47,10 +47,10 @@ export function buildSnapshotPayload(
 
     trackedSessionStatus: metrics.trackedSessionStatus,
     trackedSessions: primaryTracked ? primaryTracked.trackedSessions : null,
-    participantCount: engagement ? engagement.participantCount : null,
-    lurkerCount: engagement ? engagement.lurkerCount : null,
-    participationRate: engagement ? engagement.participationRate : null,
-    postersExceedTrackedSessions: engagement ? engagement.postersExceedTrackedSessions : null,
+    participantCount: audienceEngagement.participantCount,
+    lurkerCount: audienceEngagement.lurkerCount,
+    participationRate: audienceEngagement.participationRate,
+    postersExceedTrackedSessions: audienceEngagement.postersExceedTrackedSessions,
     avgDwellSeconds: primaryTracked ? primaryTracked.avgDwellSeconds : null,
     totalActions: primaryTracked ? primaryTracked.totalActions : null,
     actionBreakdown: primaryTracked ? primaryTracked.actionBreakdown : {},

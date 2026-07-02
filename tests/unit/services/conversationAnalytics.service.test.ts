@@ -1,6 +1,6 @@
 import mongoose from 'mongoose'
 import setupIntTest from '../../utils/setupIntTest.js'
-import { Conversation, Message, ConversationAnalytics, ConversationMetricsSnapshot, Channel } from '../../../src/models/index.js'
+import { Conversation, Message, ConversationAnalytics, ConversationMetricsSnapshot, Channel, Agent } from '../../../src/models/index.js'
 import conversationAnalyticsService, {
   attributeSpikeSources,
   computeResourceSummary,
@@ -123,6 +123,33 @@ async function seedMessageOnChannelAt(
   await Message.collection.updateOne({ _id: message._id }, { $set: { createdAt } })
 }
 
+/* Creates a real Agent document on the conversation, the same lightweight 'test' agentType
+   fixture other test suites in this repo use. */
+async function seedAgent(conversation) {
+  const agent = new Agent({ agentType: 'vibesAnalyst', conversation })
+  await agent.save()
+  conversation.agents.push(agent)
+  await conversation.save()
+  return agent
+}
+
+/* Seeds one direct (1:1 bot-DM) channel between a person and an agent, the way joinConversation
+   provisions one automatically the moment someone connects (see conversation.service). Registers
+   the channel on the conversation's own channels array, since that is what the real participant
+   count reads: not a standalone Channel query, but the conversation's own channels list filtered
+   to direct:true, with any of its own agents excluded from the headcount. */
+async function seedDirectChannel(conversation, agent) {
+  const userId = new mongoose.Types.ObjectId()
+  const channel = await Channel.create({
+    name: `direct-${userId.toString()}-${agent._id.toString()}`,
+    direct: true,
+    participants: [userId, agent._id]
+  })
+  conversation.channels.push(channel)
+  await conversation.save()
+  return userId
+}
+
 describe('computeConversationMetrics', () => {
   it('computes participation from Mongo and derives attention ratios from the snapshot', async () => {
     const conversation = await makeConversation()
@@ -137,6 +164,10 @@ describe('computeConversationMetrics', () => {
       source: 'matomo',
       capturedAt: new Date('2026-06-12T00:00:00.000Z')
     })
+    // audienceEngagement no longer reads Matomo; seed 40 direct-channel participants so the
+    // headcount still reconciles with the tracked-session assertions below.
+    const agent = await seedAgent(conversation)
+    for (let i = 0; i < 40; i += 1) await seedDirectChannel(conversation, agent)
 
     const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
 
@@ -192,15 +223,20 @@ describe('computeConversationMetrics', () => {
     expect(matomo.actionBreakdownPerActiveVisitor).toEqual({ 'command:visual': 4, 'tab:chat': 2 })
   })
 
-  it('returns participation and no tracked sessions when no source is referenced or stored', async () => {
+  it('returns the participant mismatch and no tracked sessions when no source is referenced or stored', async () => {
     const conversation = await makeConversation()
-    await seedParticipation(conversation._id)
+    await seedParticipation(conversation._id) // 2 posters, but nobody joined via a direct channel
 
     const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
 
     expect(metrics.participation).toMatchObject({ posterCount: 2, frequentPosterCount: 0, messageCount: 3 })
     expect(metrics.participation.frequentPosterMessageShare).toBeNull()
-    expect(metrics.audienceEngagement).toBeNull()
+    expect(metrics.audienceEngagement).toEqual({
+      participantCount: 0,
+      lurkerCount: null,
+      participationRate: null,
+      postersExceedTrackedSessions: true
+    })
     expect(metrics.trackedSessionSources).toEqual([])
     expect(metrics.trackedSessionStatus).toBe('notTracked')
   })
@@ -410,19 +446,27 @@ describe('computeConversationMetrics frequent posters', () => {
 })
 
 describe('computeConversationMetrics audience engagement', () => {
-  it('returns null lurkers and rate and flags the mismatch when posters exceed tracked sessions', async () => {
+  it('counts zero participants and reports an empty room when the conversation has no direct channels', async () => {
+    const conversation = await makeConversation()
+    await seedParticipation(conversation._id) // 2 posters, but nobody ever joined via a channel
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+
+    // 2 posters against 0 participants is the mismatch case (posters cannot exceed
+    // an empty room's headcount without invention), not the true "empty room" case.
+    expect(metrics.audienceEngagement).toEqual({
+      participantCount: 0,
+      lurkerCount: null,
+      participationRate: null,
+      postersExceedTrackedSessions: true
+    })
+  })
+
+  it('returns null lurkers and rate and flags the mismatch when posters exceed direct-channel participants', async () => {
     const conversation = await makeConversation()
     await seedParticipation(conversation._id) // 2 posters
-    await ConversationAnalytics.create({
-      conversationId: conversation._id,
-      attendeeCount: 1,
-      totalVisits: 1,
-      totalActions: 1,
-      totalDwellSeconds: 10,
-      deviceBreakdown: {},
-      source: 'matomo',
-      capturedAt: new Date('2026-06-12T00:00:00.000Z')
-    })
+    const agent = await seedAgent(conversation)
+    await seedDirectChannel(conversation, agent) // 1 participant joined
 
     const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
 
@@ -437,16 +481,8 @@ describe('computeConversationMetrics audience engagement', () => {
   it('reports real lurkers and rate with the flag false when the counts reconcile', async () => {
     const conversation = await makeConversation()
     await seedParticipation(conversation._id) // 2 posters
-    await ConversationAnalytics.create({
-      conversationId: conversation._id,
-      attendeeCount: 5,
-      totalVisits: 5,
-      totalActions: 5,
-      totalDwellSeconds: 50,
-      deviceBreakdown: {},
-      source: 'matomo',
-      capturedAt: new Date('2026-06-12T00:00:00.000Z')
-    })
+    const agent = await seedAgent(conversation)
+    for (let i = 0; i < 5; i += 1) await seedDirectChannel(conversation, agent)
 
     const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
 
@@ -456,6 +492,41 @@ describe('computeConversationMetrics audience engagement', () => {
       participationRate: 0.4,
       postersExceedTrackedSessions: false
     })
+  })
+
+  it('counts each distinct person once even when the conversation has more than one agent', async () => {
+    // joinConversation provisions one direct channel per agent for every person who joins, so a
+    // conversation with 2 agents gives each attendee 2 direct channels. The headcount must dedupe
+    // by person, not by channel row, or it would silently double an otherwise-correct count.
+    const conversation = await makeConversation()
+    await seedParticipation(conversation._id) // 2 posters
+    const agentOne = await seedAgent(conversation)
+    const agentTwo = await seedAgent(conversation)
+    const userId = new mongoose.Types.ObjectId()
+    for (const agent of [agentOne, agentTwo]) {
+      const channel = await Channel.create({
+        name: `direct-${userId.toString()}-${agent._id.toString()}`,
+        direct: true,
+        participants: [userId, agent._id]
+      })
+      conversation.channels.push(channel)
+    }
+    await conversation.save()
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+
+    expect(metrics.audienceEngagement?.participantCount).toBe(1)
+  })
+
+  it('ignores a non-direct channel on the conversation, since it carries no one-to-one participant', async () => {
+    const conversation = await makeConversation()
+    const publicChannel = await Channel.create({ name: 'main', direct: false })
+    conversation.channels.push(publicChannel)
+    await conversation.save()
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+
+    expect(metrics.audienceEngagement?.participantCount).toBe(0)
   })
 })
 
@@ -845,9 +916,11 @@ describe('computeConversationMetrics bot invocations', () => {
 
 /* Creates a past event in a topic: one message from each name in `speakers` (a
    pseudonym is a poster's anonymous display name), so posterCount = speakers.length.
-   When `tracked` is given, also stores a web-analytics snapshot so the event has a
-   participant (visitor) count and dwell time; without it the event has no tracked
-   data, so its lurker count is unknown (null). */
+   `tracked` still stores the old web-analytics snapshot for completeness, but the audience
+   headcount now comes from direct channels (see countChannelParticipants), so this also
+   seeds one direct channel per `attendeeCount`, joining an agent this conversation owns.
+   Without `tracked`, the event has no channels and no lurker data, so its lurker count is
+   unknown (null). */
 async function seedTopicEvent(
   topicId: mongoose.Types.ObjectId,
   options: {
@@ -889,6 +962,8 @@ async function seedTopicEvent(
       source: 'matomo',
       capturedAt: options.endTime ?? new Date('2026-06-12T00:00:00.000Z')
     })
+    const agent = await seedAgent(conversation)
+    for (let i = 0; i < options.tracked.attendeeCount; i += 1) await seedDirectChannel(conversation, agent)
   }
   return conversation
 }

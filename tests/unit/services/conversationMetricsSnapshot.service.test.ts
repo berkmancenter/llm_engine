@@ -144,17 +144,18 @@ describe('conversationMetricsSnapshot.service', () => {
       expect(serialized).not.toContain('pricing')
     })
 
-    it('records null tracked-session estimates when there is no analytics data', () => {
+    it('records null tracked-session estimates when there is no analytics data, independent of audience engagement', () => {
       const metrics = sampleMetrics()
       metrics.trackedSessionSources = []
       metrics.trackedSessionStatus = 'notTracked'
-      metrics.audienceEngagement = null
 
       const payload = buildSnapshotPayload(sampleConversation(), metrics)
-      expect(payload.participantCount).toBeNull()
-      expect(payload.lurkerCount).toBeNull()
-      expect(payload.participationRate).toBeNull()
-      expect(payload.postersExceedTrackedSessions).toBeNull()
+      // Audience engagement comes from direct channels, not Matomo, so it still maps straight
+      // through even though no tracked-session source exists.
+      expect(payload.participantCount).toBe(80)
+      expect(payload.lurkerCount).toBe(68)
+      expect(payload.participationRate).toBe(0.15)
+      expect(payload.postersExceedTrackedSessions).toBe(false)
       expect(payload.avgDwellSeconds).toBeNull()
       expect(payload.totalActions).toBeNull()
       // No tracked source means the session count and active-visitor denominator are absent, not

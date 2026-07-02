@@ -449,22 +449,55 @@ async function computeBotInvocations(conversation): Promise<BotInvocations> {
   return { botName, count }
 }
 
-/* Bridges the exact poster count with the estimated participant count (unique
-   tracked-session visitors from the primary source). Returns null when there is no
-   tracked-session data, since without a participant count there is no denominator.
+/* The id of an agent reference, whether it arrived as a populated Agent document or a raw
+   ObjectId, the same populated-or-not idiom used elsewhere for a conversation's topic ref. */
+function agentIdOf(agent): string {
+  return (agent?._id ?? agent).toString()
+}
 
-   When more people posted than were tracked as sessions, the two counts come from
-   different systems and do not reconcile, so we do not invent numbers. lurkerCount and
-   participationRate are null and postersExceedTrackedSessions is true, letting the card
-   report the two raw counts and explain the gap as a possibility rather than launder an
-   unreconciled signal into a confident "0 lurkers, 100% participation". When the counts
-   do reconcile, lurkerCount and participationRate are real and the flag is false. */
-function computeAudienceEngagement(posterCount: number, sources: TrackedSessionMetrics[]): AudienceEngagement | null {
-  const [primary] = sources
-  if (!primary) return null
+/* Counts the distinct people who have joined this conversation, from its direct (1:1 bot-DM)
+   channels. joinConversation (see conversation.service) and the Zoom/Slack participant-join
+   webhooks both provision one of these automatically the moment someone connects, independent of
+   any web-analytics tracking, so this is first-party and exact rather than an estimate that can
+   miss someone who blocks tracking.
 
-  const participantCount = primary.attendeeCount
+   A conversation gives each attendee one direct channel per agent on it, so a two-agent
+   conversation gives every attendee two direct channels. This dedupes by person, not by channel
+   row, or a conversation with more than one agent would double-count everyone in it. The
+   conversation's own agents are excluded, since they are the other side of every direct channel,
+   never an attendee themselves. Reads the conversation's own channels list (not a database-wide
+   Channel query), so a channel belonging to a different conversation can never be counted here. */
+async function countChannelParticipants(conversation): Promise<number> {
+  const agentIds = new Set((conversation.agents ?? []).map(agentIdOf))
+  const channelIds = conversation.channels ?? []
+  if (channelIds.length === 0) return 0
 
+  const directChannels = await Channel.find({ _id: { $in: channelIds }, direct: true }).select('participants')
+
+  const humanIds = new Set<string>()
+  for (const channel of directChannels) {
+    for (const participant of channel.participants ?? []) {
+      const id = participant.toString()
+      if (!agentIds.has(id)) humanIds.add(id)
+    }
+  }
+  return humanIds.size
+}
+
+/* Bridges the exact poster count with the exact participant count (distinct people who
+   joined via a direct channel, see countChannelParticipants). Always returns a real
+   engagement bundle, since a channel-based headcount is always computable, unlike the
+   web-analytics fetch this replaced, which might simply not have run yet.
+
+   When more people posted than joined, the two counts do not reconcile: either they come
+   from different systems in a mixed-platform event, or a poster's join was never recorded
+   (a pipeline gap, or a conversation predating this counting method), so we do not invent
+   numbers. lurkerCount and participationRate are null and postersExceedTrackedSessions is
+   true, letting the card report the two raw counts and explain the gap as a possibility
+   rather than launder an unreconciled signal into a confident "0 lurkers, 100%
+   participation". When the counts do reconcile, lurkerCount and participationRate are real
+   and the flag is false. */
+function computeAudienceEngagement(posterCount: number, participantCount: number): AudienceEngagement {
   if (posterCount > participantCount) {
     return {
       participantCount,
@@ -475,9 +508,9 @@ function computeAudienceEngagement(posterCount: number, sources: TrackedSessionM
   }
 
   if (participantCount === 0) {
-    /* A tracked snapshot with zero visitors is an empty room, not a room where nobody
-       spoke. Report neither lurkers nor a rate so the card does not imply 0% of the
-       audience participated when there was no audience to begin with. */
+    /* Zero participants is an empty room, not a room where nobody spoke. Report neither
+       lurkers nor a rate so the card does not imply 0% of the audience participated when
+       there was no audience to begin with. */
     return {
       participantCount,
       lurkerCount: null,
@@ -635,7 +668,8 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
   const participation = await computeParticipation(conversation._id)
   const snapshots = await ConversationAnalytics.find({ conversationId: conversation._id })
   const trackedSessionSources = snapshots.map(deriveTrackedSessions)
-  const audienceEngagement = computeAudienceEngagement(participation.posterCount, trackedSessionSources)
+  const channelParticipantCount = await countChannelParticipants(conversation)
+  const audienceEngagement = computeAudienceEngagement(participation.posterCount, channelParticipantCount)
   const humanMessages = await Message.find({
     conversation: conversation._id,
     ...visibleHumanFilter
@@ -656,7 +690,7 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
   const botInvocations = await computeBotInvocations(conversation)
   const { participationHistory, baseline } = await computeHistoryAndBaseline(conversation, {
     posterCount: participation.posterCount,
-    lurkerCount: audienceEngagement ? audienceEngagement.lurkerCount : null
+    lurkerCount: audienceEngagement.lurkerCount
   })
 
   return {

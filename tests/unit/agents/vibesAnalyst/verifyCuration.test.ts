@@ -9,7 +9,7 @@ function metricsFixture(): ConversationMetrics {
     participation: { posterCount: 20, frequentPosterCount: 2, frequentPosterMessageShare: 0.4, messageCount: 50 },
     trackedSessionSources: [],
     trackedSessionStatus: 'notTracked',
-    audienceEngagement: null,
+    audienceEngagement: { participantCount: 0, lurkerCount: null, participationRate: null, postersExceedTrackedSessions: true },
     activitySeries: [
       { label: '0-10', messageCount: 5 },
       { label: '10-20', messageCount: 15 },

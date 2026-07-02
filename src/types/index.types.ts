@@ -566,19 +566,18 @@ export interface TrackedSessionMetrics {
   actionBreakdownPerActiveVisitor: Record<string, number>
 }
 
-/* The audience-engagement view: how the exact poster count relates to the estimated
-   participant count (unique tracked-session visitors). This is the ONE place posters
-   (exact) and participants (an estimate that can undercount) are combined, so it is
-   always approximate. It is null when no tracked-session data exists, because without a
-   participant count there is no denominator.
+/* The audience-engagement view: how the exact poster count relates to the exact
+   participant count (everyone who joined the conversation, from their direct, 1:1
+   channel with the agent). Both counts are first-party and exact, so this is always
+   present, never an estimate.
 
-   When more people posted than were tracked as sessions, the two counts do not
-   reconcile: they come from different systems (posters from our database, participants
-   from web analytics), so a poster who blocked tracking or joined without a tracked page
-   visit can push posterCount past participantCount. In that case we do not invent
-   numbers. lurkerCount and participationRate are null and postersExceedTrackedSessions
-   is true, so the card can state the two raw counts and explain the gap as a
-   possibility rather than show an impossible "0 lurkers, 100% participation".
+   The two counts can still fail to reconcile: a poster who joined through a path that
+   never provisioned a direct channel (an older event, a platform not yet wired up) can
+   push posterCount past participantCount. In that case we do not invent numbers.
+   lurkerCount and participationRate are null and postersExceedTrackedSessions is true,
+   so the card can state the two raw counts and explain the gap as a possibility rather
+   than show an impossible "0 lurkers, 100% participation". The field name is kept as-is
+   to avoid a churny rename now that the source is channels rather than tracked sessions.
 
    When the counts do reconcile (posterCount <= participantCount), lurkerCount is
    participants minus posters, participationRate is posters / participants, and
@@ -706,8 +705,9 @@ export interface ConversationMetrics {
   // One entry per analytics source that has stored data; empty when none.
   trackedSessionSources: TrackedSessionMetrics[]
   trackedSessionStatus: TrackedSessionStatus
-  // Posters vs participants (rate + lurkers); null when no tracked-session data.
-  audienceEngagement: AudienceEngagement | null
+  // Posters vs participants (rate + lurkers); always present, since the channel-based
+  // participant count is exact.
+  audienceEngagement: AudienceEngagement
   // People's messages per time window; empty when the event had no messages.
   activitySeries: ActivityBucket[]
   // Time windows whose message volume stood out from the rest; empty when none.
@@ -795,14 +795,15 @@ export interface ConversationMetricsSnapshotData {
   messageCount: number
   frequentPosterCount: number
   frequentPosterMessageShare: number | null
-  // Audience engagement (estimate, as of capturedAt). Null fields mean no tracked-session
-  // data, or a count that could not be reconciled against the poster count.
+  // Audience engagement (exact, as of capturedAt): the direct-channel participant count.
+  // lurkerCount/participationRate are null when the poster count could not be reconciled
+  // against it (postersExceedTrackedSessions is true in that case).
   trackedSessionStatus: TrackedSessionStatus
   trackedSessions: number | null
-  participantCount: number | null
+  participantCount: number
   lurkerCount: number | null
   participationRate: number | null
-  postersExceedTrackedSessions: boolean | null
+  postersExceedTrackedSessions: boolean
   avgDwellSeconds: number | null
   totalActions: number | null
   // Feature usage (estimate, as of capturedAt): allowlisted page actions off the primary
