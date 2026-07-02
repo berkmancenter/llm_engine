@@ -204,7 +204,6 @@ describe('checkin handler tests', () => {
         await prepareMessagesForAgent([msg1, reply1, msg2, reply2, msg3, reply3], ag.conversation, ag)
         const responses = await runCheckin(ag)
 
-        console.log('Self-minimization pattern responses:', JSON.stringify(responses, null, 2))
         const checkin = findCheckinForUser(responses, user1._id)
         expect(checkin).toBeDefined()
         expect(checkin.message.type).toBe('checkin')
@@ -263,7 +262,6 @@ describe('checkin handler tests', () => {
         await prepareMessagesForAgent([msg1, reply1, msg2, reply2, msg3, reply3], ag.conversation, ag)
         const responses = await runCheckin(ag)
 
-        console.log('Isolation-checking pattern responses:', JSON.stringify(responses, null, 2))
         const checkin = findCheckinForUser(responses, user1._id)
         expect(checkin).toBeDefined()
         expect(checkin.message.type).toBe('checkin')
@@ -322,7 +320,6 @@ describe('checkin handler tests', () => {
         await prepareMessagesForAgent([msg1, reply1, msg2, reply2, msg3, reply3], ag.conversation, ag)
         const responses = await runCheckin(ag)
 
-        console.log('Pull-back after friction responses:', JSON.stringify(responses, null, 2))
         const checkin = findCheckinForUser(responses, user1._id)
         expect(checkin).toBeDefined()
         expect(checkin.message.type).toBe('checkin')
@@ -363,7 +360,6 @@ describe('checkin handler tests', () => {
         await prepareMessagesForAgent([msg1, msg2, msg3], ag.conversation, ag)
         const responses = await runCheckin(ag)
 
-        console.log('NOT_ALONE responses:', JSON.stringify(responses, null, 2))
         expect(responses.length).toBeGreaterThan(0)
 
         responses.forEach((r) => {
@@ -409,7 +405,6 @@ describe('checkin handler tests', () => {
         await prepareMessagesForAgent([msg1, msg2, msg3], ag.conversation, ag)
         const responses = await runCheckin(ag)
 
-        console.log('INTEREST_BRIDGE responses:', JSON.stringify(responses, null, 2))
         expect(responses.length).toBeGreaterThan(0)
         responses.forEach((r) => {
           expect(r.message.type).toBe('checkin')
@@ -433,8 +428,6 @@ describe('checkin handler tests', () => {
         // transcript, which is only ~75s long and loaded at the very start of the conversation.
         await prepareMessagesForAgent([], ag.conversation, ag)
         const responses = await runCheckin(ag, getTime(2 * 60))
-
-        console.log('TRANSCRIPT_HOOK responses:', JSON.stringify(responses, null, 2))
 
         if (responses.length > 0) {
           const checkin = findCheckinForUser(responses, user1._id)
@@ -473,6 +466,45 @@ describe('checkin handler tests', () => {
   })
 
   describe('rate limiting', () => {
+    it('does not send a checkin when conversation started less than minInterval ago and no prior DMs', async () => {
+      const { agent: ag } = await createCheckinConversation([user1])
+      ag.agentConfig = { ...ag.agentConfig, minInterval: 10 }
+      // Override startTime to 2 min ago — well within the 10-min minInterval
+      ag.conversation.startTime = new Date(Date.now() - 2 * 60 * 1000)
+
+      const getLLMSpy = jest.spyOn(ag, 'getLLM')
+
+      await prepareMessagesForAgent([], ag.conversation, ag)
+      await runCheckin(ag, new Date())
+
+      // Rate-limit early return must have fired — LLM should never be called
+      expect(getLLMSpy).not.toHaveBeenCalled()
+    })
+
+    it(
+      'is eligible for first checkin after minInterval has passed since conversation start with no prior DMs',
+      async () => {
+        const { agent: ag } = await createCheckinConversation([user1])
+        ag.agentConfig = { ...ag.agentConfig, minInterval: 10 }
+        await loadPartTimeWorkTranscript(ag.conversation, true)
+
+        const getLLMSpy = jest.spyOn(ag, 'getLLM')
+
+        // 3 participant messages to make SOCIAL_REASSURANCE eligible
+        const msg1 = await createDirectMessage('This is really interesting', user1, ag.conversation, getTime(2 * 60))
+        const msg2 = await createDirectMessage('I had no idea about that', user1, ag.conversation, getTime(4 * 60))
+        const msg3 = await createDirectMessage('Makes me think about my own work', user1, ag.conversation, getTime(6 * 60))
+
+        await prepareMessagesForAgent([msg1, msg2, msg3], ag.conversation, ag)
+        // endTime is 12 min after startTime — past the 10-min minInterval, no prior agent messages
+        await runCheckin(ag, getTime(12 * 60))
+
+        // If rate-limited, buildCheckinResponses returns before any LLM call
+        expect(getLLMSpy).toHaveBeenCalled()
+      },
+      testTimeout
+    )
+
     it(
       'does not send a checkin when one was already sent recently',
       async () => {
@@ -531,12 +563,14 @@ describe('checkin handler tests', () => {
           getTime(320)
         )
 
+        const getLLMSpy = jest.spyOn(ag, 'getLLM')
+
         await prepareMessagesForAgent([msg1, reply1, msg2, reply2, msg3, reply3, recentCheckin], ag.conversation, ag)
         // endTime is 80s after the pre-seeded checkin — well within the 10-min minInterval
-        const responses = await runCheckin(ag, getTime(400))
+        await runCheckin(ag, getTime(400))
 
-        const checkin = findCheckinForUser(responses, user1._id)
-        expect(checkin).toBeUndefined()
+        // Rate-limit early return must have fired — LLM should never be called
+        expect(getLLMSpy).not.toHaveBeenCalled()
       },
       testTimeout
     )
