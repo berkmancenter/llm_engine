@@ -154,6 +154,10 @@ export default {
   async participantJoined(participant) {
     // no-op for now. Agents do not DM participants until they receive a DM
   },
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async participantLeft(participant) {
+    // no-op
+  },
   async getChannels(message) {
     const isDM = message.channel_type === 'im'
     if (isDM && !this.conversation.enableDMs.includes('agents')) {

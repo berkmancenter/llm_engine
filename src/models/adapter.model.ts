@@ -11,6 +11,7 @@ export interface AdapterMethods {
   sendMessage(message: IMessage)
   validateBeforeUpdate()
   participantJoined(participant: Record<string, unknown>)
+  participantLeft(participant: Record<string, unknown>)
   participantUpdated(participant: Record<string, unknown>)
 }
 
@@ -121,6 +122,9 @@ function getChannelConfigByName(channelName) {
       return dmChannel
     }
   }
+  logger.debug(
+    `No channel config found for channel ${channelName} on adapter ${this._id}. Participant may have left. Message will not be sent.`
+  )
 }
 
 async function populateConversation() {
@@ -235,6 +239,15 @@ adapterSchema.method('participantJoined', async function (participant) {
     return
   }
   return await adapterTypes[this.type].participantJoined.call(this, participant)
+})
+
+adapterSchema.method('participantLeft', async function (participant) {
+  if (!this.active) {
+    logger.warn(`Inactive adapter: ${this._id} received message`)
+    return
+  }
+  await populateConversation.call(this)
+  return await adapterTypes[this.type].participantLeft.call(this, participant)
 })
 
 adapterSchema.method('participantUpdated', async function (participant) {

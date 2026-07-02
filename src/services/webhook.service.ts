@@ -133,6 +133,41 @@ const participantJoined = async (adapter, participant) => {
   }
 }
 
+const participantLeft = async (adapter, participant) => {
+  const adapterUser = await adapter.participantLeft(participant)
+  if (!adapterUser) return
+
+  const user = await User.findOne({ username: adapterUser.username })
+  if (!user) {
+    logger.warn(`participantLeft: no user found for username "${adapterUser.username}"`)
+    return
+  }
+
+  // Clean up adapter dmChannels config for this user — mirrors what getOrCreateUser does on join
+  const directChannelPrefix = `direct-${user._id}-`
+  let configChanged = false
+  const updatedDmChannels = adapter.dmChannels.map((dmChannelConfig) => {
+    const updatedConfig = { ...(dmChannelConfig.config || {}) }
+    let channelConfigChanged = false
+    for (const key of Object.keys(updatedConfig)) {
+      if (key.startsWith(directChannelPrefix) || key === adapterUser.username) {
+        delete updatedConfig[key]
+        channelConfigChanged = true
+      }
+    }
+    if (channelConfigChanged) {
+      configChanged = true
+      return { ...dmChannelConfig, config: updatedConfig }
+    }
+    return dmChannelConfig
+  })
+  if (configChanged) {
+    // eslint-disable-next-line no-param-reassign
+    adapter.dmChannels = updatedDmChannels
+    await adapter.save()
+  }
+}
+
 const participantUpdated = async (adapter, participant) => {
   const adapterUser: AdapterUser = await adapter.participantUpdated(participant)
   if (adapterUser) {
@@ -140,5 +175,5 @@ const participantUpdated = async (adapter, participant) => {
   }
 }
 
-const webhookService = { receiveMessage, participantJoined, participantUpdated }
+const webhookService = { receiveMessage, participantJoined, participantLeft, participantUpdated }
 export default webhookService

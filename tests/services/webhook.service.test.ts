@@ -39,6 +39,7 @@ const testAgentTypeSpecification = {
 const mockAdapterType = {
   receiveMessage: jest.fn(),
   participantJoined: jest.fn(),
+  participantLeft: jest.fn(),
   participantUpdated: jest.fn()
 }
 const testAdapterTypes = {
@@ -93,6 +94,7 @@ describe('adapter service tests', () => {
     // Add mock methods to the adapter instance
     adapter.receiveMessage = mockAdapterType.receiveMessage
     adapter.participantJoined = mockAdapterType.participantJoined
+    adapter.participantLeft = mockAdapterType.participantLeft
     adapter.participantUpdated = mockAdapterType.participantUpdated
 
     conversation.adapters.push(adapter)
@@ -1241,6 +1243,148 @@ describe('adapter service tests', () => {
       await conversation.populate('channels')
       const directChannel = conversation.channels.find((c) => c.name.includes('direct-'))
       expect(directChannel).toBeUndefined()
+    })
+  })
+
+  describe('participantLeft', () => {
+    it('does nothing when adapter type returns null (bot left)', async () => {
+      await createConversation('Meeting where Bot Left')
+      conversation.enableDMs = ['agents']
+      await conversation.save()
+
+      mockAdapterType.participantLeft.mockReturnValue(null)
+
+      await webhookService.participantLeft(adapter, { id: 999, name: 'LLM Engine', is_host: false })
+
+      expect(mockAdapterType.participantLeft).toHaveBeenCalled()
+      // No channels should exist
+      await conversation.populate('channels')
+      expect(conversation.channels.filter((c) => c.name?.startsWith('direct-'))).toHaveLength(0)
+    })
+
+    it('does nothing when user is not found in the database', async () => {
+      await createConversation('Meeting with Unknown Leaver')
+      conversation.enableDMs = ['agents']
+      await conversation.save()
+
+      mockAdapterType.participantLeft.mockReturnValue({ username: 'Ghost User' })
+
+      // Ghost User was never created in the DB
+      await webhookService.participantLeft(adapter, { id: 1, name: 'Ghost User', is_host: false })
+
+      expect(mockAdapterType.participantLeft).toHaveBeenCalled()
+      const ghostUser = await User.findOne({ username: 'Ghost User' })
+      expect(ghostUser).toBeNull()
+    })
+
+    it('cleans up adapter dmChannels config when participant leaves', async () => {
+      await createConversation('Meeting with Leaving Participant')
+      conversation.enableDMs = ['agents']
+
+      const agent = new Agent({ agentType: 'test', conversation })
+      await agent.save()
+      conversation.agents.push(agent)
+      await conversation.save()
+
+      const leavingUser = await User.create({
+        username: 'Leaving User',
+        pseudonyms: [{ token: 'leave-token', pseudonym: 'Leaving Pseudonym', active: true }]
+      })
+      const directChannelName = `direct-${leavingUser._id}-${agent._id}`
+
+      adapter.dmChannels = [{ direct: true, agent: agent._id, config: { [directChannelName]: { to: 200 } } }]
+      await adapter.save()
+
+      mockAdapterType.participantLeft.mockReturnValue({ username: 'Leaving User' })
+
+      await webhookService.participantLeft(adapter, { id: 200, name: 'Leaving User', is_host: false })
+
+      const updatedAdapter = await Adapter.findById(adapter._id)
+      const dmChannel = updatedAdapter!.dmChannels!.find((c) => c.direct)
+      expect(dmChannel!.config?.[directChannelName]).toBeUndefined()
+    })
+
+    it('removes username-keyed dmChannel config entry when participant leaves', async () => {
+      await createConversation('Meeting with Named Moderator Leaving')
+      conversation.enableDMs = ['agents']
+      await conversation.save()
+
+      await User.create({
+        username: 'Host User',
+        pseudonyms: [{ token: 'host-token', pseudonym: 'Host Pseudonym', active: true }]
+      })
+
+      adapter.dmChannels = [{ name: 'moderator', users: 'hosts', config: { 'Host User': { to: 700 } } }]
+      await adapter.save()
+
+      mockAdapterType.participantLeft.mockReturnValue({ username: 'Host User' })
+
+      await webhookService.participantLeft(adapter, { id: 700, name: 'Host User', is_host: true })
+
+      const updatedAdapter = await Adapter.findById(adapter._id)
+      const moderatorChannel = updatedAdapter!.dmChannels!.find((c) => c.name === 'moderator')
+      expect(moderatorChannel!.config?.['Host User']).toBeUndefined()
+    })
+
+    it('leaves unrelated channels and other users dmConfig intact', async () => {
+      await createConversation('Meeting with Multiple Participants Leaving')
+      conversation.enableDMs = ['agents']
+
+      const agent = new Agent({ agentType: 'test', conversation })
+      await agent.save()
+      conversation.agents.push(agent)
+      await conversation.save()
+
+      const leavingUser = await User.create({
+        username: 'Participant A',
+        pseudonyms: [{ token: 'token-a', pseudonym: 'Pseudonym A', active: true }]
+      })
+      const stayingUser = await User.create({
+        username: 'Participant B',
+        pseudonyms: [{ token: 'token-b', pseudonym: 'Pseudonym B', active: true }]
+      })
+
+      const leavingChannelName = `direct-${leavingUser._id}-${agent._id}`
+      const stayingChannelName = `direct-${stayingUser._id}-${agent._id}`
+      const groupChannel = await Channel.create({ name: 'participant' })
+      const leavingChannel = await Channel.create({
+        name: leavingChannelName,
+        direct: true,
+        participants: [leavingUser, agent]
+      })
+      const stayingChannel = await Channel.create({
+        name: stayingChannelName,
+        direct: true,
+        participants: [stayingUser, agent]
+      })
+      conversation.channels.push(groupChannel, leavingChannel, stayingChannel)
+      await conversation.save()
+
+      adapter.dmChannels = [
+        {
+          direct: true,
+          agent: agent._id,
+          config: {
+            [leavingChannelName]: { to: 100 },
+            [stayingChannelName]: { to: 200 }
+          }
+        }
+      ]
+      await adapter.save()
+
+      mockAdapterType.participantLeft.mockReturnValue({ username: 'Participant A' })
+      await webhookService.participantLeft(adapter, { id: 100, name: 'Participant A', is_host: false })
+
+      // All channel documents are preserved
+      expect(await Channel.findById(leavingChannel._id)).not.toBeNull()
+      expect(await Channel.findById(stayingChannel._id)).not.toBeNull()
+      expect(await Channel.findById(groupChannel._id)).not.toBeNull()
+
+      // Only the leaving user's dmConfig entry is removed
+      const updatedAdapter = await Adapter.findById(adapter._id)
+      const dmChannel = updatedAdapter!.dmChannels!.find((c) => c.direct)
+      expect(dmChannel!.config?.[leavingChannelName]).toBeUndefined()
+      expect(dmChannel!.config?.[stayingChannelName]).toEqual({ to: 200 })
     })
   })
 })

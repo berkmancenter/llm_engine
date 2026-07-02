@@ -55,6 +55,7 @@ const testAdapterTypes = {
 describe('POST /v1/webhooks/recall', () => {
   let receiveMessageSpy
   let updateTranscriptStatusSpy
+  let participantLeftSpy
   let zoomAdapter
   let realtimeSecret
   let svixSecret
@@ -81,6 +82,7 @@ describe('POST /v1/webhooks/recall', () => {
     await conversation.save()
     receiveMessageSpy = jest.spyOn(webhookService, 'receiveMessage').mockResolvedValue()
     updateTranscriptStatusSpy = jest.spyOn(conversationService, 'updateTranscriptStatus').mockResolvedValue()
+    participantLeftSpy = jest.spyOn(webhookService, 'participantLeft').mockResolvedValue()
     mockZoomGetUniqueKeys.mockReturnValue(['type', 'config.meetingUrl'])
   })
   afterAll(() => {
@@ -590,6 +592,27 @@ describe('POST /v1/webhooks/recall', () => {
       await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
 
       expect(updateTranscriptStatusSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('participant_events.leave event', () => {
+    test('should call participantLeft with the adapter and participant from the payload', async () => {
+      const participant = { id: 123, name: 'Leaving User', is_host: false }
+      const participantLeftEvent = {
+        event: 'participant_events.leave',
+        data: {
+          bot: { id: botId },
+          data: { participant }
+        }
+      }
+      const headers = generateWebhookSignature(participantLeftEvent, config.recall.realtimeSecret)
+      await request(app)
+        .post(`/v1/webhooks/recall?conversationId=${conversation._id}`)
+        .set(headers)
+        .send(participantLeftEvent)
+        .expect(httpStatus.OK)
+
+      expect(participantLeftSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: zoomAdapter._id }), participant)
     })
   })
 })
