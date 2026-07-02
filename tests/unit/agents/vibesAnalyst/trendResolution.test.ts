@@ -4,6 +4,7 @@ import { Conversation, Message, ConversationMetricsSnapshot } from '../../../../
 import { METRICS_VERSION } from '../../../../src/services/conversationAnalytics.service.js'
 import {
   resolveTrendScope,
+  resolveNamedTrendScope,
   trendEventCount,
   fetchTrendSnapshots,
   computeTrendViewsLive,
@@ -37,6 +38,41 @@ describe('resolveTrendScope', () => {
   it('falls back to every public event when the query matches no topic', () => {
     const scoped = resolveTrendScope({ eventQuery: 'Climate Policy', latestInTopic: false, trend: true }, candidates)
     expect(scoped).toHaveLength(3)
+  })
+})
+
+describe('resolveNamedTrendScope', () => {
+  const candidates = [
+    ev('1', 'Spring Town Hall 2026', 'Town Halls'),
+    ev('2', 'AI Ethics Kickoff', 'AI Ethics'),
+    ev('3', 'Q3 Budget Review', 'Finance')
+  ]
+
+  it('resolves each named event to its best matching candidate', () => {
+    const { resolved, unresolved } = resolveNamedTrendScope(['Spring Town Hall', 'AI Ethics Kickoff'], candidates)
+
+    expect(resolved.map((candidate) => candidate.id)).toEqual(['1', '2'])
+    expect(unresolved).toEqual([])
+  })
+
+  it('reports a name back as unresolved when nothing clears the match threshold', () => {
+    const { resolved, unresolved } = resolveNamedTrendScope(['Spring Town Hall', 'Nonexistent Gala'], candidates)
+
+    expect(resolved.map((candidate) => candidate.id)).toEqual(['1'])
+    expect(unresolved).toEqual(['Nonexistent Gala'])
+  })
+
+  it('dedupes when two names resolve to the same event', () => {
+    const { resolved } = resolveNamedTrendScope(['Spring Town Hall', 'spring town hall 2026'], candidates)
+
+    expect(resolved.map((candidate) => candidate.id)).toEqual(['1'])
+  })
+
+  it('returns everything unresolved when nothing matches', () => {
+    const { resolved, unresolved } = resolveNamedTrendScope(['Nonexistent Gala', 'Another Ghost'], candidates)
+
+    expect(resolved).toEqual([])
+    expect(unresolved).toEqual(['Nonexistent Gala', 'Another Ghost'])
   })
 })
 

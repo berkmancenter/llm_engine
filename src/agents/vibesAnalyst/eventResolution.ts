@@ -29,15 +29,18 @@ export type SummonIntent = 'recap' | 'greeting' | 'help' | 'offTopic'
    trend is set when the user asks about several events at once or how something changed over
    time ("how was engagement across the last 3 events?"), which is answered from snapshots
    rather than one live recap. eventCount is how many recent events they named (null when
-   unspecified). intent is why they addressed VA at all; when it is not "recap" the event
-   fields are empty. All are optional so callers that only resolve a single event need not set
-   them. */
+   unspecified). eventNames carries a specific list of events to compare when the user named
+   more than one by title rather than a topic or "the last N" ("compare the Spring Town Hall to
+   the AI Ethics kickoff"); empty otherwise, and mutually exclusive with eventQuery for a trend.
+   intent is why they addressed VA at all; when it is not "recap" the event fields are empty.
+   All are optional so callers that only resolve a single event need not set them. */
 export interface EventReference {
   eventQuery: string
   latestInTopic: boolean
   latestOverall?: boolean
   trend?: boolean
   eventCount?: number | null
+  eventNames?: string[]
   intent?: SummonIntent
 }
 
@@ -103,8 +106,9 @@ export function resolveSummonedEvent(reference: EventReference, candidates: Even
 /* How many recent events a trend compares when the user does not say. */
 export const DEFAULT_TREND_EVENTS = 5
 /* The most a trend ever compares, so a vague "how have things been going?" cannot pull an
-   unbounded run of snapshots into one card. */
-const MAX_TREND_EVENTS = 10
+   unbounded run of snapshots into one card, and so a long named list still fits Slack's
+   data_visualization chart limits (see trendSummary.ts). */
+export const MAX_TREND_EVENTS = 10
 
 /* Picks which public events a trend query covers. When the query names a topic that matches
    a series, the trend is scoped to that series; otherwise it falls back to every public event,
@@ -118,6 +122,41 @@ export function resolveTrendScope(reference: EventReference, candidates: EventCa
     if (inTopic.length > 0) return inTopic
   }
   return candidates
+}
+
+/* Resolves a trend scoped to specific named events rather than a topic or "everything". Each
+   name is fuzzy-matched the same way a single-event summon is: the best-scoring candidate wins
+   when it clears MATCH_THRESHOLD, with no per-name disambiguation prompt, since asking the host
+   to disambiguate every name in a multi-event compare would be worse than picking the closest
+   match. A name that clears no candidate is reported back as unresolved rather than silently
+   dropped, so the caller can say which one came up empty. Resolved events are deduped by id and
+   keep the order they were named in, in case two names coincidentally resolve to the same event
+   or the host repeats one. */
+export function resolveNamedTrendScope(
+  eventNames: string[],
+  candidates: EventCandidate[]
+): { resolved: EventCandidate[]; unresolved: string[] } {
+  const resolved: EventCandidate[] = []
+  const seenIds = new Set<string>()
+  const unresolved: string[] = []
+
+  for (const name of eventNames) {
+    const best = candidates
+      .map((candidate) => ({ candidate, score: titleScore(name, candidate.name) }))
+      .filter((scored) => scored.score >= MATCH_THRESHOLD)
+      .sort((a, b) => b.score - a.score)[0]
+
+    if (!best) {
+      unresolved.push(name)
+      continue
+    }
+    if (!seenIds.has(best.candidate.id)) {
+      seenIds.add(best.candidate.id)
+      resolved.push(best.candidate)
+    }
+  }
+
+  return { resolved, unresolved }
 }
 
 /* Resolves how many events to compare: the requested count, the default when none was given,
@@ -234,7 +273,12 @@ const EventReferenceSchema = z.object({
   eventCount: z
     .number()
     .nullable()
-    .describe('How many recent events to compare when trend is true (e.g. "last 3" gives 3); null when unspecified')
+    .describe('How many recent events to compare when trend is true (e.g. "last 3" gives 3); null when unspecified'),
+  eventNames: z
+    .array(z.string())
+    .describe(
+      'When trend is true and the user named two or more specific events to compare (not a topic and not "the last N"), the identifying words for each one, one entry per event; empty otherwise'
+    )
 })
 
 /* Asks the model which past event a summon message is referring to. */

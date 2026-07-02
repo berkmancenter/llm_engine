@@ -78,4 +78,24 @@ describe('extractEventReference', () => {
 
     expect(reference.intent).toBe('offTopic')
   })
+
+  it('extracts a list of specific named events to compare, rather than a topic or a count', async () => {
+    const reference = await extractEventReference(
+      '@Vibes compare the Spring Town Hall to the AI Ethics kickoff',
+      llm
+    )
+
+    expect(reference.trend).toBe(true)
+    expect(reference.eventNames?.length).toBe(2)
+    const joined = (reference.eventNames ?? []).join(' ').toLowerCase()
+    expect(joined).toContain('town hall')
+    expect(joined).toContain('ethics')
+    expect(reference.eventQuery.trim()).toBe('')
+  })
+
+  it('leaves eventNames empty for an ordinary topic or recent-N trend', async () => {
+    const reference = await extractEventReference('@Vibes how was engagement across the last 3 events?', llm)
+
+    expect(reference.eventNames ?? []).toEqual([])
+  })
 })

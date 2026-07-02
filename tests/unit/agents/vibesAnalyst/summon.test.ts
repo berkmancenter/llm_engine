@@ -18,6 +18,8 @@ const mockBuildSummary = jest.fn<(...args: any[]) => Promise<any>>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockResolveTrendScope = jest.fn<(...args: any[]) => any>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockResolveNamedTrendScope = jest.fn<(...args: any[]) => any>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockTrendEventCount = jest.fn<(...args: any[]) => number>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockFetchTrendSnapshots = jest.fn<(...args: any[]) => Promise<any>>()
@@ -35,15 +37,21 @@ const mockBuildSnapshotPayload = jest.fn<(...args: any[]) => any>()
 const mockResolveFollowUpContext = jest.fn<(...args: any[]) => Promise<any>>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockAnswerFollowUp = jest.fn<(...args: any[]) => Promise<any>>()
+// The smalltalk reply (greeting/help/offTopic) is the only place handleSummon calls the LLM
+// chain directly; mocked here so those tests can drive both the happy path and its fallback.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockGetChatPromptResponse = jest.fn<(...args: any[]) => Promise<any>>()
 
 jest.unstable_mockModule('../src/agents/vibesAnalyst/eventResolution.js', () => ({
   extractEventReference: mockExtract,
   findCandidatePublicEvents: mockFindCandidates,
   resolveSummonedEvent: mockResolve,
   resolveTrendScope: mockResolveTrendScope,
+  resolveNamedTrendScope: mockResolveNamedTrendScope,
   trendEventCount: mockTrendEventCount,
   fetchTrendSnapshots: mockFetchTrendSnapshots,
-  computeTrendViewsLive: mockComputeTrendViewsLive
+  computeTrendViewsLive: mockComputeTrendViewsLive,
+  MAX_TREND_EVENTS: 10
 }))
 jest.unstable_mockModule('../src/agents/vibesAnalyst/buildSummary.js', () => ({
   default: mockBuildSummary
@@ -58,6 +66,9 @@ jest.unstable_mockModule('../src/agents/vibesAnalyst/followUp.js', () => ({
   resolveFollowUpContext: mockResolveFollowUpContext,
   answerFollowUp: mockAnswerFollowUp
 }))
+jest.unstable_mockModule('../src/agents/helpers/llmChain.js', () => ({
+  getChatPromptResponse: mockGetChatPromptResponse
+}))
 
 const {
   default: handleSummon,
@@ -65,7 +76,8 @@ const {
   ambiguousMessage,
   greetingMessage,
   helpMessage,
-  offTopicMessage
+  offTopicMessage,
+  namedTrendNotFoundMessage
 } = await import('../../../../src/agents/vibesAnalyst/summon.js')
 const { default: Conversation } = await import('../../../../src/models/conversation.model.js')
 const { default: logger } = await import('../../../../src/config/logger.js')
@@ -112,6 +124,8 @@ describe('handleSummon', () => {
     mockBuildSummary.mockResolvedValue({ renderData: { header: 'Recap' }, metrics: {} })
     mockResolveTrendScope.mockReset()
     mockResolveTrendScope.mockImplementation((_reference, candidates) => candidates)
+    mockResolveNamedTrendScope.mockReset()
+    mockResolveNamedTrendScope.mockReturnValue({ resolved: [], unresolved: [] })
     mockTrendEventCount.mockReset()
     mockTrendEventCount.mockReturnValue(5)
     mockFetchTrendSnapshots.mockReset()
@@ -126,6 +140,8 @@ describe('handleSummon', () => {
     mockResolveFollowUpContext.mockResolvedValue(null)
     mockAnswerFollowUp.mockReset()
     mockAnswerFollowUp.mockResolvedValue({ answerable: false, text: null })
+    mockGetChatPromptResponse.mockReset()
+    mockGetChatPromptResponse.mockResolvedValue({ text: 'An in-voice smalltalk reply.' })
   })
 
   it('posts the engagement card threaded under the summon when the event resolves', async () => {
@@ -218,44 +234,101 @@ describe('handleSummon', () => {
       mockFindCandidates.mockResolvedValue(recent)
     })
 
-    it('answers a greeting with a usage guide and recent events, reading nothing', async () => {
+    it('answers a greeting with an in-voice reply from the smalltalk model, reading nothing', async () => {
       mockExtract.mockResolvedValue({ intent: 'greeting', eventQuery: '', latestInTopic: false, trend: false })
+      mockGetChatPromptResponse.mockResolvedValue({ text: "Here, and reading the room. Ask me about a past event." })
 
       const responses = await handleSummon(buildContext(), { _id: 'm', body: '@Vibes are you there?' }, fakeLlm, fastLlm)
 
+      // Runs on the main model, not the fast classification one, since wording quality and
+      // variation are the point here.
+      expect(mockGetChatPromptResponse).toHaveBeenCalledWith(
+        fakeLlm,
+        expect.any(String),
+        expect.any(String),
+        {
+          intent: 'greeting',
+          message: '@Vibes are you there?',
+          recentEventsJson: JSON.stringify(['Mushrooms and the Future', 'Soil Health 101'])
+        },
+        undefined,
+        expect.anything()
+      )
       expect(responses).toHaveLength(1)
       expect(responses[0].responseKind).toBeUndefined()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      expect(responses[0].message).toBe(greetingMessage(recent as any))
-      expect(responses[0].message).toContain('Mushrooms and the Future')
+      expect(responses[0].message).toBe('Here, and reading the room. Ask me about a past event.')
       expect(mockResolve).not.toHaveBeenCalled()
       expect(mockBuildSummary).not.toHaveBeenCalled()
     })
 
-    it('answers a help question with the usage guide and recent events', async () => {
+    it('answers a help question with an in-voice reply from the smalltalk model', async () => {
       mockExtract.mockResolvedValue({ intent: 'help', eventQuery: '', latestInTopic: false, trend: false })
+      mockGetChatPromptResponse.mockResolvedValue({ text: 'I read past public events and tell you what stood out.' })
+
+      const responses = await handleSummon(buildContext(), { _id: 'm', body: '@Vibes what can you do?' }, fakeLlm, fastLlm)
+
+      expect(mockGetChatPromptResponse).toHaveBeenCalledWith(
+        fakeLlm,
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({ intent: 'help' }),
+        undefined,
+        expect.anything()
+      )
+      expect(responses[0].message).toBe('I read past public events and tell you what stood out.')
+      expect(mockResolve).not.toHaveBeenCalled()
+      expect(mockBuildSummary).not.toHaveBeenCalled()
+    })
+
+    it('falls back to the static greeting when the smalltalk model call fails', async () => {
+      mockExtract.mockResolvedValue({ intent: 'greeting', eventQuery: '', latestInTopic: false, trend: false })
+      mockGetChatPromptResponse.mockRejectedValue(new Error('model timeout'))
+
+      const responses = await handleSummon(buildContext(), { _id: 'm', body: '@Vibes are you there?' }, fakeLlm, fastLlm)
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect(responses[0].message).toBe(greetingMessage(recent as any))
+    })
+
+    it('falls back to the static help message when the smalltalk model call fails', async () => {
+      mockExtract.mockResolvedValue({ intent: 'help', eventQuery: '', latestInTopic: false, trend: false })
+      mockGetChatPromptResponse.mockRejectedValue(new Error('model timeout'))
 
       const responses = await handleSummon(buildContext(), { _id: 'm', body: '@Vibes what can you do?' }, fakeLlm, fastLlm)
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect(responses[0].message).toBe(helpMessage(recent as any))
-      expect(responses[0].message).toContain('Soil Health 101')
-      expect(mockResolve).not.toHaveBeenCalled()
-      expect(mockBuildSummary).not.toHaveBeenCalled()
     })
 
-    it('deflects an off-topic message without listing events or reading anything', async () => {
+    it('deflects an off-topic message with an in-voice reply, reading nothing', async () => {
       mockExtract.mockResolvedValue({ intent: 'offTopic', eventQuery: '', latestInTopic: false, trend: false })
+      mockGetChatPromptResponse.mockResolvedValue({ text: "That's outside what I read. Ask me about a past event." })
 
       const responses = await handleSummon(buildContext(), { _id: 'm', body: '@Vibes whats the weather?' }, fakeLlm, fastLlm)
 
-      expect(responses[0].message).toBe(offTopicMessage())
-      expect(responses[0].message).not.toContain('Mushrooms and the Future')
+      expect(mockGetChatPromptResponse).toHaveBeenCalledWith(
+        fakeLlm,
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({ intent: 'offTopic' }),
+        undefined,
+        expect.anything()
+      )
+      expect(responses[0].message).toBe("That's outside what I read. Ask me about a past event.")
       expect(mockResolve).not.toHaveBeenCalled()
       expect(mockBuildSummary).not.toHaveBeenCalled()
       // Not a threaded reply, so there is nothing to follow up on.
       expect(mockResolveFollowUpContext).toHaveBeenCalled()
       expect(mockAnswerFollowUp).not.toHaveBeenCalled()
+    })
+
+    it('falls back to the static off-topic message when the smalltalk model call fails', async () => {
+      mockExtract.mockResolvedValue({ intent: 'offTopic', eventQuery: '', latestInTopic: false, trend: false })
+      mockGetChatPromptResponse.mockRejectedValue(new Error('model timeout'))
+
+      const responses = await handleSummon(buildContext(), { _id: 'm', body: '@Vibes whats the weather?' }, fakeLlm, fastLlm)
+
+      expect(responses[0].message).toBe(offTopicMessage())
     })
 
     it('answers a threaded follow-up question from a prior card instead of deflecting it', async () => {
@@ -280,15 +353,16 @@ describe('handleSummon', () => {
       expect(mockBuildSummary).not.toHaveBeenCalled()
     })
 
-    it('falls back to the canned off-topic reply when the follow-up question is not answerable from the prior card', async () => {
+    it('falls back to the off-topic smalltalk reply when the follow-up question is not answerable from the prior card', async () => {
       mockExtract.mockResolvedValue({ intent: 'offTopic', eventQuery: '', latestInTopic: false, trend: false })
       mockResolveFollowUpContext.mockResolvedValue([{ posterCount: 12 }])
       mockAnswerFollowUp.mockResolvedValue({ answerable: false, text: null })
+      mockGetChatPromptResponse.mockResolvedValue({ text: "That's outside what I read." })
       const followUpMessage = { _id: 'm', parentMessage: 'root-1', body: 'what did the speaker actually say?' }
 
       const responses = await handleSummon(buildContext(), followUpMessage, fakeLlm, fastLlm)
 
-      expect(responses[0].message).toBe(offTopicMessage())
+      expect(responses[0].message).toBe("That's outside what I read.")
     })
 
     it('guides instead of dumping the event list when a recap names no event at all', async () => {
@@ -414,6 +488,81 @@ describe('handleSummon', () => {
       expect(mockBuildTrend).not.toHaveBeenCalled()
       expect(mockBuildSummary).toHaveBeenCalledWith(expect.objectContaining({ _id: 'c1' }), fakeLlm, fastLlm)
       expect(responses[0].renderData).toBe(singleCard)
+    })
+  })
+
+  describe('named-subset trend queries', () => {
+    // A host can also compare a specific set of named events rather than a topic or "the last
+    // N", e.g. "compare the Spring Town Hall to the AI Ethics kickoff". eventNames drives this
+    // path instead of resolveTrendScope/trendEventCount.
+    const namedTrendMessage = {
+      _id: 'summon-msg',
+      body: '@Vibes compare the Spring Town Hall to the AI Ethics kickoff'
+    }
+    const eventA = { id: 'a1', name: 'Spring Town Hall', topicName: 'Town Halls', endTime: new Date('2026-06-01') }
+    const eventB = { id: 'a2', name: 'AI Ethics Kickoff', topicName: 'AI Ethics', endTime: new Date('2026-06-05') }
+
+    beforeEach(() => {
+      mockExtract.mockResolvedValue({
+        eventQuery: '',
+        latestInTopic: false,
+        trend: true,
+        eventCount: null,
+        eventNames: ['Spring Town Hall', 'AI Ethics kickoff']
+      })
+    })
+
+    it('resolves the named events instead of the recent-N scope', async () => {
+      mockResolveNamedTrendScope.mockReturnValue({ resolved: [eventA, eventB], unresolved: [] })
+      mockFetchTrendSnapshots.mockResolvedValue([{ conversationId: 'a2' }, { conversationId: 'a1' }])
+      mockBuildTrend.mockResolvedValue({ header: 'Engagement across 2 events', standouts: [] })
+
+      const responses = await handleSummon(buildContext(), namedTrendMessage, fakeLlm, fastLlm)
+
+      expect(mockResolveNamedTrendScope).toHaveBeenCalledWith(['Spring Town Hall', 'AI Ethics kickoff'], [])
+      expect(mockResolveTrendScope).not.toHaveBeenCalled()
+      expect(mockTrendEventCount).not.toHaveBeenCalled()
+      expect(mockFetchTrendSnapshots).toHaveBeenCalledWith([eventA, eventB], 2)
+      expect(responses[0].renderData).toEqual({ header: 'Engagement across 2 events', standouts: [] })
+    })
+
+    it('notes any named event that did not resolve, alongside the trend card', async () => {
+      mockResolveNamedTrendScope.mockReturnValue({ resolved: [eventA, eventB], unresolved: ['Q3 Sync'] })
+      mockFetchTrendSnapshots.mockResolvedValue([{ conversationId: 'a2' }, { conversationId: 'a1' }])
+      mockBuildTrend.mockResolvedValue({ header: 'Engagement across 2 events', standouts: [] })
+
+      const responses = await handleSummon(buildContext(), namedTrendMessage, fakeLlm, fastLlm)
+
+      expect(responses[0].message).toMatch(/couldn't find.*"Q3 Sync"/i)
+      expect(responses[0].renderData).toEqual({ header: 'Engagement across 2 events', standouts: [] })
+    })
+
+    it('says nothing matched, listing recent events, when every named event fails to resolve', async () => {
+      mockFindCandidates.mockResolvedValue([eventA, eventB])
+      mockResolveNamedTrendScope.mockReturnValue({ resolved: [], unresolved: ['Q3 Sync', 'The Gala'] })
+
+      const responses = await handleSummon(buildContext(), namedTrendMessage, fakeLlm, fastLlm)
+
+      expect(responses).toHaveLength(1)
+      expect(responses[0].responseKind).toBeUndefined()
+      expect(responses[0].message).toBe(
+        namedTrendNotFoundMessage(['Q3 Sync', 'The Gala'], [eventB, eventA] as never)
+      )
+      expect(mockFetchTrendSnapshots).not.toHaveBeenCalled()
+      expect(mockBuildTrend).not.toHaveBeenCalled()
+    })
+
+    it('notes the unresolved name when the trend degrades to a single-event recap', async () => {
+      mockResolveNamedTrendScope.mockReturnValue({ resolved: [eventA], unresolved: ['Q3 Sync'] })
+      mockFetchTrendSnapshots.mockResolvedValue([])
+      mockComputeTrendViewsLive.mockResolvedValue([{ conversationId: 'a1' }])
+      mockResolvedConversation(false)
+      mockBuildSummary.mockResolvedValue({ renderData: { header: 'Recap', standouts: [] }, metrics: {} })
+
+      const responses = await handleSummon(buildContext(), namedTrendMessage, fakeLlm, fastLlm)
+
+      expect(mockBuildTrend).not.toHaveBeenCalled()
+      expect(responses[0].message).toMatch(/couldn't find.*"Q3 Sync"/i)
     })
   })
 })
