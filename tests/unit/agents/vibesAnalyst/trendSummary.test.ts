@@ -194,4 +194,29 @@ describe('buildTrendSummary', () => {
     // the same order the chart plots, so the two can never describe opposite directions.
     expect(rows.map((row) => row.posterCount)).toEqual([9, 16, 24])
   })
+
+  /* A blind reverse only works when the caller's array is genuinely newest-first. Two events
+     landing on the same day (or any other tie in the upstream sort) can leave the array in an
+     order that does not match true chronology, and a real LLM narrating from each row's own
+     name and date (not its array position) will still get the story right while a chart that
+     merely reversed whatever it was given would plot the wrong direction. This is exactly the
+     reported bug: text says rising, chart shows falling. Sorting by endTime here, rather than
+     trusting the caller's order, is what actually fixes it. */
+  it('plots correctly even when the input array is not in chronological order at all', async () => {
+    const scrambled = [
+      snap('Fancy Vibes Session 2', '2026-05-15T00:00:00.000Z', 16),
+      snap('Fancy Vibes Session 1', '2026-05-01T00:00:00.000Z', 9),
+      snap('Fancy Vibes Session 3', '2026-05-30T00:00:00.000Z', 24)
+    ]
+
+    const card = await buildTrendSummary(scrambled, {})
+
+    const { visual } = card.standouts[0]
+    if (!visual || visual.chart.type === 'pie') throw new Error('expected a line/bar chart on the first standout')
+    expect(visual.chart.series[0].data.map((point) => point.value)).toEqual([9, 16, 24])
+
+    const [, , , templateVars] = mockGetChatPromptResponse.mock.calls[0]
+    const rows = JSON.parse(templateVars.metricsJson)
+    expect(rows.map((row) => row.posterCount)).toEqual([9, 16, 24])
+  })
 })

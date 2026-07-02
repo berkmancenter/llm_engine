@@ -94,16 +94,21 @@ const TrendCurationSchema = z.object({
 })
 
 /**
- * Builds a comparative engagement card across several events from their stored snapshots. The
- * snapshots arrive newest-first; they are read oldest-first so the trend reads left to right.
- * A deterministic poster-per-event chart is built here and attached to the first standout, and
- * the model writes the header and 1 to 3 comparative lines over the scalar metrics only. No
+ * Builds a comparative engagement card across several events from their stored snapshots.
+ * Sorted here by endTime, oldest first, so the trend reads left to right: the caller's order is
+ * not trusted (stored snapshots are fetched newest-first and a live recompute is expected to
+ * preserve that, but two events landing on the same day, or any other tie in the upstream sort,
+ * can leave the array in an order that does not actually match true chronology, and a chart that
+ * merely reversed whatever it was given would silently plot the wrong direction). Sorting by the
+ * snapshot's own endTime makes the order correct regardless of how the caller assembled the
+ * array. A deterministic poster-per-event chart is built here and attached to the first standout,
+ * and the model writes the header and 1 to 3 comparative lines over the scalar metrics only. No
  * live recompute and no LLM content pass run, so nothing here reads message text. durationMinutes
  * is left unset because a trend spans many events, so the card renders no single-event duration
  * footer.
  */
 export default async function buildTrendSummary(snapshots: TrendSnapshotView[], llm): Promise<CuratedVibesData> {
-  const ordered = [...snapshots].reverse()
+  const ordered = [...snapshots].sort((a, b) => a.endTime.getTime() - b.endTime.getTime())
   const chart = buildTrendChart(ordered)
 
   const curation = (await getChatPromptResponse(
