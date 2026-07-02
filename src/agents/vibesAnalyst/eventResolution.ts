@@ -76,11 +76,17 @@ function resolveLatestInTopic(query: string, candidates: EventCandidate[]): Even
 }
 
 /**
- * Matches a summon reference against the public events on offer. For a titled request
- * it fuzzy-ranks candidates by name: a single clear winner resolves, several close
- * matches come back as ambiguous (so the caller can ask which), and nothing close
- * enough is notFound. For a "latest in [topic]" request it returns the most recent
- * event in the matching topic.
+ * Matches a summon reference against the public events on offer. A query that exactly matches
+ * one event's title (case and surrounding whitespace aside) resolves to it outright, without
+ * weighing it against fuzzy scores at all: two events that share every word but a trailing
+ * number or counter ("Test Fancy Vibes #1" vs "#3") fuzzy-score close enough behind an exact
+ * match that the ambiguity margin alone can misfire on a query that was never actually
+ * ambiguous. Only when more than one event shares the exact same title does that case still
+ * report ambiguous, since then the query genuinely does not pick one over the other. Otherwise
+ * a titled request fuzzy-ranks candidates by name: a single clear winner resolves, several close
+ * matches come back as ambiguous (so the caller can ask which), and nothing close enough is
+ * notFound. For a "latest in [topic]" request it returns the most recent event in the matching
+ * topic.
  */
 export function resolveSummonedEvent(reference: EventReference, candidates: EventCandidate[]): EventResolution {
   if (reference.latestOverall) {
@@ -89,6 +95,11 @@ export function resolveSummonedEvent(reference: EventReference, candidates: Even
     return { status: 'resolved', event: newest }
   }
   if (reference.latestInTopic) return resolveLatestInTopic(reference.eventQuery, candidates)
+
+  const normalizedQuery = reference.eventQuery.trim().toLowerCase()
+  const exactMatches = candidates.filter((candidate) => candidate.name.trim().toLowerCase() === normalizedQuery)
+  if (exactMatches.length === 1) return { status: 'resolved', event: exactMatches[0] }
+  if (exactMatches.length > 1) return { status: 'ambiguous', candidates: exactMatches.slice(0, MAX_AMBIGUOUS) }
 
   const ranked = candidates
     .map((candidate) => ({ candidate, score: titleScore(reference.eventQuery, candidate.name) }))
