@@ -1,10 +1,28 @@
-import { buildTrendChart, trendRow } from '../../../../src/agents/vibesAnalyst/trendSummary.js'
+import { jest } from '@jest/globals'
 import { TrendSnapshotView } from '../../../../src/types/index.types.js'
+
+/* buildTrendSummary's only LLM dependency is the curation call that writes the header and
+   standout prose; the chart and the JSON handed to that call are both built deterministically
+   from the same `ordered` array. Mocking the call lets the "chart matches the data the writer
+   saw" tests run without an LLM, and run every time rather than only when an agent test suite
+   hits a real model. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockGetChatPromptResponse = jest.fn<(...args: any[]) => Promise<any>>()
+
+jest.unstable_mockModule('../src/agents/helpers/llmChain.js', () => ({
+  getChatPromptResponse: mockGetChatPromptResponse
+}))
+
+const {
+  default: buildTrendSummary,
+  buildTrendChart,
+  trendRow
+} = await import('../../../../src/agents/vibesAnalyst/trendSummary.js')
 
 function snap(name: string, endTime: string, posterCount: number): TrendSnapshotView {
   return {
-    eventName: name,
-    eventEndTime: new Date(endTime),
+    name,
+    endTime: new Date(endTime),
     posterCount,
     messageCount: posterCount * 10,
     lurkerCount: null,
@@ -80,8 +98,8 @@ describe('buildTrendChart', () => {
 describe('trendRow', () => {
   it('passes through every metric the snapshot carries and drops identity and version fields', () => {
     const snapshot = {
-      eventName: 'AI Ethics 3',
-      eventEndTime: new Date('2026-05-30T00:00:00.000Z'),
+      name: 'AI Ethics 3',
+      endTime: new Date('2026-05-30T00:00:00.000Z'),
       posterCount: 20,
       messageCount: 200,
       lurkerCount: 5,
@@ -112,7 +130,7 @@ describe('trendRow', () => {
     expect(row.distinctPrivateSenders).toBe(4)
     expect(row.channelSplit).toEqual({ public: 180, private: 20 })
 
-    for (const dropped of ['conversationId', 'topicId', 'metricsVersion', '_id', '__v', 'eventName', 'eventEndTime']) {
+    for (const dropped of ['conversationId', 'topicId', 'metricsVersion', '_id', '__v', 'name', 'endTime']) {
       expect(row).not.toHaveProperty(dropped)
     }
   })
@@ -120,8 +138,8 @@ describe('trendRow', () => {
   it('reads a Mongoose document through toObject', () => {
     const doc = {
       toObject: () => ({
-        eventName: 'Doc Event',
-        eventEndTime: new Date('2026-05-30T00:00:00.000Z'),
+        name: 'Doc Event',
+        endTime: new Date('2026-05-30T00:00:00.000Z'),
         posterCount: 7,
         privateMessageCount: 3,
         _id: 'doc-id',
@@ -136,5 +154,44 @@ describe('trendRow', () => {
     expect(row.privateMessageCount).toBe(3)
     expect(row).not.toHaveProperty('conversationId')
     expect(row).not.toHaveProperty('_id')
+  })
+})
+
+describe('buildTrendSummary', () => {
+  beforeEach(() => {
+    mockGetChatPromptResponse.mockReset()
+    mockGetChatPromptResponse.mockResolvedValue({
+      header: 'Engagement across the last 3 sessions',
+      standouts: [{ text: 'Participation rose across the series.' }]
+    })
+  })
+
+  /* The resolver hands snapshots to buildTrendSummary newest-first (fetchTrendSnapshots sorts
+     descending, and computeTrendViewsLive preserves that candidate order); this is a rising
+     series in real chronological order, so newest-first is [24, 16, 9]. */
+  const newestFirst = [
+    snap('AI Ethics Session 3', '2026-05-30T00:00:00.000Z', 24),
+    snap('AI Ethics Session 2', '2026-05-15T00:00:00.000Z', 16),
+    snap('AI Ethics Session 1', '2026-05-01T00:00:00.000Z', 9)
+  ]
+
+  it("plots the chart oldest-to-newest, matching the order the writer's prose describes", async () => {
+    const card = await buildTrendSummary(newestFirst, {})
+
+    const { visual } = card.standouts[0]
+    if (!visual || visual.chart.type === 'pie') throw new Error('expected a line/bar chart on the first standout')
+    // Chronological, left to right: the earliest (smallest) event first, the latest (largest)
+    // last, so a rising series reads as a rising line rather than a falling one.
+    expect(visual.chart.series[0].data.map((point) => point.value)).toEqual([9, 16, 24])
+  })
+
+  it('hands the writer the same oldest-to-newest rows the chart was built from', async () => {
+    await buildTrendSummary(newestFirst, {})
+
+    const [, , , templateVars] = mockGetChatPromptResponse.mock.calls[0]
+    const rows = JSON.parse(templateVars.metricsJson)
+    // The writer's prompt promises "oldest first"; the rows must actually arrive in that order,
+    // the same order the chart plots, so the two can never describe opposite directions.
+    expect(rows.map((row) => row.posterCount)).toEqual([9, 16, 24])
   })
 })
