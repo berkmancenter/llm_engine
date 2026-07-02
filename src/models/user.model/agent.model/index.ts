@@ -270,8 +270,8 @@ agentSchema.method('evaluate', async function (userMessage = null) {
     ) + (userMessage ? 1 : 0)
 
   // do not process if no new messages
-  // Skip this check for perMessage triggers (when userMessage is defined)
-  if (!userMessage && messageCount === this.lastActiveMessageCount) {
+  // Skip this check for perMessage triggers (when userMessage is defined) or proactive periodic agents
+  if (!userMessage && !this.triggers?.periodic?.proactive && messageCount === this.lastActiveMessageCount) {
     logger.debug(`No new messages to respond to ${this.agentType} ${this._id}`)
     return { action: AgentMessageActions.OK, userContributionVisible: true }
   }
@@ -371,7 +371,7 @@ agentSchema.method('respond', async function (userMessage = null) {
       directChannels,
       agentTypes[this.agentType].parseInput
     )
-    if (conversationHistory.messages.length === 0 && !userMessage) {
+    if (conversationHistory.messages.length === 0 && !userMessage && !this.triggers?.periodic?.proactive) {
       logger.debug(`No new messages to respond to ${this.agentType} ${this._id}`)
       return []
     }
