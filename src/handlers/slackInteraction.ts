@@ -89,8 +89,8 @@ async function receiveInteraction(rawPayload: unknown): Promise<void> {
 
   const slackAdapter = await Adapter.findOne(
     isIM
-      ? { type: 'slack', 'config.channel': 'direct', 'config.workspace': payload.team.id }
-      : { type: 'slack', 'config.channel': resolvedChannelId, 'config.workspace': payload.team.id }
+      ? { type: 'slack', 'config.channel': 'direct', 'config.workspace': payload.team.id, active: true }
+      : { type: 'slack', 'config.channel': resolvedChannelId, 'config.workspace': payload.team.id, active: true }
   )
 
   if (!slackAdapter) {

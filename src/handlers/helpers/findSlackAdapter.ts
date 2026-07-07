@@ -47,10 +47,18 @@ export default async function findSlackAdapter({
   const event = payload?.event
   if (!event?.team) return null
 
+  // Only route to the active adapter. Failed/old conversations can leave inactive
+  // adapter docs for the same channel+workspace; without this filter findOne may
+  // return a stale inactive one (insertion order) and the message is silently dropped.
   if (event.channel_type === 'im') {
-    return Adapter.findOne({ type: 'slack', 'config.channel': 'direct', 'config.workspace': event.team })
+    return Adapter.findOne({ type: 'slack', 'config.channel': 'direct', 'config.workspace': event.team, active: true })
   }
 
   if (!event.channel) return null
-  return Adapter.findOne({ type: 'slack', 'config.channel': event.channel, 'config.workspace': event.team })
+  return Adapter.findOne({
+    type: 'slack',
+    'config.channel': event.channel,
+    'config.workspace': event.team,
+    active: true
+  })
 }
