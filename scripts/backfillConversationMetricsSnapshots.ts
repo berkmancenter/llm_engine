@@ -226,24 +226,40 @@ function parseNumberFlag(flag: string): number | undefined {
   return value
 }
 
-/* A compact one-line rendering of one event's before/after, so a batch reads at a glance. */
-function formatEvent(event: BackfilledEvent): string {
-  const field = (name: string, before: number | null, after: number | null) => {
-    const a = after === null ? 'null' : after
-    return event.before && before !== after ? `${name} ${before === null ? 'null' : before}->${a}` : `${name} ${a}`
-  }
-  const label = `${event.name ?? 'Past event'} (${event.endTime?.toISOString().slice(0, 10) ?? '?'})`
-  const b = event.before
-  const a = event.after
-  const fields = [
-    field('posters', b?.posterCount ?? null, a.posterCount),
-    field('messages', b?.messageCount ?? null, a.messageCount),
-    field('lurkers', b?.lurkerCount ?? null, a.lurkerCount),
-    field('dwell', b?.avgDwellSeconds ?? null, a.avgDwellSeconds),
-    field('spikes', b?.spikeCount ?? null, a.spikeCount),
-    field('receptions', b?.receptionCount ?? null, a.receptionCount)
-  ].join('  ')
-  return `  ${label}: ${fields}`
+/* One column of the batch report: a header plus how to read that column's value out of an
+   event. A cell reads "before -> after" only when there was a prior snapshot and the value
+   actually changed; otherwise it's just the current value, so an unchanged field on an
+   overwrite doesn't clutter the row with a no-op arrow. */
+interface Column {
+  header: string
+  cell: (event: BackfilledEvent) => string
+}
+
+function numberCell(event: BackfilledEvent, before: number | null | undefined, after: number | null): string {
+  const afterText = after === null ? 'null' : String(after)
+  if (!event.before || before === after) return afterText
+  return `${before === null ? 'null' : before} -> ${afterText}`
+}
+
+const COLUMNS: Column[] = [
+  { header: 'Event', cell: (e) => `${e.name ?? 'Past event'} (${e.endTime?.toISOString().slice(0, 10) ?? '?'})` },
+  { header: 'Posters', cell: (e) => numberCell(e, e.before?.posterCount, e.after.posterCount) },
+  { header: 'Messages', cell: (e) => numberCell(e, e.before?.messageCount, e.after.messageCount) },
+  { header: 'Lurkers', cell: (e) => numberCell(e, e.before?.lurkerCount, e.after.lurkerCount) },
+  { header: 'Dwell', cell: (e) => numberCell(e, e.before?.avgDwellSeconds, e.after.avgDwellSeconds) },
+  { header: 'Spikes', cell: (e) => numberCell(e, e.before?.spikeCount, e.after.spikeCount) },
+  { header: 'Receptions', cell: (e) => numberCell(e, e.before?.receptionCount, e.after.receptionCount) }
+]
+
+/* Renders the batch as a column-aligned table (header row first) instead of one long joined
+   line per event, so a value like posterCount reads straight down the page instead of
+   requiring the eye to hunt across a cramped, unaligned line for it on every row. Column
+   widths are sized to the widest value in that column across the whole batch. */
+export function formatEventsTable(events: BackfilledEvent[]): string[] {
+  const rows = events.map((event) => COLUMNS.map((column) => column.cell(event)))
+  const widths = COLUMNS.map((column, i) => Math.max(column.header.length, ...rows.map((row) => row[i].length)))
+  const formatRow = (cells: string[]) => cells.map((cell, i) => cell.padEnd(widths[i])).join('  ')
+  return [formatRow(COLUMNS.map((column) => column.header)), ...rows.map(formatRow)]
 }
 
 async function main() {
@@ -267,7 +283,7 @@ async function main() {
     )
     if (summary.events.length > 0) {
       console.log(dryRun ? 'Would write (before -> after):' : 'Wrote (before -> after):')
-      for (const event of summary.events) console.log(formatEvent(event))
+      for (const line of formatEventsTable(summary.events)) console.log(`  ${line}`)
     }
   } finally {
     await mongoose.connection.close()

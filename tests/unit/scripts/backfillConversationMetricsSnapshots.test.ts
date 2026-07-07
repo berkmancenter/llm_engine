@@ -2,7 +2,12 @@ import mongoose from 'mongoose'
 import setupIntTest from '../../utils/setupIntTest.js'
 import { Conversation, Message, ConversationAnalytics, ConversationMetricsSnapshot } from '../../../src/models/index.js'
 import { METRICS_VERSION } from '../../../src/services/conversationAnalytics.service.js'
-import { backfillConversationMetricsSnapshots } from '../../../scripts/backfillConversationMetricsSnapshots.js'
+import {
+  backfillConversationMetricsSnapshots,
+  formatEventsTable,
+  type BackfilledEvent,
+  type SnapshotMetricsView
+} from '../../../scripts/backfillConversationMetricsSnapshots.js'
 
 setupIntTest()
 
@@ -163,5 +168,62 @@ describe('backfillConversationMetricsSnapshots', () => {
     const stored = await ConversationMetricsSnapshot.find({ conversationId: tracked._id })
     expect(stored).toHaveLength(1)
     expect(stored[0].posterCount).toBe(3)
+  })
+})
+
+describe('formatEventsTable', () => {
+  const metrics = (overrides: Partial<SnapshotMetricsView> = {}): SnapshotMetricsView => ({
+    posterCount: 10,
+    messageCount: 10,
+    lurkerCount: null,
+    participationRate: null,
+    avgDwellSeconds: null,
+    channelSplit: { public: 0, private: 0 },
+    botInvocationCount: 0,
+    spikeCount: 0,
+    receptionCount: null,
+    ...overrides
+  })
+
+  it('pads every row so a column lines up under its header regardless of value width', () => {
+    const events: BackfilledEvent[] = [
+      {
+        conversationId: '1',
+        name: 'Short',
+        endTime: new Date('2026-06-01'),
+        before: null,
+        after: metrics({ posterCount: 5 })
+      },
+      {
+        conversationId: '2',
+        name: 'A Much Longer Event Name',
+        endTime: new Date('2026-06-02'),
+        before: null,
+        after: metrics({ posterCount: 500 })
+      }
+    ]
+
+    const [header, first, second] = formatEventsTable(events)
+    const postersColumnStart = header.indexOf('Posters')
+
+    expect(first.indexOf('5')).toBe(postersColumnStart)
+    expect(second.indexOf('500')).toBe(postersColumnStart)
+  })
+
+  it('shows a before -> after arrow only for fields that actually changed on an overwrite', () => {
+    const events: BackfilledEvent[] = [
+      {
+        conversationId: '1',
+        name: 'Overwritten event',
+        endTime: new Date('2026-06-01'),
+        before: metrics({ posterCount: 8, lurkerCount: 2 }),
+        after: metrics({ posterCount: 10, lurkerCount: 2 })
+      }
+    ]
+
+    const [, row] = formatEventsTable(events)
+
+    expect(row).toContain('8 -> 10')
+    expect(row).not.toContain('2 -> 2')
   })
 })
