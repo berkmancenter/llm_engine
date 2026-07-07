@@ -4,12 +4,13 @@ import { CuratedVibesData, CuratedVibesStandout, CuratedVibesVisual, TrendSnapsh
 import eventDateLabel, { easternDateParts } from '../../utils/eventDateLabel.js'
 import { VIBES_TREND_SYSTEM_PROMPT, VIBES_TREND_USER_TEMPLATE } from './prompt.js'
 
-/* Slack's data_visualization block caps every category and data point label at 20 characters and
-   requires them to be unique. The trend labels each event by its name, the part that tells a reader
-   which event a point is, truncated with an ellipsis when it overruns; a date alone cannot, since a
-   series often runs several events on the same day. Events that share a name are tagged with their
-   shorthand date (MM/DD, or MM/DD/YY when the chart straddles a year) to set them apart, and the rare
-   pair that shares a name and a day falls back to a counter. */
+/* Slack's data_visualization block caps every category at 20 characters, requires them unique, and
+   has no separate per-point annotation (a point's label just is its category), so each event gets one
+   combined label. It reads as the event's distinguishing name plus its date, e.g. "#3 (07/01)": the
+   series title shared by every event is dropped, since it already sits in the card header, leaving
+   what actually sets each point apart. The date is the Eastern shorthand (MM/DD, or MM/DD/YY across a
+   year boundary), a long name is cut with an ellipsis, and a same-name same-day repeat falls back to
+   a counter to keep the categories unique. */
 const MAX_LABEL_LENGTH = 20
 const ELLIPSIS = '...'
 
@@ -39,17 +40,35 @@ function withSuffix(base: string, suffix: string): string {
   return `${truncate(base, MAX_LABEL_LENGTH - suffix.length)}${suffix}`
 }
 
-function buildTrendLabels(snapshots: TrendSnapshotView[]): string[] {
-  // Base label is the event's own name (its "#3" is what sets sibling events apart), falling back to
-  // the date, then an index, when a name is missing.
-  const names = snapshots.map(
-    (snapshot, index) => snapshot.name?.trim() || eventDateLabel(null, snapshot.endTime, `Event ${index + 1}`)
-  )
-  const nameCounts = new Map<string, number>()
-  for (const name of names) nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1)
+/* The longest run of whole leading words shared by every event name. A recurring series repeats its
+   title on each event ("Test Fancy Vibes #1/#2/#3"), and that shared part already sits in the card
+   header, so stripping it leaves just what sets each point apart ("#1", "#2"). Empty when the names
+   share no leading word, so distinct titles keep their whole name. Trimmed back to a space so a label
+   never cuts mid-word. */
+function sharedNamePrefix(names: string[]): string {
+  if (names.length < 2) return ''
+  let prefix = names[0]
+  for (const name of names) {
+    while (prefix && !name.startsWith(prefix)) prefix = prefix.slice(0, -1)
+    if (!prefix) return ''
+  }
+  const lastSpace = prefix.lastIndexOf(' ')
+  return lastSpace >= 0 ? prefix.slice(0, lastSpace + 1) : ''
+}
 
-  // Keep the year on the date tags only when events straddle a year boundary; when the whole chart is
-  // one year, the year distinguishes nothing, so drop it to leave more room for the name.
+function buildTrendLabels(snapshots: TrendSnapshotView[]): string[] {
+  const names = snapshots.map((snapshot) => snapshot.name?.trim() ?? '')
+
+  // Drop the series title shared by every name so each label leads with what sets its event apart,
+  // but only when that leaves distinct, non-empty tags; identical names have nothing useful to strip
+  // and lean on the date instead.
+  const prefix = sharedNamePrefix(names)
+  const tags = names.map((name) => (prefix && name.startsWith(prefix) ? name.slice(prefix.length) : name))
+  const stripHelps = prefix.length > 0 && tags.every((tag) => tag.length > 0) && new Set(tags).size > 1
+  const cores = stripHelps ? tags : names
+
+  // Keep the year on the date only when events straddle a year boundary; within one year it adds
+  // nothing and just crowds the label.
   const years = new Set(
     snapshots
       .map((snapshot) => (snapshot.endTime ? easternDateParts(snapshot.endTime).year : null))
@@ -59,14 +78,17 @@ function buildTrendLabels(snapshots: TrendSnapshotView[]): string[] {
 
   const seen = new Map<string, number>()
   return snapshots.map((snapshot, index) => {
-    const name = names[index]
-    // A name shared by more than one event cannot stand alone, so tag it with the shorthand date.
-    const shared = (nameCounts.get(name) ?? 0) > 1
-    const date = shared ? shortDate(snapshot.endTime, includeYear) : ''
-    const label = date ? withSuffix(name, ` (${date})`) : truncate(name, MAX_LABEL_LENGTH)
+    const date = shortDate(snapshot.endTime, includeYear)
+    const core = cores[index]
+    // Each point shows its distinguishing name and its date; whichever is present carries the label,
+    // and a truly bare event falls back to its position.
+    let label: string
+    if (core && date) label = withSuffix(core, ` (${date})`)
+    else if (core) label = truncate(core, MAX_LABEL_LENGTH)
+    else label = date || `Event ${index + 1}`
 
-    // Same name and same day still collide after dating; a counter is the last resort that keeps
-    // categories unique, which the block requires.
+    // A repeat of the same name on the same day still collides; a counter is the last resort that
+    // keeps the categories unique, which the block requires.
     const priorCount = seen.get(label) ?? 0
     seen.set(label, priorCount + 1)
     return priorCount === 0 ? label : withSuffix(label, ` (${priorCount + 1})`)

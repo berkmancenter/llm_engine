@@ -35,9 +35,9 @@ function snap(name: string, endTime: string, posterCount: number): TrendSnapshot
 
 describe('buildTrendChart', () => {
   const ordered = [
-    snap('AI Ethics Session 1', '2026-05-01T00:00:00.000Z', 8),
-    snap('AI Ethics Session 2', '2026-05-15T00:00:00.000Z', 12),
-    snap('AI Ethics Session 3', '2026-05-30T00:00:00.000Z', 20)
+    snap('AI Ethics Session 1', '2026-05-01T12:00:00.000Z', 8),
+    snap('AI Ethics Session 2', '2026-05-15T12:00:00.000Z', 12),
+    snap('AI Ethics Session 3', '2026-05-30T12:00:00.000Z', 20)
   ]
 
   it('plots poster count per event as a line, in the given (chronological) order', () => {
@@ -73,30 +73,43 @@ describe('buildTrendChart', () => {
     }
   })
 
-  it('labels each event by its name, keeping the ordinal that tells sibling events apart', () => {
+  it('strips the shared series title, leaving each event by its ordinal and date', () => {
     const visual = buildTrendChart(ordered)
     if (visual.chart.type === 'pie') throw new Error('expected a line chart')
     const { categories } = visual.chart.axisConfig
-    expect(categories).toEqual(['AI Ethics Session 1', 'AI Ethics Session 2', 'AI Ethics Session 3'])
+    // "AI Ethics Session " is in the card header, so each point shows just what sets it apart, dated.
+    expect(categories).toEqual(['1 (05/01)', '2 (05/15)', '3 (05/30)'])
     expect(new Set(categories).size).toBe(3)
   })
 
-  it('falls back to the date when an event has no name', () => {
+  it('shows the ordinal and shared date for a same-day series (the reported case)', () => {
+    // Three sessions on one day: the ordinal sets the points apart, the date rides along on each.
+    const sameDaySeries = [
+      snap('Test Fancy Vibes #3', '2026-07-01T12:00:05.000Z', 12),
+      snap('Test Fancy Vibes #2', '2026-07-01T12:00:03.000Z', 8),
+      snap('Test Fancy Vibes #1', '2026-07-01T12:00:01.000Z', 5)
+    ]
+    const visual = buildTrendChart(sameDaySeries)
+    if (visual.chart.type === 'pie') throw new Error('expected a line chart')
+    expect(visual.chart.axisConfig.categories).toEqual(['#3 (07/01)', '#2 (07/01)', '#1 (07/01)'])
+  })
+
+  it('labels an unnamed event by its date alone', () => {
     const unnamed = [
       { ...snap('', '2026-05-01T12:00:00.000Z', 4), name: undefined },
       { ...snap('', '2026-05-30T12:00:00.000Z', 7), name: undefined }
     ] as unknown as TrendSnapshotView[]
     const visual = buildTrendChart(unnamed)
     if (visual.chart.type === 'pie') throw new Error('expected a line chart')
-    expect(visual.chart.axisConfig.categories).toEqual(['May 1', 'May 30'])
+    expect(visual.chart.axisConfig.categories).toEqual(['05/01', '05/30'])
   })
 
   it('marks a truncated name with an ellipsis', () => {
-    const longName = [snap('Regenerative Futures Monthly Roundtable', '2026-05-01T00:00:00.000Z', 4)]
+    const longName = [snap('Regenerative Futures Monthly Roundtable', '2026-05-01T12:00:00.000Z', 4)]
     const visual = buildTrendChart(longName)
     if (visual.chart.type === 'pie') throw new Error('expected a line chart')
     const [label] = visual.chart.axisConfig.categories
-    expect(label).toBe('Regenerative Futu...')
+    expect(label).toBe('Regenerat... (05/01)')
     expect(label.length).toBe(20)
   })
 
