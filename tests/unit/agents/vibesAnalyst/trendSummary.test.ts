@@ -155,6 +155,39 @@ describe('trendRow', () => {
     expect(row).not.toHaveProperty('conversationId')
     expect(row).not.toHaveProperty('_id')
   })
+
+  it('adds a 1-based order field when given the row index, and none without one', () => {
+    const snapshot = {
+      name: 'Session 2',
+      endTime: new Date('2026-05-15T00:00:00.000Z'),
+      posterCount: 8
+    } as TrendSnapshotView
+
+    expect(trendRow(snapshot, 0).order).toBe(1)
+    expect(trendRow(snapshot, 2).order).toBe(3)
+    expect(trendRow(snapshot)).not.toHaveProperty('order')
+  })
+
+  it('drops a trailing series ordinal from the label so the writer cannot read it as a timeline', () => {
+    const at = (name: string) =>
+      trendRow({ name, endTime: new Date('2026-05-01T00:00:00.000Z'), posterCount: 1 } as TrendSnapshotView).event
+
+    // A same-series "#N" or "<word> N" tail is the bug's trigger; the base name is what remains.
+    expect(at('Test Fancy Vibes #3')).toBe('Test Fancy Vibes (May 1)')
+    expect(at('AI Ethics Session 2')).toBe('AI Ethics (May 1)')
+    expect(at('Standup - Part 3')).toBe('Standup (May 1)')
+    expect(at('Book Club Vol. IV')).toBe('Book Club (May 1)')
+  })
+
+  it('keeps a number that is part of a distinct title, not a trailing sequence marker', () => {
+    const at = (name: string) =>
+      trendRow({ name, endTime: new Date('2026-05-01T00:00:00.000Z'), posterCount: 1 } as TrendSnapshotView).event
+
+    // These carry real identity for a compare-different-events trend; stripping would corrupt them.
+    expect(at('Web3 Meetup')).toBe('Web3 Meetup (May 1)')
+    expect(at('Catch-22')).toBe('Catch-22 (May 1)')
+    expect(at('2026 Kickoff')).toBe('2026 Kickoff (May 1)')
+  })
 })
 
 describe('buildTrendSummary', () => {

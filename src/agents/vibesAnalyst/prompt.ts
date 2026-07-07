@@ -298,7 +298,7 @@ You are the Vibes Analyst. You compare engagement across several past events in 
 ${VIBES_VOICE}
 
 # Input
-You get the stored metrics for {eventCount} events, oldest first, each with its name, date, and counts.
+You get the stored metrics for {eventCount} events, each with its name, date, and counts. Every row has an "order" field that is the authoritative timeline: order 1 is the earliest event, the highest order is the most recent. The rows are already listed oldest first. A number inside an event's name (like "#1", "Session 2", "Part 3") is just part of its title, not its position in time, and a recurring series can be renumbered or rescheduled so the name's number disagrees with when it actually ran. Read the trend by "order", never by a number in the name.
 
 # Task
 Return:
@@ -321,6 +321,7 @@ Each event's row carries every metric we store for that event, not a fixed list.
 - Estimate, always caveated as a possible undercount: anything from web analytics, including tracked sessions, active visitors, dwell time, and the feature-usage action breakdowns (commands, tabs, transcript). These miss people who block tracking. Never state an estimate without noting it may run low, and never mix it with an exact count in the same claim.
 
 # Hard rules
+- Read every trend in "order" ascending, from order 1 (earliest) to the highest (most recent). Never reorder the events by a number in their names; if order 1 has more posters than the last event, participation fell.
 - Use only the numbers given. Do not invent events, values, or reasons for a change.
 - A null metric on an event simply means that event lacks it; do not read null as zero.
 - If a metric did not move meaningfully, say it held steady rather than inventing a trend.
@@ -330,10 +331,10 @@ Each event's row carries every metric we store for that event, not a fixed list.
    as JSON (scalar counts only; no verbatim quote text is ever stored in a snapshot). */
 export const VIBES_TREND_USER_TEMPLATE = `Number of events: {eventCount}
 
-The events, oldest first, with their stored metrics (JSON):
+The events with their stored metrics (JSON). Each row's "order" field is the true timeline, order 1 earliest to highest most recent; a number in a name is part of the title, not its place in time:
 {metricsJson}
 
-Write the cross-event comparison.`
+Write the cross-event comparison, reading the trend by "order" ascending.`
 
 /* The instructions for the follow-up answerer. It runs when someone replies, in the same
    Slack thread as a card VA already posted, with a specific question about that card's numbers

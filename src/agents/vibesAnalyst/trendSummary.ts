@@ -1,11 +1,6 @@
 import { z } from 'zod'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
-import {
-  CuratedVibesData,
-  CuratedVibesStandout,
-  CuratedVibesVisual,
-  TrendSnapshotView
-} from '../../types/index.types.js'
+import { CuratedVibesData, CuratedVibesStandout, CuratedVibesVisual, TrendSnapshotView } from '../../types/index.types.js'
 import eventDateLabel from '../../utils/eventDateLabel.js'
 import { VIBES_TREND_SYSTEM_PROMPT, VIBES_TREND_USER_TEMPLATE } from './prompt.js'
 
@@ -67,15 +62,44 @@ const TREND_ROW_OMIT = new Set([
   'endTime'
 ])
 
-/* The per-event row handed to the writer: a readable event label plus every metric the snapshot
-   carries, with the identifying and versioning fields stripped. There is no allowlist of metrics,
-   so anything we store reaches the comparison. Reads a Mongoose document (via toObject) or a plain
-   object alike. */
-export function trendRow(snapshot: TrendSnapshotView): Record<string, unknown> {
+/* A trailing sequence marker on an event's name ("Vibes #3", "AI Ethics Session 2", "Standup Part 3")
+   tells the reader nothing about when the event ran, and a series can be renumbered or rescheduled so
+   that marker points the opposite way from real chronology. Handed such a name, a small model narrates
+   the trend in name-number order rather than time order, no matter how the surrounding order is stated.
+   So the marker is dropped from the label the trend writer sees, leaving the series' base name (which
+   the header still wants) and the row's own "order" field to carry the timeline. Only a trailing "#N"
+   or a "<sequence-word> N" tail is removed; a distinct title ("Web3 Meetup", "Catch-22") keeps its
+   number, since a trend that compares different events by name still needs those names whole. */
+const SERIES_ORDINAL_TAIL =
+  /[\s:–-]*(?:#\s*\d+|(?:session|part|vol\.?|volume|episode|ep\.?|day|week|chapter|no\.?|pt\.?)\s+(?:\d+|[ivxlcdm]+))\s*$/i
+
+function stripSeriesOrdinal(name: string | null | undefined): string | null | undefined {
+  if (!name) return name
+  const stripped = name.replace(SERIES_ORDINAL_TAIL, '').trim()
+  // Guard against a name that is only an ordinal ("#3"): keep the original rather than blank it.
+  return stripped || name
+}
+
+/* The per-event row handed to the writer: a 1-based chronological position, a readable event label,
+   plus every metric the snapshot carries, with the identifying and versioning fields stripped. There
+   is no allowlist of metrics, so anything we store reaches the comparison. Reads a Mongoose document
+   (via toObject) or a plain object alike.
+
+   `order` is the authoritative timeline. Callers pass snapshots already sorted oldest-first, so the
+   array index is the true position, 1 for the earliest. A number in the event's own name (a series
+   "#3", a "Session 2") can disagree with real chronology after a reschedule or renumber, and a small
+   model will otherwise narrate the trend in name order rather than time order. The explicit `order`
+   field, which the trend prompt is told to trust over any name, keeps the read pointed at real time. */
+export function trendRow(snapshot: TrendSnapshotView, index?: number): Record<string, unknown> {
   const source = snapshot as unknown as { toObject?: () => Record<string, unknown> } & Record<string, unknown>
   const plain = typeof source.toObject === 'function' ? source.toObject() : { ...source }
   const row: Record<string, unknown> = {
-    event: eventDateLabel(plain.name as string | null | undefined, plain.endTime as Date | undefined, 'Event')
+    ...(typeof index === 'number' && { order: index + 1 }),
+    event: eventDateLabel(
+      stripSeriesOrdinal(plain.name as string | null | undefined),
+      plain.endTime as Date | undefined,
+      'Event'
+    )
   }
   for (const [key, value] of Object.entries(plain)) {
     if (!TREND_ROW_OMIT.has(key)) row[key] = value
@@ -117,7 +141,7 @@ export default async function buildTrendSummary(snapshots: TrendSnapshotView[], 
     VIBES_TREND_USER_TEMPLATE,
     {
       eventCount: ordered.length,
-      metricsJson: JSON.stringify(ordered.map(trendRow))
+      metricsJson: JSON.stringify(ordered.map((snapshot, index) => trendRow(snapshot, index)))
     },
     undefined,
     TrendCurationSchema
