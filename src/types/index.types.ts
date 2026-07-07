@@ -197,7 +197,7 @@ export interface ConfigProperty {
   name: string
   as?: string // destination key (supports dot notation for nesting); defaults to name
   required: boolean
-  type: 'string' | 'number' | 'boolean' | 'object' | 'enum'
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array' | 'enum'
   label?: string
   default?: string | number | boolean | object
   description?: string
@@ -913,6 +913,18 @@ export interface CuratedVibesData {
   availabilityNote?: string
   standouts: CuratedVibesStandout[]
   durationMinutes?: number
+}
+
+export interface BudgetAlert {
+  label: string
+  used: number
+  limit: number
+  percentUsed: number
+}
+
+export interface BudgetAlertData {
+  alerts: BudgetAlert[]
+  checkedAt: string
 }
 
 export interface ConversationHistorySettings {
