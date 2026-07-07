@@ -11,6 +11,7 @@ import chatbot from './chatbot/chatbot.js'
 import eventHistorian from './eventHistorian/eventHistorian.js'
 import eventSetup from './eventSetup/eventSetup.js'
 import vibesAnalyst from './vibesAnalyst/index.js'
+import numberCruncher from './numberCruncher/agent.js'
 
 // Development agents
 import civilityPerMessage from './development/civilityPerMessage.js'
@@ -53,7 +54,8 @@ const agentTypes = {
   librarian,
   eventHistorian,
   eventSetup,
-  vibesAnalyst
+  vibesAnalyst,
+  numberCruncher
 }
 
 for (const [key, agentType] of Object.entries(agentTypes)) {
