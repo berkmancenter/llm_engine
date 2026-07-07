@@ -5,7 +5,8 @@ process.env.MATOMO_BASE_URL = 'https://matomo.example'
 process.env.MATOMO_TOKEN = 'secret-token'
 process.env.MATOMO_SITE_ID = '7'
 
-const { fetchMatomoSnapshot } = await import('../../../../src/services/analyticsSources/matomo.js')
+const matomoModule = await import('../../../../src/services/analyticsSources/matomo.js')
+const { fetchMatomoSnapshot, mapMatomoActionKey } = matomoModule
 const config = (await import('../../../../src/config/config.js')).default
 
 // Unix-seconds timestamp for a clock time on the event day, to build visit logs.
@@ -55,6 +56,12 @@ const WINDOWED_VISITS = 3
 const WINDOWED_ATTENDEES = 2
 const WINDOWED_ACTIONS = 5
 const WINDOWED_DEVICE_BREAKDOWN = { Desktop: 2, Smartphone: 1 }
+// The base fixture's actions carry only timestamps, none of the event-type fields the
+// allowlist maps, so both breakdowns are empty. Both in-window visitors (v1, v2) have at
+// least one in-window action, so the active-visitor count matches the attendee count here.
+const WINDOWED_ACTION_BREAKDOWN = {}
+const WINDOWED_ACTION_USER_BREAKDOWN = {}
+const WINDOWED_ACTIVE_VISITORS = 2
 
 function eventConversation(overrides: Record<string, unknown> = {}) {
   return {
@@ -97,7 +104,10 @@ describe('fetchMatomoSnapshot', () => {
       totalVisits: WINDOWED_VISITS,
       totalActions: WINDOWED_ACTIONS,
       totalDwellSeconds: DWELL_WITHIN_EVENT,
-      deviceBreakdown: WINDOWED_DEVICE_BREAKDOWN
+      deviceBreakdown: WINDOWED_DEVICE_BREAKDOWN,
+      actionBreakdown: WINDOWED_ACTION_BREAKDOWN,
+      actionUserBreakdown: WINDOWED_ACTION_USER_BREAKDOWN,
+      activeVisitorCount: WINDOWED_ACTIVE_VISITORS
     })
   })
 
@@ -150,7 +160,10 @@ describe('fetchMatomoSnapshot', () => {
       totalVisits: 0,
       totalActions: 0,
       totalDwellSeconds: 0,
-      deviceBreakdown: {}
+      deviceBreakdown: {},
+      actionBreakdown: {},
+      actionUserBreakdown: {},
+      activeVisitorCount: 0
     })
   })
 
@@ -273,7 +286,10 @@ describe('fetchMatomoSnapshot', () => {
       totalVisits: WINDOWED_VISITS,
       totalActions: WINDOWED_ACTIONS,
       totalDwellSeconds: DWELL_WITHIN_EVENT,
-      deviceBreakdown: WINDOWED_DEVICE_BREAKDOWN
+      deviceBreakdown: WINDOWED_DEVICE_BREAKDOWN,
+      actionBreakdown: WINDOWED_ACTION_BREAKDOWN,
+      actionUserBreakdown: WINDOWED_ACTION_USER_BREAKDOWN,
+      activeVisitorCount: WINDOWED_ACTIVE_VISITORS
     })
   })
 
@@ -291,5 +307,184 @@ describe('fetchMatomoSnapshot', () => {
     expect(snapshot?.totalVisits).toBe(0)
     const liveCalls = fetchSpy.mock.calls.filter(([url]) => String(url).includes('Live.getLastVisitsDetails'))
     expect(liveCalls).toHaveLength(1)
+  })
+
+  it('tallies allowlisted in-window event actions into occurrence and distinct-visitor breakdowns', async () => {
+    // Three active visitors in window. v3 fires command:visual TWICE plus a tab switch; v6
+    // fires command:visual once. So command:visual is 3 occurrences across 2 distinct
+    // visitors, proving the occurrence map and the distinct-visitor map diverge. v4 fires a
+    // transcript scroll plus a backchannel message. A non-event page view and a
+    // non-allowlisted event category are dropped from both breakdowns but still count toward
+    // totalActions. v5 overlaps the window but its only action is outside it, so it is a
+    // visitor but not an active visitor.
+    const actionVisits = [
+      {
+        visitorId: 'v3',
+        deviceType: 'Desktop',
+        firstActionTimestamp: ts('09:00:00'),
+        lastActionTimestamp: ts('09:30:00'),
+        actionDetails: [
+          {
+            timestamp: ts('09:05:00'),
+            type: 'event',
+            eventCategory: 'assistant',
+            eventAction: 'command_sent',
+            eventName: 'visual'
+          },
+          {
+            timestamp: ts('09:06:00'),
+            type: 'event',
+            eventCategory: 'assistant',
+            eventAction: 'command_sent',
+            eventName: 'visual'
+          },
+          {
+            timestamp: ts('09:10:00'),
+            type: 'event',
+            eventCategory: 'assistant',
+            eventAction: 'tab_switched',
+            eventName: 'assistant'
+          },
+          { timestamp: ts('09:12:00'), type: 'action' }
+        ]
+      },
+      {
+        visitorId: 'v4',
+        deviceType: 'Smartphone',
+        firstActionTimestamp: ts('09:15:00'),
+        lastActionTimestamp: ts('09:40:00'),
+        actionDetails: [
+          { timestamp: ts('09:20:00'), type: 'event', eventCategory: 'transcript', eventAction: 'scrollDown' },
+          {
+            timestamp: ts('09:25:00'),
+            type: 'event',
+            eventCategory: 'backchannel',
+            eventAction: 'quick_response_sent',
+            eventName: 'secret message text'
+          },
+          { timestamp: ts('09:26:00'), type: 'event', eventCategory: 'noise', eventAction: 'whatever' }
+        ]
+      },
+      {
+        visitorId: 'v6',
+        deviceType: 'Desktop',
+        firstActionTimestamp: ts('09:15:00'),
+        lastActionTimestamp: ts('09:35:00'),
+        actionDetails: [
+          {
+            timestamp: ts('09:18:00'),
+            type: 'event',
+            eventCategory: 'assistant',
+            eventAction: 'command_sent',
+            eventName: 'visual'
+          }
+        ]
+      },
+      {
+        visitorId: 'v5',
+        deviceType: 'Desktop',
+        firstActionTimestamp: ts('08:00:00'),
+        lastActionTimestamp: ts('11:00:00'),
+        actionDetails: [
+          {
+            timestamp: ts('08:30:00'),
+            type: 'event',
+            eventCategory: 'assistant',
+            eventAction: 'command_sent',
+            eventName: 'visual'
+          }
+        ]
+      }
+    ]
+    jest.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.includes('Live.getLastVisitsDetails')) return { ok: true, json: async () => actionVisits } as Response
+      return { ok: true, json: async () => bodyForUrl(url) } as Response
+    })
+
+    const snapshot = await fetchMatomoSnapshot(eventConversation())
+
+    // Occurrence counts: command:visual fired 3 times in window.
+    expect(snapshot?.actionBreakdown).toEqual({
+      'command:visual': 3,
+      'tab:assistant': 1,
+      'transcript:scroll': 1,
+      'backchannel:message': 1
+    })
+    // Distinct visitors: command:visual came from 2 different people (v3 and v6).
+    expect(snapshot?.actionUserBreakdown).toEqual({
+      'command:visual': 2,
+      'tab:assistant': 1,
+      'transcript:scroll': 1,
+      'backchannel:message': 1
+    })
+    // v3, v4, v6 acted in window; v5 overlaps but its only action is outside the window.
+    expect(snapshot?.activeVisitorCount).toBe(3)
+    // The backchannel name carries message text, so it must never appear in either breakdown.
+    expect(JSON.stringify(snapshot?.actionBreakdown)).not.toContain('secret message text')
+    expect(JSON.stringify(snapshot?.actionUserBreakdown)).not.toContain('secret message text')
+  })
+})
+
+describe('mapMatomoActionKey', () => {
+  it('maps assistant command_sent to a command key carrying the command name', () => {
+    expect(
+      mapMatomoActionKey({ type: 'event', eventCategory: 'assistant', eventAction: 'command_sent', eventName: 'mindmap' })
+    ).toBe('command:mindmap')
+  })
+
+  it('maps assistant tab_switched to a tab key carrying the tab name', () => {
+    expect(
+      mapMatomoActionKey({ type: 'event', eventCategory: 'assistant', eventAction: 'tab_switched', eventName: 'resources' })
+    ).toBe('tab:resources')
+  })
+
+  it('maps a feature open/close on the transcript to a transcript key', () => {
+    expect(
+      mapMatomoActionKey({ type: 'event', eventCategory: 'feature', eventAction: 'open', eventName: 'transcript' })
+    ).toBe('transcript:open')
+    expect(
+      mapMatomoActionKey({ type: 'event', eventCategory: 'feature', eventAction: 'close', eventName: 'transcript' })
+    ).toBe('transcript:close')
+  })
+
+  it('collapses any transcript scroll action to a single scroll key', () => {
+    expect(mapMatomoActionKey({ type: 'event', eventCategory: 'transcript', eventAction: 'scrollDown' })).toBe(
+      'transcript:scroll'
+    )
+    expect(mapMatomoActionKey({ type: 'event', eventCategory: 'transcript', eventAction: 'scrollUp' })).toBe(
+      'transcript:scroll'
+    )
+  })
+
+  it('collapses both backchannel message kinds to one key and never includes the message name', () => {
+    expect(
+      mapMatomoActionKey({
+        type: 'event',
+        eventCategory: 'backchannel',
+        eventAction: 'quick_response_sent',
+        eventName: 'hi there'
+      })
+    ).toBe('backchannel:message')
+    expect(
+      mapMatomoActionKey({
+        type: 'event',
+        eventCategory: 'backchannel',
+        eventAction: 'custom_message_sent',
+        eventName: 'private note'
+      })
+    ).toBe('backchannel:message')
+  })
+
+  it('returns null for non-event actions, unknown categories, and missing fields', () => {
+    expect(mapMatomoActionKey({ type: 'action' })).toBeNull()
+    expect(
+      mapMatomoActionKey({ type: 'event', eventCategory: 'assistant', eventAction: 'unknown_action', eventName: 'x' })
+    ).toBeNull()
+    expect(mapMatomoActionKey({ type: 'event', eventCategory: 'mystery', eventAction: 'open' })).toBeNull()
+    expect(mapMatomoActionKey({ type: 'event', eventCategory: 'assistant', eventAction: 'command_sent' })).toBeNull()
+    expect(mapMatomoActionKey(null)).toBeNull()
+    expect(mapMatomoActionKey(undefined)).toBeNull()
+    expect(mapMatomoActionKey({})).toBeNull()
   })
 })

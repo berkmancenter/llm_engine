@@ -9,7 +9,7 @@ function metricsFixture(): ConversationMetrics {
     participation: { posterCount: 20, frequentPosterCount: 2, frequentPosterMessageShare: 0.4, messageCount: 50 },
     trackedSessionSources: [],
     trackedSessionStatus: 'notTracked',
-    audienceEngagement: null,
+    audienceEngagement: { participantCount: 0, lurkerCount: null, participationRate: null, postersExceedTrackedSessions: true },
     activitySeries: [
       { label: '0-10', messageCount: 5 },
       { label: '10-20', messageCount: 15 },
@@ -19,6 +19,12 @@ function metricsFixture(): ConversationMetrics {
     participationHistory: [],
     baseline: null,
     channelSplit: { public: 30, private: 20 },
+    privateMessaging: {
+      privateMessageCount: 20,
+      distinctPrivateSenders: 6,
+      distinctPublicSenders: 18,
+      avgPrivateMessagesPerPoster: 1
+    },
     botInvocations: { botName: 'Berkie', count: 0 },
     receptions: [],
     resourceSummary: { total: 0, required: 0, referenced: 0, suggested: 0, withLinks: 0 },

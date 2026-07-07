@@ -10,7 +10,7 @@ import { ConversationMetrics, CuratedVibesChart, CuratedVibesData, CuratedVibesS
 const CurationSchema = z.object({
   header: z.string().describe('One-line verdict headline that includes the event name'),
   framing: z.string().optional().describe('Optional one-line gist shown under the header'),
-  state: z.enum(['negative', 'positive', 'participationOnly', 'quiet']),
+  state: z.enum(['negative', 'positive', 'quiet']),
   standouts: z
     .array(
       z.object({
@@ -50,43 +50,42 @@ export function buildChartCandidates(metrics: ConversationMetrics): Record<strin
     }
   }
 
-  // Posters vs lurkers for this event. Only when tracked-session data exists and the
-  // counts reconcile, since lurkers (visitors who never posted) can only be derived from
-  // a participant count. When more people posted than were tracked as sessions,
-  // lurkerCount is null and there is no honest split to draw, so we skip the chart.
-  if (metrics.audienceEngagement && metrics.audienceEngagement.lurkerCount !== null) {
+  // Posters vs lurkers for this event. Only when the counts reconcile, since lurkers
+  // (people who joined without posting) can only be derived from a participant count
+  // that is at least the poster count. When posters exceed participants, lurkerCount
+  // is null and there is no honest split to draw, so we skip the chart.
+  if (metrics.audienceEngagement.lurkerCount !== null) {
     candidates.audienceSplit = {
-      description:
-        'How many people posted versus lurked (watched without posting); lurkers come from tracked sessions and may be undercounted',
+      description: 'How many people posted versus lurked (joined without posting)',
       title: 'Posters vs lurkers',
       chart: {
         type: 'pie',
         segments: [
           { label: 'Posted', value: metrics.participation.posterCount },
-          { label: 'Lurked (est.)', value: metrics.audienceEngagement.lurkerCount }
+          { label: 'Lurked', value: metrics.audienceEngagement.lurkerCount }
         ]
       }
     }
   }
 
   // Needs at least one past event alongside "Today" to read as a trend. Posters are
-  // always exact; a lurkers series is added only when every point has tracked data, so
-  // the chart never implies zero lurkers where the number is simply unknown.
+  // always exact; a lurkers series is added only when every point has a known lurker
+  // count, so the chart never implies zero lurkers where the number is simply unknown.
   if (metrics.participationHistory.length >= 2) {
     const labels = metrics.participationHistory.map((p) => p.label)
     const series = [
       { name: 'Posters', data: metrics.participationHistory.map((p) => ({ label: p.label, value: p.posterCount })) }
     ]
-    const everyPointTracked = metrics.participationHistory.every((p) => p.lurkerCount !== null)
-    if (everyPointTracked) {
+    const everyPointKnown = metrics.participationHistory.every((p) => p.lurkerCount !== null)
+    if (everyPointKnown) {
       series.push({
-        name: 'Lurkers (est.)',
+        name: 'Lurkers',
         data: metrics.participationHistory.map((p) => ({ label: p.label, value: p.lurkerCount as number }))
       })
     }
     candidates.engagementHistory = {
-      description: everyPointTracked
-        ? 'Posters and estimated lurkers across recent events in this topic, ending with today'
+      description: everyPointKnown
+        ? 'Posters and lurkers across recent events in this topic, ending with today'
         : 'Posters across recent events in this topic, ending with today',
       title: 'Engagement over recent events',
       chart: {
@@ -140,6 +139,24 @@ export function buildChartCandidates(metrics: ConversationMetrics): Record<strin
       chart: {
         type: 'pie',
         segments: Object.entries(firstSource.deviceBreakdown).map(([label, value]) => ({ label, value }))
+      }
+    }
+  }
+
+  if (firstSource && Object.keys(firstSource.actionBreakdown).length > 0) {
+    candidates.featureUsage = {
+      description:
+        'How many times tracked visitors used each on-page feature (commands, tabs, transcript); counts only, can undercount',
+      title: 'Feature usage (tracked sessions)',
+      chart: {
+        type: 'bar',
+        series: [
+          {
+            name: 'Actions',
+            data: Object.entries(firstSource.actionBreakdown).map(([label, value]) => ({ label, value }))
+          }
+        ],
+        axisConfig: { categories: Object.keys(firstSource.actionBreakdown), yLabel: 'Actions' }
       }
     }
   }

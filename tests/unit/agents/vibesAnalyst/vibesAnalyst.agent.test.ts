@@ -24,6 +24,10 @@ const mockLoadReadableMessages = jest.fn<(...args: any[]) => Promise<any>>()
 // agent feeds the allowed messages and poster count in, and the receptions to the curator.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockAnnotateReceptions = jest.fn<(...args: any[]) => Promise<any>>()
+// Snapshot persistence is exercised in conversationMetricsSnapshot.service.test.ts; here we only
+// check the agent persists the computed metrics on the stop path.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockPersistSnapshot = jest.fn<(...args: any[]) => Promise<any>>()
 
 jest.unstable_mockModule('../src/agents/vibesAnalyst/curate.js', () => ({
   default: mockCurate
@@ -44,10 +48,18 @@ jest.unstable_mockModule('../src/agents/vibesAnalyst/capabilities.js', () => ({
 jest.unstable_mockModule('../src/agents/helpers/getModelChat.js', () => ({
   getModelChat: mockGetModelChat,
   defaultLLMPlatform: 'bedrock',
-  defaultLLMModel: 'test-model'
+  defaultLLMModel: 'test-model',
+  classificationLLMPlatform: 'bedrock',
+  classificationLLMModel: 'fast-model'
 }))
 jest.unstable_mockModule('../src/services/analyticsSources/index.js', () => ({
   default: { fetchAndStoreSnapshot: mockFetchAndStoreSnapshot }
+}))
+jest.unstable_mockModule('../src/services/conversationMetricsSnapshot.service.js', () => ({
+  default: { persistSnapshot: mockPersistSnapshot },
+  // eventResolution imports this named export (for the trend live-recompute path); it is not
+  // exercised here, but the mock must provide it or the module load fails.
+  buildSnapshotPayload: jest.fn()
 }))
 
 const { default: vibesAnalyst } = await import('../../../../src/agents/vibesAnalyst/index.js')
@@ -124,7 +136,12 @@ describe('vibesAnalyst agent', () => {
       mockCurate.mockReset()
       mockVerify.mockReset()
       mockGetModelChat.mockReset()
-      mockGetModelChat.mockResolvedValue({ fakeLlm: true })
+      // Route by model so the test can prove which pass runs on which model: the main
+      // Opus-tier model for curate and verify, the faster classification model for the
+      // mechanical spike and reception annotation.
+      mockGetModelChat.mockImplementation((_platform, model) =>
+        Promise.resolve(model === 'fast-model' ? { fastLlm: true } : { fakeLlm: true })
+      )
       mockFetchAndStoreSnapshot.mockReset()
       mockFetchAndStoreSnapshot.mockResolvedValue(undefined)
       mockLoadReadableMessages.mockReset()
@@ -134,6 +151,8 @@ describe('vibesAnalyst agent', () => {
       mockAnnotateSpikes.mockImplementation((_messages, _start, spikes) => Promise.resolve(spikes))
       mockAnnotateReceptions.mockReset()
       mockAnnotateReceptions.mockResolvedValue([])
+      mockPersistSnapshot.mockReset()
+      mockPersistSnapshot.mockResolvedValue(undefined)
     })
 
     it('returns empty for non-conversationStopped events', async () => {
@@ -182,6 +201,47 @@ describe('vibesAnalyst agent', () => {
       expect(response.channels).toEqual([adminChannel])
     })
 
+    it('persists the computed metrics as a snapshot for the ended event', async () => {
+      mockStoppedConversation(false)
+      jest
+        .spyOn(conversationAnalyticsService, 'computeConversationMetrics')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .mockResolvedValue(sampleMetrics as any)
+      mockCurate.mockResolvedValue({ header: 'Draft', standouts: [], durationMinutes: 60 })
+      mockVerify.mockResolvedValue(verifiedCard)
+
+      await vibesAnalyst.onConversationEvent.call(buildContext(), {
+        type: 'conversationStopped',
+        conversationId: 'c1',
+        topicId: 't1'
+      })
+
+      // The snapshot is written from the enriched metrics the card was built from, keyed by
+      // the ended conversation.
+      expect(mockPersistSnapshot).toHaveBeenCalledWith(expect.objectContaining({ _id: 'c1' }), sampleMetrics)
+    })
+
+    it('still posts the card when the snapshot write fails', async () => {
+      mockStoppedConversation(false)
+      jest
+        .spyOn(conversationAnalyticsService, 'computeConversationMetrics')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .mockResolvedValue(sampleMetrics as any)
+      mockCurate.mockResolvedValue({ header: 'Draft', standouts: [], durationMinutes: 60 })
+      mockVerify.mockResolvedValue(verifiedCard)
+      mockPersistSnapshot.mockRejectedValue(new Error('mongo down'))
+
+      const responses = await vibesAnalyst.onConversationEvent.call(buildContext(), {
+        type: 'conversationStopped',
+        conversationId: 'c1',
+        topicId: 't1'
+      })
+
+      // A snapshot failure is best-effort: it is logged and swallowed, never blocking the card.
+      expect(responses).toHaveLength(1)
+      expect(responses[0].renderData).toBe(verifiedCard)
+    })
+
     it('annotates spikes from the allowed messages before curating, when the event had spikes', async () => {
       mockStoppedConversation(false)
       const rawSpike = { label: '20-30', startMinute: 20, endMinute: 30, messageCount: 8, baselineAverage: 1, ratio: 8 }
@@ -209,7 +269,8 @@ describe('vibesAnalyst agent', () => {
       // Reads only the allowed messages for this conversation, then hands them and the
       // raw spikes to the annotator with the event start.
       expect(mockLoadReadableMessages).toHaveBeenCalledWith('c1')
-      expect(mockAnnotateSpikes).toHaveBeenCalledWith(readableMessages, expect.any(Date), [rawSpike], { fakeLlm: true })
+      // The annotation runs on the faster classification model, not the main Opus model.
+      expect(mockAnnotateSpikes).toHaveBeenCalledWith(readableMessages, expect.any(Date), [rawSpike], { fastLlm: true })
       // The curator sees the annotated spikes, not the bare ones.
       expect(mockCurate).toHaveBeenCalledWith(expect.objectContaining({ spikes: annotatedSpikes }), expect.anything(), {
         fakeLlm: true
@@ -247,7 +308,8 @@ describe('vibesAnalyst agent', () => {
 
       // Reads the allowed messages once and hands them, with the poster count, to the annotator.
       expect(mockLoadReadableMessages).toHaveBeenCalledWith('c1')
-      expect(mockAnnotateReceptions).toHaveBeenCalledWith(readableMessages, 12, { fakeLlm: true })
+      // Reception annotation also runs on the faster classification model.
+      expect(mockAnnotateReceptions).toHaveBeenCalledWith(readableMessages, 12, { fastLlm: true })
       // The curator sees the receptions the annotator produced.
       expect(mockCurate).toHaveBeenCalledWith(expect.objectContaining({ receptions }), expect.anything(), { fakeLlm: true })
     })
@@ -266,6 +328,8 @@ describe('vibesAnalyst agent', () => {
       expect(computeSpy).not.toHaveBeenCalled()
       // Access is checked before any work, so no snapshot fetch on a private event.
       expect(mockFetchAndStoreSnapshot).not.toHaveBeenCalled()
+      // And nothing is persisted for an event the analyst may not read.
+      expect(mockPersistSnapshot).not.toHaveBeenCalled()
     })
 
     it('throws AccessDeniedError and reads no metrics when the topic did not populate', async () => {
