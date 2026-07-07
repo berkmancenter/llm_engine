@@ -190,14 +190,14 @@ describe('formatEventsTable', () => {
       {
         conversationId: '1',
         name: 'Short',
-        endTime: new Date('2026-06-01'),
+        endTime: new Date('2026-06-01T12:00:00.000Z'),
         before: null,
         after: metrics({ posterCount: 5 })
       },
       {
         conversationId: '2',
         name: 'A Much Longer Event Name',
-        endTime: new Date('2026-06-02'),
+        endTime: new Date('2026-06-02T12:00:00.000Z'),
         before: null,
         after: metrics({ posterCount: 500 })
       }
@@ -210,12 +210,30 @@ describe('formatEventsTable', () => {
     expect(second.indexOf('500')).toBe(postersColumnStart)
   })
 
+  it('renders the event date in Boston time, not UTC', () => {
+    const events: BackfilledEvent[] = [
+      {
+        conversationId: '1',
+        name: 'Late Night Event',
+        // 2am UTC on Jul 1 is 10pm on Jun 30 in Boston, so the report should read Jun 30.
+        endTime: new Date('2026-07-01T02:00:00.000Z'),
+        before: null,
+        after: metrics()
+      }
+    ]
+
+    const [, row] = formatEventsTable(events)
+
+    expect(row).toContain('2026-06-30')
+    expect(row).not.toContain('2026-07-01')
+  })
+
   it('shows a before -> after arrow only for fields that actually changed on an overwrite', () => {
     const events: BackfilledEvent[] = [
       {
         conversationId: '1',
         name: 'Overwritten event',
-        endTime: new Date('2026-06-01'),
+        endTime: new Date('2026-06-01T12:00:00.000Z'),
         before: metrics({ posterCount: 8, lurkerCount: 2 }),
         after: metrics({ posterCount: 10, lurkerCount: 2 })
       }

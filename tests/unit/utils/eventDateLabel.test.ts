@@ -1,11 +1,19 @@
 import eventDateLabel from '../../../src/utils/eventDateLabel.js'
 
 describe('eventDateLabel', () => {
-  // Noon UTC so the calendar day is unambiguous regardless of the runner's timezone.
+  // Noon UTC is mid-morning in Boston, so the calendar day is the same in either zone and the
+  // assertion stays readable regardless of the runner's own timezone.
   const endTime = new Date('2026-06-03T12:00:00.000Z')
 
-  it('combines the name and a compact UTC date', () => {
+  it('combines the name and a compact Eastern date', () => {
     expect(eventDateLabel('Future of Work', endTime, 'Past event')).toBe('Future of Work (Jun 3)')
+  })
+
+  it('renders the date in Boston time, not UTC, across both daylight-saving halves of the year', () => {
+    // Summer (EDT, UTC-4): 2am UTC on Jul 1 is 10pm on Jun 30 in Boston.
+    expect(eventDateLabel(null, new Date('2026-07-01T02:00:00.000Z'), 'Event')).toBe('Jun 30')
+    // Winter (EST, UTC-5): 3am UTC on Jan 15 is 10pm on Jan 14 in Boston.
+    expect(eventDateLabel(null, new Date('2026-01-15T03:00:00.000Z'), 'Event')).toBe('Jan 14')
   })
 
   it('uses the date alone when there is no name', () => {

@@ -61,6 +61,7 @@ import ConversationAnalytics from '../src/models/conversationAnalytics.model.js'
 import ConversationMetricsSnapshot from '../src/models/conversationMetricsSnapshot.model.js'
 import conversationAnalyticsService, { METRICS_VERSION } from '../src/services/conversationAnalytics.service.js'
 import conversationMetricsSnapshotService from '../src/services/conversationMetricsSnapshot.service.js'
+import { easternIsoDate } from '../src/utils/eventDateLabel.js'
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 
@@ -242,7 +243,7 @@ function numberCell(event: BackfilledEvent, before: number | null | undefined, a
 }
 
 const COLUMNS: Column[] = [
-  { header: 'Event', cell: (e) => `${e.name ?? 'Past event'} (${e.endTime?.toISOString().slice(0, 10) ?? '?'})` },
+  { header: 'Event', cell: (e) => `${e.name ?? 'Past event'} (${e.endTime ? easternIsoDate(e.endTime) : '?'})` },
   { header: 'Posters', cell: (e) => numberCell(e, e.before?.posterCount, e.after.posterCount) },
   { header: 'Messages', cell: (e) => numberCell(e, e.before?.messageCount, e.after.messageCount) },
   { header: 'Lurkers', cell: (e) => numberCell(e, e.before?.lurkerCount, e.after.lurkerCount) },

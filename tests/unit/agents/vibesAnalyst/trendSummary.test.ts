@@ -58,8 +58,8 @@ describe('buildTrendChart', () => {
 
   it("keeps every category and data point label within Slack's 20-character limit", () => {
     // The real cause of the invalid_blocks rejection: Slack caps each data point label and each
-    // axis category at 20 characters, and a full "Name (date)" label runs well past that. Every
-    // data point label must also match a category, or the block is rejected.
+    // axis category at 20 characters, and a long event name runs well past that, so it is truncated.
+    // Every data point label must also match a category, or the block is rejected.
     const longName = snap('Regenerative Futures Monthly Roundtable', '2026-06-10T00:00:00.000Z', 5)
     const visual = buildTrendChart([longName, ...ordered])
     if (visual.chart.type === 'pie') throw new Error('expected a line chart')
@@ -73,23 +73,62 @@ describe('buildTrendChart', () => {
     }
   })
 
-  it('labels each event by its short date and keeps categories unique', () => {
+  it('labels each event by its name, keeping the ordinal that tells sibling events apart', () => {
     const visual = buildTrendChart(ordered)
     if (visual.chart.type === 'pie') throw new Error('expected a line chart')
     const { categories } = visual.chart.axisConfig
-    expect(categories[0]).toBe('May 1')
-    expect(categories[2]).toBe('May 30')
+    expect(categories).toEqual(['AI Ethics Session 1', 'AI Ethics Session 2', 'AI Ethics Session 3'])
     expect(new Set(categories).size).toBe(3)
   })
 
-  it('disambiguates events that fall on the same date so categories stay unique', () => {
-    const sameDay = [
-      snap('Morning Session', '2026-05-01T09:00:00.000Z', 4),
-      snap('Evening Session', '2026-05-01T18:00:00.000Z', 7)
+  it('falls back to the date when an event has no name', () => {
+    const unnamed = [
+      { ...snap('', '2026-05-01T12:00:00.000Z', 4), name: undefined },
+      { ...snap('', '2026-05-30T12:00:00.000Z', 7), name: undefined }
+    ] as unknown as TrendSnapshotView[]
+    const visual = buildTrendChart(unnamed)
+    if (visual.chart.type === 'pie') throw new Error('expected a line chart')
+    expect(visual.chart.axisConfig.categories).toEqual(['May 1', 'May 30'])
+  })
+
+  it('marks a truncated name with an ellipsis', () => {
+    const longName = [snap('Regenerative Futures Monthly Roundtable', '2026-05-01T00:00:00.000Z', 4)]
+    const visual = buildTrendChart(longName)
+    if (visual.chart.type === 'pie') throw new Error('expected a line chart')
+    const [label] = visual.chart.axisConfig.categories
+    expect(label).toBe('Regenerative Futu...')
+    expect(label.length).toBe(20)
+  })
+
+  it('tags events that share a name with their shorthand date, dropping the year within one year', () => {
+    const sharedName = [
+      snap('Regenerative Futures Monthly Roundtable', '2026-05-01T12:00:00.000Z', 4),
+      snap('Regenerative Futures Monthly Roundtable', '2026-05-30T12:00:00.000Z', 7)
     ]
-    const visual = buildTrendChart(sameDay)
+    const visual = buildTrendChart(sharedName)
     if (visual.chart.type === 'pie') throw new Error('expected a line chart')
     const { categories } = visual.chart.axisConfig
+    // A bare shared name collides, which the block rejects; the date tells the two events apart. Both
+    // fall in 2026, so the year is dropped and the truncated name keeps its ellipsis.
+    expect(new Set(categories).size).toBe(2)
+    expect(categories[0]).toBe('Regenerat... (05/01)')
+    expect(categories[1]).toBe('Regenerat... (05/30)')
+  })
+
+  it('keeps the year on the date tag when the chart straddles a year boundary', () => {
+    const acrossYears = [snap('Sync', '2025-12-15T12:00:00.000Z', 4), snap('Sync', '2026-01-12T12:00:00.000Z', 7)]
+    const visual = buildTrendChart(acrossYears)
+    if (visual.chart.type === 'pie') throw new Error('expected a line chart')
+    const { categories } = visual.chart.axisConfig
+    expect(categories).toEqual(['Sync (12/15/25)', 'Sync (01/12/26)'])
+  })
+
+  it('keeps categories unique even when two events share both a name and a day', () => {
+    const twins = [snap('Standup', '2026-05-01T09:00:00.000Z', 3), snap('Standup', '2026-05-01T18:00:00.000Z', 6)]
+    const visual = buildTrendChart(twins)
+    if (visual.chart.type === 'pie') throw new Error('expected a line chart')
+    const { categories } = visual.chart.axisConfig
+    // Same name and same day: the date cannot separate them, so a last-resort counter must.
     expect(new Set(categories).size).toBe(2)
     for (const category of categories) expect(category.length).toBeLessThanOrEqual(20)
   })
@@ -170,7 +209,7 @@ describe('trendRow', () => {
 
   it('drops a trailing series ordinal from the label so the writer cannot read it as a timeline', () => {
     const at = (name: string) =>
-      trendRow({ name, endTime: new Date('2026-05-01T00:00:00.000Z'), posterCount: 1 } as TrendSnapshotView).event
+      trendRow({ name, endTime: new Date('2026-05-01T12:00:00.000Z'), posterCount: 1 } as TrendSnapshotView).event
 
     // A same-series "#N" or "<word> N" tail is the bug's trigger; the base name is what remains.
     expect(at('Test Fancy Vibes #3')).toBe('Test Fancy Vibes (May 1)')
@@ -181,7 +220,7 @@ describe('trendRow', () => {
 
   it('keeps a number that is part of a distinct title, not a trailing sequence marker', () => {
     const at = (name: string) =>
-      trendRow({ name, endTime: new Date('2026-05-01T00:00:00.000Z'), posterCount: 1 } as TrendSnapshotView).event
+      trendRow({ name, endTime: new Date('2026-05-01T12:00:00.000Z'), posterCount: 1 } as TrendSnapshotView).event
 
     // These carry real identity for a compare-different-events trend; stripping would corrupt them.
     expect(at('Web3 Meetup')).toBe('Web3 Meetup (May 1)')

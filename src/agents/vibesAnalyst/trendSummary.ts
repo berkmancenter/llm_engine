@@ -1,26 +1,75 @@
 import { z } from 'zod'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { CuratedVibesData, CuratedVibesStandout, CuratedVibesVisual, TrendSnapshotView } from '../../types/index.types.js'
-import eventDateLabel from '../../utils/eventDateLabel.js'
+import eventDateLabel, { easternDateParts } from '../../utils/eventDateLabel.js'
 import { VIBES_TREND_SYSTEM_PROMPT, VIBES_TREND_USER_TEMPLATE } from './prompt.js'
 
-/* Slack's data_visualization block caps every category and data point label at 20 characters,
-   so the trend labels each event by its short UTC date (e.g. "Jun 3"), the part that actually
-   distinguishes events in a series, rather than the full "Name (date)", which runs past 20 and
-   is what got the block rejected before. Two events on the same day are disambiguated so the
-   categories stay unique, which the block also requires. Event names live in the prose standouts. */
+/* Slack's data_visualization block caps every category and data point label at 20 characters and
+   requires them to be unique. The trend labels each event by its name, the part that tells a reader
+   which event a point is, truncated with an ellipsis when it overruns; a date alone cannot, since a
+   series often runs several events on the same day. Events that share a name are tagged with their
+   shorthand date (MM/DD, or MM/DD/YY when the chart straddles a year) to set them apart, and the rare
+   pair that shares a name and a day falls back to a counter. */
 const MAX_LABEL_LENGTH = 20
+const ELLIPSIS = '...'
+
+/* Cuts text to fit `max`, marking the cut with an ellipsis so a clipped name reads as clipped rather
+   than as a shorter name. Text that already fits is returned untouched. */
+function truncate(text: string, max: number): string {
+  if (text.length <= max) return text
+  if (max <= ELLIPSIS.length) return text.slice(0, max)
+  return `${text.slice(0, max - ELLIPSIS.length)}${ELLIPSIS}`
+}
+
+/* The event's Boston (Eastern) calendar date, the compact tag that separates same-named events on the
+   axis. MM/DD, with the year added only when the chart straddles a year boundary and the year is what
+   tells two events apart. Eastern to match eventDateLabel, so a late-evening event reads on the day it
+   happened locally. */
+function shortDate(endTime: Date | null | undefined, includeYear: boolean): string {
+  if (!endTime) return ''
+  const { year, month, day } = easternDateParts(endTime)
+  const mm = String(month).padStart(2, '0')
+  const dd = String(day).padStart(2, '0')
+  if (!includeYear) return `${mm}/${dd}`
+  return `${mm}/${dd}/${String(year).slice(-2)}`
+}
+
+/* Trims a base label to leave room for a suffix, then appends it, so the whole stays within the cap. */
+function withSuffix(base: string, suffix: string): string {
+  return `${truncate(base, MAX_LABEL_LENGTH - suffix.length)}${suffix}`
+}
 
 function buildTrendLabels(snapshots: TrendSnapshotView[]): string[] {
+  // Base label is the event's own name (its "#3" is what sets sibling events apart), falling back to
+  // the date, then an index, when a name is missing.
+  const names = snapshots.map(
+    (snapshot, index) => snapshot.name?.trim() || eventDateLabel(null, snapshot.endTime, `Event ${index + 1}`)
+  )
+  const nameCounts = new Map<string, number>()
+  for (const name of names) nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1)
+
+  // Keep the year on the date tags only when events straddle a year boundary; when the whole chart is
+  // one year, the year distinguishes nothing, so drop it to leave more room for the name.
+  const years = new Set(
+    snapshots
+      .map((snapshot) => (snapshot.endTime ? easternDateParts(snapshot.endTime).year : null))
+      .filter((year) => year != null)
+  )
+  const includeYear = years.size > 1
+
   const seen = new Map<string, number>()
   return snapshots.map((snapshot, index) => {
-    const base = eventDateLabel(null, snapshot.endTime, `Event ${index + 1}`).slice(0, MAX_LABEL_LENGTH)
-    const priorCount = seen.get(base) ?? 0
-    seen.set(base, priorCount + 1)
-    if (priorCount === 0) return base
-    // Same-day collision: append a counter, trimming the base so the whole label still fits.
-    const suffix = ` (${priorCount + 1})`
-    return `${base.slice(0, MAX_LABEL_LENGTH - suffix.length)}${suffix}`
+    const name = names[index]
+    // A name shared by more than one event cannot stand alone, so tag it with the shorthand date.
+    const shared = (nameCounts.get(name) ?? 0) > 1
+    const date = shared ? shortDate(snapshot.endTime, includeYear) : ''
+    const label = date ? withSuffix(name, ` (${date})`) : truncate(name, MAX_LABEL_LENGTH)
+
+    // Same name and same day still collide after dating; a counter is the last resort that keeps
+    // categories unique, which the block requires.
+    const priorCount = seen.get(label) ?? 0
+    seen.set(label, priorCount + 1)
+    return priorCount === 0 ? label : withSuffix(label, ` (${priorCount + 1})`)
   })
 }
 
