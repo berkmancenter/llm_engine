@@ -30,6 +30,20 @@ describe('answerFollowUp', () => {
     llm = await getModelChat(llmPlatform as LlmPlatforms, llmModel)
   })
 
+  it('answers when the events happened instead of refusing, since the rows carry each date', async () => {
+    const trendRows = [
+      { name: 'Test Fancy Vibes #3', endTime: new Date('2026-07-01T12:00:00.000Z'), posterCount: 12 },
+      { name: 'Test Fancy Vibes #2', endTime: new Date('2026-07-01T12:00:00.000Z'), posterCount: 8 },
+      { name: 'Test Fancy Vibes #1', endTime: new Date('2026-07-01T12:00:00.000Z'), posterCount: 5 }
+    ]
+
+    const answer = await answerFollowUp('what were the dates of these events?', trendRows, llm)
+
+    // The date is in the rows, so this must not fall through to the "outside what I read" deflection.
+    expect(answer.answerable).toBe(true)
+    expect(answer.text).toMatch(/jul(y)?\s*1|7\/1|07\/01/i)
+  })
+
   it('always explains "private" as messages to the bot, never a bare word a reader could mistake for a private group channel', async () => {
     const answer = await answerFollowUp(
       "what's the split between public and private messages, and what does private even mean here?",

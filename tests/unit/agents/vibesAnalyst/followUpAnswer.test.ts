@@ -27,4 +27,16 @@ describe('answerFollowUp', () => {
     expect(llm).toEqual({ fakeLlm: true })
     expect(templateVars).toEqual({ question: 'how many lurked?', metricsJson: JSON.stringify(metricsContext) })
   })
+
+  it("adds each row's date in Boston time so the answerer can field 'when was this?'", async () => {
+    mockGetChatPromptResponse.mockResolvedValue({ answerable: true, text: 'ok' })
+    // 2am UTC on Jul 1 is 10pm on Jun 30 in Boston; the date handed to the model must read Jun 30.
+    const metricsContext = [{ name: 'Launch', endTime: '2026-07-01T02:00:00.000Z', posterCount: 5 }]
+
+    await answerFollowUp('when was it?', metricsContext, {})
+
+    const [, , , templateVars] = mockGetChatPromptResponse.mock.calls[0]
+    const rows = JSON.parse(templateVars.metricsJson)
+    expect(rows[0].date).toBe('Jun 30')
+  })
 })

@@ -4,6 +4,7 @@ import { IMessage } from '../../types/index.types.js'
 import { VIBES_FOLLOWUP_SYSTEM_PROMPT, VIBES_FOLLOWUP_USER_TEMPLATE } from './prompt.js'
 import { fetchThread } from './thread.js'
 import { EventCandidate } from './eventResolution.js'
+import eventDateLabel from '../../utils/eventDateLabel.js'
 
 /**
  * Walks this message's thread (its parent plus every reply to it) for the most recent card VA
@@ -16,7 +17,10 @@ import { EventCandidate } from './eventResolution.js'
 export async function resolveFollowUpContext(userMessage: IMessage, conversationId: string): Promise<unknown | null> {
   const thread = await fetchThread(userMessage, conversationId)
   const ancestorCard = thread.find(
-    (message) => message.responseKind === 'curatedVibesSummary' && message.metricsContext !== undefined && message.metricsContext !== null
+    (message) =>
+      message.responseKind === 'curatedVibesSummary' &&
+      message.metricsContext !== undefined &&
+      message.metricsContext !== null
   )
   return ancestorCard ? ancestorCard.metricsContext : null
 }
@@ -29,9 +33,14 @@ export async function resolveFollowUpContext(userMessage: IMessage, conversation
  * unaddressed small talk on its own. Returns null when the message is not a threaded reply, or no
  * disambiguation list exists in the thread.
  */
-export async function resolveDisambiguationContext(userMessage: IMessage, conversationId: string): Promise<EventCandidate[] | null> {
+export async function resolveDisambiguationContext(
+  userMessage: IMessage,
+  conversationId: string
+): Promise<EventCandidate[] | null> {
   const thread = await fetchThread(userMessage, conversationId)
-  const ancestorList = thread.find((message) => message.responseKind === 'eventDisambiguation' && Array.isArray(message.metricsContext))
+  const ancestorList = thread.find(
+    (message) => message.responseKind === 'eventDisambiguation' && Array.isArray(message.metricsContext)
+  )
   return ancestorList ? (ancestorList.metricsContext as EventCandidate[]) : null
 }
 
@@ -40,10 +49,24 @@ const FollowUpAnswerSchema = z.object({
   text: z.string().nullable().describe('The plain-language answer when answerable; null otherwise')
 })
 
+/* Adds a plain-language Boston date to each row from its stored endTime, so the answerer can field
+   "when was this?" without reading a raw UTC timestamp and can report the day in the same zone as
+   the rest of the card. Rows without a usable endTime pass through untouched. */
+function withReadableDates(metricsContext: unknown): unknown {
+  if (!Array.isArray(metricsContext)) return metricsContext
+  return metricsContext.map((row) => {
+    if (!row || typeof row !== 'object') return row
+    const { endTime } = row as Record<string, unknown>
+    if (endTime === undefined || endTime === null) return row
+    const date = eventDateLabel(null, new Date(endTime as string | number | Date), '')
+    return date ? { ...(row as Record<string, unknown>), date } : row
+  })
+}
+
 /**
  * Answers one follow-up question against the metrics context a prior card was built from. Reads
- * as a Q&A pass over the same scalar rows the recap or trend already showed: no live recompute,
- * no message text, so it can only ever answer what those rows support.
+ * as a Q&A pass over the same rows the recap or trend already showed, each tagged with a readable
+ * date: no live recompute, no message text, so it can only ever answer what those rows support.
  */
 export async function answerFollowUp(
   question: string,
@@ -54,7 +77,7 @@ export async function answerFollowUp(
     llm,
     VIBES_FOLLOWUP_SYSTEM_PROMPT,
     VIBES_FOLLOWUP_USER_TEMPLATE,
-    { question, metricsJson: JSON.stringify(metricsContext) },
+    { question, metricsJson: JSON.stringify(withReadableDates(metricsContext)) },
     undefined,
     FollowUpAnswerSchema
   )) as z.infer<typeof FollowUpAnswerSchema>
