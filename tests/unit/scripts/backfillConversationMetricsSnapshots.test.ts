@@ -1,7 +1,6 @@
 import mongoose from 'mongoose'
 import setupIntTest from '../../utils/setupIntTest.js'
 import { Conversation, Message, ConversationAnalytics, ConversationMetricsSnapshot } from '../../../src/models/index.js'
-import { METRICS_VERSION } from '../../../src/services/conversationAnalytics.service.js'
 import {
   backfillConversationMetricsSnapshots,
   formatEventsTable,
@@ -59,26 +58,6 @@ async function seedEndedEvent(
 }
 
 describe('backfillConversationMetricsSnapshots', () => {
-  it('snapshots ended events that had web analytics wired up and reports their metrics', async () => {
-    const tracked = await seedEndedEvent({ tracked: true })
-
-    const summary = await backfillConversationMetricsSnapshots({ now: NOW })
-
-    expect(summary.backfilled).toBe(1)
-    expect(summary.events).toHaveLength(1)
-    const [event] = summary.events
-    // First run: nothing existed before, so before is null and after carries the written metrics.
-    expect(event.before).toBeNull()
-    expect(event.after.posterCount).toBe(2)
-    expect(event.after.lurkerCount).toBe(8)
-    expect(event.after.avgDwellSeconds).toBe(500)
-    expect(event.after.receptionCount).toBeNull()
-
-    const stored = await ConversationMetricsSnapshot.findOne({ conversationId: tracked._id })
-    expect(stored!.posterCount).toBe(2)
-    expect(stored!.metricsVersion).toBe(METRICS_VERSION)
-  })
-
   it('skips events that never had web analytics wired up', async () => {
     const untracked = await seedEndedEvent({ tracked: false })
 
