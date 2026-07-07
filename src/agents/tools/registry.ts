@@ -1,8 +1,10 @@
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import logger from '../../config/logger.js'
+import config from '../../config/config.js'
 import { webSearchTool } from './webSearch.js'
 import { searchSemanticScholarTool, getSemanticScholarRecommendationsTool } from './semanticScholar.js'
 import createEventHistoryTools from './eventHistory.js'
+import createArchiveTools from './archive.js'
 
 /**
  * A factory that returns one or more LangChain tools.
@@ -69,4 +71,14 @@ registerTool('event_history', (context) => {
     return []
   }
   return createEventHistoryTools(topics, { activeConversationId: context?.activeConversationId })
+})
+
+// Archive tools read from the wiki folder configured via ARCHIVE_PATH
+registerTool('archive', (context) => {
+  const archivePath = context?.archivePath || config.archivePath
+  if (!archivePath) {
+    logger.warn('Tool registry: archive requested but no ARCHIVE_PATH configured')
+    return []
+  }
+  return createArchiveTools(archivePath)
 })

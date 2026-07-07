@@ -48,6 +48,9 @@ const envVarsSchema = Joi.object()
     RAG_DOCUMENTS_PATH: Joi.string()
       .default(path.join(process.cwd(), 'rag_documents'))
       .description('Base path for RAG document storage'),
+    ARCHIVE_PATH: Joi.string().description(
+      'Path to an archive-wiki folder (markdown wiki + collection/ + raw/archive.json). Enables archive tools on the eventHistorian.'
+    ),
     CHROMA_DB_URL: Joi.string().default('http://0.0.0.0:8000'),
     EMBEDDINGS_COLLECTION_PREFIX: Joi.string().default('llm-engine'),
     DEFAULT_EMBEDDINGS_API_URL: Joi.string().description('The URL of an OpenAI-compatible server used for embeddings'),
@@ -148,6 +151,7 @@ const config = {
     options: {}
   },
   ragDocumentsPath: envVars.RAG_DOCUMENTS_PATH,
+  archivePath: envVars.ARCHIVE_PATH,
   chroma: {
     url: envVars.CHROMA_DB_URL,
     embeddingsCollectionPrefix: envVars.EMBEDDINGS_COLLECTION_PREFIX

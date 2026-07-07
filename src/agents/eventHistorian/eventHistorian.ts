@@ -1,3 +1,4 @@
+import type { StructuredToolInterface } from '@langchain/core/tools'
 import { getAgentStructuredResponse } from '../helpers/llmChain.js'
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
@@ -6,6 +7,7 @@ import { buildSystemPromptWithPersonality } from '../helpers/agentPersonality.js
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
 import createEventHistoryTools, { TopicRef, buildEventHistoryToolsPrompt } from '../tools/eventHistory.js'
+import createArchiveTools from '../tools/archive.js'
 import Topic from '../../models/topic.model.js'
 import Conversation from '../../models/conversation.model.js'
 import config from '../../config/config.js'
@@ -28,7 +30,21 @@ Your primary specialty is answering questions about past events and their transc
 ${buildEventHistoryToolsPrompt()}
 
 When searching, search across all series unless the question clearly refers to a specific one. Don't require the user to specify a series — use your judgment. Prefer \`search_topic_transcripts\` for broad questions; use \`search_conversation_transcript\` to retrieve specific quotes or details once you know which event to drill into. For questions that are clearly unrelated to past events, respond directly without calling any tools.
-{topicContext}`
+
+You are in a live chat — respond promptly. Gather just enough to answer well: one or two searches usually suffice, and never re-run near-identical queries against the same source. Answer as soon as you have the substance.
+{archiveContext}{topicContext}`
+
+const ARCHIVE_CONTEXT = `
+
+**Archive tools:**
+You also have access to the BKC archive — a curated collection of video transcripts, articles, newsletters, and bookmarked items, organized by a wiki of topic, people, org, and timeline pages.
+
+- \`search_archive\`: semantic search across all archive content — use for questions about what the archive holds (talks, writings, coverage of a subject)
+- \`list_archive_wiki_pages\`: list the curated wiki pages — use to route a thematic question (a topic, person, organization, or era) to the right page
+- \`read_archive_wiki_page\`: read one wiki page; its wiki-links carry archive item ids
+- \`get_archive_item\`: fetch one item's metadata plus full source material (transcript or article text) by id
+
+For direct content questions, go straight to \`search_archive\`. For thematic or survey questions ("what does the archive have on X", questions about a person/org/era), route through the wiki: \`list_archive_wiki_pages\` → \`read_archive_wiki_page\` → \`get_archive_item\` for the sources you need. Cite items by title, date, and URL. Event transcripts (the tools above) and the archive are different bodies of material — talks, videos, interviews, articles, and newsletters usually live in the archive. Budget your tool calls: if an event-history search returns nothing relevant, switch to \`search_archive\` instead of retrying variations of the same search.`
 
 function buildTopicContext(topics: TopicRef[]): string {
   const lines = topics.map((t) => {
@@ -102,15 +118,19 @@ export default verify({
       personalityName = 'sarcastic-expert'
     }
 
-    const systemPromptBase = BASE_SYSTEM_PROMPT.replace('{botName}', this.agentConfig.botName).replace(
-      '{topicContext}',
-      buildTopicContext(topics)
-    )
+    const archiveEnabled = !!config.archivePath
+
+    const systemPromptBase = BASE_SYSTEM_PROMPT.replace('{botName}', this.agentConfig.botName)
+      .replace('{archiveContext}', archiveEnabled ? ARCHIVE_CONTEXT : '')
+      .replace('{topicContext}', buildTopicContext(topics))
     const systemPrompt = buildSystemPromptWithPersonality(systemPromptBase, personalityName)
 
-    const tools = topics.length > 0 ? createEventHistoryTools(topics) : []
+    const tools: StructuredToolInterface[] = topics.length > 0 ? createEventHistoryTools(topics) : []
+    if (archiveEnabled) tools.push(...createArchiveTools(config.archivePath))
 
     // Build message array: chat history + current question
+    // Recursion limit: each tool round-trip costs 2 graph steps; with both event-history
+    // and archive tool sets the agent may need to consult several before answering.
     const response = await getAgentStructuredResponse(
       llm,
       tools,
@@ -118,7 +138,7 @@ export default verify({
       `## Question:\n${question}`,
       undefined,
       chatHistory,
-      10
+      30
     )
 
     const responseChannels = this.conversation.channels.filter((channel) => channel.name === 'historian')
