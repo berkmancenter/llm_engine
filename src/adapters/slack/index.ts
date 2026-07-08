@@ -163,6 +163,6 @@ export default {
     return isDM ? this.dmChannels : this.chatChannels
   },
   getUniqueKeys() {
-    return ['type', 'config.channel', 'config.workspace']
+    return ['type', 'config.channel', 'config.workspace', 'config.appKey']
   }
 }
