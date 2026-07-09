@@ -23,6 +23,7 @@ async function fetchBudgetAlerts(budgets: BudgetConfig[]): Promise<BudgetAlert[]
   const alerts: BudgetAlert[] = []
   for (const budget of budgets) {
     try {
+      logger.debug(`numberCruncher: retrieving budget from endpoint: ${budget.endpoint}`)
       const res = await fetch(budget.endpoint, {
         headers: { Authorization: `Bearer ${budget.apiKey}` }
       })
@@ -38,6 +39,7 @@ async function fetchBudgetAlerts(budgets: BudgetConfig[]): Promise<BudgetAlert[]
         continue
       }
       const used = limit - remaining
+      logger.debug(`numberCruncher: ${budget.label} budget usage: $${used}`)
       const percentUsed = (used / limit) * 100
       if (percentUsed >= budget.thresholdPercent) {
         alerts.push({ label: budget.label, used, limit, percentUsed })
