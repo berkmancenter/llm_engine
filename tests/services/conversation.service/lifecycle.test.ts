@@ -54,10 +54,29 @@ describe('isConversationDraft', () => {
     expect(isConversationDraft(conversation)).toBe(true)
   })
 
-  test('returns true when scheduledTime is missing', () => {
+  test('returns false when scheduledTime is missing but name and topic are present (instant-start)', () => {
     const conversation = completeConversation()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(conversation as any).scheduledTime = undefined
+    expect(isConversationDraft(conversation)).toBe(false)
+  })
+
+  test('returns false for an instant-start conversation with no Zoom link or scheduledEndTime', () => {
+    const conversation = completeConversation()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(conversation as any).scheduledTime = undefined
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(conversation as any).scheduledEndTime = undefined
+    conversation.properties = {} as { zoomMeetingUrl: string }
+    expect(isConversationDraft(conversation)).toBe(false)
+  })
+
+  test('returns true when scheduledTime and name are both missing', () => {
+    const conversation = completeConversation()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(conversation as any).scheduledTime = undefined
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(conversation as any).name = undefined
     expect(isConversationDraft(conversation)).toBe(true)
   })
 

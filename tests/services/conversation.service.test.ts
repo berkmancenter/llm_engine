@@ -914,7 +914,7 @@ describe('Conversation service methods', () => {
       expect(conversation.draft).toBe(true)
     })
 
-    test('does not auto-start a Draft conversation created with no scheduledTime, and does not throw', async () => {
+    test('is not Draft and starts immediately when created with no scheduledTime (instant-start)', async () => {
       const conversation = await conversationService.createConversation(
         {
           name: 'No Schedule Yet',
@@ -922,8 +922,8 @@ describe('Conversation service methods', () => {
         },
         registeredUser
       )
-      expect(conversation.draft).toBe(true)
-      expect(conversation.active).toBe(false)
+      expect(conversation.draft).toBe(false)
+      expect(conversation.active).toBe(true)
     })
   })
 

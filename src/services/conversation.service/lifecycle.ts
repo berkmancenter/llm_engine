@@ -83,17 +83,24 @@ function isZoomUrl(url: unknown): boolean {
 
 /**
  * A conversation is Draft until every field required to run it as a scheduled event is
- * present and valid: a Zoom meeting link, a name, a topic, a scheduled start time, and a
- * scheduled end time. Once all five hold, the conversation is Scheduled (draft: false).
+ * present and valid. The Zoom link and scheduled end time are only required once a
+ * scheduledTime has actually been requested, conversations with no scheduledTime are
+ * instant-start (the existing nextspace "create and start now" flow, not a calendar-invite
+ * event awaiting completion) and are never Draft as long as they have a name and a topic,
+ * both of which the schema already requires.
  */
 export function isConversationDraft(conversation: DraftStatusInput): boolean {
-  const hasValidZoomUrl = isZoomUrl(conversation.properties?.zoomMeetingUrl)
   const hasName = typeof conversation.name === 'string' && conversation.name.trim().length > 0
   const hasTopic = !!conversation.topic
-  const hasScheduledTime = !!conversation.scheduledTime
+
+  if (!conversation.scheduledTime) {
+    return !hasName || !hasTopic
+  }
+
+  const hasValidZoomUrl = isZoomUrl(conversation.properties?.zoomMeetingUrl)
   const hasScheduledEndTime = !!conversation.scheduledEndTime
 
-  return !(hasValidZoomUrl && hasName && hasTopic && hasScheduledTime && hasScheduledEndTime)
+  return !(hasValidZoomUrl && hasName && hasTopic && hasScheduledEndTime)
 }
 
 export async function doStartConversation(conversation) {

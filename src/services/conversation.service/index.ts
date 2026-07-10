@@ -222,13 +222,8 @@ const createConversation = async (conversationBody, user) => {
       await scheduleConversationAutoStop(conversation)
       await scheduleConversationEndingSoon(conversation)
     }
-  } else if (!conversation.draft) {
-    await startConversation(conversation, user)
   } else {
-    /* A Draft conversation created with no scheduledTime would otherwise hit the
-       immediate-start path above. Draft conversations can never start (see
-       doStartConversation), so creation must succeed without attempting it. */
-    logger.debug(`Conversation ${conversation._id} created as Draft; skipping automatic start`)
+    await startConversation(conversation, user)
   }
   return conversation
 }
