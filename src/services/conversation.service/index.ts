@@ -7,7 +7,6 @@ import websocketGateway from '../../websockets/websocketGateway.js'
 import agentService from '../agent.service/index.js'
 import Adapter from '../../models/adapter.model.js'
 import schedule from '../../jobs/schedule.js'
-import defineJob from '../../jobs/define.js'
 import logger from '../../config/logger.js'
 import config from '../../config/config.js'
 import adapterService from '../adapter.service.js'
@@ -110,7 +109,6 @@ const autoStop = async (conversationId) => {
 
 async function scheduleConversationAutoStart(conversation) {
   await schedule.cancelAutoStartConversation(conversation._id)
-  await defineJob.autoStartConversation(conversation._id)
   const scheduledAt = new Date(conversation.scheduledTime.getTime() - autoStartLeadTimeMs)
   await schedule.autoStartConversation(scheduledAt, { conversationId: conversation._id })
   logger.debug(`Scheduled auto-start for conversation ${conversation._id} at ${scheduledAt}`)
@@ -118,14 +116,13 @@ async function scheduleConversationAutoStart(conversation) {
 
 async function scheduleConversationAutoStop(conversation) {
   await schedule.cancelAutoStopConversation(conversation._id)
-  await defineJob.autoStopConversation(conversation._id)
   const scheduledAt = new Date(conversation.scheduledEndTime.getTime() + autoStopDelayMs)
   await schedule.autoStopConversation(scheduledAt, { conversationId: conversation._id })
   logger.debug(`Scheduled auto-stop for conversation ${conversation._id} at ${scheduledAt}`)
 }
 
 async function scheduleConversationEndingSoon(conversation) {
-  await defineJob.conversationEndingSoon(conversation._id)
+  await schedule.cancelConversationEndingSoon(conversation._id)
   // Schedule maxScheduledInterval before the scheduled end time;
   // this could eventually become configurable in conversation object
   // Failsafe: do nothing if event is somehow less than 10 minutes long as scheduled
@@ -136,19 +133,6 @@ async function scheduleConversationEndingSoon(conversation) {
   const scheduledAt = new Date(conversation.scheduledEndTime.getTime() - maxScheduledInterval)
   await schedule.conversationEndingSoon(scheduledAt, { conversationId: conversation._id })
   logger.debug(`Scheduled conversation ending soon for conversation ${conversation._id} at ${scheduledAt}`)
-}
-
-const initializeConversations = async () => {
-  const now = new Date()
-  const pendingStart = await Conversation.find({ scheduledTime: { $gt: now }, active: false })
-  for (const conversation of pendingStart) {
-    await defineJob.autoStartConversation(conversation._id)
-  }
-  const pendingStop = await Conversation.find({ scheduledEndTime: { $gt: now } })
-  for (const conversation of pendingStop) {
-    await defineJob.autoStopConversation(conversation._id)
-  }
-  logger.debug(`Conversations initialized: ${pendingStart.length} pending start, ${pendingStop.length} pending stop`)
 }
 
 /**
@@ -233,7 +217,6 @@ const createConversation = async (conversationBody, user) => {
     if (conversation.scheduledEndTime) {
       await scheduleConversationAutoStop(conversation)
       await scheduleConversationEndingSoon(conversation)
-
     }
   } else {
     await startConversation(conversation, user)
@@ -866,7 +849,6 @@ const conversationService = {
   stopConversation,
   autoStart,
   autoStop,
-  initializeConversations,
   joinConversation,
   generateConversationReport,
   updateTranscriptStatus,

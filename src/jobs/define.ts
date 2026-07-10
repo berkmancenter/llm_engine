@@ -10,13 +10,13 @@ const defineJob = {
     await agenda.start()
     await agenda.define(`response - ${agentId}`, JobHandlers.agentResponse)
   },
-  autoStartConversation: async (conversationId) => {
+  autoStartConversation: async () => {
     await agenda.start()
-    await agenda.define(`autoStart - ${conversationId}`, JobHandlers.autoStartConversation)
+    await agenda.define('autoStart', JobHandlers.autoStartConversation)
   },
-  autoStopConversation: async (conversationId) => {
+  autoStopConversation: async () => {
     await agenda.start()
-    await agenda.define(`autoStop - ${conversationId}`, JobHandlers.autoStopConversation)
+    await agenda.define('autoStop', JobHandlers.autoStopConversation)
   },
   batchTranscript: async (conversationId) => {
     await agenda.start()
@@ -38,9 +38,9 @@ const defineJob = {
     await agenda.start()
     await agenda.define('conversationEvent', JobHandlers.conversationEvent)
   },
-  conversationEndingSoon: async (conversationId) => {
+  conversationEndingSoon: async () => {
     await agenda.start()
-    await agenda.define(`conversationEndingSoon - ${conversationId}`, JobHandlers.conversationEndingSoon)
+    await agenda.define('conversationEndingSoon', JobHandlers.conversationEndingSoon)
   },
   pollExpired: async () => {
     await agenda.start()

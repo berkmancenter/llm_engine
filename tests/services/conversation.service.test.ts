@@ -226,6 +226,7 @@ describe('Conversation service methods', () => {
     jest.spyOn(schedule, 'periodicAgent').mockResolvedValue()
     jest.spyOn(schedule, 'agentResponse').mockResolvedValue()
     jest.spyOn(schedule, 'conversationEndingSoon').mockResolvedValue()
+    jest.spyOn(schedule, 'cancelConversationEndingSoon').mockResolvedValue(undefined)
     jest.spyOn(defineJob, 'batchTranscript').mockResolvedValue()
     jest.spyOn(defineJob, 'periodicAgent').mockResolvedValue()
     jest.spyOn(defineJob, 'agentResponse').mockResolvedValue()
@@ -1451,6 +1452,20 @@ describe('Conversation service methods', () => {
     test('should reschedule the auto-stop job when scheduledEndTime changes', async () => {
       const cancelSpy = jest.spyOn(schedule, 'cancelAutoStopConversation').mockResolvedValue(undefined)
       const scheduleSpy = jest.spyOn(schedule, 'autoStopConversation').mockResolvedValue(undefined)
+
+      const newEnd = new Date(Date.now() + 10800000)
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), scheduledEndTime: newEnd },
+        registeredUser
+      )
+
+      expect(cancelSpy).toHaveBeenCalledWith(conversation._id)
+      expect(scheduleSpy).toHaveBeenCalled()
+    })
+
+    test('should reschedule the conversation ending soon job when scheduledEndTime changes', async () => {
+      const cancelSpy = jest.spyOn(schedule, 'cancelConversationEndingSoon').mockResolvedValue(undefined)
+      const scheduleSpy = jest.spyOn(schedule, 'conversationEndingSoon').mockResolvedValue(undefined)
 
       const newEnd = new Date(Date.now() + 10800000)
       await conversationService.updateConversation(
