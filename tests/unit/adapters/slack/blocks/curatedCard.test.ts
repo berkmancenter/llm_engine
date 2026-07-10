@@ -212,6 +212,27 @@ describe('curated vibes card renderer', () => {
     delete data.framing
     expect(JSON.stringify(renderCuratedVibesCard(data))).not.toContain("people showed up, but didn't settle in")
   })
+
+  it('normalizes an over-long chart label so the rendered block stays within Slack limits', () => {
+    const data = negativeStandout()
+    data.standouts[0].visual!.chart = {
+      type: 'line',
+      series: [{ name: 'Participation %', data: [{ label: 'Really Long Event Name Here', value: 10 }] }],
+      axisConfig: { categories: ['Really Long Event Name Here'], yLabel: 'Participation %' }
+    }
+    const block = renderCuratedVibesCard(data).find((b) => (b as { type: string }).type === 'data_visualization')
+    // The 27-character label must be clamped to 20 before it could ever reach Slack.
+    expect(JSON.stringify(block)).not.toContain('Really Long Event Name Here')
+  })
+
+  it('omits the duration footer and its divider for a trend card that spans multiple events', () => {
+    const data = negativeStandout()
+    // A trend card leaves durationMinutes unset, since a single duration cannot describe many events.
+    delete (data as { durationMinutes?: number }).durationMinutes
+    const blocks = renderCuratedVibesCard(data)
+    expect(JSON.stringify(blocks)).not.toContain('Event duration')
+    expect(blocks.some((block) => block.type === 'divider')).toBe(false)
+  })
 })
 
 describe('slack block registry: curated card', () => {

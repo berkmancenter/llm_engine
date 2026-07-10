@@ -1568,8 +1568,12 @@ describe('Conversation routes', () => {
       agentSpecification.conversation = agentConversation._id.toString()
 
       // this is incomplete, but covers representative fields
+      // agentConfig is omitted — the request is made as userOne, not the conversation owner,
+      // so agentConfig is redacted from the response
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { agentConfig: _agentConfig, ...agentSpecificationWithoutConfig } = agentSpecification
       const expectedAgentResponse = {
-        ...agentSpecification,
+        ...agentSpecificationWithoutConfig,
         name: expectedAgentTypeSpecification.name,
         description: expectedAgentTypeSpecification.description,
         priority: expectedAgentTypeSpecification.priority,
@@ -2573,7 +2577,7 @@ describe('Conversation routes', () => {
       })
       await conversationWithPdf.save()
 
-      const res = await request(app)
+      await request(app)
         .put('/v1/conversations')
         .set('Authorization', `Bearer ${userOneAccessToken}`)
         .send({

@@ -150,7 +150,7 @@ export default verify({
   maxTokens: 2000,
   defaultTriggers: {
     perMessage: { directMessages: true, channels: ['chat', 'image-gen'], allowMessagesFromAgents: true },
-    periodic: { timerPeriod: 180 }
+    periodic: { timerPeriod: 180, proactive: true }
   },
   agentConfig: {
     chatIntroMessage: `Welcome! I'm {{agentConfig.botName}}, your AI event assistant. This is a space to chat with other event participants. You can also ask me questions with an @{{agentConfig.botName}} mention. Just remember that everyone can see what you ask me here. Use the {{agentConfig.botName}} tab if you want to talk privately. Have fun!`,

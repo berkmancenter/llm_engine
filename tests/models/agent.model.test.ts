@@ -523,6 +523,29 @@ describe('agent tests', () => {
     expect(mockEvaluate).toHaveBeenCalledTimes(1)
   })
 
+  test('should allow proactive periodic agent to evaluate even when no new messages since last check', async () => {
+    const agent = new Agent({
+      agentType: 'periodic',
+      conversation,
+      triggers: { periodic: { timerPeriod: 300, proactive: true } }
+    })
+    await agent.save()
+    await agent.start()
+
+    mockEvaluate.mockResolvedValue({
+      userMessage: null,
+      action: AgentMessageActions.CONTRIBUTE,
+      agentContributionVisible: false,
+      userContributionVisible: true,
+      suggestion: undefined
+    })
+
+    // No messages in conversation — messageCount === lastActiveMessageCount (both 0).
+    // A non-proactive agent would skip; a proactive one should still call evaluate.
+    await agent.evaluate()
+    expect(mockEvaluate).toHaveBeenCalledTimes(1)
+  })
+
   test('should not increase messsage count if message rejected', async () => {
     const agent = new Agent({
       agentType: 'perMessage',
@@ -1564,6 +1587,111 @@ describe('agent tests', () => {
       expect(conversationHistory.messages).toHaveLength(2)
       expect(conversationHistory.messages.find((m) => m.body === 'Message on dm-user1-agent')).toBeDefined()
       expect(conversationHistory.messages.find((m) => m.body === 'Message on dm-user2-agent')).toBeDefined()
+    })
+
+    test('should call respond with empty history when proactive periodic trigger and no DM messages', async () => {
+      const agent = new Agent({
+        agentType: 'periodic',
+        conversation: testConversation,
+        triggers: {
+          periodic: {
+            timerPeriod: 300,
+            proactive: true,
+            conversationHistorySettings: {
+              directMessages: true,
+              count: 10
+            }
+          }
+        }
+      })
+      await agent.save()
+
+      const directChannel = await Channel.create({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'dm-user1-agent',
+        participants: [registeredUser._id, agent._id],
+        direct: true
+      })
+      testConversation.channels.push(directChannel)
+      await testConversation.save()
+
+      // Add a non-DM message so lastActiveMessageCount check passes
+      const chatMsg = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Message on chat',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['chat']
+      })
+      await chatMsg.save()
+
+      await agent.start()
+      await testConversation.populate(['messages', 'channels'])
+
+      mockEvaluate.mockResolvedValue({
+        userMessage: null,
+        action: AgentMessageActions.CONTRIBUTE,
+        agentContributionVisible: true,
+        userContributionVisible: true,
+        suggestion: undefined
+      })
+      mockRespond.mockResolvedValue([])
+
+      await agent.evaluate()
+      await agent.respond()
+
+      // respond should be called with empty DM history despite chat messages existing
+      const conversationHistory = mockRespond.mock.calls[0][0]
+      expect(conversationHistory.messages).toHaveLength(0)
+    })
+
+    test('should not call respond when non-proactive periodic trigger and no messages in history', async () => {
+      const agent = new Agent({
+        agentType: 'periodic',
+        conversation: testConversation,
+        triggers: {
+          periodic: {
+            timerPeriod: 300,
+            conversationHistorySettings: {
+              directMessages: true,
+              count: 10
+            }
+          }
+        }
+      })
+      await agent.save()
+
+      const directChannel = await Channel.create({
+        _id: new mongoose.Types.ObjectId(),
+        name: 'dm-user1-agent',
+        participants: [registeredUser._id, agent._id],
+        direct: true
+      })
+      testConversation.channels.push(directChannel)
+      await testConversation.save()
+
+      // Add a non-DM message so lastActiveMessageCount check passes
+      const chatMsg = new Message({
+        _id: new mongoose.Types.ObjectId(),
+        body: 'Message on chat',
+        conversation: testConversation._id,
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        channels: ['chat']
+      })
+      await chatMsg.save()
+
+      await agent.start()
+      await testConversation.populate(['messages', 'channels'])
+
+      await agent.evaluate()
+      const responses = await agent.respond()
+
+      expect(responses).toEqual([])
+      expect(mockRespond).not.toHaveBeenCalled()
     })
 
     test('should only get direct channels from userMessage when userMessage is present', async () => {

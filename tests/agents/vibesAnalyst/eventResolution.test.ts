@@ -32,4 +32,70 @@ describe('extractEventReference', () => {
 
     expect(reference.latestOverall).toBe(true)
   })
+
+  it('does not flag a single-event recap as a trend', async () => {
+    const reference = await extractEventReference('@Vibes can you recap the Spring Town Hall for me?', llm)
+
+    expect(reference.trend).toBe(false)
+  })
+
+  it('flags a cross-event question as a trend and reads the count', async () => {
+    const reference = await extractEventReference('@Vibes how was engagement across the last 3 events?', llm)
+
+    expect(reference.trend).toBe(true)
+    expect(reference.eventCount).toBe(3)
+  })
+
+  it('flags a trend without a count when none is stated', async () => {
+    const reference = await extractEventReference('@Vibes has participation been trending up in the AI Ethics series?', llm)
+
+    expect(reference.trend).toBe(true)
+    expect(reference.eventCount).toBeNull()
+    expect(reference.eventQuery.toLowerCase()).toContain('ethics')
+  })
+
+  it('classifies a recap request as a recap intent', async () => {
+    const reference = await extractEventReference('@Vibes can you recap the Spring Town Hall for me?', llm)
+
+    expect(reference.intent).toBe('recap')
+  })
+
+  it('classifies a greeting as a greeting intent and names no event', async () => {
+    const reference = await extractEventReference('@Vibes are you there?', llm)
+
+    expect(reference.intent).toBe('greeting')
+    expect(reference.eventQuery.trim()).toBe('')
+  })
+
+  it('classifies a capability question as a help intent', async () => {
+    const reference = await extractEventReference('@Vibes what can you do?', llm)
+
+    expect(reference.intent).toBe('help')
+  })
+
+  it('classifies an unrelated question as an off-topic intent', async () => {
+    const reference = await extractEventReference("@Vibes what's the weather in Boston today?", llm)
+
+    expect(reference.intent).toBe('offTopic')
+  })
+
+  it('extracts a list of specific named events to compare, rather than a topic or a count', async () => {
+    const reference = await extractEventReference(
+      '@Vibes compare the Spring Town Hall to the AI Ethics kickoff',
+      llm
+    )
+
+    expect(reference.trend).toBe(true)
+    expect(reference.eventNames?.length).toBe(2)
+    const joined = (reference.eventNames ?? []).join(' ').toLowerCase()
+    expect(joined).toContain('town hall')
+    expect(joined).toContain('ethics')
+    expect(reference.eventQuery.trim()).toBe('')
+  })
+
+  it('leaves eventNames empty for an ordinary topic or recent-N trend', async () => {
+    const reference = await extractEventReference('@Vibes how was engagement across the last 3 events?', llm)
+
+    expect(reference.eventNames ?? []).toEqual([])
+  })
 })

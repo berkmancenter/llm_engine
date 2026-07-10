@@ -1789,6 +1789,115 @@ describe('Conversation service methods', () => {
       expect((result.topic as any).passcode).toBeUndefined()
     })
 
+    test('should strip agentConfig from agents for non-owner user', async () => {
+      // Create a conversation with a feature agent that has agentConfig populated
+      const params = {
+        type: 'eventAssistant',
+        name: 'Agent Config Test',
+        platforms: ['zoom'],
+        topicId: topicOne._id.toString(),
+        scheduledTime: new Date(Date.now() + 7200000),
+        properties: { zoomMeetingUrl: 'https://zoom.us/j/agentconfigtest' },
+        features: [{ name: 'collectiveVoice' }]
+      }
+      const conv = await conversationService.createConversationFromType(params, registeredUser)
+
+      const nonOwner = { _id: new mongoose.Types.ObjectId(), role: 'user' }
+      const result = await conversationService.findByIdFull(conv._id.toString(), nonOwner)
+
+      expect(result.agents).toBeDefined()
+      result.agents.forEach((agent) => {
+        expect(agent).not.toHaveProperty('agentConfig')
+      })
+    })
+
+    test('should include agentConfig on agents for conversation owner', async () => {
+      const params = {
+        type: 'eventAssistant',
+        name: 'Agent Config Owner Test',
+        platforms: ['zoom'],
+        topicId: topicOne._id.toString(),
+        scheduledTime: new Date(Date.now() + 10800000),
+        properties: { zoomMeetingUrl: 'https://zoom.us/j/agentconfigowner' },
+        features: [{ name: 'collectiveVoice' }]
+      }
+      const conv = await conversationService.createConversationFromType(params, registeredUser)
+
+      const result = await conversationService.findByIdFull(conv._id.toString(), registeredUser)
+
+      const mediator = result.agents.find((a) => a.agentType === 'eventMediator')
+      expect(mediator).toBeDefined()
+      expect(mediator).toHaveProperty('agentConfig')
+    })
+
+    test('should include agentConfig on agents for admin user', async () => {
+      const params = {
+        type: 'eventAssistant',
+        name: 'Agent Config Admin Test',
+        platforms: ['zoom'],
+        topicId: topicOne._id.toString(),
+        scheduledTime: new Date(Date.now() + 14400000),
+        properties: { zoomMeetingUrl: 'https://zoom.us/j/agentconfigadmin' },
+        features: [{ name: 'collectiveVoice' }]
+      }
+      const conv = await conversationService.createConversationFromType(params, registeredUser)
+
+      const adminUser = { _id: new mongoose.Types.ObjectId(), role: 'admin' }
+      const result = await conversationService.findByIdFull(conv._id.toString(), adminUser)
+
+      const mediator = result.agents.find((a) => a.agentType === 'eventMediator')
+      expect(mediator).toBeDefined()
+      expect(mediator).toHaveProperty('agentConfig')
+    })
+
+    test('should strip adapter config from adapters for non-owner user', async () => {
+      const slack = await Adapter.create({
+        type: 'slack',
+        conversation: conversation._id,
+        config: { botToken: 'xoxb-secret-token', channel: 'C123', workspace: 'T456' }
+      })
+      await Conversation.updateOne({ _id: conversation._id }, { $push: { adapters: slack._id } })
+
+      const nonOwner = { _id: new mongoose.Types.ObjectId(), role: 'user' }
+      const result = await conversationService.findByIdFull(conversation._id.toString(), nonOwner)
+
+      result.adapters.forEach((adapter) => {
+        expect(adapter).not.toHaveProperty('config')
+      })
+    })
+
+    test('should include adapter config for conversation owner', async () => {
+      const slack = await Adapter.create({
+        type: 'slack',
+        conversation: conversation._id,
+        config: { botToken: 'xoxb-secret-token', channel: 'C123', workspace: 'T456' }
+      })
+      await Conversation.updateOne({ _id: conversation._id }, { $push: { adapters: slack._id } })
+
+      const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
+
+      const slackResult = result.adapters.find((a) => a.type === 'slack')
+      expect(slackResult).toBeDefined()
+      expect(slackResult).toHaveProperty('config')
+      expect(slackResult!.config.botToken).toBe('xoxb-secret-token')
+    })
+
+    test('should include adapter config for admin user', async () => {
+      const slack = await Adapter.create({
+        type: 'slack',
+        conversation: conversation._id,
+        config: { botToken: 'xoxb-secret-token', channel: 'C123', workspace: 'T456' }
+      })
+      await Conversation.updateOne({ _id: conversation._id }, { $push: { adapters: slack._id } })
+
+      const adminUser = { _id: new mongoose.Types.ObjectId(), role: 'admin' }
+      const result = await conversationService.findByIdFull(conversation._id.toString(), adminUser)
+
+      const slackResult = result.adapters.find((a) => a.type === 'slack')
+      expect(slackResult).toBeDefined()
+      expect(slackResult).toHaveProperty('config')
+    })
+
     test('should expose hasPdf: true and omit fileName when a resource has a PDF attached', async () => {
       /* Insert a resource with fileName directly in the DB to simulate what savePdf does.
          findByIdFull should strip fileName and expose hasPdf: true instead. */

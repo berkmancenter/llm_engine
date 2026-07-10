@@ -178,7 +178,7 @@ describe('adapter tests', () => {
       conversation
     })
     await adapter.save()
-    const mockKeys = ['type', 'config.channel', 'config.workspace']
+    const mockKeys = ['type', 'config.channel', 'config.workspace', 'config.appKey']
     mockGetUniqueKeys.mockReturnValue(mockKeys)
     const keys = Adapter.getUniqueKeys('slack')
     expect(keys).toBe(mockKeys)

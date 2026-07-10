@@ -61,7 +61,7 @@ describe('POST /v1/webhooks/slack', () => {
     conversation.adapters.push(slackAdapter)
     await conversation.save()
     receiveMessageSpy = jest.spyOn(webhookService, 'receiveMessage').mockResolvedValue()
-    mockSlackGetUniqueKeys.mockReturnValue(['type', 'config.channel', 'config.workspace'])
+    mockSlackGetUniqueKeys.mockReturnValue(['type', 'config.channel', 'config.workspace', 'config.appKey'])
   })
   afterAll(() => {
     setAdapterTypes(defaultAdapterTypes)

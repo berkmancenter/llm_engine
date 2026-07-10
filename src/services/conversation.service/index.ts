@@ -588,15 +588,30 @@ const findByIdFull = async (id, user) => {
         return ret
       }
       const { _id, ...cleanRet } = ret
+      const isOwnerOrAdmin = user._id.toString() === conversation.owner.toString() || user.role === 'admin'
+
       // display channel passcodes only to conversation owner or admin user
       let { channels } = cleanRet
-      if (channels && user._id.toString() !== conversation.owner.toString() && user.role !== 'admin') {
+      if (channels && !isOwnerOrAdmin) {
         channels = channels.map((channel) => {
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const { passcode, ...channelWithoutPasscode } = channel
           return channelWithoutPasscode
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
         }) as any[]
+      }
+
+      // strip agentConfig and adapter config from non-owners — these may contain API keys
+      let { agents, adapters } = cleanRet
+      if (!isOwnerOrAdmin) {
+        if (agents) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
+          agents = agents.map(({ agentConfig, ...rest }) => rest) as any[]
+        }
+        if (adapters) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
+          adapters = adapters.map(({ config: _config, ...rest }) => rest) as any[]
+        }
       }
       const resources = cleanRet.resources?.map((r) => {
         /* Strip internal fileName and expose hasPdf so the client knows a PDF
@@ -609,6 +624,8 @@ const findByIdFull = async (id, user) => {
         id: _id.toString(),
         followed,
         ...(channels && { channels }),
+        ...(agents && { agents }),
+        ...(adapters && { adapters }),
         ...(resources && { resources })
       }
     }

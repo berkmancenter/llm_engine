@@ -292,11 +292,13 @@ export async function detectPrivateInterventionOpportunity(
   extraTemplateVars?: Record<string, string>
 ): Promise<InterventionAnalysis | null> {
   const now = sharedChatHistory.end ? sharedChatHistory.end.getTime() : Date.now()
-  const minInterval = (this.agentConfig?.minInterval || 2) * 60 * 1000
+  const minInterval = (this.agentConfig?.minInterval ?? 2) * 60 * 1000
 
   const lastIntervention = getRecentAgentInterventions(participantDmHistory).at(-1)
-  if (lastIntervention && now - lastIntervention.timestamp.getTime() < minInterval) {
-    const secondsAgo = Math.round((now - lastIntervention.timestamp.getTime()) / 1000)
+  // Use startTime as baseline for first intervention — resets on conversation restart, which is intentional.
+  const baseline = lastIntervention ? lastIntervention.timestamp.getTime() : new Date(this.conversation.startTime).getTime()
+  if (now - baseline < minInterval) {
+    const secondsAgo = Math.round((now - baseline) / 1000)
     logger.debug(
       `${this.agentType} ${this._id}: rate limited for participant — last intervention ${secondsAgo}s ago (min ${
         minInterval / 1000

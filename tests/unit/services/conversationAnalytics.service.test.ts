@@ -1,11 +1,12 @@
 import mongoose from 'mongoose'
 import setupIntTest from '../../utils/setupIntTest.js'
-import { Conversation, Message, ConversationAnalytics, Channel } from '../../../src/models/index.js'
+import { Conversation, Message, ConversationAnalytics, ConversationMetricsSnapshot, Channel, Agent } from '../../../src/models/index.js'
 import conversationAnalyticsService, {
   attributeSpikeSources,
   computeResourceSummary,
   deriveEventPlatform,
-  spikeSourceForChannels
+  spikeSourceForChannels,
+  METRICS_VERSION
 } from '../../../src/services/conversationAnalytics.service.js'
 import { ChatSpike } from '../../../src/types/index.types.js'
 import config from '../../../src/config/config.js'
@@ -122,6 +123,33 @@ async function seedMessageOnChannelAt(
   await Message.collection.updateOne({ _id: message._id }, { $set: { createdAt } })
 }
 
+/* Creates a real Agent document on the conversation, the same lightweight 'test' agentType
+   fixture other test suites in this repo use. */
+async function seedAgent(conversation) {
+  const agent = new Agent({ agentType: 'vibesAnalyst', conversation })
+  await agent.save()
+  conversation.agents.push(agent)
+  await conversation.save()
+  return agent
+}
+
+/* Seeds one direct (1:1 bot-DM) channel between a person and an agent, the way joinConversation
+   provisions one automatically the moment someone connects (see conversation.service). Registers
+   the channel on the conversation's own channels array, since that is what the real participant
+   count reads: not a standalone Channel query, but the conversation's own channels list filtered
+   to direct:true, with any of its own agents excluded from the headcount. */
+async function seedDirectChannel(conversation, agent) {
+  const userId = new mongoose.Types.ObjectId()
+  const channel = await Channel.create({
+    name: `direct-${userId.toString()}-${agent._id.toString()}`,
+    direct: true,
+    participants: [userId, agent._id]
+  })
+  conversation.channels.push(channel)
+  await conversation.save()
+  return userId
+}
+
 describe('computeConversationMetrics', () => {
   it('computes participation from Mongo and derives attention ratios from the snapshot', async () => {
     const conversation = await makeConversation()
@@ -136,6 +164,10 @@ describe('computeConversationMetrics', () => {
       source: 'matomo',
       capturedAt: new Date('2026-06-12T00:00:00.000Z')
     })
+    // audienceEngagement no longer reads Matomo; seed 40 direct-channel participants so the
+    // headcount still reconciles with the tracked-session assertions below.
+    const agent = await seedAgent(conversation)
+    for (let i = 0; i < 40; i += 1) await seedDirectChannel(conversation, agent)
 
     const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
 
@@ -156,17 +188,55 @@ describe('computeConversationMetrics', () => {
     expect(matomo.avgDwellSeconds).toBe(300) // 30000 / 100
     expect(matomo.deviceBreakdown).toMatchObject({ desktop: 70, mobile: 30 })
     expect(matomo.source).toBe('matomo')
+    // An older snapshot stored before action tracking existed has no breakdown or
+    // activeVisitorCount, so they coerce to empty/zero and the averages stay empty.
+    expect(matomo.actionBreakdown).toEqual({})
+    expect(matomo.actionUserBreakdown).toEqual({})
+    expect(matomo.activeVisitorCount).toBe(0)
+    expect(matomo.actionBreakdownPerActiveVisitor).toEqual({})
   })
 
-  it('returns participation and no tracked sessions when no source is referenced or stored', async () => {
+  it('derives per-active-visitor action averages from the stored action breakdown', async () => {
     const conversation = await makeConversation()
     await seedParticipation(conversation._id)
+    await ConversationAnalytics.create({
+      conversationId: conversation._id,
+      attendeeCount: 40,
+      totalVisits: 100,
+      totalActions: 800,
+      totalDwellSeconds: 30000,
+      deviceBreakdown: { desktop: 70, mobile: 30 },
+      actionBreakdown: { 'command:visual': 20, 'tab:chat': 10 },
+      actionUserBreakdown: { 'command:visual': 4, 'tab:chat': 3 },
+      activeVisitorCount: 5,
+      source: 'matomo',
+      capturedAt: new Date('2026-06-12T00:00:00.000Z')
+    })
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+    const [matomo] = metrics.trackedSessionSources
+
+    expect(matomo.actionBreakdown).toEqual({ 'command:visual': 20, 'tab:chat': 10 })
+    expect(matomo.actionUserBreakdown).toEqual({ 'command:visual': 4, 'tab:chat': 3 })
+    expect(matomo.activeVisitorCount).toBe(5)
+    // Averages are per active visitor (the Bucket-1 denominator), computed at read time.
+    expect(matomo.actionBreakdownPerActiveVisitor).toEqual({ 'command:visual': 4, 'tab:chat': 2 })
+  })
+
+  it('returns the participant mismatch and no tracked sessions when no source is referenced or stored', async () => {
+    const conversation = await makeConversation()
+    await seedParticipation(conversation._id) // 2 posters, but nobody joined via a direct channel
 
     const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
 
     expect(metrics.participation).toMatchObject({ posterCount: 2, frequentPosterCount: 0, messageCount: 3 })
     expect(metrics.participation.frequentPosterMessageShare).toBeNull()
-    expect(metrics.audienceEngagement).toBeNull()
+    expect(metrics.audienceEngagement).toEqual({
+      participantCount: 0,
+      lurkerCount: null,
+      participationRate: null,
+      postersExceedTrackedSessions: true
+    })
     expect(metrics.trackedSessionSources).toEqual([])
     expect(metrics.trackedSessionStatus).toBe('notTracked')
   })
@@ -376,19 +446,27 @@ describe('computeConversationMetrics frequent posters', () => {
 })
 
 describe('computeConversationMetrics audience engagement', () => {
-  it('returns null lurkers and rate and flags the mismatch when posters exceed tracked sessions', async () => {
+  it('counts zero participants and reports an empty room when the conversation has no direct channels', async () => {
+    const conversation = await makeConversation()
+    await seedParticipation(conversation._id) // 2 posters, but nobody ever joined via a channel
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+
+    // 2 posters against 0 participants is the mismatch case (posters cannot exceed
+    // an empty room's headcount without invention), not the true "empty room" case.
+    expect(metrics.audienceEngagement).toEqual({
+      participantCount: 0,
+      lurkerCount: null,
+      participationRate: null,
+      postersExceedTrackedSessions: true
+    })
+  })
+
+  it('returns null lurkers and rate and flags the mismatch when posters exceed direct-channel participants', async () => {
     const conversation = await makeConversation()
     await seedParticipation(conversation._id) // 2 posters
-    await ConversationAnalytics.create({
-      conversationId: conversation._id,
-      attendeeCount: 1,
-      totalVisits: 1,
-      totalActions: 1,
-      totalDwellSeconds: 10,
-      deviceBreakdown: {},
-      source: 'matomo',
-      capturedAt: new Date('2026-06-12T00:00:00.000Z')
-    })
+    const agent = await seedAgent(conversation)
+    await seedDirectChannel(conversation, agent) // 1 participant joined
 
     const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
 
@@ -403,16 +481,8 @@ describe('computeConversationMetrics audience engagement', () => {
   it('reports real lurkers and rate with the flag false when the counts reconcile', async () => {
     const conversation = await makeConversation()
     await seedParticipation(conversation._id) // 2 posters
-    await ConversationAnalytics.create({
-      conversationId: conversation._id,
-      attendeeCount: 5,
-      totalVisits: 5,
-      totalActions: 5,
-      totalDwellSeconds: 50,
-      deviceBreakdown: {},
-      source: 'matomo',
-      capturedAt: new Date('2026-06-12T00:00:00.000Z')
-    })
+    const agent = await seedAgent(conversation)
+    for (let i = 0; i < 5; i += 1) await seedDirectChannel(conversation, agent)
 
     const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
 
@@ -422,6 +492,41 @@ describe('computeConversationMetrics audience engagement', () => {
       participationRate: 0.4,
       postersExceedTrackedSessions: false
     })
+  })
+
+  it('counts each distinct person once even when the conversation has more than one agent', async () => {
+    // joinConversation provisions one direct channel per agent for every person who joins, so a
+    // conversation with 2 agents gives each attendee 2 direct channels. The headcount must dedupe
+    // by person, not by channel row, or it would silently double an otherwise-correct count.
+    const conversation = await makeConversation()
+    await seedParticipation(conversation._id) // 2 posters
+    const agentOne = await seedAgent(conversation)
+    const agentTwo = await seedAgent(conversation)
+    const userId = new mongoose.Types.ObjectId()
+    for (const agent of [agentOne, agentTwo]) {
+      const channel = await Channel.create({
+        name: `direct-${userId.toString()}-${agent._id.toString()}`,
+        direct: true,
+        participants: [userId, agent._id]
+      })
+      conversation.channels.push(channel)
+    }
+    await conversation.save()
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+
+    expect(metrics.audienceEngagement?.participantCount).toBe(1)
+  })
+
+  it('ignores a non-direct channel on the conversation, since it carries no one-to-one participant', async () => {
+    const conversation = await makeConversation()
+    const publicChannel = await Channel.create({ name: 'main', direct: false })
+    conversation.channels.push(publicChannel)
+    await conversation.save()
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+
+    expect(metrics.audienceEngagement?.participantCount).toBe(0)
   })
 })
 
@@ -811,9 +916,11 @@ describe('computeConversationMetrics bot invocations', () => {
 
 /* Creates a past event in a topic: one message from each name in `speakers` (a
    pseudonym is a poster's anonymous display name), so posterCount = speakers.length.
-   When `tracked` is given, also stores a web-analytics snapshot so the event has a
-   participant (visitor) count and dwell time; without it the event has no tracked
-   data, so its lurker count is unknown (null). */
+   `tracked` still stores the old web-analytics snapshot for completeness, but the audience
+   headcount now comes from direct channels (see countChannelParticipants), so this also
+   seeds one direct channel per `attendeeCount`, joining an agent this conversation owns.
+   Without `tracked`, the event has no channels and no lurker data, so its lurker count is
+   unknown (null). */
 async function seedTopicEvent(
   topicId: mongoose.Types.ObjectId,
   options: {
@@ -855,6 +962,8 @@ async function seedTopicEvent(
       source: 'matomo',
       capturedAt: options.endTime ?? new Date('2026-06-12T00:00:00.000Z')
     })
+    const agent = await seedAgent(conversation)
+    for (let i = 0; i < options.tracked.attendeeCount; i += 1) await seedDirectChannel(conversation, agent)
   }
   return conversation
 }
@@ -919,6 +1028,37 @@ describe('computeConversationMetrics channel split', () => {
     const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
 
     expect(metrics.channelSplit).toEqual({ public: 3, private: 2 })
+    // ana sent both private messages; bo and cy posted publicly. posterCount is 3.
+    expect(metrics.privateMessaging).toEqual({
+      privateMessageCount: 2,
+      distinctPrivateSenders: 1,
+      distinctPublicSenders: 2,
+      avgPrivateMessagesPerPoster: 2 / 3
+    })
+  })
+
+  it('reports zero distinct private senders and a zero average when no private messages were sent', async () => {
+    const conversation = await makeConversation()
+    await Message.create([
+      {
+        body: 'hi',
+        conversation: conversation._id,
+        owner: ownerFor('ana'),
+        pseudonymId: ownerId,
+        pseudonym: 'ana',
+        fromAgent: false,
+        channels: ['main']
+      }
+    ])
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+
+    expect(metrics.privateMessaging).toEqual({
+      privateMessageCount: 0,
+      distinctPrivateSenders: 0,
+      distinctPublicSenders: 1,
+      avgPrivateMessagesPerPoster: 0
+    })
   })
 })
 
@@ -1008,20 +1148,66 @@ describe('computeConversationMetrics hidden message exclusion', () => {
   })
 })
 
+/* Seeds one past event as a persisted metrics snapshot, the source of truth history and the
+   baseline now read from. lurkerCount null marks an event whose tracking did not reconcile
+   (or had no tracked data), so it contributes a poster count but no lurker or dwell sample,
+   exactly as the snapshot would have been written. */
+async function seedPastSnapshot(
+  topicId: mongoose.Types.ObjectId,
+  options: {
+    endTime: Date
+    posterCount: number
+    lurkerCount: number | null
+    avgDwellSeconds?: number | null
+    metricsVersion?: number
+  }
+) {
+  return ConversationMetricsSnapshot.create({
+    conversationId: new mongoose.Types.ObjectId(),
+    topicId,
+    name: 'Topic series event',
+    endTime: options.endTime,
+    platform: 'nextspace',
+    metricsVersion: options.metricsVersion ?? METRICS_VERSION,
+    capturedAt: options.endTime,
+    posterCount: options.posterCount,
+    messageCount: options.posterCount,
+    frequentPosterCount: 0,
+    frequentPosterMessageShare: null,
+    trackedSessionStatus: options.lurkerCount !== null ? 'available' : 'notTracked',
+    trackedSessions: 0,
+    participantCount: options.lurkerCount !== null ? options.posterCount + options.lurkerCount : null,
+    lurkerCount: options.lurkerCount,
+    participationRate: null,
+    postersExceedTrackedSessions: options.lurkerCount === null ? null : false,
+    avgDwellSeconds: options.avgDwellSeconds ?? null,
+    totalActions: null,
+    channelSplit: { public: 0, private: 0 },
+    botInvocationCount: 0,
+    resourceSummary: { total: 0, required: 0, referenced: 0, suggested: 0, withLinks: 0 },
+    spikeCount: 0,
+    receptionCount: null
+  })
+}
+
 describe('computeConversationMetrics history and baseline', () => {
-  it('builds poster/lurker history and averages past same-topic events', async () => {
+  it('reads past events from their snapshots and averages them, recomputing only today', async () => {
     const topicId = new mongoose.Types.ObjectId()
-    await seedTopicEvent(topicId, {
+    // Past events carry no messages here, only snapshots: if history still recomputed from raw
+    // messages these would read as 0 posters, so the 5 and 6 below prove it reads the snapshot.
+    await seedPastSnapshot(topicId, {
       endTime: new Date('2026-06-01T12:00:00.000Z'),
-      speakers: ['a', 'b', 'c', 'd', 'e'], // 5 posters
-      tracked: { attendeeCount: 20, totalVisits: 20, totalDwellSeconds: 24000 } // 15 lurkers, dwell 1200
+      posterCount: 5,
+      lurkerCount: 15,
+      avgDwellSeconds: 1200
     })
-    await seedTopicEvent(topicId, {
+    await seedPastSnapshot(topicId, {
       endTime: new Date('2026-06-08T12:00:00.000Z'),
-      speakers: ['a', 'b', 'c', 'd', 'e', 'f'] // 6 posters, no tracked data -> lurker unknown
+      posterCount: 6,
+      lurkerCount: null // no tracked data -> lurker unknown, left out of both averages
     })
     const current = await seedTopicEvent(topicId, {
-      speakers: ['a', 'b'], // 2 posters
+      speakers: ['a', 'b'], // 2 posters, recomputed live from messages
       tracked: { attendeeCount: 10, totalVisits: 10, totalDwellSeconds: 5000 } // 8 lurkers
     })
 
@@ -1041,21 +1227,23 @@ describe('computeConversationMetrics history and baseline', () => {
     })
   })
 
-  it('excludes a tracked past event from both averages when posters exceed tracked sessions', async () => {
+  it('excludes a past snapshot with an unknown lurker count from both tracked averages', async () => {
     const topicId = new mongoose.Types.ObjectId()
-    // Reconciling tracked event: 5 posters, 20 tracked visitors -> 15 lurkers, dwell 1200.
-    await seedTopicEvent(topicId, {
+    // Reconciled snapshot: 5 posters, 15 lurkers, dwell 1200.
+    await seedPastSnapshot(topicId, {
       endTime: new Date('2026-06-01T12:00:00.000Z'),
-      speakers: ['a', 'b', 'c', 'd', 'e'],
-      tracked: { attendeeCount: 20, totalVisits: 20, totalDwellSeconds: 24000 }
+      posterCount: 5,
+      lurkerCount: 15,
+      avgDwellSeconds: 1200
     })
-    // Non-reconciling tracked event: 5 posters but only 2 tracked visitors. Tracking
-    // under-captured the audience, so it is not an honest lurker or dwell comparison and
-    // must not fold a fake "0 lurkers" into either average.
-    await seedTopicEvent(topicId, {
+    // A snapshot whose tracking did not reconcile carries a null lurker count, so it must not
+    // fold a fake "0 lurkers" or its dwell into either tracked average, though its poster
+    // count still counts. avgDwellSeconds is present but ignored because the lurker count is null.
+    await seedPastSnapshot(topicId, {
       endTime: new Date('2026-06-08T12:00:00.000Z'),
-      speakers: ['a', 'b', 'c', 'd', 'e'],
-      tracked: { attendeeCount: 2, totalVisits: 2, totalDwellSeconds: 600 }
+      posterCount: 5,
+      lurkerCount: null,
+      avgDwellSeconds: 300
     })
     const current = await seedTopicEvent(topicId, {
       speakers: ['a', 'b'],
@@ -1078,30 +1266,32 @@ describe('computeConversationMetrics history and baseline', () => {
     })
   })
 
-  it('excludes an experimental past event in the same topic from the baseline and history', async () => {
+  it('ignores snapshots stamped with a different metrics version', async () => {
     const topicId = new mongoose.Types.ObjectId()
-    // Normal past event: 5 posters, 20 tracked visitors -> 15 lurkers, dwell 1200.
-    await seedTopicEvent(topicId, {
+    // Current-version snapshot that should count.
+    await seedPastSnapshot(topicId, {
       endTime: new Date('2026-06-01T12:00:00.000Z'),
-      speakers: ['a', 'b', 'c', 'd', 'e'],
-      tracked: { attendeeCount: 20, totalVisits: 20, totalDwellSeconds: 24000 }
+      posterCount: 5,
+      lurkerCount: 15,
+      avgDwellSeconds: 1200
     })
-    // Experimental past event (a test run) in the same topic. It ended and would otherwise
-    // pollute the baseline, but experimental events must not count toward real-event averages.
-    await seedTopicEvent(topicId, {
+    // An older-version snapshot whose metrics meant something different. Mixing it into the
+    // average would compare unlike numbers, so the version filter must leave it out.
+    await seedPastSnapshot(topicId, {
       endTime: new Date('2026-06-08T12:00:00.000Z'),
-      speakers: ['x', 'y', 'z', 'w', 'v', 'u', 't'], // 7 posters, would skew avgPosterCount if counted
-      experimental: true,
-      tracked: { attendeeCount: 50, totalVisits: 50, totalDwellSeconds: 60000 }
+      posterCount: 99,
+      lurkerCount: 99,
+      avgDwellSeconds: 9999,
+      metricsVersion: METRICS_VERSION + 1
     })
     const current = await seedTopicEvent(topicId, {
       speakers: ['a', 'b'],
-      tracked: { attendeeCount: 10, totalVisits: 10, totalDwellSeconds: 5000 } // 8 lurkers
+      tracked: { attendeeCount: 10, totalVisits: 10, totalDwellSeconds: 5000 }
     })
 
     const metrics = await conversationAnalyticsService.computeConversationMetrics(current)
 
-    // Only the one normal past event appears, labeled by name and date; the experimental event is absent.
+    // Only the current-version past event appears; the other-version one is absent everywhere.
     expect(metrics.participationHistory).toEqual([
       { label: 'Topic series event (Jun 1)', posterCount: 5, lurkerCount: 15 },
       { label: 'Today', posterCount: 2, lurkerCount: 8 }
@@ -1115,7 +1305,7 @@ describe('computeConversationMetrics history and baseline', () => {
     })
   })
 
-  it('returns a null baseline when the topic has only this event', async () => {
+  it('returns a null baseline when the topic has no past snapshots', async () => {
     const topicId = new mongoose.Types.ObjectId()
     const only = await seedTopicEvent(topicId, { speakers: ['a', 'b'] }) // 2 posters, no tracked data
 
