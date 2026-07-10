@@ -1,8 +1,9 @@
 import Message from '../models/message.model.js'
 import Channel from '../models/channel.model.js'
-import Conversation from '../models/conversation.model.js'
 import ConversationAnalytics from '../models/conversationAnalytics.model.js'
+import ConversationMetricsSnapshot from '../models/conversationMetricsSnapshot.model.js'
 import { matchBotMention } from '../agents/helpers/intentChecks.js'
+import eventDateLabel from '../utils/eventDateLabel.js'
 import config from '../config/config.js'
 import {
   ActivityBucket,
@@ -13,12 +14,22 @@ import {
   EventPlatform,
   ParticipationHistoryPoint,
   ParticipationMetrics,
+  PrivateMessaging,
   ResourceSummary,
   SameTopicBaseline,
   SpikeSource,
   TrackedSessionMetrics,
   TrackedSessionStatus
 } from '../types/index.types.js'
+
+/* The version of the metric definitions this service computes. Every persisted
+   ConversationMetricsSnapshot is stamped with it, and the baseline only averages snapshots that
+   share the current version, so a trend that crosses a definition change is never read as a
+   continuous line. Bump it by one whenever a metric's meaning or calculation changes (the
+   same change that METRICS.md asks you to document), so old values keep the meaning they had
+   when they were captured. Adding a brand-new metric does not require a bump, since it cannot
+   make an existing value misleading. */
+export const METRICS_VERSION = 1
 
 /* Six windows keeps the activity chart readable and under Slack's 20-point limit. */
 const ACTIVITY_BUCKET_COUNT = 6
@@ -125,12 +136,26 @@ async function computeParticipation(conversationId): Promise<ParticipationMetric
   return { posterCount, frequentPosterCount, frequentPosterMessageShare, messageCount }
 }
 
+/* Averages an action breakdown over the active-visitor count, the Bucket-1 denominator.
+   Returns an empty map when no one was active, so a zero denominator never produces NaN.
+   Mirrors how avgDwellSeconds is derived at read time rather than stored. */
+function perActiveVisitor(breakdown: Record<string, number>, activeVisitorCount: number): Record<string, number> {
+  if (activeVisitorCount <= 0) return {}
+  const averages: Record<string, number> = {}
+  for (const [key, count] of Object.entries(breakdown)) {
+    averages[key] = count / activeVisitorCount
+  }
+  return averages
+}
+
 /* Converts one stored analytics summary (a ConversationAnalytics document: raw
    visit/dwell counts from a provider like Matomo) into the numbers the card shows.
    Averages and rates are computed here and never saved. A summary with zero visits
    yields 0 instead of NaN. */
 function deriveTrackedSessions(snapshot): TrackedSessionMetrics {
   const totalVisits = snapshot.totalVisits ?? 0
+  const actionBreakdown = (snapshot.actionBreakdown as Record<string, number>) ?? {}
+  const activeVisitorCount = snapshot.activeVisitorCount ?? 0
   return {
     source: snapshot.source,
     capturedAt: snapshot.capturedAt,
@@ -138,7 +163,11 @@ function deriveTrackedSessions(snapshot): TrackedSessionMetrics {
     attendeeCount: snapshot.attendeeCount ?? 0,
     avgDwellSeconds: totalVisits > 0 ? (snapshot.totalDwellSeconds ?? 0) / totalVisits : 0,
     totalActions: snapshot.totalActions ?? 0,
-    deviceBreakdown: (snapshot.deviceBreakdown as Record<string, number>) ?? {}
+    deviceBreakdown: (snapshot.deviceBreakdown as Record<string, number>) ?? {},
+    actionBreakdown,
+    actionUserBreakdown: (snapshot.actionUserBreakdown as Record<string, number>) ?? {},
+    activeVisitorCount,
+    actionBreakdownPerActiveVisitor: perActiveVisitor(actionBreakdown, activeVisitorCount)
   }
 }
 
@@ -289,6 +318,49 @@ function computeChannelSplit(
   return { public: publicCount, private: privateCount }
 }
 
+/* The person a message is attributed to, the same identity participation groups on: the
+   owner (the real account) when present, else the pseudonymId. Stringified so it can key a
+   Set. Returns null for a message with neither, which is dropped from the distinct-sender
+   counts rather than collapsed into one phantom sender. */
+function senderKey(message: { owner?: unknown; pseudonymId?: unknown }): string | null {
+  const id = message.owner ?? message.pseudonymId
+  return id ? String(id) : null
+}
+
+/* Counts private (one-to-one with the bot) messaging from the already-fetched messages. It
+   reuses channelSplit's private count and groups senders the same way participation does, so
+   the distinct-sender counts reconcile with posterCount. avgPrivateMessagesPerPoster divides
+   the private count by the total distinct posters and is 0 when no one posted, mirroring how
+   the other read-time averages avoid a zero denominator. Pure over the fetched messages, the
+   resolved direct-channel names, and the poster count. */
+function computePrivateMessaging(
+  messages: { channels?: string[]; owner?: unknown; pseudonymId?: unknown }[],
+  directNames: Set<string>,
+  posterCount: number
+): PrivateMessaging {
+  let privateMessageCount = 0
+  const privateSenders = new Set<string>()
+  const publicSenders = new Set<string>()
+
+  for (const message of messages) {
+    const isPrivate = (message.channels ?? []).some((name) => directNames.has(name))
+    const sender = senderKey(message)
+    if (isPrivate) {
+      privateMessageCount += 1
+      if (sender) privateSenders.add(sender)
+    } else if (sender) {
+      publicSenders.add(sender)
+    }
+  }
+
+  return {
+    privateMessageCount,
+    distinctPrivateSenders: privateSenders.size,
+    distinctPublicSenders: publicSenders.size,
+    avgPrivateMessagesPerPoster: posterCount > 0 ? privateMessageCount / posterCount : 0
+  }
+}
+
 /* Sorts one message into the channel category a spike is attributed by: a private 1:1 with
    the bot, the moderator backchannel, or the public chat (the default for any other
    channel, including the no-channel main feed). */
@@ -377,22 +449,55 @@ async function computeBotInvocations(conversation): Promise<BotInvocations> {
   return { botName, count }
 }
 
-/* Bridges the exact poster count with the estimated participant count (unique
-   tracked-session visitors from the primary source). Returns null when there is no
-   tracked-session data, since without a participant count there is no denominator.
+/* The id of an agent reference, whether it arrived as a populated Agent document or a raw
+   ObjectId, the same populated-or-not idiom used elsewhere for a conversation's topic ref. */
+function agentIdOf(agent): string {
+  return (agent?._id ?? agent).toString()
+}
 
-   When more people posted than were tracked as sessions, the two counts come from
-   different systems and do not reconcile, so we do not invent numbers. lurkerCount and
-   participationRate are null and postersExceedTrackedSessions is true, letting the card
-   report the two raw counts and explain the gap as a possibility rather than launder an
-   unreconciled signal into a confident "0 lurkers, 100% participation". When the counts
-   do reconcile, lurkerCount and participationRate are real and the flag is false. */
-function computeAudienceEngagement(posterCount: number, sources: TrackedSessionMetrics[]): AudienceEngagement | null {
-  const [primary] = sources
-  if (!primary) return null
+/* Counts the distinct people who have joined this conversation, from its direct (1:1 bot-DM)
+   channels. joinConversation (see conversation.service) and the Zoom/Slack participant-join
+   webhooks both provision one of these automatically the moment someone connects, independent of
+   any web-analytics tracking, so this is first-party and exact rather than an estimate that can
+   miss someone who blocks tracking.
 
-  const participantCount = primary.attendeeCount
+   A conversation gives each attendee one direct channel per agent on it, so a two-agent
+   conversation gives every attendee two direct channels. This dedupes by person, not by channel
+   row, or a conversation with more than one agent would double-count everyone in it. The
+   conversation's own agents are excluded, since they are the other side of every direct channel,
+   never an attendee themselves. Reads the conversation's own channels list (not a database-wide
+   Channel query), so a channel belonging to a different conversation can never be counted here. */
+async function countChannelParticipants(conversation): Promise<number> {
+  const agentIds = new Set((conversation.agents ?? []).map(agentIdOf))
+  const channelIds = conversation.channels ?? []
+  if (channelIds.length === 0) return 0
 
+  const directChannels = await Channel.find({ _id: { $in: channelIds }, direct: true }).select('participants')
+
+  const humanIds = new Set<string>()
+  for (const channel of directChannels) {
+    for (const participant of channel.participants ?? []) {
+      const id = participant.toString()
+      if (!agentIds.has(id)) humanIds.add(id)
+    }
+  }
+  return humanIds.size
+}
+
+/* Bridges the exact poster count with the exact participant count (distinct people who
+   joined via a direct channel, see countChannelParticipants). Always returns a real
+   engagement bundle, since a channel-based headcount is always computable, unlike the
+   web-analytics fetch this replaced, which might simply not have run yet.
+
+   When more people posted than joined, the two counts do not reconcile: either they come
+   from different systems in a mixed-platform event, or a poster's join was never recorded
+   (a pipeline gap, or a conversation predating this counting method), so we do not invent
+   numbers. lurkerCount and participationRate are null and postersExceedTrackedSessions is
+   true, letting the card report the two raw counts and explain the gap as a possibility
+   rather than launder an unreconciled signal into a confident "0 lurkers, 100%
+   participation". When the counts do reconcile, lurkerCount and participationRate are real
+   and the flag is false. */
+function computeAudienceEngagement(posterCount: number, participantCount: number): AudienceEngagement {
   if (posterCount > participantCount) {
     return {
       participantCount,
@@ -403,9 +508,9 @@ function computeAudienceEngagement(posterCount: number, sources: TrackedSessionM
   }
 
   if (participantCount === 0) {
-    /* A tracked snapshot with zero visitors is an empty room, not a room where nobody
-       spoke. Report neither lurkers nor a rate so the card does not imply 0% of the
-       audience participated when there was no audience to begin with. */
+    /* Zero participants is an empty room, not a room where nobody spoke. Report neither
+       lurkers nor a rate so the card does not imply 0% of the audience participated when
+       there was no audience to begin with. */
     return {
       participantCount,
       lurkerCount: null,
@@ -422,56 +527,47 @@ function computeAudienceEngagement(posterCount: number, sources: TrackedSessionM
   }
 }
 
-/* Month abbreviations for a compact event date label, indexed by getUTCMonth(). */
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-/* A history point's label: the event's own name plus a short date, e.g. "Future of Work
-   (Jun 3)". A topic's events often share a name (a recurring series), so the date sets
-   most of them apart and reads better than an opaque "E1". Two same-named events on the
-   same day still share a label, which is rare enough to accept. Falls back to the date
-   alone when an event has no name. The date is the UTC calendar day, so it is
-   deterministic but can read a day off for a viewer in a far timezone. */
-function eventHistoryLabel(name: string | undefined, endTime: Date | undefined): string {
-  const date = endTime ? `${MONTHS[endTime.getUTCMonth()]} ${endTime.getUTCDate()}` : ''
-  const trimmedName = name?.trim()
-  if (trimmedName && date) return `${trimmedName} (${date})`
-  return trimmedName || date || 'Past event'
-}
-
 /* Looks at up to the 10 most recent past events in the same topic and builds two
    things: a chart-ready history (each past event labeled by its name and date, this
    event labeled "Today") and a baseline
-   that averages their poster counts, lurker counts, and dwell time. A past event's
-   lurker count and dwell only count when it has stored tracked-session data AND its
-   participation reconciles, meaning its poster count did not exceed its tracked visitor
-   count, which is the same rule the current event uses. An event that lacks tracked data,
-   or whose posters exceed tracked visitors, still contributes its poster count but leaves
-   lurkers unknown (null) and is left out of the dwell average. The baseline is null on a
-   topic's first event, since there is nothing earlier to compare against.
+   that averages their poster counts, lurker counts, and dwell time.
+
+   Past events are read from their persisted ConversationMetricsSnapshot, not recomputed from raw
+   messages: each event's numbers were frozen when its recap was built, so a recurring
+   series is compared to what it actually was then rather than re-derived on every recap.
+   Only snapshots on the current METRICS_VERSION are read, so a metric whose definition
+   changed never makes a trend read as one continuous line. Experimental events are never
+   snapshotted (the write skips them), so they need no filtering here. The current (live)
+   event has no snapshot yet, so its numbers are passed in and appended as "Today".
+
+   A past event's lurker count is whatever was stored: non-null only when that event's
+   tracking reconciled against its poster count (the same rule the current event uses), and
+   null when it had no tracked data or its posters exceeded its tracked visitors. An event
+   with a null lurker count still contributes its poster count but is left out of the dwell
+   average. The baseline is null on a topic's first event, since there is nothing earlier to
+   compare against (and nothing earlier to have a snapshot).
 
    The baseline carries two different spans because the averages cover different sets of
-   past events. eventCount is the poster span: every past event has a known poster count.
-   trackedEventCount is the tracked span: only events with stored tracked-session data that
-   also reconciled contribute a lurker count and a dwell time, so avgLurkerCount and
-   avgDwellSeconds are averaged over just those (pastLurkerCounts.length, which equals
-   pastDwells.length since both are gated on the same reconciles condition).
-   trackedEventCount can be smaller than eventCount, so it is reported separately rather
-   than letting a reader assume the lurker and dwell averages span every past event. */
+   past events. eventCount is the poster span: every past snapshot has a poster count.
+   trackedEventCount is the tracked span: only snapshots whose tracking reconciled carry a
+   lurker count and a dwell time, so avgLurkerCount and avgDwellSeconds are averaged over
+   just those (pastLurkerCounts.length, which equals pastDwells.length since both are gated
+   on the same non-null lurker condition). trackedEventCount can be smaller than eventCount,
+   so it is reported separately rather than letting a reader assume the lurker and dwell
+   averages span every past event. */
 async function computeHistoryAndBaseline(
   conversation,
   current: { posterCount: number; lurkerCount: number | null }
 ): Promise<{ participationHistory: ParticipationHistoryPoint[]; baseline: SameTopicBaseline | null }> {
-  /* experimental conversations are test runs, not real events, so they are excluded
-     from the baseline to match how the rest of the codebase scopes real events. */
-  const recentPast = await Conversation.find({
-    topic: conversation.topic,
-    _id: { $ne: conversation._id },
-    endTime: { $exists: true, $ne: null },
-    experimental: { $ne: true }
+  const recentPast = await ConversationMetricsSnapshot.find({
+    topicId: conversation.topic,
+    conversationId: { $ne: conversation._id },
+    metricsVersion: METRICS_VERSION,
+    endTime: { $exists: true, $ne: null }
   })
     .sort({ endTime: -1 })
     .limit(BASELINE_EVENT_LIMIT)
-    .select('_id name endTime')
+    .select('name endTime posterCount lurkerCount avgDwellSeconds')
 
   const oldestFirst = [...recentPast].reverse()
   const participationHistory: ParticipationHistoryPoint[] = []
@@ -479,27 +575,26 @@ async function computeHistoryAndBaseline(
   const pastLurkerCounts: number[] = []
   const pastDwells: number[] = []
 
-  for (const pastEvent of oldestFirst) {
-    const { posterCount } = await computeParticipation(pastEvent._id)
+  for (const snapshot of oldestFirst) {
+    const { posterCount } = snapshot
+    const lurkerCount = snapshot.lurkerCount ?? null
     pastPosterCounts.push(posterCount)
 
-    const snapshot = await ConversationAnalytics.findOne({ conversationId: pastEvent._id })
-    const hasTracked = !!snapshot && (snapshot.totalVisits ?? 0) > 0
-    /* Apply the same reconciliation rule the current event uses: a past event reconciles
-       only when it has tracked data AND its tracked visitor count is at least its poster
-       count. When more people posted than were tracked, the two counts come from different
-       systems and do not reconcile, so we do not invent a lurker count. The >= posterCount
-       guard means the difference is never negative, which is why no Math.max clamp is needed. */
-    const reconciles = hasTracked && (snapshot.attendeeCount ?? 0) >= posterCount
-    const lurkerCount = reconciles ? (snapshot.attendeeCount ?? 0) - posterCount : null
-    if (lurkerCount !== null) pastLurkerCounts.push(lurkerCount)
-    /* Gate the dwell sample on reconciliation too, not just on hasTracked. If participation
-       and tracking did not reconcile, the event's tracking under-captured the audience, so it
-       is not a clean audience comparison for dwell either. Dropping it from both keeps the
-       lurker and dwell baselines over one identical span of past events (trackedEventCount). */
-    if (reconciles) pastDwells.push((snapshot.totalDwellSeconds ?? 0) / snapshot.totalVisits)
+    /* A non-null lurker count means that event's tracking reconciled, so its stored dwell is
+       a clean audience comparison. Gate both samples on that one condition so the lurker and
+       dwell baselines span one identical set of past events (trackedEventCount). A reconciled
+       snapshot always carries a dwell number, so the ?? 0 only guards a malformed document and
+       keeps pastDwells.length equal to pastLurkerCounts.length. */
+    if (lurkerCount !== null) {
+      pastLurkerCounts.push(lurkerCount)
+      pastDwells.push(snapshot.avgDwellSeconds ?? 0)
+    }
 
-    participationHistory.push({ label: eventHistoryLabel(pastEvent.name, pastEvent.endTime), posterCount, lurkerCount })
+    participationHistory.push({
+      label: eventDateLabel(snapshot.name, snapshot.endTime, 'Past event'),
+      posterCount,
+      lurkerCount
+    })
   }
   participationHistory.push({ label: 'Today', posterCount: current.posterCount, lurkerCount: current.lurkerCount })
 
@@ -573,17 +668,19 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
   const participation = await computeParticipation(conversation._id)
   const snapshots = await ConversationAnalytics.find({ conversationId: conversation._id })
   const trackedSessionSources = snapshots.map(deriveTrackedSessions)
-  const audienceEngagement = computeAudienceEngagement(participation.posterCount, trackedSessionSources)
+  const channelParticipantCount = await countChannelParticipants(conversation)
+  const audienceEngagement = computeAudienceEngagement(participation.posterCount, channelParticipantCount)
   const humanMessages = await Message.find({
     conversation: conversation._id,
     ...visibleHumanFilter
   })
-    .select('createdAt channels')
+    .select('createdAt channels owner pseudonymId')
     .sort({ createdAt: 1 })
   const channelNames = [...new Set(humanMessages.flatMap((message) => message.channels ?? []))]
   const directNames = await resolveDirectNames(channelNames)
   const activityBuckets = bucketMessagesOverTime(humanMessages, conversation.startTime, conversation.endTime)
   const channelSplit = computeChannelSplit(humanMessages, directNames)
+  const privateMessaging = computePrivateMessaging(humanMessages, directNames, participation.posterCount)
   const spikes = attributeSpikeSources(
     computeSpikes(activityBuckets, participation.posterCount),
     humanMessages,
@@ -593,7 +690,7 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
   const botInvocations = await computeBotInvocations(conversation)
   const { participationHistory, baseline } = await computeHistoryAndBaseline(conversation, {
     posterCount: participation.posterCount,
-    lurkerCount: audienceEngagement ? audienceEngagement.lurkerCount : null
+    lurkerCount: audienceEngagement.lurkerCount
   })
 
   return {
@@ -606,6 +703,7 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
     participationHistory,
     baseline,
     channelSplit,
+    privateMessaging,
     botInvocations,
     resourceSummary: computeResourceSummary(conversation),
     eventPlatform: deriveEventPlatform(conversation),

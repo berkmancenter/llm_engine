@@ -123,6 +123,11 @@ export interface IMessage {
      renders responseKind + renderData into blocks when sending. */
   responseKind?: string
   renderData?: unknown
+  /* The scalar metrics a curatedVibesSummary card was built from (one row for a single-event
+     recap, several for a trend), quote-free like a stored snapshot. Never rendered to Slack;
+     it lets a later thread reply answer a follow-up question from the same numbers rather than
+     recomputing or refusing. */
+  metricsContext?: unknown
 }
 
 export interface IFollower {
@@ -192,7 +197,7 @@ export interface ConfigProperty {
   name: string
   as?: string // destination key (supports dot notation for nesting); defaults to name
   required: boolean
-  type: 'string' | 'number' | 'boolean' | 'object' | 'enum'
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array' | 'enum'
   label?: string
   default?: string | number | boolean | object
   description?: string
@@ -463,6 +468,10 @@ export interface AgentResponse<T> {
      into blocks at send time. Other adapters ignore these and send `message`. */
   responseKind?: string
   renderData?: unknown
+  /* Sibling of renderData: the scalar metrics a curatedVibesSummary card was built from, quote-
+     free like a stored snapshot. Persisted alongside the card so a later thread reply can
+     answer a follow-up question from the same numbers. Adapters never render this field. */
+  metricsContext?: unknown
   proactive?: boolean
 }
 
@@ -476,6 +485,17 @@ export interface AnalyticsSnapshot {
   totalActions: number
   totalDwellSeconds: number
   deviceBreakdown: Record<string, number>
+  // Allowlisted, source-neutral OCCURRENCE counts of specific in-window page actions (e.g.
+  // command:visual, tab:chat). Sibling of deviceBreakdown: counts only, may undercount.
+  actionBreakdown: Record<string, number>
+  // Allowlisted DISTINCT-VISITOR counts for the same keys: how many different visitors took
+  // each action, so the read layer can say "X of N visitors did K", which the occurrence
+  // counts alone cannot show.
+  actionUserBreakdown: Record<string, number>
+  // Distinct visitors with at least one in-window action. The denominator for the
+  // per-active-visitor action averages, and at most attendeeCount (a visit can overlap
+  // the window without acting in it).
+  activeVisitorCount: number
 }
 
 /*
@@ -535,21 +555,29 @@ export interface TrackedSessionMetrics {
   avgDwellSeconds: number
   totalActions: number
   deviceBreakdown: Record<string, number>
+  // Raw per-event OCCURRENCE counts of allowlisted page actions (e.g. command:visual, tab:chat).
+  actionBreakdown: Record<string, number>
+  // The same keys mapped to distinct-visitor counts: how many different people did each action.
+  actionUserBreakdown: Record<string, number>
+  // Distinct visitors with at least one in-window action; the denominator below.
+  activeVisitorCount: number
+  // actionBreakdown divided by activeVisitorCount, computed at read time (never stored).
+  // Empty when there were no active visitors, so a zero denominator never yields NaN.
+  actionBreakdownPerActiveVisitor: Record<string, number>
 }
 
-/* The audience-engagement view: how the exact poster count relates to the estimated
-   participant count (unique tracked-session visitors). This is the ONE place posters
-   (exact) and participants (an estimate that can undercount) are combined, so it is
-   always approximate. It is null when no tracked-session data exists, because without a
-   participant count there is no denominator.
+/* The audience-engagement view: how the exact poster count relates to the exact
+   participant count (everyone who joined the conversation, from their direct, 1:1
+   channel with the agent). Both counts are first-party and exact, so this is always
+   present, never an estimate.
 
-   When more people posted than were tracked as sessions, the two counts do not
-   reconcile: they come from different systems (posters from our database, participants
-   from web analytics), so a poster who blocked tracking or joined without a tracked page
-   visit can push posterCount past participantCount. In that case we do not invent
-   numbers. lurkerCount and participationRate are null and postersExceedTrackedSessions
-   is true, so the card can state the two raw counts and explain the gap as a
-   possibility rather than show an impossible "0 lurkers, 100% participation".
+   The two counts can still fail to reconcile: a poster who joined through a path that
+   never provisioned a direct channel (an older event, a platform not yet wired up) can
+   push posterCount past participantCount. In that case we do not invent numbers.
+   lurkerCount and participationRate are null and postersExceedTrackedSessions is true,
+   so the card can state the two raw counts and explain the gap as a possibility rather
+   than show an impossible "0 lurkers, 100% participation". The field name is kept as-is
+   to avoid a churny rename now that the source is channels rather than tracked sessions.
 
    When the counts do reconcile (posterCount <= participantCount), lurkerCount is
    participants minus posters, participationRate is posters / participants, and
@@ -677,8 +705,9 @@ export interface ConversationMetrics {
   // One entry per analytics source that has stored data; empty when none.
   trackedSessionSources: TrackedSessionMetrics[]
   trackedSessionStatus: TrackedSessionStatus
-  // Posters vs participants (rate + lurkers); null when no tracked-session data.
-  audienceEngagement: AudienceEngagement | null
+  // Posters vs participants (rate + lurkers); always present, since the channel-based
+  // participant count is exact.
+  audienceEngagement: AudienceEngagement
   // People's messages per time window; empty when the event had no messages.
   activitySeries: ActivityBucket[]
   // Time windows whose message volume stood out from the rest; empty when none.
@@ -689,6 +718,9 @@ export interface ConversationMetrics {
   baseline: SameTopicBaseline | null
   // Counts of people's messages: public chat vs private one-to-one with the bot.
   channelSplit: { public: number; private: number }
+  // Private (one-to-one with the bot) messaging: counts plus distinct senders, with the
+  // per-poster average derived at read time.
+  privateMessaging: PrivateMessaging
   // The configured assistant's name and how many times participants called on it.
   botInvocations: BotInvocations
   // Speaker moments that drew a chat reaction, with how the room responded; empty when none.
@@ -697,6 +729,22 @@ export interface ConversationMetrics {
   resourceSummary: ResourceSummary
   // Which platform(s) the event ran on: Nextspace, Zoom, or both.
   eventPlatform: EventPlatform
+}
+
+/* Private (one-to-one with the bot) messaging, all exact and first-party. privateMessageCount
+   is the same private count as channelSplit.private. distinctPrivateSenders and
+   distinctPublicSenders are how many different people sent at least one message in each
+   channel kind, grouped per person the same way participation is. A person who used both
+   channels is counted in both, so the two sender totals overlap: they are not additive and
+   their sum can exceed posterCount. avgPrivateMessagesPerPoster is privateMessageCount over the
+   total distinct posters (posterCount), derived at read time and 0 when no one posted, so the
+   read layer can compare the two sender counts (e.g. how much more likely a poster was to
+   message privately than publicly) without storing a ratio. */
+export interface PrivateMessaging {
+  privateMessageCount: number
+  distinctPrivateSenders: number
+  distinctPublicSenders: number
+  avgPrivateMessagesPerPoster: number
 }
 
 /* The event's readings and references, counted only from what participants could see
@@ -716,13 +764,98 @@ export interface ResourceSummary {
    'both' when it ran on Nextspace and Zoom together. */
 export type EventPlatform = 'nextspace' | 'zoom' | 'both'
 
+/* One persisted snapshot of a conversation's metrics, one document per conversation in its
+   own collection. It is written when a conversation ends and its recap is built, so every
+   metric can be trended over time instead of recomputed from raw messages on each recap. The
+   shape mirrors ConversationMetrics but keeps only scalar aggregates: the verbatim quote text
+   that spikes and receptions carry (spike.annotation, reception.sparkQuote/reactionQuote) is
+   deliberately dropped, because this is a long-lived analytics store and those quotes are
+   word-for-word chat and backchannel content. Counts are kept; the words are not.
+
+   metricsVersion stamps the metric definitions in force when the snapshot was taken, so a
+   trend that crosses a definition change is never read as a continuous line (see
+   METRICS_VERSION in conversationAnalytics.service). The estimate block, everything sourced
+   from web analytics, is captured "as of" capturedAt and is never chased when late provider
+   data lands after the conversation ends.
+
+   The tracked-session fields are nullable because a conversation may have had no web-analytics
+   data at all. receptionCount is nullable for a separate reason: it is filled by an LLM pass
+   when the live card is built, so a recompute that skips that step (the backfill) records null
+   ("not computed") rather than a misleading 0. */
+export interface ConversationMetricsSnapshotData {
+  conversationId: mongoose.Types.ObjectId
+  topicId: mongoose.Types.ObjectId
+  name?: string
+  endTime: Date
+  platform: EventPlatform
+  metricsVersion: number
+  capturedAt: Date
+  // Participation (exact, from our own database).
+  posterCount: number
+  messageCount: number
+  frequentPosterCount: number
+  frequentPosterMessageShare: number | null
+  // Audience engagement (exact, as of capturedAt): the direct-channel participant count.
+  // lurkerCount/participationRate are null when the poster count could not be reconciled
+  // against it (postersExceedTrackedSessions is true in that case).
+  trackedSessionStatus: TrackedSessionStatus
+  trackedSessions: number | null
+  participantCount: number
+  lurkerCount: number | null
+  participationRate: number | null
+  postersExceedTrackedSessions: boolean
+  avgDwellSeconds: number | null
+  totalActions: number | null
+  // Feature usage (estimate, as of capturedAt): allowlisted page actions off the primary
+  // tracked source. Occurrence counts, distinct-visitor counts, and the active-visitor
+  // denominator. Empty maps when no tracked source carried action data, where activeVisitorCount
+  // is null like the other estimate fields.
+  actionBreakdown: Record<string, number>
+  actionUserBreakdown: Record<string, number>
+  activeVisitorCount: number | null
+  // Channel split (exact): people's messages, public chat vs private one-to-one with the bot.
+  channelSplit: { public: number; private: number }
+  // Private messaging (exact): the private message count and distinct senders per channel
+  // kind, so the share-of-posters comparison can be trended.
+  privateMessageCount: number
+  distinctPrivateSenders: number
+  distinctPublicSenders: number
+  // Bot invocations (exact): how many times participants called on the assistant by name.
+  botInvocationCount: number
+  // Resource counts (exact), from participant-visible resources only.
+  resourceSummary: ResourceSummary
+  // How many time windows stood out as spikes; the quote/topic annotation is not stored.
+  spikeCount: number
+  // How many speaker moments drew a chat reaction; quotes are not stored. Null when the
+  // reception pass did not run (e.g. a backfill that recomputes scalars only).
+  receptionCount: number | null
+}
+
+/* The snapshot fields the trend chart and label read by name, off a stored snapshot or a live
+   recompute. A projection of ConversationMetricsSnapshotData so the two stay in lockstep:
+   trendRow reads every other metric generically, so a snapshot carrying more reaches the writer
+   without a change here, and quote text is never stored, so a trend is quote-free by
+   construction. */
+export type TrendSnapshotView = Pick<
+  ConversationMetricsSnapshotData,
+  | 'name'
+  | 'endTime'
+  | 'posterCount'
+  | 'messageCount'
+  | 'lurkerCount'
+  | 'participationRate'
+  | 'avgDwellSeconds'
+  | 'spikeCount'
+  | 'channelSplit'
+>
+
 /* One point on a bar/line/area chart: an x-axis category and its y value. */
 export interface VibesChartDataPoint {
   label: string
   value: number
 }
 
-/* A named data series (one set of bars/a line/an area). Slack allows 1-6 series
+/* A named data series (one set of bars/a line/an area). Slack allows 1-12 series
    per chart, each with 1-20 points. */
 export interface VibesChartSeries {
   name: string
@@ -771,14 +904,27 @@ export interface CuratedVibesStandout {
 
 /* The curated card's render payload (responseKind 'curatedVibesSummary'),
    following the design's block grammar. The curating LLM (Phase 6) writes the
-   prose and picks the charts; this phase renders from mock-curated data. The
-   footer carries only the event duration. */
+   prose and picks the charts; this phase renders from mock-curated data. A
+   single-event card ends with a duration footer; a trend card leaves
+   durationMinutes unset, since one duration cannot describe many events. */
 export interface CuratedVibesData {
   header: string
   framing?: string
   availabilityNote?: string
   standouts: CuratedVibesStandout[]
-  durationMinutes: number
+  durationMinutes?: number
+}
+
+export interface BudgetAlert {
+  label: string
+  used: number
+  limit: number
+  percentUsed: number
+}
+
+export interface BudgetAlertData {
+  alerts: BudgetAlert[]
+  checkedAt: string
 }
 
 export interface ConversationHistorySettings {
@@ -804,7 +950,7 @@ export interface Triggers {
     conversationHistorySettings?: ConversationHistorySettings
     allowMessagesFromAgents?: boolean
   }
-  periodic?: { timerPeriod: number; conversationHistorySettings?: ConversationHistorySettings }
+  periodic?: { timerPeriod: number; proactive?: boolean; conversationHistorySettings?: ConversationHistorySettings }
 }
 
 export interface GenericAgentAnswer {

@@ -307,6 +307,26 @@ export async function buildCheckinResponses(conversationHistory: ConversationHis
 
   if (directChannels.length === 0) return []
 
+  // Rate-limit pre-check: if every participant has been messaged recently, there is nothing
+  // to do and we should skip shared evaluations (which include an LLM call for transcript density).
+  const now = conversationHistory.end ? conversationHistory.end.getTime() : Date.now()
+  const minInterval = (this.agentConfig?.minInterval ?? 10) * 60 * 1000
+
+  // Use startTime as baseline for first checkin — resets on conversation restart, which is intentional.
+  const conversationStart = new Date(this.conversation.startTime).getTime()
+  const anyEligible = directChannels.some((channel) => {
+    const lastAgentMsg = conversationHistory.messages
+      .filter((m) => m.channels?.includes(channel.name) && m.fromAgent && m.visible)
+      .at(-1)
+    const baseline = lastAgentMsg ? new Date(lastAgentMsg.createdAt!).getTime() : conversationStart
+    return now - baseline >= minInterval
+  })
+
+  if (!anyEligible) {
+    logger.debug('CheckinHandler: all participants rate-limited — skipping shared evaluations')
+    return []
+  }
+
   const sharedChatHistory = getConversationHistory(conversationHistory.messages, {
     count: 100,
     channels: ['chat'],

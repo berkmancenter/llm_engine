@@ -1,5 +1,11 @@
 import verify from '../helpers/verify.js'
-import { defaultLLMModel, defaultLLMPlatform, getModelChat } from '../helpers/getModelChat.js'
+import {
+  classificationLLMModel,
+  classificationLLMPlatform,
+  defaultLLMModel,
+  defaultLLMPlatform,
+  getModelChat
+} from '../helpers/getModelChat.js'
 import Conversation from '../../models/conversation.model.js'
 import access from '../../auth/access.js'
 import { AgentMessageActions, LlmPlatforms } from '../../types/index.types.js'
@@ -7,9 +13,20 @@ import analyticsSources from '../../services/analyticsSources/index.js'
 import logger from '../../config/logger.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 import buildVibesSummary from './buildSummary.js'
+import conversationMetricsSnapshotService from '../../services/conversationMetricsSnapshot.service.js'
 import handleSummon from './summon.js'
 import { HELLO_MESSAGE } from './prompt.js'
 import defaultTriggers from './triggers.js'
+import { threadContinuesFromAgent } from './thread.js'
+
+/* Resolves the faster secondary model the mechanical passes run on (summon parsing, spike and
+   reception annotation). It reads the per-agent override first, then the shared classification
+   config, so the model is never hardcoded here and matches the pattern other agents use. */
+function resolveFastLlm(agentConfig?: { classificationPlatform?: string; classificationModel?: string }) {
+  const platform = agentConfig?.classificationPlatform || classificationLLMPlatform
+  const model = agentConfig?.classificationModel || classificationLLMModel
+  return getModelChat(platform as LlmPlatforms, model)
+}
 
 export default verify({
   name: 'Vibes Analyst',
@@ -65,8 +82,16 @@ export default verify({
   async respond(_conversationHistory, userMessage) {
     if (!userMessage) return []
     const llm = await this.getLLM()
-    if (!(await checkBotIntent(llm, this.agentConfig.botName, userMessage))) return []
-    return handleSummon(this, userMessage, llm)
+    // A bare threaded reply to a message VA itself just posted (a disambiguation prompt, a
+    // recap) counts as addressed to VA even with no @mention: the intent check has no thread
+    // context, so a reply like a plain event title reads as unaddressed on its own. Once someone
+    // else has replied since, this stops applying and the normal intent check gates it again.
+    const addressed =
+      (await threadContinuesFromAgent(userMessage, this.conversation._id.toString(), this._id.toString())) ||
+      (await checkBotIntent(llm, this.agentConfig.botName, userMessage))
+    if (!addressed) return []
+    const fastLlm = await resolveFastLlm(this.agentConfig)
+    return handleSummon(this, userMessage, llm, fastLlm)
   },
 
   // Fires when a public event stops (the dispatcher matches VA's allPublicTopics
@@ -110,7 +135,22 @@ export default verify({
     // annotate from the allowed channels, curate, then fact-check). The snapshot fetch
     // above is the only event-stop-specific step; the rest is reused by the summon path.
     const llm = await getModelChat(defaultLLMPlatform as LlmPlatforms, defaultLLMModel)
-    const renderData = await buildVibesSummary(conversation, llm)
+    const fastLlm = await resolveFastLlm(this.agentConfig)
+    const { renderData, metrics } = await buildVibesSummary(conversation, llm, fastLlm)
+
+    /* Persist this conversation's metrics as a snapshot so every metric can be trended
+       over time, not just the few the baseline re-derives. Best-effort, like the analytics
+       fetch above: a snapshot write must never block the recap card from posting. The
+       snapshot stores counts only and drops the verbatim spike and reception quotes. */
+    try {
+      await conversationMetricsSnapshotService.persistSnapshot(conversation, metrics)
+    } catch (error: unknown) {
+      logger.error(
+        `Vibes Analyst could not persist metrics snapshot for ${conversation._id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
+    }
 
     return [
       {

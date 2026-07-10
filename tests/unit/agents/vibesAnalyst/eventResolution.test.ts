@@ -52,6 +52,44 @@ describe('resolveSummonedEvent', () => {
     ).toEqual(['1', '2'])
   })
 
+  it('resolves an exact title match even when near-duplicate titles fuzzy-score close behind', () => {
+    // "Test Fancy Vibes #3" fuzzy-scores very close to "#1" and "#2" (they share every word but
+    // the trailing number), close enough that the ambiguity margin alone would misfire even
+    // though the query is a verbatim, unambiguous match for one real event.
+    const candidates = [
+      ev('1', 'Test Fancy Vibes #1', 'Series'),
+      ev('2', 'Test Fancy Vibes #2', 'Series'),
+      ev('3', 'Test Fancy Vibes #3', 'Series')
+    ]
+
+    const result = resolveSummonedEvent({ eventQuery: 'Test Fancy Vibes #3', latestInTopic: false }, candidates)
+
+    expect(result).toEqual({ status: 'resolved', event: candidates[2] })
+  })
+
+  it('matches an exact title case-insensitively and ignoring surrounding whitespace', () => {
+    const candidates = [ev('1', 'Test Fancy Vibes #1', 'Series'), ev('2', 'Test Fancy Vibes #2', 'Series')]
+
+    const result = resolveSummonedEvent({ eventQuery: '  test fancy vibes #1  ', latestInTopic: false }, candidates)
+
+    expect(result).toEqual({ status: 'resolved', event: candidates[0] })
+  })
+
+  it('still flags ambiguity when the exact same title is used by more than one event', () => {
+    const candidates = [
+      ev('1', 'Weekly Standup', 'Team A', 100),
+      ev('2', 'Weekly Standup', 'Team B', 10)
+    ]
+
+    const result = resolveSummonedEvent({ eventQuery: 'Weekly Standup', latestInTopic: false }, candidates)
+
+    expect(
+      asAmbiguous(result)
+        .candidates.map((candidate) => candidate.id)
+        .sort()
+    ).toEqual(['1', '2'])
+  })
+
   it('picks the most recent event when asked for the latest in a topic', () => {
     const candidates = [
       ev('1', 'AI Ethics Session 1', 'AI Ethics', 1000),

@@ -1,0 +1,218 @@
+import mongoose from 'mongoose'
+import setupIntTest from '../../../utils/setupIntTest.js'
+import { Conversation, Message, ConversationMetricsSnapshot } from '../../../../src/models/index.js'
+import { METRICS_VERSION } from '../../../../src/services/conversationAnalytics.service.js'
+import {
+  resolveTrendScope,
+  resolveNamedTrendScope,
+  trendEventCount,
+  fetchTrendSnapshots,
+  computeTrendViewsLive,
+  DEFAULT_TREND_EVENTS,
+  EventCandidate
+} from '../../../../src/agents/vibesAnalyst/eventResolution.js'
+
+setupIntTest()
+
+function ev(id: string, name: string, topicName: string, endMinutesAgo = 0): EventCandidate {
+  return { id, name, topicName, endTime: new Date(Date.parse('2026-06-01T00:00:00.000Z') - endMinutesAgo * 60 * 1000) }
+}
+
+describe('resolveTrendScope', () => {
+  const candidates = [
+    ev('1', 'AI Ethics Session 1', 'AI Ethics', 3000),
+    ev('2', 'AI Ethics Session 2', 'AI Ethics', 2000),
+    ev('3', 'Budget Review', 'Finance', 1000)
+  ]
+
+  it('scopes to the matching topic when the query names a series', () => {
+    const scoped = resolveTrendScope({ eventQuery: 'AI Ethics', latestInTopic: false, trend: true }, candidates)
+    expect(scoped.map((candidate) => candidate.id).sort()).toEqual(['1', '2'])
+  })
+
+  it('falls back to every public event when the query names no topic', () => {
+    const scoped = resolveTrendScope({ eventQuery: '', latestInTopic: false, trend: true }, candidates)
+    expect(scoped.map((candidate) => candidate.id).sort()).toEqual(['1', '2', '3'])
+  })
+
+  it('falls back to every public event when the query matches no topic', () => {
+    const scoped = resolveTrendScope({ eventQuery: 'Climate Policy', latestInTopic: false, trend: true }, candidates)
+    expect(scoped).toHaveLength(3)
+  })
+})
+
+describe('resolveNamedTrendScope', () => {
+  const candidates = [
+    ev('1', 'Spring Town Hall 2026', 'Town Halls'),
+    ev('2', 'AI Ethics Kickoff', 'AI Ethics'),
+    ev('3', 'Q3 Budget Review', 'Finance')
+  ]
+
+  it('resolves each named event to its best matching candidate', () => {
+    const { resolved, unresolved } = resolveNamedTrendScope(['Spring Town Hall', 'AI Ethics Kickoff'], candidates)
+
+    expect(resolved.map((candidate) => candidate.id)).toEqual(['1', '2'])
+    expect(unresolved).toEqual([])
+  })
+
+  it('reports a name back as unresolved when nothing clears the match threshold', () => {
+    const { resolved, unresolved } = resolveNamedTrendScope(['Spring Town Hall', 'Nonexistent Gala'], candidates)
+
+    expect(resolved.map((candidate) => candidate.id)).toEqual(['1'])
+    expect(unresolved).toEqual(['Nonexistent Gala'])
+  })
+
+  it('dedupes when two names resolve to the same event', () => {
+    const { resolved } = resolveNamedTrendScope(['Spring Town Hall', 'spring town hall 2026'], candidates)
+
+    expect(resolved.map((candidate) => candidate.id)).toEqual(['1'])
+  })
+
+  it('returns everything unresolved when nothing matches', () => {
+    const { resolved, unresolved } = resolveNamedTrendScope(['Nonexistent Gala', 'Another Ghost'], candidates)
+
+    expect(resolved).toEqual([])
+    expect(unresolved).toEqual(['Nonexistent Gala', 'Another Ghost'])
+  })
+})
+
+describe('trendEventCount', () => {
+  it('uses the requested count', () => {
+    expect(trendEventCount({ eventQuery: '', latestInTopic: false, trend: true, eventCount: 3 })).toBe(3)
+  })
+
+  it('defaults when no count was given', () => {
+    expect(trendEventCount({ eventQuery: '', latestInTopic: false, trend: true, eventCount: null })).toBe(
+      DEFAULT_TREND_EVENTS
+    )
+  })
+
+  it('clamps to a sane bound', () => {
+    expect(trendEventCount({ eventQuery: '', latestInTopic: false, trend: true, eventCount: 999 })).toBeLessThanOrEqual(10)
+    expect(trendEventCount({ eventQuery: '', latestInTopic: false, trend: true, eventCount: 0 })).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('fetchTrendSnapshots', () => {
+  async function seedSnapshot(conversationId: mongoose.Types.ObjectId, endTime: Date, version = METRICS_VERSION) {
+    return ConversationMetricsSnapshot.create({
+      conversationId,
+      topicId: new mongoose.Types.ObjectId(),
+      name: 'Series event',
+      endTime,
+      platform: 'nextspace',
+      metricsVersion: version,
+      capturedAt: endTime,
+      posterCount: 5,
+      messageCount: 50,
+      frequentPosterCount: 1,
+      frequentPosterMessageShare: 0.3,
+      trackedSessionStatus: 'available',
+      trackedSessions: 20,
+      participantCount: 20,
+      lurkerCount: 15,
+      participationRate: 0.25,
+      postersExceedTrackedSessions: false,
+      avgDwellSeconds: 600,
+      totalActions: 200,
+      channelSplit: { public: 48, private: 2 },
+      botInvocationCount: 3,
+      resourceSummary: { total: 2, required: 1, referenced: 1, suggested: 0, withLinks: 2 },
+      spikeCount: 1,
+      receptionCount: 2
+    })
+  }
+
+  it('reads snapshots only for the scoped (public) conversations, newest first, up to the limit', async () => {
+    const inScope = [new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId()]
+    const privateConversation = new mongoose.Types.ObjectId()
+
+    await seedSnapshot(inScope[0], new Date('2026-05-01T00:00:00.000Z'))
+    await seedSnapshot(inScope[1], new Date('2026-05-15T00:00:00.000Z'))
+    await seedSnapshot(inScope[2], new Date('2026-05-30T00:00:00.000Z'))
+    // A snapshot for a conversation NOT in the scoped (public) candidate set must never be read.
+    await seedSnapshot(privateConversation, new Date('2026-05-31T00:00:00.000Z'))
+
+    const scoped = inScope.map((id, index) => ev(id.toString(), `Event ${index}`, 'Series'))
+    const snapshots = await fetchTrendSnapshots(scoped, 2)
+
+    expect(snapshots).toHaveLength(2)
+    // Newest first: May 30 then May 15. The private conversation's later snapshot is absent.
+    expect(snapshots[0].conversationId.toString()).toBe(inScope[2].toString())
+    expect(snapshots[1].conversationId.toString()).toBe(inScope[1].toString())
+    expect(snapshots.some((snapshot) => snapshot.conversationId.toString() === privateConversation.toString())).toBe(false)
+  })
+
+  it('ignores snapshots stamped with a different metrics version', async () => {
+    const conversationId = new mongoose.Types.ObjectId()
+    await seedSnapshot(conversationId, new Date('2026-05-01T00:00:00.000Z'), METRICS_VERSION + 1)
+
+    const snapshots = await fetchTrendSnapshots([ev(conversationId.toString(), 'Event', 'Series')], 5)
+    expect(snapshots).toHaveLength(0)
+  })
+})
+
+describe('computeTrendViewsLive', () => {
+  const ownerId = new mongoose.Types.ObjectId()
+
+  /* An ended event with a couple of posters, returned as the EventCandidate a trend would scope
+     to. No stored snapshot: this is the case the live recompute exists for. */
+  async function seedEndedEvent(name: string, endTime: Date): Promise<EventCandidate> {
+    const conversation = await Conversation.create({
+      name,
+      slug: `live-${new mongoose.Types.ObjectId().toString()}`,
+      owner: ownerId,
+      topic: new mongoose.Types.ObjectId(),
+      endTime,
+      transcript: { status: 'stopped' }
+    })
+    await Message.create(
+      ['a', 'b'].map((pseudonym) => ({
+        body: 'hi',
+        conversation: conversation._id,
+        owner: new mongoose.Types.ObjectId(),
+        pseudonymId: ownerId,
+        pseudonym,
+        fromAgent: false
+      }))
+    )
+    return ev(conversation._id.toString(), name, 'Series')
+  }
+
+  it('recomputes snapshot-shaped rows for the scoped events, in the given order', async () => {
+    const newer = await seedEndedEvent('Newer', new Date('2026-05-30T00:00:00.000Z'))
+    const older = await seedEndedEvent('Older', new Date('2026-05-01T00:00:00.000Z'))
+
+    const views = await computeTrendViewsLive([newer, older], 5)
+
+    expect(views).toHaveLength(2)
+    expect(views[0].conversationId.toString()).toBe(newer.id)
+    expect(views[1].conversationId.toString()).toBe(older.id)
+    // Rows carry the same scalar fields a stored snapshot does, so the trend writer reads them
+    // identically. Reception is null because the live recompute never runs the LLM reception pass.
+    expect(typeof views[0].posterCount).toBe('number')
+    expect(views[0].receptionCount).toBeNull()
+    expect(views[0].metricsVersion).toBe(METRICS_VERSION)
+  })
+
+  it('caps the recompute at the requested limit', async () => {
+    const a = await seedEndedEvent('A', new Date('2026-05-30T00:00:00.000Z'))
+    const b = await seedEndedEvent('B', new Date('2026-05-20T00:00:00.000Z'))
+    const c = await seedEndedEvent('C', new Date('2026-05-10T00:00:00.000Z'))
+
+    const views = await computeTrendViewsLive([a, b, c], 2)
+
+    expect(views).toHaveLength(2)
+    expect(views.map((view) => view.conversationId.toString())).toEqual([a.id, b.id])
+  })
+
+  it('skips a scoped event that no longer exists rather than failing', async () => {
+    const real = await seedEndedEvent('Real', new Date('2026-05-30T00:00:00.000Z'))
+    const missing = ev(new mongoose.Types.ObjectId().toString(), 'Gone', 'Series')
+
+    const views = await computeTrendViewsLive([real, missing], 5)
+
+    expect(views).toHaveLength(1)
+    expect(views[0].conversationId.toString()).toBe(real.id)
+  })
+})

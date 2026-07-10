@@ -70,7 +70,7 @@ target instance's API.
 
 Pick an `appKey`: a short unique slug that becomes the last path segment of VA's webhook
 URL and is how the handler finds VA's Adapter row. Use distinct keys per environment,
-e.g. `va-dev` locally and `va` in production.
+e.g. a base slug suffixed with `-dev` locally and `-prod` in production.
 
 Provisioning must happen before Slack verifies the Request URL, because URL verification
 hits `/v1/webhooks/slack/<appKey>` and the handler looks up the adapter by `appKey` to
@@ -92,7 +92,7 @@ instance:
     "slackBotToken": "<xoxb-... bot token>",
     "slackBotUserId": "<bot user ID, U...>",
     "slackSigningSecret": "<app signing secret>",
-    "slackAppKey": "va-dev",
+    "slackAppKey": "<app_key>",
     "botName": "Vibes Analyst"
   }
 }
@@ -150,12 +150,59 @@ auto path uses and declines anything that is not an explicitly public topic.
 
 ---
 
+## Analytics enrichment and metric snapshots
+
+Two things happen when a public event ends, beyond the Slack post.
+
+**Tracked-session enrichment (Matomo, optional).** VA pulls attendee counts, dwell time,
+device split, and feature usage from Matomo's Reporting API and folds them into the card.
+This needs three env vars, all optional. If any is unset the fetch is skipped and the card
+is built from message data alone:
+
+- `MATOMO_BASE_URL` the Matomo instance base URL, e.g. `https://analytics.example.org`
+- `MATOMO_TOKEN` the Matomo API auth token (`token_auth`) for the Reporting API
+- `MATOMO_SITE_ID` the site id whose visits hold the tracked-session data, e.g. `1`
+
+Set these in the target environment's `.env`, not in the provisioning call. See
+[`METRICS.md`](METRICS.md) for what each metric means and which are exact vs estimates.
+
+**Per-event metric snapshot.** The same event-end also writes a row to the
+`ConversationMetricsSnapshot` collection: a versioned copy of that event's scalar metrics, counts
+only, no message text. Later cards read these to draw cross-event trend lines, so a summon
+can compare several past events without recomputing them. The Slack post and the snapshot
+are written together; confirm one landed by querying that collection for the event's
+`conversationId`.
+
+### Seed history for trends (run once after deploy)
+
+A fresh deploy has no snapshots, so trends stay empty until new events end. Backfill past
+events once so trends work immediately. The script reads historical events and writes only
+to the snapshot collection, never editing the source data:
+
+    # Preview the most recent 30 days, write nothing
+    node --loader ts-node/esm scripts/backfillConversationMetricsSnapshots.ts \
+      --min-age-days=0 --max-age-days=30 --dry-run
+
+    # Run the batch for real, then walk the window back (30-60, 60-90, ...)
+    node --loader ts-node/esm scripts/backfillConversationMetricsSnapshots.ts \
+      --min-age-days=0 --max-age-days=30
+
+It connects to whatever `MONGODB_URL` points at, so target the environment you mean to
+seed. Flags: `--dry-run` previews without writing, `--overwrite` recomputes snapshots that
+already exist for the current metrics version, `--min-age-days=N` / `--max-age-days=N`
+bound how long ago an event ended. Omit the window flags to process all past events in one
+pass. The script skips experimental events and events that never had Matomo wired up (no
+stored analytics), and is safe to re-run: existing snapshots are left alone unless you pass
+`--overwrite`.
+
+---
+
 ## Local development specifics
 
 - Run the server with `yarn run dev` (defaults to `PORT=3000`). Point `MONGODB_URL` at
   your dev database.
 - Expose it over HTTPS with an ngrok tunnel to port 3000. The tunnel URL is your webhook
-  host: `https://<subdomain>.ngrok-free.app/v1/webhooks/slack/va-dev`. ngrok URLs change
+  host: `https://<subdomain>.ngrok-free.app/v1/webhooks/slack/<app_key>`. ngrok URLs change
   on restart unless you have a reserved domain, so you may need to re-set the Request URL
   after restarting the tunnel.
 - Provision against `http://localhost:3000` (Part B) with a dev admin token and a dev
@@ -192,10 +239,10 @@ Concretely:
    workspace; the per-bot `appKey` keeps their webhooks distinct.
 2. **Provision against the production API** (Part B) with a production admin token, a
    production `topicId`, the prod Slack app's bot token and signing secret, and a
-   distinct `appKey` (e.g. `va`). This creates fresh Adapter and Conversation rows in the
-   production DB.
+   distinct `appKey` from the dev one. This creates fresh Adapter and Conversation rows in
+   the production DB.
 3. **Set the prod app's Request URL** to
-   `https://<deployed domain>/v1/webhooks/slack/va` and verify (Part C).
+   `https://<deployed domain>/v1/webhooks/slack/<appKey>` and verify (Part C).
 4. **Smoke test and verify** against production (Parts below).
 
 What carries over from local to prod is the code (this agent, the conversation type, the
@@ -253,7 +300,9 @@ The message should appear in VA's admin channel.
 
 End a public (non-private) event in that environment. The dispatcher matches VA's
 `allPublicTopics` read grant, fires the `conversationEvent` job, and VA posts its metrics
-card to the admin channel within a minute.
+card to the admin channel within a minute. The same event-end writes a row to the
+`ConversationMetricsSnapshot` collection; query it by the event's `conversationId` to confirm the
+snapshot landed alongside the card.
 
 ## Verify summon (if you enabled Part D)
 
@@ -282,3 +331,7 @@ never received the message event.
   alone needs neither.
 - Summon recaps public events only. it re-checks the read grant per request and declines
   private topics, so it can never recap a private event even by name.
+- Matomo enrichment is optional. Without the `MATOMO_*` env vars the card falls back to
+  message-only data, and the backfill skips those events since they have no stored analytics.
+- Run the backfill once after deploying so cross-event trends are not empty until new events
+  accrue their own snapshots.
