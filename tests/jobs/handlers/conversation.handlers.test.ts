@@ -15,7 +15,10 @@ describe('conversation handler tests', () => {
     await insertUsers([userOne])
     await insertTopics([publicTopic])
 
-    conversation = new Conversation({ ...conversationOne, active: false })
+    /* draft: false because this describes start/stop mechanics, not draft-status behavior;
+       conversationOne itself has no scheduledTime/zoomMeetingUrl, which would otherwise
+       default it to Draft and block it from starting. */
+    conversation = new Conversation({ ...conversationOne, active: false, draft: false })
     await conversation.save()
   })
 
@@ -44,6 +47,18 @@ describe('conversation handler tests', () => {
     test('should not throw if conversation not found', async () => {
       const fakeId = '000000000000000000000000'
       await expect(JobHandlers.autoStartConversation({ attrs: { data: { conversationId: fakeId } } })).resolves.not.toThrow()
+    })
+
+    test('should not start a Draft conversation, and should not throw out of the job', async () => {
+      await Conversation.findByIdAndUpdate(conversation._id, { draft: true })
+
+      await expect(
+        JobHandlers.autoStartConversation({ attrs: { data: { conversationId: conversation._id } } })
+      ).resolves.not.toThrow()
+
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.active).toBe(false)
+      expect(updated!.startTime).toBeUndefined()
     })
   })
 

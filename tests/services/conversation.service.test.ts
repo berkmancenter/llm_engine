@@ -881,6 +881,52 @@ describe('Conversation service methods', () => {
     })
   })
 
+  describe('createConversation() draft status', () => {
+    beforeEach(async () => {
+      await insertUsers([registeredUser])
+      await insertTopics([topicOne])
+    })
+
+    test('is not Draft when all required fields are present and valid', async () => {
+      const conversation = await conversationService.createConversation(
+        {
+          name: 'Complete Event',
+          topicId: topicOne._id.toString(),
+          scheduledTime: new Date(Date.now() + 3600000),
+          scheduledEndTime: new Date(Date.now() + 7200000),
+          properties: { zoomMeetingUrl: 'https://zoom.us/j/123456789' }
+        },
+        registeredUser
+      )
+      expect(conversation.draft).toBe(false)
+    })
+
+    test('is Draft when a required field is missing', async () => {
+      const conversation = await conversationService.createConversation(
+        {
+          name: 'Incomplete Event',
+          topicId: topicOne._id.toString(),
+          scheduledTime: new Date(Date.now() + 3600000)
+          // scheduledEndTime and a valid zoomMeetingUrl are both missing
+        },
+        registeredUser
+      )
+      expect(conversation.draft).toBe(true)
+    })
+
+    test('does not auto-start a Draft conversation created with no scheduledTime, and does not throw', async () => {
+      const conversation = await conversationService.createConversation(
+        {
+          name: 'No Schedule Yet',
+          topicId: topicOne._id.toString()
+        },
+        registeredUser
+      )
+      expect(conversation.draft).toBe(true)
+      expect(conversation.active).toBe(false)
+    })
+  })
+
   describe('generateConversationReport()', () => {
     let periodicConversation
     let perMessageConversation
@@ -1180,6 +1226,51 @@ describe('Conversation service methods', () => {
       // pulls the snapshot from its own dispatched job, where it can retry patiently.
       expect(snapshotSpy).not.toHaveBeenCalled()
       expect(dispatchSpy).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('startConversation() draft gating', () => {
+    beforeEach(async () => {
+      await insertUsers([registeredUser])
+      await insertTopics([topicOne])
+    })
+
+    test('refuses to start a Draft conversation and leaves it inactive', async () => {
+      const conversation = new Conversation({
+        name: 'Draft Event',
+        owner: registeredUser._id,
+        topic: topicOne._id,
+        draft: true,
+        agents: [],
+        adapters: [],
+        messages: []
+      })
+      await conversation.save()
+
+      await expect(conversationService.startConversation(conversation._id.toString(), registeredUser)).rejects.toMatchObject(
+        { statusCode: httpStatus.BAD_REQUEST }
+      )
+
+      const reloaded = await Conversation.findById(conversation._id)
+      expect(reloaded!.active).toBe(false)
+    })
+
+    test('starts normally when the conversation is not Draft (regression)', async () => {
+      const conversation = new Conversation({
+        name: 'Ready Event',
+        owner: registeredUser._id,
+        topic: topicOne._id,
+        draft: false,
+        agents: [],
+        adapters: [],
+        messages: []
+      })
+      await conversation.save()
+
+      await conversationService.startConversation(conversation._id.toString(), registeredUser)
+
+      const reloaded = await Conversation.findById(conversation._id)
+      expect(reloaded!.active).toBe(true)
     })
   })
 
@@ -1662,6 +1753,72 @@ describe('Conversation service methods', () => {
       const [updated] = await Adapter.find({ conversation: conversation._id, type: 'slack' })
       expect(updated.config.botName).toBe('NewName')
       expect(updated.config.botUserId).toBe('U123')
+    })
+
+    describe('draft status and lockout', () => {
+      /* The beforeEach event has zoomMeetingUrl, name, topic, and scheduledTime set, but
+         never scheduledEndTime, so it starts out Draft. Its scheduledTime is set an hour
+         out, well outside the 6-minute lockout window. */
+      test('starts out Draft because scheduledEndTime was never set', () => {
+        expect(conversation.draft).toBe(true)
+      })
+
+      test('a client-supplied draft field in the update body is ignored; the server recomputes it', async () => {
+        const result = await conversationService.updateConversation(
+          { id: conversation._id.toString(), draft: false, name: 'Still Draft' },
+          registeredUser
+        )
+        // scheduledEndTime is still unset, so the conversation must remain Draft
+        // regardless of what the client sent.
+        expect(result!.draft).toBe(true)
+      })
+
+      test('filling in the last missing required field flips draft from true to false', async () => {
+        const result = await conversationService.updateConversation(
+          { id: conversation._id.toString(), scheduledEndTime: new Date(Date.now() + 7200000) },
+          registeredUser
+        )
+        expect(result!.draft).toBe(false)
+      })
+
+      test('editing a Draft conversation succeeds when its scheduledTime is more than 6 minutes away', async () => {
+        const result = await conversationService.updateConversation(
+          { id: conversation._id.toString(), name: 'Updated While Draft' },
+          registeredUser
+        )
+        expect(result!.name).toBe('Updated While Draft')
+      })
+
+      test('editing a Draft conversation throws once its scheduledTime is within 6 minutes', async () => {
+        // 5 minutes out: inside the 6-minute lockout window.
+        await Conversation.findByIdAndUpdate(conversation._id, { scheduledTime: new Date(Date.now() + 5 * 60 * 1000) })
+
+        await expect(
+          conversationService.updateConversation({ id: conversation._id.toString(), name: 'Too Late' }, registeredUser)
+        ).rejects.toMatchObject({ statusCode: httpStatus.BAD_REQUEST })
+      })
+
+      test('editing a Draft conversation throws once its scheduledTime has already passed', async () => {
+        await Conversation.findByIdAndUpdate(conversation._id, { scheduledTime: new Date(Date.now() - 60 * 1000) })
+
+        await expect(
+          conversationService.updateConversation({ id: conversation._id.toString(), name: 'Too Late' }, registeredUser)
+        ).rejects.toMatchObject({ statusCode: httpStatus.BAD_REQUEST })
+      })
+
+      test('the lockout does not apply to a non-Draft conversation close to its start time', async () => {
+        await Conversation.findByIdAndUpdate(conversation._id, {
+          draft: false,
+          scheduledEndTime: new Date(Date.now() + 7200000),
+          scheduledTime: new Date(Date.now() + 5 * 60 * 1000)
+        })
+
+        const result = await conversationService.updateConversation(
+          { id: conversation._id.toString(), name: 'Updated Close To Start' },
+          registeredUser
+        )
+        expect(result!.name).toBe('Updated Close To Start')
+      })
     })
   })
 
