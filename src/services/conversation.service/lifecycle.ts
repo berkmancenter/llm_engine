@@ -55,8 +55,52 @@ async function scheduleTranscriptBatching(conversation) {
   await schedule.batchTranscript(`${transcriptBatchInterval} seconds`, { conversationId: conversation._id })
 }
 
+/**
+ * A conversation-like object with just the fields needed to determine draft status. Accepts
+ * either a Mongoose document or a plain object being assembled before the first save.
+ */
+export interface DraftStatusInput {
+  name?: string
+  topic?: unknown
+  scheduledTime?: Date | string | null
+  scheduledEndTime?: Date | string | null
+  properties?: { zoomMeetingUrl?: unknown } & Record<string, unknown>
+}
+
+/**
+ * Checks whether a URL string points at a Zoom domain: zoom.us itself, or a vanity
+ * subdomain like harvard.zoom.us. Anything that isn't a parseable URL is treated as invalid.
+ */
+function isZoomUrl(url: unknown): boolean {
+  if (typeof url !== 'string' || !url) return false
+  try {
+    const { hostname } = new URL(url)
+    return hostname === 'zoom.us' || hostname.endsWith('.zoom.us')
+  } catch {
+    return false
+  }
+}
+
+/**
+ * A conversation is Draft until every field required to run it as a scheduled event is
+ * present and valid: a Zoom meeting link, a name, a topic, a scheduled start time, and a
+ * scheduled end time. Once all five hold, the conversation is Scheduled (draft: false).
+ */
+export function isConversationDraft(conversation: DraftStatusInput): boolean {
+  const hasValidZoomUrl = isZoomUrl(conversation.properties?.zoomMeetingUrl)
+  const hasName = typeof conversation.name === 'string' && conversation.name.trim().length > 0
+  const hasTopic = !!conversation.topic
+  const hasScheduledTime = !!conversation.scheduledTime
+  const hasScheduledEndTime = !!conversation.scheduledEndTime
+
+  return !(hasValidZoomUrl && hasName && hasTopic && hasScheduledTime && hasScheduledEndTime)
+}
+
 export async function doStartConversation(conversation) {
   const doc = conversation
+  if (doc.draft) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Cannot start a draft conversation until required fields are filled in.')
+  }
   logger.debug(`Start conversation: ${doc._id}`)
   doc.startTime = new Date()
   for (const agent of doc.agents) {

@@ -349,6 +349,10 @@ export interface IConversation {
   properties?: Record<string, unknown>
   features?: Feature[]
   active?: boolean
+  /* Server-computed: true until all fields required to run this conversation as a scheduled
+     event are present and valid (see conversation.service/lifecycle.ts). Read-only from the
+     client's perspective: conversation.service recomputes it on every create/update. */
+  draft?: boolean
   locked?: boolean
   enableAgents?: boolean
   owner: IUser
