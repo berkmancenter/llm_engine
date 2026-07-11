@@ -1,7 +1,9 @@
 import mongoose from 'mongoose'
 import setupIntTest from '../../utils/setupIntTest.js'
 import { ConversationMetricsSnapshot } from '../../../src/models/index.js'
-import conversationMetricsSnapshotService, { buildSnapshotPayload } from '../../../src/services/conversationMetricsSnapshot.service.js'
+import conversationMetricsSnapshotService, {
+  buildSnapshotPayload
+} from '../../../src/services/conversationMetricsSnapshot.service.js'
 import { METRICS_VERSION } from '../../../src/services/conversationAnalytics.service.js'
 import { ConversationMetrics } from '../../../src/types/index.types.js'
 
@@ -61,6 +63,7 @@ function sampleMetrics(): ConversationMetrics {
     baseline: null,
     channelSplit: { public: 130, private: 10 },
     timeToFirstMessage: { publicSeconds: null, privateSeconds: null },
+    replyLatency: { medianSecondsToFirstReply: null, repliedMessageCount: 0 },
     privateMessaging: {
       privateMessageCount: 10,
       distinctPrivateSenders: 3,

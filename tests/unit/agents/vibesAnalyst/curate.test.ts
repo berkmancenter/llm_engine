@@ -29,7 +29,12 @@ function metricsFixture(overrides: Partial<ConversationMetrics> = {}): Conversat
     participation: { posterCount: 20, frequentPosterCount: 2, frequentPosterMessageShare: 0.4, messageCount: 50 },
     trackedSessionSources: [],
     trackedSessionStatus: 'notTracked',
-    audienceEngagement: { participantCount: 0, lurkerCount: null, participationRate: null, postersExceedTrackedSessions: true },
+    audienceEngagement: {
+      participantCount: 0,
+      lurkerCount: null,
+      participationRate: null,
+      postersExceedTrackedSessions: true
+    },
     activitySeries: [
       { label: '0-10', messageCount: 5 },
       { label: '10-20', messageCount: 15 }
@@ -42,6 +47,7 @@ function metricsFixture(overrides: Partial<ConversationMetrics> = {}): Conversat
     baseline: { eventCount: 3, trackedEventCount: 0, avgPosterCount: 18, avgLurkerCount: null, avgDwellSeconds: null },
     channelSplit: { public: 30, private: 20 },
     timeToFirstMessage: { publicSeconds: null, privateSeconds: null },
+    replyLatency: { medianSecondsToFirstReply: null, repliedMessageCount: 0 },
     privateMessaging: {
       privateMessageCount: 20,
       distinctPrivateSenders: 6,

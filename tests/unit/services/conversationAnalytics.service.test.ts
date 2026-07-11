@@ -1,8 +1,16 @@
 import mongoose from 'mongoose'
 import setupIntTest from '../../utils/setupIntTest.js'
-import { Conversation, Message, ConversationAnalytics, ConversationMetricsSnapshot, Channel, Agent } from '../../../src/models/index.js'
+import {
+  Conversation,
+  Message,
+  ConversationAnalytics,
+  ConversationMetricsSnapshot,
+  Channel,
+  Agent
+} from '../../../src/models/index.js'
 import conversationAnalyticsService, {
   attributeSpikeSources,
+  computeReplyLatency,
   computeResourceSummary,
   computeTimeToFirstMessage,
   deriveEventPlatform,
@@ -809,6 +817,79 @@ describe('computeTimeToFirstMessage', () => {
     expect(computeTimeToFirstMessage(messages, directNames, start)).toEqual({
       publicSeconds: 240,
       privateSeconds: null
+    })
+  })
+})
+
+describe('computeReplyLatency', () => {
+  const start = new Date('2026-06-10T10:00:00.000Z')
+  const at = (minutes: number) => new Date(start.getTime() + minutes * 60 * 1000)
+
+  it("takes the median gap to each replied-to message's first reply", () => {
+    const messages = [
+      { _id: 'a', createdAt: at(0) },
+      { _id: 'b', createdAt: at(2), parentMessage: 'a' }, // first reply to a: 2 min
+      { _id: 'c', createdAt: at(5), parentMessage: 'a' }, // later reply to a, ignored
+      { _id: 'd', createdAt: at(1) },
+      { _id: 'e', createdAt: at(4), parentMessage: 'd' } // first reply to d: 3 min
+    ]
+
+    expect(computeReplyLatency(messages)).toEqual({
+      medianSecondsToFirstReply: 150, // median of 120s and 180s
+      repliedMessageCount: 2
+    })
+  })
+
+  it('takes the middle value for an odd number of replied-to messages', () => {
+    const messages = [
+      { _id: 'a', createdAt: at(0) },
+      { _id: 'b', createdAt: at(1), parentMessage: 'a' }, // 60s
+      { _id: 'c', createdAt: at(10) },
+      { _id: 'd', createdAt: at(12), parentMessage: 'c' }, // 120s
+      { _id: 'e', createdAt: at(20) },
+      { _id: 'f', createdAt: at(25), parentMessage: 'e' } // 300s
+    ]
+
+    expect(computeReplyLatency(messages)).toEqual({
+      medianSecondsToFirstReply: 120,
+      repliedMessageCount: 3
+    })
+  })
+
+  it('uses the earliest reply regardless of message order', () => {
+    const messages = [
+      { _id: 'a', createdAt: at(0) },
+      { _id: 'c', createdAt: at(5), parentMessage: 'a' }, // out of order, later
+      { _id: 'b', createdAt: at(1), parentMessage: 'a' } // earliest reply: 60s
+    ]
+
+    expect(computeReplyLatency(messages)).toEqual({
+      medianSecondsToFirstReply: 60,
+      repliedMessageCount: 1
+    })
+  })
+
+  it('ignores a reply whose parent is not in the human message set', () => {
+    const messages = [
+      { _id: 'a', createdAt: at(0) },
+      { _id: 'b', createdAt: at(2), parentMessage: 'bot-msg' } // parent absent (e.g. a bot reply)
+    ]
+
+    expect(computeReplyLatency(messages)).toEqual({
+      medianSecondsToFirstReply: null,
+      repliedMessageCount: 0
+    })
+  })
+
+  it('returns a null median and zero count when nothing was a reply', () => {
+    const messages = [
+      { _id: 'a', createdAt: at(0) },
+      { _id: 'b', createdAt: at(2) }
+    ]
+
+    expect(computeReplyLatency(messages)).toEqual({
+      medianSecondsToFirstReply: null,
+      repliedMessageCount: 0
     })
   })
 })

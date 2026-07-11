@@ -54,6 +54,7 @@ function negativeEventMetrics(): ConversationMetrics {
     baseline: { eventCount: 5, trackedEventCount: 5, avgPosterCount: 29.8, avgLurkerCount: 59, avgDwellSeconds: 1440 },
     channelSplit: { public: 26, private: 38 },
     timeToFirstMessage: { publicSeconds: null, privateSeconds: null },
+    replyLatency: { medianSecondsToFirstReply: null, repliedMessageCount: 0 },
     privateMessaging: {
       privateMessageCount: 38,
       distinctPrivateSenders: 9,

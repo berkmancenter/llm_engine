@@ -850,6 +850,8 @@ export interface ConversationMetrics {
   privateMessaging: PrivateMessaging
   // How long after the event started the first human message landed, per surface.
   timeToFirstMessage: TimeToFirstMessage
+  // How quickly people replied to each other, over threaded human replies.
+  replyLatency: ReplyLatency
   // The configured assistant's name and how many times participants called on it.
   botInvocations: BotInvocations
   // Speaker moments that drew a chat reaction, with how the room responded; empty when none.
@@ -886,6 +888,17 @@ export interface PrivateMessaging {
 export interface TimeToFirstMessage {
   publicSeconds: number | null
   privateSeconds: number | null
+}
+
+/* Reply speed over threaded human replies (a message answering another via parentMessage).
+   medianSecondsToFirstReply is the median, across every human message that drew a reply, of the
+   seconds to its first reply; null when no human replied to another (including events with no
+   threading). repliedMessageCount is how many messages drew at least one reply, so the read layer
+   knows how much of the conversation was threaded before trusting the median. Both first-party,
+   from message timestamps and parent links. */
+export interface ReplyLatency {
+  medianSecondsToFirstReply: number | null
+  repliedMessageCount: number
 }
 
 /* The event's readings and references, counted only from what participants could see

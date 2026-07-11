@@ -15,6 +15,7 @@ import {
   ParticipationHistoryPoint,
   ParticipationMetrics,
   PrivateMessaging,
+  ReplyLatency,
   ResourceSummary,
   SameTopicBaseline,
   SpikeSource,
@@ -444,6 +445,50 @@ export function computeTimeToFirstMessage(
   return { publicSeconds: toSeconds(firstPublicMs), privateSeconds: toSeconds(firstPrivateMs) }
 }
 
+/* The median of a list of numbers, or null when the list is empty. Averages the two middle
+   values for an even count and takes the middle one for an odd count. */
+function median(values: number[]): number | null {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+}
+
+/* Reply speed, measured over threaded human replies (parentMessage) so a burst of unrelated
+   messages is never read as a fast conversation. For each human message that drew at least one
+   reply from another human, it takes the gap to that message's first reply, then reports the
+   median of those gaps and how many messages were replied to. A reply whose parent is not in the
+   human set (e.g. a reply to the bot) is skipped, since the gap would not be one person answering
+   another. Null median with a zero count when nothing was a reply. Pure over the already-fetched
+   human messages. */
+export function computeReplyLatency(messages: { _id?: unknown; createdAt?: Date; parentMessage?: unknown }[]): ReplyLatency {
+  const idOf = (ref: unknown): string => String((ref as { _id?: unknown })?._id ?? ref)
+
+  const createdAtById = new Map<string, number>()
+  for (const message of messages) {
+    if (message._id != null && message.createdAt instanceof Date) {
+      createdAtById.set(idOf(message._id), message.createdAt.getTime())
+    }
+  }
+
+  const firstReplyByParent = new Map<string, number>()
+  for (const message of messages) {
+    if (!(message.createdAt instanceof Date) || message.parentMessage == null) continue
+    const parentId = idOf(message.parentMessage)
+    if (!createdAtById.has(parentId)) continue
+    const replyMs = message.createdAt.getTime()
+    const existing = firstReplyByParent.get(parentId)
+    if (existing === undefined || replyMs < existing) firstReplyByParent.set(parentId, replyMs)
+  }
+
+  const gaps: number[] = []
+  for (const [parentId, replyMs] of firstReplyByParent) {
+    gaps.push(Math.max(0, Math.round((replyMs - (createdAtById.get(parentId) as number)) / 1000)))
+  }
+
+  return { medianSecondsToFirstReply: median(gaps), repliedMessageCount: gaps.length }
+}
+
 /* Counts how many times participants called on the event's configured assistant by
    name. It reads people's chat messages, the channel where the assistant is summoned,
    and matches each against the bot name the same fuzzy way the assistant itself does,
@@ -709,7 +754,7 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
     conversation: conversation._id,
     ...visibleHumanFilter
   })
-    .select('createdAt channels owner pseudonymId')
+    .select('createdAt channels owner pseudonymId parentMessage')
     .sort({ createdAt: 1 })
   const channelNames = [...new Set(humanMessages.flatMap((message) => message.channels ?? []))]
   const directNames = await resolveDirectNames(channelNames)
@@ -717,6 +762,7 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
   const channelSplit = computeChannelSplit(humanMessages, directNames)
   const privateMessaging = computePrivateMessaging(humanMessages, directNames, participation.posterCount)
   const timeToFirstMessage = computeTimeToFirstMessage(humanMessages, directNames, conversation.startTime)
+  const replyLatency = computeReplyLatency(humanMessages)
   const spikes = attributeSpikeSources(
     computeSpikes(activityBuckets, participation.posterCount),
     humanMessages,
@@ -741,6 +787,7 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
     channelSplit,
     privateMessaging,
     timeToFirstMessage,
+    replyLatency,
     botInvocations,
     resourceSummary: computeResourceSummary(conversation),
     eventPlatform: deriveEventPlatform(conversation),

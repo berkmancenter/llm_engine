@@ -55,6 +55,7 @@ function metricsFixture(): ConversationMetrics {
     baseline: { eventCount: 3, trackedEventCount: 0, avgPosterCount: 18, avgLurkerCount: null, avgDwellSeconds: null },
     channelSplit: { public: 30, private: 20 },
     timeToFirstMessage: { publicSeconds: null, privateSeconds: null },
+    replyLatency: { medianSecondsToFirstReply: null, repliedMessageCount: 0 },
     privateMessaging: {
       privateMessageCount: 20,
       distinctPrivateSenders: 6,
