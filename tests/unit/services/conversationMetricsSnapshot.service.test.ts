@@ -6,6 +6,7 @@ import conversationMetricsSnapshotService, {
 } from '../../../src/services/conversationMetricsSnapshot.service.js'
 import { METRICS_VERSION } from '../../../src/services/conversationAnalytics.service.js'
 import { ConversationMetrics } from '../../../src/types/index.types.js'
+import makeMetrics from '../../utils/metricsFixture.js'
 
 setupIntTest()
 
@@ -13,7 +14,7 @@ setupIntTest()
    persistence service after enrichment. The spikes and receptions carry verbatim quote text
    on purpose, so the test can prove the snapshot keeps the counts and drops the words. */
 function sampleMetrics(): ConversationMetrics {
-  return {
+  return makeMetrics({
     participation: { posterCount: 12, frequentPosterCount: 2, frequentPosterMessageShare: 0.45, messageCount: 140 },
     trackedSessionSources: [
       {
@@ -62,8 +63,6 @@ function sampleMetrics(): ConversationMetrics {
     participationHistory: [{ label: 'Today', posterCount: 12, lurkerCount: 68 }],
     baseline: null,
     channelSplit: { public: 130, private: 10 },
-    timeToFirstMessage: { publicSeconds: null, privateSeconds: null },
-    replyLatency: { medianSecondsToFirstReply: null, repliedMessageCount: 0 },
     privateMessaging: {
       privateMessageCount: 10,
       distinctPrivateSenders: 3,
@@ -83,7 +82,7 @@ function sampleMetrics(): ConversationMetrics {
     ],
     resourceSummary: { total: 4, required: 2, referenced: 1, suggested: 1, withLinks: 3 },
     eventPlatform: 'nextspace'
-  }
+  })
 }
 
 function sampleConversation(overrides = {}) {

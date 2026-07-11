@@ -1,6 +1,7 @@
 import curateVibesCard from '../../../src/agents/vibesAnalyst/curate.js'
 import { getModelChat, supportedModels } from '../../../src/agents/helpers/getModelChat.js'
 import { ConversationMetrics, LlmPlatforms } from '../../../src/types/index.types.js'
+import makeMetrics from '../../utils/metricsFixture.js'
 
 jest.setTimeout(45000) // LLM calls can be slow
 
@@ -10,7 +11,7 @@ const CHART_TYPES = ['bar', 'line', 'area', 'pie']
    choose to feature (participation below the topic's norm, late drop-off in
    activity, a private-heavy channel split, and tracked sessions to draw on). */
 function negativeEventMetrics(): ConversationMetrics {
-  return {
+  return makeMetrics({
     participation: { posterCount: 17, frequentPosterCount: 2, frequentPosterMessageShare: 0.5, messageCount: 64 },
     trackedSessionSources: [
       {
@@ -53,8 +54,6 @@ function negativeEventMetrics(): ConversationMetrics {
     ],
     baseline: { eventCount: 5, trackedEventCount: 5, avgPosterCount: 29.8, avgLurkerCount: 59, avgDwellSeconds: 1440 },
     channelSplit: { public: 26, private: 38 },
-    timeToFirstMessage: { publicSeconds: null, privateSeconds: null },
-    replyLatency: { medianSecondsToFirstReply: null, repliedMessageCount: 0 },
     privateMessaging: {
       privateMessageCount: 38,
       distinctPrivateSenders: 9,
@@ -72,7 +71,7 @@ function negativeEventMetrics(): ConversationMetrics {
     ],
     resourceSummary: { total: 0, required: 0, referenced: 0, suggested: 0, withLinks: 0 },
     eventPlatform: 'nextspace'
-  }
+  })
 }
 
 describe('curateVibesCard', () => {

@@ -1,6 +1,7 @@
 import verifyCuratedCard from '../../../src/agents/vibesAnalyst/verifyCuration.js'
 import { getModelChat, supportedModels } from '../../../src/agents/helpers/getModelChat.js'
 import { ConversationMetrics, CuratedVibesData, LlmPlatforms } from '../../../src/types/index.types.js'
+import makeMetrics from '../../utils/metricsFixture.js'
 
 jest.setTimeout(45000) // LLM calls can be slow
 
@@ -8,7 +9,7 @@ jest.setTimeout(45000) // LLM calls can be slow
    average (about 30 posters), activity tails off, and there are no tracked sessions.
    The critic should be able to confirm or refute claims against these exact numbers. */
 function metricsFixture(): ConversationMetrics {
-  return {
+  return makeMetrics({
     participation: { posterCount: 16, frequentPosterCount: 2, frequentPosterMessageShare: 0.5, messageCount: 60 },
     trackedSessionSources: [],
     trackedSessionStatus: 'notTracked',
@@ -34,8 +35,6 @@ function metricsFixture(): ConversationMetrics {
     ],
     baseline: { eventCount: 2, trackedEventCount: 0, avgPosterCount: 30, avgLurkerCount: null, avgDwellSeconds: null },
     channelSplit: { public: 40, private: 20 },
-    timeToFirstMessage: { publicSeconds: null, privateSeconds: null },
-    replyLatency: { medianSecondsToFirstReply: null, repliedMessageCount: 0 },
     privateMessaging: {
       privateMessageCount: 20,
       distinctPrivateSenders: 5,
@@ -53,7 +52,7 @@ function metricsFixture(): ConversationMetrics {
     ],
     resourceSummary: { total: 0, required: 0, referenced: 0, suggested: 0, withLinks: 0 },
     eventPlatform: 'nextspace'
-  }
+  })
 }
 
 describe('verifyCuratedCard critic', () => {
