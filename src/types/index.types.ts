@@ -854,6 +854,8 @@ export interface ConversationMetrics {
   replyLatency: ReplyLatency
   // How concentrated the chat was in a few posters, plus one-time vs repeat posters.
   participationConcentration: ParticipationConcentration
+  // The shape of threaded conversation: thread count, sizes, and deepest reply chain.
+  interactionStructure: InteractionStructure
   // The configured assistant's name and how many times participants called on it.
   botInvocations: BotInvocations
   // Speaker moments that drew a chat reaction, with how the room responded; empty when none.
@@ -919,6 +921,23 @@ export interface ParticipationConcentration {
   topPosterMessageShare: number | null
   oneTimePosterCount: number
   repeatPosterCount: number
+}
+
+/* The shape of threaded conversation, from the parentMessage links among human messages. A
+   thread is a root message (one with no parent, or whose parent is not in the human set, e.g. a
+   reply to the bot) together with every message that descends from it, and it counts only once
+   it drew at least one reply, so a lone unanswered post is not a thread. threadCount is how many
+   such threads there were. maxThreadSize is the message count of the largest thread, root
+   included; medianThreadSize is the median thread size, null when there were no threads.
+   maxReplyDepth is the deepest reply chain across all threads, counting edges from the root, so a
+   direct reply to a root is depth 1; it is 0 when nothing was threaded. Together these say
+   whether the room held a few long back-and-forths or many shallow ones. All exact and
+   first-party, from message ids and parent links. */
+export interface InteractionStructure {
+  threadCount: number
+  maxThreadSize: number
+  medianThreadSize: number | null
+  maxReplyDepth: number
 }
 
 /* The event's readings and references, counted only from what participants could see

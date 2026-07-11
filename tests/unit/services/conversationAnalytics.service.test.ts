@@ -10,6 +10,7 @@ import {
 } from '../../../src/models/index.js'
 import conversationAnalyticsService, {
   attributeSpikeSources,
+  computeInteractionStructure,
   computeParticipationConcentration,
   computeReplyLatency,
   computeResourceSummary,
@@ -948,6 +949,76 @@ describe('computeParticipationConcentration', () => {
       topPosterMessageShare: null,
       oneTimePosterCount: 1,
       repeatPosterCount: 1
+    })
+  })
+})
+
+describe('computeInteractionStructure', () => {
+  it('measures thread size and reply depth for a nested thread', () => {
+    const messages = [
+      { _id: 'a' },
+      { _id: 'b', parentMessage: 'a' },
+      { _id: 'c', parentMessage: 'a' },
+      { _id: 'd', parentMessage: 'b' } // deepest chain: a -> b -> d
+    ]
+
+    expect(computeInteractionStructure(messages)).toEqual({
+      threadCount: 1,
+      maxThreadSize: 4,
+      medianThreadSize: 4,
+      maxReplyDepth: 2
+    })
+  })
+
+  it('counts across threads and ignores a lone unanswered message', () => {
+    const messages = [
+      { _id: 'a' },
+      { _id: 'b', parentMessage: 'a' }, // thread 1: size 2, depth 1
+      { _id: 'c' },
+      { _id: 'd', parentMessage: 'c' },
+      { _id: 'e', parentMessage: 'd' }, // thread 2: size 3, depth 2
+      { _id: 'f' } // lone root, no replies
+    ]
+
+    expect(computeInteractionStructure(messages)).toEqual({
+      threadCount: 2,
+      maxThreadSize: 3,
+      medianThreadSize: 2.5, // median of [3, 2]
+      maxReplyDepth: 2
+    })
+  })
+
+  it('treats a reply whose parent is outside the human set as its own thread root', () => {
+    const messages = [
+      { _id: 'a', parentMessage: 'bot-msg' }, // parent absent, so a starts a thread
+      { _id: 'b', parentMessage: 'a' }
+    ]
+
+    expect(computeInteractionStructure(messages)).toEqual({
+      threadCount: 1,
+      maxThreadSize: 2,
+      medianThreadSize: 2,
+      maxReplyDepth: 1
+    })
+  })
+
+  it('returns zeros and a null median when nothing was threaded', () => {
+    const messages = [{ _id: 'a' }, { _id: 'b' }, { _id: 'c' }]
+
+    expect(computeInteractionStructure(messages)).toEqual({
+      threadCount: 0,
+      maxThreadSize: 0,
+      medianThreadSize: null,
+      maxReplyDepth: 0
+    })
+  })
+
+  it('returns zeros and a null median for no messages', () => {
+    expect(computeInteractionStructure([])).toEqual({
+      threadCount: 0,
+      maxThreadSize: 0,
+      medianThreadSize: null,
+      maxReplyDepth: 0
     })
   })
 })

@@ -35,6 +35,7 @@ export default function makeMetrics(overrides: Partial<ConversationMetrics> = {}
       oneTimePosterCount: 12,
       repeatPosterCount: 8
     },
+    interactionStructure: { threadCount: 4, maxThreadSize: 5, medianThreadSize: 3, maxReplyDepth: 2 },
     privateMessaging: {
       privateMessageCount: 20,
       distinctPrivateSenders: 6,

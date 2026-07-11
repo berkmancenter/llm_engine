@@ -12,6 +12,7 @@ import {
   ChatSpike,
   ConversationMetrics,
   EventPlatform,
+  InteractionStructure,
   ParticipationConcentration,
   ParticipationHistoryPoint,
   ParticipationMetrics,
@@ -531,6 +532,72 @@ export function computeParticipationConcentration(
   return { topPosterCount, topPosterMessageShare, oneTimePosterCount, repeatPosterCount }
 }
 
+/* The shape of threaded conversation over the already-fetched human messages, read from their
+   parentMessage links. Builds a forest: each message links to its parent when that parent is in
+   the human set, and any other message (no parent, or a reply to something outside the set like
+   the bot) is a thread root. Walks each root's subtree for its size (root plus every descendant)
+   and its depth (edges from the root, so a direct reply is depth 1). A root counts as a thread
+   only once it has at least one reply, so a lone unanswered post is not a thread. Reports the
+   thread count, the largest and median thread sizes, and the deepest reply chain, with zeros and
+   a null median when nothing was threaded. Pure over the fetched messages. */
+export function computeInteractionStructure(messages: { _id?: unknown; parentMessage?: unknown }[]): InteractionStructure {
+  const idOf = (ref: unknown): string => String((ref as { _id?: unknown })?._id ?? ref)
+
+  const inSet = new Set<string>()
+  for (const message of messages) {
+    if (message._id != null) inSet.add(idOf(message._id))
+  }
+
+  const childrenByParent = new Map<string, string[]>()
+  const roots: string[] = []
+  for (const message of messages) {
+    if (message._id == null) continue
+    const id = idOf(message._id)
+    const parentId = message.parentMessage != null ? idOf(message.parentMessage) : null
+    if (parentId !== null && inSet.has(parentId)) {
+      const siblings = childrenByParent.get(parentId) ?? []
+      siblings.push(id)
+      childrenByParent.set(parentId, siblings)
+    } else {
+      roots.push(id)
+    }
+  }
+
+  const threadSizes: number[] = []
+  let maxReplyDepth = 0
+  for (const root of roots) {
+    let size = 0
+    let depth = 0
+    /* Depth-first walk from the root. The visited guard only matters if the data ever formed a
+       cycle (a reply is always created after its parent, so real threads are acyclic); it keeps a
+       malformed link from looping forever. */
+    const visited = new Set<string>()
+    const stack: { id: string; level: number }[] = [{ id: root, level: 0 }]
+    while (stack.length > 0) {
+      const { id, level } = stack.pop()!
+      if (visited.has(id)) continue
+      visited.add(id)
+      size += 1
+      if (level > depth) depth = level
+      for (const child of childrenByParent.get(id) ?? []) {
+        stack.push({ id: child, level: level + 1 })
+      }
+    }
+
+    if (size >= 2) {
+      threadSizes.push(size)
+      if (depth > maxReplyDepth) maxReplyDepth = depth
+    }
+  }
+
+  return {
+    threadCount: threadSizes.length,
+    maxThreadSize: threadSizes.length > 0 ? Math.max(...threadSizes) : 0,
+    medianThreadSize: median(threadSizes),
+    maxReplyDepth
+  }
+}
+
 /* Counts how many times participants called on the event's configured assistant by
    name. It reads people's chat messages, the channel where the assistant is summoned,
    and matches each against the bot name the same fuzzy way the assistant itself does,
@@ -806,6 +873,7 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
   const timeToFirstMessage = computeTimeToFirstMessage(humanMessages, directNames, conversation.startTime)
   const replyLatency = computeReplyLatency(humanMessages)
   const participationConcentration = computeParticipationConcentration(humanMessages)
+  const interactionStructure = computeInteractionStructure(humanMessages)
   const spikes = attributeSpikeSources(
     computeSpikes(activityBuckets, participation.posterCount),
     humanMessages,
@@ -832,6 +900,7 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
     timeToFirstMessage,
     replyLatency,
     participationConcentration,
+    interactionStructure,
     botInvocations,
     resourceSummary: computeResourceSummary(conversation),
     eventPlatform: deriveEventPlatform(conversation),
