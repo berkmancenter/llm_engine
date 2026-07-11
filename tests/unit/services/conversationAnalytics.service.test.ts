@@ -4,6 +4,7 @@ import { Conversation, Message, ConversationAnalytics, ConversationMetricsSnapsh
 import conversationAnalyticsService, {
   attributeSpikeSources,
   computeResourceSummary,
+  computeTimeToFirstMessage,
   deriveEventPlatform,
   spikeSourceForChannels,
   METRICS_VERSION
@@ -744,6 +745,71 @@ describe('attributeSpikeSources', () => {
     const [attributed] = attributeSpikeSources([spikeWindow(20, 30)], messages, start, directNames)
 
     expect(attributed.source).toBe('chat')
+  })
+})
+
+describe('computeTimeToFirstMessage', () => {
+  const start = new Date('2026-06-10T10:00:00.000Z')
+  const at = (minutes: number) => new Date(start.getTime() + minutes * 60 * 1000)
+  const directNames = new Set(['dm-1'])
+
+  it('measures seconds from event start to the first message on each surface', () => {
+    const messages = [
+      { createdAt: at(3), channels: ['chat'] },
+      { createdAt: at(5), channels: ['chat'] },
+      { createdAt: at(1), channels: ['dm-1'] },
+      { createdAt: at(4), channels: ['dm-1'] }
+    ]
+
+    expect(computeTimeToFirstMessage(messages, directNames, start)).toEqual({
+      publicSeconds: 180,
+      privateSeconds: 60
+    })
+  })
+
+  it('treats a message with no channel as the public group chat', () => {
+    const messages = [{ createdAt: at(2), channels: undefined }]
+
+    expect(computeTimeToFirstMessage(messages, directNames, start)).toEqual({
+      publicSeconds: 120,
+      privateSeconds: null
+    })
+  })
+
+  it('returns null for a surface with no human message', () => {
+    const messages = [{ createdAt: at(2), channels: ['chat'] }]
+
+    expect(computeTimeToFirstMessage(messages, directNames, start)).toEqual({
+      publicSeconds: 120,
+      privateSeconds: null
+    })
+  })
+
+  it('clamps a message sent before the event start to zero', () => {
+    const messages = [{ createdAt: at(-2), channels: ['chat'] }]
+
+    expect(computeTimeToFirstMessage(messages, directNames, start)).toEqual({
+      publicSeconds: 0,
+      privateSeconds: null
+    })
+  })
+
+  it('returns null on both surfaces when the event start is unknown', () => {
+    const messages = [{ createdAt: at(3), channels: ['chat'] }]
+
+    expect(computeTimeToFirstMessage(messages, directNames, undefined)).toEqual({
+      publicSeconds: null,
+      privateSeconds: null
+    })
+  })
+
+  it('ignores messages that carry no timestamp', () => {
+    const messages = [{ channels: ['chat'] }, { createdAt: at(4), channels: ['chat'] }]
+
+    expect(computeTimeToFirstMessage(messages, directNames, start)).toEqual({
+      publicSeconds: 240,
+      privateSeconds: null
+    })
   })
 })
 

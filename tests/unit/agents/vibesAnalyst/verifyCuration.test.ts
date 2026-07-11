@@ -19,6 +19,7 @@ function metricsFixture(): ConversationMetrics {
     participationHistory: [],
     baseline: null,
     channelSplit: { public: 30, private: 20 },
+    timeToFirstMessage: { publicSeconds: null, privateSeconds: null },
     privateMessaging: {
       privateMessageCount: 20,
       distinctPrivateSenders: 6,

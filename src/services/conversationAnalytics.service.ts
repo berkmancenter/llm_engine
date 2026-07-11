@@ -18,6 +18,7 @@ import {
   ResourceSummary,
   SameTopicBaseline,
   SpikeSource,
+  TimeToFirstMessage,
   TrackedSessionMetrics,
   TrackedSessionStatus
 } from '../types/index.types.js'
@@ -409,6 +410,40 @@ export function attributeSpikeSources(
   })
 }
 
+/* Seconds from the event start to the first human message on each surface: the public group
+   chat and the private one-to-one with the bot. A message is private when one of its channels
+   is a direct channel, the same split computeChannelSplit uses. Pure over the already-fetched
+   human messages (fromAgent:false, so the bot's intro never counts), the resolved direct-channel
+   names, and the event start. A surface with no timestamped message is null; both are null when
+   the start is unknown; a message sent before the start clamps to 0 rather than reporting
+   negative time. */
+export function computeTimeToFirstMessage(
+  messages: { createdAt?: Date; channels?: string[] }[],
+  directNames: Set<string>,
+  startTime: Date | undefined
+): TimeToFirstMessage {
+  if (startTime === undefined) return { publicSeconds: null, privateSeconds: null }
+  const startMs = startTime.getTime()
+
+  let firstPublicMs: number | null = null
+  let firstPrivateMs: number | null = null
+  for (const message of messages) {
+    if (!(message.createdAt instanceof Date)) continue
+    const sentMs = message.createdAt.getTime()
+    const isPrivate = (message.channels ?? []).some((name) => directNames.has(name))
+    if (isPrivate) {
+      if (firstPrivateMs === null || sentMs < firstPrivateMs) firstPrivateMs = sentMs
+    } else if (firstPublicMs === null || sentMs < firstPublicMs) {
+      firstPublicMs = sentMs
+    }
+  }
+
+  const toSeconds = (firstMs: number | null): number | null =>
+    firstMs === null ? null : Math.max(0, Math.round((firstMs - startMs) / 1000))
+
+  return { publicSeconds: toSeconds(firstPublicMs), privateSeconds: toSeconds(firstPrivateMs) }
+}
+
 /* Counts how many times participants called on the event's configured assistant by
    name. It reads people's chat messages, the channel where the assistant is summoned,
    and matches each against the bot name the same fuzzy way the assistant itself does,
@@ -681,6 +716,7 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
   const activityBuckets = bucketMessagesOverTime(humanMessages, conversation.startTime, conversation.endTime)
   const channelSplit = computeChannelSplit(humanMessages, directNames)
   const privateMessaging = computePrivateMessaging(humanMessages, directNames, participation.posterCount)
+  const timeToFirstMessage = computeTimeToFirstMessage(humanMessages, directNames, conversation.startTime)
   const spikes = attributeSpikeSources(
     computeSpikes(activityBuckets, participation.posterCount),
     humanMessages,
@@ -704,6 +740,7 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
     baseline,
     channelSplit,
     privateMessaging,
+    timeToFirstMessage,
     botInvocations,
     resourceSummary: computeResourceSummary(conversation),
     eventPlatform: deriveEventPlatform(conversation),

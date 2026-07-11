@@ -60,6 +60,7 @@ function sampleMetrics(): ConversationMetrics {
     participationHistory: [{ label: 'Today', posterCount: 12, lurkerCount: 68 }],
     baseline: null,
     channelSplit: { public: 130, private: 10 },
+    timeToFirstMessage: { publicSeconds: null, privateSeconds: null },
     privateMessaging: {
       privateMessageCount: 10,
       distinctPrivateSenders: 3,

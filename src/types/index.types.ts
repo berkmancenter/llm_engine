@@ -848,6 +848,8 @@ export interface ConversationMetrics {
   // Private (one-to-one with the bot) messaging: counts plus distinct senders, with the
   // per-poster average derived at read time.
   privateMessaging: PrivateMessaging
+  // How long after the event started the first human message landed, per surface.
+  timeToFirstMessage: TimeToFirstMessage
   // The configured assistant's name and how many times participants called on it.
   botInvocations: BotInvocations
   // Speaker moments that drew a chat reaction, with how the room responded; empty when none.
@@ -872,6 +874,18 @@ export interface PrivateMessaging {
   distinctPrivateSenders: number
   distinctPublicSenders: number
   avgPrivateMessagesPerPoster: number
+}
+
+/* Seconds from the event start to the first human message on each surface, both first-party.
+   public is the open group chat (the default for any non-direct channel, including the
+   no-channel main feed); private is a one-to-one with the bot. Each is null when that surface
+   had no timestamped human message, and both are null when the event start is unknown, since
+   "time to first" has no meaning without a start. The bot's own messages (including its intro)
+   never count: the metric reads the same human-only message set as every other participation
+   count. A message stamped before the recorded start reports 0, not negative time. */
+export interface TimeToFirstMessage {
+  publicSeconds: number | null
+  privateSeconds: number | null
 }
 
 /* The event's readings and references, counted only from what participants could see
