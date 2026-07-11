@@ -4,9 +4,13 @@ import { IChannel } from '../../types/index.types.js'
 export default class AgentEvaluationService {
   static async evaluateMessage(agent, userMessage, messageCount) {
     // Disallow processing messages from agents (including self) unless explicitly opted in
-    if (userMessage.fromAgent && !agent.triggers?.perMessage?.allowMessagesFromAgents) return false
+    if (userMessage.fromAgent && !agent.triggers?.perMessage?.allowMessagesFromAgents) {
+      logger.debug(`evaluateMessage: skipping message from agent for ${agent.agentType} ${agent._id}`)
+      return false
+    }
 
     if (userMessage && !agent.triggers?.perMessage) {
+      logger.debug(`evaluateMessage: no perMessage trigger for ${agent.agentType} ${agent._id}`)
       return false
     }
 
@@ -24,6 +28,7 @@ export default class AgentEvaluationService {
 
       // Either no matching channels in channel trigger or no supported DM channels
       if (matchingChannels.length === 0 && directChannels.length === 0) {
+        logger.debug(`evaluateMessage: no matching channels for ${agent.agentType} ${agent._id}`)
         return false
       }
     }

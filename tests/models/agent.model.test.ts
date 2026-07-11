@@ -222,6 +222,20 @@ describe('agent tests', () => {
     expect(agent.conversationHistorySettings).toBe(testAgentTypes.perMessageWithMin.defaultConversationHistorySettings)
   })
 
+  test('should backfill triggers from agent type when loading a doc saved without them', async () => {
+    // An agent saved before its type defined defaultTriggers has no triggers field. Loading must
+    // restore the default, or evaluateMessage's perMessage gate silently rejects every message.
+    const agent = new Agent({ agentType: 'perMessageWithMin', conversation })
+    await agent.save()
+
+    // Strip triggers directly through the driver to bypass the model's save hooks,
+    // leaving the legacy on-disk shape a fresh load has to cope with.
+    await Agent.collection.updateOne({ _id: agent._id }, { $unset: { triggers: '' } })
+
+    const reloaded = await Agent.findById(agent._id)
+    expect(reloaded!.triggers).toEqual(testAgentTypes.perMessageWithMin.defaultTriggers)
+  })
+
   test('should introduce itself on a specified channel', async () => {
     const agent = new Agent({
       agentType: 'perMessageWithMin',
