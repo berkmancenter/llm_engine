@@ -12,6 +12,7 @@ import {
   ChatSpike,
   ConversationMetrics,
   EventPlatform,
+  ParticipationConcentration,
   ParticipationHistoryPoint,
   ParticipationMetrics,
   PrivateMessaging,
@@ -86,8 +87,14 @@ export interface TimedActivityBucket {
 const BASELINE_EVENT_LIMIT = 10
 
 /* A handful of posters. Below this, naming a "few voices dominated" share is
-   meaningless, so the frequent-poster share is reported as null instead. */
+   meaningless, so the frequent-poster share is reported as null instead. Shared with
+   the participation-concentration share, which becomes trivial in the same small room. */
 const FREQUENT_POSTER_MIN_POSTERS = 5
+
+/* How many top posters the concentration share covers. A fixed few, so it measures a tight
+   core regardless of room size, unlike the frequent-poster share, which is the top 10% and so
+   widens with the crowd. */
+const CONCENTRATION_TOP_POSTERS = 3
 
 function average(values: number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length
@@ -489,6 +496,41 @@ export function computeReplyLatency(messages: { _id?: unknown; createdAt?: Date;
   return { medianSecondsToFirstReply: median(gaps), repliedMessageCount: gaps.length }
 }
 
+/* Participation concentration over the already-fetched human messages: how much of the chat
+   came from the busiest few posters, and how many people posted only once. Groups messages by
+   person the same way participation does (owner, else pseudonymId; a message with neither is
+   dropped, as in computePrivateMessaging), so its poster count reconciles with participation.
+   topPosterCount is how many posters the share spans (CONCENTRATION_TOP_POSTERS, or the poster
+   count when smaller). topPosterMessageShare is those posters' share of all messages, null below
+   FREQUENT_POSTER_MIN_POSTERS posters, where a top-few share covers nearly the whole room and
+   says nothing. oneTimePosterCount and repeatPosterCount split posters by whether they sent
+   exactly one message or more, and always sum to the poster count. Pure over the fetched
+   messages. */
+export function computeParticipationConcentration(
+  messages: { owner?: unknown; pseudonymId?: unknown }[]
+): ParticipationConcentration {
+  const countBySender = new Map<string, number>()
+  for (const message of messages) {
+    const sender = senderKey(message)
+    if (sender === null) continue
+    countBySender.set(sender, (countBySender.get(sender) ?? 0) + 1)
+  }
+
+  const counts = [...countBySender.values()].sort((a, b) => b - a)
+  const posterCount = counts.length
+  const messageCount = counts.reduce((sum, count) => sum + count, 0)
+
+  const oneTimePosterCount = counts.filter((count) => count === 1).length
+  const repeatPosterCount = posterCount - oneTimePosterCount
+
+  const topPosterCount = Math.min(CONCENTRATION_TOP_POSTERS, posterCount)
+  const topMessages = counts.slice(0, topPosterCount).reduce((sum, count) => sum + count, 0)
+  const topPosterMessageShare =
+    posterCount >= FREQUENT_POSTER_MIN_POSTERS && messageCount > 0 ? topMessages / messageCount : null
+
+  return { topPosterCount, topPosterMessageShare, oneTimePosterCount, repeatPosterCount }
+}
+
 /* Counts how many times participants called on the event's configured assistant by
    name. It reads people's chat messages, the channel where the assistant is summoned,
    and matches each against the bot name the same fuzzy way the assistant itself does,
@@ -763,6 +805,7 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
   const privateMessaging = computePrivateMessaging(humanMessages, directNames, participation.posterCount)
   const timeToFirstMessage = computeTimeToFirstMessage(humanMessages, directNames, conversation.startTime)
   const replyLatency = computeReplyLatency(humanMessages)
+  const participationConcentration = computeParticipationConcentration(humanMessages)
   const spikes = attributeSpikeSources(
     computeSpikes(activityBuckets, participation.posterCount),
     humanMessages,
@@ -788,6 +831,7 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
     privateMessaging,
     timeToFirstMessage,
     replyLatency,
+    participationConcentration,
     botInvocations,
     resourceSummary: computeResourceSummary(conversation),
     eventPlatform: deriveEventPlatform(conversation),

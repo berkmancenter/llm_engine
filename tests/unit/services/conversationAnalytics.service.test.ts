@@ -10,6 +10,7 @@ import {
 } from '../../../src/models/index.js'
 import conversationAnalyticsService, {
   attributeSpikeSources,
+  computeParticipationConcentration,
   computeReplyLatency,
   computeResourceSummary,
   computeTimeToFirstMessage,
@@ -890,6 +891,63 @@ describe('computeReplyLatency', () => {
     expect(computeReplyLatency(messages)).toEqual({
       medianSecondsToFirstReply: null,
       repliedMessageCount: 0
+    })
+  })
+})
+
+describe('computeParticipationConcentration', () => {
+  const posts = (owner: string, count: number) => Array.from({ length: count }, () => ({ owner }))
+
+  it('reports the top-few share and the one-time vs repeat split', () => {
+    const messages = [...posts('p1', 4), ...posts('p2', 3), ...posts('p3', 2), ...posts('p4', 2), ...posts('p5', 1)]
+
+    expect(computeParticipationConcentration(messages)).toEqual({
+      topPosterCount: 3,
+      topPosterMessageShare: 0.75, // top 3 sent 9 of 12 messages
+      oneTimePosterCount: 1,
+      repeatPosterCount: 4
+    })
+  })
+
+  it('nulls the share below a handful of posters but still splits one-time from repeat', () => {
+    const messages = [...posts('a', 3), ...posts('b', 2), ...posts('c', 1), ...posts('d', 1)]
+
+    expect(computeParticipationConcentration(messages)).toEqual({
+      topPosterCount: 3,
+      topPosterMessageShare: null,
+      oneTimePosterCount: 2,
+      repeatPosterCount: 2
+    })
+  })
+
+  it('caps the top count at the poster count when fewer than a few posted', () => {
+    const messages = [...posts('a', 2), ...posts('b', 1)]
+
+    expect(computeParticipationConcentration(messages)).toEqual({
+      topPosterCount: 2,
+      topPosterMessageShare: null,
+      oneTimePosterCount: 1,
+      repeatPosterCount: 1
+    })
+  })
+
+  it('returns zeros and a null share when no one posted', () => {
+    expect(computeParticipationConcentration([])).toEqual({
+      topPosterCount: 0,
+      topPosterMessageShare: null,
+      oneTimePosterCount: 0,
+      repeatPosterCount: 0
+    })
+  })
+
+  it('groups by pseudonymId when there is no owner and drops a message with neither', () => {
+    const messages = [{}, { pseudonymId: 'x' }, { pseudonymId: 'x' }, { owner: 'y' }]
+
+    expect(computeParticipationConcentration(messages)).toEqual({
+      topPosterCount: 2,
+      topPosterMessageShare: null,
+      oneTimePosterCount: 1,
+      repeatPosterCount: 1
     })
   })
 })

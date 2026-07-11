@@ -852,6 +852,8 @@ export interface ConversationMetrics {
   timeToFirstMessage: TimeToFirstMessage
   // How quickly people replied to each other, over threaded human replies.
   replyLatency: ReplyLatency
+  // How concentrated the chat was in a few posters, plus one-time vs repeat posters.
+  participationConcentration: ParticipationConcentration
   // The configured assistant's name and how many times participants called on it.
   botInvocations: BotInvocations
   // Speaker moments that drew a chat reaction, with how the room responded; empty when none.
@@ -899,6 +901,24 @@ export interface TimeToFirstMessage {
 export interface ReplyLatency {
   medianSecondsToFirstReply: number | null
   repliedMessageCount: number
+}
+
+/* Participation concentration: how much of the chat came from a small core, and how many
+   people posted just once. All exact and first-party, grouped per person the same way
+   participation is. topPosterCount is how many posters the share covers: a fixed few (the
+   busiest three by message volume), or the poster count when the room is smaller.
+   topPosterMessageShare is the fraction of all messages those top posters sent (0 to 1), a
+   fixed-count companion to participation.frequentPosterMessageShare, which instead scales with
+   room size (top 10%). It is null below a handful of posters, where a "top few" share covers
+   nearly the whole room and says nothing. oneTimePosterCount and repeatPosterCount split
+   posters by whether they sent exactly one message or more than one, so the card can tell a
+   room of drive-by single posts apart from one with sustained back-and-forth; they always sum
+   to the poster count. */
+export interface ParticipationConcentration {
+  topPosterCount: number
+  topPosterMessageShare: number | null
+  oneTimePosterCount: number
+  repeatPosterCount: number
 }
 
 /* The event's readings and references, counted only from what participants could see

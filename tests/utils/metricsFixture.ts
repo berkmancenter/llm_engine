@@ -29,6 +29,12 @@ export default function makeMetrics(overrides: Partial<ConversationMetrics> = {}
     channelSplit: { public: 30, private: 20 },
     timeToFirstMessage: { publicSeconds: null, privateSeconds: null },
     replyLatency: { medianSecondsToFirstReply: null, repliedMessageCount: 0 },
+    participationConcentration: {
+      topPosterCount: 3,
+      topPosterMessageShare: 0.3,
+      oneTimePosterCount: 12,
+      repeatPosterCount: 8
+    },
     privateMessaging: {
       privateMessageCount: 20,
       distinctPrivateSenders: 6,
