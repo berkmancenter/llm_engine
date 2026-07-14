@@ -103,6 +103,12 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
       type: Boolean,
       default: false
     },
+    /* Fail-closed default: an unsaved or bypassed-service-layer conversation is treated as
+       Draft until conversation.service explicitly computes and sets the real value. */
+    draft: {
+      type: Boolean,
+      default: true
+    },
     owner: {
       type: mongoose.SchemaTypes.ObjectId,
       ref: 'BaseUser',

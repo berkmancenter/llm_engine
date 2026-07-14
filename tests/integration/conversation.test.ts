@@ -245,7 +245,11 @@ describe('Conversation routes', () => {
     experimentalConversation.messages = [messageFour, invisibleMessage]
 
     await insertConversations([conversationOne, conversationTwo, conversationThree, experimentalConversation])
-    agentConversation = new Conversation(conversationAgentsEnabled)
+    /* draft: false because this fixture backs the manual /start and /stop endpoint tests,
+       which exercise start/stop mechanics rather than draft-status behavior; it has no
+       scheduledTime/zoomMeetingUrl, which would otherwise default it to Draft and block
+       it from starting. */
+    agentConversation = new Conversation({ ...conversationAgentsEnabled, draft: false })
     await agentConversation.save()
     cancelBatchTranscriptSpy = jest.spyOn(schedule, 'cancelBatchTranscript').mockResolvedValue()
     scheduleBatchTranscriptSpy = jest.spyOn(schedule, 'batchTranscript').mockResolvedValue()

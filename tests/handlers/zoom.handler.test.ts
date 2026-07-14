@@ -41,7 +41,6 @@ describe('POST /v1/webhooks/zoom', () => {
   let conversation
   let zoomSecretToken
   let zoomAdapter
-  let receiveMessageSpy
   let broadcastTranscriptStatusChangeSpy
   beforeAll(() => {
     setAdapterTypes(testAdapterTypes)
@@ -51,7 +50,7 @@ describe('POST /v1/webhooks/zoom', () => {
   beforeEach(async () => {
     jest.clearAllMocks()
     await insertTopics([publicTopic])
-    conversation = new Conversation(conversationAgentsEnabled)
+    conversation = new Conversation({ ...conversationAgentsEnabled, draft: false })
     await conversation.save()
     zoomAdapter = await Adapter.create({
       type: 'zoom',
@@ -62,7 +61,7 @@ describe('POST /v1/webhooks/zoom', () => {
 
     conversation.adapters.push(zoomAdapter)
     await conversation.save()
-    receiveMessageSpy = jest.spyOn(webhookService, 'receiveMessage').mockResolvedValue()
+    jest.spyOn(webhookService, 'receiveMessage').mockResolvedValue()
     broadcastTranscriptStatusChangeSpy = jest.spyOn(websocketGateway, 'broadcastTranscriptStatusChange').mockResolvedValue()
     mockZoomGetUniqueKeys.mockReturnValue(['type', 'config.meetingUrl'])
   })
@@ -336,7 +335,7 @@ describe('POST /v1/webhooks/zoom', () => {
     beforeEach(async () => {
       // Create a second conversation with the same meeting ID
 
-      conversation2 = new Conversation({ ...conversationAgentsEnabled, _id: new mongoose.Types.ObjectId() })
+      conversation2 = new Conversation({ ...conversationAgentsEnabled, _id: new mongoose.Types.ObjectId(), draft: false })
       await conversation2.save()
 
       zoomAdapter2 = await Adapter.create({
@@ -389,7 +388,8 @@ describe('POST /v1/webhooks/zoom', () => {
       const conversation3 = new Conversation({
         ...conversationAgentsEnabled,
         _id: new mongoose.Types.ObjectId(),
-        active: true
+        active: true,
+        draft: false
       })
       await conversation3.save()
 
