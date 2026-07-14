@@ -193,6 +193,11 @@ export interface IExperiment {
   executedAt?: Date
 }
 
+/* Names a real validator (see conversations/propertyFormats.ts), not a regex, so security rules
+   like the Zoom-host check parse the value rather than pattern-match it. Extend the union and add
+   the matching validator together. */
+export type PropertyFormat = 'zoomUrl'
+
 export interface ConfigProperty {
   name: string
   as?: string // destination key (supports dot notation for nesting); defaults to name
@@ -205,6 +210,7 @@ export interface ConfigProperty {
   validationKeys?: string[]
   itemKey?: string
   schema?: Array<object>
+  format?: PropertyFormat // extra validation beyond `type`, run on create and for draft status
 }
 
 export interface PropertyRef {

@@ -2,6 +2,7 @@ import handlebars from 'handlebars'
 import httpStatus from 'http-status'
 import ApiError from '../utils/ApiError.js'
 import { AgentProperty, ConversationType, Feature, FeatureConfig } from '../types/index.types.js'
+import { isValidPropertyFormat } from './propertyFormats.js'
 
 interface ResolvedConversationConfig {
   agentTypes: Array<{ name: string; properties?: Record<string, unknown> }>
@@ -98,9 +99,17 @@ const resolvePropertyReferences = (obj, properties: Record<string, unknown>) => 
   return coerceValues(removeEmptyValues(parsed))
 }
 
-const validateProperties = (properties: Record<string, unknown>, propDefs: ConversationType['properties']): void => {
+/* allowDraft relaxes the two checks that draft status also tracks: a missing required
+   property and a malformed format value. The email webhook sets it so an incomplete
+   invite becomes a draft for review instead of a 400. Enum and object-shape checks stay
+   strict either way. The event form leaves it off, so form submissions stay strict. */
+const validateProperties = (
+  properties: Record<string, unknown>,
+  propDefs: ConversationType['properties'],
+  allowDraft = false
+): void => {
   for (const prop of propDefs) {
-    if (prop.required && !(prop.name in properties)) {
+    if (!allowDraft && prop.required && !(prop.name in properties)) {
       throw new ApiError(httpStatus.BAD_REQUEST, `Required property '${prop.name}' is missing`)
     }
 
@@ -143,6 +152,15 @@ const validateProperties = (properties: Record<string, unknown>, propDefs: Conve
           )
         }
       }
+    }
+
+    if (
+      !allowDraft &&
+      prop.format &&
+      prop.name in properties &&
+      !isValidPropertyFormat(prop.format, properties[prop.name])
+    ) {
+      throw new ApiError(httpStatus.BAD_REQUEST, `Property '${prop.name}' is not a valid ${prop.format}`)
     }
   }
 }
@@ -220,11 +238,12 @@ export default function resolveConversationType(
     properties?: Record<string, unknown>
     features?: Array<{ name: string; enabled?: boolean; config?: Record<string, unknown> }>
   },
-  conversationType: ConversationType
+  conversationType: ConversationType,
+  allowDraft = false
 ): ResolvedConversationConfig {
   const { platforms, properties = {}, features: requestedFeatures } = params
 
-  validateProperties(properties, conversationType.properties)
+  validateProperties(properties, conversationType.properties, allowDraft)
   const resolvedProperties = resolvePropertyDefaults(properties, conversationType.properties)
   const features = resolveFeatures(requestedFeatures, conversationType.features)
 

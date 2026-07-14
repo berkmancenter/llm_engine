@@ -234,7 +234,10 @@ const createConversation = async (conversationBody, user) => {
  * @param {Object} user
  * @returns {Promise<Conversation>}
  */
-const createConversationFromType = async (params, user) => {
+/* allowDraft comes from trusted internal callers only. The email webhook passes it so an
+   incomplete invite resolves into a draft instead of a 400; the HTTP route omits it, so
+   form submissions stay strict. */
+const createConversationFromType = async (params, user, { allowDraft = false } = {}) => {
   const { type, platforms } = params
 
   const conversationType = getConversationType(type)
@@ -247,7 +250,7 @@ const createConversationFromType = async (params, user) => {
     throw new ApiError(httpStatus.NOT_FOUND, `Invalid platform(s): ${invalidPlatforms.join(', ')}`)
   }
 
-  const resolved = resolveConversationType(params, conversationType)
+  const resolved = resolveConversationType(params, conversationType, allowDraft)
   return createConversation({ ...params, conversationType: type, ...resolved }, user)
 }
 

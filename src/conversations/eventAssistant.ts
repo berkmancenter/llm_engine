@@ -23,7 +23,8 @@ const eventAssistant: ConversationType = {
       label: 'Zoom Meeting URL',
       description: 'The zoom meeting link for transcription purposes',
       required: true,
-      type: 'string'
+      type: 'string',
+      format: 'zoomUrl'
     },
     {
       name: 'botName',
