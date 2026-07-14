@@ -927,6 +927,66 @@ export interface BudgetAlertData {
   checkedAt: string
 }
 
+/* Per-model aggregation of a conversation's llm-type LangSmith runs. Costs come from
+   LangSmith's own pricing table, not the provider invoice, so every figure is an
+   estimate — user-facing copy must say so. */
+export interface ModelCostBreakdown {
+  model: string
+  llmCalls: number
+  promptTokens: number
+  completionTokens: number
+  estimatedCostUSD: number
+}
+
+/* Per-agent aggregation: llm runs grouped by the agentType that names their trace root
+   (both traceable wrappers in the agent model name roots after the agentType). */
+export interface AgentCostBreakdown {
+  agentType: string
+  llmCalls: number
+  estimatedCostUSD: number
+}
+
+/* One phase's cost aggregate. A "phase" separates spend that happens while a
+   conversation is still live (agent respond() calls, tagged costPhase 'liveEvent')
+   from spend that happens after it stops (the Vibes Analyst recap, the conversation
+   summary — tagged 'postEvent'), so the two can be reported and queried separately
+   instead of only as one combined total. */
+export interface ConversationCostAggregates {
+  estimatedCostUSD: number
+  totalPromptTokens: number
+  totalCompletionTokens: number
+  llmCallCount: number
+  models: ModelCostBreakdown[]
+  agents: AgentCostBreakdown[]
+}
+
+/* What the LangSmith fetch returns: the two phases, kept separate rather than
+   pre-summed, so callers that only care about one phase never have to undo a sum. */
+export interface ConversationCostPhases {
+  liveEvent: ConversationCostAggregates
+  postEvent: ConversationCostAggregates
+}
+
+/* Render payload for the 'conversationCostSummary' card. `total` is the two phases
+   combined, computed once by the caller so the renderer never has to know how to
+   combine aggregates itself. */
+export interface ConversationCostData extends ConversationCostPhases {
+  conversationName: string
+  checkedAt: string
+  total: ConversationCostAggregates
+}
+
+/* The persisted shape: the two phase aggregates plus which conversation they price
+   and where the figures came from. `source` exists so a second cost source (e.g.
+   provider billing exports) could coexist later without a schema change. */
+export interface ConversationCostRecord extends ConversationCostPhases {
+  _id?: mongoose.Types.ObjectId
+  conversationId: mongoose.Types.ObjectId
+  name?: string
+  source: 'langsmith'
+  capturedAt?: Date
+}
+
 export interface ConversationHistorySettings {
   count?: number
   timeWindow?: number // in seconds, going backwards from endTime

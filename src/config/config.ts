@@ -89,6 +89,7 @@ const envVarsSchema = Joi.object()
     MATOMO_SITE_ID: Joi.string().description('Matomo site id whose visits hold the tracked-session data'),
     LANGSMITH_TRACING_V2: Joi.boolean().description('Enables Langsmith Tracing'),
     LANGSMITH_API_KEY: Joi.string().description('API Key for Langsmith'),
+    LANGSMITH_PROJECT: Joi.string().description('LangSmith project (session) name that traces are written to and read from'),
     TRANSCRIPT_RETENTION_PERIOD: Joi.string()
       .default('3 months')
       .description('The amount of time to retain conversation transcripts'),
@@ -185,7 +186,8 @@ const config = {
   enableExportOptOut: envVars.ENABLE_EXPORT_OPT_OUT,
   enableAgentPersonality: envVars.ENABLE_AGENT_PERSONALITY,
   langsmith: {
-    key: envVars.LANGSMITH_API_KEY
+    key: envVars.LANGSMITH_API_KEY,
+    project: envVars.LANGSMITH_PROJECT
   },
   llms: {
     openAI: {
