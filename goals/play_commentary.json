@@ -1,0 +1,28 @@
+{
+  "id": "play_commentary",
+  "label": "Play commentary",
+  "description": "Adds a light, energizing layer to the conversation through wit, observation, or playful framing — generating warmth and participation without derailing substantive discussion.",
+  "channel": "groupChat",
+  "triggers": {
+    "conditions": [
+      "energy is low",
+      "the conversation feels dry or overly formal",
+      "there's a natural moment of levity"
+    ],
+    "minConfidence": 60
+  },
+  "guardrails": [
+    "don't use humor at anyone in the room's expense",
+    "don't be playful during sensitive exchanges",
+    "don't force it if the moment isn't there",
+    "keep the tone warm, not sarcastic, unless the room is clearly playing"
+  ],
+  "outputContract": {
+    "format": "text"
+  },
+  "examples": [
+    "That's either a very elegant solution or a very elegant problem — possibly both.",
+    "I feel like we've just named the real question hiding behind the original question.",
+    "Bold of us to try to solve this in real time. Let's see how it goes."
+  ]
+}

@@ -1,0 +1,113 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://llm-engine/patterns/schema.json",
+  "title": "InterventionPattern",
+  "description": "A reusable, context-free building block for AI social behavior in group or private conversations.",
+  "type": "object",
+  "required": [
+    "id",
+    "label",
+    "description",
+    "channel",
+    "triggers",
+    "guardrails",
+    "outputContract",
+    "examples"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for this pattern, used in EventTemplate goals arrays and conversation.goals."
+    },
+    "label": {
+      "type": "string",
+      "description": "Human-readable name for this pattern."
+    },
+    "description": {
+      "type": "string",
+      "description": "What this pattern does and why it matters."
+    },
+    "channel": {
+      "type": "string",
+      "enum": [
+        "groupChat",
+        "dm"
+      ],
+      "description": "Which channel this pattern operates in."
+    },
+    "triggers": {
+      "type": "object",
+      "required": [
+        "conditions",
+        "minConfidence"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "conditions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Observable conditions that should prompt considering this pattern."
+        },
+        "minConfidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Minimum confidence score (0-100) required before triggering. Policy thresholds are floored by this value."
+        }
+      }
+    },
+    "guardrails": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Constraints the agent must respect when executing this pattern."
+    },
+    "outputContract": {
+      "type": "object",
+      "required": [
+        "format"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": ["text", "poll"],
+          "description": "Output format. 'text' for standard chat messages; 'poll' for poll-based interventions."
+        },
+        "pollConfig": {
+          "type": "object",
+          "description": "Poll visibility and behaviour settings. Required when format is 'poll'.",
+          "properties": {
+            "multiSelect": { "type": "boolean" },
+            "allowNewChoices": { "type": "boolean" },
+            "choicesVisible": { "type": "boolean" },
+            "responseCountsVisible": { "type": "boolean" },
+            "responsesVisible": { "type": "boolean" },
+            "responsesVisibleToNonParticipants": { "type": "boolean" },
+            "onlyOwnChoicesVisible": { "type": "boolean" },
+            "whenResultsVisible": {
+              "type": "string",
+              "enum": ["always", "expirationOnly", "thresholdOnly", "thresholdAndExpiration"]
+            }
+          }
+        },
+        "pollInstructions": {
+          "type": "string",
+          "description": "LLM instructions describing the goal and style of the poll. Required when format is 'poll'."
+        }
+      }
+    },
+    "examples": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "description": "Concrete example outputs demonstrating this pattern in practice."
+    }
+  }
+}

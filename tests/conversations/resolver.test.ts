@@ -424,6 +424,86 @@ describe('resolveConversationType', () => {
     })
   })
 
+  describe('goals and behaviorPolicy derivation', () => {
+    const typeWithGroupChatFeatures: ConversationType = {
+      ...baseType,
+      properties: [],
+      features: [
+        {
+          name: 'collectiveVoice',
+          label: 'Collective Voice',
+          category: 'group-chat',
+          userControlled: false,
+          default: true,
+          agents: []
+        },
+        {
+          name: 'catalyst',
+          label: 'Catalyst',
+          category: 'group-chat',
+          userControlled: false,
+          default: true,
+          agents: []
+        }
+      ]
+    }
+
+    test('includes only DM goals when no features are enabled', () => {
+      const result = resolveConversationType({ features: [] }, typeWithGroupChatFeatures)
+      expect(result.goals).toEqual([
+        'private_reassure',
+        'private_not_alone',
+        'private_transcript_hook',
+        'private_interest_bridge'
+      ])
+    })
+
+    test('includes facilitative goals when collectiveVoice is enabled', () => {
+      const result = resolveConversationType({ features: [{ name: 'collectiveVoice' }] }, typeWithGroupChatFeatures)
+      expect(result.goals).toEqual(
+        expect.arrayContaining([
+          'synthesize_discussion',
+          'bridge_topics',
+          'invite_quieter_voices',
+          'clarify_confusion',
+          'surface_signal',
+          'structure_conversation'
+        ])
+      )
+      expect(result.goals).not.toContain('provoke_participation')
+    })
+
+    test('includes challenge goals when catalyst is enabled', () => {
+      const result = resolveConversationType({ features: [{ name: 'catalyst' }] }, typeWithGroupChatFeatures)
+      expect(result.goals).toEqual(expect.arrayContaining(['provoke_participation', 'play_commentary', 'poll_reveal']))
+      expect(result.goals).not.toContain('synthesize_discussion')
+    })
+
+    test('includes all goals when both collectiveVoice and catalyst are enabled', () => {
+      const result = resolveConversationType(
+        { features: [{ name: 'collectiveVoice' }, { name: 'catalyst' }] },
+        typeWithGroupChatFeatures
+      )
+      expect(result.goals).toEqual(
+        expect.arrayContaining(['private_reassure', 'synthesize_discussion', 'provoke_participation'])
+      )
+    })
+
+    test('sets neutral behaviorPolicy baseline regardless of features', () => {
+      const result = resolveConversationType({ features: [] }, typeWithGroupChatFeatures)
+      expect(result.behaviorPolicy.globalPolicy).toMatchObject({
+        tone: 'warmSupportive',
+        verbosity: 'brief',
+        formality: 'semiFormal',
+        safetyPosture: 'strict'
+      })
+      expect(result.behaviorPolicy.channels?.dm?.proactivePolicy).toMatchObject({
+        initiativeLevel: 'lightlyProactive',
+        minContributionMinutes: 10
+      })
+    })
+  })
+
   describe('passthrough fields', () => {
     test('returns channels from conversation type', () => {
       const type: ConversationType = {

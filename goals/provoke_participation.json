@@ -1,0 +1,30 @@
+{
+  "id": "provoke_participation",
+  "label": "Provoke participation",
+  "description": "Generates energy and draws out participation by introducing a pointed question, a counterpoint, or a productive tension — especially when a conversation risks becoming passive or one-sided.",
+  "channel": "groupChat",
+  "triggers": {
+    "conditions": [
+      "participation is low",
+      "the conversation is becoming passive",
+      "discussion is one-sided",
+      "the room seems to agree too quickly"
+    ],
+    "minConfidence": 65
+  },
+  "guardrails": [
+    "don't use when participants are already actively exchanging substantive messages with each other — even if the discussion could go deeper",
+    "don't introduce provocation into an already heated exchange",
+    "frame as genuine question, not attack",
+    "don't undermine the speaker personally",
+    "make sure the challenge is substantive"
+  ],
+  "outputContract": {
+    "format": "text"
+  },
+  "examples": [
+    "Playing devil's advocate: what's the strongest case against this approach?",
+    "Is there anyone who sees this differently? Curious whether there are dissenting views.",
+    "What's the thing most likely to make this fail — and are we taking it seriously enough?"
+  ]
+}

@@ -1,8 +1,55 @@
 import handlebars from 'handlebars'
 import httpStatus from 'http-status'
 import ApiError from '../utils/ApiError.js'
-import { AgentProperty, ConversationType, Feature, FeatureConfig } from '../types/index.types.js'
+import { AgentProperty, BehaviorPolicy, ConversationType, Feature, FeatureConfig } from '../types/index.types.js'
 import { isValidPropertyFormat } from './propertyFormats.js'
+
+const FACILITATIVE_GOALS = [
+  'synthesize_discussion',
+  'bridge_topics',
+  'invite_quieter_voices',
+  'clarify_confusion',
+  'surface_signal',
+  'structure_conversation'
+]
+
+const CHALLENGE_GOALS = ['provoke_participation', 'play_commentary', 'poll_reveal']
+
+const DM_GOALS = ['private_reassure', 'private_not_alone', 'private_transcript_hook', 'private_interest_bridge']
+
+export const NEUTRAL_BEHAVIORAL_POLICY: BehaviorPolicy = {
+  globalPolicy: {
+    tone: 'warmSupportive',
+    verbosity: 'brief',
+    formality: 'semiFormal',
+    safetyPosture: 'strict'
+  },
+  channels: {
+    dm: {
+      proactivePolicy: {
+        initiativeLevel: 'lightlyProactive',
+        minContributionMinutes: 10
+      }
+    },
+    groupChat: {
+      proactivePolicy: {
+        initiativeLevel: 'moderatelyProactive',
+        minContributionMinutes: 2
+      }
+    }
+  }
+}
+
+function deriveDefaultsFromFeatures(enabledFeatures: string[]) {
+  const goals: string[] = [...DM_GOALS]
+  const hasCollectiveVoice = enabledFeatures.includes('collectiveVoice')
+  const hasCatalyst = enabledFeatures.includes('catalyst')
+
+  if (hasCollectiveVoice) goals.push(...FACILITATIVE_GOALS)
+  if (hasCatalyst) goals.push(...CHALLENGE_GOALS)
+
+  return { goals, behaviorPolicy: NEUTRAL_BEHAVIORAL_POLICY }
+}
 
 interface ResolvedConversationConfig {
   agentTypes: Array<{ name: string; properties?: Record<string, unknown> }>
@@ -11,6 +58,8 @@ interface ResolvedConversationConfig {
   enableDMs: ConversationType['enableDMs']
   properties: Record<string, unknown>
   features: Feature[]
+  goals: string[]
+  behaviorPolicy: BehaviorPolicy
 }
 
 const removeEmptyValues = (obj) => {
@@ -264,12 +313,17 @@ export default function resolveConversationType(
     adapters = [resolvePropertyReferences(adapterDefs.default, workingProperties)]
   }
 
+  const enabledFeatureNames = features.filter((f) => f.enabled).map((f) => f.name)
+  const { goals, behaviorPolicy } = deriveDefaultsFromFeatures(enabledFeatureNames)
+
   return {
     agentTypes: resolveAgents(conversationType, workingProperties),
     adapters,
     channels: conversationType.channels || [],
     enableDMs: conversationType.enableDMs,
     properties: resolvedProperties,
-    features
+    features,
+    goals,
+    behaviorPolicy
   }
 }

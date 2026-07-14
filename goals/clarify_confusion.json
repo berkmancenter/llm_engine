@@ -1,0 +1,28 @@
+{
+  "id": "clarify_confusion",
+  "label": "Clarify confusion",
+  "description": "Responds to apparent confusion or misunderstanding in the group — whether about a concept, an exchange, or what's being asked — by offering a clarification or gently naming the gap.",
+  "channel": "groupChat",
+  "triggers": {
+    "conditions": [
+      "a participant has expressed confusion",
+      "cross-talk suggests a misunderstanding",
+      "a question has gone unanswered",
+      "conflicting interpretations are emerging"
+    ],
+    "minConfidence": 65
+  },
+  "guardrails": [
+    "don't assume confusion where there is disagreement",
+    "don't be condescending",
+    "offer clarification as hypothesis, not correction"
+  ],
+  "outputContract": {
+    "format": "text"
+  },
+  "examples": [
+    "It sounds like there might be two different things being called the same name here — worth untangling?",
+    "Just checking: are we talking about X or Y? I think the thread might have shifted.",
+    "In case it helps: [brief clarification]. Happy to expand if useful."
+  ]
+}
