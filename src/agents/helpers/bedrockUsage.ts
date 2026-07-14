@@ -43,6 +43,15 @@ export function attachUsageMetadata(result: ChatResult): ChatResult {
  * non-Anthropic ids pass through unchanged.
  */
 export function normalizeBedrockModelName(modelId: string): string {
-  const match = modelId.match(/(?:^|\.)anthropic\.(.+?)(?:-v\d+(?::\d+)?)?$/)
-  return match ? match[1] : modelId
+  // Plain string ops instead of regex: eslint's security/detect-unsafe-regex kept
+  // flagging even simplified single-quantifier patterns here as ReDoS-prone.
+  const parts = modelId.split('.')
+  const anthropicIndex = parts.indexOf('anthropic')
+  if (anthropicIndex === -1 || anthropicIndex === parts.length - 1) return modelId
+
+  const name = parts.slice(anthropicIndex + 1).join('.')
+  const versionIndex = name.lastIndexOf('-v')
+  const firstVersionDigit = name[versionIndex + 2]
+  if (versionIndex === -1 || !firstVersionDigit || Number.isNaN(Number(firstVersionDigit))) return name
+  return name.slice(0, versionIndex)
 }
