@@ -166,6 +166,18 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
     summary: {
       type: String,
       default: ''
+    },
+    goals: {
+      type: [String],
+      default: undefined
+    },
+    conversationContext: {
+      type: mongoose.Schema.Types.Mixed,
+      default: undefined
+    },
+    behaviorPolicy: {
+      type: mongoose.Schema.Types.Mixed,
+      default: undefined
     }
   },
   {

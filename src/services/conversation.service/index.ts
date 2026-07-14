@@ -178,6 +178,8 @@ const createConversation = async (conversationBody, user) => {
     ...(conversationBody.properties !== undefined && { properties: conversationBody.properties }),
     ...(conversationBody.analyticsRefs !== undefined && { analyticsRefs: conversationBody.analyticsRefs }),
     ...(conversationBody.features !== undefined && { features: conversationBody.features }),
+    ...(conversationBody.goals !== undefined && { goals: conversationBody.goals }),
+    ...(conversationBody.behaviorPolicy !== undefined && { behaviorPolicy: conversationBody.behaviorPolicy }),
     ...(conversationBody.resources !== undefined && { resources: conversationBody.resources }),
     agents: [],
     transcript: {
