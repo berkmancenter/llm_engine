@@ -1,12 +1,12 @@
 import { AgentCapabilities } from '../../types/index.types.js'
 
 /**
- * Number Cruncher only posts into its own admin conversation.
- * It does not read other conversations.
+ * Number Cruncher reads every public event that ends (so it can price it from
+ * LangSmith traces), and only ever posts back into its own admin conversation.
  */
 export default function (): AgentCapabilities {
   return {
-    read: [],
+    read: [{ type: 'allPublicTopics' as const }],
     write: [{ type: 'ownConversation' as const }]
   }
 }

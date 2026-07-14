@@ -236,3 +236,32 @@ in the `budgets` array and update via `PUT /v1/conversations`.
   skipped with a warning log.
 - Each budget's `apiKey` is sent as `Authorization: Bearer <apiKey>`. If an endpoint returns
   a non-2xx status, that budget is skipped and the others still run.
+
+---
+
+## Cost summaries per event
+
+When any **public-topic** conversation stops, Number Cruncher fetches that event's
+LLM runs from LangSmith, stores a `ConversationCost` record split into `liveEvent`
+(spend while the conversation was running) and `postEvent` (spend on after-the-fact
+work like the Vibes Analyst recap and the conversation summary), and posts a cost
+summary card — combined total plus the phase breakdown — to its admin channel.
+
+Requirements:
+
+- `LANGSMITH_TRACING_V2=true`, `LANGSMITH_API_KEY`, and `LANGSMITH_PROJECT` must be
+  set — without tracing there is nothing to price, and the card is silently skipped.
+- Only conversations that ran **after** conversationId trace tagging shipped have
+  cost data; historical events will never produce a card.
+
+Caveats:
+
+- Figures use LangSmith's internal pricing table, not negotiated provider rates
+  (Bedrock regional pricing and discounts differ), so the card always labels them
+  estimates.
+- The fetch polls until run counts settle (up to ~7 minutes after the stop), so the
+  cost card arrives several minutes after the event ends, after the Vibes Analyst
+  recap.
+- Failed or retried agent runs still consumed tokens and are counted.
+- Private-topic events are not priced (the agent holds only an `allPublicTopics`
+  read grant).
