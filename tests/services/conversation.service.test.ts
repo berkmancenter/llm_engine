@@ -733,6 +733,36 @@ describe('Conversation service methods', () => {
       })
     })
 
+    describe('draft tolerance (allowDraft)', () => {
+      const incompleteParams = {
+        type: 'eventAssistant',
+        name: 'Incomplete Event',
+        platforms: ['zoom'],
+        scheduledTime: new Date(Date.now() + 3600000), // starts in 1 hour
+        scheduledEndTime: new Date(Date.now() + 7200000) // ends in 2 hours
+        // zoomMeetingUrl is required by the eventAssistant type but omitted here
+      }
+
+      test('throws when a required property is missing and allowDraft is not set', async () => {
+        const params = { ...incompleteParams, topicId: topicOne._id.toString() }
+
+        await expect(conversationService.createConversationFromType(params, registeredUser)).rejects.toMatchObject({
+          statusCode: httpStatus.BAD_REQUEST
+        })
+      })
+
+      test('saves a draft instead of throwing when a required property is missing and allowDraft is set', async () => {
+        const params = { ...incompleteParams, topicId: topicOne._id.toString() }
+
+        const conversation = await conversationService.createConversationFromType(params, registeredUser, {
+          allowDraft: true
+        })
+
+        expect(conversation.draft).toBe(true)
+        expect(conversation.active).toBe(false)
+      })
+    })
+
     describe('feature agent inclusion and property resolution', () => {
       const baseParams = {
         type: 'eventAssistant',
@@ -1248,7 +1278,7 @@ describe('Conversation service methods', () => {
       await conversation.save()
 
       await expect(conversationService.startConversation(conversation._id.toString(), registeredUser)).rejects.toMatchObject(
-        { statusCode: httpStatus.BAD_REQUEST }
+        { statusCode: httpStatus.BAD_REQUEST, message: expect.stringMatching(/Cannot start a draft conversation/) }
       )
 
       const reloaded = await Conversation.findById(conversation._id)
@@ -1795,7 +1825,10 @@ describe('Conversation service methods', () => {
 
         await expect(
           conversationService.updateConversation({ id: conversation._id.toString(), name: 'Too Late' }, registeredUser)
-        ).rejects.toMatchObject({ statusCode: httpStatus.BAD_REQUEST })
+        ).rejects.toMatchObject({
+          statusCode: httpStatus.BAD_REQUEST,
+          message: expect.stringMatching(/too close to its scheduled start time/)
+        })
       })
 
       test('editing a Draft conversation throws once its scheduledTime has already passed', async () => {
@@ -1803,7 +1836,10 @@ describe('Conversation service methods', () => {
 
         await expect(
           conversationService.updateConversation({ id: conversation._id.toString(), name: 'Too Late' }, registeredUser)
-        ).rejects.toMatchObject({ statusCode: httpStatus.BAD_REQUEST })
+        ).rejects.toMatchObject({
+          statusCode: httpStatus.BAD_REQUEST,
+          message: expect.stringMatching(/too close to its scheduled start time/)
+        })
       })
 
       test('the lockout does not apply to a non-Draft conversation close to its start time', async () => {

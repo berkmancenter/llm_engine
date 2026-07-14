@@ -90,6 +90,56 @@ describe('resolveConversationType', () => {
         expect.objectContaining({ statusCode: httpStatus.BAD_REQUEST })
       )
     })
+
+    test('throws BAD_REQUEST when a value fails its declared format', () => {
+      const type: ConversationType = {
+        ...baseType,
+        properties: [{ name: 'meetingLink', required: false, type: 'string', format: 'zoomUrl' }]
+      }
+      expect(() => resolveConversationType({ properties: { meetingLink: 'https://evil.com/j/1' } }, type)).toThrow(
+        expect.objectContaining({ statusCode: httpStatus.BAD_REQUEST })
+      )
+    })
+
+    test('accepts a value that satisfies its declared format', () => {
+      const type: ConversationType = {
+        ...baseType,
+        properties: [{ name: 'meetingLink', required: false, type: 'string', format: 'zoomUrl' }]
+      }
+      expect(() => resolveConversationType({ properties: { meetingLink: 'https://zoom.us/j/1' } }, type)).not.toThrow()
+    })
+
+    test('does not throw for a missing required property when allowDraft is set', () => {
+      expect(() => resolveConversationType({ properties: {} }, baseType, true)).not.toThrow()
+    })
+
+    test('does not throw for an invalid format when allowDraft is set', () => {
+      const type: ConversationType = {
+        ...baseType,
+        properties: [{ name: 'meetingLink', required: false, type: 'string', format: 'zoomUrl' }]
+      }
+      expect(() =>
+        resolveConversationType({ properties: { meetingLink: 'https://evil.com/j/1' } }, type, true)
+      ).not.toThrow()
+    })
+
+    test('still throws for an invalid enum even when allowDraft is set', () => {
+      const type: ConversationType = {
+        ...baseType,
+        properties: [
+          {
+            name: 'model',
+            required: false,
+            type: 'enum',
+            options: [{ llmPlatform: 'openai', llmModel: 'gpt-4' }],
+            validationKeys: ['llmPlatform', 'llmModel']
+          }
+        ]
+      }
+      expect(() =>
+        resolveConversationType({ properties: { model: { llmPlatform: 'openai', llmModel: 'not-a-model' } } }, type, true)
+      ).toThrow(expect.objectContaining({ statusCode: httpStatus.BAD_REQUEST }))
+    })
   })
 
   describe('property defaults', () => {
