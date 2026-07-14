@@ -1,4 +1,5 @@
 import httpStatus from 'http-status'
+import { traceable } from 'langsmith/traceable'
 import ApiError from '../../utils/ApiError.js'
 import websocketGateway from '../../websockets/websocketGateway.js'
 import agentService from '../agent.service/index.js'
@@ -120,18 +121,25 @@ export async function doStopConversation(conversation) {
         const moderators = `${conversationDoc.moderators?.map((m) => `${m.name}: ${m.bio}`).join(', ')}` || 'Not provided'
         const eventDescription = conversationDoc.description || 'Not provided'
 
-        const structuredSummary = await getChatPromptResponse(
-          llm,
-          SUMMARIZATION_PROMPT,
-          `
-            Event Transcript: {transcript}, 
-            Shared Chat: {sharedChat}, 
+        /* Tagged like agent traces (conversationId + costPhase: 'postEvent') so
+           numberCruncher's cost fetcher attributes this call to the conversation it
+           summarizes, grouped with other post-stop spend rather than the live event. */
+        const structuredSummary = await traceable(
+          async () =>
+            getChatPromptResponse(
+              llm,
+              SUMMARIZATION_PROMPT,
+              `
+            Event Transcript: {transcript},
+            Shared Chat: {sharedChat},
             Speaker(s): {speakers},
             Moderator(s): {moderators},
             Event Description: {eventDescription}
           `,
-          { transcript, sharedChat, speakers, moderators, eventDescription }
-        )
+              { transcript, sharedChat, speakers, moderators, eventDescription }
+            ),
+          { name: 'conversationSummary', metadata: { conversationId: doc._id.toString(), costPhase: 'postEvent' as const } }
+        )()
 
         logger.debug(`Conversation summary generated for conversation ${doc._id}`)
 

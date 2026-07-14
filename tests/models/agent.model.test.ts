@@ -1798,7 +1798,15 @@ describe('agent tests', () => {
       }
       mockGetCurrentRunTree = jest.fn().mockReturnValue(mockRunTree)
 
-      // Mock the langsmith module
+      /* This jest.mock() call never actually take effect: agent.model/index.ts imports
+         langsmith/traceable statically, resolved when this test file's top-level
+         `import { Agent } from ...` first loads that module — long before this
+         beforeEach (or any jest.mock() call, which isn't hoisted under this project's
+         ESM Jest config — see tests/CLAUDE.md) ever runs. So every test below exercises
+         the REAL langsmith/traceable module, and mockGetCurrentRunTree/mockRunTree are
+         dead — kept only so the tests below (which predate this finding) keep compiling.
+         Do not extend this pattern; use jest.unstable_mockModule + a dynamic import
+         after it instead (see tests/unit/models/agentModel.traceMetadata.test.ts). */
       jest.mock('langsmith/traceable', () => ({
         traceable: jest.fn((fn) => fn),
         getCurrentRunTree: mockGetCurrentRunTree
