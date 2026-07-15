@@ -2,6 +2,7 @@ import httpStatus from 'http-status'
 import request from 'supertest'
 import app from '../../src/app.js'
 import config from '../../src/config/config.js'
+import logger from '../../src/config/logger.js'
 import setupIntTest from '../utils/setupIntTest.js'
 import { parseInviteFromPayload } from '../../src/handlers/email.js'
 
@@ -121,6 +122,27 @@ describe('POST /v1/webhooks/email', () => {
       const payload = buildPostmarkPayload(buildIcs())
       payload.Attachments = []
       await request(app).post('/v1/webhooks/email').auth(webhookUser, webhookSecret).send(payload).expect(httpStatus.OK)
+    })
+  })
+
+  describe('logging', () => {
+    afterEach(() => {
+      jest.restoreAllMocks()
+    })
+
+    test('logs the invite start and end times as UTC', async () => {
+      // The log is this handler's only output, so a timezone mistake is invisible without the times.
+      const infoSpy = jest.spyOn(logger, 'info').mockReturnValue(logger)
+
+      await request(app)
+        .post('/v1/webhooks/email')
+        .auth(webhookUser, webhookSecret)
+        .send(buildPostmarkPayload(buildIcs()))
+        .expect(httpStatus.OK)
+
+      const logged = infoSpy.mock.calls.map(([message]) => String(message)).join('\n')
+      expect(logged).toContain('2026-09-01T17:00:00.000Z')
+      expect(logged).toContain('2026-09-01T18:00:00.000Z')
     })
   })
 

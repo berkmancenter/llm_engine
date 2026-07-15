@@ -78,9 +78,11 @@ const handleEvent = async (req, res) => {
       logger.warn('Email webhook: inbound message had no calendar (.ics) attachment; nothing to process')
       return
     }
+    // Times log as UTC; a bad zone conversion is otherwise invisible until the event runs an hour off.
     logger.info(
       `Email webhook: parsed invite "${invite.summary ?? '(no summary)'}" (UID ${invite.uid ?? 'none'}) ` +
-        `from ${req.body?.From ?? 'unknown sender'}, organizer ${invite.organizer ?? 'none'}`
+        `from ${req.body?.From ?? 'unknown sender'}, organizer ${invite.organizer ?? 'none'}, ` +
+        `starts ${invite.startDate?.toISOString() ?? 'unknown'}, ends ${invite.endDate?.toISOString() ?? 'unknown'}`
     )
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
