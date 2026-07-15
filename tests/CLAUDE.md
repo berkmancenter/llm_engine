@@ -45,7 +45,9 @@ Most tests are **not** hermetic — they need real services running:
   `config.mongoose.url` (`MONGODB_URL`, e.g. `mongodb://127.0.0.1:27017/llm_engine`).
   There is **no** `mongodb-memory-server`. Start a local Mongo before running tests.
 - **Agent suite** additionally needs a reachable LLM (`TEST_LLM_PLATFORM`,
-  `TEST_LLM_MODEL`, vLLM vars) and Chroma. See `.env.example`.
+  `TEST_LLM_MODEL`, vLLM vars) and Chroma. See `.env.example`. If agent-suite tests fail
+  with connection errors, check Chroma is up first: `docker ps --filter "ancestor=chromadb/chroma"`.
+  If nothing is listed, start it with `yarn chroma:up` (runs on port 8000).
 - `NODE_ENV=test` is set by the npm scripts; env comes from `.env`.
 
 ## ESM conventions (get these right or nothing loads)

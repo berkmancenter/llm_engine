@@ -33,3 +33,10 @@ REVIEW.md
 
 # Home folder for documents to load into vector store
 rag_documents
+
+# Agents
+CLAUDE.local.md
+.claude/settings.local.json
+.claudeignore
+# local cache and state
+.mcp.json
