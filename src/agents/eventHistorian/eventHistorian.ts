@@ -2,7 +2,7 @@ import { getAgentStructuredResponse } from '../helpers/llmChain.js'
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
 import { formatMultiUserConversationHistory } from '../helpers/llmInputFormatters.js'
-import { buildSystemPromptWithPersonality } from '../helpers/agentPersonality.js'
+import { composeSystemPrompt } from '../helpers/promptComposer.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
 import createEventHistoryTools, { TopicRef, buildEventHistoryToolsPrompt } from '../tools/eventHistory.js'
@@ -106,7 +106,7 @@ export default verify({
       '{topicContext}',
       buildTopicContext(topics)
     )
-    const systemPrompt = buildSystemPromptWithPersonality(systemPromptBase, personalityName)
+    const systemPrompt = composeSystemPrompt(systemPromptBase, { personalityName })
 
     const tools = topics.length > 0 ? createEventHistoryTools(topics) : []
 
