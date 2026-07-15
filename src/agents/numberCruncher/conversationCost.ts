@@ -35,6 +35,21 @@ function numberField(run: Record<string, unknown>, field: string): number {
   return Number.isFinite(value) ? value : 0
 }
 
+/* total_cost is null (not 0) when LangSmith has no pricing-table entry for a run's
+   model — verified empirically 2026-07-14 against self-hosted vLLM/Ollama models,
+   which report real token counts but no price to look up. numberField() above
+   coerces both null and a genuine $0 to 0, which would silently hide that
+   distinction, so this checks the raw value before that coercion happens.
+
+   Future idea, not built: a custom cost-estimation adapter for self-hosted
+   platforms (e.g. a configurable $/1K-token rate) could fill in an estimate here
+   instead of leaving it unpriced. Deferred because none of the app's
+   production-configured models (see supportedModels in getModelChat.ts) currently
+   run on an unpriced platform — Bedrock, OpenAI, and Google are all priced. */
+function isPriced(run: Record<string, unknown>, field: string): boolean {
+  return run[field] !== null && run[field] !== undefined
+}
+
 /* Mutable accumulator for one phase, built up run-by-run and finalized into a plain
    ConversationCostAggregates (with sorted arrays) once every llm run has been seen. */
 class PhaseAccumulator {
@@ -50,23 +65,28 @@ class PhaseAccumulator {
 
   agents = new Map<string, AgentCostBreakdown>()
 
+  hasUnpricedCalls = false
+
   add(run: Record<string, unknown>, agentType: string): void {
     const promptTokens = numberField(run, 'prompt_tokens')
     const completionTokens = numberField(run, 'completion_tokens')
     const cost = numberField(run, 'total_cost')
+    const priced = isPriced(run, 'total_cost')
     this.llmCallCount += 1
     this.totalPromptTokens += promptTokens
     this.totalCompletionTokens += completionTokens
     this.estimatedCostUSD += cost
+    if (!priced) this.hasUnpricedCalls = true
 
     const metadata = (run.extra as { metadata?: Record<string, unknown> } | undefined)?.metadata
     const model = String(metadata?.ls_model_name ?? run.name)
     const modelRow =
-      this.models.get(model) ?? { model, llmCalls: 0, promptTokens: 0, completionTokens: 0, estimatedCostUSD: 0 }
+      this.models.get(model) ?? { model, llmCalls: 0, promptTokens: 0, completionTokens: 0, estimatedCostUSD: 0, priced: true }
     modelRow.llmCalls += 1
     modelRow.promptTokens += promptTokens
     modelRow.completionTokens += completionTokens
     modelRow.estimatedCostUSD += cost
+    modelRow.priced = modelRow.priced && priced
     this.models.set(model, modelRow)
 
     const agentRow = this.agents.get(agentType) ?? { agentType, llmCalls: 0, estimatedCostUSD: 0 }
@@ -82,7 +102,8 @@ class PhaseAccumulator {
       totalCompletionTokens: this.totalCompletionTokens,
       llmCallCount: this.llmCallCount,
       models: [...this.models.values()].sort((a, b) => b.estimatedCostUSD - a.estimatedCostUSD),
-      agents: [...this.agents.values()].sort((a, b) => b.estimatedCostUSD - a.estimatedCostUSD)
+      agents: [...this.agents.values()].sort((a, b) => b.estimatedCostUSD - a.estimatedCostUSD),
+      hasUnpricedCalls: this.hasUnpricedCalls
     }
   }
 }
@@ -165,7 +186,8 @@ export function combineCostAggregates(
             llmCalls: existing.llmCalls + row.llmCalls,
             promptTokens: existing.promptTokens + row.promptTokens,
             completionTokens: existing.completionTokens + row.completionTokens,
-            estimatedCostUSD: existing.estimatedCostUSD + row.estimatedCostUSD
+            estimatedCostUSD: existing.estimatedCostUSD + row.estimatedCostUSD,
+            priced: existing.priced && row.priced
           }
         : { ...row }
     )
@@ -192,7 +214,8 @@ export function combineCostAggregates(
     totalCompletionTokens: a.totalCompletionTokens + b.totalCompletionTokens,
     llmCallCount: a.llmCallCount + b.llmCallCount,
     models: [...models.values()].sort((x, y) => y.estimatedCostUSD - x.estimatedCostUSD),
-    agents: [...agents.values()].sort((x, y) => y.estimatedCostUSD - x.estimatedCostUSD)
+    agents: [...agents.values()].sort((x, y) => y.estimatedCostUSD - x.estimatedCostUSD),
+    hasUnpricedCalls: a.hasUnpricedCalls || b.hasUnpricedCalls
   }
 }
 

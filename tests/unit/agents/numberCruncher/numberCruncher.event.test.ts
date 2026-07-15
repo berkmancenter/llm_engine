@@ -18,7 +18,8 @@ function stubCombine(a: Record<string, unknown>, b: Record<string, unknown>) {
     totalCompletionTokens: (a.totalCompletionTokens as number) + (b.totalCompletionTokens as number),
     llmCallCount: (a.llmCallCount as number) + (b.llmCallCount as number),
     models: [...(a.models as unknown[]), ...(b.models as unknown[])],
-    agents: [...(a.agents as unknown[]), ...(b.agents as unknown[])]
+    agents: [...(a.agents as unknown[]), ...(b.agents as unknown[])],
+    hasUnpricedCalls: Boolean(a.hasUnpricedCalls) || Boolean(b.hasUnpricedCalls)
   }
 }
 
@@ -53,8 +54,11 @@ function makeAggregate(overrides = {}) {
     totalPromptTokens: 1000,
     totalCompletionTokens: 200,
     llmCallCount: 2,
-    models: [{ model: 'claude-sonnet', llmCalls: 2, promptTokens: 1000, completionTokens: 200, estimatedCostUSD: 1.0 }],
+    models: [
+      { model: 'claude-sonnet', llmCalls: 2, promptTokens: 1000, completionTokens: 200, estimatedCostUSD: 1.0, priced: true }
+    ],
     agents: [{ agentType: 'eventAssistant', llmCalls: 2, estimatedCostUSD: 1.0 }],
+    hasUnpricedCalls: false,
     ...overrides
   }
 }
@@ -115,6 +119,23 @@ describe('numberCruncher onConversationEvent', () => {
     expect(renderData.liveEvent.estimatedCostUSD).toBeCloseTo(1.0)
     expect(renderData.postEvent.estimatedCostUSD).toBeCloseTo(0.47)
     expect(renderData.checkedAt).toBeTruthy()
+  })
+
+  it('mentions unpriced calls in the fallback message when the total has any', async () => {
+    mockStoppedConversation(false)
+    mockFetchWithSettle.mockResolvedValue({
+      liveEvent: makeAggregate({ hasUnpricedCalls: true }),
+      postEvent: makeAggregate({ estimatedCostUSD: 0.47, hasUnpricedCalls: false })
+    })
+
+    const responses = await numberCruncher.onConversationEvent.call(buildContext(), {
+      type: 'conversationStopped',
+      conversationId: 'c1'
+    })
+
+    expect(responses[0].message).toContain('could not be priced')
+    const renderData = responses[0].renderData as { total: { hasUnpricedCalls: boolean } }
+    expect(renderData.total.hasUnpricedCalls).toBe(true)
   })
 
   it('persists both phases before posting', async () => {

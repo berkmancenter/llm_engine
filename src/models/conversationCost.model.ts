@@ -19,7 +19,10 @@ const modelBreakdownSchema = new mongoose.Schema(
     llmCalls: { type: Number, required: true },
     promptTokens: { type: Number, required: true },
     completionTokens: { type: Number, required: true },
-    estimatedCostUSD: { type: Number, required: true }
+    estimatedCostUSD: { type: Number, required: true },
+    // False when LangSmith had no pricing-table entry for at least one call to this
+    // model (e.g. a self-hosted vLLM/Ollama model) — see conversationCost.ts.
+    priced: { type: Boolean, required: true }
   },
   { _id: false }
 )
@@ -40,7 +43,8 @@ const costAggregateSchema = new mongoose.Schema(
     totalCompletionTokens: { type: Number, required: true },
     llmCallCount: { type: Number, required: true },
     models: { type: [modelBreakdownSchema], default: [] },
-    agents: { type: [agentBreakdownSchema], default: [] }
+    agents: { type: [agentBreakdownSchema], default: [] },
+    hasUnpricedCalls: { type: Boolean, required: true }
   },
   { _id: false }
 )

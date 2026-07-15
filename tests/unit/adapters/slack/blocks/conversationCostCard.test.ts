@@ -8,8 +8,11 @@ function makeAggregate(overrides: Record<string, unknown> = {}) {
     totalPromptTokens: 150000,
     totalCompletionTokens: 3000,
     llmCallCount: 9,
-    models: [{ model: 'claude-sonnet', llmCalls: 9, promptTokens: 150000, completionTokens: 3000, estimatedCostUSD: 1.2 }],
+    models: [
+      { model: 'claude-sonnet', llmCalls: 9, promptTokens: 150000, completionTokens: 3000, estimatedCostUSD: 1.2, priced: true }
+    ],
     agents: [{ agentType: 'eventAssistant', llmCalls: 9, estimatedCostUSD: 1.2 }],
+    hasUnpricedCalls: false,
     ...overrides
   }
 }
@@ -31,8 +34,8 @@ const data: ConversationCostData = {
     totalCompletionTokens: 3500,
     llmCallCount: 12,
     models: [
-      { model: 'claude-sonnet', llmCalls: 9, promptTokens: 150000, completionTokens: 3000, estimatedCostUSD: 1.2 },
-      { model: 'gpt-test', llmCalls: 3, promptTokens: 31500, completionTokens: 500, estimatedCostUSD: 0.2702 }
+      { model: 'claude-sonnet', llmCalls: 9, promptTokens: 150000, completionTokens: 3000, estimatedCostUSD: 1.2, priced: true },
+      { model: 'gpt-test', llmCalls: 3, promptTokens: 31500, completionTokens: 500, estimatedCostUSD: 0.2702, priced: true }
     ],
     agents: [
       { agentType: 'eventAssistant', llmCalls: 9, estimatedCostUSD: 1.2 },
@@ -89,12 +92,40 @@ describe('renderConversationCostCard', () => {
       totalCompletionTokens: 0,
       llmCallCount: 0,
       models: [],
-      agents: []
+      agents: [],
+      hasUnpricedCalls: false
     }
     const blocks = renderConversationCostCard({ ...data, postEvent: zeroPostEvent, total: data.liveEvent })
     const text = textOf(blocks)
 
     expect(text).not.toContain('After it ended')
+  })
+
+  it('shows a caveat and marks the model row when a model could not be priced', () => {
+    const total = {
+      ...data.total,
+      models: [
+        ...data.total.models,
+        { model: 'llama3-local', llmCalls: 2, promptTokens: 400, completionTokens: 80, estimatedCostUSD: 0, priced: false }
+      ],
+      hasUnpricedCalls: true
+    }
+    const blocks = renderConversationCostCard({ ...data, total })
+    const text = textOf(blocks)
+
+    expect(text).toContain('could not be priced')
+    expect(text).toContain('llama3-local')
+    expect(text).toContain('cost unknown')
+    // The other, priced models still show a real dollar figure, not "cost unknown".
+    expect(text).toContain('$1.20')
+  })
+
+  it('does not show the unpriced caveat when every model was priced', () => {
+    const blocks = renderConversationCostCard(data)
+    const text = textOf(blocks)
+
+    expect(text).not.toContain('could not be priced')
+    expect(text).not.toContain('cost unknown')
   })
 
   it('truncates long conversation names to fit Slack header limits', () => {

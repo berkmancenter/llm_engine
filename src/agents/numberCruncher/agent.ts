@@ -175,7 +175,9 @@ export default verify({
         // Fallback text for adapters that do not render the card (e.g. zoom).
         message: `Estimated LLM cost for *${conversation.name}*: ~$${total.estimatedCostUSD.toFixed(
           2
-        )} (LangSmith estimate — actual provider charges may differ)`,
+        )} (LangSmith estimate — actual provider charges may differ)${
+          total.hasUnpricedCalls ? ' — some calls could not be priced, so the actual total is higher' : ''
+        }`,
         messageType: 'text' as const,
         responseKind: 'conversationCostSummary' as const,
         renderData,

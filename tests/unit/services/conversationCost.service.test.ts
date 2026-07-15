@@ -11,8 +11,11 @@ function makeAggregate(overrides = {}) {
     totalPromptTokens: 1500,
     totalCompletionTokens: 300,
     llmCallCount: 2,
-    models: [{ model: 'claude-sonnet', llmCalls: 2, promptTokens: 1500, completionTokens: 300, estimatedCostUSD: 1.2 }],
+    models: [
+      { model: 'claude-sonnet', llmCalls: 2, promptTokens: 1500, completionTokens: 300, estimatedCostUSD: 1.2, priced: true }
+    ],
     agents: [{ agentType: 'vibesAnalyst', llmCalls: 2, estimatedCostUSD: 1.2 }],
+    hasUnpricedCalls: false,
     ...overrides
   }
 }
@@ -44,5 +47,25 @@ describe('conversationCost service', () => {
     expect(docs[0].postEvent.estimatedCostUSD).toBe(2.0)
     expect(docs[0].postEvent.models[0].model).toBe('claude-sonnet')
     expect(docs[0].capturedAt).toBeInstanceOf(Date)
+  })
+
+  it('persists the unpriced-call flag on both the model row and the phase aggregate', async () => {
+    const conversation = { _id: new mongoose.Types.ObjectId(), name: 'Self-hosted event' }
+    const unpricedPhases = {
+      liveEvent: makeAggregate({
+        models: [
+          { model: 'llama3-local', llmCalls: 1, promptTokens: 200, completionTokens: 40, estimatedCostUSD: 0, priced: false }
+        ],
+        hasUnpricedCalls: true
+      }),
+      postEvent: makeAggregate()
+    }
+
+    await conversationCostService.persistCost(conversation, unpricedPhases)
+
+    const doc = await ConversationCost.findOne({ conversationId: conversation._id })
+    expect(doc!.liveEvent.hasUnpricedCalls).toBe(true)
+    expect(doc!.liveEvent.models[0].priced).toBe(false)
+    expect(doc!.postEvent.hasUnpricedCalls).toBe(false)
   })
 })

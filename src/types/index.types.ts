@@ -929,13 +929,22 @@ export interface BudgetAlertData {
 
 /* Per-model aggregation of a conversation's llm-type LangSmith runs. Costs come from
    LangSmith's own pricing table, not the provider invoice, so every figure is an
-   estimate — user-facing copy must say so. */
+   estimate — user-facing copy must say so.
+
+   `priced` is false if LangSmith's pricing table had no entry for at least one call
+   to this model (verified 2026-07-14: self-hosted vLLM/Ollama models return real
+   token counts but a null total_cost, since there is no published per-token price
+   to look up). Without this flag, a null cost is indistinguishable from a genuinely
+   free call — see conversationCost.ts's fetchConversationCost for where this is
+   detected and a note on a possible future custom-pricing adapter for those
+   platforms. */
 export interface ModelCostBreakdown {
   model: string
   llmCalls: number
   promptTokens: number
   completionTokens: number
   estimatedCostUSD: number
+  priced: boolean
 }
 
 /* Per-agent aggregation: llm runs grouped by the agentType that names their trace root
@@ -958,6 +967,9 @@ export interface ConversationCostAggregates {
   llmCallCount: number
   models: ModelCostBreakdown[]
   agents: AgentCostBreakdown[]
+  // True if any llm call in this phase could not be priced (see ModelCostBreakdown.priced) —
+  // estimatedCostUSD is a floor, not the true total, when this is true.
+  hasUnpricedCalls: boolean
 }
 
 /* What the LangSmith fetch returns: the two phases, kept separate rather than

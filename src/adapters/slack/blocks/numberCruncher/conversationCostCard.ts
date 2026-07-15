@@ -51,12 +51,27 @@ export default function renderConversationCostCard(data: ConversationCostData): 
   }
   blocks.push({ type: 'section', text: { type: 'mrkdwn', text: phaseLines.join('\n') } })
 
+  // A model with no LangSmith pricing-table entry (e.g. a self-hosted vLLM/Ollama
+  // model) reports a real token count but no price — showing "$0.00" for it would
+  // read as "this was free" rather than "we don't know", so the caveat and the
+  // per-model "cost unknown" label keep that distinction visible.
+  if (data.total.hasUnpricedCalls) {
+    const unpricedCount = data.total.models.filter((m) => !m.priced).length
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `:warning: ${unpricedCount} model${unpricedCount === 1 ? '' : 's'} could not be priced by LangSmith — the actual total is higher than shown.`
+      }
+    })
+  }
+
   if (data.total.models.length > 0) {
     const rows = data.total.models.map(
       (m) =>
-        `• *${m.model}* — ${formatCount(m.promptTokens)} prompt / ${formatCount(m.completionTokens)} completion · $${formatUSD(
-          m.estimatedCostUSD
-        )}`
+        `• *${m.model}* — ${formatCount(m.promptTokens)} prompt / ${formatCount(m.completionTokens)} completion · ${
+          m.priced ? `$${formatUSD(m.estimatedCostUSD)}` : 'cost unknown'
+        }`
     )
     blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*By model*\n${rows.join('\n')}` } })
   }
