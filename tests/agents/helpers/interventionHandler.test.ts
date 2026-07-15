@@ -1,163 +1,39 @@
-import mongoose from 'mongoose'
-import {
-  getInterventionAnalysisSchema,
+import { jest } from '@jest/globals'
+import setupIntTest from '../../utils/setupIntTest.js'
+
+// Mocks registered before dynamic import so the LLM and transcript are never hit in unit tests
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockGetChatPromptResponse = jest.fn<(...args: any[]) => Promise<any>>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockGetTranscript = jest.fn<(...args: any[]) => string>().mockReturnValue('transcript text')
+
+jest.unstable_mockModule('../src/agents/helpers/llmChain.js', () => ({
+  getChatPromptResponse: mockGetChatPromptResponse
+}))
+
+jest.unstable_mockModule('../src/agents/helpers/transcript.js', () => ({
+  default: {
+    getTranscript: mockGetTranscript,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    searchTranscript: jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue({ chunks: '' }),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    loadEventMetadataIntoVectorStore: jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue(undefined),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    deleteTranscript: jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue(undefined)
+  }
+}))
+
+const {
   interventionLlmTemplateVars,
   USER_TEMPLATE,
-  proactiveRaceGuard
-} from '../../../src/agents/helpers/interventionHandler.js'
-import { InterventionType } from '../../../src/agents/helpers/interventionTypes.js'
-import Message from '../../../src/models/message.model.js'
-import setupIntTest from '../../utils/setupIntTest.js'
+  buildInterventionTypeSection,
+  runInterventionAnalysis,
+  detectPrivateInterventionOpportunity
+} = await import('../../../src/agents/helpers/interventionHandler.js')
 
 setupIntTest()
 
 describe('interventionHandler', () => {
-  describe('InterventionType enum', () => {
-    it('defines all expected intervention types', () => {
-      expect(InterventionType.SIGNAL).toBe('SIGNAL')
-      expect(InterventionType.SYNTHESIS).toBe('SYNTHESIS')
-      expect(InterventionType.MINORITY_VOICE).toBe('MINORITY_VOICE')
-      expect(InterventionType.CONFUSION).toBe('CONFUSION')
-      expect(InterventionType.PROVOCATION).toBe('PROVOCATION')
-      expect(InterventionType.BRIDGE).toBe('BRIDGE')
-      expect(InterventionType.STRUCTURE).toBe('STRUCTURE')
-      expect(InterventionType.PLAY).toBe('PLAY')
-      expect(InterventionType.NONE).toBe('NONE')
-    })
-  })
-
-  describe('getInterventionAnalysisSchema', () => {
-    const allInterventions = Object.values(InterventionType)
-    const schema = getInterventionAnalysisSchema(allInterventions)
-
-    it('validates a valid intervention analysis with intervention', () => {
-      const validAnalysis = {
-        shouldIntervene: true,
-        interventionType: 'SIGNAL',
-        reasoning: 'Multiple participants asking about the same topic',
-        sharedChatMessage: 'Several of you are wondering about X',
-        confidenceScore: 85,
-        detectedPattern: 'Common question about topic X',
-        affectedUsers: 3
-      }
-
-      const result = schema.safeParse(validAnalysis)
-      expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data).toEqual(validAnalysis)
-      }
-    })
-
-    it('validates a valid intervention analysis without intervention', () => {
-      const validAnalysis = {
-        shouldIntervene: false,
-        interventionType: 'NONE',
-        reasoning: 'No patterns detected, waiting for more signals',
-        confidenceScore: 30
-      }
-
-      const result = schema.safeParse(validAnalysis)
-      expect(result.success).toBe(true)
-    })
-
-    it('rejects invalid intervention type', () => {
-      const invalidAnalysis = {
-        shouldIntervene: true,
-        interventionType: 'INVALID_TYPE',
-        reasoning: 'Test',
-        confidenceScore: 50
-      }
-
-      const result = schema.safeParse(invalidAnalysis)
-      expect(result.success).toBe(false)
-    })
-
-    it('rejects missing required fields', () => {
-      const invalidAnalysis = {
-        shouldIntervene: true,
-        interventionType: 'SIGNAL'
-        // Missing reasoning and confidenceScore
-      }
-
-      const result = schema.safeParse(invalidAnalysis)
-      expect(result.success).toBe(false)
-    })
-
-    it('rejects invalid confidence score range', () => {
-      const invalidAnalysis = {
-        shouldIntervene: true,
-        interventionType: 'SIGNAL',
-        reasoning: 'Test',
-        confidenceScore: 150 // Over 100
-      }
-
-      const result = schema.safeParse(invalidAnalysis)
-      expect(result.success).toBe(false)
-    })
-
-    it('accepts optional fields', () => {
-      const minimalAnalysis = {
-        shouldIntervene: false,
-        interventionType: 'NONE',
-        reasoning: 'Nothing happening',
-        confidenceScore: 20
-      }
-
-      const result = schema.safeParse(minimalAnalysis)
-      expect(result.success).toBe(true)
-    })
-
-    it('validates all intervention types', () => {
-      const interventionTypes = [
-        'SIGNAL',
-        'SYNTHESIS',
-        'MINORITY_VOICE',
-        'CONFUSION',
-        'PROVOCATION',
-        'BRIDGE',
-        'STRUCTURE',
-        'PLAY',
-        'NONE'
-      ]
-
-      interventionTypes.forEach((type) => {
-        const analysis = {
-          shouldIntervene: type !== 'NONE',
-          interventionType: type,
-          reasoning: `Testing ${type}`,
-          confidenceScore: 75
-        }
-
-        const result = schema.safeParse(analysis)
-        expect(result.success).toBe(true)
-      })
-    })
-
-    it('only allows enabled intervention types in schema', () => {
-      // Create schema with only engagement interventions
-      const engagementOnly = [InterventionType.PROVOCATION, InterventionType.PLAY, InterventionType.NONE]
-      const limitedSchema = getInterventionAnalysisSchema(engagementOnly)
-
-      // Should accept enabled types
-      const validAnalysis = {
-        shouldIntervene: true,
-        interventionType: 'PROVOCATION',
-        reasoning: 'Test',
-        confidenceScore: 75
-      }
-      expect(limitedSchema.safeParse(validAnalysis).success).toBe(true)
-
-      // Should reject disabled types
-      const invalidAnalysis = {
-        shouldIntervene: true,
-        interventionType: 'SIGNAL',
-        reasoning: 'Test',
-        confidenceScore: 75
-      }
-      expect(limitedSchema.safeParse(invalidAnalysis).success).toBe(false)
-    })
-  })
-
   describe('interventionLlmTemplateVars', () => {
     it('defines expected template variables', () => {
       expect(interventionLlmTemplateVars).toBeDefined()
@@ -200,56 +76,334 @@ describe('interventionHandler', () => {
     })
   })
 
-  describe('proactiveRaceGuard', () => {
-    const conversationId = new mongoose.Types.ObjectId()
-    const userId = new mongoose.Types.ObjectId()
-    const pseudonymId = new mongoose.Types.ObjectId()
+  describe('runInterventionAnalysis', () => {
+    it('is exported as a function', () => {
+      expect(typeof runInterventionAnalysis).toBe('function')
+    })
+  })
 
-    const makeMessage = (overrides = {}) =>
-      Message.create({
-        body: 'Test intervention',
-        bodyType: 'text',
-        conversation: conversationId,
-        owner: userId,
-        pseudonym: 'Test Agent',
-        pseudonymId,
-        fromAgent: true,
-        visible: true,
-        channels: ['chat'],
-        upVotes: [],
-        downVotes: [],
+  describe('buildInterventionTypeSection', () => {
+    const exampleInfo = {
+      description: 'A warm check-in message',
+      register: 'warm',
+      examples: ['How are you finding the discussion?', 'Anything you want to share?']
+    }
+
+    it('returns empty string for NONE type', () => {
+      expect(buildInterventionTypeSection('NONE', exampleInfo)).toBe('')
+    })
+
+    it('includes the intervention type and description in the header', () => {
+      const result = buildInterventionTypeSection('CHECKIN', exampleInfo)
+      expect(result).toContain('### CHECKIN')
+      expect(result).toContain('A warm check-in message')
+    })
+
+    it('includes the register', () => {
+      const result = buildInterventionTypeSection('CHECKIN', exampleInfo)
+      expect(result).toContain('[warm]')
+    })
+
+    it('includes all examples', () => {
+      const result = buildInterventionTypeSection('CHECKIN', exampleInfo)
+      expect(result).toContain('How are you finding the discussion?')
+      expect(result).toContain('Anything you want to share?')
+    })
+  })
+
+  describe('detectPrivateInterventionOpportunity rate limiting', () => {
+    const startTime = new Date(Date.now() - 20 * 60 * 1000) // 20 min ago
+
+    function makeContext(agentConfig = {}) {
+      return {
+        name: 'Test Agent',
+        agentType: 'eventAssistant',
+        _id: 'test-agent-id',
+        agentConfig,
+        conversation: {
+          name: 'Test Conversation',
+          startTime,
+          channels: []
+        }
+      }
+    }
+
+    function makeDmHistory(messages: { fromAgent: boolean; visible: boolean; createdAt: Date }[]) {
+      return {
+        end: new Date(),
+        messages: messages.map((m) => ({ ...m, body: 'hello', pseudonym: 'Agent' }))
+      }
+    }
+
+    const emptyHistory = { end: new Date(), messages: [] }
+    const schema = { parse: jest.fn() } as unknown as import('zod').ZodSchema // not reached in rate-limited path
+
+    it('returns null when a visible agent message is within the default interval', async () => {
+      const now = new Date()
+      const dmHistory = makeDmHistory([
+        { fromAgent: true, visible: true, createdAt: new Date(now.getTime() - 60 * 1000) } // 1 min ago < 2 min default
+      ])
+
+      const result = await detectPrivateInterventionOpportunity.call(
+        makeContext(),
+        { end: now, messages: [] },
+        'system prompt',
+        schema,
+        emptyHistory,
+        dmHistory
+      )
+
+      expect(result).toBeNull()
+    })
+
+    it('does not count invisible agent messages against the rate limit', async () => {
+      const now = new Date()
+      // invisible message 30s ago would rate-limit if counted, but should be ignored
+      const dmHistory = makeDmHistory([{ fromAgent: true, visible: false, createdAt: new Date(now.getTime() - 30 * 1000) }])
+      // startTime 20 min ago → well outside default 2 min → should proceed
+      const ctx = makeContext()
+
+      // Will reach runInterventionAnalysis — mock returns undefined → code throws accessing properties
+      const resultPromise = detectPrivateInterventionOpportunity.call(
+        ctx,
+        { end: now, messages: [] },
+        'system prompt',
+        schema,
+        emptyHistory,
+        dmHistory
+      )
+
+      await expect(resultPromise).rejects.toThrow()
+    })
+
+    it('uses startTime as baseline when participant has no prior agent messages', async () => {
+      const now = new Date()
+      // startTime is 1 min ago — within the 2 min default interval
+      const recentStartTime = new Date(now.getTime() - 60 * 1000)
+      const ctx = { ...makeContext(), conversation: { ...makeContext().conversation, startTime: recentStartTime } }
+
+      const result = await detectPrivateInterventionOpportunity.call(
+        ctx,
+        { end: now, messages: [] },
+        'system prompt',
+        schema,
+        emptyHistory,
+        { end: now, messages: [] } // no prior agent messages
+      )
+
+      expect(result).toBeNull()
+    })
+
+    it('respects a custom minContributionMinutes from behaviorPolicy', async () => {
+      const now = new Date()
+      // agent message 3 min ago — outside 2 min default but inside custom 5 min
+      const dmHistory = makeDmHistory([
+        { fromAgent: true, visible: true, createdAt: new Date(now.getTime() - 3 * 60 * 1000) }
+      ])
+      const behaviorPolicy = {
+        channels: { dm: { proactivePolicy: { initiativeLevel: 'lightlyProactive' as const, minContributionMinutes: 5 } } }
+      }
+
+      const result = await detectPrivateInterventionOpportunity.call(
+        makeContext(),
+        { end: now, messages: [] },
+        'system prompt',
+        schema,
+        emptyHistory,
+        dmHistory,
+        undefined,
+        undefined,
+        undefined, // activeGoals
+        behaviorPolicy
+      )
+
+      expect(result).toBeNull()
+    })
+  })
+
+  describe('runInterventionAnalysis confidence thresholds', () => {
+    function makeContext() {
+      return {
+        name: 'Test Agent',
+        agentType: 'proactiveGroupAgent',
+        _id: 'test-agent-id',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        getLLM: jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue({}),
+        llmTemplates: { user: undefined },
+        conversation: {
+          name: 'Test Conversation',
+          startTime: new Date(Date.now() - 20 * 60 * 1000),
+          channels: [] // no direct channels → dmChannels is [], populate loop is skipped
+        }
+      }
+    }
+
+    function makeAnalysis(overrides: { shouldIntervene?: boolean; confidenceScore?: number } = {}) {
+      return {
+        shouldIntervene: true,
+        reasoning: 'test reasoning',
+        sharedChatMessage: 'A group message.',
+        detectedPattern: 'discussion lull',
+        affectedUsers: 3,
+        confidenceScore: 70,
+        goalId: 'synthesize_discussion',
         ...overrides
-      })
+      }
+    }
 
-    it('returns true when a proactive message exists within the window', async () => {
-      await makeMessage({ source: { type: 'agent', proactive: true }, createdAt: new Date() })
-      expect(await proactiveRaceGuard(conversationId)).toBe(true)
+    const sharedChatHistory = { end: new Date(), messages: [] }
+    const schema = { parse: jest.fn() } as unknown as import('zod').ZodSchema
+
+    beforeEach(() => {
+      jest.clearAllMocks()
     })
 
-    it('returns false when no proactive message exists', async () => {
-      expect(await proactiveRaceGuard(conversationId)).toBe(false)
+    it('returns null when shouldIntervene is false', async () => {
+      mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ shouldIntervene: false, confidenceScore: 90 }))
+
+      const result = await runInterventionAnalysis.call(makeContext(), sharedChatHistory, 'system', schema, null, undefined)
+
+      expect(result).toBeNull()
     })
 
-    it('returns false when proactive message is outside the window', async () => {
-      const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000)
-      await makeMessage({ source: { type: 'agent', proactive: true }, createdAt: twoMinutesAgo })
-      expect(await proactiveRaceGuard(conversationId)).toBe(false)
+    it('returns null when confidence is below the default threshold of 60', async () => {
+      mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 59 }))
+
+      const result = await runInterventionAnalysis.call(makeContext(), sharedChatHistory, 'system', schema, null, undefined)
+
+      expect(result).toBeNull()
     })
 
-    it('returns false for agent messages without source.proactive (e.g. Q&A agents)', async () => {
-      await makeMessage({ source: { type: 'agent' }, createdAt: new Date() })
-      expect(await proactiveRaceGuard(conversationId)).toBe(false)
+    it('returns analysis when confidence meets the default threshold of 60', async () => {
+      mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 60 }))
+
+      const result = await runInterventionAnalysis.call(makeContext(), sharedChatHistory, 'system', schema, null, undefined)
+
+      expect(result).not.toBeNull()
+      expect(result!.confidenceScore).toBe(60)
     })
 
-    it('returns false for proactive message on a different conversation', async () => {
-      const otherConversationId = new mongoose.Types.ObjectId()
-      await makeMessage({ source: { type: 'agent', proactive: true }, conversation: otherConversationId, createdAt: new Date() })
-      expect(await proactiveRaceGuard(conversationId)).toBe(false)
+    it('returns null when socialSensitivity is high and confidence is below 75', async () => {
+      mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 70 }))
+      const behaviorPolicy = {
+        channels: { groupChat: { proactivePolicy: { initiativeLevel: 'moderatelyProactive' as const, socialSensitivity: 'high' as const } } }
+      }
+
+      const result = await runInterventionAnalysis.call(
+        makeContext(),
+        sharedChatHistory,
+        'system',
+        schema,
+        null,
+        undefined,
+        undefined, // extraTemplateVars
+        undefined, // activeGoals
+        behaviorPolicy
+      )
+
+      expect(result).toBeNull()
     })
 
-    it('returns false for non-visible proactive messages', async () => {
-      await makeMessage({ source: { type: 'agent', proactive: true }, visible: false, createdAt: new Date() })
-      expect(await proactiveRaceGuard(conversationId)).toBe(false)
+    it('returns analysis when socialSensitivity is high and confidence meets the 75 threshold', async () => {
+      mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 75 }))
+      const behaviorPolicy = {
+        channels: { groupChat: { proactivePolicy: { initiativeLevel: 'moderatelyProactive' as const, socialSensitivity: 'high' as const } } }
+      }
+
+      const result = await runInterventionAnalysis.call(
+        makeContext(),
+        sharedChatHistory,
+        'system',
+        schema,
+        null,
+        undefined,
+        undefined, // extraTemplateVars
+        undefined, // activeGoals
+        behaviorPolicy
+      )
+
+      expect(result).not.toBeNull()
+    })
+
+    it('returns null when confidence is below the goal minConfidence floor', async () => {
+      mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 70 }))
+      const activeGoals = [{ triggers: { minConfidence: 80 } }] as import('../../../src/types/index.types.js').ConversationGoal[]
+
+      const result = await runInterventionAnalysis.call(
+        makeContext(),
+        sharedChatHistory,
+        'system',
+        schema,
+        null,
+        undefined,
+        undefined, // extraTemplateVars
+        activeGoals
+      )
+
+      expect(result).toBeNull()
+    })
+
+    it('uses the higher of policyThreshold and patternFloor as the effective threshold', async () => {
+      // policy threshold = 75 (high sensitivity), patternFloor = 65 → effective = 75
+      // confidence 70 is below 75 → null
+      mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 70 }))
+      const behaviorPolicy = {
+        channels: { groupChat: { proactivePolicy: { initiativeLevel: 'moderatelyProactive' as const, socialSensitivity: 'high' as const } } }
+      }
+      const activeGoals = [{ triggers: { minConfidence: 65 } }] as import('../../../src/types/index.types.js').ConversationGoal[]
+
+      const result = await runInterventionAnalysis.call(
+        makeContext(),
+        sharedChatHistory,
+        'system',
+        schema,
+        null,
+        undefined,
+        undefined, // extraTemplateVars
+        activeGoals,
+        behaviorPolicy
+      )
+
+      expect(result).toBeNull()
+    })
+
+    it('uses the patternFloor when it exceeds the policy threshold', async () => {
+      // policy threshold = 60 (default), patternFloor = 80 → effective = 80
+      // confidence 75 is below 80 → null
+      mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 75 }))
+      const activeGoals = [{ triggers: { minConfidence: 80 } }] as import('../../../src/types/index.types.js').ConversationGoal[]
+
+      const result = await runInterventionAnalysis.call(
+        makeContext(),
+        sharedChatHistory,
+        'system',
+        schema,
+        null,
+        undefined,
+        undefined, // extraTemplateVars
+        activeGoals
+      )
+
+      expect(result).toBeNull()
+    })
+
+    it('returns the analysis when confidence meets the effective threshold', async () => {
+      mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 80 }))
+      const activeGoals = [{ triggers: { minConfidence: 80 } }] as import('../../../src/types/index.types.js').ConversationGoal[]
+
+      const result = await runInterventionAnalysis.call(
+        makeContext(),
+        sharedChatHistory,
+        'system',
+        schema,
+        null,
+        undefined,
+        undefined, // extraTemplateVars
+        activeGoals
+      )
+
+      expect(result).not.toBeNull()
+      expect(result!.confidenceScore).toBe(80)
     })
   })
 })
