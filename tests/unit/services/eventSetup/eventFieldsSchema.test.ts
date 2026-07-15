@@ -1,4 +1,4 @@
-import { ExtractedFieldsSchema, InviteExtractedFieldsSchema } from '../../../../src/services/eventSetup/eventFieldsSchema.js'
+import { ExtractedFieldsSchema } from '../../../../src/services/eventSetup/eventFieldsSchema.js'
 
 describe('eventFieldsSchema', () => {
   const baseFields = {
@@ -20,28 +20,14 @@ describe('eventFieldsSchema', () => {
       expect(result).toEqual(baseFields)
     })
 
-    it('does not accept matchedTopicId (it belongs to the invite variant)', () => {
-      const parsed = ExtractedFieldsSchema.parse({ ...baseFields, matchedTopicId: 'topic-1' })
+    it('parses an empty object, since the LLM omits anything it is unsure of', () => {
+      const result = ExtractedFieldsSchema.parse({})
 
-      expect(parsed).not.toHaveProperty('matchedTopicId')
-    })
-  })
-
-  describe('InviteExtractedFieldsSchema', () => {
-    it('accepts every base field plus a string matchedTopicId', () => {
-      const result = InviteExtractedFieldsSchema.parse({ ...baseFields, matchedTopicId: 'topic-1' })
-
-      expect(result).toEqual({ ...baseFields, matchedTopicId: 'topic-1' })
+      expect(result).toEqual({})
     })
 
-    it('accepts a null matchedTopicId', () => {
-      const result = InviteExtractedFieldsSchema.parse({ ...baseFields, matchedTopicId: null })
-
-      expect(result.matchedTopicId).toBeNull()
-    })
-
-    it('requires matchedTopicId to be present', () => {
-      expect(() => InviteExtractedFieldsSchema.parse(baseFields)).toThrow()
+    it('rejects a field of the wrong type', () => {
+      expect(() => ExtractedFieldsSchema.parse({ ...baseFields, duration: '60 minutes' })).toThrow()
     })
   })
 })

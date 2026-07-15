@@ -5,8 +5,8 @@
  * Two consumers use it today:
  *   - the Slack/web event planner (planSchema.ts), which embeds
  *     ExtractedFieldsSchema in its larger EventSetupPlanSchema
- *   - the email-invite flow, which extends it via InviteExtractedFieldsSchema
- *     to also carry the Topic an inbound invite was matched to
+ *   - the email-invite flow, which reuses it to pull the same fields out
+ *     of an inbound calendar invite
  *
  * ExtractedFieldsSchema is kept manually in sync with the Conversation
  * model (src/models/conversation.model.ts), the canonical event record.
@@ -43,13 +43,5 @@ export const ExtractedFieldsSchema = z.object({
     )
 })
 
-/* The invite flow's variant: the same fields the planner extracts, plus
-   the Topic an inbound calendar invite was matched to (null when no
-   existing Topic fit and a new one should be created). */
-export const InviteExtractedFieldsSchema = ExtractedFieldsSchema.extend({
-  matchedTopicId: z.string().nullable()
-})
-
 export type ExtractedFields = z.infer<typeof ExtractedFieldsSchema>
-export type InviteExtractedFields = z.infer<typeof InviteExtractedFieldsSchema>
 export type Speaker = z.infer<typeof speakerSchema>
