@@ -14,42 +14,20 @@
  * Using Zod here forces the LLM into structured output. Anything the
  * LLM is not confident about is omitted rather than guessed.
  *
- * The field-extraction half of this schema (ExtractedFieldsSchema) is
- * kept manually in sync with the Conversation model
- * (src/models/conversation.model.ts), which is the canonical event
- * record. When that model gains a new user-supplied field, decide
- * whether the LLM should try to extract it and add it below.
- *
- * If a second Zod consumer ever appears in the codebase (e.g. a Zod
- * port of the conversation Joi validator), pull ExtractedFieldsSchema
- * into a shared eventFieldsSchema module so both consumers can .pick()
- * from it instead of drifting.
+ * The field-extraction half of this schema (ExtractedFieldsSchema) now
+ * lives in the shared eventFieldsSchema module, since the email-invite
+ * flow is a second consumer that extends it. That module is where the
+ * field set is kept in sync with the Conversation model
+ * (src/models/conversation.model.ts); add new extractable fields there,
+ * not here, so both consumers pick them up at once.
  */
 
 import { z } from 'zod'
+import { ExtractedFieldsSchema, type ExtractedFields, type Speaker } from './eventFieldsSchema.js'
 
-const speakerSchema = z.object({
-  name: z.string(),
-  bio: z.string(),
-  alternateName: z.string().optional().describe('Nickname or stage name the speaker also goes by')
-})
-
-export const ExtractedFieldsSchema = z.object({
-  eventName: z.string().optional(),
-  dateTime: z.string().optional().describe('ISO 8601 datetime string'),
-  duration: z.number().optional().describe('Duration in minutes'),
-  description: z.string().optional(),
-  zoomLink: z.string().optional(),
-  topicName: z.string().optional(),
-  speakers: z.array(speakerSchema).optional(),
-  moderators: z.array(speakerSchema).optional(),
-  timeZone: z
-    .string()
-    .optional()
-    .describe(
-      'IANA timezone (e.g. America/New_York) inferred from any timezone the organizer mentioned, like ET, Eastern, PST, or GMT+1'
-    )
-})
+// Re-exported so existing importers of these names keep resolving them here.
+export { ExtractedFieldsSchema }
+export type { ExtractedFields, Speaker }
 
 export const StepHintSchema = z.object({
   key: z.string().describe('Stable identifier for the step, e.g. "schedule", "speakers", "resources"'),
@@ -63,7 +41,7 @@ export const StepHintSchema = z.object({
 const SKIPPABLE_SECTION_IDS = ['basic', 'when', 'where', 'who', 'res', 'feat'] as const
 
 export const SkippedSectionSchema = z.object({
-  id: z.enum(SKIPPABLE_SECTION_IDS).describe('Section identifier matching the form\'s section renderer keys'),
+  id: z.enum(SKIPPABLE_SECTION_IDS).describe("Section identifier matching the form's section renderer keys"),
   label: z.string().describe('Human-readable section name (e.g. "Speakers", "Resources")'),
   reason: z.string().describe('Brief plain-language explanation of why this section was hidden')
 })
@@ -114,7 +92,5 @@ export const EventSetupPlanSchema = z.object({
 })
 
 export type EventSetupPlan = z.infer<typeof EventSetupPlanSchema>
-export type ExtractedFields = z.infer<typeof ExtractedFieldsSchema>
-export type Speaker = z.infer<typeof speakerSchema>
 export type SkippedSection = z.infer<typeof SkippedSectionSchema>
 export type FeatureDecision = z.infer<typeof FeatureDecisionSchema>
