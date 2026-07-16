@@ -106,6 +106,18 @@ function buildConversationContextSection(conversationContext: ConversationContex
     if (a.description) lines.push(a.description)
   }
 
+  if (conversationContext.contentSensitivity) {
+    const cs = conversationContext.contentSensitivity
+    const sensitivityLines: string[] = ['Content sensitivity:']
+    if (cs.level && cs.level !== 'standard') {
+      sensitivityLines.push(`- Level: ${cs.level} — apply extra care with how you frame interventions`)
+    }
+    if (cs.domains && cs.domains.length > 0) {
+      sensitivityLines.push(`- Sensitive domains: ${cs.domains.join(', ')} — avoid editorializing, taking sides, or making light of these topics`)
+    }
+    lines.push(sensitivityLines.join('\n'))
+  }
+
   return lines.join('\n')
 }
 

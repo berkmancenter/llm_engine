@@ -357,6 +357,10 @@ export interface ConversationContext {
     type?: string[]
     description?: string
   }
+  contentSensitivity?: {
+    level?: 'standard' | 'elevated' | 'high'
+    domains?: string[]
+  }
 }
 
 export interface DmPolicy {
