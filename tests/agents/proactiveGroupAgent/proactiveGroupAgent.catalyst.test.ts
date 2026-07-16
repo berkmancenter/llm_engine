@@ -24,7 +24,7 @@ const testConfig = setupAgentTest('proactiveGroupAgent')
 
 const testTimeout = 120000
 
-const CATALYST_GOALS = ['provoke_participation', 'play_commentary', 'poll_reveal']
+const CATALYST_GOALS = ['provoke_participation', 'challenge_consensus', 'play_commentary', 'poll_reveal']
 
 describe(`proactive group agent catalyst tests`, () => {
   let agent
@@ -395,6 +395,114 @@ describe(`proactive group agent catalyst tests`, () => {
           const { goalId } = responses[0]
           console.log(`[speaker show of hands] Detected ${goalId}:`, responses[0].message)
           expect(goalId).not.toBe('poll_reveal')
+        }
+      },
+      testTimeout
+    )
+  })
+
+  describe('challenge_consensus intervention scenarios', () => {
+    it(
+      'SHOULD generate challenge_consensus when chat is active but converging one-sidedly around a bold claim',
+      async () => {
+        // Transcript at ~13:21-13:40: Jessica presents the "most productive nations work the least
+        // hours" graph — a counter-intuitive claim backed by data. Chat is active but everyone is
+        // endorsing the claim enthusiastically without anyone questioning it or raising the obvious
+        // counterargument (correlation vs causation, confounding factors, etc.).
+        const messages = [
+          await createMessage(
+            'This is exactly right — we glorify overwork and it is clearly backfiring',
+            user1,
+            conversation,
+            ['chat'],
+            getMessageTime(815)
+          ),
+          await createMessage(
+            'The data is pretty clear — less hours, more output. Why are we still debating this?',
+            user2,
+            conversation,
+            ['chat'],
+            getMessageTime(825)
+          ),
+          await createMessage(
+            'Every country doing it right works less. The evidence is there.',
+            user3,
+            conversation,
+            ['chat'],
+            getMessageTime(835)
+          )
+        ]
+        await prepareMessagesForAgent(messages, conversation, agent)
+
+        const conversationHistory = getConversationHistory(conversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 840 * 1000)
+        })
+
+        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+
+        // Active discussion but entirely one-sided — no one is questioning the claim.
+        // challenge_consensus should surface the unexamined counterargument.
+        if (responses.length > 0) {
+          const { goalId } = responses[0]
+          console.log(`[13:50 one-sided endorsement] Detected ${goalId}:`, responses[0].message)
+          expect(['challenge_consensus', 'invite_quieter_voices']).toContain(goalId)
+        }
+      },
+      testTimeout
+    )
+
+    it(
+      'SHOULD NOT generate challenge_consensus when active chat has both sides of the argument present',
+      async () => {
+        // Chat has participants genuinely debating each other — one defending the research,
+        // one critiquing it, one adding nuance. Both sides of the core tension are in the room.
+        const messages = [
+          await createMessage(
+            'Correlation is not causation — productive nations may work less because they are already wealthy, not the other way around',
+            user1,
+            conversation,
+            ['chat'],
+            getMessageTime(815)
+          ),
+          await createMessage(
+            'The Scandinavian four-day week trials were randomised though, not observational — that addresses the causality point directly',
+            user2,
+            conversation,
+            ['chat'],
+            getMessageTime(825)
+          ),
+          await createMessage(
+            'Even granting the causality, I am not sure this scales outside knowledge work — shift-based industries have different constraints',
+            user3,
+            conversation,
+            ['chat'],
+            getMessageTime(835)
+          ),
+          await createMessage(
+            'She covered that — the retention and productivity savings are meant to offset the cost. Whether that holds across sectors is the real open question',
+            user2,
+            conversation,
+            ['chat'],
+            getMessageTime(845)
+          )
+        ]
+        await prepareMessagesForAgent(messages, conversation, agent)
+
+        const conversationHistory = getConversationHistory(conversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 850 * 1000)
+        })
+
+        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+
+        // Both sides are present and being engaged — challenge_consensus has nothing to introduce.
+        if (responses.length > 0) {
+          const { goalId } = responses[0]
+          console.log(`[13:50 two-sided debate] Detected ${goalId}:`, responses[0].message)
+          expect(goalId).not.toBe('challenge_consensus')
         }
       },
       testTimeout

@@ -33,6 +33,7 @@ const ALL_PROACTIVE_GOALS = [
   'bridge_topics',
   'structure_conversation',
   'provoke_participation',
+  'challenge_consensus',
   'poll_reveal'
 ]
 

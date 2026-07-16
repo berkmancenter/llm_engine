@@ -134,6 +134,27 @@ describe('buildConversationContextSection', () => {
     const result = buildConversationContextSection(ctx)
     expect(result).not.toContain('Audience:')
   })
+
+  test('renders contentSensitivity level when elevated', () => {
+    const ctx: ConversationContext = {
+      conversationType: 'panel',
+      contentSensitivity: { level: 'elevated', domains: ['mental health'] }
+    }
+    const result = buildConversationContextSection(ctx)
+    expect(result).toContain('Content sensitivity:')
+    expect(result).toContain('elevated')
+    expect(result).toContain('mental health')
+  })
+
+  test('omits level and domains lines when level is standard and no domains set', () => {
+    const ctx: ConversationContext = {
+      conversationType: 'panel',
+      contentSensitivity: { level: 'standard' }
+    }
+    const result = buildConversationContextSection(ctx)
+    expect(result).not.toContain('Level:')
+    expect(result).not.toContain('Sensitive domains:')
+  })
 })
 
 describe('buildBehaviorPolicySection', () => {
@@ -371,7 +392,7 @@ describe('buildGoalInstructions', () => {
     const goals = loadGoals(['provoke_participation'])
     const result = buildGoalInstructions(goals, 'groupChat')
     expect(result).toContain('Trigger when:')
-    expect(result).toContain('participation is low')
+    expect(result).toContain('participation is currently low')
   })
 
   test('renders guardrails', () => {
@@ -385,7 +406,7 @@ describe('buildGoalInstructions', () => {
     const goals = loadGoals(['provoke_participation'])
     const result = buildGoalInstructions(goals, 'groupChat')
     expect(result).toContain('Examples:')
-    expect(result).toContain("Playing devil's advocate")
+    expect(result).toContain('Throwing this out there')
   })
 
   test('renders dm goal when channelType is dm', () => {

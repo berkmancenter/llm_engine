@@ -1,19 +1,19 @@
 {
   "id": "provoke_participation",
   "label": "Provoke participation",
-  "description": "Generates energy and draws out participation by introducing a pointed question, a counterpoint, or a productive tension — especially when a conversation risks becoming passive or one-sided.",
+  "description": "Generates energy and draws out participation when a conversation has gone quiet or passive — introducing a pointed question or productive tension to get people talking.",
   "channel": "groupChat",
   "triggers": {
     "conditions": [
-      "participation is low",
-      "the conversation is becoming passive",
-      "discussion is one-sided",
-      "the room seems to agree too quickly"
+      "participation is currently low — few or no messages in the last few minutes",
+      "the room has gone quiet and participants are not exchanging messages with each other right now",
+      "there is no active back-and-forth happening at this moment"
     ],
     "minConfidence": 65
   },
   "guardrails": [
-    "don't use when participants are already actively exchanging substantive messages with each other — even if the discussion could go deeper",
+    "only use when the room is quiet RIGHT NOW — a question going unanswered, a discussion that could go deeper, or a conversation that might stall are not triggers; the silence must already be present",
+    "if participants are actively exchanging messages with each other, stay silent — even if the exchange could go deeper, even if a question was just asked that hasn't been answered yet",
     "don't introduce provocation into an already heated exchange",
     "frame as genuine question, not attack",
     "don't undermine the speaker personally",
@@ -23,8 +23,8 @@
     "format": "text"
   },
   "examples": [
-    "Playing devil's advocate: what's the strongest case against this approach?",
     "Is there anyone who sees this differently? Curious whether there are dissenting views.",
-    "What's the thing most likely to make this fail — and are we taking it seriously enough?"
+    "What's the thing most likely to make this fail — and are we taking it seriously enough?",
+    "Throwing this out there: what would change your mind on this?"
   ]
 }

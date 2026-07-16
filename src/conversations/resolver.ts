@@ -13,7 +13,7 @@ const FACILITATIVE_GOALS = [
   'structure_conversation'
 ]
 
-const CHALLENGE_GOALS = ['provoke_participation', 'play_commentary', 'poll_reveal']
+const CHALLENGE_GOALS = ['provoke_participation', 'challenge_consensus', 'play_commentary', 'poll_reveal']
 
 const DM_GOALS = ['private_reassure', 'private_not_alone', 'private_transcript_hook', 'private_interest_bridge']
 
