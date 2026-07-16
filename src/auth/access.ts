@@ -16,6 +16,7 @@ function assertCanRead(caller: IBaseUser, scope: ReadScope) {
 
   const grants: ReadGrant[] = caller.capabilities?.read ?? []
   const allowed = grants.some((g) => {
+    if (g.type === 'allTopics') return true
     if (g.type === 'allPublicTopics') return scope.topicIsPrivate !== true
     if (g.type === scope.type) return g.id === scope.id
     if (g.type === 'topic' && scope.type === 'conversation' && scope.topicId !== undefined) return g.id === scope.topicId

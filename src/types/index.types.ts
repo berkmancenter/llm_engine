@@ -1083,7 +1083,7 @@ export interface EmbeddingsModelDetails {
 export type ReadScope =
   | { type: 'topic'; id: string; topicIsPrivate?: boolean }
   | { type: 'conversation'; id: string; topicId?: string; topicIsPrivate?: boolean }
-export type ReadGrant = ReadScope | { type: 'allPublicTopics' }
+export type ReadGrant = ReadScope | { type: 'allPublicTopics' } | { type: 'allTopics' }
 export type WriteScope = { type: 'conversation'; id: string }
 export type WriteGrant = { type: 'ownConversation' }
 
