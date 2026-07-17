@@ -2,6 +2,19 @@ import { z } from 'zod'
 
 import mongoose from 'mongoose'
 
+/* The structured fields an Outlook invite's .ics attachment states outright, parsed by the email
+   webhook with no LLM involved. uid identifies a recurring series (every instance shares one) and
+   pairs with startDate to recognize an invite already handled. */
+export interface ParsedInvite {
+  uid?: string
+  summary?: string
+  description?: string
+  location?: string
+  startDate?: Date
+  endDate?: Date
+  organizer?: string // organizer email from the .ics ORGANIZER field, mailto: stripped
+}
+
 export interface PaginateResults<T> {
   results: Array<T>
   page: number

@@ -6668,6 +6668,11 @@ husky@^9.1.7:
   resolved "https://registry.npmjs.org/husky/-/husky-9.1.7.tgz"
   integrity sha512-5gs5ytaNjBrh5Ow3zrvdUUY+0VxIuWVL4i9irt6friV+BqdCfmV11CQTWMiBYWHbXhco+J1kHfTOUkePhCDvMA==
 
+ical.js@^2.2.1:
+  version "2.2.1"
+  resolved "https://registry.yarnpkg.com/ical.js/-/ical.js-2.2.1.tgz#f06fe9b32498d948893ec994e6964379dac6a907"
+  integrity sha512-yK/UlPbEs316igb/tjRgbFA8ZV75rCsBJp/hWOatpyaPNlgw0dGDmU+FoicOcwX4xXkeXOkYiOmCqNPFpNPkQg==
+
 iconv-lite@0.4.24, iconv-lite@^0.4.24:
   version "0.4.24"
   resolved "https://registry.npmjs.org/iconv-lite/-/iconv-lite-0.4.24.tgz"
@@ -9657,14 +9662,7 @@ python-shell@^5.0.0:
   resolved "https://registry.npmjs.org/python-shell/-/python-shell-5.0.0.tgz"
   integrity sha512-RUOOOjHLhgR1MIQrCtnEqz/HJ1RMZBIN+REnpSUrfft2bXqXy69fwJASVziWExfFXsR1bCY0TznnHooNsCo0/w==
 
-qs@6.11.2, qs@6.13.0, qs@>=6.5.3, qs@^6.11.2, qs@^6.13.1, qs@^6.14.0, qs@^6.7.0, qs@~6.5.2:
-  version "6.15.2"
-  resolved "https://registry.yarnpkg.com/qs/-/qs-6.15.2.tgz#fd55426d710403ddccc45e0f9eab16db7727ece9"
-  integrity sha512-Rzq0KEyX/w/tEybncDgdkZrJgVUsUMk3xjh3t5bv3S1HTAtg+uOYt72+ZfwiQwKdysThkTBdL/rTi6HDmX9Ddw==
-  dependencies:
-    side-channel "^1.1.0"
-
-qs@^6.15.2:
+qs@6.11.2, qs@6.13.0, qs@>=6.5.3, qs@^6.11.2, qs@^6.13.1, qs@^6.14.0, qs@^6.15.2, qs@^6.7.0, qs@~6.5.2:
   version "6.15.2"
   resolved "https://registry.yarnpkg.com/qs/-/qs-6.15.2.tgz#fd55426d710403ddccc45e0f9eab16db7727ece9"
   integrity sha512-Rzq0KEyX/w/tEybncDgdkZrJgVUsUMk3xjh3t5bv3S1HTAtg+uOYt72+ZfwiQwKdysThkTBdL/rTi6HDmX9Ddw==
