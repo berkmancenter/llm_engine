@@ -241,11 +241,25 @@ in the `budgets` array and update via `PUT /v1/conversations`.
 
 ## Cost summaries per event
 
-When any **public-topic** conversation stops, Number Cruncher fetches that event's
+When any conversation stops — public or private — Number Cruncher fetches that event's
 LLM runs from LangSmith, stores a `ConversationCost` record split into `liveEvent`
 (spend while the conversation was running) and `postEvent` (spend on after-the-fact
 work like the Vibes Analyst recap and the conversation summary), and posts a cost
 summary card — combined total plus the phase breakdown — to its admin channel.
+
+A `ConversationCost` record is written immediately when the event stops (status
+`pending`, zeroed figures), then updated to `status: complete` once the LangSmith
+settle-poll resolves — so a crash or a very slow settle never leaves zero record that
+the event happened.
+
+Private topics: Number Cruncher holds an `allTopics` read grant (broader than every
+other agent, which are `allPublicTopics`-only), so it still records `liveEvent` cost for
+a private event — real money was spent regardless of the topic's privacy. `postEvent`
+is always empty for a private event, because no other agent ever runs post-event work
+(e.g. a recap) on a private topic — there is genuinely nothing there to price. The
+posted Slack card redacts the event's name to "Private event" for these; the persisted
+Mongo record keeps the real name and is tagged `topicIsPrivate: true` so it can still be
+queried/reported on internally.
 
 Requirements:
 
@@ -261,7 +275,5 @@ Caveats:
   estimates.
 - The fetch polls until run counts settle (up to ~7 minutes after the stop), so the
   cost card arrives several minutes after the event ends, after the Vibes Analyst
-  recap.
+  recap. Progress is logged at each poll attempt (debug) and on settle/exhaust (info).
 - Failed or retried agent runs still consumed tokens and are counted.
-- Private-topic events are not priced (the agent holds only an `allPublicTopics`
-  read grant).
