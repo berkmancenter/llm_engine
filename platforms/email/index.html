@@ -19,7 +19,7 @@
     
     
       
-        <title>Rag - LLM Engine</title>
+        <title>Email - LLM Engine</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#optional-set-up-chroma-to-use-rag" class="md-skip">
+        <a href="#email-integration" class="md-skip">
           Skip to content
         </a>
       
@@ -110,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Rag
+              Email
             
           </span>
         </div>
@@ -259,7 +259,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../" class="md-nav__link">
+      <a href="../../installing/" class="md-nav__link">
         
   
   
@@ -358,22 +358,72 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#optional-set-up-chroma-to-use-rag" class="md-nav__link">
+  <a href="#email-integration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Optional: Set up Chroma to use RAG
+        Email integration
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Optional: Set up Chroma to use RAG">
+    <nav class="md-nav" aria-label="Email integration">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#setting-an-embeddings-provider" class="md-nav__link">
+  <a href="#set-up-postmark" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Setting an embeddings provider
+        Set up Postmark
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Set up Postmark">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#one-time-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One Time Setup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#add-environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Add environment variables
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-verification-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How verification works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reading-the-logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading the logs
       
     </span>
   </a>
@@ -405,25 +455,82 @@
   
 
 
-  <h1>Rag</h1>
+  <h1>Email</h1>
 
-<h2 id="optional-set-up-chroma-to-use-rag">Optional: Set up Chroma to use RAG</h2>
-<p>We use Chroma as the vector store. If you are using RAG, you can start Chroma using a Docker Container. <em>NOTE</em> We are currently compatible only with Chroma 0.6.3. You must use that version.</p>
-<div class="highlight"><pre><span></span><code>docker pull chromadb/chroma
-docker run -p 8000:8000 chromadb/chroma:0.6.3
+<h2 id="email-integration">Email integration</h2>
+<p>LLM Engine can receive calendar invites by email. An event organizer adds the event setup bot as an attendee on a meeting invite, and the invite arrives here as an inbound webhook.</p>
+<p>Email integration requires the use of <a href="https://postmarkapp.com">Postmark</a>, a third party service that receives mail on your behalf and posts it to your server as JSON.</p>
+<blockquote>
+<p><strong>Current scope:</strong> the webhook verifies the request, parses the attached calendar file, and logs what it found. It does not create events or send mail yet.</p>
+</blockquote>
+<h3 id="set-up-postmark">Set up Postmark</h3>
+<h4 id="one-time-setup">One Time Setup</h4>
+<ol>
+<li>Create a Postmark account and a server with an inbound stream.</li>
+<li>Choose a username and generate a secret for the webhook. The secret is a random string, not a hand-picked password:</li>
+</ol>
+<div class="highlight"><pre><span></span><code>openssl rand -base64 32
 </code></pre></div>
-<p>If you wish to investigate running Chroma in the cloud, see <a href="https://docs.trychroma.com/production/deployment">Chroma documentation</a> for further details.</p>
-<h3 id="setting-an-embeddings-provider">Setting an embeddings provider</h3>
-<p>You may specify an OpenAI compatible embeddings provider using these environment variables:
-<div class="highlight"><pre><span></span><code>EMBEDDINGS_API_URL=
-EMBEDDINGS_API_KEY=
-EMBEDDINGS_DOCUMENT_MODEL=
-EMBEDDINGS_REALTIME_MODEL=
-</code></pre></div></p>
-<p>If you don't provide them, a standard OpenAI embeddings model will be used.</p>
-<p>You can use these settings to set up a private, open source embeddings model if you wish.</p>
-<p>We have tested this with the <code>AAI/bge-small-en-v1.5</code> embeddings model using <a href="https://github.com/michaelfeil/infinity">Infinity</a> hosted on Runpod.io.</p>
-<p>Please see <a href="../runpod/">Runpod instruction</a> for more information.</p>
+<ol>
+<li>Set the inbound webhook URL to <code>[baseUrl]/v1/webhooks/email</code>, with the credentials from step 2 embedded in it:</li>
+</ol>
+<div class="highlight"><pre><span></span><code>https://[username]:[secret]@[baseUrl]/v1/webhooks/email
+</code></pre></div>
+<p>Postmark sends those as an HTTP Basic Auth header on every inbound message. If you create the webhook through Postmark's API instead of the dashboard, use the <code>HttpAuth</code> field rather than embedding them in the URL.</p>
+<ol>
+<li>Set the same pair in the LLM Engine <code>.env</code> file. The handler compares every incoming request against these, so a mismatch between Postmark and <code>.env</code> rejects the message as a 401.</li>
+</ol>
+<h4 id="add-environment-variables">Add environment variables</h4>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Required</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POSTMARK_WEBHOOK_AUTH_USER</code></td>
+<td>yes</td>
+<td>Username half of the Basic Auth credentials configured on the Postmark inbound webhook. Must match the value Postmark sends.</td>
+</tr>
+<tr>
+<td><code>POSTMARK_WEBHOOK_AUTH_SECRET</code></td>
+<td>yes</td>
+<td>Secret half of the same credentials. Generate it randomly and rotate it periodically. Must match the value Postmark sends.</td>
+</tr>
+</tbody>
+</table>
+<p>Both are required to use this endpoint, but neither is required to boot the server. If either is unset, the handler rejects every request rather than accepting unverified ones, and logs that it is not configured.</p>
+<h3 id="how-verification-works">How verification works</h3>
+<p>Postmark does not sign inbound webhooks, so there is no signature to check. Basic Auth over TLS is the verification method Postmark's documentation recommends for inbound, and it is what this handler implements.</p>
+<p>Rejected requests return <code>401</code>, never <code>403</code>. Postmark stops retrying a message permanently once it sees a <code>403</code>, so that status is reserved for messages that should never be delivered again.</p>
+<h3 id="reading-the-logs">Reading the logs</h3>
+<p>The handler answers <code>200</code> on every path, including failures, because Postmark retries any non-<code>200</code> up to 10 times over roughly 10.5 hours. A <code>200</code> therefore means the message was accepted, not that it parsed. The log is where the outcome shows up:</p>
+<table>
+<thead>
+<tr>
+<th>Log line</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>parsed invite "..." (UID ...) ...</code></td>
+<td>The calendar attachment parsed. Start and end times are in UTC.</td>
+</tr>
+<tr>
+<td><code>inbound message had no calendar (.ics) attachment</code></td>
+<td>The message arrived but carried nothing to process.</td>
+</tr>
+<tr>
+<td><code>failed to parse inbound invite: ...</code></td>
+<td>A calendar attachment was present but unreadable.</td>
+</tr>
+</tbody>
+</table>
+<p>Start and end times log as UTC. Calendar files state times in the organizer's zone, and Outlook names zones the Windows way (<code>Eastern Standard Time</code>) rather than the IANA way, shipping the matching definition inside the file. Those resolve through the file's own definition, so no timezone configuration is needed on this side. Times that look an hour off in the log point at that resolution failing.</p>
 
 
 
