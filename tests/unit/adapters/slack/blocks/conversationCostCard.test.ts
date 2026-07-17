@@ -42,7 +42,8 @@ const data: ConversationCostData = {
       { agentType: 'vibesAnalyst', llmCalls: 3, estimatedCostUSD: 0.2702 }
     ]
   }),
-  checkedAt: '2026-07-13T18:30:00.000Z'
+  checkedAt: '2026-07-13T18:30:00.000Z',
+  topicIsPrivate: false
 }
 
 function textOf(blocks: unknown[]): string {
@@ -134,6 +135,14 @@ describe('renderConversationCostCard', () => {
     const header = blocks[0] as { text: { text: string } }
 
     expect(header.text.text.length).toBeLessThanOrEqual(150)
+  })
+
+  it('redacts the event name in the header for a private-topic event', () => {
+    const blocks = renderConversationCostCard({ ...data, topicIsPrivate: true })
+    const header = blocks[0] as { text: { text: string } }
+
+    expect(header.text.text).not.toContain('The Future of Work')
+    expect(header.text.text).toContain('Private event')
   })
 
   it('is registered in the block registry under conversationCostSummary', () => {

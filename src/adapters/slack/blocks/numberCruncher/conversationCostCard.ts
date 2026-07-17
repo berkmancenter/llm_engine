@@ -25,7 +25,10 @@ export default function renderConversationCostCard(data: ConversationCostData): 
       type: 'header',
       text: {
         type: 'plain_text',
-        text: `:moneybag: Cost Summary: ${data.conversationName}`.slice(0, HEADER_MAX),
+        text: `:moneybag: Cost Summary: ${data.topicIsPrivate ? 'Private event' : data.conversationName}`.slice(
+          0,
+          HEADER_MAX
+        ),
         emoji: true
       }
     },
