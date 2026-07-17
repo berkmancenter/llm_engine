@@ -138,11 +138,12 @@ export default verify({
     // gated it, so least privilege stays explicit. Fail closed: anything but an
     // explicit `private: false` counts as private.
     const topic = conversation.topic as { _id?: { toString(): string }; private?: boolean } | undefined
+    const topicIsPrivate = topic?.private !== false
     access.assertCanRead(this, {
       type: 'conversation',
       id: evt.conversationId,
       topicId: topic?._id?.toString(),
-      topicIsPrivate: topic?.private !== false
+      topicIsPrivate
     })
 
     /* The settle poll waits out both LangSmith ingestion lag and sibling agents
@@ -157,7 +158,7 @@ export default verify({
 
     // Best-effort persistence: a failed write must never block the card.
     try {
-      await conversationCostService.persistCost(conversation, phases!)
+      await conversationCostService.persistCost(conversation, phases!, { topicIsPrivate })
     } catch (error) {
       logger.error(`numberCruncher: could not persist cost record for ${evt.conversationId}`, error)
     }
@@ -166,7 +167,8 @@ export default verify({
       ...phases!,
       total,
       conversationName: conversation.name,
-      checkedAt: new Date().toISOString()
+      checkedAt: new Date().toISOString(),
+      topicIsPrivate
     }
 
     return [
