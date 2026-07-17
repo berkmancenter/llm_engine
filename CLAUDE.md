@@ -1,7 +1,7 @@
 # Project guide
 
 `@berkmancenter/llm_engine` — Node 20/22, ESM, TypeScript. **Use `yarn`** (npm is
-blocked). Always run `git` with `--no-pager`. Tests: see [tests/CLAUDE.md](tests/CLAUDE.md).
+blocked). Tests: see [tests/CLAUDE.md](tests/CLAUDE.md).
 
 ## Committing (non-interactive)
 
@@ -9,7 +9,7 @@ Commit with `-m` and a [Conventional Commit](https://www.conventionalcommits.org
 message (`feat: ...`, `fix: ...`, `feat!: ...` for breaking). No `Co-authored-by` trailer.
 
 ```bash
-git --no-pager commit -m "feat: subject"
+git commit -m "feat: subject"
 ```
 
 commitlint (config-conventional) enforces: **every line ≤ 100 chars** (header
@@ -31,4 +31,4 @@ yarn lint && yarn prettier && yarn build   # eslint / prettier --check / tsc typ
 ```
 
 `yarn build` and tests are not enforced by any hook — run them yourself. Pushing runs
-no hooks: `git --no-pager push`.
+no hooks: `git push`.
