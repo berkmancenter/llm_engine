@@ -62,7 +62,9 @@ const conversationCostSchema = new mongoose.Schema<ConversationCostRecord>(
     liveEvent: { type: costAggregateSchema, required: true },
     postEvent: { type: costAggregateSchema, required: true },
     source: { type: String, required: true, default: 'langsmith' },
-    capturedAt: { type: Date, default: Date.now }
+    capturedAt: { type: Date, default: Date.now },
+    status: { type: String, enum: ['pending', 'complete'], required: true, default: 'pending' },
+    topicIsPrivate: { type: Boolean, required: true, default: false }
   },
   { timestamps: true }
 )

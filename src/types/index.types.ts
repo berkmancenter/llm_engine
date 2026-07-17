@@ -986,6 +986,7 @@ export interface ConversationCostData extends ConversationCostPhases {
   conversationName: string
   checkedAt: string
   total: ConversationCostAggregates
+  topicIsPrivate: boolean
 }
 
 /* The persisted shape: the two phase aggregates plus which conversation they price
@@ -997,6 +998,14 @@ export interface ConversationCostRecord extends ConversationCostPhases {
   name?: string
   source: 'langsmith'
   capturedAt?: Date
+  // 'pending' from the moment the event stops until the settle-poll resolves (see
+  // conversationCost.service.ts's createPending/persistCost); never left pending
+  // forever — persistCost always flips it to 'complete', even with zero cost data.
+  status: 'pending' | 'complete'
+  // Carried through so private-event cost can be reported on separately later.
+  // postEvent is always empty for a private event: no post-event agent (e.g. the
+  // Vibes Analyst recap) ever runs on a private topic, so there is nothing to price.
+  topicIsPrivate: boolean
 }
 
 export interface ConversationHistorySettings {
