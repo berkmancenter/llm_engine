@@ -79,7 +79,7 @@ const ZERO_PHASES = {
 export default verify({
   name: 'Number Cruncher',
   description:
-    'Checks LLM API budget endpoints on a schedule, and posts an estimated LLM cost summary when a public event ends.',
+    'Checks LLM API budget endpoints on a schedule, and posts an estimated LLM cost summary when an event ends (public or private).',
   priority: 100,
   maxTokens: undefined,
   defaultTriggers: {
