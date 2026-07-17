@@ -55,6 +55,27 @@ async function fetchBudgetAlerts(budgets: BudgetConfig[]): Promise<BudgetAlert[]
   return alerts
 }
 
+const ZERO_PHASES = {
+  liveEvent: {
+    estimatedCostUSD: 0,
+    totalPromptTokens: 0,
+    totalCompletionTokens: 0,
+    llmCallCount: 0,
+    models: [],
+    agents: [],
+    hasUnpricedCalls: false
+  },
+  postEvent: {
+    estimatedCostUSD: 0,
+    totalPromptTokens: 0,
+    totalCompletionTokens: 0,
+    llmCallCount: 0,
+    models: [],
+    agents: [],
+    hasUnpricedCalls: false
+  }
+}
+
 export default verify({
   name: 'Number Cruncher',
   description:
@@ -125,9 +146,11 @@ export default verify({
     ]
   },
 
-  // Fires when a public event stops (the dispatcher matches the allPublicTopics
-  // read grant). Prices the event from its LangSmith traces and posts one cost
-  // card into Number Cruncher's own admin channel.
+  // Fires when ANY event stops, public or private (the dispatcher matches the
+  // allTopics read grant — see capabilities.ts). A pending ConversationCost record
+  // is written immediately, before the slow settle-poll, so a crash or a very slow
+  // poll never leaves zero record that this event happened; persistCost below always
+  // flips it to 'complete' once the poll resolves, whether or not it found spend.
   async onConversationEvent(evt) {
     if (evt.type !== 'conversationStopped') return []
 
@@ -146,15 +169,48 @@ export default verify({
       topicIsPrivate
     })
 
+    // Private topics: liveEvent cost is still priced below (real spend happened
+    // regardless of privacy), but postEvent will always come back empty — no other
+    // agent (e.g. the Vibes Analyst recap) ever runs post-event work on a private
+    // topic, so there is genuinely nothing there to price, not merely unknown.
+    if (topicIsPrivate) {
+      logger.info(
+        `numberCruncher: conversation ${evt.conversationId} has a private topic — liveEvent cost will be ` +
+          'recorded, but postEvent processing/cost does not apply (no post-event agent runs on private topics)'
+      )
+    }
+
+    logger.info(`numberCruncher: conversation ${evt.conversationId} stopped; creating pending cost record`)
+    try {
+      await conversationCostService.createPending(conversation, { topicIsPrivate })
+    } catch (error) {
+      logger.error(`numberCruncher: could not create pending cost record for ${evt.conversationId}`, error)
+    }
+
     /* The settle poll waits out both LangSmith ingestion lag and sibling agents
        (e.g. the Vibes Analyst recap) that are still spending on this event, so
        run it here in the dispatched job, never on the stop request path. */
+    logger.info(`numberCruncher: starting LangSmith cost settle-poll for conversation ${evt.conversationId}`)
     const phases = await fetchConversationCostWithSettle(evt.conversationId)
     const total = phases ? combineCostAggregates(phases.liveEvent, phases.postEvent) : null
+
     if (!total || total.llmCallCount === 0) {
-      logger.info(`numberCruncher: no LangSmith cost data for conversation ${evt.conversationId}; skipping cost card`)
+      logger.info(
+        `numberCruncher: no LangSmith cost data settled for conversation ${evt.conversationId}; ` +
+          'finalizing record with zero cost, skipping cost card'
+      )
+      try {
+        await conversationCostService.persistCost(conversation, phases ?? ZERO_PHASES, { topicIsPrivate })
+      } catch (error) {
+        logger.error(`numberCruncher: could not finalize cost record for ${evt.conversationId}`, error)
+      }
       return []
     }
+
+    logger.info(
+      `numberCruncher: settled cost for conversation ${evt.conversationId} — ${total.llmCallCount} LLM ` +
+        `calls, ~$${total.estimatedCostUSD.toFixed(2)}`
+    )
 
     // Best-effort persistence: a failed write must never block the card.
     try {
@@ -171,11 +227,17 @@ export default verify({
       topicIsPrivate
     }
 
+    // The event name is never shown in the visible fallback text for a private
+    // event — the Slack card (conversationCostCard.ts) applies the same redaction
+    // to its header. renderData itself still carries the real name for any other
+    // consumer (e.g. a future internal report) that reads the persisted record.
+    const displayName = topicIsPrivate ? 'a private event' : `*${conversation.name}*`
+
     return [
       {
         visible: true,
         // Fallback text for adapters that do not render the card (e.g. zoom).
-        message: `Estimated LLM cost for *${conversation.name}*: ~$${total.estimatedCostUSD.toFixed(
+        message: `Estimated LLM cost for ${displayName}: ~$${total.estimatedCostUSD.toFixed(
           2
         )} (LangSmith estimate — actual provider charges may differ)${
           total.hasUnpricedCalls ? ' — some calls could not be priced, so the actual total is higher' : ''

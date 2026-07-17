@@ -4,6 +4,8 @@ import { jest } from '@jest/globals'
 const mockFetchWithSettle = jest.fn<(...args: any[]) => Promise<any>>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockPersistCost = jest.fn<(...args: any[]) => Promise<any>>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockCreatePending = jest.fn<(...args: any[]) => Promise<any>>()
 
 // A self-contained stand-in for combineCostAggregates (no cross-model/agent dedup —
 // the fixtures below don't overlap) rather than importing the real one: importing
@@ -29,21 +31,20 @@ jest.unstable_mockModule('../src/agents/numberCruncher/conversationCost.js', () 
   combineCostAggregates: stubCombine
 }))
 jest.unstable_mockModule('../src/services/conversationCost.service.js', () => ({
-  default: { persistCost: mockPersistCost }
+  default: { persistCost: mockPersistCost, createPending: mockCreatePending }
 }))
 
 const { default: numberCruncher } = await import('../../../../src/agents/numberCruncher/agent.js')
 const { default: Conversation } = await import('../../../../src/models/conversation.model.js')
-const { AccessDeniedError } = await import('../../../../src/auth/access.js')
 
 const adminChannel = { name: 'number-cruncher-admin' }
 
 // A fake agent context: __t marks it as an Agent for the access check, and the
-// allPublicTopics read grant matches any non-private event.
+// allTopics read grant matches every conversationStopped event, public or private.
 function buildContext() {
   return {
     __t: 'Agent',
-    capabilities: { read: [{ type: 'allPublicTopics' }], write: [{ type: 'ownConversation' }] },
+    capabilities: { read: [{ type: 'allTopics' }], write: [{ type: 'ownConversation' }] },
     conversation: { _id: 'nc-conv-id', channels: [adminChannel] }
   }
 }
@@ -86,6 +87,7 @@ describe('numberCruncher onConversationEvent', () => {
     jest.clearAllMocks()
     mockFetchWithSettle.mockResolvedValue(phases)
     mockPersistCost.mockResolvedValue({})
+    mockCreatePending.mockResolvedValue({})
   })
 
   afterEach(() => {
@@ -113,12 +115,14 @@ describe('numberCruncher onConversationEvent', () => {
       liveEvent: { estimatedCostUSD: number }
       postEvent: { estimatedCostUSD: number }
       checkedAt: string
+      topicIsPrivate: boolean
     }
     expect(renderData.conversationName).toBe('The Future of Work')
     expect(renderData.total.estimatedCostUSD).toBeCloseTo(1.47)
     expect(renderData.liveEvent.estimatedCostUSD).toBeCloseTo(1.0)
     expect(renderData.postEvent.estimatedCostUSD).toBeCloseTo(0.47)
     expect(renderData.checkedAt).toBeTruthy()
+    expect(renderData.topicIsPrivate).toBe(false)
   })
 
   it('mentions unpriced calls in the fallback message when the total has any', async () => {
@@ -138,12 +142,29 @@ describe('numberCruncher onConversationEvent', () => {
     expect(renderData.total.hasUnpricedCalls).toBe(true)
   })
 
-  it('persists both phases before posting', async () => {
+  it('creates a pending record before starting the settle-poll', async () => {
     mockStoppedConversation(false)
 
     await numberCruncher.onConversationEvent.call(buildContext(), { type: 'conversationStopped', conversationId: 'c1' })
 
-    expect(mockPersistCost).toHaveBeenCalledWith(expect.objectContaining({ name: 'The Future of Work' }), phases)
+    expect(mockCreatePending).toHaveBeenCalledWith(expect.objectContaining({ name: 'The Future of Work' }), {
+      topicIsPrivate: false
+    })
+    const pendingOrder = mockCreatePending.mock.invocationCallOrder[0]
+    const settleOrder = mockFetchWithSettle.mock.invocationCallOrder[0]
+    expect(pendingOrder).toBeLessThan(settleOrder)
+  })
+
+  it('persists both phases as complete after the settle-poll resolves', async () => {
+    mockStoppedConversation(false)
+
+    await numberCruncher.onConversationEvent.call(buildContext(), { type: 'conversationStopped', conversationId: 'c1' })
+
+    expect(mockPersistCost).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'The Future of Work' }),
+      phases,
+      { topicIsPrivate: false }
+    )
   })
 
   it('still posts the card when persistence fails', async () => {
@@ -158,17 +179,39 @@ describe('numberCruncher onConversationEvent', () => {
     expect(responses).toHaveLength(1)
   })
 
-  it('refuses private-topic events (fail closed) without fetching costs', async () => {
-    mockStoppedConversation(true)
+  it('still posts the card when the pending-record write fails', async () => {
+    mockStoppedConversation(false)
+    mockCreatePending.mockRejectedValue(new Error('db down'))
 
-    await expect(
-      numberCruncher.onConversationEvent.call(buildContext(), { type: 'conversationStopped', conversationId: 'c1' })
-    ).rejects.toThrow(AccessDeniedError)
+    const responses = await numberCruncher.onConversationEvent.call(buildContext(), {
+      type: 'conversationStopped',
+      conversationId: 'c1'
+    })
 
-    expect(mockFetchWithSettle).not.toHaveBeenCalled()
+    expect(responses).toHaveLength(1)
   })
 
-  it('posts nothing when no cost data settles', async () => {
+  it('records liveEvent cost for a private-topic event with a redacted name, and marks it private', async () => {
+    mockStoppedConversation(true)
+
+    const responses = await numberCruncher.onConversationEvent.call(buildContext(), {
+      type: 'conversationStopped',
+      conversationId: 'c1'
+    })
+
+    expect(mockFetchWithSettle).toHaveBeenCalledWith('c1')
+    expect(mockCreatePending).toHaveBeenCalledWith(expect.anything(), { topicIsPrivate: true })
+    expect(mockPersistCost).toHaveBeenCalledWith(expect.anything(), phases, { topicIsPrivate: true })
+    expect(responses).toHaveLength(1)
+    expect(responses[0].message).not.toContain('The Future of Work')
+    const renderData = responses[0].renderData as { topicIsPrivate: boolean; conversationName: string }
+    expect(renderData.topicIsPrivate).toBe(true)
+    // The real name is still carried in renderData for internal consumers — only the
+    // Slack card (Task 7) and the fallback message text redact it for display.
+    expect(renderData.conversationName).toBe('The Future of Work')
+  })
+
+  it('posts nothing when no cost data settles, but still finalizes the pending record', async () => {
     mockStoppedConversation(false)
     mockFetchWithSettle.mockResolvedValue(null)
 
@@ -178,7 +221,8 @@ describe('numberCruncher onConversationEvent', () => {
     })
 
     expect(responses).toEqual([])
-    expect(mockPersistCost).not.toHaveBeenCalled()
+    expect(mockCreatePending).toHaveBeenCalled()
+    expect(mockPersistCost).toHaveBeenCalledWith(expect.anything(), expect.any(Object), { topicIsPrivate: false })
   })
 
   it('posts nothing when the conversation made no LLM calls in either phase', async () => {
@@ -204,5 +248,6 @@ describe('numberCruncher onConversationEvent', () => {
 
     expect(responses).toEqual([])
     expect(mockFetchWithSettle).not.toHaveBeenCalled()
+    expect(mockCreatePending).not.toHaveBeenCalled()
   })
 })
