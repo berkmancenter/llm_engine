@@ -9,7 +9,7 @@ import agentDispatcher from '../../../src/jobs/agentDispatcher.js'
 /* Unlike agentDispatcher.test.ts (which mocks Agent.find and access.assertCanRead
    directly to unit-test the dispatcher's own control flow), this file uses REAL
    Mongo documents and the REAL, unmocked capabilities.ts + access.assertCanRead
-   chain — so it actually proves numberCruncher's allPublicTopics grant (added
+   chain — so it actually proves numberCruncher's allTopics grant (added
    alongside its onConversationEvent handler) routes correctly. A typo or wrong
    grant type in capabilities.ts would pass every other numberCruncher test (which
    all fake the agent's capabilities object directly) but would be caught here.
@@ -63,12 +63,15 @@ describe('agentDispatcher routes conversationStopped to numberCruncher via its r
     })
   })
 
-  it('does NOT notify numberCruncher when a PRIVATE topic conversation stops', async () => {
+  it('notifies numberCruncher when a PRIVATE topic conversation stops', async () => {
     await agentDispatcher.dispatch(
       { type: 'conversationStopped', conversationId: 'stopped-conv-id', topicId: privateTopic._id.toString() },
       { type: 'conversation', id: 'stopped-conv-id', topicId: privateTopic._id.toString(), topicIsPrivate: true }
     )
 
-    expect(scheduleSpy).not.toHaveBeenCalled()
+    expect(scheduleSpy).toHaveBeenCalledWith({
+      agentId: numberCruncherAgent._id.toString(),
+      event: { type: 'conversationStopped', conversationId: 'stopped-conv-id', topicId: privateTopic._id.toString() }
+    })
   })
 })
