@@ -74,7 +74,9 @@ describe('fetchConversationCost', () => {
       totalPromptTokens: 300,
       totalCompletionTokens: 50,
       llmCallCount: 1,
-      models: [{ model: 'gpt-test', llmCalls: 1, promptTokens: 300, completionTokens: 50, estimatedCostUSD: 0.1, priced: true }],
+      models: [
+        { model: 'gpt-test', llmCalls: 1, promptTokens: 300, completionTokens: 50, estimatedCostUSD: 0.1, priced: true }
+      ],
       agents: [{ agentType: 'eventAssistant', llmCalls: 1, estimatedCostUSD: 0.1 }],
       hasUnpricedCalls: false
     })
@@ -84,7 +86,14 @@ describe('fetchConversationCost', () => {
       totalCompletionTokens: 300,
       llmCallCount: 2,
       models: [
-        { model: 'claude-sonnet', llmCalls: 2, promptTokens: 1500, completionTokens: 300, estimatedCostUSD: 0.75, priced: true }
+        {
+          model: 'claude-sonnet',
+          llmCalls: 2,
+          promptTokens: 1500,
+          completionTokens: 300,
+          estimatedCostUSD: 0.75,
+          priced: true
+        }
       ],
       agents: [{ agentType: 'vibesAnalyst', llmCalls: 2, estimatedCostUSD: 0.75 }],
       hasUnpricedCalls: false
@@ -241,7 +250,9 @@ describe('combineCostAggregates', () => {
       totalPromptTokens: 300,
       totalCompletionTokens: 50,
       llmCallCount: 1,
-      models: [{ model: 'gpt-test', llmCalls: 1, promptTokens: 300, completionTokens: 50, estimatedCostUSD: 0.1, priced: true }],
+      models: [
+        { model: 'gpt-test', llmCalls: 1, promptTokens: 300, completionTokens: 50, estimatedCostUSD: 0.1, priced: true }
+      ],
       agents: [{ agentType: 'eventAssistant', llmCalls: 1, estimatedCostUSD: 0.1 }],
       hasUnpricedCalls: false
     }
@@ -316,7 +327,7 @@ describe('combineCostAggregates', () => {
     expect(combined.agents[0].estimatedCostUSD).toBeCloseTo(0.3)
   })
 
-  it('ORs hasUnpricedCalls and ANDs a merged model\'s priced flag across the two phases', () => {
+  it("ORs hasUnpricedCalls and ANDs a merged model's priced flag across the two phases", () => {
     const a = {
       estimatedCostUSD: 0.1,
       totalPromptTokens: 100,
@@ -380,5 +391,31 @@ describe('fetchConversationCostWithSettle', () => {
     const result = await fetchConversationCostWithSettle('conv-none', [0, 0])
 
     expect(result).toBeNull()
+  })
+
+  it('logs progress on each attempt and a settle summary on success', async () => {
+    const { default: logger } = await import('../../../../src/config/logger.js')
+    let readIndex = -1
+    mockListRuns.mockImplementation((params: { isRoot?: boolean }) => {
+      if (params.isRoot) {
+        readIndex += 1
+        return asyncIterable(rootRuns)
+      }
+      return asyncIterable(readIndex === 0 ? llmRuns.slice(0, 2) : llmRuns)
+    })
+
+    await fetchConversationCostWithSettle('conv-1', [0, 0, 0, 0])
+
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('settle-poll attempt'))
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('settled'))
+  })
+
+  it('logs that the delay budget was exhausted when counts never settle', async () => {
+    const { default: logger } = await import('../../../../src/config/logger.js')
+    mockListRuns.mockImplementation(() => asyncIterable([]))
+
+    await fetchConversationCostWithSettle('conv-none', [0, 0])
+
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('exhausted'))
   })
 })

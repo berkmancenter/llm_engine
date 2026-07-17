@@ -80,8 +80,14 @@ class PhaseAccumulator {
 
     const metadata = (run.extra as { metadata?: Record<string, unknown> } | undefined)?.metadata
     const model = String(metadata?.ls_model_name ?? run.name)
-    const modelRow =
-      this.models.get(model) ?? { model, llmCalls: 0, promptTokens: 0, completionTokens: 0, estimatedCostUSD: 0, priced: true }
+    const modelRow = this.models.get(model) ?? {
+      model,
+      llmCalls: 0,
+      promptTokens: 0,
+      completionTokens: 0,
+      estimatedCostUSD: 0,
+      priced: true
+    }
     modelRow.llmCalls += 1
     modelRow.promptTokens += promptTokens
     modelRow.completionTokens += completionTokens
@@ -233,11 +239,29 @@ export async function fetchConversationCostWithSettle(
 
   let previous: ConversationCostPhases | null = null
   let current = await fetchConversationCost(conversationId)
+  let attempt = 1
+  logger.debug(
+    `numberCruncher: settle-poll attempt ${attempt} for ${conversationId} — combined calls: ${combinedCount(current)}`
+  )
+
   for (const delayMs of delaysMs) {
-    if (combinedCount(current) > 0 && combinedCount(current) === combinedCount(previous)) break
+    if (combinedCount(current) > 0 && combinedCount(current) === combinedCount(previous)) {
+      logger.info(`numberCruncher: settle-poll settled for ${conversationId} after ${attempt} attempt(s)`)
+      return current
+    }
     previous = current
     await sleep(delayMs)
+    attempt += 1
     current = await fetchConversationCost(conversationId)
+    logger.debug(
+      `numberCruncher: settle-poll attempt ${attempt} for ${conversationId} — combined calls: ${combinedCount(current)}`
+    )
+  }
+
+  if (combinedCount(current) > 0 && combinedCount(current) === combinedCount(previous)) {
+    logger.info(`numberCruncher: settle-poll settled for ${conversationId} after ${attempt} attempt(s)`)
+  } else {
+    logger.info(`numberCruncher: settle-poll exhausted its delay budget for ${conversationId} after ${attempt} attempt(s)`)
   }
   return current
 }
