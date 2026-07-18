@@ -1,0 +1,28 @@
+{
+  "id": "private_reassure",
+  "label": "Reassure privately",
+  "description": "Reaches out privately to a participant who seems anxious, hesitant, or socially uncomfortable — offering a calm, low-pressure acknowledgment that normalizes their experience.",
+  "channel": "dm",
+  "triggers": {
+    "conditions": [
+      "the participant has expressed anxiety",
+      "the participant seems hesitant to contribute",
+      "the participant seems self-conscious"
+    ],
+    "minConfidence": 70
+  },
+  "guardrails": [
+    "don't label or diagnose the participant's emotional state",
+    "don't be over-familiar",
+    "keep it brief and low-pressure",
+    "don't ask them to speak up publicly",
+    "don't mention that others have noticed"
+  ],
+  "outputContract": {
+    "format": "text"
+  },
+  "examples": [
+    "Hey — just checking in. These conversations can feel a lot sometimes. No pressure to jump in; happy to chat here if anything comes up.",
+    "Dropping by to say hi. If anything from the discussion is sparking questions or thoughts, feel free to share — no agenda, just here."
+  ]
+}

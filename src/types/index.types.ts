@@ -343,6 +343,84 @@ export interface Resource {
   addedAt?: Date
 }
 
+export interface ConversationGoal {
+  id: string
+  label: string
+  description: string
+  channel: 'groupChat' | 'dm'
+  triggers: {
+    conditions: string[]
+    minConfidence: number
+  }
+  guardrails: string[]
+  outputContract: {
+    format: 'text' | 'poll'
+    pollConfig?: PollConfig
+    pollInstructions?: string
+  }
+  examples: string[]
+}
+
+export interface ConversationContext {
+  conversationType?: string
+  purpose?: string
+  audience?: {
+    expertiseLevel?: 'beginner' | 'mixed' | 'expert'
+    assumedBackgroundKnowledge?: 'low' | 'lowToMedium' | 'medium' | 'high'
+    type?: string[]
+    description?: string
+  }
+  contentSensitivity?: {
+    level?: 'standard' | 'elevated' | 'high'
+    domains?: string[]
+  }
+}
+
+export interface DmPolicy {
+  qaBehavior?: {
+    responseLength?: 'short' | 'medium' | 'long'
+    clarifyWhenAmbiguous?: boolean
+    addContextWhenUseful?: boolean
+    answerScope?: 'helpUserUnderstandTheLecture' | 'broaderSubjectArea' | 'companyContextOnly' | 'open'
+    allowFollowUpDialogue?: boolean
+  }
+  proactivePolicy?: {
+    initiativeLevel?: 'passive' | 'lightlyProactive' | 'moderatelyProactive' | 'highlyProactive'
+    minContributionMinutes?: number
+    socialSensitivity?: 'low' | 'medium' | 'high'
+  }
+  guardrails?: string[]
+}
+
+export interface GroupChatPolicy {
+  proactivePolicy?: {
+    initiativeLevel?: 'passive' | 'lightlyProactive' | 'moderatelyProactive' | 'highlyProactive'
+    minContributionMinutes?: number
+    socialSensitivity?: 'low' | 'medium' | 'high'
+  }
+  pollPolicy?: {
+    allowed?: boolean
+  }
+  guardrails?: string[]
+}
+
+export interface BehaviorPolicy {
+  globalPolicy?: {
+    tone?: 'clearNeutral' | 'warmSupportive' | 'playful' | 'professional'
+    verbosity?: 'brief' | 'medium' | 'detailed'
+    jargonLevel?: 'low' | 'lowToMedium' | 'medium' | 'high'
+    formality?: 'casual' | 'semiFormal' | 'formal'
+    safetyPosture?: 'standard' | 'strict'
+    citationBehavior?: string
+    uncertaintyBehavior?: string
+    guardrails?: string[]
+  }
+  channels?: {
+    dm?: DmPolicy
+    groupChat?: GroupChatPolicy
+  }
+}
+
 export interface IConversation {
   _id?: mongoose.Types.ObjectId
   messages: Array<IMessage>
@@ -383,6 +461,9 @@ export interface IConversation {
   updatedAt?: Date
   messageCount(): number
   summary?: string
+  goals?: string[]
+  conversationContext?: ConversationContext
+  behaviorPolicy?: BehaviorPolicy
 }
 
 export interface IPoll {

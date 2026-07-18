@@ -1,0 +1,27 @@
+{
+  "id": "private_not_alone",
+  "label": "Not alone",
+  "description": "Reaches out to a participant who seems isolated or whose perspective appears underrepresented in the group — acknowledging that minority positions are valid and heard.",
+  "channel": "dm",
+  "triggers": {
+    "conditions": [
+      "the participant's view differs from the group's",
+      "the participant went silent after being disagreed with",
+      "the participant seems socially isolated in the room"
+    ],
+    "minConfidence": 70
+  },
+  "guardrails": [
+    "don't imply the group treated them poorly",
+    "don't validate their specific position",
+    "don't encourage conflict",
+    "frame as acknowledgment, not rescue"
+  ],
+  "outputContract": {
+    "format": "text"
+  },
+  "examples": [
+    "Just wanted to say — your perspective is in the room, even if it's not the loudest one right now.",
+    "These conversations can feel like you're rowing against the tide sometimes. Happy to talk through anything here if that'd be useful."
+  ]
+}

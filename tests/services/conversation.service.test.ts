@@ -100,12 +100,12 @@ const testAgentTypeSpecification = {
     defaultLLMPlatform,
     defaultLLMModel
   },
-  eventMediator: {
+  proactiveGroupAgent: {
     respond: mockRespond,
     start: mockStart,
     stop: mockStop,
-    name: 'Event Mediator Test Agent',
-    description: 'Test mediator agent with agentConfig',
+    name: 'Proactive Group Test Agent',
+    description: 'Test proactive agent with agentConfig',
     maxTokens: 2000,
     defaultTriggers: { periodic: { timerPeriod: 60 } },
     priority: 85,
@@ -122,23 +122,6 @@ const testAgentTypeSpecification = {
     }
   },
 
-  engagementAgent: {
-    respond: mockRespond,
-    start: mockStart,
-    stop: mockStop,
-    name: 'Event Engament Test Agent',
-    description: 'Test engagement agent with agentConfig',
-    maxTokens: 2000,
-    defaultTriggers: { periodic: { timerPeriod: 60 } },
-    priority: 85,
-    llmTemplateVars: { contribution: [], voting: [] },
-    defaultLLMTemplates: {
-      contribution: 'You are an engagement agent',
-      voting: 'You should vote on this data {voteData}'
-    },
-    defaultLLMPlatform,
-    defaultLLMModel
-  },
   jargonFilterAgent: {
     respond: mockRespond,
     start: mockStart,
@@ -272,9 +255,10 @@ describe('Conversation service methods', () => {
 
         // Verify agents were created
         const agents = await Agent.find({ conversation: conversation._id })
-        expect(agents[0].agentType).toBe('eventAssistant')
-        expect(agents[0].llmModel).toBe(supportedModels[1].llmModel)
-        expect(agents[0].llmPlatform).toBe(supportedModels[1].llmPlatform)
+        const eventAssistantAgent = agents.find((a) => a.agentType === 'eventAssistant')!
+        expect(eventAssistantAgent).toBeDefined()
+        expect(eventAssistantAgent.llmModel).toBe(supportedModels[1].llmModel)
+        expect(eventAssistantAgent.llmPlatform).toBe(supportedModels[1].llmPlatform)
 
         // Verify adapter was created with resolved properties
         const adapters = await Adapter.find({ conversation: conversation._id })
@@ -309,10 +293,10 @@ describe('Conversation service methods', () => {
 
         // Verify agents were created
         const agents = await Agent.find({ conversation: conversation._id })
-
-        expect(agents[0].agentType).toBe('eventAssistant')
-        expect(agents[0].llmModel).toBe(supportedModels[1].llmModel)
-        expect(agents[0].llmPlatform).toBe(supportedModels[1].llmPlatform)
+        const eventAssistantAgent = agents.find((a) => a.agentType === 'eventAssistant')!
+        expect(eventAssistantAgent).toBeDefined()
+        expect(eventAssistantAgent.llmModel).toBe(supportedModels[1].llmModel)
+        expect(eventAssistantAgent.llmPlatform).toBe(supportedModels[1].llmPlatform)
 
         // Verify adapter was created with resolved properties
         const adapters = await Adapter.find({ conversation: conversation._id })
@@ -507,10 +491,11 @@ describe('Conversation service methods', () => {
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
 
         const agents = await Agent.find({ conversation: conversation._id })
-        expect(agents[0].agentType).toBe('eventAssistant')
+        const eventAssistantAgent = agents.find((a) => a.agentType === 'eventAssistant')!
+        expect(eventAssistantAgent).toBeDefined()
         // These should be undefined so underlying agent defaults are used
-        expect(agents[0].llmModel).toBe(defaultLLMModel) // the agent's default
-        expect(agents[0].llmPlatform).toBe(defaultLLMPlatform)
+        expect(eventAssistantAgent.llmModel).toBe(defaultLLMModel) // the agent's default
+        expect(eventAssistantAgent.llmPlatform).toBe(defaultLLMPlatform)
       })
     })
 
@@ -776,13 +761,13 @@ describe('Conversation service methods', () => {
           ...baseParams,
           topicId: topicOne._id.toString(),
           properties: { zoomMeetingUrl: 'https://zoom.us/j/123456789' },
-          features: [{ name: 'collectiveVoice' }]
+          features: [{ name: 'moderatorSupport' }]
         }
 
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
 
         const agents = await Agent.find({ conversation: conversation._id })
-        expect(agents.map((a) => a.agentType)).toContain('eventMediator')
+        expect(agents.map((a) => a.agentType)).toContain('backChannelInsights')
       })
 
       test('should exclude feature agent when not listed in features array', async () => {
@@ -796,7 +781,7 @@ describe('Conversation service methods', () => {
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
 
         const agents = await Agent.find({ conversation: conversation._id })
-        expect(agents.map((a) => a.agentType)).not.toContain('eventMediator')
+        expect(agents.map((a) => a.agentType)).not.toContain('backChannelInsights')
       })
 
       test('should include no feature agents when features array is omitted', async () => {
@@ -810,8 +795,8 @@ describe('Conversation service methods', () => {
 
         const agents = await Agent.find({ conversation: conversation._id })
         const agentTypes = agents.map((a) => a.agentType)
-        expect(agentTypes).not.toContain('eventMediator')
-        expect(agentTypes).not.toContain('engagementAgent')
+        expect(agentTypes).not.toContain('backChannelInsights')
+        expect(agentTypes).not.toContain('moderatorNotifier')
       })
 
       test('should resolve $ref with "as" into nested agentConfig path', async () => {
@@ -974,7 +959,7 @@ describe('Conversation service methods', () => {
       const periodicTime = new Date(Date.now() + 3600000) // 1 hour in future
       const perMessageTime = new Date(Date.now() + 7200000) // 2 hours in future (more than 10 min apart)
 
-      // Create conversation with periodic agent (eventMediator)
+      // Create conversation with periodic agent
       const periodicParams = {
         type: 'eventAssistant',
         name: 'Periodic Test Conversation',
@@ -1084,7 +1069,7 @@ describe('Conversation service methods', () => {
         const onlyPeriodicParams = {
           name: 'Only Periodic',
           topicId: topicOne._id.toString(),
-          agentTypes: ['eventMediator'],
+          agentTypes: ['proactiveGroupAgent'],
           scheduledTime: new Date(Date.now() + 3600000) // prevent auto-start
         }
         const onlyPeriodicConv = await conversationService.createConversation(onlyPeriodicParams, registeredUser)
@@ -1160,7 +1145,7 @@ describe('Conversation service methods', () => {
         const onlyPeriodicParams = {
           name: 'Only Periodic UserMetrics',
           topicId: topicOne._id.toString(),
-          agentTypes: ['eventMediator'],
+          agentTypes: ['proactiveGroupAgent'],
           scheduledTime: new Date(Date.now() + 3600000) // prevent auto-start
         }
         const onlyPeriodicConv = await conversationService.createConversation(onlyPeriodicParams, registeredUser)
@@ -1172,7 +1157,7 @@ describe('Conversation service methods', () => {
             'text',
             'UTC',
             [],
-            'eventMediator'
+            'proactiveGroupAgent'
           )
         ).rejects.toThrow(ApiError)
         await expect(
@@ -1182,7 +1167,7 @@ describe('Conversation service methods', () => {
             'text',
             'UTC',
             [],
-            'eventMediator'
+            'proactiveGroupAgent'
           )
         ).rejects.toMatchObject({
           statusCode: httpStatus.BAD_REQUEST,
@@ -1729,21 +1714,21 @@ describe('Conversation service methods', () => {
              beforeEach conversation (both are Zoom events). */
           scheduledTime: new Date(Date.now() + 7200000),
           properties: { zoomMeetingUrl: 'https://zoom.us/j/feature-test' },
-          features: [{ name: 'collectiveVoice' }]
+          features: [{ name: 'moderatorSupport' }]
         },
         registeredUser
       )
 
       const agentsBefore = await Agent.find({ conversation: featureConv._id })
-      expect(agentsBefore.map((a) => a.agentType)).toContain('eventMediator')
+      expect(agentsBefore.map((a) => a.agentType)).toContain('backChannelInsights')
 
       await conversationService.updateConversation(
-        { id: featureConv._id.toString(), features: [{ name: 'collectiveVoice', enabled: false }] },
+        { id: featureConv._id.toString(), features: [{ name: 'moderatorSupport', enabled: false }] },
         registeredUser
       )
 
       const agentsAfter = await Agent.find({ conversation: featureConv._id })
-      expect(agentsAfter.map((a) => a.agentType)).not.toContain('eventMediator')
+      expect(agentsAfter.map((a) => a.agentType)).not.toContain('backChannelInsights')
     })
 
     test('syncs slackBotUserId into the slack adapter config on a properties update', async () => {
@@ -2006,7 +1991,7 @@ describe('Conversation service methods', () => {
         topicId: topicOne._id.toString(),
         scheduledTime: new Date(Date.now() + 7200000),
         properties: { zoomMeetingUrl: 'https://zoom.us/j/agentconfigtest' },
-        features: [{ name: 'collectiveVoice' }]
+        features: [{ name: 'librarian', config: { recommendationsPerInterval: 3 } }]
       }
       const conv = await conversationService.createConversationFromType(params, registeredUser)
 
@@ -2027,15 +2012,15 @@ describe('Conversation service methods', () => {
         topicId: topicOne._id.toString(),
         scheduledTime: new Date(Date.now() + 10800000),
         properties: { zoomMeetingUrl: 'https://zoom.us/j/agentconfigowner' },
-        features: [{ name: 'collectiveVoice' }]
+        features: [{ name: 'librarian', config: { recommendationsPerInterval: 3 } }]
       }
       const conv = await conversationService.createConversationFromType(params, registeredUser)
 
       const result = await conversationService.findByIdFull(conv._id.toString(), registeredUser)
 
-      const mediator = result.agents.find((a) => a.agentType === 'eventMediator')
-      expect(mediator).toBeDefined()
-      expect(mediator).toHaveProperty('agentConfig')
+      const librarianAgent = result.agents.find((a) => a.agentType === 'librarian')
+      expect(librarianAgent).toBeDefined()
+      expect(librarianAgent).toHaveProperty('agentConfig')
     })
 
     test('should include agentConfig on agents for admin user', async () => {
@@ -2046,16 +2031,16 @@ describe('Conversation service methods', () => {
         topicId: topicOne._id.toString(),
         scheduledTime: new Date(Date.now() + 14400000),
         properties: { zoomMeetingUrl: 'https://zoom.us/j/agentconfigadmin' },
-        features: [{ name: 'collectiveVoice' }]
+        features: [{ name: 'librarian', config: { recommendationsPerInterval: 3 } }]
       }
       const conv = await conversationService.createConversationFromType(params, registeredUser)
 
       const adminUser = { _id: new mongoose.Types.ObjectId(), role: 'admin' }
       const result = await conversationService.findByIdFull(conv._id.toString(), adminUser)
 
-      const mediator = result.agents.find((a) => a.agentType === 'eventMediator')
-      expect(mediator).toBeDefined()
-      expect(mediator).toHaveProperty('agentConfig')
+      const librarianAgent = result.agents.find((a) => a.agentType === 'librarian')
+      expect(librarianAgent).toBeDefined()
+      expect(librarianAgent).toHaveProperty('agentConfig')
     })
 
     test('should strip adapter config from adapters for non-owner user', async () => {

@@ -6,9 +6,14 @@ This directory contains standalone evaluation suites for LLM agents. Each agent 
 
 ```
 evaluations/
+├── templates.ts                  # Shared conversation templates (event types, behavior policies, audience)
 ├── event-assistant/              # Event Assistant evaluations
-│   ├── event-assistant-config.ts   # EA-specific prompts and evaluation types
+│   ├── eventAssistantConfig.ts      # EA-specific prompts and evaluation types
 │   ├── runEventAssistantEvaluations.ts  # Standalone runner
+│   └── README.md
+├── proactive-group-agent/        # Proactive Group Agent evaluations
+│   ├── proactiveGroupAgentConfig.ts # PGA-specific prompts and evaluation types
+│   ├── runProactiveGroupAgentEvaluations.ts  # Standalone runner
 │   └── README.md
 └── README.md                     # This file
 ```
@@ -45,6 +50,14 @@ yarn evaluate:event-assistant --verbose
 
 # Custom dataset
 yarn evaluate:event-assistant --dataset=my-dataset-name
+```
+
+### Proactive Group Agent
+
+```bash
+yarn evaluate:proactive-group-agent
+yarn evaluate:proactive-group-agent --verbose
+yarn evaluate:proactive-group-agent --dataset=my-dataset-name
 ```
 
 ### Future Agents

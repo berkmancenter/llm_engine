@@ -19,7 +19,7 @@ interface AgentLike {
 
 /**
  * Types of private check-in interventions the agent can send to individual participants.
- * Distinct from InterventionType (public chat interventions)
+ * Distinct from group chat goal IDs (public interventions)
  *
  * To add a new type:
  * 1. Add it here
@@ -334,7 +334,7 @@ export async function buildCheckinResponses(conversationHistory: ConversationHis
   })
 
   // All DM history across all participant channels — passed as private context to each LLM call,
-  // same as eventMediator. The LLM reasons about shared patterns across participants semantically.
+  // The LLM reasons about shared patterns across participants semantically.
   const allDmHistory = getConversationHistory(
     conversationHistory.messages,
     { count: 100, directMessages: true, endTime: conversationHistory.end },

@@ -1,0 +1,35 @@
+{
+  "id": "poll_reveal",
+  "label": "Poll and reveal",
+  "description": "Runs a quick poll to surface group opinion or gather live reactions, then shares and contextualizes the result — creating participation and revealing the distribution of views.",
+  "channel": "groupChat",
+  "triggers": {
+    "conditions": [
+      "bold claim goes unchallenged and the room is passive",
+      "natural pause after a dense section",
+      "topic has natural competing positions and the room has had a chance to absorb them"
+    ],
+    "minConfidence": 70
+  },
+  "guardrails": [
+    "don't run a poll during a sensitive or emotional exchange",
+    "don't run back-to-back polls without a sufficient gap",
+    "frame the reveal as interesting data, not a verdict",
+    "don't run a poll when the speaker is already soliciting a structured audience response — that is their engagement moment, not yours"
+  ],
+  "outputContract": {
+    "format": "poll",
+    "pollConfig": {
+      "multiSelect": false,
+      "allowNewChoices": false,
+      "choicesVisible": true,
+      "responseCountsVisible": true,
+      "responsesVisible": true,
+      "responsesVisibleToNonParticipants": true,
+      "onlyOwnChoicesVisible": false,
+      "whenResultsVisible": "always"
+    },
+    "pollInstructions": "Create a poll where results are shown immediately as votes come in. Use when there are multiple genuine competing options and watching live votes accumulate would itself generate energy and discussion. Best triggered by a moment of optionality — a speaker presenting alternatives, an open question with no clear consensus, or a bold claim worth testing against the room."
+  },
+  "examples": []
+}

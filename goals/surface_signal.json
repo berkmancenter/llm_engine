@@ -1,0 +1,25 @@
+{
+  "id": "surface_signal",
+  "label": "Surface signal",
+  "description": "Reflects back what the room seems to be thinking — surfacing patterns, points of agreement, or significant tensions that might not be fully visible to participants.",
+  "channel": "groupChat",
+  "triggers": {
+    "conditions": [
+      "strong sentiment in messages",
+      "a repeated theme is emerging",
+      "implicit consensus is forming"
+    ],
+    "minConfidence": 60
+  },
+  "guardrails": [
+    "don't overstate consensus",
+    "frame as observation, not declaration"
+  ],
+  "outputContract": {
+    "format": "text"
+  },
+  "examples": [
+    "Reading the room — there seems to be real skepticism about the timeline, even among those who like the direction.",
+    "A lot of enthusiasm for the idea, and also a consistent question about whether the team has bandwidth. Both feel real."
+  ]
+}
