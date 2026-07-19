@@ -16,6 +16,13 @@ import {
    never cause the job to be re-dispatched mid-poll. */
 const SETTLE_DELAYS_MS = [60_000, 90_000, 120_000, 150_000]
 
+/* Floor on how long the settle-poll must run before it may declare "settled". A stable
+   count seen too early can simply mean a slow post-event agent hasn't started spending
+   yet; two equal reads in the first ~minute would then settle short of the true total.
+   The poll never returns a settled result before this much wall-clock has elapsed (it
+   still returns once the budget above is exhausted, settled or not). */
+const MINIMUM_SETTLE_WAIT_MS = 120_000
+
 type CostPhase = 'liveEvent' | 'postEvent'
 
 /* Cost tracking is fundamentally impossible without LangSmith tracing actually
@@ -242,10 +249,14 @@ export function combineCostAggregates(
  */
 export async function fetchConversationCostWithSettle(
   conversationId: string,
-  delaysMs: number[] = SETTLE_DELAYS_MS
+  delaysMs: number[] = SETTLE_DELAYS_MS,
+  minimumWaitMs: number = MINIMUM_SETTLE_WAIT_MS
 ): Promise<ConversationCostPhases | null> {
   const combinedCount = (phases: ConversationCostPhases | null) =>
     phases ? phases.liveEvent.llmCallCount + phases.postEvent.llmCallCount : 0
+
+  const startedAt = Date.now()
+  const waitedEnough = () => Date.now() - startedAt >= minimumWaitMs
 
   let previous: ConversationCostPhases | null = null
   let current = await fetchConversationCost(conversationId)
@@ -255,8 +266,11 @@ export async function fetchConversationCostWithSettle(
   )
 
   for (const delayMs of delaysMs) {
-    if (combinedCount(current) > 0 && combinedCount(current) === combinedCount(previous)) {
-      logger.info(`numberCruncher: settle-poll settled for ${conversationId} after ${attempt} attempt(s)`)
+    // Settle only when the count has stopped changing AND the minimum wait has elapsed;
+    // a stable count seen inside the first ${minimumWaitMs}ms can just mean a slow
+    // post-event agent hasn't started spending yet, so returning then would undercount.
+    if (combinedCount(current) > 0 && combinedCount(current) === combinedCount(previous) && waitedEnough()) {
+      logger.debug(`numberCruncher: settle-poll settled for ${conversationId} after ${attempt} attempt(s)`)
       return current
     }
     previous = current
@@ -269,9 +283,11 @@ export async function fetchConversationCostWithSettle(
   }
 
   if (combinedCount(current) > 0 && combinedCount(current) === combinedCount(previous)) {
-    logger.info(`numberCruncher: settle-poll settled for ${conversationId} after ${attempt} attempt(s)`)
+    logger.debug(`numberCruncher: settle-poll settled for ${conversationId} after ${attempt} attempt(s)`)
   } else {
-    logger.info(`numberCruncher: settle-poll exhausted its delay budget for ${conversationId} after ${attempt} attempt(s)`)
+    logger.debug(
+      `numberCruncher: settle-poll exhausted its delay budget for ${conversationId} after ${attempt} attempt(s)`
+    )
   }
   return current
 }

@@ -25,7 +25,7 @@ function summarizeCost(
 ): ConversationCostAggregates | null {
   const total = phases ? combineCostAggregates(phases.liveEvent, phases.postEvent) : null
   if (total && total.llmCallCount > 0) {
-    logger.info(
+    logger.debug(
       `conversationCost: ${label} for conversation ${conversationId} — ` +
         `${total.llmCallCount} LLM calls, ~$${total.estimatedCostUSD.toFixed(2)}`
     )
@@ -54,18 +54,18 @@ export async function trackConversationCost(
   const conversationId = String(conversation._id)
 
   if (!isLangsmithCostTrackingConfigured()) {
-    logger.info(
+    logger.debug(
       `conversationCost: LangSmith tracing is not enabled (need LANGSMITH_TRACING_V2, ` +
         `LANGSMITH_API_KEY, and LANGSMITH_PROJECT); skipping cost tracking for conversation ${conversationId}`
     )
     return null
   }
 
-  logger.info(`conversationCost: conversation ${conversationId} stopped; computing preliminary cost`)
+  logger.debug(`conversationCost: conversation ${conversationId} stopped; computing preliminary cost`)
   const preliminaryPhases = await fetchConversationCost(conversationId)
   const preliminaryTotal = summarizeCost(conversationId, preliminaryPhases, 'preliminary cost')
   if (!preliminaryTotal || preliminaryTotal.llmCallCount === 0) {
-    logger.info(
+    logger.debug(
       `conversationCost: no LangSmith cost data available yet for conversation ${conversationId}; ` +
         'recording pending record with zero values'
     )
@@ -73,17 +73,17 @@ export async function trackConversationCost(
 
   try {
     await conversationCostService.createPending(conversation, preliminaryPhases ?? ZERO_PHASES, opts)
-    logger.info(`conversationCost: pending cost record created for conversation ${conversationId}`)
+    logger.debug(`conversationCost: pending cost record created for conversation ${conversationId}`)
   } catch (error) {
     logger.error(`conversationCost: could not create pending cost record for ${conversationId}`, error)
   }
 
-  logger.info(`conversationCost: starting LangSmith cost settle-poll for conversation ${conversationId}`)
+  logger.debug(`conversationCost: starting LangSmith cost settle-poll for conversation ${conversationId}`)
   const phases = await fetchConversationCostWithSettle(conversationId)
   const total = summarizeCost(conversationId, phases, 'settled cost')
 
   if (!total || total.llmCallCount === 0) {
-    logger.info(
+    logger.debug(
       `conversationCost: no LangSmith cost data settled for conversation ${conversationId}; ` +
         'finalizing record with zero cost'
     )

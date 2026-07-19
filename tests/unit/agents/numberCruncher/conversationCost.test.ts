@@ -378,17 +378,37 @@ describe('fetchConversationCostWithSettle', () => {
       return asyncIterable(readIndex === 0 ? llmRuns.slice(0, 2) : llmRuns)
     })
 
-    const result = await fetchConversationCostWithSettle('conv-1', [0, 0, 0, 0])
+    // minimumWaitMs 0 so the settle floor doesn't stall this timing-agnostic test.
+    const result = await fetchConversationCostWithSettle('conv-1', [0, 0, 0, 0], 0)
 
     expect((result?.liveEvent.llmCallCount ?? 0) + (result?.postEvent.llmCallCount ?? 0)).toBe(3)
     // Settled on the third read (2 -> 3 -> 3); did not burn the remaining delays.
     expect(readIndex).toBe(2)
   })
 
+  it('does not settle before the minimum wait even when the count is already stable', async () => {
+    // Every read sees the same non-zero count from the start.
+    let readIndex = -1
+    mockListRuns.mockImplementation((params: { isRoot?: boolean }) => {
+      if (params.isRoot) {
+        readIndex += 1
+        return asyncIterable(rootRuns)
+      }
+      return asyncIterable(llmRuns)
+    })
+
+    // Default minimum wait (2 min) with zero delays: elapsed stays ~0, so the stable count
+    // is never accepted early — the poll burns every delay instead of returning at attempt 2.
+    const result = await fetchConversationCostWithSettle('conv-1', [0, 0, 0, 0])
+
+    expect((result?.liveEvent.llmCallCount ?? 0) + (result?.postEvent.llmCallCount ?? 0)).toBe(3)
+    expect(readIndex).toBe(4) // initial read + 4 loop reads; did NOT early-settle
+  })
+
   it('returns the last read when the delay budget runs out without settling', async () => {
     mockListRuns.mockImplementation(() => asyncIterable([]))
 
-    const result = await fetchConversationCostWithSettle('conv-none', [0, 0])
+    const result = await fetchConversationCostWithSettle('conv-none', [0, 0], 0)
 
     expect(result).toBeNull()
   })
@@ -404,18 +424,18 @@ describe('fetchConversationCostWithSettle', () => {
       return asyncIterable(readIndex === 0 ? llmRuns.slice(0, 2) : llmRuns)
     })
 
-    await fetchConversationCostWithSettle('conv-1', [0, 0, 0, 0])
+    await fetchConversationCostWithSettle('conv-1', [0, 0, 0, 0], 0)
 
     expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('settle-poll attempt'))
-    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('settled'))
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('settled'))
   })
 
   it('logs that the delay budget was exhausted when counts never settle', async () => {
     const { default: logger } = await import('../../../../src/config/logger.js')
     mockListRuns.mockImplementation(() => asyncIterable([]))
 
-    await fetchConversationCostWithSettle('conv-none', [0, 0])
+    await fetchConversationCostWithSettle('conv-none', [0, 0], 0)
 
-    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('exhausted'))
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('exhausted'))
   })
 })

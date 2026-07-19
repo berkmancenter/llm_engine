@@ -155,7 +155,7 @@ export default verify({
     // agent (e.g. the Vibes Analyst recap) ever runs post-event work on a private
     // topic, so there is genuinely nothing there to price, not merely unknown.
     if (topicIsPrivate) {
-      logger.info(
+      logger.debug(
         `numberCruncher: conversation ${evt.conversationId} has a private topic — liveEvent cost will be ` +
           'recorded, but postEvent processing/cost does not apply (no post-event agent runs on private topics)'
       )

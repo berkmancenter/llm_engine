@@ -28,7 +28,7 @@ const conversationCost = async (job) => {
       return
     }
 
-    logger.info(
+    logger.debug(
       `conversationCost job: no active Number Cruncher agent found; tracking cost directly for conversation ${conversationId}`
     )
     await conversationCostTrackingService.trackConversationCost(conversation, { topicIsPrivate })
