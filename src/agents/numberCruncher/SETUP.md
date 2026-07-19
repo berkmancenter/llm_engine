@@ -51,6 +51,22 @@ Do this once per environment (one app for dev, one for prod).
 
 Leave the Event Subscriptions Request URL for Part C.
 
+### Where to find each Slack value
+
+Every `slack*` property in the Part B provisioning call comes from one of two places: the
+Slack app admin (api.slack.com/apps) or the Slack client itself. Slack hides the ID values
+(channel, workspace, bot user) behind copy buttons rather than showing them inline, so:
+
+| Property | Value | Where to find it |
+|---|---|---|
+| `slackBotToken` | Bot User OAuth token (`xoxb-…`) | api.slack.com/apps → your app → **OAuth & Permissions** → *Bot User OAuth Token*. Must be the **Bot** token, not the User token (`xoxp-`). |
+| `slackSigningSecret` | App signing secret | api.slack.com/apps → your app → **Basic Information** → *App Credentials* → *Signing Secret* (click **Show**). |
+| `slackChannel` | Channel ID (`C…` public, `G…` private) | In the Slack client, open the channel → click its name → **About** tab → *Channel ID* at the bottom (copy button). Or right-click the channel → **Copy link**: the ID is the last path segment (`…/archives/C0123ABC`). |
+| `slackWorkspace` | Workspace / team ID (`T…`) | The Slack web client URL after you sign in: `app.slack.com/client/T0123ABC/…` — the `T…` segment. |
+| `slackBotUserId` | Bot's user ID (`U…`) | Optional. Easiest: provision without it, then run `yarn check:number-cruncher-slack --auth-only`, which prints the bot user id. Also shown on **OAuth & Permissions** after install. |
+| `slackAppKey` | Webhook path slug (you choose) | Not from Slack — you pick it (e.g. `nc-dev`). It becomes the last segment of the Request URL in Part C. |
+| `botName` | Display name (you choose) | Not from Slack — optional, defaults to "Number Cruncher". |
+
 ---
 
 ## Part B: Provision NC in llm_engine (BEFORE setting the Request URL)
