@@ -283,11 +283,14 @@ happened.
 Private topics: Number Cruncher holds an `allTopics` read grant (broader than every
 other agent, which are `allPublicTopics`-only), so it still records `liveEvent` cost for
 a private event — real money was spent regardless of the topic's privacy. `postEvent`
-is always empty for a private event, because no other agent ever runs post-event work
-(e.g. a recap) on a private topic — there is genuinely nothing there to price. The
-posted Slack card redacts the event's name to "Private event" for these; the persisted
-Mongo record keeps the real name and is tagged `topicIsPrivate: true` so it can still be
-queried/reported on internally.
+is much smaller for a private event, because the post-event *agents* (e.g. the Vibes
+Analyst recap) are `allPublicTopics`-only and never run on a private topic. It is not
+necessarily empty, though: the conversation summary is generated on stop regardless of
+privacy (see `doStopConversation`) and is tagged `costPhase: 'postEvent'`, so a private
+event's `postEvent` typically reflects just that one summary call. The posted Slack card
+redacts the event's name to "Private event" for these; the persisted Mongo record keeps
+the real name and is tagged `topicIsPrivate: true` so it can still be queried/reported on
+internally.
 
 Requirements:
 
