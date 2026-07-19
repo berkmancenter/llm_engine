@@ -292,3 +292,48 @@ Caveats:
   cost card arrives several minutes after the event ends, after the Vibes Analyst
   recap. Progress is logged at each poll attempt (debug) and on settle/exhaust (info).
 - Failed or retried agent runs still consumed tokens and are counted.
+
+### Confirming the integration works
+
+You do not need to wait for a real event to stop to check that NC can post cost cards.
+Two levels of check:
+
+**1. Slack path only (fast, no LangSmith).** Run the bundled probe. It reads NC's stored
+Slack credentials from the database, checks the bot token, renders a sample cost card
+with the *real* card renderer, and posts it to NC's channel — so a valid token that can
+post a well-formed card confirms the whole outbound path:
+
+```bash
+# Posts a clearly-labeled sample card to NC's channel (reads MONGODB_URL from .env)
+yarn check:number-cruncher-slack
+
+# Just validate the token and identity; post nothing
+yarn check:number-cruncher-slack --auth-only
+
+# Preview the private-topic (name-redacted) variant of the card
+yarn check:number-cruncher-slack --private
+
+# Resolve creds and render, but make no Slack calls at all
+yarn check:number-cruncher-slack --dry-run
+
+# Probe a specific conversation's Slack adapter instead of auto-finding NC
+yarn check:number-cruncher-slack --conversation=<conversationId>
+```
+
+A `✔ Sample cost card posted…` line (and a card visible in the channel) means the
+integration is wired up. Failures print the specific fix — e.g. invite the bot to the
+channel (`not_in_channel`), correct the channel id (`channel_not_found`), add the
+`chat:write` scope (`missing_scope`), or re-provision the token (`invalid_auth`). Run it
+against production the same way with `NODE_ENV=production`.
+
+**2. Full cost-calculation path (end to end).** Requires LangSmith configured (see
+Requirements above). Stop a real (non-experimental) conversation that ran at least a few
+LLM calls, then:
+
+- Watch the logs for `conversationCost:` lines — the pending record, the settle-poll
+  progress, and the final settled total.
+- Confirm a `ConversationCost` record exists in Mongo for that `conversationId`, moving
+  from `status: pending` to `status: complete`.
+- If NC is provisioned, the cost card appears in its channel a few minutes after the
+  event ends (after the settle-poll). If NC is not provisioned, the record is still
+  written (by the standalone `conversationCost` job) — there is simply no card.
