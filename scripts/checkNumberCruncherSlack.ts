@@ -129,9 +129,13 @@ function hintForSlackError(error?: string): string | null {
     case 'token_revoked':
       return 'The bot token is invalid or revoked. Re-copy the Bot User OAuth token (xoxb-...) and re-provision.'
     case 'not_in_channel':
-      return 'The bot is not a member of the channel. Invite it: /invite @<bot> in that channel.'
+      return 'The bot is not a member of this (public) channel. Invite it: /invite @<bot> in that channel.'
     case 'channel_not_found':
-      return 'The channel id is wrong or the bot cannot see it. Check slackChannel (C.../G...) on the conversation.'
+      return (
+        'The bot cannot see this channel. If it is private, invite the bot (/invite @<bot>) — a private ' +
+        'channel the bot has not joined reads as "not found". Otherwise the channel id is wrong (re-copy it ' +
+        "from the channel's About tab), or the channel lives in a different workspace than the bot token."
+      )
     case 'missing_scope':
       return 'The bot is missing the chat:write scope. Add it in the Slack app config and reinstall the app.'
     default:
