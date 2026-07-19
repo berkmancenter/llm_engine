@@ -1,37 +1,11 @@
 import { jest } from '@jest/globals'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockFetchWithSettle = jest.fn<(...args: any[]) => Promise<any>>()
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockPersistCost = jest.fn<(...args: any[]) => Promise<any>>()
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockCreatePending = jest.fn<(...args: any[]) => Promise<any>>()
+const mockTrackConversationCost = jest.fn<(...args: any[]) => Promise<any>>()
 
-// A self-contained stand-in for combineCostAggregates (no cross-model/agent dedup —
-// the fixtures below don't overlap) rather than importing the real one: importing
-// the real module before this mock registers would risk defeating the mock (see
-// tests/CLAUDE.md). combineCostAggregates' own merge logic is exercised by
-// tests/unit/agents/numberCruncher/conversationCost.test.ts; this file only checks
-// that numberCruncher wires fetch -> combine -> persist -> render correctly.
-function stubCombine(a: Record<string, unknown>, b: Record<string, unknown>) {
-  return {
-    estimatedCostUSD: (a.estimatedCostUSD as number) + (b.estimatedCostUSD as number),
-    totalPromptTokens: (a.totalPromptTokens as number) + (b.totalPromptTokens as number),
-    totalCompletionTokens: (a.totalCompletionTokens as number) + (b.totalCompletionTokens as number),
-    llmCallCount: (a.llmCallCount as number) + (b.llmCallCount as number),
-    models: [...(a.models as unknown[]), ...(b.models as unknown[])],
-    agents: [...(a.agents as unknown[]), ...(b.agents as unknown[])],
-    hasUnpricedCalls: Boolean(a.hasUnpricedCalls) || Boolean(b.hasUnpricedCalls)
-  }
-}
-
-jest.unstable_mockModule('../src/agents/numberCruncher/conversationCost.js', () => ({
-  fetchConversationCost: jest.fn(),
-  fetchConversationCostWithSettle: mockFetchWithSettle,
-  combineCostAggregates: stubCombine
-}))
-jest.unstable_mockModule('../src/services/conversationCost.service.js', () => ({
-  default: { persistCost: mockPersistCost, createPending: mockCreatePending }
+jest.unstable_mockModule('../src/services/conversationCostTracking.service.js', () => ({
+  default: { trackConversationCost: mockTrackConversationCost },
+  trackConversationCost: mockTrackConversationCost
 }))
 
 const { default: numberCruncher } = await import('../../../../src/agents/numberCruncher/agent.js')
@@ -72,6 +46,16 @@ const phases = {
   })
 }
 
+const total = {
+  estimatedCostUSD: 1.47,
+  totalPromptTokens: 2000,
+  totalCompletionTokens: 400,
+  llmCallCount: 4,
+  models: phases.liveEvent.models,
+  agents: [...phases.liveEvent.agents, ...phases.postEvent.agents],
+  hasUnpricedCalls: false
+}
+
 function mockStoppedConversation(topicIsPrivate: boolean) {
   jest.spyOn(Conversation, 'findById').mockReturnValue({
     populate: jest.fn<() => Promise<unknown>>().mockResolvedValue({
@@ -85,9 +69,7 @@ function mockStoppedConversation(topicIsPrivate: boolean) {
 describe('numberCruncher onConversationEvent', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    mockFetchWithSettle.mockResolvedValue(phases)
-    mockPersistCost.mockResolvedValue({})
-    mockCreatePending.mockResolvedValue({})
+    mockTrackConversationCost.mockResolvedValue({ phases, total })
   })
 
   afterEach(() => {
@@ -102,7 +84,10 @@ describe('numberCruncher onConversationEvent', () => {
       conversationId: 'c1'
     })
 
-    expect(mockFetchWithSettle).toHaveBeenCalledWith('c1')
+    expect(mockTrackConversationCost).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'The Future of Work' }),
+      { topicIsPrivate: false }
+    )
     expect(responses).toHaveLength(1)
     expect(responses[0].responseKind).toBe('conversationCostSummary')
     expect(responses[0].visible).toBe(true)
@@ -127,10 +112,7 @@ describe('numberCruncher onConversationEvent', () => {
 
   it('mentions unpriced calls in the fallback message when the total has any', async () => {
     mockStoppedConversation(false)
-    mockFetchWithSettle.mockResolvedValue({
-      liveEvent: makeAggregate({ hasUnpricedCalls: true }),
-      postEvent: makeAggregate({ estimatedCostUSD: 0.47, hasUnpricedCalls: false })
-    })
+    mockTrackConversationCost.mockResolvedValue({ phases, total: { ...total, hasUnpricedCalls: true } })
 
     const responses = await numberCruncher.onConversationEvent.call(buildContext(), {
       type: 'conversationStopped',
@@ -142,55 +124,6 @@ describe('numberCruncher onConversationEvent', () => {
     expect(renderData.total.hasUnpricedCalls).toBe(true)
   })
 
-  it('creates a pending record before starting the settle-poll', async () => {
-    mockStoppedConversation(false)
-
-    await numberCruncher.onConversationEvent.call(buildContext(), { type: 'conversationStopped', conversationId: 'c1' })
-
-    expect(mockCreatePending).toHaveBeenCalledWith(expect.objectContaining({ name: 'The Future of Work' }), {
-      topicIsPrivate: false
-    })
-    const pendingOrder = mockCreatePending.mock.invocationCallOrder[0]
-    const settleOrder = mockFetchWithSettle.mock.invocationCallOrder[0]
-    expect(pendingOrder).toBeLessThan(settleOrder)
-  })
-
-  it('persists both phases as complete after the settle-poll resolves', async () => {
-    mockStoppedConversation(false)
-
-    await numberCruncher.onConversationEvent.call(buildContext(), { type: 'conversationStopped', conversationId: 'c1' })
-
-    expect(mockPersistCost).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'The Future of Work' }),
-      phases,
-      { topicIsPrivate: false }
-    )
-  })
-
-  it('still posts the card when persistence fails', async () => {
-    mockStoppedConversation(false)
-    mockPersistCost.mockRejectedValue(new Error('db down'))
-
-    const responses = await numberCruncher.onConversationEvent.call(buildContext(), {
-      type: 'conversationStopped',
-      conversationId: 'c1'
-    })
-
-    expect(responses).toHaveLength(1)
-  })
-
-  it('still posts the card when the pending-record write fails', async () => {
-    mockStoppedConversation(false)
-    mockCreatePending.mockRejectedValue(new Error('db down'))
-
-    const responses = await numberCruncher.onConversationEvent.call(buildContext(), {
-      type: 'conversationStopped',
-      conversationId: 'c1'
-    })
-
-    expect(responses).toHaveLength(1)
-  })
-
   it('records liveEvent cost for a private-topic event with a redacted name, and marks it private', async () => {
     mockStoppedConversation(true)
 
@@ -199,9 +132,7 @@ describe('numberCruncher onConversationEvent', () => {
       conversationId: 'c1'
     })
 
-    expect(mockFetchWithSettle).toHaveBeenCalledWith('c1')
-    expect(mockCreatePending).toHaveBeenCalledWith(expect.anything(), { topicIsPrivate: true })
-    expect(mockPersistCost).toHaveBeenCalledWith(expect.anything(), phases, { topicIsPrivate: true })
+    expect(mockTrackConversationCost).toHaveBeenCalledWith(expect.anything(), { topicIsPrivate: true })
     expect(responses).toHaveLength(1)
     expect(responses[0].message).not.toContain('The Future of Work')
     const renderData = responses[0].renderData as { topicIsPrivate: boolean; conversationName: string }
@@ -211,26 +142,9 @@ describe('numberCruncher onConversationEvent', () => {
     expect(renderData.conversationName).toBe('The Future of Work')
   })
 
-  it('posts nothing when no cost data settles, but still finalizes the pending record', async () => {
+  it('posts nothing when cost tracking finds nothing to report', async () => {
     mockStoppedConversation(false)
-    mockFetchWithSettle.mockResolvedValue(null)
-
-    const responses = await numberCruncher.onConversationEvent.call(buildContext(), {
-      type: 'conversationStopped',
-      conversationId: 'c1'
-    })
-
-    expect(responses).toEqual([])
-    expect(mockCreatePending).toHaveBeenCalled()
-    expect(mockPersistCost).toHaveBeenCalledWith(expect.anything(), expect.any(Object), { topicIsPrivate: false })
-  })
-
-  it('posts nothing when the conversation made no LLM calls in either phase', async () => {
-    mockStoppedConversation(false)
-    mockFetchWithSettle.mockResolvedValue({
-      liveEvent: makeAggregate({ llmCallCount: 0, estimatedCostUSD: 0, models: [], agents: [] }),
-      postEvent: makeAggregate({ llmCallCount: 0, estimatedCostUSD: 0, models: [], agents: [] })
-    })
+    mockTrackConversationCost.mockResolvedValue(null)
 
     const responses = await numberCruncher.onConversationEvent.call(buildContext(), {
       type: 'conversationStopped',
@@ -247,7 +161,6 @@ describe('numberCruncher onConversationEvent', () => {
     })
 
     expect(responses).toEqual([])
-    expect(mockFetchWithSettle).not.toHaveBeenCalled()
-    expect(mockCreatePending).not.toHaveBeenCalled()
+    expect(mockTrackConversationCost).not.toHaveBeenCalled()
   })
 })

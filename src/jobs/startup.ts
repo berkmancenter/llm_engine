@@ -15,6 +15,7 @@ export async function startJobs() {
     await defineJob.conversationEndingSoon()
     await defineJob.summarizePdf()
     await defineJob.conversationEvent()
+    await defineJob.conversationCost()
     await defineJob.pollExpired()
   }
 }

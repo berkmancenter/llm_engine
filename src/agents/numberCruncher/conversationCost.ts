@@ -18,6 +18,16 @@ const SETTLE_DELAYS_MS = [60_000, 90_000, 120_000, 150_000]
 
 type CostPhase = 'liveEvent' | 'postEvent'
 
+/* Cost tracking is fundamentally impossible without LangSmith tracing actually
+   emitting runs — LANGSMITH_TRACING_V2 must be on in addition to having an API key
+   and project configured (the traceable() wrappers read the tracing flag directly
+   from process.env and silently no-op when it's off, regardless of the key/project
+   being valid). Callers use this to skip the whole flow up front with one clear log
+   line, rather than running a multi-minute settle-poll that can never find data. */
+export function isLangsmithCostTrackingConfigured(): boolean {
+  return Boolean(config.langsmith.tracingEnabled && config.langsmith.key && config.langsmith.project)
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }

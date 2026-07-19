@@ -38,6 +38,10 @@ const defineJob = {
     await agenda.start()
     await agenda.define('conversationEvent', JobHandlers.conversationEvent)
   },
+  conversationCost: async () => {
+    await agenda.start()
+    await agenda.define('conversationCost', JobHandlers.conversationCost)
+  },
   conversationEndingSoon: async () => {
     await agenda.start()
     await agenda.define('conversationEndingSoon', JobHandlers.conversationEndingSoon)

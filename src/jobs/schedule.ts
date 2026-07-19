@@ -40,6 +40,9 @@ const schedule = {
   conversationEvent: async (data: { agentId: string; event: unknown }) => {
     await agenda.now('conversationEvent', data)
   },
+  conversationCost: async (data: { conversationId: string; topicIsPrivate: boolean }) => {
+    await agenda.now('conversationCost', data)
+  },
   conversationEndingSoon: async (scheduledAt: Date, data: { conversationId: string }) => {
     await agenda.schedule(scheduledAt, 'conversationEndingSoon', data)
   },

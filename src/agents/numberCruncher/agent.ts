@@ -3,8 +3,7 @@ import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import logger from '../../config/logger.js'
 import Conversation from '../../models/conversation.model.js'
 import access from '../../auth/access.js'
-import conversationCostService from '../../services/conversationCost.service.js'
-import { fetchConversationCostWithSettle, combineCostAggregates } from './conversationCost.js'
+import conversationCostTrackingService from '../../services/conversationCostTracking.service.js'
 import type { BudgetAlertData, BudgetAlert, ConversationCostData } from '../../types/index.types.js'
 import { AgentMessageActions } from '../../types/index.types.js'
 
@@ -53,27 +52,6 @@ async function fetchBudgetAlerts(budgets: BudgetConfig[]): Promise<BudgetAlert[]
     }
   }
   return alerts
-}
-
-const ZERO_PHASES = {
-  liveEvent: {
-    estimatedCostUSD: 0,
-    totalPromptTokens: 0,
-    totalCompletionTokens: 0,
-    llmCallCount: 0,
-    models: [],
-    agents: [],
-    hasUnpricedCalls: false
-  },
-  postEvent: {
-    estimatedCostUSD: 0,
-    totalPromptTokens: 0,
-    totalCompletionTokens: 0,
-    llmCallCount: 0,
-    models: [],
-    agents: [],
-    hasUnpricedCalls: false
-  }
 }
 
 export default verify({
@@ -147,10 +125,13 @@ export default verify({
   },
 
   // Fires when ANY event stops, public or private (the dispatcher matches the
-  // allTopics read grant — see capabilities.ts). A pending ConversationCost record
-  // is written immediately, before the slow settle-poll, so a crash or a very slow
-  // poll never leaves zero record that this event happened; persistCost below always
-  // flips it to 'complete' once the poll resolves, whether or not it found spend.
+  // allTopics read grant — see capabilities.ts). The actual cost computation and
+  // ConversationCost persistence (pending, then settled/complete) is handled by
+  // trackConversationCost, which also runs unconditionally for every conversation
+  // via the standalone `conversationCost` job (see jobs/handlers/conversationCost.ts)
+  // regardless of whether Number Cruncher is provisioned. This handler's job is
+  // strictly the Slack-facing part: build and post the cost card when Number
+  // Cruncher happens to be active.
   async onConversationEvent(evt) {
     if (evt.type !== 'conversationStopped') return []
 
@@ -180,47 +161,12 @@ export default verify({
       )
     }
 
-    logger.info(`numberCruncher: conversation ${evt.conversationId} stopped; creating pending cost record`)
-    try {
-      await conversationCostService.createPending(conversation, { topicIsPrivate })
-    } catch (error) {
-      logger.error(`numberCruncher: could not create pending cost record for ${evt.conversationId}`, error)
-    }
-
-    /* The settle poll waits out both LangSmith ingestion lag and sibling agents
-       (e.g. the Vibes Analyst recap) that are still spending on this event, so
-       run it here in the dispatched job, never on the stop request path. */
-    logger.info(`numberCruncher: starting LangSmith cost settle-poll for conversation ${evt.conversationId}`)
-    const phases = await fetchConversationCostWithSettle(evt.conversationId)
-    const total = phases ? combineCostAggregates(phases.liveEvent, phases.postEvent) : null
-
-    if (!total || total.llmCallCount === 0) {
-      logger.info(
-        `numberCruncher: no LangSmith cost data settled for conversation ${evt.conversationId}; ` +
-          'finalizing record with zero cost, skipping cost card'
-      )
-      try {
-        await conversationCostService.persistCost(conversation, phases ?? ZERO_PHASES, { topicIsPrivate })
-      } catch (error) {
-        logger.error(`numberCruncher: could not finalize cost record for ${evt.conversationId}`, error)
-      }
-      return []
-    }
-
-    logger.info(
-      `numberCruncher: settled cost for conversation ${evt.conversationId} — ${total.llmCallCount} LLM ` +
-        `calls, ~$${total.estimatedCostUSD.toFixed(2)}`
-    )
-
-    // Best-effort persistence: a failed write must never block the card.
-    try {
-      await conversationCostService.persistCost(conversation, phases!, { topicIsPrivate })
-    } catch (error) {
-      logger.error(`numberCruncher: could not persist cost record for ${evt.conversationId}`, error)
-    }
+    const result = await conversationCostTrackingService.trackConversationCost(conversation, { topicIsPrivate })
+    if (!result) return []
+    const { phases, total } = result
 
     const renderData: ConversationCostData = {
-      ...phases!,
+      ...phases,
       total,
       conversationName: conversation.name,
       checkedAt: new Date().toISOString(),

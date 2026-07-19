@@ -1,5 +1,6 @@
 import httpStatus from 'http-status'
 import { traceable } from 'langsmith/traceable'
+import config from '../../config/config.js'
 import ApiError from '../../utils/ApiError.js'
 import websocketGateway from '../../websockets/websocketGateway.js'
 import agentService from '../agent.service/index.js'
@@ -160,6 +161,14 @@ export async function doStopConversation(conversation) {
     { type: 'conversationStopped', conversationId: doc._id.toString(), topicId },
     { type: 'conversation', id: doc._id.toString(), topicId, topicIsPrivate }
   )
+
+  /* Cost tracking must not depend on Number Cruncher being provisioned (a separate
+     Slack bot + admin conversation) — it's core functionality for every conversation,
+     public or private, gated only by this flag. See jobs/handlers/conversationCost.ts:
+     it steps aside if an active Number Cruncher agent is already handling this event. */
+  if (config.enableConversationCostTracking) {
+    await schedule.conversationCost({ conversationId: doc._id.toString(), topicIsPrivate })
+  }
 
   return doc
 }

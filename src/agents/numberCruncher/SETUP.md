@@ -241,16 +241,28 @@ in the `budgets` array and update via `PUT /v1/conversations`.
 
 ## Cost summaries per event
 
-When any conversation stops — public or private — Number Cruncher fetches that event's
-LLM runs from LangSmith, stores a `ConversationCost` record split into `liveEvent`
-(spend while the conversation was running) and `postEvent` (spend on after-the-fact
-work like the Vibes Analyst recap and the conversation summary), and posts a cost
-summary card — combined total plus the phase breakdown — to its admin channel.
+When any conversation stops — public or private — its LLM runs are fetched from
+LangSmith and stored as a `ConversationCost` record split into `liveEvent` (spend
+while the conversation was running) and `postEvent` (spend on after-the-fact work
+like the Vibes Analyst recap and the conversation summary).
+
+**Cost tracking does not depend on Number Cruncher being provisioned.** It is core
+functionality for every conversation, gated only by `ENABLE_CONVERSATION_COST_TRACKING`
+(defaults to `true`). On every stop, `doStopConversation` schedules a standalone
+`conversationCost` job that computes and persists the record via the shared
+`conversationCostTracking` service. Number Cruncher's role is strictly the Slack-facing
+part: when an NC agent is active, it runs the same tracking flow itself (so it can also
+post a cost summary card — combined total plus the phase breakdown — to its admin
+channel), and the standalone job detects that active agent and steps aside to avoid a
+duplicate settle-poll. With no NC provisioned, the standalone job still records the cost;
+there is simply no card.
 
 A `ConversationCost` record is written immediately when the event stops (status
-`pending`, zeroed figures), then updated to `status: complete` once the LangSmith
-settle-poll resolves — so a crash or a very slow settle never leaves zero record that
-the event happened.
+`pending`), carrying whatever LangSmith has already ingested at that instant — a real
+preliminary estimate rather than a zeroed placeholder, falling back to zeros only when
+nothing has landed yet. It is then updated to `status: complete` once the settle-poll
+resolves — so a crash or a very slow settle never leaves zero record that the event
+happened.
 
 Private topics: Number Cruncher holds an `allTopics` read grant (broader than every
 other agent, which are `allPublicTopics`-only), so it still records `liveEvent` cost for
@@ -264,9 +276,12 @@ queried/reported on internally.
 Requirements:
 
 - `LANGSMITH_TRACING_V2=true`, `LANGSMITH_API_KEY`, and `LANGSMITH_PROJECT` must be
-  set — without tracing there is nothing to price, and the card is silently skipped.
+  set — without tracing there is nothing to price, so tracking is skipped entirely
+  (one log line, no settle-poll) and no card is posted.
+- `ENABLE_CONVERSATION_COST_TRACKING` must be enabled (it is by default). Set it to
+  `false` to turn off cost recording for all conversations.
 - Only conversations that ran **after** conversationId trace tagging shipped have
-  cost data; historical events will never produce a card.
+  cost data; historical events will never produce a record or card.
 
 Caveats:
 

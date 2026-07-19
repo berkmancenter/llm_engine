@@ -1,7 +1,7 @@
 import mongoose from 'mongoose'
 import setupIntTest from '../../utils/setupIntTest.js'
 import { ConversationCost } from '../../../src/models/index.js'
-import conversationCostService from '../../../src/services/conversationCost.service.js'
+import conversationCostService, { ZERO_PHASES } from '../../../src/services/conversationCost.service.js'
 
 setupIntTest()
 
@@ -30,15 +30,26 @@ const phases = {
 
 describe('conversationCost service', () => {
   describe('createPending', () => {
-    it('creates a zeroed, pending record immediately, tagged with topicIsPrivate', async () => {
+    it('creates a pending record immediately with real preliminary numbers, tagged with topicIsPrivate', async () => {
       const conversation = { _id: new mongoose.Types.ObjectId(), name: 'The Future of Work' }
 
-      await conversationCostService.createPending(conversation, { topicIsPrivate: false })
+      await conversationCostService.createPending(conversation, phases, { topicIsPrivate: false })
 
       const doc = await ConversationCost.findOne({ conversationId: conversation._id })
       expect(doc!.status).toBe('pending')
       expect(doc!.topicIsPrivate).toBe(false)
       expect(doc!.name).toBe('The Future of Work')
+      expect(doc!.liveEvent.estimatedCostUSD).toBe(0.1)
+      expect(doc!.postEvent.llmCallCount).toBe(2)
+    })
+
+    it('writes zeroed values when passed ZERO_PHASES (no data available yet)', async () => {
+      const conversation = { _id: new mongoose.Types.ObjectId(), name: 'The Future of Work' }
+
+      await conversationCostService.createPending(conversation, ZERO_PHASES, { topicIsPrivate: false })
+
+      const doc = await ConversationCost.findOne({ conversationId: conversation._id })
+      expect(doc!.status).toBe('pending')
       expect(doc!.liveEvent.llmCallCount).toBe(0)
       expect(doc!.postEvent.llmCallCount).toBe(0)
     })
@@ -47,7 +58,7 @@ describe('conversationCost service', () => {
       const conversation = { _id: new mongoose.Types.ObjectId(), name: 'The Future of Work' }
       await conversationCostService.persistCost(conversation, phases, { topicIsPrivate: false })
 
-      await conversationCostService.createPending(conversation, { topicIsPrivate: false })
+      await conversationCostService.createPending(conversation, phases, { topicIsPrivate: false })
 
       const doc = await ConversationCost.findOne({ conversationId: conversation._id })
       expect(doc!.status).toBe('complete')

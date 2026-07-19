@@ -21,6 +21,9 @@ const envVarsSchema = Joi.object()
     ENABLE_AUTO_DELETION: Joi.boolean().default(true).description('Enable automatic deletion of inactive topics'),
     ENABLE_EXPORT_OPT_OUT: Joi.boolean().default(true).description('Enable export opt-out functionality'),
     ENABLE_AGENT_PERSONALITY: Joi.boolean().default(false).description('Enable agent personality in prompts'),
+    ENABLE_CONVERSATION_COST_TRACKING: Joi.boolean()
+      .default(true)
+      .description('Track and persist estimated LLM cost for every conversation on stop, independent of Number Cruncher'),
     JWT_SECRET: Joi.string().required().description('JWT secret key'),
     JWT_ACCESS_EXPIRATION_MINUTES: Joi.number().default(30).description('minutes after which access tokens expire'),
     JWT_REFRESH_EXPIRATION_DAYS: Joi.number().default(30).description('days after which refresh tokens expire'),
@@ -185,7 +188,9 @@ const config = {
   enableAutoDeletion: envVars.ENABLE_AUTO_DELETION,
   enableExportOptOut: envVars.ENABLE_EXPORT_OPT_OUT,
   enableAgentPersonality: envVars.ENABLE_AGENT_PERSONALITY,
+  enableConversationCostTracking: envVars.ENABLE_CONVERSATION_COST_TRACKING,
   langsmith: {
+    tracingEnabled: Boolean(envVars.LANGSMITH_TRACING_V2),
     key: envVars.LANGSMITH_API_KEY,
     project: envVars.LANGSMITH_PROJECT
   },
