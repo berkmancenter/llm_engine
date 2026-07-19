@@ -41,7 +41,7 @@
     "chroma:up": "docker run -p 8000:8000 chromadb/chroma",
     "chroma:load": "NODE_ENV=test node --loader ts-node/esm src/utils/chromaLoadDocs.ts",
     "commit": "cz",
-    "check:number-cruncher-slack": "node --loader ts-node/esm scripts/checkNumberCruncherSlack.ts",
+    "check:number-cruncher-slack": "NODE_ENV=${NODE_ENV:-development} node --loader ts-node/esm scripts/checkNumberCruncherSlack.ts",
     "openapi-types:generate": "openapi-typescript http://localhost:3000/v1/openapi.json --output src/types/openapi.d.ts && prettier --write src/types/openapi.d.ts"
   },
   "keywords": [],

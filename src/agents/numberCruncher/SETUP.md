@@ -318,13 +318,15 @@ yarn check:number-cruncher-slack --dry-run
 
 # Probe a specific conversation's Slack adapter instead of auto-finding NC
 yarn check:number-cruncher-slack --conversation=<conversationId>
+
+# Against production (defaults to development otherwise)
+NODE_ENV=production yarn check:number-cruncher-slack
 ```
 
 A `✔ Sample cost card posted…` line (and a card visible in the channel) means the
 integration is wired up. Failures print the specific fix — e.g. invite the bot to the
 channel (`not_in_channel`), correct the channel id (`channel_not_found`), add the
-`chat:write` scope (`missing_scope`), or re-provision the token (`invalid_auth`). Run it
-against production the same way with `NODE_ENV=production`.
+`chat:write` scope (`missing_scope`), or re-provision the token (`invalid_auth`).
 
 **2. Full cost-calculation path (end to end).** Requires LangSmith configured (see
 Requirements above). Stop a real (non-experimental) conversation that ran at least a few
