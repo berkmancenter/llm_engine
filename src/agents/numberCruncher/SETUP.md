@@ -296,6 +296,27 @@ Caveats:
 ### Confirming the integration works
 
 You do not need to wait for a real event to stop to check that NC can post cost cards.
+
+**Testing cost cards without budget endpoints.** The cost-card path
+(`onConversationEvent`) is independent of the budget-alert path (`respond`), so you can
+provision NC for cost-card testing without configuring any real budget endpoints, API
+keys, or thresholds. Pass an **empty** `budgets` array in the provisioning call (Part B):
+
+```json
+"properties": {
+  "slackChannel": "<C... or G...>",
+  "slackWorkspace": "<T...>",
+  "slackBotToken": "<xoxb-...>",
+  "slackAppKey": "nc-dev",
+  "budgets": []
+}
+```
+
+`budgets` is `required`, so the key must be present, but `[]` is accepted — the scheduled
+budget check simply returns early with nothing to check (see `agent.ts`, `respond()`),
+while the Slack adapter and the `numberCruncher` agent are still created, which is all the
+cost card needs. This is the recommended way to smoke-test the Slack cost card locally.
+
 Two levels of check:
 
 **1. Slack path only (fast, no LangSmith).** Run the bundled probe. It reads NC's stored
