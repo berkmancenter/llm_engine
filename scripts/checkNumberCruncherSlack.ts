@@ -9,6 +9,9 @@
  * What it checks, in order:
  *   1. NC is provisioned — an active `numberCruncher` agent with a Slack adapter exists
  *      (or use --conversation=<id> to point at a specific conversation's Slack adapter).
+ *      It logs the resolved conversation and adapter ids, and warns if the adapter's
+ *      config has drifted from the conversation's properties (e.g. a direct DB edit that
+ *      bypassed the PUT-time resync) — the adapter is what actually posts.
  *   2. The bot token is valid and identifies the bot (Slack `auth.test`).
  *   3. The bot can post the cost card to its channel (Slack `chat.postMessage` with the
  *      real Block Kit rendered by renderConversationCostCard — the same code the live
@@ -45,8 +48,30 @@ import { WebClient } from '@slack/web-api'
 import config from '../src/config/config.js'
 import Adapter from '../src/models/adapter.model.js'
 import Agent from '../src/models/user.model/agent.model/index.js'
+import Conversation from '../src/models/conversation.model.js'
 import renderResponseBlocks from '../src/adapters/slack/blocks/index.js'
 import type { ConversationCostData } from '../src/types/index.types.js'
+
+/* The Slack adapter renders these config keys from conversation properties at creation
+   time (mirror of the adapter's configSyncMap). They only stay in sync afterward when
+   properties are changed through PUT /v1/conversations — a direct DB edit of the
+   conversation leaves the adapter (which is what actually posts) stale, so the check
+   below compares them and flags any drift. `secret` fields are masked in the report. */
+const SYNCED_FIELDS: Array<{ prop: string; cfg: string; secret?: boolean }> = [
+  { prop: 'slackChannel', cfg: 'channel' },
+  { prop: 'slackWorkspace', cfg: 'workspace' },
+  { prop: 'slackBotToken', cfg: 'botToken', secret: true },
+  { prop: 'slackBotUserId', cfg: 'botUserId' },
+  { prop: 'slackSigningSecret', cfg: 'signingSecret', secret: true },
+  { prop: 'slackAppKey', cfg: 'appKey' },
+  { prop: 'botName', cfg: 'botName' }
+]
+
+function mask(value: unknown, secret?: boolean): string {
+  if (value === undefined || value === null || value === '') return '(unset)'
+  const str = String(value)
+  return secret && str.length > 12 ? `${str.slice(0, 8)}…${str.slice(-4)}` : str
+}
 
 /* A realistic, clearly-labeled sample cost card. The name makes it obvious in the
    channel that this is a setup probe and not a real event's cost. */
@@ -160,14 +185,19 @@ async function callSlack<T>(label: string, fn: () => Promise<T>): Promise<T> {
 
 interface ResolvedTarget {
   conversationId: string
+  adapterId: string
   botToken: string
   channel: string
   workspace?: string
+  /* Human-readable descriptions of any adapter-config vs. conversation-property drift.
+     The adapter is authoritative for posting, so these are warnings, not failures. */
+  inconsistencies: string[]
 }
 
 /* Resolves the Slack adapter to probe: either the one on --conversation, or the one on
    the active Number Cruncher agent's conversation (the same lookup the conversationCost
-   job uses to decide whether NC will handle a card). */
+   job uses to decide whether NC will handle a card). Also loads the conversation so the
+   adapter config can be checked against the conversation properties it was rendered from. */
 async function resolveTarget(conversationOverride?: string): Promise<ResolvedTarget> {
   let conversationId = conversationOverride
 
@@ -190,7 +220,31 @@ async function resolveTarget(conversationOverride?: string): Promise<ResolvedTar
   if (!cfg.botToken) throw new Error(`Slack adapter for ${conversationId} has no botToken in its config.`)
   if (!cfg.channel) throw new Error(`Slack adapter for ${conversationId} has no channel in its config.`)
 
-  return { conversationId, botToken: cfg.botToken, channel: cfg.channel, workspace: cfg.workspace }
+  const conversation = await Conversation.findById(conversationId).exec()
+  const props = (conversation?.properties ?? {}) as Record<string, unknown>
+  const inconsistencies: string[] = []
+  if (conversation) {
+    for (const { prop, cfg: cfgKey, secret } of SYNCED_FIELDS) {
+      const propVal = props[prop]
+      // Only flag when the property is set and disagrees with the adapter — an unset
+      // property (e.g. optional signingSecret) is not a mismatch, just absent.
+      if (propVal !== undefined && propVal !== '' && String(propVal) !== String(cfg[cfgKey] ?? '')) {
+        inconsistencies.push(
+          `config.${cfgKey}="${mask(cfg[cfgKey], secret)}" but conversation.properties.${prop}=` +
+            `"${mask(propVal, secret)}"`
+        )
+      }
+    }
+  }
+
+  return {
+    conversationId,
+    adapterId: adapter._id.toString(),
+    botToken: cfg.botToken,
+    channel: cfg.channel,
+    workspace: cfg.workspace,
+    inconsistencies
+  }
 }
 
 async function main() {
@@ -206,8 +260,22 @@ async function main() {
   try {
     const target = await resolveTarget(conversationOverride)
     console.log(`Target conversation: ${target.conversationId}`)
+    console.log(`Slack adapter:       ${target.adapterId}`)
     console.log(`Slack channel:       ${target.channel}${target.workspace ? ` (workspace ${target.workspace})` : ''}`)
     console.log(`Bot token:           ${target.botToken.slice(0, 8)}…${target.botToken.slice(-4)}`)
+
+    if (target.inconsistencies.length > 0) {
+      console.warn(
+        `\n⚠ Adapter/conversation drift — the adapter (${target.adapterId}) is what actually posts, but its\n` +
+          `  config no longer matches the conversation's properties. This happens when the conversation is\n` +
+          `  edited directly in the DB instead of via PUT /v1/conversations (which resyncs the adapter):`
+      )
+      for (const line of target.inconsistencies) console.warn(`    • ${line}`)
+      console.warn(
+        `  Fix: PUT /v1/conversations { "id": "${target.conversationId}", "properties": { … } } echoing the\n` +
+          `  intended value(s) — the resync fires whenever the property key is present in the payload.`
+      )
+    }
 
     const data = sampleCostData(isPrivate)
     const blocks = renderResponseBlocks('conversationCostSummary', data)
