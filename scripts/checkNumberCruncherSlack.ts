@@ -139,6 +139,21 @@ function hintForSlackError(error?: string): string | null {
   }
 }
 
+/* Runs a Slack Web API call and, on failure, rethrows with an actionable hint. The
+   @slack/web-api client throws a WebAPIPlatformError (rather than returning { ok: false })
+   whose `data.error` holds the Slack error code, so the code — and its fix — has to be
+   pulled out of the thrown error here, not read off a return value. */
+async function callSlack<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn()
+  } catch (err) {
+    const code = (err as { data?: { error?: string } })?.data?.error
+    const hint = hintForSlackError(code)
+    const detail = code ?? (err instanceof Error ? err.message : String(err))
+    throw new Error(`Slack ${label} failed: ${detail}${hint ? `\n  → ${hint}` : ''}`)
+  }
+}
+
 interface ResolvedTarget {
   conversationId: string
   botToken: string
@@ -204,11 +219,7 @@ async function main() {
 
     const slack = new WebClient(target.botToken)
 
-    const auth = await slack.auth.test()
-    if (!auth.ok) {
-      const hint = hintForSlackError(auth.error)
-      throw new Error(`Slack auth.test failed: ${auth.error}${hint ? `\n  → ${hint}` : ''}`)
-    }
+    const auth = await callSlack('auth.test', () => slack.auth.test())
     console.log(`\n✔ Token valid — bot "${auth.user}" (${auth.user_id}) in "${auth.team}" (${auth.url}).`)
 
     if (authOnly) {
@@ -219,11 +230,9 @@ async function main() {
     const fallback = `Number Cruncher Slack setup check: sample cost card (~$${data.total.estimatedCostUSD.toFixed(
       2
     )}). Not a real event.`
-    const result = await slack.chat.postMessage({ channel: target.channel, text: fallback, blocks })
-    if (!result.ok) {
-      const hint = hintForSlackError(result.error)
-      throw new Error(`Slack chat.postMessage failed: ${result.error}${hint ? `\n  → ${hint}` : ''}`)
-    }
+    const result = await callSlack('chat.postMessage', () =>
+      slack.chat.postMessage({ channel: target.channel, text: fallback, blocks })
+    )
     console.log(`\n✔ Sample cost card posted to ${target.channel} (ts ${result.ts}). Check the channel in Slack.`)
     console.log('  If you can see the card, the Number Cruncher Slack integration is working.')
   } finally {
