@@ -23,7 +23,8 @@ const eventAssistant: ConversationType = {
       label: 'Zoom Meeting URL',
       description: 'The zoom meeting link for transcription purposes',
       required: true,
-      type: 'string'
+      type: 'string',
+      format: 'zoomUrl'
     },
     {
       name: 'botName',
@@ -93,12 +94,7 @@ const eventAssistant: ConversationType = {
       default: true,
       category: 'group-chat',
       userControlled: false,
-      agents: [
-        {
-          name: 'eventMediator',
-          properties: [{ $ref: 'llmModel.llmModel' }, { $ref: 'llmModel.llmPlatform' }]
-        }
-      ]
+      agents: []
     },
     {
       name: 'catalyst',
@@ -108,12 +104,7 @@ const eventAssistant: ConversationType = {
       default: true,
       category: 'group-chat',
       userControlled: false,
-      agents: [
-        {
-          name: 'engagementAgent',
-          properties: [{ $ref: 'llmModel.llmModel' }, { $ref: 'llmModel.llmPlatform' }]
-        }
-      ]
+      agents: []
     },
     {
       name: 'librarian',
@@ -200,6 +191,10 @@ const eventAssistant: ConversationType = {
 
   // internal
   agents: [
+    {
+      name: 'proactiveGroupAgent',
+      properties: [{ $ref: 'llmModel.llmModel' }, { $ref: 'llmModel.llmPlatform' }]
+    },
     {
       name: 'eventAssistant',
       properties: [

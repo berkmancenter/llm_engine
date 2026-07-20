@@ -100,12 +100,12 @@ const testAgentTypeSpecification = {
     defaultLLMPlatform,
     defaultLLMModel
   },
-  eventMediator: {
+  proactiveGroupAgent: {
     respond: mockRespond,
     start: mockStart,
     stop: mockStop,
-    name: 'Event Mediator Test Agent',
-    description: 'Test mediator agent with agentConfig',
+    name: 'Proactive Group Test Agent',
+    description: 'Test proactive agent with agentConfig',
     maxTokens: 2000,
     defaultTriggers: { periodic: { timerPeriod: 60 } },
     priority: 85,
@@ -122,23 +122,6 @@ const testAgentTypeSpecification = {
     }
   },
 
-  engagementAgent: {
-    respond: mockRespond,
-    start: mockStart,
-    stop: mockStop,
-    name: 'Event Engament Test Agent',
-    description: 'Test engagement agent with agentConfig',
-    maxTokens: 2000,
-    defaultTriggers: { periodic: { timerPeriod: 60 } },
-    priority: 85,
-    llmTemplateVars: { contribution: [], voting: [] },
-    defaultLLMTemplates: {
-      contribution: 'You are an engagement agent',
-      voting: 'You should vote on this data {voteData}'
-    },
-    defaultLLMPlatform,
-    defaultLLMModel
-  },
   jargonFilterAgent: {
     respond: mockRespond,
     start: mockStart,
@@ -272,9 +255,10 @@ describe('Conversation service methods', () => {
 
         // Verify agents were created
         const agents = await Agent.find({ conversation: conversation._id })
-        expect(agents[0].agentType).toBe('eventAssistant')
-        expect(agents[0].llmModel).toBe(supportedModels[1].llmModel)
-        expect(agents[0].llmPlatform).toBe(supportedModels[1].llmPlatform)
+        const eventAssistantAgent = agents.find((a) => a.agentType === 'eventAssistant')!
+        expect(eventAssistantAgent).toBeDefined()
+        expect(eventAssistantAgent.llmModel).toBe(supportedModels[1].llmModel)
+        expect(eventAssistantAgent.llmPlatform).toBe(supportedModels[1].llmPlatform)
 
         // Verify adapter was created with resolved properties
         const adapters = await Adapter.find({ conversation: conversation._id })
@@ -309,10 +293,10 @@ describe('Conversation service methods', () => {
 
         // Verify agents were created
         const agents = await Agent.find({ conversation: conversation._id })
-
-        expect(agents[0].agentType).toBe('eventAssistant')
-        expect(agents[0].llmModel).toBe(supportedModels[1].llmModel)
-        expect(agents[0].llmPlatform).toBe(supportedModels[1].llmPlatform)
+        const eventAssistantAgent = agents.find((a) => a.agentType === 'eventAssistant')!
+        expect(eventAssistantAgent).toBeDefined()
+        expect(eventAssistantAgent.llmModel).toBe(supportedModels[1].llmModel)
+        expect(eventAssistantAgent.llmPlatform).toBe(supportedModels[1].llmPlatform)
 
         // Verify adapter was created with resolved properties
         const adapters = await Adapter.find({ conversation: conversation._id })
@@ -507,10 +491,11 @@ describe('Conversation service methods', () => {
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
 
         const agents = await Agent.find({ conversation: conversation._id })
-        expect(agents[0].agentType).toBe('eventAssistant')
+        const eventAssistantAgent = agents.find((a) => a.agentType === 'eventAssistant')!
+        expect(eventAssistantAgent).toBeDefined()
         // These should be undefined so underlying agent defaults are used
-        expect(agents[0].llmModel).toBe(defaultLLMModel) // the agent's default
-        expect(agents[0].llmPlatform).toBe(defaultLLMPlatform)
+        expect(eventAssistantAgent.llmModel).toBe(defaultLLMModel) // the agent's default
+        expect(eventAssistantAgent.llmPlatform).toBe(defaultLLMPlatform)
       })
     })
 
@@ -733,6 +718,36 @@ describe('Conversation service methods', () => {
       })
     })
 
+    describe('draft tolerance (allowDraft)', () => {
+      const incompleteParams = {
+        type: 'eventAssistant',
+        name: 'Incomplete Event',
+        platforms: ['zoom'],
+        scheduledTime: new Date(Date.now() + 3600000), // starts in 1 hour
+        scheduledEndTime: new Date(Date.now() + 7200000) // ends in 2 hours
+        // zoomMeetingUrl is required by the eventAssistant type but omitted here
+      }
+
+      test('throws when a required property is missing and allowDraft is not set', async () => {
+        const params = { ...incompleteParams, topicId: topicOne._id.toString() }
+
+        await expect(conversationService.createConversationFromType(params, registeredUser)).rejects.toMatchObject({
+          statusCode: httpStatus.BAD_REQUEST
+        })
+      })
+
+      test('saves a draft instead of throwing when a required property is missing and allowDraft is set', async () => {
+        const params = { ...incompleteParams, topicId: topicOne._id.toString() }
+
+        const conversation = await conversationService.createConversationFromType(params, registeredUser, {
+          allowDraft: true
+        })
+
+        expect(conversation.draft).toBe(true)
+        expect(conversation.active).toBe(false)
+      })
+    })
+
     describe('feature agent inclusion and property resolution', () => {
       const baseParams = {
         type: 'eventAssistant',
@@ -746,13 +761,13 @@ describe('Conversation service methods', () => {
           ...baseParams,
           topicId: topicOne._id.toString(),
           properties: { zoomMeetingUrl: 'https://zoom.us/j/123456789' },
-          features: [{ name: 'collectiveVoice' }]
+          features: [{ name: 'moderatorSupport' }]
         }
 
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
 
         const agents = await Agent.find({ conversation: conversation._id })
-        expect(agents.map((a) => a.agentType)).toContain('eventMediator')
+        expect(agents.map((a) => a.agentType)).toContain('backChannelInsights')
       })
 
       test('should exclude feature agent when not listed in features array', async () => {
@@ -766,7 +781,7 @@ describe('Conversation service methods', () => {
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
 
         const agents = await Agent.find({ conversation: conversation._id })
-        expect(agents.map((a) => a.agentType)).not.toContain('eventMediator')
+        expect(agents.map((a) => a.agentType)).not.toContain('backChannelInsights')
       })
 
       test('should include no feature agents when features array is omitted', async () => {
@@ -780,8 +795,8 @@ describe('Conversation service methods', () => {
 
         const agents = await Agent.find({ conversation: conversation._id })
         const agentTypes = agents.map((a) => a.agentType)
-        expect(agentTypes).not.toContain('eventMediator')
-        expect(agentTypes).not.toContain('engagementAgent')
+        expect(agentTypes).not.toContain('backChannelInsights')
+        expect(agentTypes).not.toContain('moderatorNotifier')
       })
 
       test('should resolve $ref with "as" into nested agentConfig path', async () => {
@@ -881,6 +896,52 @@ describe('Conversation service methods', () => {
     })
   })
 
+  describe('createConversation() draft status', () => {
+    beforeEach(async () => {
+      await insertUsers([registeredUser])
+      await insertTopics([topicOne])
+    })
+
+    test('is not Draft when all required fields are present and valid', async () => {
+      const conversation = await conversationService.createConversation(
+        {
+          name: 'Complete Event',
+          topicId: topicOne._id.toString(),
+          scheduledTime: new Date(Date.now() + 3600000),
+          scheduledEndTime: new Date(Date.now() + 7200000),
+          properties: { zoomMeetingUrl: 'https://zoom.us/j/123456789' }
+        },
+        registeredUser
+      )
+      expect(conversation.draft).toBe(false)
+    })
+
+    test('is Draft when a required field is missing', async () => {
+      const conversation = await conversationService.createConversation(
+        {
+          name: 'Incomplete Event',
+          topicId: topicOne._id.toString(),
+          scheduledTime: new Date(Date.now() + 3600000)
+          // scheduledEndTime and a valid zoomMeetingUrl are both missing
+        },
+        registeredUser
+      )
+      expect(conversation.draft).toBe(true)
+    })
+
+    test('is not Draft and starts immediately when created with no scheduledTime (instant-start)', async () => {
+      const conversation = await conversationService.createConversation(
+        {
+          name: 'No Schedule Yet',
+          topicId: topicOne._id.toString()
+        },
+        registeredUser
+      )
+      expect(conversation.draft).toBe(false)
+      expect(conversation.active).toBe(true)
+    })
+  })
+
   describe('generateConversationReport()', () => {
     let periodicConversation
     let perMessageConversation
@@ -898,7 +959,7 @@ describe('Conversation service methods', () => {
       const periodicTime = new Date(Date.now() + 3600000) // 1 hour in future
       const perMessageTime = new Date(Date.now() + 7200000) // 2 hours in future (more than 10 min apart)
 
-      // Create conversation with periodic agent (eventMediator)
+      // Create conversation with periodic agent
       const periodicParams = {
         type: 'eventAssistant',
         name: 'Periodic Test Conversation',
@@ -1008,7 +1069,7 @@ describe('Conversation service methods', () => {
         const onlyPeriodicParams = {
           name: 'Only Periodic',
           topicId: topicOne._id.toString(),
-          agentTypes: ['eventMediator'],
+          agentTypes: ['proactiveGroupAgent'],
           scheduledTime: new Date(Date.now() + 3600000) // prevent auto-start
         }
         const onlyPeriodicConv = await conversationService.createConversation(onlyPeriodicParams, registeredUser)
@@ -1084,7 +1145,7 @@ describe('Conversation service methods', () => {
         const onlyPeriodicParams = {
           name: 'Only Periodic UserMetrics',
           topicId: topicOne._id.toString(),
-          agentTypes: ['eventMediator'],
+          agentTypes: ['proactiveGroupAgent'],
           scheduledTime: new Date(Date.now() + 3600000) // prevent auto-start
         }
         const onlyPeriodicConv = await conversationService.createConversation(onlyPeriodicParams, registeredUser)
@@ -1096,7 +1157,7 @@ describe('Conversation service methods', () => {
             'text',
             'UTC',
             [],
-            'eventMediator'
+            'proactiveGroupAgent'
           )
         ).rejects.toThrow(ApiError)
         await expect(
@@ -1106,7 +1167,7 @@ describe('Conversation service methods', () => {
             'text',
             'UTC',
             [],
-            'eventMediator'
+            'proactiveGroupAgent'
           )
         ).rejects.toMatchObject({
           statusCode: httpStatus.BAD_REQUEST,
@@ -1180,6 +1241,51 @@ describe('Conversation service methods', () => {
       // pulls the snapshot from its own dispatched job, where it can retry patiently.
       expect(snapshotSpy).not.toHaveBeenCalled()
       expect(dispatchSpy).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('startConversation() draft gating', () => {
+    beforeEach(async () => {
+      await insertUsers([registeredUser])
+      await insertTopics([topicOne])
+    })
+
+    test('refuses to start a Draft conversation and leaves it inactive', async () => {
+      const conversation = new Conversation({
+        name: 'Draft Event',
+        owner: registeredUser._id,
+        topic: topicOne._id,
+        draft: true,
+        agents: [],
+        adapters: [],
+        messages: []
+      })
+      await conversation.save()
+
+      await expect(conversationService.startConversation(conversation._id.toString(), registeredUser)).rejects.toMatchObject(
+        { statusCode: httpStatus.BAD_REQUEST, message: expect.stringMatching(/Cannot start a draft conversation/) }
+      )
+
+      const reloaded = await Conversation.findById(conversation._id)
+      expect(reloaded!.active).toBe(false)
+    })
+
+    test('starts normally when the conversation is not Draft (regression)', async () => {
+      const conversation = new Conversation({
+        name: 'Ready Event',
+        owner: registeredUser._id,
+        topic: topicOne._id,
+        draft: false,
+        agents: [],
+        adapters: [],
+        messages: []
+      })
+      await conversation.save()
+
+      await conversationService.startConversation(conversation._id.toString(), registeredUser)
+
+      const reloaded = await Conversation.findById(conversation._id)
+      expect(reloaded!.active).toBe(true)
     })
   })
 
@@ -1608,21 +1714,21 @@ describe('Conversation service methods', () => {
              beforeEach conversation (both are Zoom events). */
           scheduledTime: new Date(Date.now() + 7200000),
           properties: { zoomMeetingUrl: 'https://zoom.us/j/feature-test' },
-          features: [{ name: 'collectiveVoice' }]
+          features: [{ name: 'moderatorSupport' }]
         },
         registeredUser
       )
 
       const agentsBefore = await Agent.find({ conversation: featureConv._id })
-      expect(agentsBefore.map((a) => a.agentType)).toContain('eventMediator')
+      expect(agentsBefore.map((a) => a.agentType)).toContain('backChannelInsights')
 
       await conversationService.updateConversation(
-        { id: featureConv._id.toString(), features: [{ name: 'collectiveVoice', enabled: false }] },
+        { id: featureConv._id.toString(), features: [{ name: 'moderatorSupport', enabled: false }] },
         registeredUser
       )
 
       const agentsAfter = await Agent.find({ conversation: featureConv._id })
-      expect(agentsAfter.map((a) => a.agentType)).not.toContain('eventMediator')
+      expect(agentsAfter.map((a) => a.agentType)).not.toContain('backChannelInsights')
     })
 
     test('syncs slackBotUserId into the slack adapter config on a properties update', async () => {
@@ -1662,6 +1768,78 @@ describe('Conversation service methods', () => {
       const [updated] = await Adapter.find({ conversation: conversation._id, type: 'slack' })
       expect(updated.config.botName).toBe('NewName')
       expect(updated.config.botUserId).toBe('U123')
+    })
+
+    describe('draft status and lockout', () => {
+      /* The beforeEach event has zoomMeetingUrl, name, topic, and scheduledTime set, but
+         never scheduledEndTime, so it starts out Draft. Its scheduledTime is set an hour
+         out, well outside the 6-minute lockout window. */
+      test('starts out Draft because scheduledEndTime was never set', () => {
+        expect(conversation.draft).toBe(true)
+      })
+
+      test('a client-supplied draft field in the update body is ignored; the server recomputes it', async () => {
+        const result = await conversationService.updateConversation(
+          { id: conversation._id.toString(), draft: false, name: 'Still Draft' },
+          registeredUser
+        )
+        // scheduledEndTime is still unset, so the conversation must remain Draft
+        // regardless of what the client sent.
+        expect(result!.draft).toBe(true)
+      })
+
+      test('filling in the last missing required field flips draft from true to false', async () => {
+        const result = await conversationService.updateConversation(
+          { id: conversation._id.toString(), scheduledEndTime: new Date(Date.now() + 7200000) },
+          registeredUser
+        )
+        expect(result!.draft).toBe(false)
+      })
+
+      test('editing a Draft conversation succeeds when its scheduledTime is more than 6 minutes away', async () => {
+        const result = await conversationService.updateConversation(
+          { id: conversation._id.toString(), name: 'Updated While Draft' },
+          registeredUser
+        )
+        expect(result!.name).toBe('Updated While Draft')
+      })
+
+      test('editing a Draft conversation throws once its scheduledTime is within 6 minutes', async () => {
+        // 5 minutes out: inside the 6-minute lockout window.
+        await Conversation.findByIdAndUpdate(conversation._id, { scheduledTime: new Date(Date.now() + 5 * 60 * 1000) })
+
+        await expect(
+          conversationService.updateConversation({ id: conversation._id.toString(), name: 'Too Late' }, registeredUser)
+        ).rejects.toMatchObject({
+          statusCode: httpStatus.BAD_REQUEST,
+          message: expect.stringMatching(/too close to its scheduled start time/)
+        })
+      })
+
+      test('editing a Draft conversation throws once its scheduledTime has already passed', async () => {
+        await Conversation.findByIdAndUpdate(conversation._id, { scheduledTime: new Date(Date.now() - 60 * 1000) })
+
+        await expect(
+          conversationService.updateConversation({ id: conversation._id.toString(), name: 'Too Late' }, registeredUser)
+        ).rejects.toMatchObject({
+          statusCode: httpStatus.BAD_REQUEST,
+          message: expect.stringMatching(/too close to its scheduled start time/)
+        })
+      })
+
+      test('the lockout does not apply to a non-Draft conversation close to its start time', async () => {
+        await Conversation.findByIdAndUpdate(conversation._id, {
+          draft: false,
+          scheduledEndTime: new Date(Date.now() + 7200000),
+          scheduledTime: new Date(Date.now() + 5 * 60 * 1000)
+        })
+
+        const result = await conversationService.updateConversation(
+          { id: conversation._id.toString(), name: 'Updated Close To Start' },
+          registeredUser
+        )
+        expect(result!.name).toBe('Updated Close To Start')
+      })
     })
   })
 
@@ -1813,7 +1991,7 @@ describe('Conversation service methods', () => {
         topicId: topicOne._id.toString(),
         scheduledTime: new Date(Date.now() + 7200000),
         properties: { zoomMeetingUrl: 'https://zoom.us/j/agentconfigtest' },
-        features: [{ name: 'collectiveVoice' }]
+        features: [{ name: 'librarian', config: { recommendationsPerInterval: 3 } }]
       }
       const conv = await conversationService.createConversationFromType(params, registeredUser)
 
@@ -1834,15 +2012,15 @@ describe('Conversation service methods', () => {
         topicId: topicOne._id.toString(),
         scheduledTime: new Date(Date.now() + 10800000),
         properties: { zoomMeetingUrl: 'https://zoom.us/j/agentconfigowner' },
-        features: [{ name: 'collectiveVoice' }]
+        features: [{ name: 'librarian', config: { recommendationsPerInterval: 3 } }]
       }
       const conv = await conversationService.createConversationFromType(params, registeredUser)
 
       const result = await conversationService.findByIdFull(conv._id.toString(), registeredUser)
 
-      const mediator = result.agents.find((a) => a.agentType === 'eventMediator')
-      expect(mediator).toBeDefined()
-      expect(mediator).toHaveProperty('agentConfig')
+      const librarianAgent = result.agents.find((a) => a.agentType === 'librarian')
+      expect(librarianAgent).toBeDefined()
+      expect(librarianAgent).toHaveProperty('agentConfig')
     })
 
     test('should include agentConfig on agents for admin user', async () => {
@@ -1853,16 +2031,16 @@ describe('Conversation service methods', () => {
         topicId: topicOne._id.toString(),
         scheduledTime: new Date(Date.now() + 14400000),
         properties: { zoomMeetingUrl: 'https://zoom.us/j/agentconfigadmin' },
-        features: [{ name: 'collectiveVoice' }]
+        features: [{ name: 'librarian', config: { recommendationsPerInterval: 3 } }]
       }
       const conv = await conversationService.createConversationFromType(params, registeredUser)
 
       const adminUser = { _id: new mongoose.Types.ObjectId(), role: 'admin' }
       const result = await conversationService.findByIdFull(conv._id.toString(), adminUser)
 
-      const mediator = result.agents.find((a) => a.agentType === 'eventMediator')
-      expect(mediator).toBeDefined()
-      expect(mediator).toHaveProperty('agentConfig')
+      const librarianAgent = result.agents.find((a) => a.agentType === 'librarian')
+      expect(librarianAgent).toBeDefined()
+      expect(librarianAgent).toHaveProperty('agentConfig')
     })
 
     test('should strip adapter config from adapters for non-owner user', async () => {

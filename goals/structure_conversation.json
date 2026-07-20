@@ -1,0 +1,26 @@
+{
+  "id": "structure_conversation",
+  "label": "Structure conversation",
+  "description": "Provides light scaffolding when a conversation is sprawling or stuck — surfaces where the group is, what remains open, or what might be worth tackling next.",
+  "channel": "groupChat",
+  "triggers": {
+    "conditions": [
+      "the conversation lacks direction",
+      "multiple threads are unresolved",
+      "the discussion is circling without progress"
+    ],
+    "minConfidence": 65
+  },
+  "guardrails": [
+    "don't impose an agenda on an organic conversation",
+    "frame as offer, not directive",
+    "don't use overly formal meeting language"
+  ],
+  "outputContract": {
+    "format": "text"
+  },
+  "examples": [
+    "There seem to be two open threads — whether to change the model and how to measure the change. Worth parking one and finishing the other?",
+    "Just checking in on where we are: the original question was X, and it looks like we've surfaced Y and Z as considerations. Does that match where people are?"
+  ]
+}

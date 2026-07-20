@@ -827,6 +827,12 @@ components:
             $ref: '#/components/schemas/Experiment'
         active:
           type: boolean
+        draft:
+          type: boolean
+          readOnly: true
+          description: >
+            Server-computed. True until the conversation has a valid Zoom link, name,
+            topic, scheduledTime, and scheduledEndTime; cannot be set directly by clients.
         locked:
           type: boolean
         enableAgents:

@@ -82,3 +82,7 @@ If you would like to use LLM Engine with the Nextspace client, see our [nextspac
 ## Optional: Zoom integration
 
 If you would like to use LLM Engine with Zoom, see our [zoom guide](../platforms/zoom.md).
+
+## Optional: Email integration
+
+If you would like LLM Engine to receive calendar invites by email, see our [email guide](../platforms/email.md).

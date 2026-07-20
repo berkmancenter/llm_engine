@@ -3,6 +3,7 @@ import faker from 'faker'
 import { Agent, Channel, Conversation, Message } from '../../src/models/index.js'
 import { insertUsers } from '../fixtures/user.fixture.js'
 import { publicTopic } from '../fixtures/conversation.fixture.js'
+import { NEUTRAL_BEHAVIORAL_POLICY } from '../../src/conversations/resolver.js'
 import { insertTopics } from '../fixtures/topic.fixture.js'
 import loadTranscript from './transcriptUtils.js'
 import transcript from '../../src/agents/helpers/transcript.js'
@@ -670,7 +671,7 @@ const forgivenessTranscript = `00:13 - Speaker: Would you ever forgive a person 
 14:47 - Speaker:  Thank you.`
 
 /**
- * NOTE: This is a fictional workshop transcript for testing engagement interventions
+ * NOTE: This is a fictional workshop transcript for testing proactie interventions
  * Design Thinking Workshop: Reimagining the Employee Onboarding Experience
  * Facilitator: Marcus Chen
  *
@@ -929,7 +930,7 @@ export async function createMessage(
   }
 
   // NOTE: Message is NOT automatically saved to DB or added to conversation
-  // For mediator tests, use prepareMessagesForAgent() after creating all messages
+  // For proactive agent tests, use prepareMessagesForAgent() after creating all messages
   // For other tests (eventAssistant), messages are handled differently
 
   return messageData
@@ -1063,41 +1064,6 @@ export async function createBackChannelConversation(conversationObj, owner, topi
   return conversation
 }
 
-export async function createEventMediatorConversation(
-  conversationObj,
-  owner,
-  topic,
-  startTime,
-  llmPlatform?,
-  llmModel?,
-  additionalUsers: (typeof owner)[] = []
-) {
-  const conversation = await createConversation(conversationObj, owner, topic, startTime)
-  const agent = new Agent({
-    agentType: 'eventMediator',
-    conversation,
-    llmPlatform,
-    llmModel
-  })
-
-  // Create channels for owner and all additional users
-  const allUsers = [owner, ...additionalUsers]
-  const directChannels = allUsers.map((user) => ({
-    name: `direct-agents-${user._id}`,
-    direct: true,
-    participants: [user, agent]
-  }))
-
-  // Note: Basic mediator does NOT have moderator channel - only Plus version does
-  const channels = await Channel.create([{ name: 'transcript' }, { name: 'chat' }, ...directChannels])
-  conversation.channels.push(...channels)
-  await agent.save()
-  conversation.agents.push(agent)
-  await conversation.save()
-  await await agent.start()
-  return conversation
-}
-
 export async function createModeratorNotifierConversation(
   conversationObj,
   owner,
@@ -1132,42 +1098,8 @@ export async function createModeratorNotifierConversation(
   return conversation
 }
 
-export async function createEngagementAgentConversation(
-  conversationObj,
-  owner,
-  topic,
-  startTime,
-  llmPlatform?,
-  llmModel?,
-  additionalUsers: (typeof owner)[] = []
-) {
-  const conversation = await createConversation(conversationObj, owner, topic, startTime)
-  const agent = new Agent({
-    agentType: 'engagementAgent',
-    conversation,
-    llmPlatform,
-    llmModel
-  })
-
-  // Create channels for owner and all additional users
-  const allUsers = [owner, ...additionalUsers]
-  const directChannels = allUsers.map((user) => ({
-    name: `direct-agents-${user._id}`,
-    direct: true,
-    participants: [user, agent]
-  }))
-
-  const channels = await Channel.create([{ name: 'transcript' }, { name: 'chat' }, ...directChannels])
-  conversation.channels.push(...channels)
-  await agent.save()
-  conversation.agents.push(agent)
-  await conversation.save()
-  await await agent.start()
-  return conversation
-}
-
 /**
- * Prepares messages for mediator agent testing by:
+ * Prepares messages for agent testing by:
  * 1. Saving messages to the Message collection in the database
  * 2. Reloading the agent's conversation from database with populated messages and channels
  *
@@ -1191,8 +1123,43 @@ export async function prepareMessagesForAgent(messages: IMessage[], conversation
   return agent.conversation
 }
 
-// TODO: refactor createJargonFilterConversation and createEngagementAgentConversation into a shared
-// createAgentConversation helper that accepts agentType as a parameter.
+export async function createProactiveGroupAgentConversation(
+  conversationObj,
+  owner,
+  topic,
+  startTime,
+  llmPlatform?,
+  llmModel?,
+  additionalUsers: (typeof owner)[] = [],
+  goals: string[] = []
+) {
+  const conversation = await createConversation(conversationObj, owner, topic, startTime)
+  conversation.goals = goals
+  conversation.behaviorPolicy = NEUTRAL_BEHAVIORAL_POLICY
+  await conversation.save()
+
+  const agent = new Agent({
+    agentType: 'proactiveGroupAgent',
+    conversation,
+    llmPlatform,
+    llmModel
+  })
+
+  const allUsers = [owner, ...additionalUsers]
+  const directChannels = allUsers.map((user) => ({
+    name: `direct-agents-${user._id}`,
+    direct: true,
+    participants: [user, agent]
+  }))
+
+  const channels = await Channel.create([{ name: 'transcript' }, { name: 'chat' }, ...directChannels])
+  conversation.channels.push(...channels)
+  await agent.save()
+  conversation.agents.push(agent)
+  await conversation.save()
+  await agent.start()
+  return conversation
+}
 
 /**
  * NOTE: Synthetic transcript designed to contain technical jargon for jargon filter agent tests.

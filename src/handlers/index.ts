@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from 'express'
 import recall from './recall.js'
 import slack from './slack.js'
 import zoom from './zoom.js'
+import email from './email.js'
 import config from '../config/config.js'
 
 export interface Handler {
@@ -14,5 +15,6 @@ export default {
   ...(config.enableDevelopmentAdapters ? development : {}),
   recall,
   zoom,
-  slack
+  slack,
+  email
 }

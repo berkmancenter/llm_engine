@@ -1,0 +1,26 @@
+{
+  "id": "synthesize_discussion",
+  "label": "Synthesize discussion",
+  "description": "Pulls together threads of conversation into a coherent summary, helping participants see the shape of the discussion and where it has arrived.",
+  "channel": "groupChat",
+  "triggers": {
+    "conditions": [
+      "the discussion has multiple threads",
+      "the conversation is at a natural pause",
+      "message volume has been high"
+    ],
+    "minConfidence": 60
+  },
+  "guardrails": [
+    "don't editorialize or add opinions",
+    "don't declare consensus that doesn't exist",
+    "attribute ideas to participants accurately"
+  ],
+  "outputContract": {
+    "format": "text"
+  },
+  "examples": [
+    "A few themes seem to be emerging here: the tradeoff between speed and accuracy, and whether the evaluation metric is the right one to begin with.",
+    "It sounds like there's broad agreement on the goal but some open questions about the approach — does that capture where things are?"
+  ]
+}

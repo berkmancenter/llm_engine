@@ -90,6 +90,56 @@ describe('resolveConversationType', () => {
         expect.objectContaining({ statusCode: httpStatus.BAD_REQUEST })
       )
     })
+
+    test('throws BAD_REQUEST when a value fails its declared format', () => {
+      const type: ConversationType = {
+        ...baseType,
+        properties: [{ name: 'meetingLink', required: false, type: 'string', format: 'zoomUrl' }]
+      }
+      expect(() => resolveConversationType({ properties: { meetingLink: 'https://evil.com/j/1' } }, type)).toThrow(
+        expect.objectContaining({ statusCode: httpStatus.BAD_REQUEST })
+      )
+    })
+
+    test('accepts a value that satisfies its declared format', () => {
+      const type: ConversationType = {
+        ...baseType,
+        properties: [{ name: 'meetingLink', required: false, type: 'string', format: 'zoomUrl' }]
+      }
+      expect(() => resolveConversationType({ properties: { meetingLink: 'https://zoom.us/j/1' } }, type)).not.toThrow()
+    })
+
+    test('does not throw for a missing required property when allowDraft is set', () => {
+      expect(() => resolveConversationType({ properties: {} }, baseType, true)).not.toThrow()
+    })
+
+    test('does not throw for an invalid format when allowDraft is set', () => {
+      const type: ConversationType = {
+        ...baseType,
+        properties: [{ name: 'meetingLink', required: false, type: 'string', format: 'zoomUrl' }]
+      }
+      expect(() =>
+        resolveConversationType({ properties: { meetingLink: 'https://evil.com/j/1' } }, type, true)
+      ).not.toThrow()
+    })
+
+    test('still throws for an invalid enum even when allowDraft is set', () => {
+      const type: ConversationType = {
+        ...baseType,
+        properties: [
+          {
+            name: 'model',
+            required: false,
+            type: 'enum',
+            options: [{ llmPlatform: 'openai', llmModel: 'gpt-4' }],
+            validationKeys: ['llmPlatform', 'llmModel']
+          }
+        ]
+      }
+      expect(() =>
+        resolveConversationType({ properties: { model: { llmPlatform: 'openai', llmModel: 'not-a-model' } } }, type, true)
+      ).toThrow(expect.objectContaining({ statusCode: httpStatus.BAD_REQUEST }))
+    })
   })
 
   describe('property defaults', () => {
@@ -371,6 +421,86 @@ describe('resolveConversationType', () => {
       expect(result.adapters).toHaveLength(1)
       expect(result.adapters[0]).toMatchObject({ type: 'zoom' })
       expect((result.adapters[0] as { config?: { variant?: string } }).config?.variant).toBeUndefined()
+    })
+  })
+
+  describe('goals and behaviorPolicy derivation', () => {
+    const typeWithGroupChatFeatures: ConversationType = {
+      ...baseType,
+      properties: [],
+      features: [
+        {
+          name: 'collectiveVoice',
+          label: 'Collective Voice',
+          category: 'group-chat',
+          userControlled: false,
+          default: true,
+          agents: []
+        },
+        {
+          name: 'catalyst',
+          label: 'Catalyst',
+          category: 'group-chat',
+          userControlled: false,
+          default: true,
+          agents: []
+        }
+      ]
+    }
+
+    test('includes only DM goals when no features are enabled', () => {
+      const result = resolveConversationType({ features: [] }, typeWithGroupChatFeatures)
+      expect(result.goals).toEqual([
+        'private_reassure',
+        'private_not_alone',
+        'private_transcript_hook',
+        'private_interest_bridge'
+      ])
+    })
+
+    test('includes facilitative goals when collectiveVoice is enabled', () => {
+      const result = resolveConversationType({ features: [{ name: 'collectiveVoice' }] }, typeWithGroupChatFeatures)
+      expect(result.goals).toEqual(
+        expect.arrayContaining([
+          'synthesize_discussion',
+          'bridge_topics',
+          'invite_quieter_voices',
+          'clarify_confusion',
+          'surface_signal',
+          'structure_conversation'
+        ])
+      )
+      expect(result.goals).not.toContain('provoke_participation')
+    })
+
+    test('includes challenge goals when catalyst is enabled', () => {
+      const result = resolveConversationType({ features: [{ name: 'catalyst' }] }, typeWithGroupChatFeatures)
+      expect(result.goals).toEqual(expect.arrayContaining(['provoke_participation', 'play_commentary', 'poll_reveal']))
+      expect(result.goals).not.toContain('synthesize_discussion')
+    })
+
+    test('includes all goals when both collectiveVoice and catalyst are enabled', () => {
+      const result = resolveConversationType(
+        { features: [{ name: 'collectiveVoice' }, { name: 'catalyst' }] },
+        typeWithGroupChatFeatures
+      )
+      expect(result.goals).toEqual(
+        expect.arrayContaining(['private_reassure', 'synthesize_discussion', 'provoke_participation'])
+      )
+    })
+
+    test('sets neutral behaviorPolicy baseline regardless of features', () => {
+      const result = resolveConversationType({ features: [] }, typeWithGroupChatFeatures)
+      expect(result.behaviorPolicy.globalPolicy).toMatchObject({
+        tone: 'warmSupportive',
+        verbosity: 'brief',
+        formality: 'semiFormal',
+        safetyPosture: 'strict'
+      })
+      expect(result.behaviorPolicy.channels?.dm?.proactivePolicy).toMatchObject({
+        initiativeLevel: 'lightlyProactive',
+        minContributionMinutes: 10
+      })
     })
   })
 

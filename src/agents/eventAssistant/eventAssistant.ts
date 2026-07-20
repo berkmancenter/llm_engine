@@ -6,7 +6,7 @@ import renderAgentTemplate from '../helpers/renderAgentTemplate.js'
 import Message from '../../models/message.model.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { eventAssistantLLMTemplates, eventAssistantLlmTemplateVars, answerQuestion } from './eventQuestionHandler.js'
-import { buildSystemPromptWithPersonality } from '../helpers/agentPersonality.js'
+import { composeSystemPrompt } from '../helpers/promptComposer.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 
 import logger from '../../config/logger.js'
@@ -65,7 +65,7 @@ async function buildDmIntroMessage(this, adapterType?: string): Promise<string |
 
   const base = `You are ${botName}, a private AI assistant for this event. Write 1-2 short sentences highlighting what you can help with. Prefer natural, conversational examples (e.g. "ask me to catch you up" or "ask me to simplify something") over listing slash commands. Do not re-explain the channel's purpose or privacy. Friendly and direct, not formal. Output only those sentences, nothing else.`
 
-  const systemPrompt = buildSystemPromptWithPersonality(base, personalityName)
+  const systemPrompt = composeSystemPrompt(base, { personalityName })
 
   const userPrompt = `Event: "${this.conversation.name}"
 ${this.conversation.description ? `Description: ${this.conversation.description}` : ''}

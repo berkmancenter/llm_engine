@@ -15,6 +15,8 @@ import { Conversation, User } from '../../models/index.js'
 import { formatTranscript, formatMultiUserConversationHistory } from '../../agents/helpers/llmInputFormatters.js'
 import getConversationHistory from '../../agents/helpers/getConversationHistory.js'
 import Poll from '../../models/poll.model/poll.js'
+import { getConversationType } from '../../conversations/index.js'
+import { isValidPropertyFormat } from '../../conversations/propertyFormats.js'
 
 const transcriptBatchInterval = 30
 const SUMMARIZATION_PROMPT = `
@@ -57,8 +59,64 @@ async function scheduleTranscriptBatching(conversation) {
   await schedule.batchTranscript(`${transcriptBatchInterval} seconds`, { conversationId: conversation._id })
 }
 
+/**
+ * A conversation-like object with just the fields needed to determine draft status. Accepts
+ * either a Mongoose document or a plain object being assembled before the first save.
+ */
+export interface DraftStatusInput {
+  name?: string
+  topic?: unknown
+  conversationType?: string
+  scheduledTime?: Date | string | null
+  scheduledEndTime?: Date | string | null
+  properties?: Record<string, unknown>
+}
+
+/**
+ * Whether the conversation satisfies every property rule its type declares: each required
+ * property is present (a declared default counts, matching how resolveConversationType fills
+ * them), and each present property with a `format` passes it. Rules come from the type
+ * definition, so this stays correct as types change rather than naming any property here.
+ * The same format validators back resolver.validateProperties, so the two paths agree.
+ */
+function satisfiesTypeProperties(conversation: DraftStatusInput): boolean {
+  const type = conversation.conversationType ? getConversationType(conversation.conversationType) : undefined
+  const propertyDefs = type?.properties ?? []
+  return propertyDefs.every((property) => {
+    const value = conversation.properties?.[property.name] ?? property.default
+    if (property.required && (value === undefined || value === null || value === '')) return false
+    if (property.format && value !== undefined && value !== null && !isValidPropertyFormat(property.format, value)) {
+      return false
+    }
+    return true
+  })
+}
+
+/**
+ * A conversation is Draft until everything needed to run it as a scheduled event is present
+ * and valid. Conversations with no scheduledTime are instant-start (the existing nextspace
+ * "create and start now" flow, not a calendar-invite event awaiting completion) and are never
+ * Draft as long as they have a name and a topic, both already schema-required. Scheduled
+ * conversations additionally need an end time and every property rule their type declares,
+ * including format rules such as the Zoom-host check.
+ */
+export function isConversationDraft(conversation: DraftStatusInput): boolean {
+  const hasName = typeof conversation.name === 'string' && conversation.name.trim().length > 0
+  const hasTopic = !!conversation.topic
+
+  if (!conversation.scheduledTime) {
+    return !hasName || !hasTopic
+  }
+
+  if (!hasName || !hasTopic || !conversation.scheduledEndTime) return true
+  return !satisfiesTypeProperties(conversation)
+}
+
 export async function doStartConversation(conversation) {
   const doc = conversation
+  if (doc.draft) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Cannot start a draft conversation until required fields are filled in.')
+  }
   logger.debug(`Start conversation: ${doc._id}`)
   doc.startTime = new Date()
   for (const agent of doc.agents) {

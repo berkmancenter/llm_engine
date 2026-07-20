@@ -2,7 +2,7 @@ import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { formatMultiUserConversationHistory } from '../helpers/llmInputFormatters.js'
-import { buildSystemPromptWithPersonality } from '../helpers/agentPersonality.js'
+import { composeSystemPrompt } from '../helpers/promptComposer.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
@@ -73,9 +73,9 @@ export default verify({
       personalityName = 'sarcastic-expert'
     }
 
-    const systemPrompt = buildSystemPromptWithPersonality(
+    const systemPrompt = composeSystemPrompt(
       BASE_SYSTEM_PROMPT.replace('{botName}', this.agentConfig.botName),
-      personalityName
+      { personalityName }
     )
 
     const response = await getChatPromptResponse(

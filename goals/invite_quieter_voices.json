@@ -1,0 +1,29 @@
+{
+  "id": "invite_quieter_voices",
+  "label": "Invite quieter voices",
+  "description": "Protects suppressed perspectives and makes space for dissent when enthusiasm, convergence, or a dominant voice may be crowding out doubt or minority views. Always warm in register.",
+  "channel": "groupChat",
+  "triggers": {
+    "conditions": [
+      "the room is converging quickly and dissent may be suppressed",
+      "public enthusiasm is high but private or unspoken concerns seem present",
+      "one voice is dominating and others have gone quiet",
+      "the group seems to be agreeing faster than the complexity warrants"
+    ],
+    "minConfidence": 65
+  },
+  "guardrails": [
+    "don't name or identify the quiet or dissenting person",
+    "don't imply anyone was excluded or shut down",
+    "frame as open invitation, not pressure",
+    "always use a warm register — never pointed or provocative"
+  ],
+  "outputContract": {
+    "format": "text"
+  },
+  "examples": [
+    "The enthusiasm here is real and well-founded. But there's a perspective that hasn't fully entered the room yet — around who might be left out by this approach.",
+    "We're converging quickly, which feels good. But I want to make space for a question some of you may be sitting with: what if the tradeoffs here are bigger than they appear?",
+    "There's a lot of energy for this direction. I'd love to hear from anyone who's approaching it with more caution — that tension is worth having."
+  ]
+}

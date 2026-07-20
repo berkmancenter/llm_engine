@@ -1,0 +1,234 @@
+import httpStatus from 'http-status'
+import request from 'supertest'
+import app from '../../src/app.js'
+import config from '../../src/config/config.js'
+import logger from '../../src/config/logger.js'
+import setupIntTest from '../utils/setupIntTest.js'
+import { parseInviteFromPayload } from '../../src/handlers/email.js'
+
+setupIntTest()
+
+const webhookUser = 'postmark-webhook'
+const webhookSecret = 'test-webhook-secret'
+
+/**
+ * Build a raw iCalendar (.ics) VEVENT body, the kind Outlook attaches to a meeting invite.
+ * Any field passed as null is omitted, so tests can exercise partial invites.
+ */
+const buildIcs = (
+  fields: {
+    uid?: string | null
+    summary?: string | null
+    description?: string | null
+    location?: string | null
+    dtstart?: string | null
+    dtend?: string | null
+    organizer?: string | null
+  } = {}
+): string => {
+  const {
+    uid = '040000008200E00074C5B7101A82E00800000000ABCDEF01',
+    summary = 'Quarterly Strategy Roundtable',
+    description = 'Join on Zoom: https://acme.example.com/j/9876543210',
+    location = 'https://acme.example.com/j/9876543210',
+    dtstart = '20260901T170000Z',
+    dtend = '20260901T180000Z',
+    organizer = 'CN=Jane Organizer:mailto:jane@example.com'
+  } = fields
+
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'PRODID:-//Microsoft Corporation//Outlook 16.0 MIMEDIR//EN',
+    'VERSION:2.0',
+    'METHOD:REQUEST',
+    'BEGIN:VEVENT'
+  ]
+  if (uid !== null) lines.push(`UID:${uid}`)
+  if (summary !== null) lines.push(`SUMMARY:${summary}`)
+  if (description !== null) lines.push(`DESCRIPTION:${description}`)
+  if (location !== null) lines.push(`LOCATION:${location}`)
+  if (dtstart !== null) lines.push(`DTSTART:${dtstart}`)
+  if (dtend !== null) lines.push(`DTEND:${dtend}`)
+  if (organizer !== null) lines.push(`ORGANIZER;${organizer}`)
+  lines.push('END:VEVENT', 'END:VCALENDAR')
+  return lines.join('\r\n')
+}
+
+/** Wrap an .ics body in a Postmark inbound webhook payload as its base64 .ics attachment. */
+const buildPostmarkPayload = (icsBody: string, attachmentOverrides = {}) => ({
+  FromName: 'Jane Organizer',
+  From: 'jane@example.com',
+  Subject: 'Quarterly Strategy Roundtable',
+  MessageID: '73e6d360-66eb-11e1-8e72-a8206ea7d3ea',
+  TextBody: 'You are invited.',
+  Attachments: [
+    {
+      Name: 'invite.ics',
+      Content: Buffer.from(icsBody, 'utf8').toString('base64'),
+      ContentType: 'text/calendar; method=REQUEST; name="invite.ics"',
+      ContentLength: icsBody.length,
+      ContentID: '',
+      ...attachmentOverrides
+    }
+  ]
+})
+
+describe('POST /v1/webhooks/email', () => {
+  let originalUser
+  let originalSecret
+
+  beforeAll(() => {
+    originalUser = config.postmark.authUser
+    originalSecret = config.postmark.authSecret
+    config.postmark.authUser = webhookUser
+    config.postmark.authSecret = webhookSecret
+  })
+
+  afterAll(() => {
+    config.postmark.authUser = originalUser
+    config.postmark.authSecret = originalSecret
+  })
+
+  describe('Basic Auth', () => {
+    test('accepts a request with valid credentials and responds 200', async () => {
+      await request(app)
+        .post('/v1/webhooks/email')
+        .auth(webhookUser, webhookSecret)
+        .send(buildPostmarkPayload(buildIcs()))
+        .expect(httpStatus.OK)
+    })
+
+    test('rejects a request with no Authorization header before parsing', async () => {
+      await request(app).post('/v1/webhooks/email').send(buildPostmarkPayload(buildIcs())).expect(httpStatus.UNAUTHORIZED)
+    })
+
+    test('rejects a request with the wrong password', async () => {
+      await request(app)
+        .post('/v1/webhooks/email')
+        .auth(webhookUser, 'wrong-secret')
+        .send(buildPostmarkPayload(buildIcs()))
+        .expect(httpStatus.UNAUTHORIZED)
+    })
+
+    test('rejects a request with the wrong username', async () => {
+      await request(app)
+        .post('/v1/webhooks/email')
+        .auth('impostor', webhookSecret)
+        .send(buildPostmarkPayload(buildIcs()))
+        .expect(httpStatus.UNAUTHORIZED)
+    })
+
+    test('responds 200 even when the message carries no calendar attachment', async () => {
+      const payload = buildPostmarkPayload(buildIcs())
+      payload.Attachments = []
+      await request(app).post('/v1/webhooks/email').auth(webhookUser, webhookSecret).send(payload).expect(httpStatus.OK)
+    })
+  })
+
+  describe('logging', () => {
+    afterEach(() => {
+      jest.restoreAllMocks()
+    })
+
+    test('logs the invite start and end times as UTC', async () => {
+      // The log is this handler's only output, so a timezone mistake is invisible without the times.
+      const infoSpy = jest.spyOn(logger, 'info').mockReturnValue(logger)
+
+      await request(app)
+        .post('/v1/webhooks/email')
+        .auth(webhookUser, webhookSecret)
+        .send(buildPostmarkPayload(buildIcs()))
+        .expect(httpStatus.OK)
+
+      const logged = infoSpy.mock.calls.map(([message]) => String(message)).join('\n')
+      expect(logged).toContain('2026-09-01T17:00:00.000Z')
+      expect(logged).toContain('2026-09-01T18:00:00.000Z')
+    })
+  })
+
+  describe('parseInviteFromPayload', () => {
+    test('extracts the calendar fields from the base64-encoded .ics attachment', () => {
+      const invite = parseInviteFromPayload(buildPostmarkPayload(buildIcs()))
+
+      expect(invite).not.toBeNull()
+      expect(invite?.uid).toBe('040000008200E00074C5B7101A82E00800000000ABCDEF01')
+      expect(invite?.summary).toBe('Quarterly Strategy Roundtable')
+      expect(invite?.description).toBe('Join on Zoom: https://acme.example.com/j/9876543210')
+      expect(invite?.location).toBe('https://acme.example.com/j/9876543210')
+      expect(invite?.organizer).toBe('jane@example.com')
+      expect(invite?.startDate?.toISOString()).toBe('2026-09-01T17:00:00.000Z')
+      expect(invite?.endDate?.toISOString()).toBe('2026-09-01T18:00:00.000Z')
+    })
+
+    test('resolves a TZID-based DTSTART/DTEND through the embedded VTIMEZONE', () => {
+      // Outlook names zones the Windows way ("Eastern Standard Time"), not the IANA way, and
+      // defines them in the file. Sept 1 2026 is daylight there (UTC-4), so 13:00 local is 17:00 UTC.
+      const ics = [
+        'BEGIN:VCALENDAR',
+        'PRODID:-//Microsoft Corporation//Outlook 16.0 MIMEDIR//EN',
+        'VERSION:2.0',
+        'METHOD:REQUEST',
+        'BEGIN:VTIMEZONE',
+        'TZID:Eastern Standard Time',
+        'BEGIN:STANDARD',
+        'DTSTART:16011104T020000',
+        'TZOFFSETFROM:-0400',
+        'TZOFFSETTO:-0500',
+        'RRULE:FREQ=YEARLY;BYDAY=1SU;BYMONTH=11',
+        'END:STANDARD',
+        'BEGIN:DAYLIGHT',
+        'DTSTART:16010311T020000',
+        'TZOFFSETFROM:-0500',
+        'TZOFFSETTO:-0400',
+        'RRULE:FREQ=YEARLY;BYDAY=2SU;BYMONTH=3',
+        'END:DAYLIGHT',
+        'END:VTIMEZONE',
+        'BEGIN:VEVENT',
+        'UID:040000008200E00074C5B7101A82E00800000000ABCDEF01',
+        'SUMMARY:Quarterly Strategy Roundtable',
+        'DESCRIPTION:Join on Zoom: https://acme.example.com/j/9876543210',
+        'LOCATION:https://acme.example.com/j/9876543210',
+        'DTSTART;TZID=Eastern Standard Time:20260901T130000',
+        'DTEND;TZID=Eastern Standard Time:20260901T140000',
+        'ORGANIZER;CN=Jane Organizer:mailto:jane@example.com',
+        'END:VEVENT',
+        'END:VCALENDAR'
+      ].join('\r\n')
+
+      const invite = parseInviteFromPayload(buildPostmarkPayload(ics))
+
+      expect(invite?.startDate?.toISOString()).toBe('2026-09-01T17:00:00.000Z')
+      expect(invite?.endDate?.toISOString()).toBe('2026-09-01T18:00:00.000Z')
+    })
+
+    test('identifies the .ics attachment by filename when the content type is generic', () => {
+      const payload = buildPostmarkPayload(buildIcs(), {
+        Name: 'meeting.ics',
+        ContentType: 'application/octet-stream'
+      })
+
+      const invite = parseInviteFromPayload(payload)
+
+      expect(invite?.summary).toBe('Quarterly Strategy Roundtable')
+    })
+
+    test('returns null when there is no calendar attachment', () => {
+      const payload = buildPostmarkPayload(buildIcs())
+      payload.Attachments = [
+        {
+          Name: 'photo.png',
+          Content: Buffer.from('not-a-calendar', 'utf8').toString('base64'),
+          ContentType: 'image/png',
+          ContentLength: 14,
+          ContentID: ''
+        }
+      ]
+
+      expect(parseInviteFromPayload(payload)).toBeNull()
+    })
+
+    test('returns null when the attachments array is missing', () => {
+      expect(parseInviteFromPayload({ From: 'jane@example.com' })).toBeNull()
+    })
+  })
+})

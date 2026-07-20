@@ -1,15 +1,24 @@
 import { z } from 'zod'
-import { ConversationHistory, IChannel } from '../../types/index.types.js'
+import { BehaviorPolicy, ConversationHistory, ConversationGoal, IChannel } from '../../types/index.types.js'
 import { formatMultiUserConversationHistory, formatDmHistoryByChannel } from './llmInputFormatters.js'
 import transcript from './transcript.js'
 import { getChatPromptResponse } from './llmChain.js'
 
-import config from '../../config/config.js'
 import logger from '../../config/logger.js'
-import Message from '../../models/message.model.js'
-import { InterventionAnalysis, InterventionType } from './interventionTypes.js'
-import { buildSystemPromptWithPersonality, getInterventionExamples } from './agentPersonality.js'
-import validateProfessionalism from './professionalismValidator.js'
+import { getConfidenceThreshold, getMinContributionMs } from './promptComposer.js'
+
+/**
+ * Analysis result from intervention detection
+ */
+interface InterventionAnalysis {
+  shouldIntervene: boolean
+  reasoning: string
+  sharedChatMessage?: string
+  confidenceScore: number
+  detectedPattern?: string
+  affectedUsers?: number
+  context?: string
+}
 
 export const USER_TEMPLATE = `## Event Topic:
 {topic}
@@ -45,38 +54,13 @@ export const interventionLlmTemplateVars = {
   ]
 }
 /**
- * Generate schema based on enabled intervention types
- * @param enabledInterventions - List of enabled intervention types (from getEnabledInterventions)
+ * Build the intervention type section for the system prompt.
+ * Used by checkinHandler for PrivateCheckinType sections.
  */
-export function getInterventionAnalysisSchema(enabledInterventions: InterventionType[]) {
-  const interventionTypeStrings = enabledInterventions.map((t) => t.toString())
-
-  return z.object({
-    shouldIntervene: z.boolean().describe('Whether an intervention is warranted at this moment'),
-    interventionType: z.enum(interventionTypeStrings as [string, ...string[]]).describe('The type of intervention to make'),
-    reasoning: z.string().describe('Internal analysis of what patterns you see and why you are or are not intervening'),
-    sharedChatMessage: z
-      .string()
-      .nullable()
-      .optional()
-      .describe('The message to post in shared chat, if shouldIntervene is true'),
-    confidenceScore: z.number().min(0).max(100).describe('Confidence in this intervention decision'),
-    detectedPattern: z.string().nullable().optional().describe('Brief description of the pattern detected'),
-    affectedUsers: z.number().nullable().optional().describe('Number of distinct users involved in the pattern')
-  })
-}
-
-/**
- * Build the intervention type section for the system prompt
- */
-export function buildInterventionTypeSection(interventionType, defaultInfo, personalityName?): string {
-  if (interventionType === InterventionType.NONE) {
-    return '' // NONE doesn't get a section
+export function buildInterventionTypeSection(interventionType, defaultInfo): string {
+  if (interventionType === 'NONE') {
+    return ''
   }
-
-  // Try to get personality-specific examples
-  const personalityExamples = getInterventionExamples(interventionType, personalityName)
-  const examples = personalityExamples || defaultInfo.examples
 
   const lines: string[] = [
     `### ${interventionType} — ${defaultInfo.description}`,
@@ -85,7 +69,7 @@ export function buildInterventionTypeSection(interventionType, defaultInfo, pers
     'Examples:'
   ]
 
-  for (const example of examples) {
+  for (const example of defaultInfo.examples) {
     lines.push(`- ${example}`)
   }
 
@@ -119,15 +103,17 @@ function getRecentAgentInterventions(conversationHistory: ConversationHistory): 
 /**
  * Shared LLM evaluation core: formats histories, retrieves transcript/RAG context, calls the LLM,
  * checks confidence and professionalism, and attaches the trace context string.
- * Rate limiting and DB race guard are handled by the two public wrappers below.
+ * Rate limiting is handled by the two public wrappers below.
  */
-async function runInterventionAnalysis(
+export async function runInterventionAnalysis(
   sharedChatHistory: ConversationHistory,
   baseSystemPrompt: string,
   schema: z.ZodSchema,
   privateConversationHistory: ConversationHistory | null,
   userTemplate: string | undefined,
-  extraTemplateVars?: Record<string, string>
+  extraTemplateVars?: Record<string, string>,
+  activeGoals?: ConversationGoal[],
+  behaviorPolicy?: BehaviorPolicy
 ): Promise<InterventionAnalysis | null> {
   // Format conversation histories
   const sharedChatMessages = formatMultiUserConversationHistory(sharedChatHistory)
@@ -153,15 +139,6 @@ async function runInterventionAnalysis(
   // Get agent's recent posts for self-awareness
   const agentRecentPosts = getAgentRecentPosts(sharedChatHistory, this.name, 5)
 
-  // Determine which personality to use (if any)
-  let personalityName: string | null = null
-  if (this.agentConfig?.personality !== undefined) {
-    personalityName = this.agentConfig.personality
-  } else if (config.enableAgentPersonality) {
-    personalityName = 'sarcastic-expert'
-  }
-
-  const systemPrompt = buildSystemPromptWithPersonality(baseSystemPrompt, personalityName)
   const resolvedUserTemplate = userTemplate ?? this.llmTemplates.user ?? USER_TEMPLATE
 
   const templateVars = {
@@ -179,7 +156,7 @@ async function runInterventionAnalysis(
   const llm = await this.getLLM()
   const analysis = (await getChatPromptResponse(
     llm,
-    systemPrompt,
+    baseSystemPrompt,
     resolvedUserTemplate,
     templateVars,
     [], // No chat history - we provide full context in the prompt
@@ -188,26 +165,17 @@ async function runInterventionAnalysis(
 
   logger.debug(`Intervention opportunity analysis: ${JSON.stringify(analysis, null, 2)}`)
 
-  // Return null if shouldn't intervene or confidence too low
-  if (!analysis.shouldIntervene || analysis.confidenceScore < 60) {
-    return null
-  }
+  // Return null if shouldn't intervene or confidence too low.
+  // Threshold is raised to 75 when socialSensitivity is 'high'.
+  // Per-pattern minConfidence provides an additional floor applied per-call.
+  const channelPolicy = behaviorPolicy?.channels?.groupChat?.proactivePolicy ?? behaviorPolicy?.channels?.dm?.proactivePolicy
+  const policyThreshold = getConfidenceThreshold(channelPolicy)
+  const patternFloor =
+    activeGoals && activeGoals.length > 0 ? Math.max(...activeGoals.map((p) => p.triggers.minConfidence)) : 0
+  const effectiveThreshold = Math.max(policyThreshold, patternFloor)
 
-  // Professionalism validation - check if message maintains appropriate professional boundaries
-  if (analysis.sharedChatMessage) {
-    const isAppropriate = await validateProfessionalism(
-      llm,
-      analysis.sharedChatMessage,
-      this.conversation.name,
-      analysis.interventionType,
-      recentTranscript
-    )
-    if (!isAppropriate) {
-      logger.warn(
-        `Agent ${this.name} intervention rejected by professionalism guardrail. Type: ${analysis.interventionType}`
-      )
-      return null
-    }
+  if (!analysis.shouldIntervene || analysis.confidenceScore < effectiveThreshold) {
+    return null
   }
 
   const renderedUserPrompt = Object.entries(templateVars).reduce(
@@ -219,59 +187,6 @@ async function runInterventionAnalysis(
 
   const result = analysis as InterventionAnalysis
   result.context = renderedUserPrompt
-
-  return result
-}
-
-const PUBLIC_INTERVENTION_RULES = `
-When weighing recent agent activity in Shared Chat History, distinguish between agents answering direct participant questions and agents making facilitative contributions — only the latter should count against intervening now.`
-
-const RACE_GUARD_WINDOW_MS = 60 * 1000
-
-/**
- * Returns true if a proactive agent intervention was posted to chat within the race guard window.
- * Exported for testing.
- */
-export async function proactiveRaceGuard(conversationId, now = Date.now()): Promise<boolean> {
-  const fresh = await Message.findOne({
-    conversation: conversationId,
-    'source.proactive': true,
-    visible: true,
-    channels: 'chat',
-    createdAt: { $gte: new Date(now - RACE_GUARD_WINDOW_MS) }
-  })
-  return !!fresh
-}
-
-/**
- * Detects whether to post a public intervention to the shared chat channel.
- * The LLM decides on every invocation whether intervention is appropriate — no rate limiting.
- * A post-LLM DB race guard prevents two proactive agents from double-posting when both
- * evaluate concurrently. Only proactive messages are considered (not Q&A agents).
- */
-export async function detectPublicInterventionOpportunity(
-  sharedChatHistory: ConversationHistory,
-  baseSystemPrompt: string,
-  schema: z.ZodSchema,
-  privateConversationHistory?: ConversationHistory | null,
-  userTemplate?: string
-): Promise<InterventionAnalysis | null> {
-  const now = sharedChatHistory.end ? sharedChatHistory.end.getTime() : Date.now()
-
-  const result = await runInterventionAnalysis.call(
-    this,
-    sharedChatHistory,
-    baseSystemPrompt + PUBLIC_INTERVENTION_RULES,
-    schema,
-    privateConversationHistory ?? null,
-    userTemplate
-  )
-  if (!result) return null
-
-  if (await proactiveRaceGuard(this.conversation._id, now)) {
-    logger.info(`Agent ${this.name} dropping intervention: another proactive agent posted during LLM call`)
-    return null
-  }
 
   return result
 }
@@ -289,10 +204,13 @@ export async function detectPrivateInterventionOpportunity(
   allDmHistory: ConversationHistory,
   participantDmHistory: ConversationHistory,
   userTemplate?: string,
-  extraTemplateVars?: Record<string, string>
+  extraTemplateVars?: Record<string, string>,
+  activeGoals?: ConversationGoal[],
+  behaviorPolicy?: BehaviorPolicy
 ): Promise<InterventionAnalysis | null> {
   const now = sharedChatHistory.end ? sharedChatHistory.end.getTime() : Date.now()
-  const minInterval = (this.agentConfig?.minInterval ?? 2) * 60 * 1000
+  const dmProactivePolicy = behaviorPolicy?.channels?.dm?.proactivePolicy
+  const minInterval = getMinContributionMs(dmProactivePolicy, this.agentConfig)
 
   const lastIntervention = getRecentAgentInterventions(participantDmHistory).at(-1)
   // Use startTime as baseline for first intervention — resets on conversation restart, which is intentional.
@@ -314,6 +232,8 @@ export async function detectPrivateInterventionOpportunity(
     schema,
     allDmHistory,
     userTemplate,
-    extraTemplateVars
+    extraTemplateVars,
+    activeGoals,
+    behaviorPolicy
   )
 }
