@@ -8,6 +8,7 @@ async function saveMessage(message, pseudonym, pseudonymId, createdAt, channels,
     pseudonymId,
     body: message,
     createdAt,
+    updatedAt: createdAt,
     channels,
     bodyType: 'json'
   })
