@@ -9,6 +9,7 @@
       "the participant seems hesitant to contribute",
       "the participant seems self-conscious"
     ],
+    "participantRequirements": { "minMessageCount": 3 },
     "minConfidence": 70
   },
   "guardrails": [

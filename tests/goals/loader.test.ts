@@ -20,6 +20,28 @@ describe('loadGoal', () => {
       description: expect.any(String)
     })
   })
+
+  test('normalizes plain string conditions to participant-scoped objects', () => {
+    const goal = loadGoal('bridge_topics')
+    expect(goal.triggers.conditions.length).toBeGreaterThan(0)
+    for (const c of goal.triggers.conditions) {
+      expect(c).toMatchObject({ scope: expect.stringMatching(/^event|participant$/), condition: expect.any(String) })
+    }
+  })
+
+  test('preserves event-scoped conditions from goal JSON', () => {
+    const goal = loadGoal('private_transcript_hook')
+    const eventConditions = goal.triggers.conditions.filter((c) => c.scope === 'event')
+    expect(eventConditions.length).toBeGreaterThan(0)
+    expect(eventConditions[0].condition).toMatch(/dense|fast-moving/)
+  })
+
+  test('normalizes mixed string and object conditions', () => {
+    const goal = loadGoal('private_transcript_hook')
+    const scopes = goal.triggers.conditions.map((c) => c.scope)
+    expect(scopes).toContain('event')
+    expect(scopes).toContain('participant')
+  })
 })
 
 describe('loadGoals', () => {

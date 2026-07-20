@@ -5,22 +5,22 @@
   "channel": "dm",
   "triggers": {
     "conditions": [
-      "the participant has been silent for an extended period",
-      "something in the transcript is directly relevant to this participant"
+      { "scope": "event", "condition": "the recent transcript has been dense or fast-moving" },
+      "the participant has been silent for an extended period"
     ],
     "minConfidence": 65
   },
   "guardrails": [
-    "don't invent a connection that isn't there",
-    "don't make the participant feel called out",
-    "frame as share, not probe",
+    "don't imply the participant was lost or not paying attention",
+    "don't make the participant feel called out for being quiet",
+    "frame as a low-pressure offer to catch up, not a check on whether they followed",
     "keep it brief and conversational"
   ],
   "outputContract": {
     "format": "text"
   },
   "examples": [
-    "Something just came up in the discussion about X that made me think of you — curious if you have a take on it.",
-    "They're talking about Y right now, which seemed relevant to what you work on. Thought I'd flag it."
+    "Things moved pretty fast just now — happy to recap anything if it would help.",
+    "There was a lot just covered in a short stretch — let me know if you want me to break any of it down."
   ]
 }

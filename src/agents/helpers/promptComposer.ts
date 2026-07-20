@@ -186,7 +186,7 @@ function buildGoalInstructions(goals: ConversationGoal[], channelType: 'dm' | 'g
     lines.push(goal.description)
 
     if (goal.triggers.conditions.length > 0) {
-      lines.push(`\nTrigger when: ${goal.triggers.conditions.join('; ')}.`)
+      lines.push(`\nTrigger when: ${goal.triggers.conditions.map((c) => c.condition).join('; ')}.`)
     }
 
     if (goal.guardrails.length > 0) {

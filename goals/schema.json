@@ -47,9 +47,38 @@
         "conditions": {
           "type": "array",
           "items": {
-            "type": "string"
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "required": ["scope", "condition"],
+                "additionalProperties": false,
+                "properties": {
+                  "scope": {
+                    "type": "string",
+                    "enum": ["event", "participant"],
+                    "description": "event: evaluated once before the participant loop. participant: folded into the per-participant LLM call."
+                  },
+                  "condition": {
+                    "type": "string",
+                    "description": "The condition text, evaluated at the specified scope."
+                  }
+                }
+              }
+            ]
           },
-          "description": "Observable conditions that should prompt considering this pattern."
+          "description": "Observable conditions that should prompt considering this pattern. Plain strings are participant-scoped (evaluated per-participant by the LLM). Objects with a scope field allow event-scoped pre-evaluation."
+        },
+        "participantRequirements": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Cheap per-participant pre-checks evaluated before the LLM call. If requirements are not met, the goal is excluded for that participant.",
+          "properties": {
+            "minMessageCount": {
+              "type": "number",
+              "description": "Minimum number of messages the participant must have sent before this goal is considered."
+            }
+          }
         },
         "minConfidence": {
           "type": "number",

@@ -8,6 +8,7 @@
       "the participant has been silent for an extended period",
       "the discussion topic matches this participant's background or interests"
     ],
+    "participantRequirements": { "minMessageCount": 1 },
     "minConfidence": 65
   },
   "guardrails": [
