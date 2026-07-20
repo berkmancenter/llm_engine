@@ -351,13 +351,19 @@ export interface Resource {
   addedAt?: Date
 }
 
+export interface TriggerCondition {
+  scope: 'event' | 'participant'
+  condition: string
+}
+
 export interface ConversationGoal {
   id: string
   label: string
   description: string
   channel: 'groupChat' | 'dm'
   triggers: {
-    conditions: string[]
+    conditions: TriggerCondition[]
+    participantRequirements?: { minMessageCount?: number }
     minConfidence: number
   }
   guardrails: string[]

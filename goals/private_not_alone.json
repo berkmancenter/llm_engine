@@ -9,6 +9,7 @@
       "the participant went silent after being disagreed with",
       "the participant seems socially isolated in the room"
     ],
+    "participantRequirements": { "minMessageCount": 1 },
     "minConfidence": 70
   },
   "guardrails": [

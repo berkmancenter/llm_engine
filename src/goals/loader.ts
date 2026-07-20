@@ -1,8 +1,12 @@
 import fs from 'fs'
 import path from 'path'
-import { ConversationGoal } from '../types/index.types.js'
+import { ConversationGoal, TriggerCondition } from '../types/index.types.js'
 
 const GOALS_DIR = path.resolve(process.cwd(), 'goals')
+
+function normalizeConditions(raw: (string | TriggerCondition)[]): TriggerCondition[] {
+  return raw.map((c) => (typeof c === 'string' ? { scope: 'participant' as const, condition: c } : c))
+}
 
 const goalCache = new Map<string, ConversationGoal>(
   fs
@@ -11,7 +15,11 @@ const goalCache = new Map<string, ConversationGoal>(
     .map((f) => {
       const id = f.replace('.json', '')
       // eslint-disable-next-line security/detect-non-literal-fs-filename
-      const goal = JSON.parse(fs.readFileSync(path.join(GOALS_DIR, f), 'utf8')) as ConversationGoal
+      const raw = JSON.parse(fs.readFileSync(path.join(GOALS_DIR, f), 'utf8'))
+      const goal: ConversationGoal = {
+        ...raw,
+        triggers: { ...raw.triggers, conditions: normalizeConditions(raw.triggers.conditions) }
+      }
       return [id, goal]
     })
 )
