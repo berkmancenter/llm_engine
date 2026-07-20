@@ -51,6 +51,10 @@ const envVarsSchema = Joi.object()
     ARCHIVE_PATH: Joi.string().description(
       'Path to an archive-wiki folder (markdown wiki + collection/ + raw/archive.json). Enables archive tools on the eventHistorian.'
     ),
+    ARCHIVE_API_URL: Joi.string().description(
+      'Base URL of the archive-wiki API (e.g. http://localhost:4000). When set, archive tools call the API instead of reading ARCHIVE_PATH, and concluded events are auto-filed to the archive inbox.'
+    ),
+    ARCHIVE_API_TOKEN: Joi.string().description('Bearer token for the archive-wiki API'),
     CHROMA_DB_URL: Joi.string().default('http://0.0.0.0:8000'),
     EMBEDDINGS_COLLECTION_PREFIX: Joi.string().default('llm-engine'),
     DEFAULT_EMBEDDINGS_API_URL: Joi.string().description('The URL of an OpenAI-compatible server used for embeddings'),
@@ -152,6 +156,8 @@ const config = {
   },
   ragDocumentsPath: envVars.RAG_DOCUMENTS_PATH,
   archivePath: envVars.ARCHIVE_PATH,
+  archiveApiUrl: envVars.ARCHIVE_API_URL,
+  archiveApiToken: envVars.ARCHIVE_API_TOKEN,
   chroma: {
     url: envVars.CHROMA_DB_URL,
     embeddingsCollectionPrefix: envVars.EMBEDDINGS_COLLECTION_PREFIX

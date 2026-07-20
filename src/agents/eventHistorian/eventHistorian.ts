@@ -7,11 +7,13 @@ import { buildSystemPromptWithPersonality } from '../helpers/agentPersonality.js
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
 import createEventHistoryTools, { TopicRef, buildEventHistoryToolsPrompt } from '../tools/eventHistory.js'
-import createArchiveTools from '../tools/archive.js'
+import createArchiveTools, { saveEventToArchive } from '../tools/archive.js'
 import Topic from '../../models/topic.model.js'
 import Conversation from '../../models/conversation.model.js'
 import config from '../../config/config.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
+import logger from '../../config/logger.js'
+import access from '../../auth/access.js'
 
 const BASE_SYSTEM_PROMPT = `You are {botName}, a helpful, knowledgeable AI assistant participating in a group chat. You can engage with any topic or inquiry—from casual conversation to technical questions, creative tasks, analysis, debugging, writing, math, and beyond. There are no subject limits.
 
@@ -34,17 +36,22 @@ When searching, search across all series unless the question clearly refers to a
 You are in a live chat — respond promptly. Gather just enough to answer well: one or two searches usually suffice, and never re-run near-identical queries against the same source. Answer as soon as you have the substance.
 {archiveContext}{topicContext}`
 
-const ARCHIVE_CONTEXT = `
+function buildArchiveContext(apiMode: boolean): string {
+  const searchDescription = apiMode
+    ? 'keyword search across all archive content — use for questions about what the archive holds (talks, writings, coverage of a subject); prefer concrete names and terms over paraphrases'
+    : 'semantic search across all archive content — use for questions about what the archive holds (talks, writings, coverage of a subject)'
+  return `
 
 **Archive tools:**
 You also have access to the BKC archive — a curated collection of video transcripts, articles, newsletters, and bookmarked items, organized by a wiki of topic, people, org, and timeline pages.
 
-- \`search_archive\`: semantic search across all archive content — use for questions about what the archive holds (talks, writings, coverage of a subject)
+- \`search_archive\`: ${searchDescription}
 - \`list_archive_wiki_pages\`: list the curated wiki pages — use to route a thematic question (a topic, person, organization, or era) to the right page
 - \`read_archive_wiki_page\`: read one wiki page; its wiki-links carry archive item ids
 - \`get_archive_item\`: fetch one item's metadata plus full source material (transcript or article text) by id
 
 For direct content questions, go straight to \`search_archive\`. For thematic or survey questions ("what does the archive have on X", questions about a person/org/era), route through the wiki: \`list_archive_wiki_pages\` → \`read_archive_wiki_page\` → \`get_archive_item\` for the sources you need. Cite items by title, date, and URL. Event transcripts (the tools above) and the archive are different bodies of material — talks, videos, interviews, articles, and newsletters usually live in the archive. Budget your tool calls: if an event-history search returns nothing relevant, switch to \`search_archive\` instead of retrying variations of the same search.`
+}
 
 function buildTopicContext(topics: TopicRef[]): string {
   const lines = topics.map((t) => {
@@ -118,15 +125,23 @@ export default verify({
       personalityName = 'sarcastic-expert'
     }
 
-    const archiveEnabled = !!config.archivePath
+    const archiveEnabled = !!(config.archiveApiUrl || config.archivePath)
 
     const systemPromptBase = BASE_SYSTEM_PROMPT.replace('{botName}', this.agentConfig.botName)
-      .replace('{archiveContext}', archiveEnabled ? ARCHIVE_CONTEXT : '')
+      .replace('{archiveContext}', archiveEnabled ? buildArchiveContext(!!config.archiveApiUrl) : '')
       .replace('{topicContext}', buildTopicContext(topics))
     const systemPrompt = buildSystemPromptWithPersonality(systemPromptBase, personalityName)
 
     const tools: StructuredToolInterface[] = topics.length > 0 ? createEventHistoryTools(topics) : []
-    if (archiveEnabled) tools.push(...createArchiveTools(config.archivePath))
+    if (archiveEnabled) {
+      tools.push(
+        ...createArchiveTools({
+          archivePath: config.archivePath,
+          apiUrl: config.archiveApiUrl,
+          apiToken: config.archiveApiToken
+        })
+      )
+    }
 
     // Build message array: chat history + current question
     // Recursion limit: each tool round-trip costs 2 graph steps; with both event-history
@@ -157,9 +172,49 @@ export default verify({
 
   async onConversationEvent(evt) {
     if (evt.type !== 'conversationStopped') return []
-    const conv = await Conversation.findById(evt.conversationId).select('name summary').lean()
+    const conv = await Conversation.findById(evt.conversationId)
+      .select('name summary startTime platforms presenters topic')
+      .populate({ path: 'topic', select: 'private' })
+      .lean()
     if (!conv?.summary) return []
     const name = conv.name ?? 'An event'
+    const { summary } = conv
+
+    if (config.archiveApiUrl) {
+      const topic = conv.topic as { _id?: { toString(): string }; private?: boolean } | undefined
+      // Fire-and-forget: the archive push-back is a best-effort side effect that
+      // shouldn't delay the wrap-up message below on the archive API's latency.
+      // Re-check read access here even though the dispatcher already gated it, so least
+      // privilege stays explicit at the read site (mirrors vibesAnalyst.onConversationEvent).
+      // Fail closed: anything but an explicit `private: false` counts as private, so an
+      // unpopulated or deleted topic is never auto-filed.
+      ;(async () => {
+        try {
+          access.assertCanRead(this, {
+            type: 'conversation',
+            id: evt.conversationId,
+            topicId: topic?._id?.toString(),
+            topicIsPrivate: topic?.private !== false
+          })
+        } catch (err) {
+          logger.debug(`Skipping archive push-back for "${name}": ${err.message}`)
+          return
+        }
+        const result = await saveEventToArchive(config.archiveApiUrl, config.archiveApiToken, {
+          title: name,
+          markdown: summary,
+          date: conv.startTime ? new Date(conv.startTime).toISOString().slice(0, 10) : undefined,
+          source: conv.platforms?.[0],
+          participants: conv.presenters?.map((p) => p.name)
+        })
+        if (result.ok) {
+          logger.info(`Filed "${name}" to the archive inbox: ${result.path}`)
+        } else {
+          logger.warn(`Failed to file "${name}" to the archive: ${result.message}`)
+        }
+      })().catch((err) => logger.warn(`Archive push-back errored for "${name}": ${err.message}`))
+    }
+
     const responseChannels = this.conversation.channels.filter((c) => c.name === 'historian')
     return [
       {

@@ -73,12 +73,14 @@ registerTool('event_history', (context) => {
   return createEventHistoryTools(topics, { activeConversationId: context?.activeConversationId })
 })
 
-// Archive tools read from the wiki folder configured via ARCHIVE_PATH
+// Archive tools call the archive-wiki API (ARCHIVE_API_URL) when configured,
+// falling back to reading the wiki folder configured via ARCHIVE_PATH.
 registerTool('archive', (context) => {
   const archivePath = context?.archivePath || config.archivePath
-  if (!archivePath) {
-    logger.warn('Tool registry: archive requested but no ARCHIVE_PATH configured')
+  const apiUrl = context?.archiveApiUrl || config.archiveApiUrl
+  if (!archivePath && !apiUrl) {
+    logger.warn('Tool registry: archive requested but neither ARCHIVE_API_URL nor ARCHIVE_PATH is configured')
     return []
   }
-  return createArchiveTools(archivePath)
+  return createArchiveTools({ archivePath, apiUrl, apiToken: config.archiveApiToken })
 })
