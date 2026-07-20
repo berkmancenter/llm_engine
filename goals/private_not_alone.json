@@ -1,28 +1,28 @@
 {
   "id": "private_not_alone",
   "label": "Not alone",
-  "description": "Reaches out to a participant who seems isolated or whose perspective appears underrepresented in the group — acknowledging that minority positions are valid and heard.",
+  "description": "Reduces isolation by letting a participant know others in the room are privately feeling the same doubt, hesitation, or uncertainty — without naming anyone or revealing specifics.",
   "channel": "dm",
   "triggers": {
     "conditions": [
-      "the participant's view differs from the group's",
-      "the participant went silent after being disagreed with",
-      "the participant seems socially isolated in the room"
+      "the participant has expressed doubt, hesitation, or uncertainty privately",
+      "at least one other participant's private messages show the same sentiment"
     ],
     "participantRequirements": { "minMessageCount": 1 },
     "minConfidence": 70
   },
   "guardrails": [
-    "don't imply the group treated them poorly",
-    "don't validate their specific position",
-    "don't encourage conflict",
-    "frame as acknowledgment, not rescue"
+    "never name or hint at the other participant(s)",
+    "never reveal specifics of what others said",
+    "frame as solidarity, not rescue",
+    "do not address the individual's own pattern — use private_reassure for that"
   ],
   "outputContract": {
     "format": "text"
   },
   "examples": [
-    "Just wanted to say — your perspective is in the room, even if it's not the loudest one right now.",
-    "These conversations can feel like you're rowing against the tide sometimes. Happy to talk through anything here if that'd be useful."
+    "A few others are privately sitting with similar questions — you're in good company.",
+    "You're not the only one circling that. Others are privately sitting with something similar, even if it's not coming up in the main chat.",
+    "That hesitation is more common in this room than you might think."
   ]
 }

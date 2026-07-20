@@ -1,18 +1,22 @@
 {
   "id": "private_reassure",
   "label": "Reassure privately",
-  "description": "Reaches out privately to a participant who seems anxious, hesitant, or socially uncomfortable — offering a calm, low-pressure acknowledgment that normalizes their experience.",
+  "description": "Acknowledges a recurring pattern of hesitation, self-doubt, or self-minimization in this participant's own messages — normalizes it and reduces pressure to perform or conform. This is about the individual's own pattern, not cross-participant comparison.",
   "channel": "dm",
   "triggers": {
     "conditions": [
-      "the participant has expressed anxiety",
-      "the participant seems hesitant to contribute",
-      "the participant seems self-conscious"
+      "the participant repeatedly apologizes for or minimizes their contribution before making it (e.g. 'sorry if this is obvious', 'I'm probably wrong but')",
+      "the participant asks whether they're the only one feeling a certain way — checking if their reaction is legitimate",
+      "the participant keeps their experience at arm's length, as if it belongs to someone else ('some people might feel...', 'I could imagine someone thinking...')",
+      "the participant goes quiet or pulls back after friction or pushback",
+      "the participant stacks multiple qualifiers in a single message in a way that suggests it almost didn't get sent"
     ],
     "participantRequirements": { "minMessageCount": 3 },
     "minConfidence": 70
   },
   "guardrails": [
+    "only send when the same signal has appeared across at least 3 separate messages — a single hedged message does not qualify",
+    "do not use sourceMessages — this is about the individual's own pattern, not cross-participant comparison",
     "don't label or diagnose the participant's emotional state",
     "don't be over-familiar",
     "keep it brief and low-pressure",
@@ -23,7 +27,9 @@
     "format": "text"
   },
   "examples": [
-    "Hey — just checking in. These conversations can feel a lot sometimes. No pressure to jump in; happy to chat here if anything comes up.",
-    "Dropping by to say hi. If anything from the discussion is sparking questions or thoughts, feel free to share — no agenda, just here."
+    "(Repeated self-minimization) The questions you keep almost not sending are usually the most worth asking.",
+    "(Recurring dissent or skepticism) Keeping a running doubt alive across a whole conversation usually means you're onto something. That's worth staying with.",
+    "(Pulling back after friction) If something landed sideways, you don't have to frame it as a question — one word is enough.",
+    "(General pattern of hedging) Nothing here requires certainty. Uncertainty usually means you're paying close attention."
   ]
 }
