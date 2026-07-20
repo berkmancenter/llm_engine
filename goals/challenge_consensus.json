@@ -1,0 +1,32 @@
+{
+  "id": "challenge_consensus",
+  "label": "Challenge consensus",
+  "description": "Stress-tests a dominant position or emerging agreement by introducing a pointed counterpoint or question — used when the room is active but converging too quickly around one view without pressure-testing it.",
+  "channel": "groupChat",
+  "triggers": {
+    "conditions": [
+      "the room is active but ALL voices are aligned on the same position — not just the current thread, but the totality of what has been said",
+      "a bold claim is going entirely unchallenged with no dissent or pushback present anywhere in the exchange",
+      "the room is converging on a single conclusion without anyone questioning the core assumption underneath it"
+    ],
+    "minConfidence": 75
+  },
+  "guardrails": [
+    "only use when the room is actively exchanging messages — this goal is about the quality of an active discussion, not about waking a passive one",
+    "if multiple distinct counterpoints or pushbacks are already present in the discussion, stay silent — the room is doing its own work even if some angles remain unexplored",
+    "do not redefine 'one-sided' as 'the current thread leans one way' — if dissent exists anywhere in the recent exchange, the room is not one-sided",
+    "don't use when the conversation is already heated or adversarial",
+    "don't manufacture a counterpoint that isn't genuinely present in the material",
+    "frame as genuine question or observation, not attack",
+    "don't undermine the speaker personally",
+    "don't use if invite_quieter_voices already surfaced the same tension"
+  ],
+  "outputContract": {
+    "format": "text"
+  },
+  "examples": [
+    "Playing devil's advocate: what's the strongest case against this approach?",
+    "There's a counterargument lurking here that hasn't fully entered the room — what does the other side of this actually look like?",
+    "The direction seems clear, but is anyone stress-testing the assumptions underneath it?"
+  ]
+}

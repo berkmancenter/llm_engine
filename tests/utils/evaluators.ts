@@ -8,8 +8,7 @@ import {
   RAG_GROUNDEDNESS_PROMPT,
   RAG_RETRIEVAL_RELEVANCE_PROMPT
 } from 'openevals'
-import { getModelChat, defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/getModelChat.js'
-import { LlmPlatforms } from '../../src/types/index.types.js'
+import { getModelChat } from '../../src/agents/helpers/getModelChat.js'
 
 // Shared evaluators that will be initialized once
 export const evaluators = {
@@ -277,7 +276,7 @@ export const initializeEvaluators = async (customPrompts: CustomPrompts = {}) =>
     return // Already initialized with defaults
   }
 
-  const judge = (await getModelChat(defaultLLMPlatform as LlmPlatforms, defaultLLMModel, {})) as any
+  const judge = (await getModelChat('openai', 'gpt')) as any
 
   evaluators.concisenessEvaluator = createLLMAsJudge({
     prompt: customPrompts.conciseness || CONCISENESS_PROMPT,

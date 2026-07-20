@@ -3,7 +3,7 @@ import { getAgentStructuredResponse } from '../helpers/llmChain.js'
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
 import { formatMultiUserConversationHistory } from '../helpers/llmInputFormatters.js'
-import { buildSystemPromptWithPersonality } from '../helpers/agentPersonality.js'
+import { composeSystemPrompt } from '../helpers/promptComposer.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
 import createEventHistoryTools, { TopicRef, buildEventHistoryToolsPrompt } from '../tools/eventHistory.js'
@@ -130,7 +130,7 @@ export default verify({
     const systemPromptBase = BASE_SYSTEM_PROMPT.replace('{botName}', this.agentConfig.botName)
       .replace('{archiveContext}', archiveEnabled ? buildArchiveContext(!!config.archiveApiUrl) : '')
       .replace('{topicContext}', buildTopicContext(topics))
-    const systemPrompt = buildSystemPromptWithPersonality(systemPromptBase, personalityName)
+    const systemPrompt = composeSystemPrompt(systemPromptBase, { personalityName })
 
     const tools: StructuredToolInterface[] = topics.length > 0 ? createEventHistoryTools(topics) : []
     if (archiveEnabled) {

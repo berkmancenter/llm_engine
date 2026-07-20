@@ -35,3 +35,15 @@ describe('conversation analyticsRefs', () => {
     expect(reloaded!.analyticsRefs).toBeUndefined()
   })
 })
+
+describe('conversation draft default', () => {
+  /* Fail-closed guarantee: a conversation saved without the service layer setting draft
+     must persist as draft, so a bypassed or partially-built record can never auto-start. */
+  it('defaults draft to true when none is provided', async () => {
+    const conversation = await Conversation.create(baseConversation())
+
+    const reloaded = await Conversation.findById(conversation._id)
+
+    expect(reloaded!.draft).toBe(true)
+  })
+})

@@ -11,16 +11,16 @@ const schedule = {
     await agenda.cancel({ name: `periodic - ${agentId}` })
   },
   autoStartConversation: async (scheduledAt: Date, data) => {
-    await agenda.schedule(scheduledAt, `autoStart - ${data.conversationId}`, data)
+    await agenda.schedule(scheduledAt, 'autoStart', data)
   },
   cancelAutoStartConversation: async (conversationId) => {
-    await agenda.cancel({ name: `autoStart - ${conversationId}` })
+    await agenda.cancel({ name: 'autoStart', 'data.conversationId': conversationId })
   },
   autoStopConversation: async (scheduledAt: Date, data) => {
-    await agenda.schedule(scheduledAt, `autoStop - ${data.conversationId}`, data)
+    await agenda.schedule(scheduledAt, 'autoStop', data)
   },
   cancelAutoStopConversation: async (conversationId) => {
-    await agenda.cancel({ name: `autoStop - ${conversationId}` })
+    await agenda.cancel({ name: 'autoStop', 'data.conversationId': conversationId })
   },
   batchTranscript: async (timerPeriod, data) => {
     await agenda.every(timerPeriod, `batchTranscript - ${data.conversationId}`, data, { skipImmediate: true })
@@ -41,7 +41,10 @@ const schedule = {
     await agenda.now('conversationEvent', data)
   },
   conversationEndingSoon: async (scheduledAt: Date, data: { conversationId: string }) => {
-    await agenda.schedule(scheduledAt, `conversationEndingSoon - ${data.conversationId}`, data)
+    await agenda.schedule(scheduledAt, 'conversationEndingSoon', data)
+  },
+  cancelConversationEndingSoon: async (conversationId) => {
+    await agenda.cancel({ name: 'conversationEndingSoon', 'data.conversationId': conversationId })
   },
   pollExpired: async (expirationDate: Date, data: { pollId: string; conversationId: string }) => {
     await agenda.schedule(expirationDate, 'poll expired', data)

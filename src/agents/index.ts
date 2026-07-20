@@ -2,9 +2,8 @@
 import backChannelMetrics from './backChannel/backChannelMetrics.js'
 import backChannelInsights from './backChannel/backChannelInsights.js'
 import eventAssistant from './eventAssistant/eventAssistant.js'
-import eventMediator from './eventMediator/eventMediator.js'
+import proactiveGroupAgent from './proactiveGroupAgent/proactiveGroupAgent.js'
 import moderatorNotifier from './moderatorNotifier/moderatorNotifier.js'
-import engagementAgent from './engagement/engagementAgent.js'
 import jargonFilterAgent from './jargonFilter/jargonFilter.js'
 import librarian from './librarian/librarianAgent.js'
 import chatbot from './chatbot/chatbot.js'
@@ -46,9 +45,8 @@ const agentTypes = {
   backChannelInsights,
   eventAssistant,
   chatbot,
-  eventMediator,
+  proactiveGroupAgent,
   moderatorNotifier,
-  engagementAgent,
   jargonFilterAgent,
   voiceAssistant,
   librarian,

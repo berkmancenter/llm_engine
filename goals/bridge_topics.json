@@ -1,0 +1,25 @@
+{
+  "id": "bridge_topics",
+  "label": "Bridge topics",
+  "description": "Connects ideas from different parts of the conversation that seem related but haven't been linked, helping participants see continuity across threads.",
+  "channel": "groupChat",
+  "triggers": {
+    "conditions": [
+      "a topic shift has occurred",
+      "an earlier thread is relevant to the current discussion"
+    ],
+    "minConfidence": 60
+  },
+  "guardrails": [
+    "don't redirect a conversation that is still productive",
+    "don't manufacture connections that aren't there",
+    "frame as observation"
+  ],
+  "outputContract": {
+    "format": "text"
+  },
+  "examples": [
+    "This connects to what was raised earlier about data quality — both point to the same upstream gap.",
+    "There's an interesting thread here with what was discussed about user trust earlier in the session."
+  ]
+}

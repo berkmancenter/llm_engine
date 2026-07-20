@@ -2,6 +2,19 @@ import { z } from 'zod'
 
 import mongoose from 'mongoose'
 
+/* The structured fields an Outlook invite's .ics attachment states outright, parsed by the email
+   webhook with no LLM involved. uid identifies a recurring series (every instance shares one) and
+   pairs with startDate to recognize an invite already handled. */
+export interface ParsedInvite {
+  uid?: string
+  summary?: string
+  description?: string
+  location?: string
+  startDate?: Date
+  endDate?: Date
+  organizer?: string // organizer email from the .ics ORGANIZER field, mailto: stripped
+}
+
 export interface PaginateResults<T> {
   results: Array<T>
   page: number
@@ -193,6 +206,11 @@ export interface IExperiment {
   executedAt?: Date
 }
 
+/* Names a real validator (see conversations/propertyFormats.ts), not a regex, so security rules
+   like the Zoom-host check parse the value rather than pattern-match it. Extend the union and add
+   the matching validator together. */
+export type PropertyFormat = 'zoomUrl'
+
 export interface ConfigProperty {
   name: string
   as?: string // destination key (supports dot notation for nesting); defaults to name
@@ -205,6 +223,7 @@ export interface ConfigProperty {
   validationKeys?: string[]
   itemKey?: string
   schema?: Array<object>
+  format?: PropertyFormat // extra validation beyond `type`, run on create and for draft status
 }
 
 export interface PropertyRef {
@@ -324,6 +343,84 @@ export interface Resource {
   addedAt?: Date
 }
 
+export interface ConversationGoal {
+  id: string
+  label: string
+  description: string
+  channel: 'groupChat' | 'dm'
+  triggers: {
+    conditions: string[]
+    minConfidence: number
+  }
+  guardrails: string[]
+  outputContract: {
+    format: 'text' | 'poll'
+    pollConfig?: PollConfig
+    pollInstructions?: string
+  }
+  examples: string[]
+}
+
+export interface ConversationContext {
+  conversationType?: string
+  purpose?: string
+  audience?: {
+    expertiseLevel?: 'beginner' | 'mixed' | 'expert'
+    assumedBackgroundKnowledge?: 'low' | 'lowToMedium' | 'medium' | 'high'
+    type?: string[]
+    description?: string
+  }
+  contentSensitivity?: {
+    level?: 'standard' | 'elevated' | 'high'
+    domains?: string[]
+  }
+}
+
+export interface DmPolicy {
+  qaBehavior?: {
+    responseLength?: 'short' | 'medium' | 'long'
+    clarifyWhenAmbiguous?: boolean
+    addContextWhenUseful?: boolean
+    answerScope?: 'helpUserUnderstandTheLecture' | 'broaderSubjectArea' | 'companyContextOnly' | 'open'
+    allowFollowUpDialogue?: boolean
+  }
+  proactivePolicy?: {
+    initiativeLevel?: 'passive' | 'lightlyProactive' | 'moderatelyProactive' | 'highlyProactive'
+    minContributionMinutes?: number
+    socialSensitivity?: 'low' | 'medium' | 'high'
+  }
+  guardrails?: string[]
+}
+
+export interface GroupChatPolicy {
+  proactivePolicy?: {
+    initiativeLevel?: 'passive' | 'lightlyProactive' | 'moderatelyProactive' | 'highlyProactive'
+    minContributionMinutes?: number
+    socialSensitivity?: 'low' | 'medium' | 'high'
+  }
+  pollPolicy?: {
+    allowed?: boolean
+  }
+  guardrails?: string[]
+}
+
+export interface BehaviorPolicy {
+  globalPolicy?: {
+    tone?: 'clearNeutral' | 'warmSupportive' | 'playful' | 'professional'
+    verbosity?: 'brief' | 'medium' | 'detailed'
+    jargonLevel?: 'low' | 'lowToMedium' | 'medium' | 'high'
+    formality?: 'casual' | 'semiFormal' | 'formal'
+    safetyPosture?: 'standard' | 'strict'
+    citationBehavior?: string
+    uncertaintyBehavior?: string
+    guardrails?: string[]
+  }
+  channels?: {
+    dm?: DmPolicy
+    groupChat?: GroupChatPolicy
+  }
+}
+
 export interface IConversation {
   _id?: mongoose.Types.ObjectId
   messages: Array<IMessage>
@@ -349,6 +446,10 @@ export interface IConversation {
   properties?: Record<string, unknown>
   features?: Feature[]
   active?: boolean
+  /* Server-computed: true until all fields required to run this conversation as a scheduled
+     event are present and valid (see conversation.service/lifecycle.ts). Read-only from the
+     client's perspective: conversation.service recomputes it on every create/update. */
+  draft?: boolean
   locked?: boolean
   enableAgents?: boolean
   owner: IUser
@@ -360,6 +461,9 @@ export interface IConversation {
   updatedAt?: Date
   messageCount(): number
   summary?: string
+  goals?: string[]
+  conversationContext?: ConversationContext
+  behaviorPolicy?: BehaviorPolicy
 }
 
 export interface IPoll {

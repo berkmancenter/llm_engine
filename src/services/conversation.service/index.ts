@@ -7,7 +7,6 @@ import websocketGateway from '../../websockets/websocketGateway.js'
 import agentService from '../agent.service/index.js'
 import Adapter from '../../models/adapter.model.js'
 import schedule from '../../jobs/schedule.js'
-import defineJob from '../../jobs/define.js'
 import logger from '../../config/logger.js'
 import config from '../../config/config.js'
 import adapterService from '../adapter.service.js'
@@ -19,13 +18,16 @@ import resolveConversationType from '../../conversations/resolver.js'
 import { supportedModels } from '../../agents/helpers/getEmbeddings.js'
 import transcript from '../../agents/helpers/transcript.js'
 import reportService from '../report.service.js'
-import { doStartConversation, doStopConversation, updateTranscriptStatus } from './lifecycle.js'
+import { doStartConversation, doStopConversation, updateTranscriptStatus, isConversationDraft } from './lifecycle.js'
 import resourceService from '../resource.service.js'
 
 export { updateTranscriptStatus }
 
 const returnFields =
-  'name slug locked owner createdAt active conversationType platforms scheduledTime scheduledEndTime startTime endTime description moderators presenters transcript properties features'
+  'name slug locked owner createdAt active draft conversationType platforms scheduledTime scheduledEndTime startTime endTime description moderators presenters transcript properties features'
+/* A Draft conversation can no longer be edited once its scheduled start time is imminent;
+   past this point the owner should create a new event rather than editing this one. */
+const draftEditLockoutMs = 6 * 60 * 1000 // 6 minutes
 export const maxScheduledInterval = 10 * 60 * 1000 // 10 minutes in milliseconds
 export const { autoStartLeadTimeMs } = config.conversation
 export const { autoStopDelayMs } = config.conversation
@@ -110,7 +112,6 @@ const autoStop = async (conversationId) => {
 
 async function scheduleConversationAutoStart(conversation) {
   await schedule.cancelAutoStartConversation(conversation._id)
-  await defineJob.autoStartConversation(conversation._id)
   const scheduledAt = new Date(conversation.scheduledTime.getTime() - autoStartLeadTimeMs)
   await schedule.autoStartConversation(scheduledAt, { conversationId: conversation._id })
   logger.debug(`Scheduled auto-start for conversation ${conversation._id} at ${scheduledAt}`)
@@ -118,14 +119,13 @@ async function scheduleConversationAutoStart(conversation) {
 
 async function scheduleConversationAutoStop(conversation) {
   await schedule.cancelAutoStopConversation(conversation._id)
-  await defineJob.autoStopConversation(conversation._id)
   const scheduledAt = new Date(conversation.scheduledEndTime.getTime() + autoStopDelayMs)
   await schedule.autoStopConversation(scheduledAt, { conversationId: conversation._id })
   logger.debug(`Scheduled auto-stop for conversation ${conversation._id} at ${scheduledAt}`)
 }
 
 async function scheduleConversationEndingSoon(conversation) {
-  await defineJob.conversationEndingSoon(conversation._id)
+  await schedule.cancelConversationEndingSoon(conversation._id)
   // Schedule maxScheduledInterval before the scheduled end time;
   // this could eventually become configurable in conversation object
   // Failsafe: do nothing if event is somehow less than 10 minutes long as scheduled
@@ -136,19 +136,6 @@ async function scheduleConversationEndingSoon(conversation) {
   const scheduledAt = new Date(conversation.scheduledEndTime.getTime() - maxScheduledInterval)
   await schedule.conversationEndingSoon(scheduledAt, { conversationId: conversation._id })
   logger.debug(`Scheduled conversation ending soon for conversation ${conversation._id} at ${scheduledAt}`)
-}
-
-const initializeConversations = async () => {
-  const now = new Date()
-  const pendingStart = await Conversation.find({ scheduledTime: { $gt: now }, active: false })
-  for (const conversation of pendingStart) {
-    await defineJob.autoStartConversation(conversation._id)
-  }
-  const pendingStop = await Conversation.find({ scheduledEndTime: { $gt: now } })
-  for (const conversation of pendingStop) {
-    await defineJob.autoStopConversation(conversation._id)
-  }
-  logger.debug(`Conversations initialized: ${pendingStart.length} pending start, ${pendingStop.length} pending stop`)
 }
 
 /**
@@ -191,6 +178,8 @@ const createConversation = async (conversationBody, user) => {
     ...(conversationBody.properties !== undefined && { properties: conversationBody.properties }),
     ...(conversationBody.analyticsRefs !== undefined && { analyticsRefs: conversationBody.analyticsRefs }),
     ...(conversationBody.features !== undefined && { features: conversationBody.features }),
+    ...(conversationBody.goals !== undefined && { goals: conversationBody.goals }),
+    ...(conversationBody.behaviorPolicy !== undefined && { behaviorPolicy: conversationBody.behaviorPolicy }),
     ...(conversationBody.resources !== undefined && { resources: conversationBody.resources }),
     agents: [],
     transcript: {
@@ -200,6 +189,7 @@ const createConversation = async (conversationBody, user) => {
     scheduledTime: conversationBody.scheduledTime,
     scheduledEndTime: conversationBody.scheduledEndTime
   })
+  conversation.draft = isConversationDraft(conversation)
   // need to save to get id
   await conversation.save()
 
@@ -233,7 +223,6 @@ const createConversation = async (conversationBody, user) => {
     if (conversation.scheduledEndTime) {
       await scheduleConversationAutoStop(conversation)
       await scheduleConversationEndingSoon(conversation)
-
     }
   } else {
     await startConversation(conversation, user)
@@ -247,7 +236,10 @@ const createConversation = async (conversationBody, user) => {
  * @param {Object} user
  * @returns {Promise<Conversation>}
  */
-const createConversationFromType = async (params, user) => {
+/* allowDraft comes from trusted internal callers only. The email webhook passes it so an
+   incomplete invite resolves into a draft instead of a 400; the HTTP route omits it, so
+   form submissions stay strict. */
+const createConversationFromType = async (params, user, { allowDraft = false } = {}) => {
   const { type, platforms } = params
 
   const conversationType = getConversationType(type)
@@ -260,7 +252,7 @@ const createConversationFromType = async (params, user) => {
     throw new ApiError(httpStatus.NOT_FOUND, `Invalid platform(s): ${invalidPlatforms.join(', ')}`)
   }
 
-  const resolved = resolveConversationType(params, conversationType)
+  const resolved = resolveConversationType(params, conversationType, allowDraft)
   return createConversation({ ...params, conversationType: type, ...resolved }, user)
 }
 
@@ -284,6 +276,21 @@ const updateConversation = async (conversationBody, user) => {
   if (conversationDoc.active) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Cannot update an active conversation')
   }
+  /* Once a Draft conversation's scheduled start time is within 6 minutes (including
+     after it has already passed), it stays locked from further edits: the owner
+     should create a new event rather than editing this one. Non-Draft conversations
+     aren't subject to this: they're already separately blocked from updates once
+     active by the guard above. */
+  if (
+    conversationDoc.draft &&
+    conversationDoc.scheduledTime &&
+    Date.now() >= conversationDoc.scheduledTime.getTime() - draftEditLockoutMs
+  ) {
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      'This draft event is too close to its scheduled start time to edit. Please create a new event instead.'
+    )
+  }
 
   const {
     resources: incomingResources,
@@ -295,6 +302,9 @@ const updateConversation = async (conversationBody, user) => {
     platforms: incomingPlatforms,
     topicId,
     type,
+    // draft is server-computed (see recompute below); never let the client set it directly.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    draft: _incomingDraft,
     ...restBody
   } = conversationBody
 
@@ -517,6 +527,8 @@ const updateConversation = async (conversationBody, user) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     conversationDoc!.resources = reconciled as any
   }
+
+  conversationDoc!.draft = isConversationDraft(conversationDoc!)
 
   await conversationDoc!.save()
 
@@ -866,7 +878,6 @@ const conversationService = {
   stopConversation,
   autoStart,
   autoStop,
-  initializeConversations,
   joinConversation,
   generateConversationReport,
   updateTranscriptStatus,

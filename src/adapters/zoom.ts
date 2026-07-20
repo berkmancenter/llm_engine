@@ -55,7 +55,7 @@ async function deployMeetingBot() {
     },
     {
       type: 'webhook',
-      events: ['participant_events.join', 'participant_events.update'],
+      events: ['participant_events.join', 'participant_events.update', 'participant_events.leave'],
       url: `${config.recall.endpointBaseUrl}/v1/webhooks/recall/join/?conversationId=${this.conversation._id}`
     }
   ]
@@ -441,6 +441,17 @@ export default {
         defaultPreferences
       }
       return adapterUser
+    }
+  },
+  async participantLeft(participant) {
+    if (!this.conversation.populated('adapters')) {
+      await this.conversation.populate('adapters')
+    }
+    const bots = this.conversation.adapters.filter((adapter) => adapter.type === 'zoom' && adapter.config?.botName)
+    const botNames = bots.map((bot) => bot.config?.botName)
+    botNames.push(defaultBotName)
+    if (!botNames.includes(participant.name)) {
+      return { username: participant.name }
     }
   },
   async participantUpdated(participant) {
