@@ -1161,6 +1161,58 @@ export async function createProactiveGroupAgentConversation(
   return conversation
 }
 
+const DM_GOALS = ['private_reassure', 'private_not_alone', 'private_interest_bridge', 'private_transcript_hook']
+
+export async function createCheckinConversation(
+  conversationObj,
+  owner,
+  topic,
+  startTime,
+  llmPlatform?,
+  llmModel?,
+  additionalUsers: (typeof owner)[] = []
+) {
+  const conversation = await createConversation(conversationObj, owner, topic, startTime)
+  conversation.goals = DM_GOALS
+  conversation.behaviorPolicy = {
+    ...NEUTRAL_BEHAVIORAL_POLICY,
+    channels: {
+      ...NEUTRAL_BEHAVIORAL_POLICY.channels,
+      dm: {
+        ...NEUTRAL_BEHAVIORAL_POLICY.channels?.dm,
+        proactivePolicy: {
+          initiativeLevel: NEUTRAL_BEHAVIORAL_POLICY.channels?.dm?.proactivePolicy?.initiativeLevel ?? 'lightlyProactive'
+          // minContributionMinutes intentionally omitted — falls through to agentConfig.minInterval
+        }
+      }
+    }
+  }
+  await conversation.save()
+
+  const agent = new Agent({
+    agentType: 'eventAssistant',
+    conversation,
+    llmPlatform,
+    llmModel,
+    agentConfig: { minInterval: 0 }
+  })
+
+  const allUsers = [owner, ...additionalUsers]
+  const directChannels = allUsers.map((user) => ({
+    name: `direct-agents-${user._id}`,
+    direct: true,
+    participants: [user, agent]
+  }))
+
+  const channels = await Channel.create([{ name: 'transcript' }, { name: 'chat' }, ...directChannels])
+  conversation.channels.push(...channels)
+  await agent.save()
+  conversation.agents.push(agent)
+  await conversation.save()
+  await agent.start()
+  return { conversation, agent }
+}
+
 /**
  * NOTE: Synthetic transcript designed to contain technical jargon for jargon filter agent tests.
  */

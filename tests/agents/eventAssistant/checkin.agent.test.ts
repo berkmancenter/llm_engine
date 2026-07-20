@@ -8,11 +8,15 @@ import {
   loadPartTimeWorkTranscript,
   loadTestTranscript,
   prepareMessagesForAgent,
-  createConversation
+  createCheckinConversation
 } from '../../utils/agentTestHelpers.js'
-import Channel from '../../../src/models/channel.model.js'
-import Agent from '../../../src/models/user.model/agent.model/index.js'
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
+
+// Sparse transcript — enough topic context for the LLM but not dense enough to trigger
+// TRANSCRIPT_HOOK (which fires for silent shared-chat participants after dense content).
+const sparseTranscript = `00:00 | Jessica: Today we're exploring why companies should consider part-time work.
+00:30 | Jessica: My talk covers frameworks for structuring part-time roles effectively.
+01:00 | Jessica: The key question is: why do we default to 40 hours a week?`
 
 jest.setTimeout(120000)
 
@@ -37,40 +41,22 @@ describe('checkin handler tests', () => {
   const startTime = new Date(Date.now() - 15 * 60 * 1000)
   const getTime = (offsetSeconds = 0) => new Date(startTime.getTime() + offsetSeconds * 1000)
 
-  async function createCheckinConversation(users: (typeof user1)[]) {
-    const conv = await createConversation(
-      {
-        name: 'Why your company should consider part-time work',
-        description: `"No one wants to work anymore." Entrepreneur Jessica Drain believes otherwise.`,
-        presenters: [{ name: 'Jessica Drain', bio: 'A career marketer and graphic designer.' }]
-      },
+  const conversationObj = {
+    name: 'Why your company should consider part-time work',
+    description: `"No one wants to work anymore." Entrepreneur Jessica Drain believes otherwise.`,
+    presenters: [{ name: 'Jessica Drain', bio: 'A career marketer and graphic designer.' }]
+  }
+
+  async function setup(users: (typeof user1)[]) {
+    return createCheckinConversation(
+      conversationObj,
       users[0],
       topic,
-      startTime
+      startTime,
+      testConfig.llmPlatform,
+      testConfig.llmModel,
+      users.slice(1)
     )
-
-    const ag = new Agent({
-      agentType: 'eventAssistant',
-      conversation: conv,
-      llmPlatform: testConfig.llmPlatform,
-      llmModel: testConfig.llmModel,
-      agentConfig: { minInterval: 0 }
-    })
-
-    const directChannels = users.map((u) => ({
-      name: `direct-agents-${u._id}`,
-      direct: true,
-      participants: [u, ag]
-    }))
-
-    const channels = await Channel.create([{ name: 'transcript' }, { name: 'chat' }, ...directChannels])
-    conv.channels.push(...channels)
-    await ag.save()
-    conv.agents.push(ag)
-    await conv.save()
-    await ag.start()
-
-    return { conversation: conv, agent: ag }
   }
 
   beforeEach(async () => {
@@ -124,8 +110,10 @@ describe('checkin handler tests', () => {
     it(
       'does not send for a single hesitant message — Q&A response handles it',
       async () => {
-        const { agent: ag } = await createCheckinConversation([user1])
-        await loadPartTimeWorkTranscript(ag.conversation, true)
+        const { agent: ag } = await setup([user1])
+        // Use a sparse transcript so TRANSCRIPT_HOOK (dense-content + silent-participant) cannot
+        // fire and interfere with the SOCIAL_REASSURANCE negative assertion.
+        await loadTestTranscript(ag.conversation, sparseTranscript, false)
 
         const msg = await createDirectMessage(
           "I'm probably wrong about this but I don't think part-time work would work in my industry at all",
@@ -158,7 +146,7 @@ describe('checkin handler tests', () => {
     it(
       'sends for a pattern of self-minimization across multiple messages',
       async () => {
-        const { agent: ag } = await createCheckinConversation([user1])
+        const { agent: ag } = await setup([user1])
         await loadPartTimeWorkTranscript(ag.conversation, true)
 
         const msg1 = await createDirectMessage(
@@ -216,7 +204,7 @@ describe('checkin handler tests', () => {
     it(
       'sends for a participant who repeatedly questions whether their reaction is valid',
       async () => {
-        const { agent: ag } = await createCheckinConversation([user1])
+        const { agent: ag } = await setup([user1])
         await loadPartTimeWorkTranscript(ag.conversation, true)
 
         const msg1 = await createDirectMessage(
@@ -274,7 +262,7 @@ describe('checkin handler tests', () => {
     it(
       'sends for a participant who pulls back and hedges more after a point of friction',
       async () => {
-        const { agent: ag } = await createCheckinConversation([user1])
+        const { agent: ag } = await setup([user1])
         await loadPartTimeWorkTranscript(ag.conversation, true)
 
         const msg1 = await createDirectMessage(
@@ -334,7 +322,7 @@ describe('checkin handler tests', () => {
     it(
       'sends to each participant when multiple privately share the same doubt',
       async () => {
-        const { agent: ag } = await createCheckinConversation([user1, user2, user3])
+        const { agent: ag } = await setup([user1, user2, user3])
         await loadPartTimeWorkTranscript(ag.conversation, true)
 
         // All three participants privately expressing the same skepticism — single message each
@@ -380,7 +368,7 @@ describe('checkin handler tests', () => {
     it(
       'surfaces shared interest when multiple participants ask about the same topic',
       async () => {
-        const { agent: ag } = await createCheckinConversation([user1, user2, user3])
+        const { agent: ag } = await setup([user1, user2, user3])
         await loadPartTimeWorkTranscript(ag.conversation, true)
 
         const msg1 = await createDirectMessage(
@@ -420,7 +408,7 @@ describe('checkin handler tests', () => {
     it(
       'reaches out to a silent participant after a dense transcript section',
       async () => {
-        const { agent: ag } = await createCheckinConversation([user1])
+        const { agent: ag } = await setup([user1])
         await loadTestTranscript(ag.conversation, denseTranscript, true)
 
         // user1 has sent no DMs — they are silent.
@@ -448,7 +436,7 @@ describe('checkin handler tests', () => {
     it(
       'does not reach out when transcript is sparse',
       async () => {
-        const { agent: ag } = await createCheckinConversation([user1])
+        const { agent: ag } = await setup([user1])
         await loadTestTranscript(
           ag.conversation,
           `00:00 | Jessica: Welcome everyone.
@@ -467,14 +455,14 @@ describe('checkin handler tests', () => {
 
   describe('rate limiting', () => {
     it('does not send a checkin when conversation started less than minInterval ago and no prior DMs', async () => {
-      const { agent: ag } = await createCheckinConversation([user1])
+      const { agent: ag } = await setup([user1])
       ag.agentConfig = { ...ag.agentConfig, minInterval: 10 }
-      // Override startTime to 2 min ago — well within the 10-min minInterval
-      ag.conversation.startTime = new Date(Date.now() - 2 * 60 * 1000)
 
       const getLLMSpy = jest.spyOn(ag, 'getLLM')
 
       await prepareMessagesForAgent([], ag.conversation, ag)
+      // Override startTime to 2 min ago after reload — well within the 10-min minInterval
+      ag.conversation.startTime = new Date(Date.now() - 2 * 60 * 1000)
       await runCheckin(ag, new Date())
 
       // Rate-limit early return must have fired — LLM should never be called
@@ -484,7 +472,7 @@ describe('checkin handler tests', () => {
     it(
       'is eligible for first checkin after minInterval has passed since conversation start with no prior DMs',
       async () => {
-        const { agent: ag } = await createCheckinConversation([user1])
+        const { agent: ag } = await setup([user1])
         ag.agentConfig = { ...ag.agentConfig, minInterval: 10 }
         await loadPartTimeWorkTranscript(ag.conversation, true)
 
@@ -508,7 +496,7 @@ describe('checkin handler tests', () => {
     it(
       'does not send a checkin when one was already sent recently',
       async () => {
-        const { agent: ag } = await createCheckinConversation([user1])
+        const { agent: ag } = await setup([user1])
         // Use default minInterval (10 min) — override the minInterval: 0 set in createCheckinConversation
         ag.agentConfig = { ...ag.agentConfig, minInterval: 10 }
         await loadPartTimeWorkTranscript(ag.conversation, true)

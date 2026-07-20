@@ -1,27 +1,27 @@
 {
   "id": "private_interest_bridge",
   "label": "Interest bridge",
-  "description": "Privately connects a participant's known interests or background to something happening in the conversation, helping them see a personal entry point into the discussion.",
+  "description": "Lets a participant know others are privately asking about or curious about the same topic — shared curiosity, not shared anxiety.",
   "channel": "dm",
   "triggers": {
     "conditions": [
-      "the participant has been silent for an extended period",
-      "the discussion topic matches this participant's background or interests"
+      "the participant has asked about or expressed interest in a topic privately",
+      "at least one other participant's private messages show curiosity or questions about the same topic"
     ],
     "participantRequirements": { "minMessageCount": 1 },
     "minConfidence": 65
   },
   "guardrails": [
-    "don't make assumptions about interests without basis",
-    "don't pressure them to speak up publicly",
-    "frame as curiosity, not assignment",
-    "keep it brief"
+    "never name or hint at the other participant(s)",
+    "never reveal specifics of what others said",
+    "frame as shared curiosity, not shared anxiety — this is about interest, not doubt",
+    "don't pressure them to speak up publicly"
   ],
   "outputContract": {
     "format": "text"
   },
   "examples": [
-    "Given your background in X, I wondered if the current thread on Y maps to anything you've seen before.",
-    "The conversation just moved into Z territory — feels like territory you might know well. Any reactions?"
+    "A few people have been privately asking about [topic area] — seems like it's resonating beyond what's come up in the main chat.",
+    "You're not the only one thinking about [topic area]. There's more interest in that than the conversation has had space for."
   ]
 }

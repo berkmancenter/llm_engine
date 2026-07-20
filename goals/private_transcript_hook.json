@@ -5,7 +5,7 @@
   "channel": "dm",
   "triggers": {
     "conditions": [
-      { "scope": "event", "condition": "the recent transcript has been dense or fast-moving" },
+      { "scope": "event", "condition": "the recent transcript has been dense or fast-moving — dense means multiple concepts delivered quickly, significant information density, or a pace that could leave people behind; sparse means introductory remarks, pauses, light content, or a slow pace" },
       "the participant has been silent for an extended period"
     ],
     "minConfidence": 65

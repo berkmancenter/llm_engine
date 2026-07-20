@@ -1,6 +1,6 @@
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory, IChannel, IMessage } from '../../types/index.types.js'
-import { buildCheckinResponses } from './checkinHandler.js'
+import buildCheckinResponses from './checkinHandler.js'
 import renderAgentTemplate from '../helpers/renderAgentTemplate.js'
 
 import Message from '../../models/message.model.js'
@@ -65,7 +65,12 @@ async function buildDmIntroMessage(this, adapterType?: string): Promise<string |
 
   const base = `You are ${botName}, a private AI assistant for this event. Write 1-2 short sentences highlighting what you can help with. Prefer natural, conversational examples (e.g. "ask me to catch you up" or "ask me to simplify something") over listing slash commands. Do not re-explain the channel's purpose or privacy. Friendly and direct, not formal. Output only those sentences, nothing else.`
 
-  const systemPrompt = composeSystemPrompt(base, { personalityName })
+  const systemPrompt = composeSystemPrompt(base, {
+    personalityName,
+    conversationContext: this.conversation.conversationContext,
+    behaviorPolicy: this.conversation.behaviorPolicy,
+    channelType: 'dm'
+  })
 
   const userPrompt = `Event: "${this.conversation.name}"
 ${this.conversation.description ? `Description: ${this.conversation.description}` : ''}
@@ -133,8 +138,8 @@ type TraceResponse = {
   message?: unknown
   context?: string
   participantPseudonym?: string
-  eligibleTypes?: string[]
-  checkinType?: string
+  eligibleGoals?: string[]
+  goalId?: string
   confidenceScore?: number
   detectedPattern?: string
   reasoning?: string
@@ -338,8 +343,8 @@ export default verify({
     if (responses.length > 0 && (responses[0]?.message as { type?: string })?.type === 'checkin') {
       return responses.map((r) => ({
         participant: r.participantPseudonym,
-        eligibleTypes: r.eligibleTypes,
-        checkinType: r.checkinType,
+        eligibleGoals: r.eligibleGoals,
+        goalId: r.goalId,
         confidenceScore: r.confidenceScore,
         detectedPattern: r.detectedPattern,
         reasoning: r.reasoning,

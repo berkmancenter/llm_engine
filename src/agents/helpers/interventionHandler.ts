@@ -8,15 +8,18 @@ import logger from '../../config/logger.js'
 import { getConfidenceThreshold, getMinContributionMs } from './promptComposer.js'
 
 /**
- * Analysis result from intervention detection
+ * Analysis result from intervention detection — shared across proactiveGroupAgent and checkinHandler.
  */
-interface InterventionAnalysis {
+export interface InterventionAnalysis {
   shouldIntervene: boolean
+  goalId?: string
   reasoning: string
-  sharedChatMessage?: string
+  sharedChatMessage?: string | null
+  directMessage?: string | null
   confidenceScore: number
-  detectedPattern?: string
-  affectedUsers?: number
+  detectedPattern?: string | null
+  affectedUsers?: number | null
+  sourceMessages?: { participant: string; text: string }[] | null
   context?: string
 }
 
@@ -113,7 +116,8 @@ export async function runInterventionAnalysis(
   userTemplate: string | undefined,
   extraTemplateVars?: Record<string, string>,
   activeGoals?: ConversationGoal[],
-  behaviorPolicy?: BehaviorPolicy
+  behaviorPolicy?: BehaviorPolicy,
+  channelType: 'dm' | 'groupChat' = 'groupChat'
 ): Promise<InterventionAnalysis | null> {
   // Format conversation histories
   const sharedChatMessages = formatMultiUserConversationHistory(sharedChatHistory)
@@ -168,7 +172,7 @@ export async function runInterventionAnalysis(
   // Return null if shouldn't intervene or confidence too low.
   // Threshold is raised to 75 when socialSensitivity is 'high'.
   // Per-pattern minConfidence provides an additional floor applied per-call.
-  const channelPolicy = behaviorPolicy?.channels?.groupChat?.proactivePolicy ?? behaviorPolicy?.channels?.dm?.proactivePolicy
+  const channelPolicy = channelType === 'dm' ? behaviorPolicy?.channels?.dm?.proactivePolicy : behaviorPolicy?.channels?.groupChat?.proactivePolicy
   const policyThreshold = getConfidenceThreshold(channelPolicy)
   const matchedGoal = activeGoals?.find((g) => g.id === analysis.goalId)
   const patternFloor = matchedGoal?.triggers.minConfidence ?? 0
@@ -236,6 +240,7 @@ export async function detectPrivateInterventionOpportunity(
     userTemplate,
     extraTemplateVars,
     activeGoals,
-    behaviorPolicy
+    behaviorPolicy,
+    'dm'
   )
 }

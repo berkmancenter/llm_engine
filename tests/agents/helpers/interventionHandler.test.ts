@@ -1,5 +1,6 @@
 import { jest } from '@jest/globals'
 import setupIntTest from '../../utils/setupIntTest.js'
+import type { ConversationGoal } from '../../../src/types/index.types.js'
 
 // Mocks registered before dynamic import so the LLM and transcript are never hit in unit tests
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -327,7 +328,7 @@ describe('interventionHandler', () => {
 
     it('returns null when confidence is below the goal minConfidence floor', async () => {
       mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 70 }))
-      const activeGoals = [{ triggers: { minConfidence: 80 } }] as import('../../../src/types/index.types.js').ConversationGoal[]
+      const activeGoals = [{ id: 'synthesize_discussion', triggers: { minConfidence: 80 } }] as ConversationGoal[]
 
       const result = await runInterventionAnalysis.call(
         makeContext(),
@@ -350,7 +351,7 @@ describe('interventionHandler', () => {
       const behaviorPolicy = {
         channels: { groupChat: { proactivePolicy: { initiativeLevel: 'moderatelyProactive' as const, socialSensitivity: 'high' as const } } }
       }
-      const activeGoals = [{ triggers: { minConfidence: 65 } }] as import('../../../src/types/index.types.js').ConversationGoal[]
+      const activeGoals = [{ id: 'synthesize_discussion', triggers: { minConfidence: 65 } }] as ConversationGoal[]
 
       const result = await runInterventionAnalysis.call(
         makeContext(),
@@ -371,7 +372,7 @@ describe('interventionHandler', () => {
       // policy threshold = 60 (default), patternFloor = 80 → effective = 80
       // confidence 75 is below 80 → null
       mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 75 }))
-      const activeGoals = [{ triggers: { minConfidence: 80 } }] as import('../../../src/types/index.types.js').ConversationGoal[]
+      const activeGoals = [{ id: 'synthesize_discussion', triggers: { minConfidence: 80 } }] as ConversationGoal[]
 
       const result = await runInterventionAnalysis.call(
         makeContext(),
@@ -389,7 +390,7 @@ describe('interventionHandler', () => {
 
     it('returns the analysis when confidence meets the effective threshold', async () => {
       mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 80 }))
-      const activeGoals = [{ triggers: { minConfidence: 80 } }] as import('../../../src/types/index.types.js').ConversationGoal[]
+      const activeGoals = [{ id: 'synthesize_discussion', triggers: { minConfidence: 80 } }] as ConversationGoal[]
 
       const result = await runInterventionAnalysis.call(
         makeContext(),

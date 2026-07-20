@@ -10,7 +10,12 @@ import {
   IChannel
 } from '../../types/index.types.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
-import { USER_TEMPLATE, interventionLlmTemplateVars, runInterventionAnalysis } from '../helpers/interventionHandler.js'
+import {
+  USER_TEMPLATE,
+  interventionLlmTemplateVars,
+  runInterventionAnalysis,
+  InterventionAnalysis
+} from '../helpers/interventionHandler.js'
 import getConversationHistory from '../helpers/getConversationHistory.js'
 import logger from '../../config/logger.js'
 import createAgentPoll from '../helpers/agentPoll.js'
@@ -18,17 +23,6 @@ import { getEligibleGoals, getMinContributionMs, composeSystemPrompt } from '../
 import { getGroupChatGoals } from '../../goals/loader.js'
 import validateProfessionalism from '../helpers/professionalismValidator.js'
 import transcript from '../helpers/transcript.js'
-
-interface ProactiveAnalysis {
-  shouldIntervene: boolean
-  goalId: string
-  reasoning: string
-  sharedChatMessage?: string | null
-  confidenceScore: number
-  detectedPattern?: string | null
-  affectedUsers?: number | null
-  context?: string
-}
 
 function getProactiveSchema(goals: ConversationGoal[]) {
   const goalIdOptions = [...goals.map((g) => g.id), 'none'] as unknown as [string, ...string[]]
@@ -91,7 +85,7 @@ Return ONLY raw JSON. No markdown, no backticks, no explanation.`
 
 async function executePoll(
   this: IAgent & { getLLM: () => Promise<unknown> },
-  analysis: ProactiveAnalysis,
+  analysis: InterventionAnalysis,
   chatChannels: IChannel[],
   goal: ConversationGoal
 ) {
@@ -225,7 +219,7 @@ export default verify({
       undefined,
       groupChatGoals,
       this.conversation.behaviorPolicy
-    )) as unknown as ProactiveAnalysis | null
+    )) as unknown as InterventionAnalysis | null
 
     if (!analysis) {
       logger.debug(`${this.agentType} ${this._id}: no intervention opportunity detected`)
@@ -248,28 +242,29 @@ export default verify({
       }
     }
 
-    logger.info(`${this.name}: Detected ${analysis.goalId} opportunity — ${analysis.detectedPattern}`)
-
     const chatChannels = this.conversation.channels.filter((c: IChannel) => c.name === 'chat')
 
     const matchedGoal = groupChatGoals.find((g) => g.id === analysis.goalId)
     if (matchedGoal?.outputContract.format === 'poll') {
+      logger.info(`${this.name}: Detected ${analysis.goalId} opportunity — ${analysis.detectedPattern}`)
       return executePoll.call(this, analysis, chatChannels, matchedGoal)
     }
 
-    if (analysis.sharedChatMessage) {
-      return [
-        {
-          ...analysis,
-          visible: true,
-          proactive: true,
-          message: analysis.sharedChatMessage,
-          channels: chatChannels
-        } as AgentResponse<string | Record<string, unknown>>
-      ]
+    if (!analysis.sharedChatMessage) {
+      logger.warn(`${this.name}: shouldIntervene=true (${analysis.goalId}) but sharedChatMessage is missing — suppressing`)
+      return []
     }
 
-    return []
+    logger.info(`${this.name}: Detected ${analysis.goalId} opportunity — ${analysis.detectedPattern}`)
+    return [
+      {
+        ...analysis,
+        visible: true,
+        proactive: true,
+        message: analysis.sharedChatMessage,
+        channels: chatChannels
+      } as AgentResponse<string | Record<string, unknown>>
+    ]
   },
 
   formatTraceInput(conversationHistory: ConversationHistory) {
@@ -283,7 +278,7 @@ export default verify({
     }
   },
 
-  formatTraceOutput(responses: ProactiveAnalysis[]) {
+  formatTraceOutput(responses: InterventionAnalysis[]) {
     if (responses.length === 0) return { goalId: 'none', messageSent: null }
     const r = responses[0]
     return {
@@ -295,7 +290,7 @@ export default verify({
     }
   },
 
-  getTraceMetadata(_conversationHistory: ConversationHistory, _userMessage: unknown, responses: ProactiveAnalysis[]) {
+  getTraceMetadata(_conversationHistory: ConversationHistory, _userMessage: unknown, responses: InterventionAnalysis[]) {
     return {
       topic: this.conversation.name,
       context: responses[0]?.context
