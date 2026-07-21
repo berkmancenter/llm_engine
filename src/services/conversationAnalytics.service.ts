@@ -1,5 +1,6 @@
 import Message from '../models/message.model.js'
 import Channel from '../models/channel.model.js'
+import Conversation from '../models/conversation.model.js'
 import ConversationAnalytics from '../models/conversationAnalytics.model.js'
 import ConversationMetricsSnapshot from '../models/conversationMetricsSnapshot.model.js'
 import { matchBotMention } from '../agents/helpers/intentChecks.js'
@@ -7,6 +8,7 @@ import eventDateLabel from '../utils/eventDateLabel.js'
 import config from '../config/config.js'
 import {
   ActivityBucket,
+  AttendanceBand,
   AudienceEngagement,
   BotInvocations,
   ChatSpike,
@@ -16,6 +18,7 @@ import {
   ParticipationConcentration,
   ParticipationHistoryPoint,
   ParticipationMetrics,
+  PeerBaseline,
   PrivateMessaging,
   ReplyLatency,
   ResourceSummary,
@@ -96,6 +99,46 @@ const FREQUENT_POSTER_MIN_POSTERS = 5
    core regardless of room size, unlike the frequent-poster share, which is the top 10% and so
    widens with the crowd. */
 const CONCENTRATION_TOP_POSTERS = 3
+
+/* Fixed posterCount tiers a peer cohort is bucketed by (see PeerBaseline). Deliberately small:
+   this platform's largest events run at most 75-100 attendees, so a "large" event here is
+   nowhere near a large public conference. */
+const ATTENDANCE_BAND_MAX: { name: AttendanceBand; max: number | null }[] = [
+  { name: 'tiny', max: 9 },
+  { name: 'small', max: 24 },
+  { name: 'medium', max: 49 },
+  { name: 'large', max: null }
+]
+
+/* Buckets a posterCount into its attendance band. Exported so the same bucketing that builds a
+   peer cohort can also be asserted on directly, without needing a live query. */
+export function attendanceBandFor(posterCount: number): AttendanceBand {
+  const band = ATTENDANCE_BAND_MAX.find((candidate) => candidate.max === null || posterCount <= candidate.max)
+  return band!.name
+}
+
+/* The posterCount range (inclusive) for a given band, used to build the peer cohort query. */
+function attendanceBandRange(band: AttendanceBand): { min: number; max: number | null } {
+  const index = ATTENDANCE_BAND_MAX.findIndex((candidate) => candidate.name === band)
+  const min = index === 0 ? 0 : ATTENDANCE_BAND_MAX[index - 1].max! + 1
+  return { min, max: ATTENDANCE_BAND_MAX[index].max }
+}
+
+/* At most this many recent peers make up a cohort average, the same span as the same-topic
+   baseline (BASELINE_EVENT_LIMIT), so neither reads as more current than the other. */
+const PEER_COHORT_EVENT_LIMIT = 10
+
+/* Below this many qualifying public peers, a cohort average would read as more authoritative
+   than a 1- or 2-event sample actually is, so the baseline is reported as null instead (the
+   same "thin data reports null" precedent as the same-topic baseline and the frequent-poster
+   share). */
+const PEER_COHORT_MIN_EVENTS = 3
+
+/* How many raw candidates to pull before the privacy filter runs. Generous relative to
+   PEER_COHORT_EVENT_LIMIT because some candidates will belong to a private topic and get
+   dropped, and the candidates are already sorted newest-first so the final slice after
+   filtering is still the most recent qualifying peers. */
+const PEER_COHORT_CANDIDATE_LIMIT = 50
 
 function average(values: number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length
@@ -800,6 +843,70 @@ async function computeHistoryAndBaseline(
   return { participationHistory, baseline }
 }
 
+/* Builds this event's cross-topic peer comparison (see PeerBaseline). Unlike the same-topic
+   baseline above, a peer can come from any topic, so its numbers are only safe to read into
+   another topic's card when that peer's own topic is public: the same privacy gate summon and
+   trend already enforce (toPublicCandidates in vibesAnalyst/eventResolution). This queries
+   candidate snapshots by band, platform, and metrics version first, then joins to Conversation
+   and Topic to drop anything from a private topic, so a private series's numbers can never
+   surface inside a different topic's peer comparison. Returns null when fewer than
+   PEER_COHORT_MIN_EVENTS public peers qualify. */
+async function computePeerBaseline(
+  conversation,
+  current: { posterCount: number; eventPlatform: EventPlatform }
+): Promise<PeerBaseline | null> {
+  const band = attendanceBandFor(current.posterCount)
+  const { min, max } = attendanceBandRange(band)
+  const posterCountFilter: Record<string, number> = { $gte: min }
+  if (max !== null) posterCountFilter.$lte = max
+
+  const candidates = await ConversationMetricsSnapshot.find({
+    conversationId: { $ne: conversation._id },
+    metricsVersion: METRICS_VERSION,
+    platform: current.eventPlatform,
+    posterCount: posterCountFilter,
+    endTime: { $exists: true, $ne: null }
+  })
+    .sort({ endTime: -1 })
+    .limit(PEER_COHORT_CANDIDATE_LIMIT)
+    .select('conversationId posterCount participationRate participationConcentration')
+
+  if (candidates.length === 0) return null
+
+  const candidateConversations = await Conversation.find({ _id: { $in: candidates.map((c) => c.conversationId) } })
+    .populate('topic')
+    .select('topic')
+  const publicConversationIds = new Set(
+    candidateConversations
+      .filter((candidate) => candidate.topic?.private === false)
+      .map((candidate) => candidate._id.toString())
+  )
+
+  const publicPeers = candidates
+    .filter((candidate) => publicConversationIds.has(candidate.conversationId.toString()))
+    .slice(0, PEER_COHORT_EVENT_LIMIT)
+
+  if (publicPeers.length < PEER_COHORT_MIN_EVENTS) return null
+
+  const posterCounts = publicPeers.map((peer) => peer.posterCount)
+  const participationRates = publicPeers
+    .map((peer) => peer.participationRate)
+    .filter((rate): rate is number => rate !== null && rate !== undefined)
+  const topPosterShares = publicPeers
+    .map((peer) => peer.participationConcentration?.topPosterMessageShare)
+    .filter((share): share is number => share !== null && share !== undefined)
+
+  return {
+    band,
+    eventCount: publicPeers.length,
+    avgPosterCount: average(posterCounts),
+    avgParticipationRate: participationRates.length ? average(participationRates) : null,
+    participationRateEventCount: participationRates.length,
+    avgTopPosterMessageShare: topPosterShares.length ? average(topPosterShares) : null,
+    concentrationEventCount: topPosterShares.length
+  }
+}
+
 /* True when the event names at least one analytics source to pull data from.
    analyticsRefs can arrive as a Mongoose Map or a plain object, so we handle both.
    This is how we tell "no data because nothing was tracked" apart from "no data
@@ -885,6 +992,8 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
     posterCount: participation.posterCount,
     lurkerCount: audienceEngagement.lurkerCount
   })
+  const eventPlatform = deriveEventPlatform(conversation)
+  const peerBaseline = await computePeerBaseline(conversation, { posterCount: participation.posterCount, eventPlatform })
 
   return {
     participation,
@@ -895,6 +1004,7 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
     spikes,
     participationHistory,
     baseline,
+    peerBaseline,
     channelSplit,
     privateMessaging,
     timeToFirstMessage,
@@ -903,7 +1013,7 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
     interactionStructure,
     botInvocations,
     resourceSummary: computeResourceSummary(conversation),
-    eventPlatform: deriveEventPlatform(conversation),
+    eventPlatform,
     // Filled by the Vibes Analyst from message content; the service leaves it empty.
     receptions: []
   }

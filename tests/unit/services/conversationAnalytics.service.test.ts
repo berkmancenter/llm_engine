@@ -6,9 +6,11 @@ import {
   ConversationAnalytics,
   ConversationMetricsSnapshot,
   Channel,
-  Agent
+  Agent,
+  Topic
 } from '../../../src/models/index.js'
 import conversationAnalyticsService, {
+  attendanceBandFor,
   attributeSpikeSources,
   computeInteractionStructure,
   computeParticipationConcentration,
@@ -1589,5 +1591,220 @@ describe('computeConversationMetrics history and baseline', () => {
 
     expect(metrics.baseline).toBeNull()
     expect(metrics.participationHistory).toEqual([{ label: 'Today', posterCount: 2, lurkerCount: null }])
+  })
+})
+
+describe('attendanceBandFor', () => {
+  it('buckets posterCount into tiny, small, medium, and large', () => {
+    expect(attendanceBandFor(0)).toBe('tiny')
+    expect(attendanceBandFor(9)).toBe('tiny')
+    expect(attendanceBandFor(10)).toBe('small')
+    expect(attendanceBandFor(24)).toBe('small')
+    expect(attendanceBandFor(25)).toBe('medium')
+    expect(attendanceBandFor(49)).toBe('medium')
+    expect(attendanceBandFor(50)).toBe('large')
+    expect(attendanceBandFor(200)).toBe('large')
+  })
+})
+
+/* Seeds one public or private topic, so a peer-cohort test can prove the privacy filter
+   actually excludes a private topic's events rather than just checking a query shape. */
+async function seedTopic(overrides: { private: boolean }) {
+  return Topic.create({
+    name: `Peer cohort topic ${new mongoose.Types.ObjectId().toString()}`,
+    slug: `peer-cohort-${new mongoose.Types.ObjectId().toString()}`,
+    owner: ownerId,
+    votingAllowed: false,
+    conversationCreationAllowed: false,
+    archivable: false,
+    private: overrides.private
+  })
+}
+
+/* Seeds one past peer event as a persisted snapshot plus the real Conversation/Topic documents
+   behind it, since computePeerBaseline joins to Topic to enforce its public-only privacy gate
+   (the same gate as summon), unlike the same-topic baseline which never needed one. */
+async function seedPeerEvent(
+  topicId: mongoose.Types.ObjectId,
+  options: {
+    endTime: Date
+    posterCount: number
+    platform?: 'nextspace' | 'zoom' | 'both'
+    participationRate?: number | null
+    topPosterMessageShare?: number | null
+    metricsVersion?: number
+  }
+) {
+  const conversation = await Conversation.create({
+    name: 'Peer event',
+    slug: `peer-${new mongoose.Types.ObjectId().toString()}`,
+    owner: ownerId,
+    topic: topicId,
+    endTime: options.endTime,
+    transcript: { status: 'stopped' }
+  })
+  await ConversationMetricsSnapshot.create({
+    conversationId: conversation._id,
+    topicId,
+    name: 'Peer event',
+    endTime: options.endTime,
+    platform: options.platform ?? 'nextspace',
+    metricsVersion: options.metricsVersion ?? METRICS_VERSION,
+    capturedAt: options.endTime,
+    posterCount: options.posterCount,
+    messageCount: options.posterCount,
+    frequentPosterCount: 0,
+    frequentPosterMessageShare: null,
+    trackedSessionStatus: 'notTracked',
+    trackedSessions: null,
+    participantCount: null,
+    lurkerCount: null,
+    participationRate: options.participationRate ?? null,
+    postersExceedTrackedSessions: null,
+    avgDwellSeconds: null,
+    totalActions: null,
+    channelSplit: { public: 0, private: 0 },
+    botInvocationCount: 0,
+    resourceSummary: { total: 0, required: 0, referenced: 0, suggested: 0, withLinks: 0 },
+    spikeCount: 0,
+    receptionCount: null,
+    timeToFirstMessage: { publicSeconds: null, privateSeconds: null },
+    replyLatency: { medianSecondsToFirstReply: null, repliedMessageCount: 0 },
+    participationConcentration: {
+      topPosterCount: 0,
+      topPosterMessageShare: options.topPosterMessageShare ?? null,
+      oneTimePosterCount: 0,
+      repeatPosterCount: 0
+    },
+    interactionStructure: { threadCount: 0, maxThreadSize: 0, medianThreadSize: null, maxReplyDepth: 0 }
+  })
+  return conversation
+}
+
+describe('computeConversationMetrics peer baseline', () => {
+  it('averages same-band, same-platform public peers, excluding the current event and its own topic', async () => {
+    const publicTopic = await seedTopic({ private: false })
+    // Same band (small: 10-24) and same platform as the live event below.
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-01T12:00:00.000Z'),
+      posterCount: 15,
+      participationRate: 0.5,
+      topPosterMessageShare: 0.4
+    })
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-02T12:00:00.000Z'),
+      posterCount: 20,
+      participationRate: 0.6,
+      topPosterMessageShare: 0.6
+    })
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-03T12:00:00.000Z'),
+      posterCount: 19,
+      participationRate: 0.4,
+      topPosterMessageShare: 0.5
+    })
+    // Different band (large): must not be pulled into a "small" cohort.
+    await seedPeerEvent(publicTopic._id, { endTime: new Date('2026-06-04T12:00:00.000Z'), posterCount: 90 })
+
+    const current = await seedTopicEvent(publicTopic._id, { speakers: Array.from({ length: 18 }, (_, i) => `p${i}`) })
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(current)
+
+    expect(metrics.peerBaseline).toEqual({
+      band: 'small',
+      eventCount: 3,
+      avgPosterCount: 18,
+      avgParticipationRate: 0.5,
+      participationRateEventCount: 3,
+      avgTopPosterMessageShare: 0.5,
+      concentrationEventCount: 3
+    })
+  })
+
+  it('excludes peer events from a private topic even when they match the band and platform', async () => {
+    const publicTopic = await seedTopic({ private: false })
+    const privateTopic = await seedTopic({ private: true })
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-01T12:00:00.000Z'),
+      posterCount: 15,
+      participationRate: 0.5
+    })
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-02T12:00:00.000Z'),
+      posterCount: 16,
+      participationRate: 0.5
+    })
+    // A private topic's events must never enter another topic's peer comparison, even though
+    // their numbers would otherwise qualify (same band, same platform).
+    await seedPeerEvent(privateTopic._id, {
+      endTime: new Date('2026-06-03T12:00:00.000Z'),
+      posterCount: 17,
+      participationRate: 0.9
+    })
+
+    const current = await seedTopicEvent(publicTopic._id, { speakers: Array.from({ length: 18 }, (_, i) => `p${i}`) })
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(current)
+
+    // Below PEER_COHORT_MIN_EVENTS (3) once the private topic's event is excluded, so this
+    // reports null rather than a thin, misleading average built from just 2 events.
+    expect(metrics.peerBaseline).toBeNull()
+  })
+
+  it('only compares events on the same platform', async () => {
+    const publicTopic = await seedTopic({ private: false })
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-01T12:00:00.000Z'),
+      posterCount: 15,
+      platform: 'zoom',
+      participationRate: 0.9
+    })
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-02T12:00:00.000Z'),
+      posterCount: 16,
+      platform: 'zoom',
+      participationRate: 0.9
+    })
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-03T12:00:00.000Z'),
+      posterCount: 17,
+      platform: 'zoom',
+      participationRate: 0.9
+    })
+
+    // The live event runs on nextspace (seedTopicEvent's conversation carries no platforms, so
+    // deriveEventPlatform defaults it to nextspace), so none of the zoom peers above should count.
+    const current = await seedTopicEvent(publicTopic._id, { speakers: Array.from({ length: 18 }, (_, i) => `p${i}`) })
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(current)
+
+    expect(metrics.peerBaseline).toBeNull()
+  })
+
+  it('ignores peer snapshots stamped with a different metrics version', async () => {
+    const publicTopic = await seedTopic({ private: false })
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-01T12:00:00.000Z'),
+      posterCount: 15,
+      participationRate: 0.5
+    })
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-02T12:00:00.000Z'),
+      posterCount: 16,
+      participationRate: 0.5
+    })
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-03T12:00:00.000Z'),
+      posterCount: 999,
+      participationRate: 0.99,
+      metricsVersion: METRICS_VERSION + 1
+    })
+
+    const current = await seedTopicEvent(publicTopic._id, { speakers: Array.from({ length: 18 }, (_, i) => `p${i}`) })
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(current)
+
+    // Only 2 current-version peers qualify, below PEER_COHORT_MIN_EVENTS, so null.
+    expect(metrics.peerBaseline).toBeNull()
   })
 })

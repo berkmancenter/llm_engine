@@ -789,6 +789,31 @@ export interface SameTopicBaseline {
   avgDwellSeconds: number | null
 }
 
+/* A room-size bucket for peer comparison across different topics, based on posterCount. Fixed
+   tiers rather than a window around today's own size, so the prompt can name a band plainly
+   ("a typical small event") instead of an unstable relative range. */
+export type AttendanceBand = 'tiny' | 'small' | 'medium' | 'large'
+
+/* How today's event compares to recent public peer events of the same size and platform, across
+   ANY topic (unlike SameTopicBaseline, which only looks at this event's own recurring series).
+   Peers are drawn only from public topics (the same privacy gate summon and trend already use),
+   share today's attendance band and platform, and are capped at the 10 most recent. avgPosterCount
+   averages over every peer in eventCount. avgParticipationRate and avgTopPosterMessageShare each
+   average only over the peers that had that figure (a peer with postersExceedTrackedSessions, or
+   too few posters for a top-few share to mean anything, is left out of that one average), so
+   participationRateEventCount and concentrationEventCount are reported alongside so a reader never
+   assumes either average spans every peer. null when fewer than 3 public peers share the band and
+   platform, since a thinner cohort would read as more authoritative than it is. */
+export interface PeerBaseline {
+  band: AttendanceBand
+  eventCount: number
+  avgPosterCount: number
+  avgParticipationRate: number | null
+  participationRateEventCount: number
+  avgTopPosterMessageShare: number | null
+  concentrationEventCount: number
+}
+
 /* How many times participants called on the event's configured assistant by name.
    botName is the name set at event creation (or the default); count is how many
    participant chat messages addressed it, matched the same fuzzy way the assistant
@@ -843,6 +868,9 @@ export interface ConversationMetrics {
   participationHistory: ParticipationHistoryPoint[]
   // The topic's recent average, or null when this is the topic's only event.
   baseline: SameTopicBaseline | null
+  // How today compares to recent public peer events of the same size and platform, across any
+  // topic; null when too few peers qualify.
+  peerBaseline: PeerBaseline | null
   // Counts of people's messages: public chat vs private one-to-one with the bot.
   channelSplit: { public: number; private: number }
   // Private (one-to-one with the bot) messaging: counts plus distinct senders, with the
