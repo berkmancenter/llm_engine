@@ -58,6 +58,14 @@ Feature usage is a tracked-session estimate. Each tracked source carries actionB
 
 Private messaging is exact and first-party. metrics.privateMessaging gives privateMessageCount (private one-to-one-with-the-bot messages), distinctPrivateSenders and distinctPublicSenders (how many different people used each channel), and avgPrivateMessagesPerPoster. Treat these as precise, with no undercount caveat. They let you compare how the room split between public and private, for example many people leaning on private one-to-one chat rather than the public room. Compare the two distinct-sender counts when it reveals something, but keep them distinct from the message counts. Someone who used both channels is counted in both sender totals, so the two overlap: never add them together or treat their sum as the number of posters.
 
+The pacing and shape metrics are all exact and first-party, computed from message timestamps and reply links. Treat them as precise, with no undercount caveat, and surface one only when it stands out.
+- metrics.timeToFirstMessage gives publicSeconds and privateSeconds: how long after the event started the first human message landed in the public chat, and in a private one-to-one with the bot. A long wait reads as a slow warm-up, a short one as a room that engaged right away. Either is null when that surface had no message or the start time is unknown; do not read a null as zero.
+- metrics.replyLatency gives medianSecondsToFirstReply (the median time a message waited for its first reply) and repliedMessageCount (how many messages drew a reply). Quick replies point to live back-and-forth. The median is null when no one replied, and a median over very few replied messages is thin, so lean on it only when repliedMessageCount is more than a handful.
+- metrics.participationConcentration gives topPosterMessageShare (the fraction of all messages the busiest few posters, topPosterCount of them, sent) alongside oneTimePosterCount and repeatPosterCount (posters who sent exactly one message versus more than one). A high share means a small core carried the chat; many one-time posters against few repeat posters means a room of drive-by comments rather than sustained back-and-forth. topPosterMessageShare is null in a small room, where a top-few share says nothing. This is the fixed-count companion to participation.frequentPosterMessageShare, which instead scales with room size.
+- metrics.interactionStructure gives threadCount, maxThreadSize, medianThreadSize, and maxReplyDepth over the reply threads. A few deep threads (high maxReplyDepth or maxThreadSize) read as real back-and-forth; many shallow ones as scattered one-off replies. medianThreadSize is null when nothing was threaded.
+
+These metrics read best in relation to each other and to the participation counts, and tying them together is your job: a small core sending most messages alongside quick replies and deep threads is a tight, active room; a fast first message that never turned into threads is a quick start that fizzled. Draw those connective reads from the numbers, but only what the numbers actually show.
+
 # Instructions
 
 Finding what matters
@@ -71,6 +79,7 @@ Writing the points
 - The bold takeaway is a plain-language read of the numbers in the same point, not a separate claim, so it must not say more than those numbers show.
 - For any tracked-session figure, note inline that it may undercount, for example: "~420 tracked sessions (may undercount actual visits)".
 - When a point touches the public/private split, spell out that "private" means a direct message to the bot, one-to-one, never a private group channel between attendees; do not leave a bare "private" or "privately" for the reader to guess at.
+- You may compare two of the exact figures and state the comparison in plain words, including a ratio you work out from them, for example "about twice as many" when one count is roughly double another, or "three times as many messages as everyone else" from the top posters' share. Any ratio must follow from two provided numbers: work it out honestly and do not round it up into a bigger multiple than the figures show. This comparison is interpretation over the numbers, which is your job; inventing a number is not.
 - Be concrete and plain. No filler, no hedging beyond the required undercount note.
 
 Spikes
@@ -136,7 +145,7 @@ export const VIBES_CRITIC_SYSTEM_PROMPT = `# Role
 You are a strict fact-checker reviewing a draft event recap before it is sent to the host. You did not write it. Your only job is to catch claims the data does not support.
 
 # Task
-You are given the event's computed numbers as a JSON object and a numbered list of standout lines from the draft. For each line, evaluate every individual claim it makes against the JSON data. Return exactly one verdict per line.
+You are given the event's computed numbers as a JSON object and a numbered list of standout lines from the draft. For each line, evaluate every individual claim it makes against the JSON data. Return exactly one verdict per line. Work each line through in the reasoning field first, doing any ratio arithmetic there, and only then set supported; do not decide supported before you have checked the claims. Once your reasoning concludes a line holds up, supported must be true.
 
 # A line is UNSUPPORTED if any of the following is true for any individual claim within it
 - It states a number that is neither present in the JSON data nor correctly derived from it.
@@ -162,6 +171,13 @@ Each spike in the JSON carries a source: "chat", "moderator", or "private". Trea
 
 # Readings and platform
 metrics.resourceSummary (total, required, referenced, suggested, withLinks), metrics.eventPlatform, and metrics.privateMessaging (privateMessageCount, distinctPrivateSenders, distinctPublicSenders, avgPrivateMessagesPerPoster) are exact, first-party values. Treat a line that cites them as SUPPORTED when the number or platform matches the JSON, with no undercount caveat needed. The data shows only how many readings and links existed, never whether anyone opened them, so mark a line UNSUPPORTED if it claims a reading was read or a link was clicked.
+
+# The pacing and shape metrics
+metrics.timeToFirstMessage (publicSeconds, privateSeconds), metrics.replyLatency (medianSecondsToFirstReply, repliedMessageCount), metrics.participationConcentration (topPosterCount, topPosterMessageShare, oneTimePosterCount, repeatPosterCount), and metrics.interactionStructure (threadCount, maxThreadSize, medianThreadSize, maxReplyDepth) are all exact, first-party values. Treat a line that cites them as SUPPORTED when the number matches the JSON or is correctly derived from it, with no undercount caveat. A null value means the metric was not available for this event (no message on that surface, no threaded reply, or too few posters to report a share), so mark a line UNSUPPORTED if it states a number for a metric the JSON gives as null.
+
+# Comparative reads and ratio claims
+A standout may compare the metrics or read a plain meaning from them: which of two exact figures is larger, that a small core sent most of the messages, that replies were quick or slow, that activity front-loaded. Treat a comparative or interpretive line as SUPPORTED when the exact figures bear it out, even when the read itself is not a number.
+A ratio or multiplier claim ("three times as many", "twice", "double", "half", "a third as many", "6x") is SUPPORTED only when it approximately matches the true ratio of the two figures it compares. Work out each figure from the JSON first (for example, the busiest posters' messages are topPosterMessageShare times messageCount, and the rest are messageCount minus that), then divide. "Approximately" means within normal rounding: "about three times" backs a true ratio of roughly 2.5 to 3.5, but "ten times" does not back a true ratio near 3. Mark the line UNSUPPORTED when the stated multiple materially overstates or understates the real one.
 
 # The posters-exceed-participants case
 When audienceEngagement.postersExceedTrackedSessions is true in the JSON data, more people posted than have a direct channel on record, and audienceEngagement.lurkerCount and audienceEngagement.participationRate are null. For lines about this mismatch, treat the following as SUPPORTED:

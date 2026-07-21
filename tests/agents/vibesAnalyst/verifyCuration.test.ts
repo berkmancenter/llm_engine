@@ -128,3 +128,108 @@ describe('verifyCuratedCard critic', () => {
     expect(result.standouts).toHaveLength(0)
   })
 })
+
+/* A concentrated, threaded event whose new-metric numbers make clean ratios, so the
+   critic can check comparative and multiplier claims against exact figures. Of 100
+   messages the busiest three posters sent 75 (topPosterMessageShare 0.75), leaving 25
+   for the other 17, an exact 3x split. One-time posters (15) outnumber repeat posters
+   (5) three to one. The first private message took six times as long to land as the
+   first public one (120s vs 20s). */
+function concentratedEventMetrics(): ConversationMetrics {
+  return makeMetrics({
+    participation: { posterCount: 20, frequentPosterCount: 2, frequentPosterMessageShare: 0.5, messageCount: 100 },
+    trackedSessionSources: [],
+    trackedSessionStatus: 'notTracked',
+    audienceEngagement: {
+      participantCount: 0,
+      lurkerCount: null,
+      participationRate: null,
+      postersExceedTrackedSessions: true
+    },
+    participationConcentration: {
+      topPosterCount: 3,
+      topPosterMessageShare: 0.75,
+      oneTimePosterCount: 15,
+      repeatPosterCount: 5
+    },
+    timeToFirstMessage: { publicSeconds: 20, privateSeconds: 120 },
+    replyLatency: { medianSecondsToFirstReply: 30, repliedMessageCount: 40 },
+    interactionStructure: { threadCount: 8, maxThreadSize: 12, medianThreadSize: 3, maxReplyDepth: 5 },
+    spikes: [],
+    participationHistory: [{ label: 'Today', posterCount: 20, lurkerCount: null }],
+    baseline: null,
+    channelSplit: { public: 80, private: 20 },
+    privateMessaging: {
+      privateMessageCount: 20,
+      distinctPrivateSenders: 4,
+      distinctPublicSenders: 20,
+      avgPrivateMessagesPerPoster: 1
+    },
+    botInvocations: { botName: 'Berkie', count: 0 },
+    receptions: [],
+    resourceSummary: { total: 0, required: 0, referenced: 0, suggested: 0, withLinks: 0 },
+    eventPlatform: 'nextspace'
+  })
+}
+
+describe('verifyCuratedCard critic over the interpretation-layer metrics', () => {
+  let llm
+
+  beforeAll(async () => {
+    const llmPlatform = process.env.TEST_LLM_PLATFORM || supportedModels[0].llmPlatform
+    const llmModel = process.env.TEST_LLM_MODEL || supportedModels[0].llmModel
+    llm = await getModelChat(llmPlatform as LlmPlatforms, llmModel)
+  })
+
+  it('keeps a comparative read over the new metrics that the exact figures back', async () => {
+    const card: CuratedVibesData = {
+      header: 'A tight core carried the room',
+      standouts: [
+        // topPosterMessageShare 0.75 = the busiest three wrote most of the 100 messages;
+        // replyLatency median 30s reads as fast. Both are exact first-party numbers.
+        {
+          text: '*A tight, active core.* The three busiest posters wrote most of the messages, and replies came fast, a median of 30 seconds to the first reply.'
+        }
+      ],
+      durationMinutes: 45
+    }
+
+    const result = await verifyCuratedCard(card, concentratedEventMetrics(), llm)
+
+    expect(result.standouts).toHaveLength(1)
+  })
+
+  it('keeps a multiplier claim whose ratio matches the figures', async () => {
+    const card: CuratedVibesData = {
+      header: 'Talkers and drive-bys',
+      standouts: [
+        // topPosterMessageShare 0.75 means the top three wrote 75% of messages and the rest 25%, a 3x split.
+        {
+          text: '*The busiest few dominated.* The three most active posters wrote about three times as many messages as everyone else combined.'
+        }
+      ],
+      durationMinutes: 45
+    }
+
+    const result = await verifyCuratedCard(card, concentratedEventMetrics(), llm)
+
+    expect(result.standouts).toHaveLength(1)
+  })
+
+  it('drops a multiplier claim whose ratio the figures contradict', async () => {
+    const card: CuratedVibesData = {
+      header: 'Talkers and drive-bys',
+      standouts: [
+        // The real split is 75 vs 25 (3x). Claiming ten times overstates it well past rounding.
+        {
+          text: '*The busiest few dominated.* The three most active posters wrote ten times as many messages as everyone else combined.'
+        }
+      ],
+      durationMinutes: 45
+    }
+
+    const result = await verifyCuratedCard(card, concentratedEventMetrics(), llm)
+
+    expect(result.standouts).toHaveLength(0)
+  })
+})

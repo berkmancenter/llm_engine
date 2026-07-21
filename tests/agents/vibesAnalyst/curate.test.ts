@@ -105,6 +105,43 @@ describe('curateVibesCard', () => {
     expect(card.availabilityNote).toBeUndefined()
   })
 
+  it('surfaces the concentration signal when a tiny core dominates a room of one-time posters', async () => {
+    // Everything else is neutral (no spikes, receptions, tracked sessions, or baseline swing),
+    // so the concentrated posting is the one thing worth surfacing: of 30 posters, 27 posted
+    // once and 3 wrote 85% of the messages.
+    const metrics = makeMetrics({
+      participation: { posterCount: 30, frequentPosterCount: 3, frequentPosterMessageShare: 0.85, messageCount: 120 },
+      trackedSessionSources: [],
+      trackedSessionStatus: 'notTracked',
+      audienceEngagement: {
+        participantCount: 0,
+        lurkerCount: null,
+        participationRate: null,
+        postersExceedTrackedSessions: true
+      },
+      participationConcentration: {
+        topPosterCount: 3,
+        topPosterMessageShare: 0.85,
+        oneTimePosterCount: 27,
+        repeatPosterCount: 3
+      },
+      spikes: [],
+      receptions: [],
+      participationHistory: [{ label: 'Today', posterCount: 30, lurkerCount: null }],
+      baseline: null,
+      channelSplit: { public: 110, private: 10 }
+    })
+
+    const card = await curateVibesCard(metrics, { eventName: 'Open Forum', durationMinutes: 40 }, llm)
+
+    expect(card.standouts.length).toBeGreaterThanOrEqual(2)
+    const allText = card.standouts
+      .map((standout) => standout.text)
+      .join(' ')
+      .toLowerCase()
+    expect(allText).toMatch(/once|one-time|one time|single|drive-by|core|few|handful|85|concentrat|dominat|most of the/)
+  })
+
   it('adds a data-availability note when no tracked sessions were captured', async () => {
     const metrics = negativeEventMetrics()
     metrics.trackedSessionSources = []
