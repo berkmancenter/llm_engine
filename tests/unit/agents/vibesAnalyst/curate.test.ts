@@ -105,6 +105,46 @@ describe('buildChartCandidates', () => {
     expect(seriesCount(someUntracked.engagementHistory)).toBe(1)
   })
 
+  it('offers the poster-mix split of one-time versus repeat posters when anyone posted', () => {
+    const candidates = buildChartCandidates(
+      metricsFixture({
+        participation: { posterCount: 20, frequentPosterCount: 2, frequentPosterMessageShare: 0.4, messageCount: 50 },
+        participationConcentration: {
+          topPosterCount: 3,
+          topPosterMessageShare: 0.3,
+          oneTimePosterCount: 14,
+          repeatPosterCount: 6
+        }
+      })
+    )
+
+    expect(candidates.posterMix).toBeDefined()
+    const { chart } = candidates.posterMix!
+    expect(chart.type).toBe('pie')
+    if (chart.type === 'pie') {
+      expect(chart.segments).toEqual([
+        { label: 'Posted once', value: 14 },
+        { label: 'Posted more than once', value: 6 }
+      ])
+    }
+  })
+
+  it('omits the poster-mix split when no one posted', () => {
+    const candidates = buildChartCandidates(
+      metricsFixture({
+        participation: { posterCount: 0, frequentPosterCount: 0, frequentPosterMessageShare: 0, messageCount: 0 },
+        participationConcentration: {
+          topPosterCount: 0,
+          topPosterMessageShare: null,
+          oneTimePosterCount: 0,
+          repeatPosterCount: 0
+        }
+      })
+    )
+
+    expect(candidates.posterMix).toBeUndefined()
+  })
+
   it('offers a feature-usage bar chart only when the first source has a non-empty action breakdown', () => {
     expect(buildChartCandidates(metricsFixture()).featureUsage).toBeUndefined()
     expect(buildChartCandidates(metricsFixture({ trackedSessionSources: [trackedSource()] })).featureUsage).toBeUndefined()

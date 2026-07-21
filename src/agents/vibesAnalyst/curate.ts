@@ -131,6 +131,22 @@ export function buildChartCandidates(metrics: ConversationMetrics): Record<strin
     }
   }
 
+  // One-time vs repeat posters. Both are exact counts that sum to posterCount, so the
+  // split is only meaningful once someone posted; an empty room has no mix to draw.
+  if (metrics.participation.posterCount > 0) {
+    candidates.posterMix = {
+      description: 'How many people posted just once versus came back to post more than once',
+      title: 'Repeat vs one-time posters',
+      chart: {
+        type: 'pie',
+        segments: [
+          { label: 'Posted once', value: metrics.participationConcentration.oneTimePosterCount },
+          { label: 'Posted more than once', value: metrics.participationConcentration.repeatPosterCount }
+        ]
+      }
+    }
+  }
+
   const [firstSource] = metrics.trackedSessionSources
   if (firstSource && Object.keys(firstSource.deviceBreakdown).length > 0) {
     candidates.devices = {
