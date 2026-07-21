@@ -142,6 +142,46 @@ describe('curateVibesCard', () => {
     expect(allText).toMatch(/once|one-time|one time|single|drive-by|core|few|handful|85|concentrat|dominat|most of the/)
   })
 
+  it('surfaces a peer comparison when this event ran well above similar-sized public events', async () => {
+    // Everything else is neutral (no spikes, receptions, tracked sessions, or same-topic
+    // baseline), so the peer comparison is the one thing worth surfacing: 40 posters against
+    // a peer average of 16 for similarly sized public events on the same platform.
+    const metrics = makeMetrics({
+      participation: { posterCount: 40, frequentPosterCount: 4, frequentPosterMessageShare: 0.3, messageCount: 150 },
+      trackedSessionSources: [],
+      trackedSessionStatus: 'notTracked',
+      audienceEngagement: {
+        participantCount: 0,
+        lurkerCount: null,
+        participationRate: null,
+        postersExceedTrackedSessions: true
+      },
+      spikes: [],
+      receptions: [],
+      participationHistory: [{ label: 'Today', posterCount: 40, lurkerCount: null }],
+      baseline: null,
+      peerBaseline: {
+        band: 'medium',
+        eventCount: 6,
+        avgPosterCount: 16,
+        avgParticipationRate: null,
+        participationRateEventCount: 0,
+        avgTopPosterMessageShare: null,
+        concentrationEventCount: 0
+      },
+      channelSplit: { public: 140, private: 10 }
+    })
+
+    const card = await curateVibesCard(metrics, { eventName: 'Open Forum', durationMinutes: 45 }, llm)
+
+    expect(card.standouts.length).toBeGreaterThanOrEqual(2)
+    const allText = card.standouts
+      .map((standout) => standout.text)
+      .join(' ')
+      .toLowerCase()
+    expect(allText).toMatch(/similar|peer|typical|other events|events this size|16/)
+  })
+
   it('uses speaker count and active agent labels as light framing context, not a standout', async () => {
     const card = await curateVibesCard(
       negativeEventMetrics(),

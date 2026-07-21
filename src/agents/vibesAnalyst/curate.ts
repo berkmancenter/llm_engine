@@ -116,6 +116,26 @@ export function buildChartCandidates(metrics: ConversationMetrics): Record<strin
     }
   }
 
+  if (metrics.peerBaseline) {
+    candidates.postersVsPeers = {
+      description: "This event's poster count next to the average for public events of about the same size and platform",
+      title: 'This event vs similar-sized events',
+      chart: {
+        type: 'bar',
+        series: [
+          {
+            name: 'Posters',
+            data: [
+              { label: 'This event', value: metrics.participation.posterCount },
+              { label: 'Similar events avg', value: metrics.peerBaseline.avgPosterCount }
+            ]
+          }
+        ],
+        axisConfig: { categories: ['This event', 'Similar events avg'], yLabel: 'Posters' }
+      }
+    }
+  }
+
   const total = metrics.channelSplit.public + metrics.channelSplit.private
   if (total > 0) {
     candidates.channelSplit = {

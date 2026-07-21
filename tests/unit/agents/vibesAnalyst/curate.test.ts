@@ -51,6 +51,26 @@ describe('buildChartCandidates', () => {
     expect(candidates.postersVsBaseline).toBeDefined()
   })
 
+  it('offers the posters-vs-peers chart only when a peer baseline exists', () => {
+    expect(buildChartCandidates(metricsFixture()).postersVsPeers).toBeUndefined()
+
+    const withPeers = buildChartCandidates(
+      metricsFixture({
+        peerBaseline: {
+          band: 'small',
+          eventCount: 5,
+          avgPosterCount: 15,
+          avgParticipationRate: 0.4,
+          participationRateEventCount: 4,
+          avgTopPosterMessageShare: 0.5,
+          concentrationEventCount: 3
+        }
+      })
+    )
+
+    expect(withPeers.postersVsPeers).toBeDefined()
+  })
+
   it('offers the posters-vs-lurkers split only when the participant count reconciles', () => {
     expect(buildChartCandidates(metricsFixture()).audienceSplit).toBeUndefined()
 
