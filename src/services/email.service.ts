@@ -109,13 +109,13 @@ To prevent archival and keep your channel on Conversations, please copy and past
  * @returns {Promise}
  */
 const sendSignupInviteEmail = async (to) => {
-  const subject = 'Set up your Nextspace account to create your event'
+  const subject = 'Set up your account to create your event'
   const signupUrl = `${config.appHost}/signup`
   const text = `Hello,
-We received your calendar invite, but there's no Nextspace account for this email address yet.
+We received your calendar invite, but there's no account for this email address yet.
 To finish setting up your event, sign up here and then resend the invite: ${signupUrl}`
   const html = `<p>Hello,</p>
-<p>We received your calendar invite, but there's no Nextspace account for this email address yet.</p>
+<p>We received your calendar invite, but there's no account for this email address yet.</p>
 <p>To finish setting up your event, <a href="${signupUrl}">sign up here</a> and then resend the invite.</p>`
   await sendEmailAsync(to, subject, text, html)
 }

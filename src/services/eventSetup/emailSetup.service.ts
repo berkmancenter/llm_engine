@@ -58,7 +58,7 @@ const isAllowedOrganizerDomain = (address: string): boolean => {
 }
 
 /**
- * Find the Nextspace account that owns this invite, keying off the envelope From that Postmark
+ * Find the account that owns this invite, keying off the envelope From that Postmark
  * received (never the spoofable .ics ORGANIZER). Returns the organizer, or null when no event should
  * be created. The allowlisted domain is a hard gate checked first: any sender outside it is rejected
  * outright, account or not, with no reply (confirming the address "just needs to sign up" would be a
