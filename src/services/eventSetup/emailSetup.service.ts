@@ -73,7 +73,9 @@ export const resolveOrganizer = async (inboundInvite: InboundInvite) => {
     return null
   }
 
-  const organizer = await userService.getUserByEmail(fromAddress)
+  // Match the organizer case-insensitively: the domain gate above already lowercases, and a
+  // lowercase-stored account would otherwise be missed by a mixed-case From and wrongly bounced.
+  const organizer = await userService.getUserByEmail(fromAddress.toLowerCase())
   if (organizer) {
     // A mismatch is worth watching (a spoof attempt, or a relay rewriting headers) but not worth
     // blocking a real organizer's event over, so log and proceed on the trusted From.

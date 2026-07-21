@@ -66,6 +66,17 @@ describe('emailSetup.service', () => {
       expect(sendSignupSpy).not.toHaveBeenCalled()
     })
 
+    it('recognizes a known organizer when the envelope From differs only in letter case', async () => {
+      const storedEmail = `known@${allowedDomain}`
+      await insertUsers([newUser(storedEmail)])
+
+      const organizer = await resolveOrganizer(buildInvite({}, `Known@${allowedDomain.toUpperCase()}`))
+
+      expect(organizer).not.toBeNull()
+      expect(organizer!.email).toBe(storedEmail)
+      expect(sendSignupSpy).not.toHaveBeenCalled()
+    })
+
     it('sends the signup invite and returns null for an unknown sender inside an allowlisted domain', async () => {
       const email = `newcomer@${allowedDomain}`
 
