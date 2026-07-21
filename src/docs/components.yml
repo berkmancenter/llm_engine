@@ -759,7 +759,6 @@ components:
         - enableDMs
         - experiments
         - owner
-        - topic
       properties:
         id:
           type: string
