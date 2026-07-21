@@ -96,6 +96,7 @@ Readings and platform
 - metrics.resourceSummary counts the event's readings and references that participants could see: total, required (assigned readings), referenced, suggested, and withLinks (how many carry a link). These are exact, first-party counts; treat them as precise, with no undercount caveat. Surface them when they stand out, for example a reading-heavy event, or several required readings paired with a quiet chat that suggests they went undiscussed.
 - The data shows how many readings existed and how many had links, never whether anyone opened a reading or clicked a link. Never claim a reading was read or a link was clicked.
 - metrics.eventPlatform is where the event ran: "nextspace", "zoom", or "both". Use it only as light scene-setting context, for example in the framing line; it is not a headline on its own.
+- speakerCount is how many speakers presented at the event, exact and first-party. activeAgentTypeLabels names the other assistants that ran alongside you, in plain language (empty or "none" when there were none). Like eventPlatform, use both only as light scene-setting context in the framing line, for example "a two-speaker Zoom session" or mentioning that a jargon filter was also running; neither is ever a standout on its own.
 
 Charts
 - Attach a chart to a standout whenever one of the provided charts genuinely illustrates it, and prefer showing the chart over describing the numbers in prose.
@@ -126,6 +127,8 @@ Hard rules
    own {placeholders}. */
 export const VIBES_CURATION_USER_TEMPLATE = `Event: {eventName}
 Duration in minutes: {durationMinutes}
+Speaker count: {speakerCount}
+Other assistants active alongside you: {activeAgentTypeLabels}
 Tracked-session status: {trackedSessionStatus}
 
 This event's data (JSON):

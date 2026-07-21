@@ -142,6 +142,28 @@ describe('curateVibesCard', () => {
     expect(allText).toMatch(/once|one-time|one time|single|drive-by|core|few|handful|85|concentrat|dominat|most of the/)
   })
 
+  it('uses speaker count and active agent labels as light framing context, not a standout', async () => {
+    const card = await curateVibesCard(
+      negativeEventMetrics(),
+      {
+        eventName: 'The Future of Work',
+        durationMinutes: 58,
+        speakerCount: 3,
+        activeAgentTypeLabels: ['a jargon filter']
+      },
+      llm
+    )
+
+    // The scene-setting facts may appear in the framing line, but never as one of the
+    // 2 to 3 headline standouts: the participation and activity numbers are what stood out
+    // in this fixture, not who spoke or which other assistants ran.
+    const standoutText = card.standouts
+      .map((standout) => standout.text)
+      .join(' ')
+      .toLowerCase()
+    expect(standoutText).not.toMatch(/jargon filter/)
+  })
+
   it('adds a data-availability note when no tracked sessions were captured', async () => {
     const metrics = negativeEventMetrics()
     metrics.trackedSessionSources = []

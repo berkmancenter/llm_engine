@@ -5,6 +5,7 @@ import verifyCuratedCard from './verifyCuration.js'
 import annotateSpikes from './spikeAnnotation.js'
 import annotateReceptions from './quoteReception.js'
 import { loadReadableMessages } from './capabilities.js'
+import { Agent } from '../../models/index.js'
 import { ConversationMetrics, CuratedVibesData } from '../../types/index.types.js'
 
 /* Pulls a log-friendly message off an unknown thrown value. */
@@ -18,6 +19,52 @@ function eventDurationMinutes(startTime?: Date, endTime?: Date): number {
   if (!startTime || !endTime) return 0
   const elapsedMs = endTime.getTime() - startTime.getTime()
   return Math.max(0, Math.round(elapsedMs / 60000))
+}
+
+/* Short, plain-language scene-setting labels for the agent types that can run alongside
+   the Vibes Analyst on a conversation. Kept deliberately short of the full agent type
+   registry: only production types a host could plausibly encounter are mapped, and an
+   unmapped type is dropped rather than leaking its internal camelCase key into the
+   curation prompt (see labelActiveAgentTypes). vibesAnalyst has no entry on purpose: it
+   is dropped before the lookup, since a recap naming itself as "active" tells the host
+   nothing new. */
+const AGENT_TYPE_LABELS: Record<string, string> = {
+  eventAssistant: 'an assistant participants could summon',
+  voiceAssistant: 'a voice assistant',
+  chatbot: 'a chatbot',
+  eventMediator: 'a moderator agent',
+  moderatorNotifier: 'a moderator-alert agent',
+  engagementAgent: 'an engagement prompter',
+  jargonFilterAgent: 'a jargon filter',
+  librarian: 'a resource librarian',
+  eventHistorian: 'an event historian',
+  eventSetup: 'an event-setup assistant',
+  numberCruncher: 'a number cruncher',
+  backChannelMetrics: 'a backchannel metrics tracker',
+  backChannelInsights: 'a backchannel insights agent'
+}
+
+/* Turns raw agentType strings into their scene-setting labels: dedupes, drops the Vibes
+   Analyst's own type, and drops any type with no mapped label so an unrecognized or
+   future agent type never reaches the curation prompt as a bare internal key. */
+export function labelActiveAgentTypes(agentTypes: string[]): string[] {
+  const uniqueTypes = [...new Set(agentTypes)].filter((agentType) => agentType !== 'vibesAnalyst')
+  return uniqueTypes.map((agentType) => AGENT_TYPE_LABELS[agentType]).filter((label): label is string => Boolean(label))
+}
+
+/* Resolves which agent types are active on this conversation into their scene-setting
+   labels, for light framing context only (see VIBES_CURATION_SYSTEM_PROMPT). conversation.agents
+   is populated only when enableAgents is true (see Conversation's post-findOne hook), so this
+   checks for an already-populated agentType before falling back to an Agent query, the same
+   populated-or-not idiom as agentIdOf in conversationAnalytics.service. */
+export async function resolveActiveAgentTypeLabels(conversation): Promise<string[]> {
+  const agentRefs = conversation.agents ?? []
+  if (agentRefs.length === 0) return []
+
+  const isPopulated = typeof agentRefs[0] === 'object' && 'agentType' in agentRefs[0]
+  const agentDocs = isPopulated ? agentRefs : await Agent.find({ _id: { $in: agentRefs } }).select('agentType')
+
+  return labelActiveAgentTypes(agentDocs.map((agent) => agent.agentType))
 }
 
 /**
@@ -82,7 +129,9 @@ export default async function buildVibesSummary(
 
   const eventMeta = {
     eventName: conversation.name,
-    durationMinutes: eventDurationMinutes(conversation.startTime, conversation.endTime)
+    durationMinutes: eventDurationMinutes(conversation.startTime, conversation.endTime),
+    speakerCount: conversation.presenters?.length ?? 0,
+    activeAgentTypeLabels: await resolveActiveAgentTypeLabels(conversation)
   }
   const draftCard = await curateVibesCard(metrics, eventMeta, llm)
   const renderData = await verifyCuratedCard(draftCard, metrics, llm)

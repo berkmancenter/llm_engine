@@ -215,7 +215,7 @@ function candidateCatalogForPrompt(candidates: Record<string, ChartCandidate>) {
  */
 export default async function curateVibesCard(
   metrics: ConversationMetrics,
-  eventMeta: { eventName: string; durationMinutes: number },
+  eventMeta: { eventName: string; durationMinutes: number; speakerCount?: number; activeAgentTypeLabels?: string[] },
   llm
 ): Promise<CuratedVibesData> {
   const candidates = buildChartCandidates(metrics)
@@ -227,6 +227,8 @@ export default async function curateVibesCard(
     {
       eventName: eventMeta.eventName,
       durationMinutes: eventMeta.durationMinutes,
+      speakerCount: eventMeta.speakerCount ?? 0,
+      activeAgentTypeLabels: (eventMeta.activeAgentTypeLabels ?? []).join(', ') || 'none',
       trackedSessionStatus: metrics.trackedSessionStatus,
       metricsJson: JSON.stringify(metrics),
       candidatesJson: JSON.stringify(candidateCatalogForPrompt(candidates))
