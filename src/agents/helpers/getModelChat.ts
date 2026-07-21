@@ -6,6 +6,7 @@ import { ChatGoogleGenerativeAI } from '@langchain/google-genai'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import config from '../../config/config.js'
 import { createClaudeFetchFn } from './bedrockGateway.js'
+import { attachUsageMetadata, normalizeBedrockModelName } from './bedrockUsage.js'
 import { LlmPlatforms, LlmPlatformDetails, LlmModelDetails } from '../../types/index.types.js'
 
 const PERSPECTIVE_API_URL = 'https://commentanalyzer.googleapis.com/$discovery/rest?version=v1alpha1'
@@ -144,6 +145,23 @@ export async function getPerspectiveChat() {
   return google.discoverAPI(PERSPECTIVE_API_URL)
 }
 
+/* BedrockChat with two LangSmith-observability fixes (see bedrockUsage.ts for the
+   evidence behind each): token counts surfaced as usage_metadata, and ls_model_name
+   normalized to a name LangSmith's pricing table can match. The calls themselves
+   are unchanged. Only the non-streaming path is patched; the app never sets
+   streaming on Bedrock models. */
+export class BedrockChatWithUsage extends BedrockChat {
+  async _generate(messages, options, runManager) {
+    const result = await super._generate(messages, options, runManager)
+    return attachUsageMetadata(result)
+  }
+
+  getLsParams(options) {
+    const params = super.getLsParams(options)
+    return { ...params, ls_model_name: normalizeBedrockModelName(params.ls_model_name ?? this.model) }
+  }
+}
+
 export async function getBedrockChat(model, modelOptionss) {
   const aiConfig = {
     ...modelOptionss,
@@ -157,7 +175,7 @@ export async function getBedrockChat(model, modelOptionss) {
     }
   }
 
-  return new BedrockChat(aiConfig)
+  return new BedrockChatWithUsage(aiConfig)
 }
 
 export async function getModelChat(platform: LlmPlatforms, model, modelOptions = {}, platformOptions = {}) {

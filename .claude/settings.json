@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(yarn test *)",
+      "Bash(npx tsc --noEmit -p . *)",
+      "Bash(yarn test:agents *)",
+      "Bash(yarn lint *)",
+      "Bash(gh pr diff *)",
+      "Bash(gh pr view *)",
+      "mcp__codegraph__codegraph_explore"
+    ]
+  }
+}

@@ -51,6 +51,22 @@ Do this once per environment (one app for dev, one for prod).
 
 Leave the Event Subscriptions Request URL for Part C.
 
+### Where to find each Slack value
+
+Every `slack*` property in the Part B provisioning call comes from one of two places: the
+Slack app admin (api.slack.com/apps) or the Slack client itself. Slack hides the ID values
+(channel, workspace, bot user) behind copy buttons rather than showing them inline, so:
+
+| Property | Value | Where to find it |
+|---|---|---|
+| `slackBotToken` | Bot User OAuth token (`xoxb-…`) | api.slack.com/apps → your app → **OAuth & Permissions** → *Bot User OAuth Token*. Must be the **Bot** token, not the User token (`xoxp-`). |
+| `slackSigningSecret` | App signing secret | api.slack.com/apps → your app → **Basic Information** → *App Credentials* → *Signing Secret* (click **Show**). |
+| `slackChannel` | Channel ID (`C…` public, `G…` private) | In the Slack client, open the channel → click its name → **About** tab → *Channel ID* at the bottom (copy button). Or right-click the channel → **Copy link**: the ID is the last path segment (`…/archives/C0123ABC`). |
+| `slackWorkspace` | Workspace / team ID (`T…`) | The Slack web client URL after you sign in: `app.slack.com/client/T0123ABC/…` — the `T…` segment. |
+| `slackBotUserId` | Bot's user ID (`U…`) | Optional. Easiest: provision without it, then run `yarn check:number-cruncher-slack --auth-only`, which prints the bot user id. Also shown on **OAuth & Permissions** after install. |
+| `slackAppKey` | Webhook path slug (you choose) | Not from Slack — you pick it (e.g. `nc-dev`). It becomes the last segment of the Request URL in Part C. |
+| `botName` | Display name (you choose) | Not from Slack — optional, defaults to "Number Cruncher". |
+
 ---
 
 ## Part B: Provision NC in llm_engine (BEFORE setting the Request URL)
@@ -236,3 +252,130 @@ in the `budgets` array and update via `PUT /v1/conversations`.
   skipped with a warning log.
 - Each budget's `apiKey` is sent as `Authorization: Bearer <apiKey>`. If an endpoint returns
   a non-2xx status, that budget is skipped and the others still run.
+
+---
+
+## Cost summaries per event
+
+When any conversation stops — public or private — its LLM runs are fetched from
+LangSmith and stored as a `ConversationCost` record split into `liveEvent` (spend
+while the conversation was running) and `postEvent` (spend on after-the-fact work
+like the Vibes Analyst recap and the conversation summary).
+
+**Cost tracking does not depend on Number Cruncher being provisioned.** It is core
+functionality for every conversation, gated only by `ENABLE_CONVERSATION_COST_TRACKING`
+(defaults to `true`). On every stop, `doStopConversation` schedules a standalone
+`conversationCost` job that computes and persists the record via the shared
+`conversationCostTracking` service. Number Cruncher's role is strictly the Slack-facing
+part: when an NC agent is active, it runs the same tracking flow itself (so it can also
+post a cost summary card — combined total plus the phase breakdown — to its admin
+channel), and the standalone job detects that active agent and steps aside to avoid a
+duplicate settle-poll. With no NC provisioned, the standalone job still records the cost;
+there is simply no card.
+
+A `ConversationCost` record is written immediately when the event stops (status
+`pending`), carrying whatever LangSmith has already ingested at that instant — a real
+preliminary estimate rather than a zeroed placeholder, falling back to zeros only when
+nothing has landed yet. It is then updated to `status: complete` once the settle-poll
+resolves — so a crash or a very slow settle never leaves zero record that the event
+happened.
+
+Private topics: Number Cruncher holds an `allTopics` read grant (broader than every
+other agent, which are `allPublicTopics`-only), so it still records `liveEvent` cost for
+a private event — real money was spent regardless of the topic's privacy. `postEvent`
+is much smaller for a private event, because the post-event *agents* (e.g. the Vibes
+Analyst recap) are `allPublicTopics`-only and never run on a private topic. It is not
+necessarily empty, though: the conversation summary is generated on stop regardless of
+privacy (see `doStopConversation`) and is tagged `costPhase: 'postEvent'`, so a private
+event's `postEvent` typically reflects just that one summary call. The posted Slack card
+redacts the event's name to "Private event" for these; the persisted Mongo record keeps
+the real name and is tagged `topicIsPrivate: true` so it can still be queried/reported on
+internally.
+
+Requirements:
+
+- `LANGSMITH_TRACING_V2=true`, `LANGSMITH_API_KEY`, and `LANGSMITH_PROJECT` must be
+  set — without tracing there is nothing to price, so tracking is skipped entirely
+  (one log line, no settle-poll) and no card is posted.
+- `ENABLE_CONVERSATION_COST_TRACKING` must be enabled (it is by default). Set it to
+  `false` to turn off cost recording for all conversations.
+- Only conversations that ran **after** conversationId trace tagging shipped have
+  cost data; historical events will never produce a record or card.
+
+Caveats:
+
+- Figures use LangSmith's internal pricing table, not negotiated provider rates
+  (Bedrock regional pricing and discounts differ), so the card always labels them
+  estimates.
+- The fetch polls until run counts settle (up to ~7 minutes after the stop), so the
+  cost card arrives several minutes after the event ends, after the Vibes Analyst
+  recap. Progress is logged at each poll attempt (debug) and on settle/exhaust (info).
+- Failed or retried agent runs still consumed tokens and are counted.
+
+### Confirming the integration works
+
+You do not need to wait for a real event to stop to check that NC can post cost cards.
+
+**Testing cost cards without budget endpoints.** The cost-card path
+(`onConversationEvent`) is independent of the budget-alert path (`respond`), so you can
+provision NC for cost-card testing without configuring any real budget endpoints, API
+keys, or thresholds. Pass an **empty** `budgets` array in the provisioning call (Part B):
+
+```json
+"properties": {
+  "slackChannel": "<C... or G...>",
+  "slackWorkspace": "<T...>",
+  "slackBotToken": "<xoxb-...>",
+  "slackAppKey": "nc-dev",
+  "budgets": []
+}
+```
+
+`budgets` is `required`, so the key must be present, but `[]` is accepted — the scheduled
+budget check simply returns early with nothing to check (see `agent.ts`, `respond()`),
+while the Slack adapter and the `numberCruncher` agent are still created, which is all the
+cost card needs. This is the recommended way to smoke-test the Slack cost card locally.
+
+Two levels of check:
+
+**1. Slack path only (fast, no LangSmith).** Run the bundled probe. It reads NC's stored
+Slack credentials from the database, checks the bot token, renders a sample cost card
+with the *real* card renderer, and posts it to NC's channel — so a valid token that can
+post a well-formed card confirms the whole outbound path:
+
+```bash
+# Posts a clearly-labeled sample card to NC's channel (reads MONGODB_URL from .env)
+yarn check:number-cruncher-slack
+
+# Just validate the token and identity; post nothing
+yarn check:number-cruncher-slack --auth-only
+
+# Preview the private-topic (name-redacted) variant of the card
+yarn check:number-cruncher-slack --private
+
+# Resolve creds and render, but make no Slack calls at all
+yarn check:number-cruncher-slack --dry-run
+
+# Probe a specific conversation's Slack adapter instead of auto-finding NC
+yarn check:number-cruncher-slack --conversation=<conversationId>
+
+# Against production (defaults to development otherwise)
+NODE_ENV=production yarn check:number-cruncher-slack
+```
+
+A `✔ Sample cost card posted…` line (and a card visible in the channel) means the
+integration is wired up. Failures print the specific fix — e.g. invite the bot to the
+channel (`not_in_channel`), correct the channel id (`channel_not_found`), add the
+`chat:write` scope (`missing_scope`), or re-provision the token (`invalid_auth`).
+
+**2. Full cost-calculation path (end to end).** Requires LangSmith configured (see
+Requirements above). Stop a real (non-experimental) conversation that ran at least a few
+LLM calls, then:
+
+- Watch the logs for `conversationCost:` lines — the pending record, the settle-poll
+  progress, and the final settled total.
+- Confirm a `ConversationCost` record exists in Mongo for that `conversationId`, moving
+  from `status: pending` to `status: complete`.
+- If NC is provisioned, the cost card appears in its channel a few minutes after the
+  event ends (after the settle-poll). If NC is not provisioned, the record is still
+  written (by the standalone `conversationCost` job) — there is simply no card.

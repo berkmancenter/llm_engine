@@ -1031,6 +1031,87 @@ export interface BudgetAlertData {
   checkedAt: string
 }
 
+/* Per-model aggregation of a conversation's llm-type LangSmith runs. Costs come from
+   LangSmith's own pricing table, not the provider invoice, so every figure is an
+   estimate — user-facing copy must say so.
+
+   `priced` is false if LangSmith's pricing table had no entry for at least one call
+   to this model (verified 2026-07-14: self-hosted vLLM/Ollama models return real
+   token counts but a null total_cost, since there is no published per-token price
+   to look up). Without this flag, a null cost is indistinguishable from a genuinely
+   free call — see conversationCost.ts's fetchConversationCost for where this is
+   detected and a note on a possible future custom-pricing adapter for those
+   platforms. */
+export interface ModelCostBreakdown {
+  model: string
+  llmCalls: number
+  promptTokens: number
+  completionTokens: number
+  estimatedCostUSD: number
+  priced: boolean
+}
+
+/* Per-agent aggregation: llm runs grouped by the agentType that names their trace root
+   (both traceable wrappers in the agent model name roots after the agentType). */
+export interface AgentCostBreakdown {
+  agentType: string
+  llmCalls: number
+  estimatedCostUSD: number
+}
+
+/* One phase's cost aggregate. A "phase" separates spend that happens while a
+   conversation is still live (agent respond() calls, tagged costPhase 'liveEvent')
+   from spend that happens after it stops (the Vibes Analyst recap, the conversation
+   summary — tagged 'postEvent'), so the two can be reported and queried separately
+   instead of only as one combined total. */
+export interface ConversationCostAggregates {
+  estimatedCostUSD: number
+  totalPromptTokens: number
+  totalCompletionTokens: number
+  llmCallCount: number
+  models: ModelCostBreakdown[]
+  agents: AgentCostBreakdown[]
+  // True if any llm call in this phase could not be priced (see ModelCostBreakdown.priced) —
+  // estimatedCostUSD is a floor, not the true total, when this is true.
+  hasUnpricedCalls: boolean
+}
+
+/* What the LangSmith fetch returns: the two phases, kept separate rather than
+   pre-summed, so callers that only care about one phase never have to undo a sum. */
+export interface ConversationCostPhases {
+  liveEvent: ConversationCostAggregates
+  postEvent: ConversationCostAggregates
+}
+
+/* Render payload for the 'conversationCostSummary' card. `total` is the two phases
+   combined, computed once by the caller so the renderer never has to know how to
+   combine aggregates itself. */
+export interface ConversationCostData extends ConversationCostPhases {
+  conversationName: string
+  checkedAt: string
+  total: ConversationCostAggregates
+  topicIsPrivate: boolean
+}
+
+/* The persisted shape: the two phase aggregates plus which conversation they price
+   and where the figures came from. `source` exists so a second cost source (e.g.
+   provider billing exports) could coexist later without a schema change. */
+export interface ConversationCostRecord extends ConversationCostPhases {
+  _id?: mongoose.Types.ObjectId
+  conversationId: mongoose.Types.ObjectId
+  name?: string
+  source: 'langsmith'
+  capturedAt?: Date
+  // 'pending' from the moment the event stops until the settle-poll resolves (see
+  // conversationCost.service.ts's createPending/persistCost); never left pending
+  // forever — persistCost always flips it to 'complete', even with zero cost data.
+  status: 'pending' | 'complete'
+  // Carried through so private-event cost can be reported on separately later.
+  // postEvent is always empty for a private event: no post-event agent (e.g. the
+  // Vibes Analyst recap) ever runs on a private topic, so there is nothing to price.
+  topicIsPrivate: boolean
+}
+
 export interface ConversationHistorySettings {
   count?: number
   timeWindow?: number // in seconds, going backwards from endTime
@@ -1115,7 +1196,7 @@ export interface EmbeddingsModelDetails {
 export type ReadScope =
   | { type: 'topic'; id: string; topicIsPrivate?: boolean }
   | { type: 'conversation'; id: string; topicId?: string; topicIsPrivate?: boolean }
-export type ReadGrant = ReadScope | { type: 'allPublicTopics' }
+export type ReadGrant = ReadScope | { type: 'allPublicTopics' } | { type: 'allTopics' }
 export type WriteScope = { type: 'conversation'; id: string }
 export type WriteGrant = { type: 'ownConversation' }
 

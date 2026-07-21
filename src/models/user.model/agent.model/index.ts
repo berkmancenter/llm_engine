@@ -389,7 +389,12 @@ agentSchema.method('respond', async function (userMessage = null) {
   const traceMetadata = {
     llmModel: this.llmModel,
     llmPlatform: this.llmPlatform,
-    embeddingsModel: config.embeddings.openAI.realtimeModel
+    embeddingsModel: config.embeddings.openAI.realtimeModel,
+    conversationId: (this.conversation as IConversation)._id?.toString(),
+    // Marks spend that happens while the conversation is still live (perMessage/periodic
+    // triggers), as opposed to post-stop work like the Vibes Analyst recap or the
+    // conversation summary — numberCruncher's cost fetcher aggregates the two separately.
+    costPhase: 'liveEvent' as const
   }
 
   const tracedRespond = traceable(
@@ -540,7 +545,23 @@ agentSchema.method('onConversationEvent', async function (evt: ConversationEvent
   if (!agentType.onConversationEvent) return []
   if (!this.populated('conversation')) await this.populate('conversation')
   await (this.conversation as HydratedDocument<IConversation>).populate('channels')
-  return agentType.onConversationEvent.call(this, evt)
+
+  /* Wrapped in traceable so LLM calls an event handler makes (e.g. the Vibes
+     Analyst recap) land under a root tagged with the STOPPED conversation's id —
+     the event being priced — not the agent's own admin conversation. Mirrors the
+     respond wrapper (same root name, the agentType, so per-agent cost grouping is
+     uniform); a no-op passthrough when tracing is disabled. Tagged costPhase
+     'postEvent': this only ever runs after the conversation has stopped. */
+  const tracedHandler = traceable(async () => agentType.onConversationEvent.call(this, evt), {
+    name: this.agentType,
+    metadata: {
+      llmModel: this.llmModel,
+      llmPlatform: this.llmPlatform,
+      conversationId: evt.conversationId,
+      costPhase: 'postEvent' as const
+    }
+  })
+  return tracedHandler()
 })
 
 agentSchema.method('introduce', async function (channel, adapterType?) {

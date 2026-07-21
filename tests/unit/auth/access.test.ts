@@ -98,6 +98,22 @@ describe('access', () => {
       })
     })
 
+    describe('allTopics grant', () => {
+      const agent = makeAgent({ capabilities: { read: [{ type: 'allTopics' }], write: [] } })
+
+      test('passes for a conversation scope on a private topic', () => {
+        expect(() => access.assertCanRead(agent, { type: 'conversation', id: 'conv-1', topicIsPrivate: true })).not.toThrow()
+      })
+
+      test('passes for a conversation scope on a public topic', () => {
+        expect(() => access.assertCanRead(agent, { type: 'conversation', id: 'conv-1', topicIsPrivate: false })).not.toThrow()
+      })
+
+      test('passes when topicIsPrivate is not set', () => {
+        expect(() => access.assertCanRead(agent, { type: 'conversation', id: 'conv-1' })).not.toThrow()
+      })
+    })
+
     test('agent with multiple grants passes when any match', () => {
       const agent = makeAgent({
         capabilities: {
