@@ -777,6 +777,40 @@ describe('Conversation service methods', () => {
         expect(conversation.draft).toBe(true)
         expect(conversation.topic).toBeFalsy()
       })
+
+      /* Rendering an adapter from a missing required property (e.g. zoomMeetingUrl) produces an
+         empty config value, which the real Zoom adapter's own validation hard-rejects (see
+         zoom.ts's validateBeforeUpdate). allowDraft relaxes the property check, but nothing about
+         it reaches adapter creation, so a draft missing a property an adapter depends on must not
+         attempt to create that adapter at all. */
+      test('creates no adapter when a required property backing it is missing and allowDraft is set', async () => {
+        const params = { ...incompleteParams, topicId: topicOne._id.toString() }
+
+        const conversation = await conversationService.createConversationFromType(params, registeredUser, {
+          allowDraft: true
+        })
+
+        expect(await Adapter.countDocuments({ conversation: conversation._id })).toBe(0)
+      })
+
+      test('creates the adapter once the missing required property is filled in via update', async () => {
+        jest.spyOn(websocketGateway, 'broadcastConversationUpdate').mockImplementation()
+        const params = { ...incompleteParams, topicId: topicOne._id.toString() }
+        const conversation = await conversationService.createConversationFromType(params, registeredUser, {
+          allowDraft: true
+        })
+        expect(await Adapter.countDocuments({ conversation: conversation._id })).toBe(0)
+
+        await conversationService.updateConversation(
+          { id: conversation._id.toString(), properties: { zoomMeetingUrl: 'https://zoom.us/j/555555555' } },
+          registeredUser
+        )
+
+        const adapters = await Adapter.find({ conversation: conversation._id })
+        expect(adapters).toHaveLength(1)
+        expect(adapters[0].type).toBe('zoom')
+        expect(adapters[0].config.meetingUrl).toBe('https://zoom.us/j/555555555')
+      })
     })
 
     describe('feature agent inclusion and property resolution', () => {
@@ -1694,19 +1728,34 @@ describe('Conversation service methods', () => {
     })
 
     test('should recreate the adapter with the correct config when platforms change', async () => {
-      /* The beforeEach conversation uses platforms: ['zoom'], which resolves to the
-         zoom-only adapter config (2 dmChannels: direct agent DM + moderator DM).
-         Switching to nextspace+zoom should produce the 'nextspace,zoom' config
-         (1 dmChannel: direct agent DM only — moderator DMs go through NextSpace). */
-      const adapterBefore = await Adapter.findOne({ conversation: conversation._id, type: 'zoom' })
-      expect(adapterBefore!.dmChannels).toHaveLength(2)
-
-      await conversationService.updateConversation(
-        { id: conversation._id.toString(), platforms: ['nextspace', 'zoom'] },
+      /* Needs its own conversation, not the shared beforeEach one: that one never gets
+         scheduledEndTime, so it's Draft and (correctly) has no adapter yet to recreate. This
+         conversation is complete, so its zoom adapter exists from creation, resolving to the
+         zoom-only config (2 dmChannels: direct agent DM + moderator DM). Switching to
+         nextspace+zoom should produce the 'nextspace,zoom' config (1 dmChannel: direct agent DM
+         only — moderator DMs go through NextSpace). */
+      const completeConversation = await conversationService.createConversationFromType(
+        {
+          type: 'eventAssistant',
+          name: 'Complete Event',
+          platforms: ['zoom'],
+          topicId: topicOne._id.toString(),
+          scheduledTime: new Date(Date.now() + 3600000),
+          scheduledEndTime: new Date(Date.now() + 7200000),
+          properties: { zoomMeetingUrl: 'https://zoom.us/j/222222222' }
+        },
         registeredUser
       )
 
-      const adapterAfter = await Adapter.findOne({ conversation: conversation._id, type: 'zoom' })
+      const adapterBefore = await Adapter.findOne({ conversation: completeConversation._id, type: 'zoom' })
+      expect(adapterBefore!.dmChannels).toHaveLength(2)
+
+      await conversationService.updateConversation(
+        { id: completeConversation._id.toString(), platforms: ['nextspace', 'zoom'] },
+        registeredUser
+      )
+
+      const adapterAfter = await Adapter.findOne({ conversation: completeConversation._id, type: 'zoom' })
       /* After the fix, the adapter should be recreated with the nextspace,zoom config
          (1 dmChannel). Before the fix, the old adapter is not recreated and still has 2. */
       expect(adapterAfter!.dmChannels).toHaveLength(1)

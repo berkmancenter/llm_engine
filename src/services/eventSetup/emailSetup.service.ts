@@ -6,12 +6,15 @@
  */
 import config from '../../config/config.js'
 import logger from '../../config/logger.js'
-import { Topic } from '../../models/index.js'
+import { Conversation, Topic } from '../../models/index.js'
 import { TopicDocument } from '../../models/topic.model.js'
 import userService from '../user.service.js'
 import topicService from '../topic.service.js'
 import emailService from '../email.service.js'
-import { InboundInvite } from '../../types/index.types.js'
+import conversationService from '../conversation.service/index.js'
+import plannerService from './planner.service.js'
+import { getConversationType } from '../../conversations/index.js'
+import { ConversationType, InboundInvite } from '../../types/index.types.js'
 
 /**
  * The Topic prefix an invite's SUMMARY points at: the substring before the first colon, trimmed.
@@ -107,4 +110,76 @@ export const resolveTopic = async (inboundInvite: InboundInvite, organizer): Pro
   if (!matched?.id) return null
 
   return Topic.findById(matched.id)
+}
+
+/* A .ics file without a title is a malformed edge case, not something worth rejecting the whole
+   invite over: the plan's own design is "best-effort data plus sane placeholders," and a
+   conversation the organizer can rename from the detail page beats none at all. */
+const PLACEHOLDER_CONVERSATION_NAME = 'Untitled event'
+
+/**
+ * Each of the type's features, enabled or disabled exactly as its own definition defaults it
+ * (e.g. moderatorSupport on, seriesHistory off). Leaving `features` unset resolves to zero
+ * feature agents rather than "apply each default" (see resolver.ts's resolveFeatures), so an
+ * invite-created event has to send this explicitly to end up with the same feature agents a
+ * manually-created event gets from the create form.
+ */
+const defaultFeatures = (conversationType: ConversationType) =>
+  (conversationType.features ?? []).map((feature) => ({ name: feature.name, enabled: feature.default }))
+
+/**
+ * Ties organizer resolution, Topic resolution, and the fuzzy-field extraction together into an
+ * actual Conversation. Idempotent: Postmark can redeliver the same message (up to 10 retries over
+ * ~10.5 hours), so a retry must not create a second conversation. Dedup keys off the invite's
+ * .ics UID, stored on the Conversation as sourceInviteUid, which only a trusted allowDraft caller
+ * can ever set (see conversation.service/index.ts createConversation) so a public API client
+ * cannot squat on a UID and cause a future legitimate invite to silently no-op.
+ *
+ * Returns the created (or already-existing) Conversation, or null when none should be created at
+ * all, i.e. resolveOrganizer rejected the sender.
+ */
+export const createConversationFromInvite = async (inboundInvite: InboundInvite) => {
+  const { invite } = inboundInvite
+
+  if (invite.uid) {
+    const existing = await Conversation.findOne({ sourceInviteUid: invite.uid })
+    if (existing) {
+      logger.info(`Email webhook: invite UID ${invite.uid} already created as conversation ${existing._id}, skipping`)
+      return existing
+    }
+  } else {
+    logger.warn('Email webhook: invite has no UID; cannot dedup a Postmark retry for this message')
+  }
+
+  const organizer = await resolveOrganizer(inboundInvite)
+  if (!organizer) return null
+
+  const topic = await resolveTopic(inboundInvite, organizer)
+  const extracted = await plannerService.planConversationFromInvite({ invite })
+
+  const conversationType = getConversationType('eventAssistant')
+
+  return conversationService.createConversationFromType(
+    {
+      type: 'eventAssistant',
+      name: invite.summary ?? PLACEHOLDER_CONVERSATION_NAME,
+      topicId: topic?.id,
+      sourceInviteUid: invite.uid,
+      platforms: ['nextspace'],
+      scheduledTime: invite.startDate,
+      scheduledEndTime: invite.endDate,
+      description: extracted.description,
+      properties: {
+        // Present-but-undefined would still satisfy the type's "required property" presence
+        // check (see resolver.ts's `prop.name in properties`), so the key must be fully absent
+        // rather than set to undefined when there is no Zoom link.
+        ...(extracted.zoomLink !== undefined && { zoomMeetingUrl: extracted.zoomLink })
+      },
+      features: conversationType ? defaultFeatures(conversationType) : undefined,
+      presenters: extracted.speakers,
+      moderators: extracted.moderators
+    },
+    organizer,
+    { allowDraft: true }
+  )
 }

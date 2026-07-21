@@ -158,7 +158,7 @@ Invite body: {description}
 
 Invite location: {location}`
 
-export interface PlanEventFromInviteInput {
+export interface PlanConversationFromInviteInput {
   invite: ParsedInvite
 }
 
@@ -177,7 +177,7 @@ const pickInviteExtractedFields = ({ zoomLink, speakers, moderators, description
   ...(description !== undefined && { description })
 })
 
-export const planEventFromInvite = async ({ invite }: PlanEventFromInviteInput): Promise<ExtractedFields> => {
+export const planConversationFromInvite = async ({ invite }: PlanConversationFromInviteInput): Promise<ExtractedFields> => {
   const llm = await getModelChat(config.classificationLLMPlatform, config.classificationLLMModel)
   try {
     const result = (await getChatPromptResponse(
@@ -194,9 +194,9 @@ export const planEventFromInvite = async ({ invite }: PlanEventFromInviteInput):
     )) as ExtractedFields
     return result ? pickInviteExtractedFields(result) : fallbackExtractedFields()
   } catch (err) {
-    logger.error(`eventSetup planEventFromInvite failed: ${(err as Error).message}`)
+    logger.error(`eventSetup planConversationFromInvite failed: ${(err as Error).message}`)
     return fallbackExtractedFields()
   }
 }
 
-export default { planEventSetup, planEventFromInvite }
+export default { planEventSetup, planConversationFromInvite }

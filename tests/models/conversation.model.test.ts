@@ -70,7 +70,7 @@ describe('conversation sourceInviteUid', () => {
 
   /* The field is intentionally non-unique: most conversations have no invite UID at all, and a
      unique index would treat every one of those missing values as a colliding duplicate. Dedup
-     against Postmark retries happens in createEventFromInvite, not via a DB constraint. */
+     against Postmark retries happens in createConversationFromInvite, not via a DB constraint. */
   it('allows multiple conversations with no sourceInviteUid to coexist', async () => {
     await Conversation.create(baseConversation())
     await expect(Conversation.create(baseConversation())).resolves.toBeTruthy()

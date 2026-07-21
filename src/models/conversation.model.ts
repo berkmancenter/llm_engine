@@ -127,7 +127,7 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
       type: String,
       // Non-unique: most conversations have no invite UID at all, and a unique index would treat
       // every missing value as a colliding duplicate. Dedup against Postmark retries happens in
-      // createEventFromInvite (a findOne before create), not via a DB constraint.
+      // createConversationFromInvite (a findOne before create), not via a DB constraint.
       index: true
     },
     scheduledTime: {

@@ -176,10 +176,17 @@ const createConversation = async (conversationBody, user, { allowDraft = false }
       throw new Error('No such supported embedding model')
   }
 
+  /* Trusted-caller-only, same as allowDraft itself: the public routes never pass allowDraft:true,
+     so a client can never set sourceInviteUid on a conversation it creates. Without this gate, an
+     ordinary user could squat on a future invite's UID via the public API and make a legitimate
+     invite silently no-op against their decoy (see createConversationFromInvite's dedup check). */
+  const canSetSourceInviteUid = allowDraft && conversationBody.sourceInviteUid !== undefined
+
   const conversation = new Conversation({
     name: conversationBody.name,
     owner: user,
     ...(topic && { topic }),
+    ...(canSetSourceInviteUid && { sourceInviteUid: conversationBody.sourceInviteUid }),
     enableAgents: !!conversationBody.agentTypes?.length,
     ...(conversationBody.enableDMs !== undefined && { enableDMs: conversationBody.enableDMs }),
     ...(conversationBody.conversationType !== undefined && { conversationType: conversationBody.conversationType }),
@@ -215,9 +222,17 @@ const createConversation = async (conversationBody, user, { allowDraft = false }
     conversation.agents.push(agent)
   }
 
-  for (const adapterProps of conversationBody.adapters || []) {
-    const adapter = await adapterService.createAdapter(adapterProps, conversation)
-    conversation.adapters.push(adapter)
+  /* A draft conversation can be missing a property an adapter's config depends on (e.g. a Zoom
+     event with no zoomMeetingUrl yet). allowDraft relaxes the property check, but adapter config
+     is rendered from a template and saved independently, so an adapter built from a missing
+     property would save with an empty required field and fail its own validation. Skip adapter
+     creation entirely while draft; updateConversation's configSyncMap handling creates it once
+     the missing property arrives (see the "backfill" branch there). */
+  if (!conversation.draft) {
+    for (const adapterProps of conversationBody.adapters || []) {
+      const adapter = await adapterService.createAdapter(adapterProps, conversation)
+      conversation.adapters.push(adapter)
+    }
   }
 
   for (const channelProps of conversationBody.channels || []) {
@@ -349,10 +364,40 @@ const updateConversation = async (conversationBody, user) => {
       }
       if (Object.keys(configUpdates).length > 0) {
         const adapters = await Adapter.find({ conversation: conversationDoc._id, type: adapterType })
-        for (const adapter of adapters) {
-          adapter.config = { ...adapter.config, ...configUpdates }
-          adapter.markModified('config')
-          await adapter.save()
+        if (adapters.length > 0) {
+          for (const adapter of adapters) {
+            adapter.config = { ...adapter.config, ...configUpdates }
+            adapter.markModified('config')
+            await adapter.save()
+          }
+        } else if (
+          conversationDoc.platforms?.includes(adapterType) &&
+          Object.values(configUpdates).every((value) => value !== undefined && value !== null && value !== '')
+        ) {
+          /* This adapter type was skipped at creation time (see createConversation) because a
+             property it depends on was missing under allowDraft. Every property this update just
+             synced into configUpdates is now present, so the adapter can be created for real.
+             allowDraft here too: some other, unrelated required property may still be missing,
+             and that must not block this adapter from finally getting created. */
+          const conversationType = conversationDoc.conversationType
+            ? getConversationType(conversationDoc.conversationType)
+            : null
+          if (conversationType) {
+            const resolved = resolveConversationType(
+              {
+                platforms: conversationDoc.platforms,
+                properties: conversationDoc.properties,
+                features: incomingFeatures ?? conversationDoc.features
+              },
+              conversationType,
+              true
+            )
+            const adapterProps = resolved.adapters.find((a) => (a as { type?: string }).type === adapterType)
+            if (adapterProps) {
+              const adapter = await adapterService.createAdapter(adapterProps, conversationDoc)
+              conversationDoc.adapters.push(adapter)
+            }
+          }
         }
       }
     }

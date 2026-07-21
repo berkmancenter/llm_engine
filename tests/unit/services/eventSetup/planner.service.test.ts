@@ -16,7 +16,7 @@ jest.unstable_mockModule('../src/agents/helpers/getModelChat.js', () => ({
   getModelChat: mockGetModelChat
 }))
 
-const { planEventFromInvite } = await import('../../../../src/services/eventSetup/planner.service.js')
+const { planConversationFromInvite } = await import('../../../../src/services/eventSetup/planner.service.js')
 const { ExtractedFieldsSchema } = await import('../../../../src/services/eventSetup/eventFieldsSchema.js')
 const { default: logger } = await import('../../../../src/config/logger.js')
 
@@ -30,7 +30,7 @@ function invite(overrides: Partial<ParsedInvite> = {}): ParsedInvite {
   }
 }
 
-describe('planEventFromInvite', () => {
+describe('planConversationFromInvite', () => {
   beforeEach(() => {
     mockGetChatPromptResponse.mockReset()
     mockGetModelChat.mockReset()
@@ -49,7 +49,7 @@ describe('planEventFromInvite', () => {
       description: 'Weekly team sync'
     })
 
-    const result = await planEventFromInvite({ invite: invite() })
+    const result = await planConversationFromInvite({ invite: invite() })
 
     expect(result).toEqual({
       zoomLink: 'https://zoom.us/j/123456789',
@@ -69,7 +69,7 @@ describe('planEventFromInvite', () => {
       description: 'Weekly team sync'
     })
 
-    const result = await planEventFromInvite({
+    const result = await planConversationFromInvite({
       invite: invite({ location: 'https://teams.microsoft.com/l/meetup-join/abc123' })
     })
 
@@ -81,7 +81,7 @@ describe('planEventFromInvite', () => {
       description: 'Weekly team sync'
     })
 
-    const result = await planEventFromInvite({ invite: invite({ location: undefined }) })
+    const result = await planConversationFromInvite({ invite: invite({ location: undefined }) })
 
     expect(result.zoomLink).toBeUndefined()
   })
@@ -89,7 +89,7 @@ describe('planEventFromInvite', () => {
   it('sends the invite title, body, and location to the model, validated against the shared ExtractedFieldsSchema', async () => {
     mockGetChatPromptResponse.mockResolvedValue({})
 
-    await planEventFromInvite({
+    await planConversationFromInvite({
       invite: invite({ summary: 'BKCircle: Jane Presents', description: 'A talk on AI', location: 'Room 101' })
     })
 
@@ -106,7 +106,7 @@ describe('planEventFromInvite', () => {
   it('substitutes a placeholder when the invite has no description or location', async () => {
     mockGetChatPromptResponse.mockResolvedValue({})
 
-    await planEventFromInvite({ invite: invite({ description: undefined, location: undefined }) })
+    await planConversationFromInvite({ invite: invite({ description: undefined, location: undefined }) })
 
     expect(mockGetChatPromptResponse).toHaveBeenCalledWith(
       expect.anything(),
@@ -134,7 +134,7 @@ describe('planEventFromInvite', () => {
       description: 'Weekly sync'
     })
 
-    const result = await planEventFromInvite({ invite: invite() })
+    const result = await planConversationFromInvite({ invite: invite() })
 
     expect(result).toEqual({
       zoomLink: 'https://zoom.us/j/123456789',
@@ -145,7 +145,7 @@ describe('planEventFromInvite', () => {
   it('falls back to an empty result and logs when the model call throws', async () => {
     mockGetChatPromptResponse.mockRejectedValue(new Error('rate limited'))
 
-    const result = await planEventFromInvite({ invite: invite() })
+    const result = await planConversationFromInvite({ invite: invite() })
 
     expect(result).toEqual({})
     expect(logger.error).toHaveBeenCalled()
@@ -154,7 +154,7 @@ describe('planEventFromInvite', () => {
   it('falls back to an empty result when the model returns nothing', async () => {
     mockGetChatPromptResponse.mockResolvedValue(undefined)
 
-    const result = await planEventFromInvite({ invite: invite() })
+    const result = await planConversationFromInvite({ invite: invite() })
 
     expect(result).toEqual({})
   })
