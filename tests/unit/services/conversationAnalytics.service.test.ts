@@ -17,6 +17,7 @@ import conversationAnalyticsService, {
   computeReplyLatency,
   computeResourceSummary,
   computeTimeToFirstMessage,
+  computeTopDeviations,
   deriveEventPlatform,
   spikeSourceForChannels,
   METRICS_VERSION
@@ -1806,5 +1807,98 @@ describe('computeConversationMetrics peer baseline', () => {
 
     // Only 2 current-version peers qualify, below PEER_COHORT_MIN_EVENTS, so null.
     expect(metrics.peerBaseline).toBeNull()
+  })
+})
+
+describe('computeTopDeviations', () => {
+  const today = {
+    posterCount: 40,
+    participationRate: 0.5,
+    topPosterMessageShare: 0.6,
+    lurkerCount: 10,
+    avgDwellSeconds: 300
+  }
+
+  it('returns an empty list when there is nothing to compare against', () => {
+    expect(computeTopDeviations(today, null, null)).toEqual([])
+  })
+
+  it('ranks by size of percent difference, largest first', () => {
+    const baseline = { eventCount: 4, trackedEventCount: 4, avgPosterCount: 38, avgLurkerCount: 9, avgDwellSeconds: 290 }
+    const peerBaseline = {
+      band: 'medium' as const,
+      eventCount: 5,
+      avgPosterCount: 30,
+      avgParticipationRate: 0.4,
+      participationRateEventCount: 5,
+      avgTopPosterMessageShare: 0.2,
+      concentrationEventCount: 5
+    }
+
+    const deviations = computeTopDeviations(today, baseline, peerBaseline)
+
+    const magnitudes = deviations.map((d) => Math.abs(d.percentDifference))
+    expect(magnitudes).toEqual([...magnitudes].sort((a, b) => b - a))
+    // topPosterMessageShare vs peers (0.6 vs 0.2, +200%) is the largest swing here.
+    expect(deviations[0].metric).toBe('topPosterMessageShare')
+    expect(deviations[0].comparison).toBe('peerBaseline')
+    expect(deviations[0].direction).toBe('above')
+  })
+
+  it('omits a comparison whose average is null', () => {
+    const peerBaseline = {
+      band: 'medium' as const,
+      eventCount: 5,
+      avgPosterCount: 20,
+      avgParticipationRate: null,
+      participationRateEventCount: 0,
+      avgTopPosterMessageShare: null,
+      concentrationEventCount: 0
+    }
+
+    const deviations = computeTopDeviations(today, null, peerBaseline)
+
+    expect(deviations.some((d) => d.metric === 'participationRate')).toBe(false)
+    expect(deviations.some((d) => d.metric === 'topPosterMessageShare')).toBe(false)
+    expect(deviations.some((d) => d.metric === 'posterCount' && d.comparison === 'peerBaseline')).toBe(true)
+  })
+
+  it('omits a comparison whose average is zero to avoid a divide-by-zero', () => {
+    const baseline = { eventCount: 3, trackedEventCount: 3, avgPosterCount: 38, avgLurkerCount: 0, avgDwellSeconds: 290 }
+
+    const deviations = computeTopDeviations(today, baseline, null)
+
+    expect(deviations.some((d) => d.metric === 'lurkerCount')).toBe(false)
+  })
+
+  it('marks avgDwellSeconds as an estimate and every other metric as exact', () => {
+    const baseline = { eventCount: 3, trackedEventCount: 3, avgPosterCount: 38, avgLurkerCount: 9, avgDwellSeconds: 100 }
+
+    const deviations = computeTopDeviations(today, baseline, null)
+
+    const dwell = deviations.find((d) => d.metric === 'avgDwellSeconds')
+    const posters = deviations.find((d) => d.metric === 'posterCount')
+    expect(dwell?.tier).toBe('estimate')
+    expect(posters?.tier).toBe('exact')
+  })
+
+  it('caps the list at the top 5 deviations', () => {
+    // All 6 possible comparisons qualify; avgPosterCount vs topicBaseline is the smallest
+    // swing (40 vs 39, roughly +2.6%) and should be the one dropped.
+    const baseline = { eventCount: 4, trackedEventCount: 4, avgPosterCount: 39, avgLurkerCount: 4, avgDwellSeconds: 100 }
+    const peerBaseline = {
+      band: 'medium' as const,
+      eventCount: 5,
+      avgPosterCount: 10,
+      avgParticipationRate: 0.1,
+      participationRateEventCount: 5,
+      avgTopPosterMessageShare: 0.1,
+      concentrationEventCount: 5
+    }
+
+    const deviations = computeTopDeviations(today, baseline, peerBaseline)
+
+    expect(deviations).toHaveLength(5)
+    expect(deviations.some((d) => d.metric === 'posterCount' && d.comparison === 'topicBaseline')).toBe(false)
   })
 })

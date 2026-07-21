@@ -27,6 +27,7 @@ export default function makeMetrics(overrides: Partial<ConversationMetrics> = {}
     ],
     baseline: { eventCount: 3, trackedEventCount: 0, avgPosterCount: 18, avgLurkerCount: null, avgDwellSeconds: null },
     peerBaseline: null,
+    topDeviations: [],
     channelSplit: { public: 30, private: 20 },
     timeToFirstMessage: { publicSeconds: null, privateSeconds: null },
     replyLatency: { medianSecondsToFirstReply: null, repliedMessageCount: 0 },

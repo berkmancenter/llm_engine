@@ -13,6 +13,7 @@ import {
   BotInvocations,
   ChatSpike,
   ConversationMetrics,
+  DeviationSignal,
   EventPlatform,
   InteractionStructure,
   ParticipationConcentration,
@@ -907,6 +908,82 @@ async function computePeerBaseline(
   }
 }
 
+const TOP_DEVIATIONS_LIMIT = 5
+
+/* Adds one deviation signal when both sides of the comparison are available. Skipped when
+   either side is null (nothing to compare, or the metric was not available today) or when
+   comparedTo is 0, since dividing by a zero average produces an unusable percent difference
+   rather than a real signal. */
+function pushDeviation(
+  signals: DeviationSignal[],
+  metric: DeviationSignal['metric'],
+  comparison: DeviationSignal['comparison'],
+  tier: DeviationSignal['tier'],
+  value: number | null,
+  comparedTo: number | null
+): void {
+  if (value === null || comparedTo === null || comparedTo === 0) return
+  const percentDifference = (value - comparedTo) / comparedTo
+  signals.push({
+    metric,
+    comparison,
+    tier,
+    value,
+    comparedTo,
+    percentDifference,
+    direction: percentDifference >= 0 ? 'above' : 'below'
+  })
+}
+
+/* Ranks every metric that has a comparison average by how far today's value sits from it,
+   largest percent difference first, capped at TOP_DEVIATIONS_LIMIT. This is the deterministic
+   alternative to letting the curator guess at what is notable from the raw numbers alone: it
+   surfaces the actual outliers, from either this topic's own recent history (baseline) or
+   public peer events of the same size and platform (peerBaseline). Every comparison the two
+   baselines support is checked; whichever ones are missing (no baseline yet, too thin a peer
+   cohort, a null participation rate) are simply left out rather than guessed at. */
+export function computeTopDeviations(
+  today: {
+    posterCount: number
+    participationRate: number | null
+    topPosterMessageShare: number | null
+    lurkerCount: number | null
+    avgDwellSeconds: number | null
+  },
+  baseline: SameTopicBaseline | null,
+  peerBaseline: PeerBaseline | null
+): DeviationSignal[] {
+  const signals: DeviationSignal[] = []
+
+  if (baseline) {
+    pushDeviation(signals, 'posterCount', 'topicBaseline', 'exact', today.posterCount, baseline.avgPosterCount)
+    pushDeviation(signals, 'lurkerCount', 'topicBaseline', 'exact', today.lurkerCount, baseline.avgLurkerCount)
+    pushDeviation(signals, 'avgDwellSeconds', 'topicBaseline', 'estimate', today.avgDwellSeconds, baseline.avgDwellSeconds)
+  }
+
+  if (peerBaseline) {
+    pushDeviation(signals, 'posterCount', 'peerBaseline', 'exact', today.posterCount, peerBaseline.avgPosterCount)
+    pushDeviation(
+      signals,
+      'participationRate',
+      'peerBaseline',
+      'exact',
+      today.participationRate,
+      peerBaseline.avgParticipationRate
+    )
+    pushDeviation(
+      signals,
+      'topPosterMessageShare',
+      'peerBaseline',
+      'exact',
+      today.topPosterMessageShare,
+      peerBaseline.avgTopPosterMessageShare
+    )
+  }
+
+  return signals.sort((a, b) => Math.abs(b.percentDifference) - Math.abs(a.percentDifference)).slice(0, TOP_DEVIATIONS_LIMIT)
+}
+
 /* True when the event names at least one analytics source to pull data from.
    analyticsRefs can arrive as a Mongoose Map or a plain object, so we handle both.
    This is how we tell "no data because nothing was tracked" apart from "no data
@@ -994,6 +1071,17 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
   })
   const eventPlatform = deriveEventPlatform(conversation)
   const peerBaseline = await computePeerBaseline(conversation, { posterCount: participation.posterCount, eventPlatform })
+  const topDeviations = computeTopDeviations(
+    {
+      posterCount: participation.posterCount,
+      participationRate: audienceEngagement.participationRate,
+      topPosterMessageShare: participationConcentration.topPosterMessageShare,
+      lurkerCount: audienceEngagement.lurkerCount,
+      avgDwellSeconds: trackedSessionSources[0]?.avgDwellSeconds ?? null
+    },
+    baseline,
+    peerBaseline
+  )
 
   return {
     participation,
@@ -1005,6 +1093,7 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
     participationHistory,
     baseline,
     peerBaseline,
+    topDeviations,
     channelSplit,
     privateMessaging,
     timeToFirstMessage,

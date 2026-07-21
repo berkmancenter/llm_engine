@@ -814,6 +814,37 @@ export interface PeerBaseline {
   concentrationEventCount: number
 }
 
+/* A metric that has a comparison average to measure against. Named after the field it reads:
+   posterCount and lurkerCount read from participation/audienceEngagement, participationRate and
+   topPosterMessageShare from their own metrics, avgDwellSeconds from the primary tracked source. */
+export type DeviationMetric =
+  | 'posterCount'
+  | 'participationRate'
+  | 'topPosterMessageShare'
+  | 'lurkerCount'
+  | 'avgDwellSeconds'
+
+/* Which average a deviation is measured against: this topic's own recent history, or public
+   peer events of about the same size and platform, across any topic. */
+export type DeviationComparison = 'topicBaseline' | 'peerBaseline'
+
+/* One metric's difference from a comparison average, already computed so the curator does not
+   have to eyeball the raw numbers to find what stands out. tier carries the same two-tier trust
+   split as the rest of the data: 'exact' for first-party counts (posterCount, participationRate,
+   topPosterMessageShare, lurkerCount), 'estimate' for a tracked-session figure (avgDwellSeconds),
+   which still needs the usual possible-undercount caveat. percentDifference is signed: positive
+   means value ran above comparedTo, negative means below; direction restates that sign in words
+   so a reader never has to work out which way a negative number points. */
+export interface DeviationSignal {
+  metric: DeviationMetric
+  comparison: DeviationComparison
+  tier: 'exact' | 'estimate'
+  value: number
+  comparedTo: number
+  percentDifference: number
+  direction: 'above' | 'below'
+}
+
 /* How many times participants called on the event's configured assistant by name.
    botName is the name set at event creation (or the default); count is how many
    participant chat messages addressed it, matched the same fuzzy way the assistant
@@ -871,6 +902,10 @@ export interface ConversationMetrics {
   // How today compares to recent public peer events of the same size and platform, across any
   // topic; null when too few peers qualify.
   peerBaseline: PeerBaseline | null
+  // The metrics that differ most from a comparison average (topic history or peer cohort),
+  // ranked by size of the difference, largest first; empty when nothing was available to
+  // compare against.
+  topDeviations: DeviationSignal[]
   // Counts of people's messages: public chat vs private one-to-one with the bot.
   channelSplit: { public: number; private: number }
   // Private (one-to-one with the bot) messaging: counts plus distinct senders, with the
