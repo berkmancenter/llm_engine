@@ -70,7 +70,12 @@ export function buildSnapshotPayload(
       withLinks: metrics.resourceSummary.withLinks
     },
     spikeCount: metrics.spikes.length,
-    receptionCount
+    receptionCount,
+
+    timeToFirstMessage: metrics.timeToFirstMessage,
+    replyLatency: metrics.replyLatency,
+    participationConcentration: metrics.participationConcentration,
+    interactionStructure: metrics.interactionStructure
   }
 }
 

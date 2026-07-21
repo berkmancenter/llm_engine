@@ -1022,6 +1022,13 @@ export interface ConversationMetricsSnapshotData {
   // How many speaker moments drew a chat reaction; quotes are not stored. Null when the
   // reception pass did not run (e.g. a backfill that recomputes scalars only).
   receptionCount: number | null
+  // The four pacing/shape metrics (exact, first-party), stored as computed so peer-cohort
+  // comparison (see computePeerBaseline) and future trends can read them, the same shape as
+  // their ConversationMetrics counterparts.
+  timeToFirstMessage: TimeToFirstMessage
+  replyLatency: ReplyLatency
+  participationConcentration: ParticipationConcentration
+  interactionStructure: InteractionStructure
 }
 
 /* The snapshot fields the trend chart and label read by name, off a stored snapshot or a live
