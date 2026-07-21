@@ -116,7 +116,7 @@ const envVarsSchema = Joi.object()
       .default('us.anthropic.claude-haiku-4-5-20251001-v1:0')
       .description('Model to use for core system LLM tasks (summaries, fun facts, etc.)'),
     IMAGE_GENERATION_LLM_MODEL: Joi.string()
-      .default('gemini-3-pro-image-preview')
+      .default('gemini-3-pro-image')
       .description('Model to use for image generation tasks'),
     SEMANTIC_SCHOLAR_API_KEY: Joi.string().description('Semantic Scholar API key for agent tools'),
     TAVILY_API_KEY: Joi.string().description('Tavily API key for web search tool'),
