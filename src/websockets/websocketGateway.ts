@@ -74,10 +74,13 @@ class WebsocketGateway {
   }
 
   async broadcastNewConversation(conversation) {
+    // A topicless draft (e.g. from an unmatched inbound invite) has no topic room to broadcast into.
+    if (!conversation.topic) return
     await this.broadcast(conversation.topic._id.toString(), 'conversation:new', conversation)
   }
 
   async broadcastConversationUpdate(conversation) {
+    if (!conversation.topic) return
     await this.broadcast(conversation.topic._id.toString(), 'conversation:update', conversation)
   }
 

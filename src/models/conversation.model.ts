@@ -119,7 +119,8 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
     topic: {
       type: mongoose.SchemaTypes.ObjectId,
       ref: 'Topic',
-      required: true,
+      // Optional so a draft created from an inbound invite with no matching Topic can be saved with a
+      // blank topic for the organizer to fill in. Non-draft conversations still get one at creation.
       index: true
     },
     scheduledTime: {
