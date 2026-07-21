@@ -15,6 +15,14 @@ export interface ParsedInvite {
   organizer?: string // organizer email from the .ics ORGANIZER field, mailto: stripped
 }
 
+/* The trust boundary in one shape: `invite` is attacker-supplied .ics file content (anyone can put
+   any UID or ORGANIZER in a raw .ics), while `fromAddress` is the envelope From that Postmark actually
+   received. Identity resolution keys off fromAddress; ORGANIZER is only ever compared against it. */
+export interface InboundInvite {
+  fromAddress: string
+  invite: ParsedInvite
+}
+
 export interface PaginateResults<T> {
   results: Array<T>
   page: number
