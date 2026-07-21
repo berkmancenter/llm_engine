@@ -182,6 +182,67 @@ describe('curateVibesCard', () => {
     expect(allText).toMatch(/similar|peer|typical|other events|events this size|16/)
   })
 
+  it('leads with the ranked deviation when a tracked-session figure swung far from the topic norm', async () => {
+    // Poster count and lurkers are both close to their recent norm (no story there), but average
+    // dwell time nearly tripled versus the topic's baseline. topDeviations names that as the one
+    // outlier, so it should be the standout even though nothing else in the fixture stands out.
+    const metrics = makeMetrics({
+      participation: { posterCount: 21, frequentPosterCount: 2, frequentPosterMessageShare: 0.3, messageCount: 60 },
+      trackedSessionSources: [
+        {
+          source: 'matomo',
+          capturedAt: new Date('2026-06-10T18:05:00.000Z'),
+          trackedSessions: 25,
+          attendeeCount: 21,
+          avgDwellSeconds: 900,
+          totalActions: 100,
+          deviceBreakdown: {},
+          actionBreakdown: {},
+          actionUserBreakdown: {},
+          activeVisitorCount: 0,
+          actionBreakdownPerActiveVisitor: {}
+        }
+      ],
+      trackedSessionStatus: 'available',
+      audienceEngagement: {
+        participantCount: 25,
+        lurkerCount: 4,
+        participationRate: 0.84,
+        postersExceedTrackedSessions: false
+      },
+      spikes: [],
+      receptions: [],
+      participationHistory: [
+        { label: 'E1', posterCount: 20, lurkerCount: 4 },
+        { label: 'Today', posterCount: 21, lurkerCount: 4 }
+      ],
+      baseline: { eventCount: 4, trackedEventCount: 4, avgPosterCount: 20, avgLurkerCount: 4, avgDwellSeconds: 310 },
+      peerBaseline: null,
+      topDeviations: [
+        {
+          metric: 'avgDwellSeconds',
+          comparison: 'topicBaseline',
+          tier: 'estimate',
+          value: 900,
+          comparedTo: 310,
+          percentDifference: (900 - 310) / 310,
+          direction: 'above'
+        }
+      ],
+      channelSplit: { public: 55, private: 5 }
+    })
+
+    const card = await curateVibesCard(metrics, { eventName: 'Deep Dive Session', durationMinutes: 60 }, llm)
+
+    expect(card.standouts.length).toBeGreaterThanOrEqual(2)
+    const allText = card.standouts
+      .map((standout) => standout.text)
+      .join(' ')
+      .toLowerCase()
+    expect(allText).toMatch(/dwell|session length|time spent|900/)
+    expect(allText).toMatch(/undercount/)
+  })
+
   it('uses speaker count and active agent labels as light framing context, not a standout', async () => {
     const card = await curateVibesCard(
       negativeEventMetrics(),
