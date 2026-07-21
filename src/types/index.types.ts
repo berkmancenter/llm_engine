@@ -462,6 +462,10 @@ export interface IConversation {
   enableAgents?: boolean
   owner: IUser
   topic: ITopic
+  // The .ics UID of the inbound invite this conversation was created from. Unset for every
+  // conversation not created by the email webhook; used to detect a Postmark retry of the same
+  // invite before creating a duplicate (see emailSetup.service.ts).
+  sourceInviteUid?: string
   transcript?: ITranscript
   followed?: boolean
   resources: Resource[]
