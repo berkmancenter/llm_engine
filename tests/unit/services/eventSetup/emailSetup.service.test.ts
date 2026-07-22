@@ -9,6 +9,7 @@ import websocketGateway from '../../../../src/websockets/websocketGateway.js'
 import { Conversation, Topic } from '../../../../src/models/index.js'
 import { insertUsers } from '../../../fixtures/user.fixture.js'
 import plannerService from '../../../../src/services/eventSetup/planner.service.js'
+import conversationService from '../../../../src/services/conversation.service/index.js'
 import {
   resolveOrganizer,
   resolveTopic,
@@ -61,17 +62,25 @@ const insertTopic = (fields: Partial<{ name: string; owner: mongoose.Types.Objec
 
 describe('emailSetup.service', () => {
   let sendSignupSpy
+  let sendEventCreatedSpy
+  let sendEventCreationFailedSpy
   let loggerWarnSpy
+  let loggerErrorSpy
   let planConversationFromInviteSpy
 
   beforeEach(() => {
     jest.spyOn(emailService.transport, 'sendMail').mockResolvedValue(undefined as never)
     sendSignupSpy = jest.spyOn(emailService, 'sendSignupInviteEmail').mockResolvedValue(undefined as never)
+    sendEventCreatedSpy = jest.spyOn(emailService, 'sendEventCreatedEmail').mockResolvedValue(undefined as never)
+    sendEventCreationFailedSpy = jest
+      .spyOn(emailService, 'sendEventCreationFailedEmail')
+      .mockResolvedValue(undefined as never)
     jest.spyOn(transcript, 'loadTopicMetadataIntoVectorStore').mockResolvedValue(undefined as never)
     jest.spyOn(transcript, 'loadEventMetadataIntoVectorStore').mockResolvedValue(undefined as never)
     jest.spyOn(websocketGateway, 'broadcastNewConversation').mockResolvedValue(undefined as never)
     loggerWarnSpy = jest.spyOn(logger, 'warn').mockReturnValue(undefined as never)
     jest.spyOn(logger, 'info').mockReturnValue(undefined as never)
+    loggerErrorSpy = jest.spyOn(logger, 'error').mockReturnValue(undefined as never)
     // The extraction call is unit-tested on its own (planner.service.test.ts); here it is mocked
     // so createConversationFromInvite tests aren't also exercising (or paying for) a real LLM call.
     planConversationFromInviteSpy = jest.spyOn(plannerService, 'planConversationFromInvite').mockResolvedValue({})
@@ -315,6 +324,48 @@ describe('emailSetup.service', () => {
 
       expect(conversation).not.toBeNull()
       expect(conversation!.name).toBe('Untitled event')
+    })
+
+    it('emails the organizer a link to the new event once creation succeeds', async () => {
+      const [organizer] = await insertUsers([newUser(`org@${allowedDomain}`)])
+
+      const conversation = await createConversationFromInvite(buildInvite({}, `org@${allowedDomain}`))
+
+      expect(sendEventCreatedSpy).toHaveBeenCalledWith(organizer.email, expect.objectContaining({ _id: conversation!._id }))
+    })
+
+    it('sends no confirmation email on a deduped retry, only on the original creation', async () => {
+      await insertUsers([newUser(`org@${allowedDomain}`)])
+      const invite = buildInvite({ uid: 'UID-RETRY-EMAIL' }, `org@${allowedDomain}`)
+
+      await createConversationFromInvite(invite)
+      await createConversationFromInvite(invite)
+
+      expect(sendEventCreatedSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('sends no confirmation email when the sender cannot be resolved to an organizer', async () => {
+      await createConversationFromInvite(buildInvite({}, `stranger@${OUTSIDE_DOMAIN}`))
+
+      expect(sendEventCreatedSpy).not.toHaveBeenCalled()
+    })
+
+    /* There is no retry path available to us here: handlers/email.ts acknowledges Postmark with a
+       200 before any processing runs (see the plan's ack-before-processing note), so a thrown error
+       here can never surface as a Postmark retry. A best-effort email to the organizer, plus a
+       server-side log carrying the invite UID for support to grep, is the only notification path. */
+    it('logs the error and emails the organizer a generic failure notice, without exposing error detail, when creation throws', async () => {
+      const [organizer] = await insertUsers([newUser(`org@${allowedDomain}`)])
+      const thrown = new Error('boom: adapter validation failed')
+      jest.spyOn(conversationService, 'createConversationFromType').mockRejectedValueOnce(thrown)
+
+      const conversation = await createConversationFromInvite(buildInvite({ uid: 'UID-FAILURE' }, `org@${allowedDomain}`))
+
+      expect(conversation).toBeNull()
+      expect(await Conversation.countDocuments()).toBe(0)
+      expect(loggerErrorSpy).toHaveBeenCalledWith(expect.stringContaining('UID-FAILURE'), thrown)
+      expect(sendEventCreationFailedSpy).toHaveBeenCalledWith(organizer.email, 'UID-FAILURE')
+      expect(sendEventCreatedSpy).not.toHaveBeenCalled()
     })
   })
 })

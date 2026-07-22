@@ -154,32 +154,46 @@ export const createConversationFromInvite = async (inboundInvite: InboundInvite)
   const organizer = await resolveOrganizer(inboundInvite)
   if (!organizer) return null
 
-  const topic = await resolveTopic(inboundInvite, organizer)
-  const extracted = await plannerService.planConversationFromInvite({ invite })
+  try {
+    const topic = await resolveTopic(inboundInvite, organizer)
+    const extracted = await plannerService.planConversationFromInvite({ invite })
 
-  const conversationType = getConversationType('eventAssistant')
+    const conversationType = getConversationType('eventAssistant')
 
-  return conversationService.createConversationFromType(
-    {
-      type: 'eventAssistant',
-      name: invite.summary ?? PLACEHOLDER_CONVERSATION_NAME,
-      topicId: topic?.id,
-      sourceInviteUid: invite.uid,
-      platforms: ['nextspace'],
-      scheduledTime: invite.startDate,
-      scheduledEndTime: invite.endDate,
-      description: extracted.description,
-      properties: {
-        // Present-but-undefined would still satisfy the type's "required property" presence
-        // check (see resolver.ts's `prop.name in properties`), so the key must be fully absent
-        // rather than set to undefined when there is no Zoom link.
-        ...(extracted.zoomLink !== undefined && { zoomMeetingUrl: extracted.zoomLink })
+    const conversation = await conversationService.createConversationFromType(
+      {
+        type: 'eventAssistant',
+        name: invite.summary ?? PLACEHOLDER_CONVERSATION_NAME,
+        topicId: topic?.id,
+        sourceInviteUid: invite.uid,
+        platforms: ['nextspace'],
+        scheduledTime: invite.startDate,
+        scheduledEndTime: invite.endDate,
+        description: extracted.description,
+        properties: {
+          // Present-but-undefined would still satisfy the type's "required property" presence
+          // check (see resolver.ts's `prop.name in properties`), so the key must be fully absent
+          // rather than set to undefined when there is no Zoom link.
+          ...(extracted.zoomLink !== undefined && { zoomMeetingUrl: extracted.zoomLink })
+        },
+        features: conversationType ? defaultFeatures(conversationType) : undefined,
+        presenters: extracted.speakers,
+        moderators: extracted.moderators
       },
-      features: conversationType ? defaultFeatures(conversationType) : undefined,
-      presenters: extracted.speakers,
-      moderators: extracted.moderators
-    },
-    organizer,
-    { allowDraft: true }
-  )
+      organizer,
+      { allowDraft: true }
+    )
+
+    await emailService.sendEventCreatedEmail(organizer.email, conversation)
+    return conversation
+  } catch (err) {
+    /* handlers/email.ts acknowledges Postmark with a 200 before any of this runs, so there is no
+       retry to fall back on: this email is the only way the organizer learns something went wrong.
+       The error itself stays server-side (see email.service.ts's sendEventCreationFailedEmail),
+       since the inbound address accepts mail from anyone and the reply body is not a safe place
+       for a stack trace. */
+    logger.error(`Email webhook: failed to create conversation from invite UID ${invite.uid ?? 'none'}`, err)
+    await emailService.sendEventCreationFailedEmail(organizer.email, invite.uid)
+    return null
+  }
 }

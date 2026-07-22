@@ -5,6 +5,7 @@ import ICAL from 'ical.js'
 import ApiError from '../utils/ApiError.js'
 import config from '../config/config.js'
 import logger from '../config/logger.js'
+import { createConversationFromInvite } from '../services/eventSetup/emailSetup.service.js'
 import { ParsedInvite } from '../types/index.types.js'
 
 /** A single entry from a Postmark inbound webhook's `Attachments` array. */
@@ -84,6 +85,16 @@ const handleEvent = async (req, res) => {
         `from ${req.body?.From ?? 'unknown sender'}, organizer ${invite.organizer ?? 'none'}, ` +
         `starts ${invite.startDate?.toISOString() ?? 'unknown'}, ends ${invite.endDate?.toISOString() ?? 'unknown'}`
     )
+
+    // Postmark's own docs confirm From is always a clean address (display name travels separately
+    // in FromName/FromFull.Name), but req.body is unvalidated wire input, so check the shape anyway.
+    const fromAddress = req.body?.From
+    if (typeof fromAddress !== 'string' || fromAddress.length === 0) {
+      logger.warn('Email webhook: inbound message had no From address; cannot resolve an organizer')
+      return
+    }
+
+    await createConversationFromInvite({ fromAddress, invite })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     logger.error(`Email webhook: failed to parse inbound invite: ${message}`)

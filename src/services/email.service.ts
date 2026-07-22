@@ -120,6 +120,43 @@ To finish setting up your event, sign up here and then resend the invite: ${sign
   await sendEmailAsync(to, subject, text, html)
 }
 
+/**
+ * Notify an organizer that their inbound calendar invite became a Nextspace event.
+ * @param {string} to
+ * @param {Conversation} conversation
+ * @returns {Promise}
+ */
+const sendEventCreatedEmail = async (to, conversation) => {
+  const subject = 'Your event is ready on Nextspace'
+  const eventUrl = `${config.appHost}/login?redirectTo=/admin/${conversation.conversationType}/view/${conversation._id}`
+  const text = `Hello,
+We turned your calendar invite into a Nextspace event. To review and finish setting it up, copy and paste this link in your browser: ${eventUrl}`
+  const html = `<p>Hello,</p>
+<p>We turned your calendar invite into a Nextspace event. To review and finish setting it up, please <a href="${eventUrl}">click here</a>.</p>`
+  await sendEmailAsync(to, subject, text, html)
+}
+
+/**
+ * Notify an organizer that we couldn't turn their inbound calendar invite into a Nextspace event.
+ * Deliberately excludes any error detail: the inbound address accepts mail from anyone, so the
+ * reply body is not a safe place for stack traces or other internals. The full error goes to the
+ * server log instead, keyed by the same referenceId so a report from the organizer is easy to
+ * trace back.
+ * @param {string} to
+ * @param {string} [referenceId]
+ * @returns {Promise}
+ */
+const sendEventCreationFailedEmail = async (to, referenceId?: string) => {
+  const subject = "We couldn't create your event"
+  const referenceLine = referenceId ? `\nReference: ${referenceId}` : ''
+  const referenceHtml = referenceId ? `<p>Reference: ${referenceId}</p>` : ''
+  const text = `Hello,
+We received your calendar invite, but ran into a problem creating your event. Please try again, or reach out to support if this keeps happening.${referenceLine}`
+  const html = `<p>Hello,</p>
+<p>We received your calendar invite, but ran into a problem creating your event. Please try again, or reach out to support if this keeps happening.</p>${referenceHtml}`
+  await sendEmailAsync(to, subject, text, html)
+}
+
 const emailService = {
   transport,
   sendEmail,
@@ -127,6 +164,8 @@ const emailService = {
   sendPasswordResetEmail,
   sendPasswordResetEmailAsync,
   sendArchiveTopicEmail,
-  sendSignupInviteEmail
+  sendSignupInviteEmail,
+  sendEventCreatedEmail,
+  sendEventCreationFailedEmail
 }
 export default emailService
