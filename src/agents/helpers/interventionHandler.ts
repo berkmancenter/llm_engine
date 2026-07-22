@@ -170,9 +170,11 @@ export async function runInterventionAnalysis(
   // Per-pattern minConfidence provides an additional floor applied per-call.
   const channelPolicy = behaviorPolicy?.channels?.groupChat?.proactivePolicy ?? behaviorPolicy?.channels?.dm?.proactivePolicy
   const policyThreshold = getConfidenceThreshold(channelPolicy)
-  const patternFloor =
-    activeGoals && activeGoals.length > 0 ? Math.max(...activeGoals.map((p) => p.triggers.minConfidence)) : 0
+  const matchedGoal = activeGoals?.find((g) => g.id === analysis.goalId)
+  const patternFloor = matchedGoal?.triggers.minConfidence ?? 0
   const effectiveThreshold = Math.max(policyThreshold, patternFloor)
+
+  logger.debug(`[interventionHandler] goalId=${analysis.goalId} confidence=${analysis.confidenceScore} threshold=${effectiveThreshold} (policy=${policyThreshold}, patternFloor=${patternFloor})`)
 
   if (!analysis.shouldIntervene || analysis.confidenceScore < effectiveThreshold) {
     return null
