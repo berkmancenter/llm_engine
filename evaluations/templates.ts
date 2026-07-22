@@ -28,6 +28,7 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
         dm: {
           qaBehavior: {
             answerScope: 'broaderSubjectArea',
+            responseLength: 'medium',
             clarifyWhenAmbiguous: true,
             addContextWhenUseful: true,
             allowFollowUpDialogue: true
@@ -58,7 +59,8 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
         tone: 'warmSupportive',
         formality: 'casual',
         verbosity: 'medium',
-        jargonLevel: 'low'
+        jargonLevel: 'low',
+        safetyPosture: 'standard'
       },
       channels: {
         groupChat: {
@@ -71,6 +73,7 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
         dm: {
           qaBehavior: {
             answerScope: 'helpUserUnderstandTheLecture',
+            responseLength: 'medium',
             clarifyWhenAmbiguous: true,
             addContextWhenUseful: true,
             allowFollowUpDialogue: true
@@ -102,6 +105,7 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
         tone: 'clearNeutral',
         formality: 'semiFormal',
         verbosity: 'brief',
+        jargonLevel: 'medium',
         safetyPosture: 'strict'
       },
       channels: {
@@ -115,6 +119,7 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
         dm: {
           qaBehavior: {
             answerScope: 'companyContextOnly',
+            responseLength: 'short',
             clarifyWhenAmbiguous: true,
             addContextWhenUseful: false,
             allowFollowUpDialogue: false
@@ -146,7 +151,8 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
         tone: 'playful',
         formality: 'casual',
         verbosity: 'medium',
-        jargonLevel: 'low'
+        jargonLevel: 'low',
+        safetyPosture: 'standard'
       },
       channels: {
         groupChat: {
@@ -159,6 +165,7 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
         dm: {
           qaBehavior: {
             answerScope: 'open',
+            responseLength: 'medium',
             clarifyWhenAmbiguous: false,
             addContextWhenUseful: true,
             allowFollowUpDialogue: true
@@ -189,7 +196,9 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
       globalPolicy: {
         tone: 'warmSupportive',
         formality: 'semiFormal',
-        verbosity: 'brief'
+        verbosity: 'brief',
+        jargonLevel: 'medium',
+        safetyPosture: 'standard'
       },
       channels: {
         groupChat: {
@@ -202,6 +211,7 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
         dm: {
           qaBehavior: {
             answerScope: 'broaderSubjectArea',
+            responseLength: 'medium',
             clarifyWhenAmbiguous: true,
             addContextWhenUseful: true,
             allowFollowUpDialogue: true

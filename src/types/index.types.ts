@@ -392,25 +392,25 @@ export interface ConversationContext {
 
 export interface DmPolicy {
   qaBehavior?: {
-    responseLength?: 'short' | 'medium' | 'long'
+    responseLength: 'short' | 'medium' | 'long'
     clarifyWhenAmbiguous?: boolean
     addContextWhenUseful?: boolean
-    answerScope?: 'helpUserUnderstandTheLecture' | 'broaderSubjectArea' | 'companyContextOnly' | 'open'
+    answerScope: 'helpUserUnderstandTheLecture' | 'broaderSubjectArea' | 'companyContextOnly' | 'open'
     allowFollowUpDialogue?: boolean
   }
   proactivePolicy?: {
-    initiativeLevel?: 'passive' | 'lightlyProactive' | 'moderatelyProactive' | 'highlyProactive'
+    initiativeLevel: 'passive' | 'lightlyProactive' | 'moderatelyProactive' | 'highlyProactive'
     minContributionMinutes?: number
-    socialSensitivity?: 'low' | 'medium' | 'high'
+    socialSensitivity: 'low' | 'medium' | 'high'
   }
   guardrails?: string[]
 }
 
 export interface GroupChatPolicy {
   proactivePolicy?: {
-    initiativeLevel?: 'passive' | 'lightlyProactive' | 'moderatelyProactive' | 'highlyProactive'
+    initiativeLevel: 'passive' | 'lightlyProactive' | 'moderatelyProactive' | 'highlyProactive'
     minContributionMinutes?: number
-    socialSensitivity?: 'low' | 'medium' | 'high'
+    socialSensitivity: 'low' | 'medium' | 'high'
   }
   pollPolicy?: {
     allowed?: boolean
@@ -420,11 +420,11 @@ export interface GroupChatPolicy {
 
 export interface BehaviorPolicy {
   globalPolicy?: {
-    tone?: 'clearNeutral' | 'warmSupportive' | 'playful' | 'professional'
-    verbosity?: 'brief' | 'medium' | 'detailed'
-    jargonLevel?: 'low' | 'lowToMedium' | 'medium' | 'high'
-    formality?: 'casual' | 'semiFormal' | 'formal'
-    safetyPosture?: 'standard' | 'strict'
+    tone: 'clearNeutral' | 'warmSupportive' | 'playful' | 'professional'
+    verbosity: 'brief' | 'medium' | 'detailed'
+    formality: 'casual' | 'semiFormal' | 'formal'
+    jargonLevel: 'low' | 'lowToMedium' | 'medium' | 'high'
+    safetyPosture: 'standard' | 'strict'
     citationBehavior?: string
     uncertaintyBehavior?: string
     guardrails?: string[]
