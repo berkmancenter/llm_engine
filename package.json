@@ -25,6 +25,8 @@
     "evaluate:event-assistant": "NODE_ENV=test node --loader ts-node/esm evaluations/event-assistant/runEventAssistantEvaluations.ts",
     "evaluate:proactive-group-agent": "NODE_ENV=test node --loader ts-node/esm evaluations/proactive-group-agent/runProactiveGroupAgentEvaluations.ts",
     "evaluate:proactive-group-agent:seed": "node --loader ts-node/esm evaluations/proactive-group-agent/seedDataset.ts",
+    "evaluate:checkin": "NODE_ENV=test node --loader ts-node/esm evaluations/checkin/runCheckinEvaluations.ts",
+    "evaluate:checkin:seed": "node --loader ts-node/esm evaluations/checkin/seedDataset.ts",
     "redteam:event-assistant-personality": "yarn build; NODE_ENV=test npx promptfoo redteam run --config promptfoo/promptfooconfig-event-assistant-trust-and-safety.yaml",
     "coverage": "NODE_ENV=test node --experimental-vm-modules ./node_modules/.bin/jest -i --coverage",
     "coverage:coveralls": "NODE_ENV=test node --experimental-vm-modules ./node_modules/.bin/jest -i --coverage --coverageReporters=text-lcov | coveralls",
