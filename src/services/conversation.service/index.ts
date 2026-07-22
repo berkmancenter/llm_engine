@@ -12,6 +12,7 @@ import config from '../../config/config.js'
 import adapterService from '../adapter.service.js'
 import channelService from '../channel.service.js'
 import { ConversationDocument } from '../../models/conversation.model.js'
+import { TopicDocument } from '../../models/topic.model.js'
 import { getConversationType } from '../../conversations/index.js'
 import adapterTypes from '../../adapters/index.js'
 import resolveConversationType from '../../conversations/resolver.js'
@@ -60,7 +61,7 @@ const startConversation = async (conversationOrId, user) => {
   await conversation.populate(['topic', 'agents', 'adapters'])
   if (
     user._id.toString() !== conversation.owner._id.toString() &&
-    user._id.toString() !== conversation.topic.owner._id.toString()
+    user._id.toString() !== conversation.topic?.owner?._id.toString()
   ) {
     throw new ApiError(httpStatus.FORBIDDEN, 'Only conversation or topic owner can start conversation')
   }
@@ -76,7 +77,10 @@ const stopConversation = async (conversationOrId, user) => {
     }
   }
   await conversation.populate(['topic', 'agents', 'adapters'])
-  if (user._id.toString() !== conversation.owner.toString() && user._id.toString() !== conversation.topic.owner.toString()) {
+  if (
+    user._id.toString() !== conversation.owner.toString() &&
+    user._id.toString() !== conversation.topic?.owner?.toString()
+  ) {
     throw new ApiError(httpStatus.FORBIDDEN, 'Only conversation or topic owner can stop conversation')
   }
   return doStopConversation(conversation)
@@ -141,17 +145,25 @@ async function scheduleConversationEndingSoon(conversation) {
 /**
  * Create a conversation
  * @param {Object} conversationBody
+ * @param {Object} user
+ * @param {Object} [options]
+ * @param {boolean} [options.allowDraft] trusted internal callers only; lets a conversation be created
+ *   with no topic, saved as a draft for the owner to complete (see createConversationFromType)
  * @returns {Promise<Conversation>}
  */
-const createConversation = async (conversationBody, user) => {
-  if (!conversationBody.topicId) throw new ApiError(httpStatus.BAD_REQUEST, 'topic id must be passed in request body')
-  const topicId = new mongoose.Types.ObjectId(conversationBody.topicId)
-  const topic = await Topic.findById(topicId)
-  if (!topic) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'No such topic')
-  }
-  if (!topic?.conversationCreationAllowed && user._id.toString() !== topic?.owner.toString()) {
-    throw new ApiError(httpStatus.FORBIDDEN, 'Conversation creation not allowed.')
+const createConversation = async (conversationBody, user, { allowDraft = false } = {}) => {
+  let topic: TopicDocument | null = null
+  if (conversationBody.topicId) {
+    const topicId = new mongoose.Types.ObjectId(conversationBody.topicId)
+    topic = await Topic.findById(topicId)
+    if (!topic) {
+      throw new ApiError(httpStatus.BAD_REQUEST, 'No such topic')
+    }
+    if (!topic.conversationCreationAllowed && user._id.toString() !== topic.owner.toString()) {
+      throw new ApiError(httpStatus.FORBIDDEN, 'Conversation creation not allowed.')
+    }
+  } else if (!allowDraft) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'topic id must be passed in request body')
   }
 
   if (conversationBody.scheduledTime && new Date(conversationBody.scheduledTime) <= new Date()) {
@@ -167,7 +179,7 @@ const createConversation = async (conversationBody, user) => {
   const conversation = new Conversation({
     name: conversationBody.name,
     owner: user,
-    topic,
+    ...(topic && { topic }),
     enableAgents: !!conversationBody.agentTypes?.length,
     ...(conversationBody.enableDMs !== undefined && { enableDMs: conversationBody.enableDMs }),
     ...(conversationBody.conversationType !== undefined && { conversationType: conversationBody.conversationType }),
@@ -212,8 +224,13 @@ const createConversation = async (conversationBody, user) => {
     await channelService.createChannel(conversation, channelProps)
   }
 
-  topic.conversations.push(conversation.toObject())
-  await Promise.all([conversation.save(), topic.save()])
+  // A topicless draft has nothing to link back to, so only touch the topic when one resolved.
+  if (topic) {
+    topic.conversations.push(conversation.toObject())
+    await Promise.all([conversation.save(), topic.save()])
+  } else {
+    await conversation.save()
+  }
   await transcript.loadEventMetadataIntoVectorStore(conversation)
 
   websocketGateway.broadcastNewConversation(conversation)
@@ -253,7 +270,7 @@ const createConversationFromType = async (params, user, { allowDraft = false } =
   }
 
   const resolved = resolveConversationType(params, conversationType, allowDraft)
-  return createConversation({ ...params, conversationType: type, ...resolved }, user)
+  return createConversation({ ...params, conversationType: type, ...resolved }, user, { allowDraft })
 }
 
 /**
@@ -269,7 +286,7 @@ const updateConversation = async (conversationBody, user) => {
   }
   if (
     user._id.toString() !== conversationDoc.owner.toString() &&
-    user._id.toString() !== conversationDoc.topic.owner.toString()
+    user._id.toString() !== conversationDoc.topic?.owner?.toString()
   ) {
     throw new ApiError(httpStatus.FORBIDDEN, 'Only conversation or topic owner can update.')
   }
@@ -702,7 +719,10 @@ const deleteConversation = async (id, user) => {
   if (!conversation) {
     throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${id} not found`)
   }
-  if (user._id.toString() !== conversation.owner.toString() && user._id.toString() !== conversation.topic.owner.toString()) {
+  if (
+    user._id.toString() !== conversation.owner.toString() &&
+    user._id.toString() !== conversation.topic?.owner?.toString()
+  ) {
     throw new ApiError(httpStatus.FORBIDDEN, 'Only conversation or topic owner can delete.')
   }
   if (conversation.active) {
@@ -737,7 +757,10 @@ const patchConversationAgent = async (id, agentId, body, user) => {
     throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${id} not found`)
   }
   const agentIdStr = agentId.toString() ? agentId.toString() : agentId
-  if (user._id.toString() !== conversation.owner.toString() && user._id.toString() !== conversation.topic.owner.toString()) {
+  if (
+    user._id.toString() !== conversation.owner.toString() &&
+    user._id.toString() !== conversation.topic?.owner?.toString()
+  ) {
     throw new ApiError(httpStatus.FORBIDDEN, 'Only conversation or topic owner can patch agents')
   }
   const agent = conversation.agents.find((a) => a._id!.toString() === agentIdStr)

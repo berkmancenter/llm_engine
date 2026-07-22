@@ -101,12 +101,32 @@ To prevent archival and keep your channel on Conversations, please copy and past
   await sendEmailAsync(to, subject, text, html)
 }
 
+/**
+ * Invite an inbound-invite sender who has no account yet to sign up.
+ * Only sent to senders inside an allowlisted domain (see emailSetup.service); an event is created
+ * only once they have an account, so this is the reply that unblocks them.
+ * @param {string} to
+ * @returns {Promise}
+ */
+const sendSignupInviteEmail = async (to) => {
+  const subject = 'Set up your account to create your event'
+  const signupUrl = `${config.appHost}/signup`
+  const text = `Hello,
+We received your calendar invite, but there's no account for this email address yet.
+To finish setting up your event, sign up here and then resend the invite: ${signupUrl}`
+  const html = `<p>Hello,</p>
+<p>We received your calendar invite, but there's no account for this email address yet.</p>
+<p>To finish setting up your event, <a href="${signupUrl}">sign up here</a> and then resend the invite.</p>`
+  await sendEmailAsync(to, subject, text, html)
+}
+
 const emailService = {
   transport,
   sendEmail,
   sendEmailAsync,
   sendPasswordResetEmail,
   sendPasswordResetEmailAsync,
-  sendArchiveTopicEmail
+  sendArchiveTopicEmail,
+  sendSignupInviteEmail
 }
 export default emailService

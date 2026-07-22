@@ -135,7 +135,10 @@ const envVarsSchema = Joi.object()
       .description('Minutes after scheduledEndTime to auto-stop a conversation'),
     SYSTEM_USERS: Joi.string()
       .default('event-setup-bot:serviceAccount')
-      .description('Comma-separated list of system accounts to create on startup, in username:role format')
+      .description('Comma-separated list of system accounts to create on startup, in username:role format'),
+    ALLOWED_ORGANIZER_EMAIL_DOMAINS: Joi.string().description(
+      'Comma-separated email domains whose senders, if they have no account yet, get a "please sign up" reply to an inbound invite. Invites from any other domain are rejected: no event, no reply. Unset means none, so no signup invites are ever sent.'
+    )
   })
   .unknown()
 
@@ -287,6 +290,10 @@ const config = {
   systemUsers: envVars.SYSTEM_USERS.split(',').map((entry: string) => {
     const [username, role] = entry.trim().split(':')
     return { username, role }
-  })
+  }),
+  allowedOrganizerEmailDomains: (envVars.ALLOWED_ORGANIZER_EMAIL_DOMAINS ?? '')
+    .split(',')
+    .map((domain: string) => domain.trim().toLowerCase())
+    .filter((domain: string) => domain.length > 0)
 }
 export default config

@@ -100,7 +100,7 @@ const savePdf = async (conversationId: string, resourceId: string, fileBuffer: B
 
   const userId = user._id.toString()
   const isConvOwner = conv.owner.toString() === userId
-  const isTopicOwner = conv.topic.owner.toString() === userId
+  const isTopicOwner = conv.topic?.owner?.toString() === userId
   if (!isConvOwner && !isTopicOwner) {
     throw new ApiError(httpStatus.FORBIDDEN, 'Only conversation or topic owner can upload resources')
   }

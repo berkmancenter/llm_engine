@@ -746,6 +746,37 @@ describe('Conversation service methods', () => {
         expect(conversation.draft).toBe(true)
         expect(conversation.active).toBe(false)
       })
+
+      // An inbound invite with no matching Topic resolves to no topicId; the draft is created with a
+      // blank topic for the organizer to fill in, but only for trusted allowDraft callers.
+      const completeParamsNoTopic = {
+        type: 'eventAssistant',
+        name: 'Topicless Event',
+        platforms: ['zoom'],
+        scheduledTime: new Date(Date.now() + 3600000),
+        scheduledEndTime: new Date(Date.now() + 7200000),
+        properties: {
+          zoomMeetingUrl: 'https://zoom.us/j/123456789?pwd=12345',
+          llmModel: supportedModels[1]
+        }
+      }
+
+      test('throws when topicId is missing and allowDraft is not set', async () => {
+        await expect(
+          conversationService.createConversationFromType({ ...completeParamsNoTopic }, registeredUser)
+        ).rejects.toMatchObject({ statusCode: httpStatus.BAD_REQUEST })
+      })
+
+      test('saves a draft with a blank topic when topicId is missing and allowDraft is set', async () => {
+        const conversation = await conversationService.createConversationFromType(
+          { ...completeParamsNoTopic },
+          registeredUser,
+          { allowDraft: true }
+        )
+
+        expect(conversation.draft).toBe(true)
+        expect(conversation.topic).toBeFalsy()
+      })
     })
 
     describe('feature agent inclusion and property resolution', () => {
