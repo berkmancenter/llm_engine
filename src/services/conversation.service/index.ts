@@ -19,7 +19,13 @@ import resolveConversationType from '../../conversations/resolver.js'
 import { supportedModels } from '../../agents/helpers/getEmbeddings.js'
 import transcript from '../../agents/helpers/transcript.js'
 import reportService from '../report.service.js'
-import { doStartConversation, doStopConversation, updateTranscriptStatus, isConversationDraft } from './lifecycle.js'
+import {
+  doStartConversation,
+  doStopConversation,
+  updateTranscriptStatus,
+  isConversationDraft,
+  satisfiesTypeProperties
+} from './lifecycle.js'
 import resourceService from '../resource.service.js'
 
 export { updateTranscriptStatus }
@@ -222,13 +228,15 @@ const createConversation = async (conversationBody, user, { allowDraft = false }
     conversation.agents.push(agent)
   }
 
-  /* A draft conversation can be missing a property an adapter's config depends on (e.g. a Zoom
-     event with no zoomMeetingUrl yet). allowDraft relaxes the property check, but adapter config
-     is rendered from a template and saved independently, so an adapter built from a missing
-     property would save with an empty required field and fail its own validation. Skip adapter
-     creation entirely while draft; updateConversation's configSyncMap handling creates it once
-     the missing property arrives (see the "backfill" branch there). */
-  if (!conversation.draft) {
+  /* allowDraft relaxes the property check, so a draft conversation can be missing a property an
+     adapter's config depends on (e.g. a Zoom event with no zoomMeetingUrl yet). Adapter config is
+     rendered from a template and saved independently, so an adapter built from a missing property
+     would save with an empty required field and fail its own validation. satisfiesTypeProperties
+     checks only conversation properties (never topic or scheduledEndTime, see resolver.ts's
+     resolvePropertyReferences, which never receives either), so a conversation that's draft for
+     one of those unrelated reasons still gets its adapters created here; updateConversation's
+     backfill block creates them once a still-missing property arrives. */
+  if (satisfiesTypeProperties(conversation)) {
     for (const adapterProps of conversationBody.adapters || []) {
       const adapter = await adapterService.createAdapter(adapterProps, conversation)
       conversation.adapters.push(adapter)
@@ -364,40 +372,10 @@ const updateConversation = async (conversationBody, user) => {
       }
       if (Object.keys(configUpdates).length > 0) {
         const adapters = await Adapter.find({ conversation: conversationDoc._id, type: adapterType })
-        if (adapters.length > 0) {
-          for (const adapter of adapters) {
-            adapter.config = { ...adapter.config, ...configUpdates }
-            adapter.markModified('config')
-            await adapter.save()
-          }
-        } else if (
-          conversationDoc.platforms?.includes(adapterType) &&
-          Object.values(configUpdates).every((value) => value !== undefined && value !== null && value !== '')
-        ) {
-          /* This adapter type was skipped at creation time (see createConversation) because a
-             property it depends on was missing under allowDraft. Every property this update just
-             synced into configUpdates is now present, so the adapter can be created for real.
-             allowDraft here too: some other, unrelated required property may still be missing,
-             and that must not block this adapter from finally getting created. */
-          const conversationType = conversationDoc.conversationType
-            ? getConversationType(conversationDoc.conversationType)
-            : null
-          if (conversationType) {
-            const resolved = resolveConversationType(
-              {
-                platforms: conversationDoc.platforms,
-                properties: conversationDoc.properties,
-                features: incomingFeatures ?? conversationDoc.features
-              },
-              conversationType,
-              true
-            )
-            const adapterProps = resolved.adapters.find((a) => (a as { type?: string }).type === adapterType)
-            if (adapterProps) {
-              const adapter = await adapterService.createAdapter(adapterProps, conversationDoc)
-              conversationDoc.adapters.push(adapter)
-            }
-          }
+        for (const adapter of adapters) {
+          adapter.config = { ...adapter.config, ...configUpdates }
+          adapter.markModified('config')
+          await adapter.save()
         }
       }
     }
@@ -514,11 +492,16 @@ const updateConversation = async (conversationBody, user) => {
     }
 
     /* Keep topic membership in sync on both sides. Without this, the old topic's
-       conversations list would still include this event after it's been reassigned. */
+       conversations list would still include this event after it's been reassigned.
+       oldTopic is undefined for a conversation that never had one, e.g. an invite-created
+       draft with no matching Topic at creation time (see emailSetup.service's resolveTopic),
+       so there is nothing to pull it from in that case. */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const oldTopic = conversationDoc.topic as any
     if (oldTopic?._id?.toString() !== topicId) {
-      await Topic.findByIdAndUpdate(oldTopic._id, { $pull: { conversations: conversationDoc._id } })
+      if (oldTopic?._id) {
+        await Topic.findByIdAndUpdate(oldTopic._id, { $pull: { conversations: conversationDoc._id } })
+      }
       newTopic.conversations.push(conversationDoc.toObject())
       await newTopic.save()
     }
@@ -588,6 +571,32 @@ const updateConversation = async (conversationBody, user) => {
     )
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     conversationDoc!.resources = reconciled as any
+  }
+
+  /* Whatever changed above (a property, the topic, ...) may have made an adapter that was
+     deferred at creation time (see createConversation's satisfiesTypeProperties guard) safe to
+     create now. This runs on every update, not just ones that flip overall draft status: an
+     adapter only depends on conversation properties, never on topic or scheduledEndTime, so it
+     can become ready well before the conversation as a whole is no longer Draft. The existence
+     check makes this a no-op on every update that doesn't need it. */
+  const conversationType = conversationDoc!.conversationType ? getConversationType(conversationDoc!.conversationType) : null
+  if (conversationType && satisfiesTypeProperties(conversationDoc!)) {
+    const resolved = resolveConversationType(
+      {
+        platforms: conversationDoc!.platforms,
+        properties: conversationDoc!.properties,
+        features: incomingFeatures ?? conversationDoc!.features
+      },
+      conversationType
+    )
+    for (const adapterProps of resolved.adapters) {
+      const adapterType = (adapterProps as { type?: string }).type
+      const exists = await Adapter.findOne({ conversation: conversationDoc!._id, type: adapterType })
+      if (!exists) {
+        const adapter = await adapterService.createAdapter(adapterProps, conversationDoc!)
+        conversationDoc!.adapters.push(adapter)
+      }
+    }
   }
 
   conversationDoc!.draft = isConversationDraft(conversationDoc!)

@@ -811,6 +811,66 @@ describe('Conversation service methods', () => {
         expect(adapters[0].type).toBe('zoom')
         expect(adapters[0].config.meetingUrl).toBe('https://zoom.us/j/555555555')
       })
+
+      /* isConversationDraft treats a missing topic as its own independent draft gate, separate
+         from the required-property check (see lifecycle.ts's isConversationDraft: a scheduled
+         conversation with no topic returns true regardless of satisfiesTypeProperties). An
+         adapter's config is rendered only from properties (resolver.ts's resolvePropertyReferences
+         never receives topic), so a missing topic has nothing to do with whether the adapter is
+         safe to create: it's created immediately since zoomMeetingUrl is already valid. Filling in
+         the topic afterward only clears the topic-specific draft gate; it doesn't touch the adapter,
+         which already existed. */
+      test('the adapter exists at creation time even with no topic, and filling in the topic only clears draft status', async () => {
+        jest.spyOn(websocketGateway, 'broadcastConversationUpdate').mockImplementation()
+        const conversation = await conversationService.createConversationFromType(
+          { ...completeParamsNoTopic },
+          registeredUser,
+          { allowDraft: true }
+        )
+        expect(conversation.draft).toBe(true)
+        const adaptersAtCreation = await Adapter.find({ conversation: conversation._id })
+        expect(adaptersAtCreation).toHaveLength(1)
+        expect(adaptersAtCreation[0].type).toBe('zoom')
+        expect(adaptersAtCreation[0].config.meetingUrl).toBe('https://zoom.us/j/123456789?pwd=12345')
+
+        const updated = await conversationService.updateConversation(
+          { id: conversation._id.toString(), topicId: topicOne._id.toString() },
+          registeredUser
+        )
+
+        expect(updated!.draft).toBe(false)
+        expect(await Adapter.countDocuments({ conversation: conversation._id })).toBe(1)
+      })
+
+      /* An adapter's config is rendered only from conversation properties (see resolver.ts's
+         resolvePropertyReferences, which never receives topic or scheduledEndTime), so whether
+         it's safe to create should depend only on those properties being valid, not on the
+         conversation's overall draft status. draft also covers things with nothing to do with
+         adapter config, like a missing topic or a missing scheduledEndTime (see lifecycle.ts's
+         isConversationDraft). A conversation that's draft only because scheduledEndTime hasn't
+         been picked yet, with an otherwise fully valid zoomMeetingUrl, should still get its Zoom
+         adapter created immediately: nothing about that adapter is actually incomplete. */
+      test('creates the adapter at creation time when properties are valid but the conversation is still Draft for an unrelated reason', async () => {
+        const params = {
+          type: 'eventAssistant',
+          name: 'No End Time Event',
+          platforms: ['zoom'],
+          topicId: topicOne._id.toString(),
+          scheduledTime: new Date(Date.now() + 3600000),
+          // scheduledEndTime intentionally omitted: draft for a reason unrelated to the adapter.
+          properties: {
+            zoomMeetingUrl: 'https://zoom.us/j/123456789?pwd=12345'
+          }
+        }
+
+        const conversation = await conversationService.createConversationFromType(params, registeredUser)
+
+        expect(conversation.draft).toBe(true)
+        const adapters = await Adapter.find({ conversation: conversation._id })
+        expect(adapters).toHaveLength(1)
+        expect(adapters[0].type).toBe('zoom')
+        expect(adapters[0].config.meetingUrl).toBe('https://zoom.us/j/123456789?pwd=12345')
+      })
     })
 
     describe('feature agent inclusion and property resolution', () => {
