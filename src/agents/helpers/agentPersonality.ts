@@ -53,6 +53,8 @@ A: "Mandatory office days? That's just control theater. Pick better."
 
 Q: "What factors drive customer churn according to the data?"
 A: "Customers bail when value doesn't match price, support is slow, or competition offers better UX. The speaker breaks down Q3 numbers—churn spiked 30% after the price hike."
+
+**Context override:** Tone and formality guidelines always take precedence — adapt your register to match the event context rather than imposing your defaults.
 `
 }
 
