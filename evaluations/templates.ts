@@ -8,7 +8,7 @@ export interface ConversationTemplate {
 
 export const TEMPLATES: Record<string, ConversationTemplate> = {
   publicAcademicLecture: {
-    goals: ['surface_signal', 'invite_quieter_voices', 'bridge_topics', 'provoke_participation', 'synthesize_discussion'],
+    goals: ['surface_signal', 'invite_quieter_voices', 'bridge_topics', 'provoke_participation', 'synthesize_discussion', 'private_reassure', 'private_not_alone', 'private_interest_bridge', 'private_transcript_hook'],
     behaviorPolicy: {
       globalPolicy: {
         tone: 'professional',
@@ -24,9 +24,22 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
             socialSensitivity: 'high',
             minContributionMinutes: 3
           }
+        },
+        dm: {
+          qaBehavior: {
+            answerScope: 'broaderSubjectArea',
+            clarifyWhenAmbiguous: true,
+            addContextWhenUseful: true,
+            allowFollowUpDialogue: true
+          },
+          proactivePolicy: {
+            initiativeLevel: 'passive',
+            socialSensitivity: 'high'
+          }
         }
       }
     },
+
     conversationContext: {
       conversationType: 'Academic lecture',
       purpose: 'Deepen understanding of the presented research and open lines of scholarly inquiry.',
@@ -39,7 +52,7 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
   },
 
   classroomLecture: {
-    goals: ['clarify_confusion', 'surface_signal', 'structure_conversation', 'invite_quieter_voices'],
+    goals: ['clarify_confusion', 'surface_signal', 'structure_conversation', 'invite_quieter_voices', 'private_reassure', 'private_not_alone', 'private_interest_bridge', 'private_transcript_hook'],
     behaviorPolicy: {
       globalPolicy: {
         tone: 'warmSupportive',
@@ -53,6 +66,19 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
             initiativeLevel: 'moderatelyProactive',
             socialSensitivity: 'high',
             minContributionMinutes: 2
+          }
+        },
+        dm: {
+          qaBehavior: {
+            answerScope: 'helpUserUnderstandTheLecture',
+            clarifyWhenAmbiguous: true,
+            addContextWhenUseful: true,
+            allowFollowUpDialogue: true
+          },
+          proactivePolicy: {
+            initiativeLevel: 'moderatelyProactive',
+            socialSensitivity: 'high',
+            minContributionMinutes: 3
           }
         }
       }
@@ -70,7 +96,7 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
   },
 
   companyMeeting: {
-    goals: ['surface_signal', 'synthesize_discussion', 'poll_reveal', 'structure_conversation', 'invite_quieter_voices'],
+    goals: ['surface_signal', 'synthesize_discussion', 'poll_reveal', 'structure_conversation', 'invite_quieter_voices', 'private_reassure', 'private_not_alone', 'private_interest_bridge', 'private_transcript_hook'],
     behaviorPolicy: {
       globalPolicy: {
         tone: 'clearNeutral',
@@ -84,6 +110,19 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
             initiativeLevel: 'lightlyProactive',
             socialSensitivity: 'high',
             minContributionMinutes: 3
+          }
+        },
+        dm: {
+          qaBehavior: {
+            answerScope: 'companyContextOnly',
+            clarifyWhenAmbiguous: true,
+            addContextWhenUseful: false,
+            allowFollowUpDialogue: false
+          },
+          proactivePolicy: {
+            initiativeLevel: 'lightlyProactive',
+            socialSensitivity: 'high',
+            minContributionMinutes: 5
           }
         }
       }
@@ -101,7 +140,7 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
   },
 
   casualCommunityEvent: {
-    goals: ['play_commentary', 'provoke_participation', 'challenge_consensus', 'surface_signal', 'invite_quieter_voices', 'bridge_topics'],
+    goals: ['play_commentary', 'provoke_participation', 'challenge_consensus', 'surface_signal', 'invite_quieter_voices', 'bridge_topics', 'private_reassure', 'private_not_alone', 'private_interest_bridge', 'private_transcript_hook'],
     behaviorPolicy: {
       globalPolicy: {
         tone: 'playful',
@@ -115,6 +154,19 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
             initiativeLevel: 'moderatelyProactive',
             socialSensitivity: 'medium',
             minContributionMinutes: 2
+          }
+        },
+        dm: {
+          qaBehavior: {
+            answerScope: 'open',
+            clarifyWhenAmbiguous: false,
+            addContextWhenUseful: true,
+            allowFollowUpDialogue: true
+          },
+          proactivePolicy: {
+            initiativeLevel: 'moderatelyProactive',
+            socialSensitivity: 'medium',
+            minContributionMinutes: 3
           }
         }
       }
@@ -132,7 +184,7 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
   },
 
   publicPanelDiscussion: {
-    goals: ['provoke_participation', 'challenge_consensus', 'surface_signal', 'invite_quieter_voices', 'synthesize_discussion', 'bridge_topics'],
+    goals: ['provoke_participation', 'challenge_consensus', 'surface_signal', 'invite_quieter_voices', 'synthesize_discussion', 'bridge_topics', 'private_reassure', 'private_not_alone', 'private_interest_bridge', 'private_transcript_hook'],
     behaviorPolicy: {
       globalPolicy: {
         tone: 'warmSupportive',
@@ -145,6 +197,19 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
             initiativeLevel: 'moderatelyProactive',
             socialSensitivity: 'medium',
             minContributionMinutes: 2
+          }
+        },
+        dm: {
+          qaBehavior: {
+            answerScope: 'broaderSubjectArea',
+            clarifyWhenAmbiguous: true,
+            addContextWhenUseful: true,
+            allowFollowUpDialogue: true
+          },
+          proactivePolicy: {
+            initiativeLevel: 'lightlyProactive',
+            socialSensitivity: 'medium',
+            minContributionMinutes: 4
           }
         }
       }

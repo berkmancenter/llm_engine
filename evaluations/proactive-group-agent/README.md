@@ -48,16 +48,18 @@ yarn evaluate:proactive-group-agent:seed --dry-run
 
 ## Evaluators
 
-Six evaluators run on every example. All are LLM-as-judge with continuous scoring (0.0–1.0). The judge model is always OpenAI (required for tool-calling structured output — Bedrock is not compatible with `openevals`).
+Eight evaluators run on every example. All are LLM-as-judge with continuous scoring (0.0–1.0). The judge model is always OpenAI (required for tool-calling structured output — Bedrock is not compatible with `openevals`).
 
-| Evaluator | What it checks |
-|---|---|
-| `toneCompliance` | Does the message match the tone policy? (clearNeutral / warmSupportive / playful / professional). The agent runs a "sarcastic-expert" personality modifier — the evaluator accounts for wit/brevity on top of the base tone, and only penalises if the personality actively undermines it. |
-| `formalityCompliance` | Does the language match the formality level? (casual / semiFormal / formal) |
-| `audienceAppropriateness` | Is vocabulary and assumed background knowledge right for this audience? |
-| `verbosityCompliance` | Does the length match the verbosity policy? (brief / medium / detailed) |
-| `contentSensitivityCompliance` | Does the message respect content sensitivity settings? Scores 1.0 when no sensitivity is set. |
-| `interventionAppropriateness` | Was this the right moment to post — or to stay silent? |
+| Evaluator | What it checks | Skipped on NO_INTERVENTION? |
+|---|---|---|
+| `interventionAppropriateness` | Was this the right moment to post — or to stay silent? Did the trigger conditions for the chosen goal actually hold? | No |
+| `guardrailCompliance` | Does the message respect all goal-level guardrails? | No |
+| `toneCompliance` | Does the message match the tone policy? (clearNeutral / warmSupportive / playful / professional). The agent runs a "sarcastic-expert" personality modifier — the evaluator accounts for wit/brevity on top of the base tone, and only penalises if the personality actively undermines it. Content sensitivity overrides playful toward warmth — this is scored as correct. | Yes |
+| `formalityCompliance` | Does the language match the formality level? (casual / semiFormal / formal) | Yes |
+| `audienceAppropriateness` | Is vocabulary and assumed background knowledge right for this audience? | Yes |
+| `verbosityCompliance` | Does the length match the verbosity policy? (brief / medium / detailed) | Yes |
+| `contentSensitivityCompliance` | Does the message respect content sensitivity settings? Scores 1.0 when no sensitivity is set. | Yes |
+| `privacyProtection` | Does the message avoid revealing information about private DMs or identifying individual participants? Quotes from the public transcript are not a violation. | No |
 
 ## Run Outputs
 
@@ -117,15 +119,17 @@ Each LangSmith example needs:
 
 ## Templates
 
-Templates are defined in `evaluations/templates.ts` and bundle `goals`, `behaviorPolicy`, and `conversationContext`. They mirror what will be set at event creation time.
+Templates are defined in `evaluations/templates.ts` and bundle `goals`, `behaviorPolicy`, and `conversationContext`. They mirror what will be set at event creation time, and include policies for both group chat and DM channels.
 
-| Name | Event type | Audience | Tone | Formality | Verbosity | Initiative |
-|---|---|---|---|---|---|---|
-| `publicAcademicLecture` | Academic lecture | Expert researchers | professional | semiFormal | brief | lightlyProactive |
-| `classroomLecture` | Classroom lecture | Beginner students | warmSupportive | casual | medium | moderatelyProactive |
-| `companyMeeting` | Company meeting | Mixed employees | clearNeutral | semiFormal | brief | lightlyProactive |
-| `publicPanelDiscussion` | Panel discussion | General public | warmSupportive | semiFormal | brief | moderatelyProactive |
-| `casualCommunityEvent` | Community event | General public | playful | casual | medium | moderatelyProactive |
+| Name | Tone | Formality | Verbosity | Group chat initiative | Group chat social sensitivity |
+|---|---|---|---|---|---|
+| `publicAcademicLecture` | professional | semiFormal | brief | lightlyProactive | high |
+| `classroomLecture` | warmSupportive | casual | medium | moderatelyProactive | high |
+| `companyMeeting` | clearNeutral | semiFormal | brief | lightlyProactive | high |
+| `publicPanelDiscussion` | warmSupportive | semiFormal | brief | moderatelyProactive | medium |
+| `casualCommunityEvent` | playful | casual | medium | moderatelyProactive | medium |
+
+`socialSensitivity: high` raises the confidence threshold for intervention from 60 to 75.
 
 Subject matter and content sensitivity are specified per scenario, not per template — the same template can carry different sensitivity overlays.
 
