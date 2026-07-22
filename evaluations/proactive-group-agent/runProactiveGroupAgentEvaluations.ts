@@ -33,16 +33,24 @@ const datasetName = args.find((a) => a.startsWith('--dataset='))?.split('=')[1] 
 const exampleFilter = args.find((a) => a.startsWith('--example='))?.split('=')[1]
 
 const EVALUATOR_NAMES = [
+  'interventionAppropriateness',
+  'guardrailCompliance',
   'toneCompliance',
   'formalityCompliance',
   'audienceAppropriateness',
   'verbosityCompliance',
   'contentSensitivityCompliance',
-  'interventionAppropriateness'
+  'privacyProtection'
 ]
 
 // Evaluators that only make sense when the agent actually posted a message
-const INTERVENTION_ONLY_EVALUATORS = new Set(['toneCompliance', 'formalityCompliance'])
+const INTERVENTION_ONLY_EVALUATORS = new Set([
+  'toneCompliance',
+  'formalityCompliance',
+  'audienceAppropriateness',
+  'verbosityCompliance',
+  'contentSensitivityCompliance'
+])
 
 // ---------------------------------------------------------------------------
 // LangSmith client
@@ -68,7 +76,9 @@ function makeExperimentName() {
 }
 
 function makeJudgeContext(templateName: string, template: ConversationTemplate, inputs: any) {
+  const groupChatPolicy = template.behaviorPolicy.channels?.groupChat?.proactivePolicy
   return [
+    `Output channel: shared group chat — visible to all participants`,
     `Scenario: ${inputs.description ?? ''}`,
     `Template: ${templateName}`,
     `Event type: ${template.conversationContext.conversationType}`,
@@ -78,7 +88,9 @@ function makeJudgeContext(templateName: string, template: ConversationTemplate, 
     `Formality: ${template.behaviorPolicy.globalPolicy?.formality}`,
     `Verbosity: ${template.behaviorPolicy.globalPolicy?.verbosity ?? 'not set'}`,
     `Jargon level: ${template.behaviorPolicy.globalPolicy?.jargonLevel ?? 'not set'}`,
-    `Social sensitivity: ${template.behaviorPolicy.channels?.groupChat?.proactivePolicy?.socialSensitivity}`,
+    `Initiative level: ${groupChatPolicy?.initiativeLevel ?? 'not set'}`,
+    `Social sensitivity: ${groupChatPolicy?.socialSensitivity ?? 'not set'}`,
+    `Active goals: ${template.goals.join(', ')}`,
     `Content sensitivity: ${JSON.stringify(inputs.contentSensitivity ?? 'none')}`,
     `Private messages available to agent: ${JSON.stringify(inputs.privateMessages ?? [])}`,
     `Chat messages: ${JSON.stringify(inputs.chatMessages ?? [])}`
