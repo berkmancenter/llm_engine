@@ -22,19 +22,26 @@ export const NEUTRAL_BEHAVIORAL_POLICY: BehaviorPolicy = {
     tone: 'warmSupportive',
     verbosity: 'brief',
     formality: 'semiFormal',
+    jargonLevel: 'medium',
     safetyPosture: 'strict'
   },
   channels: {
     dm: {
+      qaBehavior: {
+        answerScope: 'broaderSubjectArea',
+        responseLength: 'medium'
+      },
       proactivePolicy: {
         initiativeLevel: 'lightlyProactive',
-        minContributionMinutes: 10
+        minContributionMinutes: 10,
+        socialSensitivity: 'medium'
       }
     },
     groupChat: {
       proactivePolicy: {
         initiativeLevel: 'moderatelyProactive',
-        minContributionMinutes: 2
+        minContributionMinutes: 2,
+        socialSensitivity: 'medium'
       }
     }
   }

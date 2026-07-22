@@ -22,9 +22,16 @@ const VERBOSITY_LINES = {
   detailed: '- Detailed responses — do not sacrifice completeness for brevity'
 }
 
+const RESPONSE_LENGTH_LINES: Record<string, string> = {
+  short: '- Keep answers short — one to two sentences',
+  medium: '- Medium length answers — cover what is needed without going into exhaustive detail',
+  long: '- Give thorough, detailed answers — completeness is more important than brevity'
+}
+
 const JARGON_LINES: Record<string, string> = {
   low: '- Clear, accessible language — explain jargon rather than assuming familiarity',
   lowToMedium: '- Clear, accessible language — explain jargon rather than assuming familiarity',
+  medium: '- Balanced language — use domain terms where natural but briefly clarify less common ones',
   high: '- Technical language is appropriate for this audience'
 }
 
@@ -145,10 +152,12 @@ function buildBehaviorPolicySection(behaviorPolicy: BehaviorPolicy | undefined, 
 
   if (channelType === 'dm' && behaviorPolicy.channels?.dm?.qaBehavior) {
     const qa = behaviorPolicy.channels.dm.qaBehavior
+    const responseLengthLine = RESPONSE_LENGTH_LINES[qa.responseLength]
+    if (responseLengthLine) lines.push(responseLengthLine)
     if (qa.clarifyWhenAmbiguous) lines.push('- Ask a clarifying question before answering when the question is ambiguous')
     if (qa.addContextWhenUseful) lines.push('- Add bridging context when it would help a non-expert audience')
     if (qa.allowFollowUpDialogue) lines.push('- You may invite continued dialogue if it would be useful')
-    const scopeLine = qa.answerScope && QA_SCOPE_LINES[qa.answerScope]
+    const scopeLine = QA_SCOPE_LINES[qa.answerScope]
     if (scopeLine) lines.push(scopeLine)
   }
 

@@ -157,7 +157,17 @@ describe('buildConversationContextSection', () => {
   })
 })
 
+// Minimal valid globalPolicy satisfying required fields — spread into tests that only exercise one field.
+const BASE_GLOBAL_POLICY = {
+  tone: 'clearNeutral' as const,
+  verbosity: 'brief' as const,
+  formality: 'semiFormal' as const,
+  jargonLevel: 'medium' as const,
+  safetyPosture: 'standard' as const
+}
+
 describe('buildBehaviorPolicySection', () => {
+
   test('returns empty string when policy is undefined', () => {
     expect(buildBehaviorPolicySection(undefined, 'groupChat')).toBe('')
   })
@@ -175,71 +185,71 @@ describe('buildBehaviorPolicySection', () => {
     ] as const
 
     test.each(tones)('renders %s tone', (tone, expected) => {
-      const policy: BehaviorPolicy = { globalPolicy: { tone } }
+      const policy: BehaviorPolicy = { globalPolicy: { ...BASE_GLOBAL_POLICY, tone } }
       expect(buildBehaviorPolicySection(policy, 'groupChat')).toContain(expected)
     })
   })
 
   describe('globalPolicy formality', () => {
     test('renders casual', () => {
-      const policy: BehaviorPolicy = { globalPolicy: { formality: 'casual' } }
+      const policy: BehaviorPolicy = { globalPolicy: { ...BASE_GLOBAL_POLICY, formality: 'casual' } }
       expect(buildBehaviorPolicySection(policy, 'groupChat')).toContain('Casual, conversational register')
     })
 
     test('renders semiFormal', () => {
-      const policy: BehaviorPolicy = { globalPolicy: { formality: 'semiFormal' } }
+      const policy: BehaviorPolicy = { globalPolicy: { ...BASE_GLOBAL_POLICY, formality: 'semiFormal' } }
       expect(buildBehaviorPolicySection(policy, 'groupChat')).toContain('Semi-formal register')
     })
 
     test('renders formal', () => {
-      const policy: BehaviorPolicy = { globalPolicy: { formality: 'formal' } }
+      const policy: BehaviorPolicy = { globalPolicy: { ...BASE_GLOBAL_POLICY, formality: 'formal' } }
       expect(buildBehaviorPolicySection(policy, 'groupChat')).toContain('Formal register')
     })
   })
 
   describe('globalPolicy verbosity', () => {
     test.each(['brief', 'medium', 'detailed'] as const)('renders %s verbosity', (verbosity) => {
-      const policy: BehaviorPolicy = { globalPolicy: { verbosity } }
+      const policy: BehaviorPolicy = { globalPolicy: { ...BASE_GLOBAL_POLICY, verbosity } }
       expect(buildBehaviorPolicySection(policy, 'groupChat')).toContain('## Behavioral Guidelines')
     })
   })
 
   describe('globalPolicy jargonLevel', () => {
     test('low jargon renders accessible language line', () => {
-      const policy: BehaviorPolicy = { globalPolicy: { jargonLevel: 'low' } }
+      const policy: BehaviorPolicy = { globalPolicy: { ...BASE_GLOBAL_POLICY, jargonLevel: 'low' } }
       expect(buildBehaviorPolicySection(policy, 'groupChat')).toContain('accessible language')
     })
 
     test('lowToMedium jargon renders accessible language line', () => {
-      const policy: BehaviorPolicy = { globalPolicy: { jargonLevel: 'lowToMedium' } }
+      const policy: BehaviorPolicy = { globalPolicy: { ...BASE_GLOBAL_POLICY, jargonLevel: 'lowToMedium' } }
       expect(buildBehaviorPolicySection(policy, 'groupChat')).toContain('accessible language')
     })
 
     test('high jargon renders technical language line', () => {
-      const policy: BehaviorPolicy = { globalPolicy: { jargonLevel: 'high' } }
+      const policy: BehaviorPolicy = { globalPolicy: { ...BASE_GLOBAL_POLICY, jargonLevel: 'high' } }
       expect(buildBehaviorPolicySection(policy, 'groupChat')).toContain('Technical language')
     })
 
-    test('medium jargon renders no jargon line', () => {
-      const policy: BehaviorPolicy = { globalPolicy: { jargonLevel: 'medium' } }
-      expect(buildBehaviorPolicySection(policy, 'groupChat')).not.toContain('language')
+    test('medium jargon renders balanced language line', () => {
+      const policy: BehaviorPolicy = { globalPolicy: { ...BASE_GLOBAL_POLICY, jargonLevel: 'medium' } }
+      expect(buildBehaviorPolicySection(policy, 'groupChat')).toContain('Balanced language')
     })
   })
 
   describe('globalPolicy freeform fields', () => {
     test('renders citationBehavior', () => {
-      const policy: BehaviorPolicy = { globalPolicy: { citationBehavior: 'Always cite sources inline' } }
+      const policy: BehaviorPolicy = { globalPolicy: { ...BASE_GLOBAL_POLICY, citationBehavior: 'Always cite sources inline' } }
       expect(buildBehaviorPolicySection(policy, 'groupChat')).toContain('Always cite sources inline')
     })
 
     test('renders uncertaintyBehavior', () => {
-      const policy: BehaviorPolicy = { globalPolicy: { uncertaintyBehavior: 'Flag uncertainty clearly' } }
+      const policy: BehaviorPolicy = { globalPolicy: { ...BASE_GLOBAL_POLICY, uncertaintyBehavior: 'Flag uncertainty clearly' } }
       expect(buildBehaviorPolicySection(policy, 'groupChat')).toContain('Flag uncertainty clearly')
     })
 
     test('renders guardrails list', () => {
       const policy: BehaviorPolicy = {
-        globalPolicy: { guardrails: ['Never speculate about participants', 'Do not editorialize'] }
+        globalPolicy: { ...BASE_GLOBAL_POLICY, guardrails: ['Never speculate about participants', 'Do not editorialize'] }
       }
       const result = buildBehaviorPolicySection(policy, 'groupChat')
       expect(result).toContain('Guardrails:')
@@ -248,70 +258,89 @@ describe('buildBehaviorPolicySection', () => {
     })
   })
 
+  const BASE_QA_BEHAVIOR = { answerScope: 'broaderSubjectArea' as const, responseLength: 'medium' as const }
+  const BASE_PROACTIVE_POLICY = { initiativeLevel: 'lightlyProactive' as const, socialSensitivity: 'medium' as const }
+
   describe('dm qaBehavior', () => {
     test('renders clarifyWhenAmbiguous', () => {
-      const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { clarifyWhenAmbiguous: true } } } }
+      const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, clarifyWhenAmbiguous: true } } } }
       expect(buildBehaviorPolicySection(policy, 'dm')).toContain('clarifying question')
     })
 
     test('renders addContextWhenUseful', () => {
-      const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { addContextWhenUseful: true } } } }
+      const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, addContextWhenUseful: true } } } }
       expect(buildBehaviorPolicySection(policy, 'dm')).toContain('bridging context')
     })
 
     test('renders allowFollowUpDialogue', () => {
-      const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { allowFollowUpDialogue: true } } } }
+      const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, allowFollowUpDialogue: true } } } }
       expect(buildBehaviorPolicySection(policy, 'dm')).toContain('invite continued dialogue')
     })
 
     test('renders companyContextOnly answerScope', () => {
-      const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { answerScope: 'companyContextOnly' } } } }
+      const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, answerScope: 'companyContextOnly' } } } }
       expect(buildBehaviorPolicySection(policy, 'dm')).toContain('company or internal context only')
     })
 
     test('renders helpUserUnderstandTheLecture answerScope', () => {
       const policy: BehaviorPolicy = {
-        channels: { dm: { qaBehavior: { answerScope: 'helpUserUnderstandTheLecture' } } }
+        channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, answerScope: 'helpUserUnderstandTheLecture' } } }
       }
       expect(buildBehaviorPolicySection(policy, 'dm')).toContain('understand the content being presented')
     })
 
     test('renders broaderSubjectArea answerScope', () => {
-      const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { answerScope: 'broaderSubjectArea' } } } }
+      const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, answerScope: 'broaderSubjectArea' } } } }
       expect(buildBehaviorPolicySection(policy, 'dm')).toContain('broader subject area')
     })
 
     test('does not render dm qaBehavior when channelType is groupChat', () => {
-      const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { clarifyWhenAmbiguous: true } } } }
+      const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, clarifyWhenAmbiguous: true } } } }
       expect(buildBehaviorPolicySection(policy, 'groupChat')).not.toContain('clarifying question')
+    })
+
+    describe('responseLength', () => {
+      test.each([
+        ['short', 'one to two sentences'],
+        ['medium', 'Medium length answers'],
+        ['long', 'completeness is more important']
+      ] as const)('renders %s responseLength', (responseLength, expected) => {
+        const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, responseLength } } } }
+        expect(buildBehaviorPolicySection(policy, 'dm')).toContain(expected)
+      })
+
+      test('responseLength is not emitted for groupChat', () => {
+        const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, responseLength: 'short' } } } }
+        expect(buildBehaviorPolicySection(policy, 'groupChat')).not.toContain('one to two sentences')
+      })
     })
   })
 
   describe('proactivePolicy initiativeLevel', () => {
     test('renders lightlyProactive for groupChat', () => {
       const policy: BehaviorPolicy = {
-        channels: { groupChat: { proactivePolicy: { initiativeLevel: 'lightlyProactive' } } }
+        channels: { groupChat: { proactivePolicy: { ...BASE_PROACTIVE_POLICY, initiativeLevel: 'lightlyProactive' } } }
       }
       expect(buildBehaviorPolicySection(policy, 'groupChat')).toContain('Intervene sparingly')
     })
 
     test('renders moderatelyProactive for groupChat', () => {
       const policy: BehaviorPolicy = {
-        channels: { groupChat: { proactivePolicy: { initiativeLevel: 'moderatelyProactive' } } }
+        channels: { groupChat: { proactivePolicy: { ...BASE_PROACTIVE_POLICY, initiativeLevel: 'moderatelyProactive' } } }
       }
       expect(buildBehaviorPolicySection(policy, 'groupChat')).toContain('Intervene regularly')
     })
 
     test('renders highlyProactive for dm', () => {
       const policy: BehaviorPolicy = {
-        channels: { dm: { proactivePolicy: { initiativeLevel: 'highlyProactive' } } }
+        channels: { dm: { proactivePolicy: { ...BASE_PROACTIVE_POLICY, initiativeLevel: 'highlyProactive' } } }
       }
       expect(buildBehaviorPolicySection(policy, 'dm')).toContain('Participate actively')
     })
 
     test('passive initiativeLevel renders no initiative line', () => {
       const policy: BehaviorPolicy = {
-        channels: { groupChat: { proactivePolicy: { initiativeLevel: 'passive' } } }
+        channels: { groupChat: { proactivePolicy: { ...BASE_PROACTIVE_POLICY, initiativeLevel: 'passive' } } }
       }
       const result = buildBehaviorPolicySection(policy, 'groupChat')
       expect(result).not.toContain('Intervene')
@@ -359,7 +388,7 @@ describe('buildBehaviorPolicySection', () => {
 
   test('merges global and channel guardrails under a single Guardrails header', () => {
     const policy: BehaviorPolicy = {
-      globalPolicy: { guardrails: ['Never speculate about participants'] },
+      globalPolicy: { ...BASE_GLOBAL_POLICY, guardrails: ['Never speculate about participants'] },
       channels: { groupChat: { guardrails: ['Never quote private messages'] } }
     }
     const result = buildBehaviorPolicySection(policy, 'groupChat')
@@ -442,7 +471,7 @@ describe('composeSystemPrompt', () => {
   })
 
   test('appends policy section when behaviorPolicy provided', () => {
-    const policy: BehaviorPolicy = { globalPolicy: { tone: 'professional' } }
+    const policy: BehaviorPolicy = { globalPolicy: { ...BASE_GLOBAL_POLICY, tone: 'professional' } }
     const result = composeSystemPrompt('Base.', { behaviorPolicy: policy })
     expect(result).toContain('## Behavioral Guidelines')
   })
@@ -470,14 +499,14 @@ describe('composeSystemPrompt', () => {
   })
 
   test('sections are separated by double newlines', () => {
-    const policy: BehaviorPolicy = { globalPolicy: { tone: 'clearNeutral' } }
+    const policy: BehaviorPolicy = { globalPolicy: { ...BASE_GLOBAL_POLICY } }
     const result = composeSystemPrompt('Base.', { behaviorPolicy: policy })
     expect(result).toContain('Base.\n\n')
   })
 
   test('composes all parts in canonical order: base → context → policy → goals → personality', () => {
     const ctx: ConversationContext = { conversationType: 'summit' }
-    const policy: BehaviorPolicy = { globalPolicy: { tone: 'clearNeutral' } }
+    const policy: BehaviorPolicy = { globalPolicy: { ...BASE_GLOBAL_POLICY } }
     const goals = loadGoals(['provoke_participation'])
     const result = composeSystemPrompt('Base.', {
       conversationContext: ctx,

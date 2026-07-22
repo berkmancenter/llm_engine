@@ -1181,7 +1181,8 @@ export async function createCheckinConversation(
       dm: {
         ...NEUTRAL_BEHAVIORAL_POLICY.channels?.dm,
         proactivePolicy: {
-          initiativeLevel: NEUTRAL_BEHAVIORAL_POLICY.channels?.dm?.proactivePolicy?.initiativeLevel ?? 'lightlyProactive'
+          initiativeLevel: NEUTRAL_BEHAVIORAL_POLICY.channels?.dm?.proactivePolicy?.initiativeLevel ?? 'lightlyProactive',
+          socialSensitivity: NEUTRAL_BEHAVIORAL_POLICY.channels?.dm?.proactivePolicy?.socialSensitivity ?? 'medium'
           // minContributionMinutes intentionally omitted — falls through to agentConfig.minInterval
         }
       }
