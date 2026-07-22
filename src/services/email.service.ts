@@ -130,9 +130,11 @@ const sendEventCreatedEmail = async (to, conversation) => {
   const subject = 'Your event is ready on Nextspace'
   const eventUrl = `${config.appHost}/login?redirectTo=/admin/${conversation.conversationType}/view/${conversation._id}`
   const text = `Hello,
-We turned your calendar invite into a Nextspace event. To review and finish setting it up, copy and paste this link in your browser: ${eventUrl}`
+We turned your calendar invite into a Nextspace event. Please confirm the event details are correct: ${eventUrl}
+That page is also where you can edit any details and find the moderator and participant links to share.`
   const html = `<p>Hello,</p>
-<p>We turned your calendar invite into a Nextspace event. To review and finish setting it up, please <a href="${eventUrl}">click here</a>.</p>`
+<p>We turned your calendar invite into a Nextspace event. Please <a href="${eventUrl}">confirm the event details are correct</a>.</p>
+<p>That page is also where you can edit any details and find the moderator and participant links to share.</p>`
   await sendEmailAsync(to, subject, text, html)
 }
 

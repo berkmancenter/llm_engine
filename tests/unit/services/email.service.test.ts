@@ -52,6 +52,37 @@ describe('email.service', () => {
       expect(msg.text).toContain(expectedUrl)
       expect(msg.html).toContain(expectedUrl)
     })
+
+    it('reminds the organizer to confirm the event details', async () => {
+      const conversation = { _id: 'conv-123', conversationType: 'eventAssistant' }
+
+      await emailService.sendEventCreatedEmail('organizer@cyber.harvard.edu', conversation)
+
+      const msg = sendMailSpy.mock.calls[0][0]
+      expect(msg.text).toMatch(/confirm/i)
+      expect(msg.html).toMatch(/confirm/i)
+    })
+
+    it('tells the organizer the link is where to edit details and find moderator and participant links', async () => {
+      const conversation = { _id: 'conv-123', conversationType: 'eventAssistant' }
+
+      await emailService.sendEventCreatedEmail('organizer@cyber.harvard.edu', conversation)
+
+      const msg = sendMailSpy.mock.calls[0][0]
+      expect(msg.text).toMatch(/moderator/i)
+      expect(msg.text).toMatch(/participant/i)
+      expect(msg.html).toMatch(/moderator/i)
+      expect(msg.html).toMatch(/participant/i)
+    })
+
+    it('includes only one link', async () => {
+      const conversation = { _id: 'conv-123', conversationType: 'eventAssistant' }
+
+      await emailService.sendEventCreatedEmail('organizer@cyber.harvard.edu', conversation)
+
+      const msg = sendMailSpy.mock.calls[0][0]
+      expect(msg.html.match(/href="/g)).toHaveLength(1)
+    })
   })
 
   describe('sendEventCreationFailedEmail', () => {
