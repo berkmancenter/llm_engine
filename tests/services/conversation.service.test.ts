@@ -1656,6 +1656,15 @@ describe('Conversation service methods', () => {
       ).rejects.toMatchObject({ statusCode: httpStatus.FORBIDDEN })
     })
 
+    test('allows an admin to update an event they do not own', async () => {
+      const adminUser = { _id: new mongoose.Types.ObjectId(), role: 'admin' }
+      const updated = await conversationService.updateConversation(
+        { id: conversation._id.toString(), name: 'Updated By Admin' },
+        adminUser
+      )
+      expect(updated!.name).toBe('Updated By Admin')
+    })
+
     test('should reject updates to an event that is currently live', async () => {
       await conversation.updateOne({ active: true })
       await expect(

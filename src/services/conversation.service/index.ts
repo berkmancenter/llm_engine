@@ -308,6 +308,7 @@ const updateConversation = async (conversationBody, user) => {
     throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${conversationBody.id} not found`)
   }
   if (
+    user.role !== 'admin' &&
     user._id.toString() !== conversationDoc.owner.toString() &&
     user._id.toString() !== conversationDoc.topic?.owner?.toString()
   ) {
