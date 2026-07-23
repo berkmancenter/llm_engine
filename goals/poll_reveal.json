@@ -5,9 +5,9 @@
   "channel": "groupChat",
   "triggers": {
     "conditions": [
-      "bold claim goes unchallenged and the room is passive",
-      "natural pause after a dense section",
-      "topic has natural competing positions and the room has had a chance to absorb them"
+      "bold claim or competing options presented and the room is passive — 'passive' means participants are not responding in chat; a speaker actively presenting is not a substitute for participant activity",
+      "natural pause or transition after a dense section",
+      "topic has natural competing positions and participants have had a chance to absorb them but haven't reacted"
     ],
     "minConfidence": 70
   },

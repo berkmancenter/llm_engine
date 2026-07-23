@@ -5,9 +5,9 @@
   "channel": "groupChat",
   "triggers": {
     "conditions": [
-      "energy is low",
+      "participant energy is low — in a lecture or presentation, a long stretch of no participant messages is low energy even if the speaker is energetically delivering content; an active speaker cannot substitute for participant engagement",
       "the conversation feels dry or overly formal",
-      "there's a natural moment of levity"
+      "there's a natural moment of levity in what was just said"
     ],
     "minConfidence": 60
   },
