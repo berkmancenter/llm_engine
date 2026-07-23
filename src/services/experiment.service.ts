@@ -9,8 +9,14 @@ import { duplicateConversationMessages, agentResponseToMessageData } from './mes
 import reportService from './report.service.js'
 
 async function getAgentResponse(agent, experiment, endTime, msg?) {
-  // simulate conversation history at a point in time by setting endTime
-  agent.deepPatch({ conversationHistorySettings: { endTime } })
+  // Patch endTime into whichever conversationHistorySettings path respond() will actually read.
+  // respond() prefers triggers.periodic.conversationHistorySettings over the top-level
+  // conversationHistorySettings for periodic agents, so we must patch both paths.
+  if (agent.triggers?.periodic) {
+    agent.deepPatch({ triggers: { periodic: { conversationHistorySettings: { endTime } } } })
+  } else {
+    agent.deepPatch({ conversationHistorySettings: { endTime } })
+  }
   // TODO deepPatch seems to be unpopulating the conversation. Expected?
   await agent.populate('conversation')
   await agent.conversation.populate(['messages', 'channels'])
@@ -27,6 +33,16 @@ async function getAgentResponse(agent, experiment, endTime, msg?) {
 }
 
 async function runPeriodicExperiment(agent, experiment, simulatedStartTime?) {
+  // Seed RAG for the result conversation so transcript search works against its collection.
+  // The result conversation has a different _id than the base, so we must re-embed here.
+  await transcript.loadEventMetadataIntoVectorStore(experiment.resultConversation)
+  const transcriptMsgs = experiment.resultConversation.messages.filter((message) =>
+    message.channels.some((channel) => channel === 'transcript')
+  )
+  if (transcriptMsgs.length > 0) {
+    await transcript.loadTranscriptIntoVectorStore(transcriptMsgs, experiment.resultConversation._id)
+  }
+
   const msgStartTime = new Date(Math.min(...experiment.resultConversation.messages.map((msg) => msg.createdAt.getTime())))
   const msgEndTime = new Date(Math.max(...experiment.resultConversation.messages.map((msg) => msg.createdAt.getTime())))
 
