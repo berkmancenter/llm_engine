@@ -7,8 +7,51 @@ import {
   buildGoalInstructions,
   composeSystemPrompt
 } from '../../../src/agents/helpers/promptComposer.js'
-import { loadGoals } from '../../../src/goals/loader.js'
-import type { BehaviorPolicy, ConversationContext } from '../../../src/types/index.types.js'
+import type { BehaviorPolicy, ConversationContext, ConversationGoal } from '../../../src/types/index.types.js'
+
+const FIXTURE_GROUP_GOAL: ConversationGoal = {
+  id: 'provoke_participation',
+  label: 'Provoke participation',
+  description: 'Generates energy and draws out participation when quiet.',
+  channel: 'groupChat',
+  triggers: {
+    conditions: [
+      { scope: 'participant', condition: 'participation is currently low — few or no messages in the last few minutes' }
+    ],
+    minConfidence: 65
+  },
+  guardrails: ["don't introduce provocation into an already heated exchange"],
+  outputContract: { format: 'text' },
+  examples: ['Throwing this out there: what would change your mind on this?']
+}
+
+const FIXTURE_DM_GOAL: ConversationGoal = {
+  id: 'private_reassure',
+  label: 'Reassure privately',
+  description: 'Sends a warm private message to a participant who seems to be doubting themselves.',
+  channel: 'dm',
+  triggers: {
+    conditions: [{ scope: 'participant', condition: 'participant shows signs of self-doubt' }],
+    minConfidence: 60
+  },
+  guardrails: ['keep it warm and brief'],
+  outputContract: { format: 'text' },
+  examples: []
+}
+
+const FIXTURE_BRIDGE_GOAL: ConversationGoal = {
+  id: 'bridge_topics',
+  label: 'Bridge topics',
+  description: 'Connects ideas from different parts of the conversation.',
+  channel: 'groupChat',
+  triggers: {
+    conditions: [{ scope: 'participant', condition: 'a topic shift has occurred' }],
+    minConfidence: 60
+  },
+  guardrails: ["don't redirect a conversation that is still productive"],
+  outputContract: { format: 'text' },
+  examples: []
+}
 
 describe('getEligibleGoals', () => {
   test('returns empty array when goals undefined', () => {
@@ -167,7 +210,6 @@ const BASE_GLOBAL_POLICY = {
 }
 
 describe('buildBehaviorPolicySection', () => {
-
   test('returns empty string when policy is undefined', () => {
     expect(buildBehaviorPolicySection(undefined, 'groupChat')).toBe('')
   })
@@ -238,12 +280,16 @@ describe('buildBehaviorPolicySection', () => {
 
   describe('globalPolicy freeform fields', () => {
     test('renders citationBehavior', () => {
-      const policy: BehaviorPolicy = { globalPolicy: { ...BASE_GLOBAL_POLICY, citationBehavior: 'Always cite sources inline' } }
+      const policy: BehaviorPolicy = {
+        globalPolicy: { ...BASE_GLOBAL_POLICY, citationBehavior: 'Always cite sources inline' }
+      }
       expect(buildBehaviorPolicySection(policy, 'groupChat')).toContain('Always cite sources inline')
     })
 
     test('renders uncertaintyBehavior', () => {
-      const policy: BehaviorPolicy = { globalPolicy: { ...BASE_GLOBAL_POLICY, uncertaintyBehavior: 'Flag uncertainty clearly' } }
+      const policy: BehaviorPolicy = {
+        globalPolicy: { ...BASE_GLOBAL_POLICY, uncertaintyBehavior: 'Flag uncertainty clearly' }
+      }
       expect(buildBehaviorPolicySection(policy, 'groupChat')).toContain('Flag uncertainty clearly')
     })
 
@@ -263,22 +309,30 @@ describe('buildBehaviorPolicySection', () => {
 
   describe('dm qaBehavior', () => {
     test('renders clarifyWhenAmbiguous', () => {
-      const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, clarifyWhenAmbiguous: true } } } }
+      const policy: BehaviorPolicy = {
+        channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, clarifyWhenAmbiguous: true } } }
+      }
       expect(buildBehaviorPolicySection(policy, 'dm')).toContain('clarifying question')
     })
 
     test('renders addContextWhenUseful', () => {
-      const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, addContextWhenUseful: true } } } }
+      const policy: BehaviorPolicy = {
+        channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, addContextWhenUseful: true } } }
+      }
       expect(buildBehaviorPolicySection(policy, 'dm')).toContain('bridging context')
     })
 
     test('renders allowFollowUpDialogue', () => {
-      const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, allowFollowUpDialogue: true } } } }
+      const policy: BehaviorPolicy = {
+        channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, allowFollowUpDialogue: true } } }
+      }
       expect(buildBehaviorPolicySection(policy, 'dm')).toContain('invite continued dialogue')
     })
 
     test('renders companyContextOnly answerScope', () => {
-      const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, answerScope: 'companyContextOnly' } } } }
+      const policy: BehaviorPolicy = {
+        channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, answerScope: 'companyContextOnly' } } }
+      }
       expect(buildBehaviorPolicySection(policy, 'dm')).toContain('company or internal context only')
     })
 
@@ -290,12 +344,16 @@ describe('buildBehaviorPolicySection', () => {
     })
 
     test('renders broaderSubjectArea answerScope', () => {
-      const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, answerScope: 'broaderSubjectArea' } } } }
+      const policy: BehaviorPolicy = {
+        channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, answerScope: 'broaderSubjectArea' } } }
+      }
       expect(buildBehaviorPolicySection(policy, 'dm')).toContain('broader subject area')
     })
 
     test('does not render dm qaBehavior when channelType is groupChat', () => {
-      const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, clarifyWhenAmbiguous: true } } } }
+      const policy: BehaviorPolicy = {
+        channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, clarifyWhenAmbiguous: true } } }
+      }
       expect(buildBehaviorPolicySection(policy, 'groupChat')).not.toContain('clarifying question')
     })
 
@@ -405,55 +463,47 @@ describe('buildGoalInstructions', () => {
   })
 
   test('returns empty string when no goals match the channel type', () => {
-    const dmGoals = loadGoals(['private_reassure'])
-    expect(buildGoalInstructions(dmGoals, 'groupChat')).toBe('')
+    expect(buildGoalInstructions([FIXTURE_DM_GOAL], 'groupChat')).toBe('')
   })
 
   test('renders groupChat goal with label and description', () => {
-    const goals = loadGoals(['provoke_participation'])
-    const result = buildGoalInstructions(goals, 'groupChat')
+    const result = buildGoalInstructions([FIXTURE_GROUP_GOAL], 'groupChat')
     expect(result).toContain('## Active Behavioral Patterns')
     expect(result).toContain('### Provoke participation')
     expect(result).toContain('Generates energy')
   })
 
   test('renders trigger conditions', () => {
-    const goals = loadGoals(['provoke_participation'])
-    const result = buildGoalInstructions(goals, 'groupChat')
+    const result = buildGoalInstructions([FIXTURE_GROUP_GOAL], 'groupChat')
     expect(result).toContain('Trigger when:')
     expect(result).toContain('participation is currently low')
   })
 
   test('renders guardrails', () => {
-    const goals = loadGoals(['provoke_participation'])
-    const result = buildGoalInstructions(goals, 'groupChat')
+    const result = buildGoalInstructions([FIXTURE_GROUP_GOAL], 'groupChat')
     expect(result).toContain('Guardrails:')
     expect(result).toContain("don't introduce provocation")
   })
 
   test('renders examples', () => {
-    const goals = loadGoals(['provoke_participation'])
-    const result = buildGoalInstructions(goals, 'groupChat')
+    const result = buildGoalInstructions([FIXTURE_GROUP_GOAL], 'groupChat')
     expect(result).toContain('Examples:')
     expect(result).toContain('Throwing this out there')
   })
 
   test('renders dm goal when channelType is dm', () => {
-    const goals = loadGoals(['private_reassure'])
-    const result = buildGoalInstructions(goals, 'dm')
+    const result = buildGoalInstructions([FIXTURE_DM_GOAL], 'dm')
     expect(result).toContain('### Reassure privately')
   })
 
   test('filters out dm goals when channelType is groupChat', () => {
-    const goals = loadGoals(['provoke_participation', 'private_reassure'])
-    const result = buildGoalInstructions(goals, 'groupChat')
+    const result = buildGoalInstructions([FIXTURE_GROUP_GOAL, FIXTURE_DM_GOAL], 'groupChat')
     expect(result).toContain('Provoke participation')
     expect(result).not.toContain('Reassure privately')
   })
 
   test('renders multiple goals', () => {
-    const goals = loadGoals(['provoke_participation', 'bridge_topics'])
-    const result = buildGoalInstructions(goals, 'groupChat')
+    const result = buildGoalInstructions([FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL], 'groupChat')
     expect(result).toContain('### Provoke participation')
     expect(result).toContain('### Bridge topics')
   })
@@ -477,14 +527,12 @@ describe('composeSystemPrompt', () => {
   })
 
   test('appends goal instructions when goals and channelType provided', () => {
-    const goals = loadGoals(['provoke_participation'])
-    const result = composeSystemPrompt('Base.', { goals, channelType: 'groupChat' })
+    const result = composeSystemPrompt('Base.', { goals: [FIXTURE_GROUP_GOAL], channelType: 'groupChat' })
     expect(result).toContain('## Active Behavioral Patterns')
   })
 
   test('does not append goal instructions when channelType is missing', () => {
-    const goals = loadGoals(['provoke_participation'])
-    const result = composeSystemPrompt('Base.', { goals })
+    const result = composeSystemPrompt('Base.', { goals: [FIXTURE_GROUP_GOAL] })
     expect(result).not.toContain('## Active Behavioral Patterns')
   })
 
@@ -507,11 +555,10 @@ describe('composeSystemPrompt', () => {
   test('composes all parts in canonical order: base → context → policy → goals → personality', () => {
     const ctx: ConversationContext = { conversationType: 'summit' }
     const policy: BehaviorPolicy = { globalPolicy: { ...BASE_GLOBAL_POLICY } }
-    const goals = loadGoals(['provoke_participation'])
     const result = composeSystemPrompt('Base.', {
       conversationContext: ctx,
       behaviorPolicy: policy,
-      goals,
+      goals: [FIXTURE_GROUP_GOAL],
       channelType: 'groupChat',
       personalityName: 'sarcastic-expert'
     })
