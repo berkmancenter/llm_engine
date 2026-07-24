@@ -2,16 +2,16 @@ import request from 'supertest'
 import httpStatus from 'http-status'
 import setupIntTest from '../utils/setupIntTest.js'
 import app from '../../src/app.js'
-import config from '../../src/config/config.js'
 
 setupIntTest()
 
 describe('Auth routes', () => {
   describe('GET /v1/docs', () => {
-    test('should return 404 when running in production', async () => {
-      config.env = 'production'
-      await request(app).get('/v1/docs').expect(httpStatus.NOT_FOUND)
-      config.env = process.env.NODE_ENV
+    // The docs route used to be mounted only when config.env === 'development'; it's now
+    // unconditional (see src/routes/v1/index.ts), so this just confirms it's reachable.
+    test('is reachable', async () => {
+      const res = await request(app).get('/v1/docs')
+      expect(res.status).not.toBe(httpStatus.NOT_FOUND)
     })
   })
 })
