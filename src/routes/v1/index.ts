@@ -8,7 +8,6 @@ import conversationsRoute from './conversations.route.js'
 import transcriptRoute from './transcript.route.js'
 import resourcesRoute from './resources.route.js'
 import configRoute from './config.route.js'
-import config from '../../config/config.js'
 import pollsRoute from './polls.route/index.js'
 import webhooksRoute from './webhooks.route.js'
 import experimentsRoute from './experiments.route.js'
@@ -74,26 +73,17 @@ const defaultRoutes = [
   {
     path: '/event-setup',
     route: eventSetupRoute
+  },
+  {
+    path: '/docs',
+    route: docsRoute
   }
   // {
   //   path: '/export',
   //   route: exportRoute
   // }
 ]
-const devRoutes = [
-  // routes available only in development mode
-  {
-    path: '/docs',
-    route: docsRoute
-  }
-]
 defaultRoutes.forEach((route) => {
   router.use(route.path, route.route)
 })
-/* istanbul ignore next */
-if (config.env === 'development') {
-  devRoutes.forEach((route) => {
-    router.use(route.path, route.route)
-  })
-}
 export default router

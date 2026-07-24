@@ -205,41 +205,75 @@ router.route('/').post(auth('createConversation'), conversationsController.creat
  *                   type: string
  *                 description: 'Analytics sources this event opts into, keyed by source name with that source''s ref (e.g. matomo set to dimension7)'
  *           examples:
- *             eventAssistantZoom:
- *               summary: Create event assistant with Zoom
- *               description: Create an eventAssistant conversation with Zoom integration
+ *             eventAssistantNextspace:
+ *               summary: Nextspace-only live event assistant
+ *               description: >
+ *                 Nextspace handles participant DMs and chat; Zoom provides audio transcription only
+ *                 (no Zoom DM channels). The "nextspace" platform resolves to the default adapter
+ *                 config (Zoom audio in, no outbound DMs). A zoomMeetingUrl is still required for
+ *                 transcription even in Nextspace-only events.
  *               value:
  *                 type: "eventAssistant"
- *                 name: "Tech Conference Q&A"
- *                 platforms: ["zoom"]
+ *                 name: "The Future of AI in Healthcare"
+ *                 platforms: ["nextspace"]
  *                 topicId: "507f1f77bcf86cd799439011"
  *                 properties:
  *                   zoomMeetingUrl: "https://zoom.us/j/123456789"
- *                   botName: "Event Assistant"
- *                   llmModel:
- *                     name: "gpt-4"
- *                     platform: "openai"
- *             eventAssistantMultiplePlatforms:
- *               summary: Create event assistant with multiple platforms
- *               description: Create an eventAssistant conversation with multiple platform integrations
+ *                   botName: "Berkie"
+ *                 features:
+ *                   - name: "moderatorSupport"
+ *                     enabled: true
+ *                   - name: "collectiveVoice"
+ *                     enabled: true
+ *                   - name: "catalyst"
+ *                     enabled: true
+ *                   - name: "librarian"
+ *                     enabled: true
+ *                     config:
+ *                       recommendationsPerInterval: 2
+ *                   - name: "seriesHistory"
+ *                     enabled: false
+ *             eventAssistantNextspaceZoom:
+ *               summary: Nextspace + Zoom hybrid event assistant
+ *               description: >
+ *                 Hybrid setup where both Nextspace and Zoom participants attend the same event.
+ *                 Use platforms ["nextspace", "zoom"] — the engine resolves to the "nextspace,zoom"
+ *                 adapter config, which wires Zoom for audio transcription and chat mirroring but
+ *                 omits Zoom DM channels so they don't conflict with Nextspace participant DMs.
  *               value:
  *                 type: "eventAssistant"
- *                 name: "Multi-Platform Conference"
- *                 platforms: ["zoom", "default"]
- *                 topicId: "507f1f77bcf86cd799439011"
- *                 properties:
- *                   zoomMeetingUrl: "https://zoom.us/j/123456789"
- *             eventAssistantScheduled:
- *               summary: Create scheduled event assistant
- *               description: Create a scheduled eventAssistant conversation
- *               value:
- *                 type: "eventAssistant"
- *                 name: "Tomorrow's Panel Discussion"
- *                 platforms: ["zoom"]
+ *                 name: "Leadership & Organizational Change"
+ *                 platforms: ["nextspace", "zoom"]
  *                 topicId: "507f1f77bcf86cd799439011"
  *                 properties:
  *                   zoomMeetingUrl: "https://zoom.us/j/987654321"
- *                 scheduledTime: "2025-11-01T14:00:00Z"
+ *                   botName: "Berkie"
+ *                 features:
+ *                   - name: "moderatorSupport"
+ *                     enabled: true
+ *                   - name: "collectiveVoice"
+ *                     enabled: true
+ *                   - name: "catalyst"
+ *                     enabled: true
+ *                   - name: "librarian"
+ *                     enabled: false
+ *                   - name: "seriesHistory"
+ *                     enabled: false
+ *                 scheduledTime: "2026-09-15T15:00:00Z"
+ *             eventAssistantZoom:
+ *               summary: Zoom-only event assistant
+ *               description: >
+ *                 Zoom handles transcription, participant DMs, and moderator DMs. Simplest setup
+ *                 for a fully remote Zoom event. Omitting features uses all feature defaults
+ *                 (all enabled).
+ *               value:
+ *                 type: "eventAssistant"
+ *                 name: "Open Source in the Enterprise"
+ *                 platforms: ["zoom"]
+ *                 topicId: "507f1f77bcf86cd799439011"
+ *                 properties:
+ *                   zoomMeetingUrl: "https://zoom.us/j/555000123"
+ *                   botName: "Berkie"
  *     responses:
  *       201:
  *         description: Conversation created successfully
