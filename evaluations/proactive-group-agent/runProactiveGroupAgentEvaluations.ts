@@ -81,9 +81,9 @@ function makeJudgeContext(templateName: string, template: ConversationTemplate, 
     `Output channel: shared group chat — visible to all participants`,
     `Scenario: ${inputs.description ?? ''}`,
     `Template: ${templateName}`,
-    `Event type: ${template.conversationContext.conversationType}`,
-    `Purpose: ${template.conversationContext.purpose ?? ''}`,
-    `Audience: ${JSON.stringify(template.conversationContext.audience ?? {})}`,
+    `Event type: ${inputs.conversationContext?.conversationType ?? templateName}`,
+    `Purpose: ${inputs.conversationContext?.purpose ?? ''}`,
+    `Audience: ${JSON.stringify(inputs.conversationContext?.audience ?? {})}`,
     `Tone policy: ${template.behaviorPolicy.globalPolicy?.tone} (note: agent also has a "sarcastic-expert" personality layer that adds wit and brevity — evaluate tone compliance accounting for this modifier)`,
     `Formality: ${template.behaviorPolicy.globalPolicy?.formality}`,
     `Verbosity: ${template.behaviorPolicy.globalPolicy?.verbosity ?? 'not set'}`,
@@ -132,7 +132,7 @@ async function setupAgent(
 
   conversation.behaviorPolicy = template.behaviorPolicy
   conversation.conversationContext = {
-    ...template.conversationContext,
+    ...(inputs.conversationContext ?? {}),
     ...(inputs.contentSensitivity ? { contentSensitivity: inputs.contentSensitivity } : {})
   }
   await conversation.save()

@@ -49,6 +49,20 @@ interface Scenario {
   // userIndex 0 = target participant; 1, 2 = other participants
   participantDms?: DmMessage[]
   otherParticipantDms?: { userIndex: 1 | 2; text: string; offsetSeconds: number }[]
+  conversationContext?: {
+    conversationType?: string
+    purpose?: string
+    audience?: {
+      expertiseLevel?: string
+      assumedBackgroundKnowledge?: string
+      type?: string[]
+      description?: string
+    }
+    contentSensitivity?: {
+      level?: string
+      domains?: string[]
+    }
+  }
 }
 
 interface Example {
@@ -111,7 +125,17 @@ const examples: Example[] = [
           text: 'This might sound silly but what is the difference between a parameter and a hyperparameter?',
           offsetSeconds: 310
         }
-      ]
+      ],
+      conversationContext: {
+        conversationType: 'Classroom lecture',
+        purpose: 'Introduce machine learning concepts to students with no prior technical background.',
+        audience: {
+          expertiseLevel: 'beginner',
+          assumedBackgroundKnowledge: 'low',
+          type: ['students'],
+          description: 'Students encountering machine learning for the first time.'
+        }
+      }
     },
     metadata: {
       goalId: 'private_reassure',
@@ -162,7 +186,17 @@ const examples: Example[] = [
           offsetSeconds: 210
         },
         { text: 'Apologies for the basic question — are we still hiring for teams in affected areas?', offsetSeconds: 330 }
-      ]
+      ],
+      conversationContext: {
+        conversationType: 'Company meeting',
+        purpose: 'Align the team on H2 strategy and product direction, including segment focus and product changes.',
+        audience: {
+          expertiseLevel: 'mixed',
+          assumedBackgroundKnowledge: 'medium',
+          type: ['employees', 'managers', 'executives'],
+          description: 'Internal audience with varying seniority — power dynamics may suppress candid input.'
+        }
+      }
     },
     metadata: {
       goalId: 'private_reassure',
@@ -224,7 +258,17 @@ const examples: Example[] = [
           text: 'I might be wrong but has anyone looked at data for roles where you cannot compress deliverables?',
           offsetSeconds: 370
         }
-      ]
+      ],
+      conversationContext: {
+        conversationType: 'Panel discussion',
+        purpose:
+          'Examine the evidence for and against shorter working weeks, drawing out tensions between research findings and practical workplace realities.',
+        audience: {
+          expertiseLevel: 'mixed',
+          assumedBackgroundKnowledge: 'low',
+          type: ['general public', 'HR professionals', 'managers']
+        }
+      }
     },
     metadata: {
       goalId: 'private_reassure',
@@ -269,7 +313,17 @@ const examples: Example[] = [
         },
         { text: 'Probably a basic question but what are sharp-wave ripples exactly?', offsetSeconds: 210 },
         { text: 'I might be missing something — does the spindle density effect interact with age?', offsetSeconds: 330 }
-      ]
+      ],
+      conversationContext: {
+        conversationType: 'Academic lecture',
+        purpose:
+          'Present research findings on sleep-dependent memory consolidation, specifically the role of cortical oscillations and hippocampal sharp-wave ripples.',
+        audience: {
+          expertiseLevel: 'expert',
+          assumedBackgroundKnowledge: 'high',
+          type: ['researchers', 'academics', 'graduate students']
+        }
+      }
     },
     metadata: {
       goalId: 'private_reassure',
@@ -305,7 +359,16 @@ const examples: Example[] = [
         { text: 'This is lovely!', userIndex: 1, offsetSeconds: 60 },
         { text: 'The sourdough is incredible', userIndex: 2, offsetSeconds: 75 }
       ],
-      participantDms: [{ text: 'Sorry if this is obvious — is there a map of which stall is where?', offsetSeconds: 60 }]
+      participantDms: [{ text: 'Sorry if this is obvious — is there a map of which stall is where?', offsetSeconds: 60 }],
+      conversationContext: {
+        conversationType: 'Community event',
+        purpose: 'Connect residents with local food producers through tasting and informal conversation.',
+        audience: {
+          expertiseLevel: 'mixed',
+          assumedBackgroundKnowledge: 'low',
+          type: ['local residents', 'community members']
+        }
+      }
     },
     metadata: {
       goalId: 'private_reassure',
@@ -361,7 +424,18 @@ const examples: Example[] = [
           text: 'Embarrassed to say I have never opened a savings account — feels like I am the only one',
           offsetSeconds: 140
         }
-      ]
+      ],
+      conversationContext: {
+        conversationType: 'Classroom lecture',
+        purpose:
+          'Help students build foundational knowledge about personal finance, investing, and early-career financial decisions.',
+        audience: {
+          expertiseLevel: 'beginner',
+          assumedBackgroundKnowledge: 'low',
+          type: ['students'],
+          description: 'Students who may feel anxious or behind on financial literacy.'
+        }
+      }
     },
     metadata: {
       goalId: 'private_not_alone',
@@ -412,7 +486,21 @@ const examples: Example[] = [
           text: 'I avoid certain streets after dark now, which I have never had to do before',
           offsetSeconds: 165
         }
-      ]
+      ],
+      conversationContext: {
+        conversationType: 'Community meeting',
+        purpose:
+          'Present local crime data and practical deterrents, and give residents space to share concerns and coordinate responses.',
+        audience: {
+          expertiseLevel: 'mixed',
+          assumedBackgroundKnowledge: 'low',
+          type: ['local residents', 'community members']
+        },
+        contentSensitivity: {
+          level: 'elevated',
+          domains: ['personal safety', 'community security']
+        }
+      }
     },
     metadata: {
       goalId: 'private_not_alone',
@@ -457,7 +545,16 @@ const examples: Example[] = [
           offsetSeconds: 160
         }
       ],
-      otherParticipantDms: []
+      otherParticipantDms: [],
+      conversationContext: {
+        conversationType: 'Company meeting',
+        purpose: 'Walk through H2 engineering priorities and communicate the new 20% debt-reduction allocation.',
+        audience: {
+          expertiseLevel: 'mixed',
+          assumedBackgroundKnowledge: 'high',
+          type: ['engineers', 'technical leads', 'managers']
+        }
+      }
     },
     metadata: {
       goalId: 'private_not_alone',
@@ -526,7 +623,17 @@ const examples: Example[] = [
           text: 'The junior employee experience feels underrepresented in this panel — it is a very different thing when you are just starting out',
           offsetSeconds: 210
         }
-      ]
+      ],
+      conversationContext: {
+        conversationType: 'Panel discussion',
+        purpose:
+          'Examine what the evidence says about remote work outcomes and surface tensions between autonomy, productivity, and culture.',
+        audience: {
+          expertiseLevel: 'mixed',
+          assumedBackgroundKnowledge: 'lowToMedium',
+          type: ['general public', 'HR professionals', 'managers', 'employees']
+        }
+      }
     },
     metadata: {
       goalId: 'private_interest_bridge',
@@ -586,7 +693,21 @@ const examples: Example[] = [
           text: 'Is there any support beyond the five days — like a phased return or access to counselling?',
           offsetSeconds: 172
         }
-      ]
+      ],
+      conversationContext: {
+        conversationType: 'Company meeting',
+        purpose:
+          'Communicate updates to parental leave and pregnancy loss policies and give employees clarity on what is changing.',
+        audience: {
+          expertiseLevel: 'mixed',
+          assumedBackgroundKnowledge: 'low',
+          type: ['employees', 'managers']
+        },
+        contentSensitivity: {
+          level: 'high',
+          domains: ['pregnancy loss', 'personal health', 'bereavement']
+        }
+      }
     },
     metadata: {
       goalId: 'private_interest_bridge',
@@ -627,7 +748,17 @@ const examples: Example[] = [
       participantDms: [
         { text: 'Is there any research on whether loss aversion differs between cultures?', offsetSeconds: 140 }
       ],
-      otherParticipantDms: []
+      otherParticipantDms: [],
+      conversationContext: {
+        conversationType: 'Classroom lecture',
+        purpose:
+          'Introduce core behavioural economics concepts including loss aversion, the endowment effect, and anchoring.',
+        audience: {
+          expertiseLevel: 'beginner',
+          assumedBackgroundKnowledge: 'low',
+          type: ['students']
+        }
+      }
     },
     metadata: {
       goalId: 'private_interest_bridge',
@@ -681,7 +812,16 @@ const examples: Example[] = [
           offsetSeconds: 130
         }
       ],
-      participantDms: []
+      participantDms: [],
+      conversationContext: {
+        conversationType: 'Academic lecture',
+        purpose: 'Present the current state of mRNA therapeutic development across vaccines and oncology applications.',
+        audience: {
+          expertiseLevel: 'expert',
+          assumedBackgroundKnowledge: 'high',
+          type: ['researchers', 'clinicians', 'biotech professionals']
+        }
+      }
     },
     metadata: {
       goalId: 'private_transcript_hook',
@@ -754,7 +894,21 @@ const examples: Example[] = [
         { text: 'Which product lines are being cut? Will that be announced separately?', userIndex: 2, offsetSeconds: 330 },
         { text: 'Does this affect people who are hybrid between two of the new units?', userIndex: 1, offsetSeconds: 345 }
       ],
-      participantDms: []
+      participantDms: [],
+      conversationContext: {
+        conversationType: 'Company meeting',
+        purpose: 'Communicate a major company reorganisation and the transition to a new operating model.',
+        audience: {
+          expertiseLevel: 'mixed',
+          assumedBackgroundKnowledge: 'medium',
+          type: ['employees', 'managers', 'executives'],
+          description: 'Internal audience — announcements include redundancies and significant structural change.'
+        },
+        contentSensitivity: {
+          level: 'elevated',
+          domains: ['job security', 'organisational change']
+        }
+      }
     },
     metadata: {
       goalId: 'private_transcript_hook',
@@ -795,7 +949,16 @@ const examples: Example[] = [
         { text: 'Great to be back!', userIndex: 1, offsetSeconds: 68 },
         { text: 'First time here — excited to join', userIndex: 2, offsetSeconds: 75 }
       ],
-      participantDms: []
+      participantDms: [],
+      conversationContext: {
+        conversationType: 'Community event',
+        purpose: 'Open the monthly book club session and create a welcoming space for new and returning members.',
+        audience: {
+          expertiseLevel: 'mixed',
+          assumedBackgroundKnowledge: 'low',
+          type: ['community members', 'book club members']
+        }
+      }
     },
     metadata: {
       goalId: 'private_transcript_hook',
