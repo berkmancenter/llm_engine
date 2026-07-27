@@ -230,7 +230,7 @@ export default verify({
       suggestion: undefined
     }
   },
-  async respond(conversationHistory: ConversationHistory, userMessage) {
+  async respond(conversationHistory: ConversationHistory, userMessage, options?) {
     // Periodic check-in tick (no userMessage means this was triggered by the periodic job)
     if (!userMessage) {
       return buildCheckinResponses.call(this, conversationHistory)
@@ -253,7 +253,7 @@ export default verify({
       if (!(await checkBotIntent(llm, this.agentConfig?.botName, userMessage))) {
         return []
       }
-      return await answerQuestion.call(this, userMessage, filterModeratorHistory(conversationHistory))
+      return await answerQuestion.call(this, userMessage, filterModeratorHistory(conversationHistory), options)
     }
 
     if (this.agentConfig?.moderatorSupport && hasCommand(userMessage, 'escalate')) {
@@ -284,6 +284,7 @@ export default verify({
     modifiedMessage.body = extractMessageText(userMessage)
 
     return answerQuestion.call(this, modifiedMessage, filterModeratorHistory(conversationHistory), {
+      ...options,
       forceVisual,
       moderatorSupport: !!this.agentConfig?.moderatorSupport
     })

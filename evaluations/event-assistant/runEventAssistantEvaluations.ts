@@ -166,7 +166,7 @@ async function runSingleExample(
     const options: any = {
       ...(context && { context }),
       ...(promptType && { promptType }),
-      ...(topic && { topics: topic })
+      ...(topic && { topic })
     }
     // NOTE: Latency is reported as the time between createRun and updateRun called with end_time
     await langsmithClient.createRun({
