@@ -995,7 +995,12 @@ export async function createConversation(conversationObj, owner, topic, startTim
 }
 
 export async function createEventAssistantConversation(conversationObj, owner, topic, startTime, llmPlatform?, llmModel?) {
-  const conversation = await createConversation(conversationObj, owner, topic, startTime)
+  const conversation = await createConversation(
+    { ...conversationObj, behaviorPolicy: NEUTRAL_BEHAVIORAL_POLICY },
+    owner,
+    topic,
+    startTime
+  )
   const agent = new Agent({
     agentType: 'eventAssistant',
     conversation,
@@ -1025,7 +1030,12 @@ export async function createEventAssistantConversationWithResources(
   llmPlatform?,
   llmModel?
 ) {
-  const conversation = await createConversation({ ...conversationObj, resources }, owner, topic, startTime)
+  const conversation = await createConversation(
+    { ...conversationObj, resources, behaviorPolicy: NEUTRAL_BEHAVIORAL_POLICY },
+    owner,
+    topic,
+    startTime
+  )
   const agent = new Agent({
     agentType: 'eventAssistant',
     conversation,
