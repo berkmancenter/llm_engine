@@ -131,6 +131,29 @@ const testAgentTypes = {
       translatedMsg.body = `**${msg.body.insights.join('\n')}**`
       return translatedMsg
     }
+  },
+  withGoalPriorities: {
+    respond: mockRespond,
+    evaluate: mockEvaluate,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Test Agent With Goal Priorities',
+    description: 'An agent type with goalPriorities in agentConfig',
+    maxTokens: 2000,
+    defaultTriggers: { perMessage: {} },
+    priority: 50,
+    llmTemplateVars: {},
+    llmTemplates: {},
+    defaultLLMPlatform,
+    defaultLLMModel,
+    agentConfig: {
+      minInterval: 5,
+      goalPriorities: {
+        synthesize_discussion: 80,
+        bridge_topics: 50,
+        provoke_participation: 20
+      }
+    }
   }
 }
 
@@ -2523,6 +2546,82 @@ describe('agent tests', () => {
       const bodies = conversationHistory.messages.map((m) => m.body)
       expect(bodies).toContain('Parent message')
       expect(bodies).toContain('Existing reply')
+    })
+  })
+
+  describe('goalPriorities agentConfig merge', () => {
+    // agentConfig is Mixed so we cast goalPriorities to its runtime shape for assertions
+    const priorities = (agent) => agent.agentConfig!.goalPriorities as Record<string, number> | undefined
+
+    test('applies type-level goalPriorities when instance has none', async () => {
+      const agent = new Agent({ agentType: 'withGoalPriorities', conversation })
+      await agent.save()
+      expect(priorities(agent)).toEqual({
+        synthesize_discussion: 80,
+        bridge_topics: 50,
+        provoke_participation: 20
+      })
+    })
+
+    test('instance goalPriorities override individual keys while preserving type defaults', async () => {
+      const agent = new Agent({
+        agentType: 'withGoalPriorities',
+        conversation,
+        agentConfig: { goalPriorities: { bridge_topics: 90 } }
+      })
+      await agent.save()
+      expect(priorities(agent)).toEqual({
+        synthesize_discussion: 80,
+        bridge_topics: 90,
+        provoke_participation: 20
+      })
+    })
+
+    test('instance can add a new goal key not present in type defaults', async () => {
+      const agent = new Agent({
+        agentType: 'withGoalPriorities',
+        conversation,
+        agentConfig: { goalPriorities: { challenge_consensus: 70 } }
+      })
+      await agent.save()
+      expect(priorities(agent)).toMatchObject({
+        synthesize_discussion: 80,
+        bridge_topics: 50,
+        provoke_participation: 20,
+        challenge_consensus: 70
+      })
+    })
+
+    test('instance can disable a goal by setting priority 0', async () => {
+      const agent = new Agent({
+        agentType: 'withGoalPriorities',
+        conversation,
+        agentConfig: { goalPriorities: { synthesize_discussion: 0 } }
+      })
+      await agent.save()
+      expect(priorities(agent)!.synthesize_discussion).toBe(0)
+      expect(priorities(agent)!.bridge_topics).toBe(50)
+    })
+
+    test('other agentConfig fields are still shallow-merged correctly', async () => {
+      const agent = new Agent({
+        agentType: 'withGoalPriorities',
+        conversation,
+        agentConfig: { minInterval: 10 }
+      })
+      await agent.save()
+      expect(agent.agentConfig!.minInterval).toBe(10)
+      expect(priorities(agent)).toEqual({
+        synthesize_discussion: 80,
+        bridge_topics: 50,
+        provoke_participation: 20
+      })
+    })
+
+    test('no goalPriorities key set when neither type nor instance defines it', async () => {
+      const agent = new Agent({ agentType: 'perMessage', conversation })
+      await agent.save()
+      expect(priorities(agent)).toBeUndefined()
     })
   })
 })

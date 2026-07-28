@@ -48,6 +48,42 @@ const QA_SCOPE_LINES: Record<string, string> = {
 }
 
 /**
+ * Maps a 0–100 priority to a prompt label for that goal, or null for normal priority (34–66).
+ */
+function getGoalTierLabel(priority: number): string | null {
+  if (priority >= 67) return '**Preferred pattern — prioritize this when applicable.**'
+  if (priority <= 33) return '**Use sparingly — only when the signal is especially clear.**'
+  return null
+}
+
+/**
+ * Returns the effective minConfidence threshold for a goal after applying a priority-based modifier.
+ * High priority (>50) lowers the threshold; low priority (<50) raises it.
+ * The modifier scales linearly from −15 at priority 100 to +15 at priority 0.
+ * Goals with priority 0 are disabled and should be excluded before this is called.
+ */
+function getEffectiveMinConfidence(goal: ConversationGoal, goalPriorities?: Record<string, number>): number {
+  if (!goalPriorities) return goal.triggers.minConfidence
+  const priority = goalPriorities[goal.id] ?? 50
+  const modifier = Math.round((15 * (50 - priority)) / 50)
+  return Math.max(0, Math.min(100, goal.triggers.minConfidence + modifier))
+}
+
+/**
+ * Removes disabled goals (priority === 0) and sorts the remainder by priority descending.
+ * Goals not listed in goalPriorities default to priority 50.
+ * Returns the original array unchanged when goalPriorities is absent.
+ */
+function filterAndSortGoalsByPriority(
+  goals: ConversationGoal[],
+  goalPriorities?: Record<string, number>
+): ConversationGoal[] {
+  if (!goalPriorities) return goals
+  const active = goals.filter((g) => (goalPriorities[g.id] ?? 50) > 0)
+  return active.sort((a, b) => (goalPriorities[b.id] ?? 50) - (goalPriorities[a.id] ?? 50))
+}
+
+/**
  * Returns goals from the goals list that are eligible given channel and hard constraints.
  * pollPolicy.allowed: false removes poll_reveal regardless of goals.
  */
@@ -180,18 +216,43 @@ function buildBehaviorPolicySection(behaviorPolicy: BehaviorPolicy | undefined, 
 /**
  * Generates the active goal instructions section of a system prompt.
  * Each goal contributes its description, trigger conditions, guardrails, and examples.
+ * When goalPriorities is provided, goals are sorted by priority and a ranked preference
+ * list is prepended so the LLM knows which patterns to prefer.
  */
-function buildGoalInstructions(goals: ConversationGoal[], channelType: 'dm' | 'groupChat'): string {
-  const channelGoals = channelType === 'groupChat' ? getGroupChatGoals(goals) : getDmGoals(goals)
-  if (channelGoals.length === 0) return ''
+function buildGoalInstructions(
+  goals: ConversationGoal[],
+  channelType: 'dm' | 'groupChat',
+  goalPriorities?: Record<string, number>
+): string {
+  const allChannelGoals = channelType === 'groupChat' ? getGroupChatGoals(goals) : getDmGoals(goals)
+  if (allChannelGoals.length === 0) return ''
+
+  const channelGoals = goalPriorities
+    ? [...allChannelGoals].sort((a, b) => (goalPriorities[b.id] ?? 50) - (goalPriorities[a.id] ?? 50))
+    : allChannelGoals
 
   const lines: string[] = ['## Active Behavioral Patterns']
+
+  const hasPriorityVariation =
+    goalPriorities && channelGoals.length > 1 && channelGoals.some((g) => (goalPriorities[g.id] ?? 50) !== 50)
+  if (hasPriorityVariation) {
+    lines.push('When multiple patterns apply simultaneously, prefer them in this order:')
+    channelGoals.forEach((g, i) => lines.push(`${i + 1}. ${g.label}`))
+    lines.push('')
+  }
+
   lines.push(
     'The following patterns define when and how you should act. Choose the most appropriate pattern when conditions are met. When in doubt, remain silent.\n'
   )
 
   for (const goal of channelGoals) {
     lines.push(`### ${goal.label}`)
+
+    if (goalPriorities) {
+      const tierLabel = getGoalTierLabel(goalPriorities[goal.id] ?? 50)
+      if (tierLabel) lines.push(tierLabel)
+    }
+
     lines.push(goal.description)
 
     if (goal.triggers.conditions.length > 0) {
@@ -232,9 +293,10 @@ function composeSystemPrompt(
     goals?: ConversationGoal[]
     channelType?: 'dm' | 'groupChat'
     personalityName?: string | null
+    goalPriorities?: Record<string, number>
   } = {}
 ): string {
-  const { conversationContext, behaviorPolicy, goals, channelType, personalityName } = options
+  const { conversationContext, behaviorPolicy, goals, channelType, personalityName, goalPriorities } = options
   const parts: string[] = [basePrompt]
 
   const contextSection = buildConversationContextSection(conversationContext)
@@ -244,7 +306,8 @@ function composeSystemPrompt(
   if (policySection) parts.push(policySection)
 
   if (goals && goals.length > 0 && channelType) {
-    const goalSection = buildGoalInstructions(goals, channelType)
+    const prioritizedGoals = filterAndSortGoalsByPriority(goals, goalPriorities)
+    const goalSection = buildGoalInstructions(prioritizedGoals, channelType, goalPriorities)
     if (goalSection) parts.push(goalSection)
   }
 
@@ -260,6 +323,8 @@ export {
   getEligibleGoals,
   getConfidenceThreshold,
   getMinContributionMs,
+  getEffectiveMinConfidence,
+  filterAndSortGoalsByPriority,
   buildConversationContextSection,
   buildBehaviorPolicySection,
   buildGoalInstructions,

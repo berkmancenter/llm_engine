@@ -2,6 +2,8 @@ import {
   getEligibleGoals,
   getConfidenceThreshold,
   getMinContributionMs,
+  getEffectiveMinConfidence,
+  filterAndSortGoalsByPriority,
   buildConversationContextSection,
   buildBehaviorPolicySection,
   buildGoalInstructions,
@@ -506,6 +508,176 @@ describe('buildGoalInstructions', () => {
     const result = buildGoalInstructions([FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL], 'groupChat')
     expect(result).toContain('### Provoke participation')
     expect(result).toContain('### Bridge topics')
+  })
+})
+
+const FIXTURE_SYNTHESIZE_GOAL: ConversationGoal = {
+  id: 'synthesize_discussion',
+  label: 'Synthesize discussion',
+  description: 'Draws together threads from across the conversation.',
+  channel: 'groupChat',
+  triggers: { conditions: [{ scope: 'participant', condition: 'multiple threads are active' }], minConfidence: 60 },
+  guardrails: [],
+  outputContract: { format: 'text' },
+  examples: []
+}
+
+describe('getEffectiveMinConfidence', () => {
+  test('returns goal minConfidence unchanged when goalPriorities is absent', () => {
+    expect(getEffectiveMinConfidence(FIXTURE_GROUP_GOAL, undefined)).toBe(65)
+  })
+
+  test('returns goal minConfidence unchanged when goal not listed in priorities', () => {
+    expect(getEffectiveMinConfidence(FIXTURE_GROUP_GOAL, {})).toBe(65)
+  })
+
+  test('lowers threshold for high-priority goal (priority 100 → −15 modifier)', () => {
+    expect(getEffectiveMinConfidence(FIXTURE_GROUP_GOAL, { provoke_participation: 100 })).toBe(50)
+  })
+
+  test('raises threshold for low-priority goal (priority 0 → +15 modifier)', () => {
+    expect(getEffectiveMinConfidence(FIXTURE_GROUP_GOAL, { provoke_participation: 0 })).toBe(80)
+  })
+
+  test('no modifier at default priority 50', () => {
+    expect(getEffectiveMinConfidence(FIXTURE_GROUP_GOAL, { provoke_participation: 50 })).toBe(65)
+  })
+
+  test('clamps result at 0 when modifier would go below 0', () => {
+    const veryLowBase: ConversationGoal = { ...FIXTURE_GROUP_GOAL, triggers: { ...FIXTURE_GROUP_GOAL.triggers, minConfidence: 5 } }
+    expect(getEffectiveMinConfidence(veryLowBase, { provoke_participation: 100 })).toBe(0)
+  })
+
+  test('clamps result at 100 when modifier would exceed 100', () => {
+    const veryHighBase: ConversationGoal = { ...FIXTURE_GROUP_GOAL, triggers: { ...FIXTURE_GROUP_GOAL.triggers, minConfidence: 95 } }
+    expect(getEffectiveMinConfidence(veryHighBase, { provoke_participation: 0 })).toBe(100)
+  })
+})
+
+describe('filterAndSortGoalsByPriority', () => {
+  test('returns goals unchanged when goalPriorities is absent', () => {
+    const goals = [FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL]
+    expect(filterAndSortGoalsByPriority(goals, undefined)).toStrictEqual(goals)
+  })
+
+  test('removes goals with priority 0', () => {
+    const result = filterAndSortGoalsByPriority([FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL], {
+      provoke_participation: 0
+    })
+    expect(result.map((g) => g.id)).toEqual(['bridge_topics'])
+  })
+
+  test('sorts goals by priority descending', () => {
+    const result = filterAndSortGoalsByPriority([FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL, FIXTURE_SYNTHESIZE_GOAL], {
+      provoke_participation: 20,
+      bridge_topics: 80,
+      synthesize_discussion: 50
+    })
+    expect(result.map((g) => g.id)).toEqual(['bridge_topics', 'synthesize_discussion', 'provoke_participation'])
+  })
+
+  test('unlisted goals default to priority 50 and sort accordingly', () => {
+    const result = filterAndSortGoalsByPriority([FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL], {
+      bridge_topics: 70
+    })
+    expect(result[0].id).toBe('bridge_topics')
+    expect(result[1].id).toBe('provoke_participation')
+  })
+
+  test('all-default priorities preserves relative order', () => {
+    const goals = [FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL]
+    const result = filterAndSortGoalsByPriority(goals, {})
+    expect(result.map((g) => g.id)).toEqual(['provoke_participation', 'bridge_topics'])
+  })
+})
+
+describe('buildGoalInstructions with goalPriorities', () => {
+  test('renders ranked preference list when priorities differ from default', () => {
+    const result = buildGoalInstructions(
+      [FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL],
+      'groupChat',
+      { provoke_participation: 80, bridge_topics: 30 }
+    )
+    expect(result).toContain('When multiple patterns apply simultaneously')
+    expect(result).toContain('1. Provoke participation')
+    expect(result).toContain('2. Bridge topics')
+  })
+
+  test('does not render ranked list when only one channel goal', () => {
+    const result = buildGoalInstructions([FIXTURE_GROUP_GOAL], 'groupChat', { provoke_participation: 80 })
+    expect(result).not.toContain('When multiple patterns apply simultaneously')
+  })
+
+  test('does not render ranked list when all priorities are default (50)', () => {
+    const result = buildGoalInstructions(
+      [FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL],
+      'groupChat',
+      { provoke_participation: 50, bridge_topics: 50 }
+    )
+    expect(result).not.toContain('When multiple patterns apply simultaneously')
+  })
+
+  test('does not render ranked list when goalPriorities is absent', () => {
+    const result = buildGoalInstructions([FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL], 'groupChat')
+    expect(result).not.toContain('When multiple patterns apply simultaneously')
+  })
+
+  test('adds preferred tier label for high-priority goal', () => {
+    const result = buildGoalInstructions([FIXTURE_GROUP_GOAL], 'groupChat', { provoke_participation: 80 })
+    expect(result).toContain('Preferred pattern')
+  })
+
+  test('adds use-sparingly tier label for low-priority goal', () => {
+    const result = buildGoalInstructions([FIXTURE_GROUP_GOAL], 'groupChat', { provoke_participation: 20 })
+    expect(result).toContain('Use sparingly')
+  })
+
+  test('adds no tier label for normal priority goal', () => {
+    const result = buildGoalInstructions([FIXTURE_GROUP_GOAL], 'groupChat', { provoke_participation: 50 })
+    expect(result).not.toContain('Preferred pattern')
+    expect(result).not.toContain('Use sparingly')
+  })
+
+  test('ranked list reflects priority order, not input order', () => {
+    const result = buildGoalInstructions(
+      [FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL],
+      'groupChat',
+      { provoke_participation: 30, bridge_topics: 70 }
+    )
+    const bridgePos = result.indexOf('Bridge topics')
+    const provokePos = result.indexOf('Provoke participation')
+    expect(bridgePos).toBeLessThan(provokePos)
+  })
+
+  test('goals with priority 0 filtered out before reaching buildGoalInstructions via composeSystemPrompt', () => {
+    const result = composeSystemPrompt('Base.', {
+      goals: [FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL],
+      channelType: 'groupChat',
+      goalPriorities: { provoke_participation: 0, bridge_topics: 70 }
+    })
+    expect(result).not.toContain('Provoke participation')
+    expect(result).toContain('Bridge topics')
+  })
+})
+
+describe('composeSystemPrompt with goalPriorities', () => {
+  test('passes goalPriorities through to goal section', () => {
+    const result = composeSystemPrompt('Base.', {
+      goals: [FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL],
+      channelType: 'groupChat',
+      goalPriorities: { provoke_participation: 80, bridge_topics: 30 }
+    })
+    expect(result).toContain('When multiple patterns apply simultaneously')
+    expect(result).toContain('Preferred pattern')
+  })
+
+  test('goal section is unchanged when goalPriorities is absent', () => {
+    const withPriorities = composeSystemPrompt('Base.', {
+      goals: [FIXTURE_GROUP_GOAL],
+      channelType: 'groupChat'
+    })
+    expect(withPriorities).not.toContain('When multiple patterns apply simultaneously')
+    expect(withPriorities).not.toContain('Preferred pattern')
   })
 })
 
