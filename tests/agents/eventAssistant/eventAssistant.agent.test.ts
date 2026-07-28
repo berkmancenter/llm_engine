@@ -656,45 +656,6 @@ describe(`event assistant CI tests`, () => {
 
   // PERSONALITY CONFIGURATION TESTS
 
-  describe('buildLLMTemplates personality configuration', () => {
-    it('includes personality section when enablePersonality is true', async () => {
-      // Import and rebuild templates with personality enabled
-      const { eventAssistantLLMTemplates } = await import('../../../src/agents/eventAssistant/eventQuestionHandler.js')
-
-      // The default export uses buildLLMTemplates(true)
-      expect(eventAssistantLLMTemplates.timeWindowSystem).toContain('**Your role:**')
-      expect(eventAssistantLLMTemplates.semanticSystem).toContain('**Your role:**')
-    })
-
-    it('personality section contains expected content', async () => {
-      const { eventAssistantLLMTemplates } = await import('../../../src/agents/eventAssistant/eventQuestionHandler.js')
-
-      // Check for key personality traits
-      expect(eventAssistantLLMTemplates.semanticSystem).toContain('1-2 sentences max')
-      expect(eventAssistantLLMTemplates.semanticSystem).toContain('Lead with the answer')
-      expect(eventAssistantLLMTemplates.semanticSystem).toContain('Heavy sarcasm')
-      expect(eventAssistantLLMTemplates.timeWindowSystem).toContain('1-2 sentences max')
-    })
-
-    it('classification system does not include personality section', async () => {
-      const { eventAssistantLLMTemplates } = await import('../../../src/agents/eventAssistant/eventQuestionHandler.js')
-
-      // Classification system should never have personality
-      expect(eventAssistantLLMTemplates.semanticClassificationSystem).not.toContain('**Your role:**')
-      expect(eventAssistantLLMTemplates.semanticClassificationSystem).not.toContain('RUTHLESS BREVITY')
-      expect(eventAssistantLLMTemplates.semanticClassificationSystem).not.toContain('sarcasm')
-    })
-
-    it('user template is unchanged by personality setting', async () => {
-      const { eventAssistantLLMTemplates } = await import('../../../src/agents/eventAssistant/eventQuestionHandler.js')
-
-      // User template should always be the same
-      expect(eventAssistantLLMTemplates.user).toContain('## Event topic:')
-      expect(eventAssistantLLMTemplates.user).toContain('## Context:')
-      expect(eventAssistantLLMTemplates.user).toContain('## User question:')
-    })
-  })
-
   describe('personality enable/disable functionality', () => {
     it(
       'uses personality when enablePersonality is true in agentConfig',

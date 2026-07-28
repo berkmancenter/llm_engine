@@ -44,8 +44,8 @@ describe('event assistant adjacent-vs-off-topic classification prompt', () => {
 })
 
 describe('event assistant tool-aware classification prompt', () => {
-  const withTools = buildLLMTemplates(null, undefined, ['web_search'])
-  const withoutTools = buildLLMTemplates(null)
+  const withTools = buildLLMTemplates(undefined, ['web_search'])
+  const withoutTools = buildLLMTemplates()
 
   describe('without tools (original behavior)', () => {
     test('biases toward ON_TOPIC_ASK_SPEAKER by default', () => {

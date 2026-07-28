@@ -8,7 +8,7 @@ import { IChannel } from '../../types/index.types.js'
 import config from '../../config/config.js'
 
 import { getModelChat, classificationLLMPlatform, classificationLLMModel } from '../helpers/getModelChat.js'
-import { personalitySection } from '../helpers/agentPersonality.js'
+import { composeSystemPrompt } from '../helpers/promptComposer.js'
 import { getTools } from '../tools/registry.js'
 import { TopicRef } from '../tools/eventHistory.js'
 import Topic from '../../models/topic.model.js'
@@ -26,24 +26,47 @@ export enum QuestionClassification {
   CATCHUP = 'CATCHUP'
 }
 
-export function buildLLMTemplates(personalityName?: string | null, botName?: string, toolNames: string[] = []) {
-  const personalityContent = personalityName ? personalitySection : ''
+export function buildLLMTemplates(botName?: string, toolNames: string[] = [], answerScope?: string) {
   const botIdentity = botName
     ? `Your name is ${botName} - always refer to yourself with this exact spelling, even if your name appears differently in transcripts or conversation history.`
     : ''
   const hasTools = toolNames.length > 0
+  const scopeRestricted = answerScope === 'companyContextOnly'
+  const lectureScoped = answerScope === 'helpUserUnderstandTheLecture'
 
-  const resourceSection = hasTools
-    ? `When information isn't in the context:
+  let resourceSection: string
+  if (scopeRestricted) {
+    resourceSection = `Only use information from the provided context. Do not draw on general knowledge or external sources.`
+  } else if (hasTools) {
+    resourceSection = `When information isn't in the context:
 - Use your available tools (e.g. web_search) to find the answer before responding.
 - If tools return no results, provide what you know from general knowledge.`
-    : `When information isn't in the context:
+  } else {
+    resourceSection = `When information isn't in the context:
 - Provide what you know from general knowledge.
 - Suggest specific resources or places to find more information (e.g., Bureau of Labor Statistics, industry reports, relevant organizations).`
+  }
 
-  const helpfulnessLine = hasTools
-    ? `Always aim to be helpful - use your tools to find information the event materials lack, then provide a substantive response.`
-    : `Always aim to be helpful - provide the information you can and point toward additional resources.`
+  let helpfulnessLine: string
+  if (scopeRestricted) {
+    helpfulnessLine = `If the answer isn't in the provided context, say so clearly — do not fill gaps with general knowledge.`
+  } else if (lectureScoped) {
+    helpfulnessLine = `Always aim to be helpful — use general knowledge to explain concepts from the lecture, but keep answers grounded in what is being taught.`
+  } else if (hasTools) {
+    helpfulnessLine = `Always aim to be helpful - use your tools to find information the event materials lack, then provide a substantive response.`
+  } else {
+    helpfulnessLine = `Always aim to be helpful - provide the information you can and point toward additional resources.`
+  }
+
+  let generalKnowledgeFallback: string
+  if (scopeRestricted) {
+    generalKnowledgeFallback = `- Do not use general knowledge — if the context does not contain the answer, say so clearly.`
+  } else if (lectureScoped) {
+    generalKnowledgeFallback = `- If the context doesn't contain the answer, you may draw on general knowledge to help the participant understand the lecture content, but keep it grounded in what the speaker is teaching.`
+  } else {
+    generalKnowledgeFallback = `- If the context doesn't contain the answer, use your general knowledge to provide a helpful response.
+- When using general knowledge, be clear about your sources (e.g., "According to general industry data..." or "Research typically shows...")`
+  }
 
   /*
    * Classification prompt sections: tool-aware vs tool-less.
@@ -112,22 +135,15 @@ Exception: if the question requests direct, specific factual info or statistics 
       botIdentity ? `${botIdentity} ` : ''
     }You are rephrasing short transcript chunks from a live event. The user missed this part of the conversation and only needs the reworded content.
 
-${personalityContent}
-
 **CRITICAL RULES:**
 - Use only the provided transcript chunks.
 - Do not add context or thematic commentary
 - Use only "they/them" pronouns when referring to any person, including speakers, attendees, or individuals mentioned in questions, regardless of how the user refers to them.
 - State what was said directly - avoid "the speaker discussed..." or similar.
 
-**Output Style:**
-- 1-3 sentences maximum.
-- Natural, clear English.
-- Contain only the essential rephrased content, nothing extra.
+Keep it concise — contain only the essential rephrased content, nothing extra.
 `,
     semanticSystem: `${botIdentity ? `${botIdentity} ` : ''}You answer questions about a live event.
-
-${personalityContent}
 
 Answer the question using these rules:
 
@@ -135,8 +151,7 @@ Answer the question using these rules:
 - Prioritize information from the retrieved context when available.
 - **When speaker names, moderator names, or people are mentioned:** Check the retrieved context for official speaker/moderator names and bios. Transcription may contain name errors, so use the official names from the context when available. If a user asks about "John Smith" but the context shows the speaker is "Jon Smythe," use the correct spelling from the retrieved data. If the context shows a name followed by "(also known as ...)", treat both as the same person and always output the canonical name - the alternate name is an intentional identity hint, not a nickname preference. Never use the alternate name in your response in any form - not standalone, not in parentheses, not as an abbreviation - even if the user used it in their question.
 - **When referring to speakers or moderators:** Use their official names and credentials from the retrieved context. If bio information is available, you may reference relevant expertise when it adds value to your response.
-- If the context doesn't contain the answer, use your general knowledge to provide a helpful response.
-- When using general knowledge, be clear about your sources (e.g., "According to general industry data..." or "Research typically shows...")
+${generalKnowledgeFallback}
 - Use only "they/them" pronouns when referring to any person, including speakers, attendees, or individuals mentioned in questions, regardless of how the user refers to them.
 - Do not invent specific details about the event itself.
 - **For catchup requests:** Provide a brief summary of key points covered based on available context. If context is limited, acknowledge this and suggest they review available materials or ask specific questions about topics of interest.
@@ -148,11 +163,8 @@ ${resourceSection}
 
 **Failsafe:** If you cannot provide any substantive answer, explain why.
 
-Output Style:
-- 1-3 sentences maximum.
-- Direct and clear; no pleasantries, filler, or meta-commentary.
-- ${helpfulnessLine}
-- Always provide a substantive response.
+${helpfulnessLine}
+Always provide a substantive response.
 `,
     semanticClassificationSystem: `You are a classification system for live event Q&A. Return ONLY a classification string.
 
@@ -196,15 +208,9 @@ Do NOT provide any explanation or additional text.
 **Reminder:** Always read **Recent conversation** (in the user message) together with **Event topic** and **Context** before choosing OFF_TOPIC.`,
     offTopicSystem: `You are an AI assistant for a live event. The user has asked something unrelated to the event topic.
 
-${personalityContent}
-
 **Your task:** Politely redirect the user back to the event topic. Let them know you're here to help with event-related questions.
 
-**Output Style:**
-- 1-2 sentences maximum.
-- Friendly but brief.
 - Mention that you're best at event-related questions.
-
 - Do not attempt to answer the off-topic question, even partially.
 - Do not explain why the question is off-topic in a judgmental way.
 - Do not suggest the user go elsewhere for the answer (e.g., "try Google").
@@ -213,13 +219,8 @@ ${personalityContent}
 `,
     unanswerableSystem: `You are an AI assistant for a live event. You cannot provide a good answer to the user's question.
 
-${personalityContent}
-
 **Your task:** Let the user know you don't have a great answer and suggest they rephrase or try a different question. Mention you're best at event-related questions.
 
-**Output Style:**
-- 1-2 sentences maximum.
-- Friendly but brief.
 - Encourage them to try rephrasing.
 - Don't end with questions like "What can I help you with?"
 `,
@@ -259,7 +260,7 @@ Would this benefit from a visual representation?`,
   }
 }
 
-export const eventAssistantLLMTemplates = buildLLMTemplates('sarcastic-expert')
+export const eventAssistantLLMTemplates = buildLLMTemplates()
 
 export const eventAssistantLlmTemplateVars = {
   offTopicSystem: [],
@@ -411,8 +412,11 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
   const tools = toolNames.length > 0 ? getTools(toolNames, toolContext) : []
   const hasWebSearch = toolNames.includes('web_search')
 
+  const channelType = userMessage?.channels?.includes('chat') ? 'groupChat' : 'dm'
+  const answerScope = this.conversation.behaviorPolicy?.channels?.dm?.qaBehavior?.answerScope
+
   // Get the appropriate templates based on personality setting
-  const templates = buildLLMTemplates(personalityName, this.agentConfig?.botName, toolNames)
+  const templates = buildLLMTemplates(this.agentConfig?.botName, toolNames, answerScope)
 
   // Use provided context from options if available, otherwise search transcript
   let contextString: string
@@ -538,6 +542,13 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
       templateType = 'semantic'
     }
   }
+
+  systemTemplate = composeSystemPrompt(systemTemplate, {
+    conversationContext: this.conversation.conversationContext,
+    behaviorPolicy: this.conversation.behaviorPolicy,
+    channelType,
+    personalityName
+  })
 
   let llmResponse: string
   if (tools.length > 0) {
