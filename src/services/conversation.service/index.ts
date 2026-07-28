@@ -183,16 +183,17 @@ const createConversation = async (conversationBody, user, { allowDraft = false }
   }
 
   /* Trusted-caller-only, same as allowDraft itself: the public routes never pass allowDraft:true,
-     so a client can never set sourceInviteUid on a conversation it creates. Without this gate, an
-     ordinary user could squat on a future invite's UID via the public API and make a legitimate
-     invite silently no-op against their decoy (see createConversationFromInvite's dedup check). */
-  const canSetSourceInviteUid = allowDraft && conversationBody.sourceInviteUid !== undefined
+     so a client can never set source.inviteUid on a conversation it creates. Without this gate,
+     an ordinary user could squat on a future invite's UID via the public API and make a
+     legitimate invite silently no-op against their decoy (see createConversationFromInvite's
+     dedup check). */
+  const canSetSourceInviteUid = allowDraft && conversationBody.source?.inviteUid !== undefined
 
   const conversation = new Conversation({
     name: conversationBody.name,
     owner: user,
     ...(topic && { topic }),
-    ...(canSetSourceInviteUid && { sourceInviteUid: conversationBody.sourceInviteUid }),
+    ...(canSetSourceInviteUid && { source: { inviteUid: conversationBody.source.inviteUid } }),
     enableAgents: !!conversationBody.agentTypes?.length,
     ...(conversationBody.enableDMs !== undefined && { enableDMs: conversationBody.enableDMs }),
     ...(conversationBody.conversationType !== undefined && { conversationType: conversationBody.conversationType }),

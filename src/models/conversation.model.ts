@@ -123,12 +123,15 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
       // blank topic for the organizer to fill in. Non-draft conversations still get one at creation.
       index: true
     },
-    sourceInviteUid: {
-      type: String,
-      // Non-unique: most conversations have no invite UID at all, and a unique index would treat
-      // every missing value as a colliding duplicate. Dedup against Postmark retries happens in
-      // createConversationFromInvite (a findOne before create), not via a DB constraint.
-      index: true
+    source: {
+      inviteUid: {
+        type: String,
+        // Non-unique: most conversations have no invite UID at all, and a unique index would
+        // treat every missing value as a colliding duplicate. Dedup against webhook retries
+        // happens in createConversationFromInvite (a findOne before create), not via a DB
+        // constraint.
+        index: true
+      }
     },
     scheduledTime: {
       type: Date

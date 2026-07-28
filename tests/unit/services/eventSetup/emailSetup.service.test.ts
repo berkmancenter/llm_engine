@@ -6,7 +6,7 @@ import logger from '../../../../src/config/logger.js'
 import emailService from '../../../../src/services/email.service.js'
 import transcript from '../../../../src/agents/helpers/transcript.js'
 import websocketGateway from '../../../../src/websockets/websocketGateway.js'
-import { Conversation, Topic } from '../../../../src/models/index.js'
+import { Adapter, Conversation, Topic } from '../../../../src/models/index.js'
 import { insertUsers } from '../../../fixtures/user.fixture.js'
 import plannerService from '../../../../src/services/eventSetup/planner.service.js'
 import conversationService from '../../../../src/services/conversation.service/index.js'
@@ -251,10 +251,27 @@ describe('emailSetup.service', () => {
       expect(conversation!.presenters).toEqual([expect.objectContaining({ name: 'Jane Doe' })])
       expect(conversation!.moderators).toEqual([expect.objectContaining({ name: 'Mod Person' })])
       expect(conversation!.description).toBe('Weekly sync')
-      expect(conversation!.sourceInviteUid).toBe('UID-DEFAULT')
+      expect(conversation!.source?.inviteUid).toBe('UID-DEFAULT')
 
       const persisted = await Conversation.findById(conversation!._id)
       expect(persisted).not.toBeNull()
+    })
+
+    /* An invite-created event is always managed through the admin app, so it's a hybrid event by
+       definition once it also has a Zoom link. platforms: ['nextspace'] alone doesn't match any
+       key in eventAssistant's adapter defs and silently falls back to 'default' (audio-only, no
+       dmChannels or chatChannels); ['nextspace', 'zoom'] matches the 'nextspace,zoom' hybrid def,
+       which does have a dmChannel for the eventAssistant agent. */
+    it('creates the hybrid nextspace + zoom adapter, not the platform-less default fallback', async () => {
+      await insertUsers([newUser(`org@${allowedDomain}`)])
+      planConversationFromInviteSpy.mockResolvedValue({ zoomLink: 'https://zoom.us/j/123456789' })
+
+      const conversation = await createConversationFromInvite(buildInvite({}, `org@${allowedDomain}`))
+
+      expect(conversation!.platforms).toEqual(['nextspace', 'zoom'])
+      const adapter = await Adapter.findOne({ conversation: conversation!._id })
+      expect(adapter).not.toBeNull()
+      expect(adapter!.dmChannels).toHaveLength(1)
     })
 
     /* Leaving features unspecified resolves to an empty array (see resolver.ts's resolveFeatures),
@@ -313,7 +330,7 @@ describe('emailSetup.service', () => {
       const conversation = await createConversationFromInvite(buildInvite({ uid: undefined }, `org@${allowedDomain}`))
 
       expect(conversation).not.toBeNull()
-      expect(conversation!.sourceInviteUid).toBeUndefined()
+      expect(conversation!.source?.inviteUid).toBeUndefined()
       expect(loggerWarnSpy).toHaveBeenCalledWith(expect.stringContaining('no UID'))
     })
 
@@ -350,9 +367,9 @@ describe('emailSetup.service', () => {
       expect(sendEventCreatedSpy).not.toHaveBeenCalled()
     })
 
-    /* There is no retry path available to us here: handlers/email.ts acknowledges Postmark with a
+    /* There is no retry path available to us here: handlers/email.ts acknowledges the webhook with a
        200 before any processing runs (see the plan's ack-before-processing note), so a thrown error
-       here can never surface as a Postmark retry. A best-effort email to the organizer, plus a
+       here can never surface as a webhook retry. A best-effort email to the organizer, plus a
        server-side log carrying the invite UID for support to grep, is the only notification path. */
     it('logs the error and emails the organizer a generic failure notice, without exposing error detail, when creation throws', async () => {
       const [organizer] = await insertUsers([newUser(`org@${allowedDomain}`)])

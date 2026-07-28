@@ -16,8 +16,9 @@ export interface ParsedInvite {
 }
 
 /* The trust boundary in one shape: `invite` is attacker-supplied .ics file content (anyone can put
-   any UID or ORGANIZER in a raw .ics), while `fromAddress` is the envelope From that Postmark actually
-   received. Identity resolution keys off fromAddress; ORGANIZER is only ever compared against it. */
+   any UID or ORGANIZER in a raw .ics), while `fromAddress` is the envelope From that the email
+   webhook actually received. Identity resolution keys off fromAddress; ORGANIZER is only ever
+   compared against it. */
 export interface InboundInvite {
   fromAddress: string
   invite: ParsedInvite
@@ -462,10 +463,13 @@ export interface IConversation {
   enableAgents?: boolean
   owner: IUser
   topic: ITopic
-  // The .ics UID of the inbound invite this conversation was created from. Unset for every
-  // conversation not created by the email webhook; used to detect a Postmark retry of the same
-  // invite before creating a duplicate (see emailSetup.service.ts).
-  sourceInviteUid?: string
+  // How this conversation was created, when not the standard event-creation form. Unset for
+  // every conversation not created by the email webhook.
+  source?: {
+    // The .ics UID of the inbound invite; used to detect a webhook retry of the same invite
+    // before creating a duplicate (see emailSetup.service.ts).
+    inviteUid?: string
+  }
   transcript?: ITranscript
   followed?: boolean
   resources: Resource[]

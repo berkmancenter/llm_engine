@@ -61,7 +61,7 @@ const isAllowedOrganizerDomain = (address: string): boolean => {
 }
 
 /**
- * Find the account that owns this invite, keying off the envelope From that Postmark
+ * Find the account that owns this invite, keying off the envelope From that the email webhook
  * received (never the spoofable .ics ORGANIZER). Returns the organizer, or null when no event should
  * be created. The allowlisted domain is a hard gate checked first: any sender outside it is rejected
  * outright, account or not, with no reply (confirming the address "just needs to sign up" would be a
@@ -129,9 +129,10 @@ const defaultFeatures = (conversationType: ConversationType) =>
 
 /**
  * Ties organizer resolution, Topic resolution, and the fuzzy-field extraction together into an
- * actual Conversation. Idempotent: Postmark can redeliver the same message (up to 10 retries over
- * ~10.5 hours), so a retry must not create a second conversation. Dedup keys off the invite's
- * .ics UID, stored on the Conversation as sourceInviteUid, which only a trusted allowDraft caller
+ * actual Conversation. Idempotent: an inbound email webhook can redeliver the same message
+ * (Postmark, for example, retries up to 10 times over ~10.5 hours), so a retry must not create a
+ * second conversation. Dedup keys off the invite's
+ * .ics UID, stored on the Conversation as source.inviteUid, which only a trusted allowDraft caller
  * can ever set (see conversation.service/index.ts createConversation) so a public API client
  * cannot squat on a UID and cause a future legitimate invite to silently no-op.
  *
@@ -142,13 +143,13 @@ export const createConversationFromInvite = async (inboundInvite: InboundInvite)
   const { invite } = inboundInvite
 
   if (invite.uid) {
-    const existing = await Conversation.findOne({ sourceInviteUid: invite.uid })
+    const existing = await Conversation.findOne({ 'source.inviteUid': invite.uid })
     if (existing) {
       logger.info(`Email webhook: invite UID ${invite.uid} already created as conversation ${existing._id}, skipping`)
       return existing
     }
   } else {
-    logger.warn('Email webhook: invite has no UID; cannot dedup a Postmark retry for this message')
+    logger.warn('Email webhook: invite has no UID; cannot dedup a webhook retry for this message')
   }
 
   const organizer = await resolveOrganizer(inboundInvite)
@@ -165,8 +166,12 @@ export const createConversationFromInvite = async (inboundInvite: InboundInvite)
         type: 'eventAssistant',
         name: invite.summary ?? PLACEHOLDER_CONVERSATION_NAME,
         topicId: topic?.id,
-        sourceInviteUid: invite.uid,
-        platforms: ['nextspace'],
+        source: { inviteUid: invite.uid },
+        // An invite-created event is always managed through the admin app, so it's a hybrid
+        // event by definition. 'nextspace' alone matches no key in eventAssistant's adapter
+        // defs and silently falls back to 'default' (audio-only, no dmChannels/chatChannels);
+        // this matches the 'nextspace,zoom' hybrid def instead.
+        platforms: ['nextspace', 'zoom'],
         scheduledTime: invite.startDate,
         scheduledEndTime: invite.endDate,
         description: extracted.description,
@@ -187,7 +192,7 @@ export const createConversationFromInvite = async (inboundInvite: InboundInvite)
     await emailService.sendEventCreatedEmail(organizer.email, conversation)
     return conversation
   } catch (err) {
-    /* handlers/email.ts acknowledges Postmark with a 200 before any of this runs, so there is no
+    /* handlers/email.ts acknowledges the webhook with a 200 before any of this runs, so there is no
        retry to fall back on: this email is the only way the organizer learns something went wrong.
        The error itself stays server-side (see email.service.ts's sendEventCreationFailedEmail),
        since the inbound address accepts mail from anyone and the reply body is not a safe place

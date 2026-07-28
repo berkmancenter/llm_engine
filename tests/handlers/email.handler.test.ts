@@ -16,7 +16,7 @@ import { parseInviteFromPayload } from '../../src/handlers/email.js'
 
 setupIntTest()
 
-const webhookUser = 'postmark-webhook'
+const webhookUser = 'email-webhook'
 const webhookSecret = 'test-webhook-secret'
 
 /**
@@ -62,8 +62,8 @@ const buildIcs = (
   return lines.join('\r\n')
 }
 
-/** Wrap an .ics body in a Postmark inbound webhook payload as its base64 .ics attachment. */
-const buildPostmarkPayload = (icsBody: string, attachmentOverrides = {}) => ({
+/** Wrap an .ics body in an inbound email webhook payload (Postmark's shape) as its base64 .ics attachment. */
+const buildInboundEmailPayload = (icsBody: string, attachmentOverrides = {}) => ({
   FromName: 'Jane Organizer',
   From: 'jane@example.com',
   Subject: 'Quarterly Strategy Roundtable',
@@ -86,15 +86,15 @@ describe('POST /v1/webhooks/email', () => {
   let originalSecret
 
   beforeAll(() => {
-    originalUser = config.postmark.authUser
-    originalSecret = config.postmark.authSecret
-    config.postmark.authUser = webhookUser
-    config.postmark.authSecret = webhookSecret
+    originalUser = config.emailWebhook.authUser
+    originalSecret = config.emailWebhook.authSecret
+    config.emailWebhook.authUser = webhookUser
+    config.emailWebhook.authSecret = webhookSecret
   })
 
   afterAll(() => {
-    config.postmark.authUser = originalUser
-    config.postmark.authSecret = originalSecret
+    config.emailWebhook.authUser = originalUser
+    config.emailWebhook.authSecret = originalSecret
   })
 
   describe('Basic Auth', () => {
@@ -102,19 +102,22 @@ describe('POST /v1/webhooks/email', () => {
       await request(app)
         .post('/v1/webhooks/email')
         .auth(webhookUser, webhookSecret)
-        .send(buildPostmarkPayload(buildIcs()))
+        .send(buildInboundEmailPayload(buildIcs()))
         .expect(httpStatus.OK)
     })
 
     test('rejects a request with no Authorization header before parsing', async () => {
-      await request(app).post('/v1/webhooks/email').send(buildPostmarkPayload(buildIcs())).expect(httpStatus.UNAUTHORIZED)
+      await request(app)
+        .post('/v1/webhooks/email')
+        .send(buildInboundEmailPayload(buildIcs()))
+        .expect(httpStatus.UNAUTHORIZED)
     })
 
     test('rejects a request with the wrong password', async () => {
       await request(app)
         .post('/v1/webhooks/email')
         .auth(webhookUser, 'wrong-secret')
-        .send(buildPostmarkPayload(buildIcs()))
+        .send(buildInboundEmailPayload(buildIcs()))
         .expect(httpStatus.UNAUTHORIZED)
     })
 
@@ -122,12 +125,12 @@ describe('POST /v1/webhooks/email', () => {
       await request(app)
         .post('/v1/webhooks/email')
         .auth('impostor', webhookSecret)
-        .send(buildPostmarkPayload(buildIcs()))
+        .send(buildInboundEmailPayload(buildIcs()))
         .expect(httpStatus.UNAUTHORIZED)
     })
 
     test('responds 200 even when the message carries no calendar attachment', async () => {
-      const payload = buildPostmarkPayload(buildIcs())
+      const payload = buildInboundEmailPayload(buildIcs())
       payload.Attachments = []
       await request(app).post('/v1/webhooks/email').auth(webhookUser, webhookSecret).send(payload).expect(httpStatus.OK)
     })
@@ -145,7 +148,7 @@ describe('POST /v1/webhooks/email', () => {
       await request(app)
         .post('/v1/webhooks/email')
         .auth(webhookUser, webhookSecret)
-        .send(buildPostmarkPayload(buildIcs()))
+        .send(buildInboundEmailPayload(buildIcs()))
         .expect(httpStatus.OK)
 
       const logged = infoSpy.mock.calls.map(([message]) => String(message)).join('\n')
@@ -156,7 +159,7 @@ describe('POST /v1/webhooks/email', () => {
 
   describe('parseInviteFromPayload', () => {
     test('extracts the calendar fields from the base64-encoded .ics attachment', () => {
-      const invite = parseInviteFromPayload(buildPostmarkPayload(buildIcs()))
+      const invite = parseInviteFromPayload(buildInboundEmailPayload(buildIcs()))
 
       expect(invite).not.toBeNull()
       expect(invite?.uid).toBe('040000008200E00074C5B7101A82E00800000000ABCDEF01')
@@ -203,14 +206,14 @@ describe('POST /v1/webhooks/email', () => {
         'END:VCALENDAR'
       ].join('\r\n')
 
-      const invite = parseInviteFromPayload(buildPostmarkPayload(ics))
+      const invite = parseInviteFromPayload(buildInboundEmailPayload(ics))
 
       expect(invite?.startDate?.toISOString()).toBe('2026-09-01T17:00:00.000Z')
       expect(invite?.endDate?.toISOString()).toBe('2026-09-01T18:00:00.000Z')
     })
 
     test('identifies the .ics attachment by filename when the content type is generic', () => {
-      const payload = buildPostmarkPayload(buildIcs(), {
+      const payload = buildInboundEmailPayload(buildIcs(), {
         Name: 'meeting.ics',
         ContentType: 'application/octet-stream'
       })
@@ -221,7 +224,7 @@ describe('POST /v1/webhooks/email', () => {
     })
 
     test('returns null when there is no calendar attachment', () => {
-      const payload = buildPostmarkPayload(buildIcs())
+      const payload = buildInboundEmailPayload(buildIcs())
       payload.Attachments = [
         {
           Name: 'photo.png',
@@ -282,7 +285,7 @@ describe('POST /v1/webhooks/email', () => {
       await request(app)
         .post('/v1/webhooks/email')
         .auth(webhookUser, webhookSecret)
-        .send(buildPostmarkPayload(buildIcs()))
+        .send(buildInboundEmailPayload(buildIcs()))
         .expect(httpStatus.OK)
 
       /* The response comes back before background processing finishes (see handlers/email.ts's
@@ -296,7 +299,7 @@ describe('POST /v1/webhooks/email', () => {
       })
 
       const conversation = await Conversation.findOne({
-        sourceInviteUid: '040000008200E00074C5B7101A82E00800000000ABCDEF01'
+        'source.inviteUid': '040000008200E00074C5B7101A82E00800000000ABCDEF01'
       })
       expect(conversation).not.toBeNull()
       expect(conversation!.name).toBe('Quarterly Strategy Roundtable')
@@ -304,7 +307,7 @@ describe('POST /v1/webhooks/email', () => {
 
     test('creates nothing when the sender is outside the allowlisted domain', async () => {
       const warnSpy = jest.spyOn(logger, 'warn').mockReturnValue(logger)
-      const payload = buildPostmarkPayload(buildIcs())
+      const payload = buildInboundEmailPayload(buildIcs())
       payload.From = 'stranger@not-an-org.invalid'
 
       await request(app).post('/v1/webhooks/email').auth(webhookUser, webhookSecret).send(payload).expect(httpStatus.OK)

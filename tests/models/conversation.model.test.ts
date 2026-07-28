@@ -48,30 +48,30 @@ describe('conversation draft default', () => {
   })
 })
 
-describe('conversation sourceInviteUid', () => {
+describe('conversation source.inviteUid', () => {
   it('persists the .ics UID for a conversation created from an inbound invite', async () => {
     const conversation = await Conversation.create({
       ...baseConversation(),
-      sourceInviteUid: 'UID-ABC-123'
+      source: { inviteUid: 'UID-ABC-123' }
     })
 
     const reloaded = await Conversation.findById(conversation._id)
 
-    expect(reloaded!.sourceInviteUid).toBe('UID-ABC-123')
+    expect(reloaded!.source?.inviteUid).toBe('UID-ABC-123')
   })
 
-  it('leaves sourceInviteUid undefined for a conversation not created from an invite', async () => {
+  it('leaves source.inviteUid undefined for a conversation not created from an invite', async () => {
     const conversation = await Conversation.create(baseConversation())
 
     const reloaded = await Conversation.findById(conversation._id)
 
-    expect(reloaded!.sourceInviteUid).toBeUndefined()
+    expect(reloaded!.source?.inviteUid).toBeUndefined()
   })
 
   /* The field is intentionally non-unique: most conversations have no invite UID at all, and a
      unique index would treat every one of those missing values as a colliding duplicate. Dedup
-     against Postmark retries happens in createConversationFromInvite, not via a DB constraint. */
-  it('allows multiple conversations with no sourceInviteUid to coexist', async () => {
+     against webhook retries happens in createConversationFromInvite, not via a DB constraint. */
+  it('allows multiple conversations with no source.inviteUid to coexist', async () => {
     await Conversation.create(baseConversation())
     await expect(Conversation.create(baseConversation())).resolves.toBeTruthy()
   })
