@@ -32,7 +32,7 @@ import { EventSetupPlan, EventSetupPlanSchema } from './planSchema.js'
 import { ExtractedFields, ExtractedFieldsSchema } from './eventFieldsSchema.js'
 import { ParsedInvite } from '../../types/index.types.js'
 
-const SYSTEM_PROMPT = `You help an organizer set up an event in Nextspace. The organizer has written a free-form description of what they already know about the event in a web form. Your job is to (a) extract any structured fields you can, (b) judge whether the description is too vague to interpret confidently, (c) recommend the next steps for the rest of the form, (d) decide which form sections can be skipped entirely, and (e) recommend feature toggles.
+const SYSTEM_PROMPT = `You help an organizer set up an event. The organizer has written a free-form description of what they already know about the event in a web form. Your job is to (a) extract any structured fields you can, (b) judge whether the description is too vague to interpret confidently, (c) recommend the next steps for the rest of the form, (d) decide which form sections can be skipped entirely, and (e) recommend feature toggles.
 
 Today's date (for resolving relative dates like "tomorrow"): {today}
 

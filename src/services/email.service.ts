@@ -121,25 +121,25 @@ To finish setting up your event, sign up here and then resend the invite: ${sign
 }
 
 /**
- * Notify an organizer that their inbound calendar invite became a Nextspace event.
+ * Notify an organizer that their inbound calendar invite became an event.
  * @param {string} to
  * @param {Conversation} conversation
  * @returns {Promise}
  */
 const sendEventCreatedEmail = async (to, conversation) => {
-  const subject = 'Your event is ready on Nextspace'
+  const subject = 'Your event is ready'
   const eventUrl = `${config.appHost}/login?redirectTo=/admin/${conversation.conversationType}/view/${conversation._id}`
   const text = `Hello,
-We turned your calendar invite into a Nextspace event. Please confirm the event details are correct: ${eventUrl}
+We turned your calendar invite into an event. Please confirm the event details are correct: ${eventUrl}
 That page is also where you can edit any details and find the moderator and participant links to share.`
   const html = `<p>Hello,</p>
-<p>We turned your calendar invite into a Nextspace event. Please <a href="${eventUrl}">confirm the event details are correct</a>.</p>
+<p>We turned your calendar invite into an event. Please <a href="${eventUrl}">confirm the event details are correct</a>.</p>
 <p>That page is also where you can edit any details and find the moderator and participant links to share.</p>`
   await sendEmailAsync(to, subject, text, html)
 }
 
 /**
- * Notify an organizer that we couldn't turn their inbound calendar invite into a Nextspace event.
+ * Notify an organizer that we couldn't turn their inbound calendar invite into an event.
  * Deliberately excludes any error detail: the inbound address accepts mail from anyone, so the
  * reply body is not a safe place for stack traces or other internals. The full error goes to the
  * server log instead, keyed by the same referenceId so a report from the organizer is easy to
