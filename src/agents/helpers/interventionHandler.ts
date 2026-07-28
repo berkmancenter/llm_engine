@@ -5,7 +5,7 @@ import transcript from './transcript.js'
 import { getChatPromptResponse } from './llmChain.js'
 
 import logger from '../../config/logger.js'
-import { getConfidenceThreshold, getMinContributionMs } from './promptComposer.js'
+import { getConfidenceThreshold, getEffectiveMinConfidence, getMinContributionMs } from './promptComposer.js'
 
 /**
  * Analysis result from intervention detection — shared across proactiveGroupAgent and checkinHandler.
@@ -118,7 +118,8 @@ export async function runInterventionAnalysis(
   activeGoals?: ConversationGoal[],
   behaviorPolicy?: BehaviorPolicy,
   channelType: 'dm' | 'groupChat' = 'groupChat',
-  recentTranscript?: string
+  recentTranscript?: string,
+  goalPriorities?: Record<string, number>
 ): Promise<InterventionAnalysis | null> {
   // Format conversation histories
   const sharedChatMessages = formatMultiUserConversationHistory(sharedChatHistory)
@@ -176,7 +177,7 @@ export async function runInterventionAnalysis(
   const channelPolicy = channelType === 'dm' ? behaviorPolicy?.channels?.dm?.proactivePolicy : behaviorPolicy?.channels?.groupChat?.proactivePolicy
   const policyThreshold = getConfidenceThreshold(channelPolicy)
   const matchedGoal = activeGoals?.find((g) => g.id === analysis.goalId)
-  const patternFloor = matchedGoal?.triggers.minConfidence ?? 0
+  const patternFloor = matchedGoal ? getEffectiveMinConfidence(matchedGoal, goalPriorities) : 0
   const effectiveThreshold = Math.max(policyThreshold, patternFloor)
 
   logger.debug(`[interventionHandler] goalId=${analysis.goalId} confidence=${analysis.confidenceScore} threshold=${effectiveThreshold} (policy=${policyThreshold}, patternFloor=${patternFloor})`)
@@ -214,7 +215,8 @@ export async function detectPrivateInterventionOpportunity(
   extraTemplateVars?: Record<string, string>,
   activeGoals?: ConversationGoal[],
   behaviorPolicy?: BehaviorPolicy,
-  recentTranscript?: string
+  recentTranscript?: string,
+  goalPriorities?: Record<string, number>
 ): Promise<InterventionAnalysis | null> {
   const now = sharedChatHistory.end ? sharedChatHistory.end.getTime() : Date.now()
   const dmProactivePolicy = behaviorPolicy?.channels?.dm?.proactivePolicy
@@ -244,6 +246,7 @@ export async function detectPrivateInterventionOpportunity(
     activeGoals,
     behaviorPolicy,
     'dm',
-    recentTranscript
+    recentTranscript,
+    goalPriorities
   )
 }
