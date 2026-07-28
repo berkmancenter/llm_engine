@@ -11,6 +11,7 @@ import {
   createCheckinConversation
 } from '../../utils/agentTestHelpers.js'
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
+import transcript from '../../../src/agents/helpers/transcript.js'
 
 // Sparse transcript — enough topic context for the LLM but not dense enough to trigger
 // TRANSCRIPT_HOOK (which fires for silent shared-chat participants after dense content).
@@ -304,8 +305,21 @@ describe('checkin handler tests', () => {
           ag.conversation,
           getTime(315)
         )
+        const msg4 = await createDirectMessage(
+          "I don't know, I probably just have a chip on my shoulder about this. Ignore me.",
+          user1,
+          ag.conversation,
+          getTime(420)
+        )
+        const reply4 = createAgentDirectMessage(
+          "You don't have to have a fully formed argument — half-formed thoughts are welcome here.",
+          ag,
+          user1._id,
+          ag.conversation,
+          getTime(430)
+        )
 
-        await prepareMessagesForAgent([msg1, reply1, msg2, reply2, msg3, reply3], ag.conversation, ag)
+        await prepareMessagesForAgent([msg1, reply1, msg2, reply2, msg3, reply3, msg4, reply4], ag.conversation, ag)
         const responses = await runCheckin(ag)
 
         const checkin = findCheckinForUser(responses, user1._id)
@@ -559,6 +573,34 @@ describe('checkin handler tests', () => {
 
         // Rate-limit early return must have fired — LLM should never be called
         expect(getLLMSpy).not.toHaveBeenCalled()
+      },
+      testTimeout
+    )
+  })
+
+  describe('transcript window', () => {
+    it(
+      'uses only the transcript window configured in agentConfig.checkinTranscriptWindow',
+      async () => {
+        const { agent: ag } = await setup([user1])
+        await loadPartTimeWorkTranscript(ag.conversation, false)
+
+        // Position at ~14:15 — well into the transcript so a narrow window excludes early content
+        const endTime = new Date(startTime.getTime() + 855 * 1000)
+
+        // Override the checkin transcript window — same knob an operator would turn
+        ag.agentConfig!.checkinTranscriptWindow = 2 // 2 minutes
+
+        const getTranscriptSpy = jest.spyOn(transcript, 'getTranscript')
+
+        const conversationHistory = getConversationHistory(ag.conversation.messages, {
+          channels: ['chat'],
+          endTime
+        })
+
+        const responses = await defaultAgentTypes.eventAssistant.respond.call(ag, conversationHistory, null)
+        expect(Array.isArray(responses)).toBe(true)
+        expect(getTranscriptSpy).toHaveBeenCalledWith(ag.conversation, 120, expect.any(Date))
       },
       testTimeout
     )

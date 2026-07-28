@@ -117,7 +117,8 @@ export async function runInterventionAnalysis(
   extraTemplateVars?: Record<string, string>,
   activeGoals?: ConversationGoal[],
   behaviorPolicy?: BehaviorPolicy,
-  channelType: 'dm' | 'groupChat' = 'groupChat'
+  channelType: 'dm' | 'groupChat' = 'groupChat',
+  recentTranscript?: string
 ): Promise<InterventionAnalysis | null> {
   // Format conversation histories
   const sharedChatMessages = formatMultiUserConversationHistory(sharedChatHistory)
@@ -133,8 +134,8 @@ export async function runInterventionAnalysis(
     ? formatDmHistoryByChannel(privateConversationHistory.messages, dmChannels)
     : ''
 
-  // Get recent transcript (last 10 minutes)
-  const recentTranscript = transcript.getTranscript(this.conversation, 600, sharedChatHistory.end)
+  // Use caller-provided transcript if available; otherwise default to last 10 minutes
+  const resolvedTranscript = recentTranscript ?? transcript.getTranscript(this.conversation, 600, sharedChatHistory.end)
 
   // Get relevant context via RAG - use both private and public messages to find relevant transcript chunks
   const allMessages = [...sharedChatMessages.map((m) => m.content), privateMessagesText].join('\n')
@@ -147,7 +148,7 @@ export async function runInterventionAnalysis(
 
   const templateVars = {
     topic: this.conversation.name,
-    recentTranscript,
+    recentTranscript: resolvedTranscript,
     retrievedChunks: chunks,
     privateMessages: privateMessagesText || 'No private messages.',
     sharedChatHistory:
@@ -212,7 +213,8 @@ export async function detectPrivateInterventionOpportunity(
   userTemplate?: string,
   extraTemplateVars?: Record<string, string>,
   activeGoals?: ConversationGoal[],
-  behaviorPolicy?: BehaviorPolicy
+  behaviorPolicy?: BehaviorPolicy,
+  recentTranscript?: string
 ): Promise<InterventionAnalysis | null> {
   const now = sharedChatHistory.end ? sharedChatHistory.end.getTime() : Date.now()
   const dmProactivePolicy = behaviorPolicy?.channels?.dm?.proactivePolicy
@@ -241,6 +243,7 @@ export async function detectPrivateInterventionOpportunity(
     extraTemplateVars,
     activeGoals,
     behaviorPolicy,
-    'dm'
+    'dm',
+    recentTranscript
   )
 }

@@ -11,9 +11,9 @@ import {
 import getConversationHistory from '../helpers/getConversationHistory.js'
 import { detectPrivateInterventionOpportunity, InterventionAnalysis } from '../helpers/interventionHandler.js'
 import { formatDmHistoryByChannel } from '../helpers/llmInputFormatters.js'
+import transcript from '../helpers/transcript.js'
 import logger from '../../config/logger.js'
 import filterHallucinations from '../helpers/hallucinations.js'
-import transcript from '../helpers/transcript.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { getDmGoals } from '../../goals/loader.js'
 import { getEligibleGoals, composeSystemPrompt, getMinContributionMs } from '../helpers/promptComposer.js'
@@ -75,10 +75,8 @@ Analyze the current state and determine if a check-in is warranted. Follow the d
 async function evaluateEventCondition(
   agentInstance: AgentLike,
   condition: string,
-  sharedChatHistory: ConversationHistory
+  recentTranscript: string
 ): Promise<{ passed: boolean; detail: string | null }> {
-  const windowSeconds = agentInstance.triggers?.periodic?.timerPeriod ?? 180
-  const recentTranscript = transcript.getTranscript(agentInstance.conversation, windowSeconds, sharedChatHistory.end)
   if (!recentTranscript?.trim()) return { passed: false, detail: null }
 
   try {
@@ -104,7 +102,7 @@ async function evaluateEventCondition(
 async function resolveEventConditions(
   agentInstance: AgentLike,
   goals: ConversationGoal[],
-  sharedChatHistory: ConversationHistory
+  recentTranscript: string
 ): Promise<{ results: Map<string, { passed: boolean; detail: string | null }>; summary: string }> {
   const unique = [
     ...new Map(
@@ -119,7 +117,7 @@ async function resolveEventConditions(
 
   const entries = await Promise.all(
     unique.map(
-      async (c) => [c.condition, await evaluateEventCondition(agentInstance, c.condition, sharedChatHistory)] as const
+      async (c) => [c.condition, await evaluateEventCondition(agentInstance, c.condition, recentTranscript)] as const
     )
   )
 
@@ -238,7 +236,8 @@ async function processParticipant(
   eligibleGoals: ConversationGoal[],
   allDmHistory: ConversationHistory,
   sharedChatHistory: ConversationHistory,
-  eventSignals: string
+  eventSignals: string,
+  recentTranscript: string
 ) {
   const channelMessages = conversationHistory.messages.filter((m) => m.channels?.includes(channel.name))
   const participantDmHistory = getConversationHistory(channelMessages, { count: 50, endTime: conversationHistory.end })
@@ -279,7 +278,8 @@ async function processParticipant(
     CHECKIN_USER_TEMPLATE,
     { participantPseudonym, thisParticipantHistory, eventSignals },
     goalsToPursue,
-    behaviorPolicy
+    behaviorPolicy,
+    recentTranscript
   )) as unknown as InterventionAnalysis | null
 
   if (!analysis?.directMessage) {
@@ -366,6 +366,9 @@ export default async function buildCheckinResponses(conversationHistory: Convers
     return []
   }
 
+  const transcriptWindowSeconds = ((this.agentConfig?.checkinTranscriptWindow as number | undefined) ?? 3) * 60
+  const recentTranscript = transcript.getTranscript(this.conversation, transcriptWindowSeconds, conversationHistory.end)
+
   const sharedChatHistory = getConversationHistory(conversationHistory.messages, {
     count: 100,
     channels: ['chat'],
@@ -391,7 +394,7 @@ export default async function buildCheckinResponses(conversationHistory: Convers
   const { results: eventResults, summary: eventSignals } = await resolveEventConditions(
     this,
     activeDmGoals,
-    sharedChatHistory
+    recentTranscript
   )
   const eventEligibleGoals = filterGoalsByEventConditions(activeDmGoals, eventResults)
 
@@ -409,7 +412,8 @@ export default async function buildCheckinResponses(conversationHistory: Convers
         eventEligibleGoals,
         allDmHistory,
         sharedChatHistory,
-        eventSignals
+        eventSignals,
+        recentTranscript
       )
     )
   )

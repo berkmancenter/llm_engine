@@ -131,7 +131,8 @@ export default verify({
     periodic: { timerPeriod: 120, conversationHistorySettings: { channels: ['transcript'] }, proactive: true }
   },
   agentConfig: {
-    personality: 'sarcastic-expert'
+    personality: 'sarcastic-expert',
+    transcriptWindow: 10 // transcript window in minutes
   },
   llmTemplateVars: interventionLlmTemplateVars,
   defaultLLMTemplates: {
@@ -152,6 +153,9 @@ export default verify({
   },
 
   async respond(conversationHistory: ConversationHistory): Promise<AgentResponse<string | Record<string, unknown>>[]> {
+    const transcriptWindowSeconds = ((this.agentConfig?.transcriptWindow as number | undefined) ?? 10) * 60
+    const recentTranscript = transcript.getTranscript(this.conversation, transcriptWindowSeconds, conversationHistory.end)
+
     const activeGoals = resolveActiveGoals(this.conversation)
     const groupChatGoals = getGroupChatGoals(activeGoals)
 
@@ -218,7 +222,9 @@ export default verify({
       undefined,
       undefined,
       groupChatGoals,
-      this.conversation.behaviorPolicy
+      this.conversation.behaviorPolicy,
+      'groupChat',
+      recentTranscript
     )) as unknown as InterventionAnalysis | null
 
     if (!analysis) {
@@ -228,7 +234,6 @@ export default verify({
 
     if (this.conversation.behaviorPolicy?.globalPolicy?.safetyPosture === 'strict' && analysis.sharedChatMessage) {
       const llm = await this.getLLM()
-      const recentTranscript = transcript.getTranscript(this.conversation, 600, sharedChatHistory.end)
       const isAppropriate = await validateProfessionalism(
         llm,
         analysis.sharedChatMessage,
