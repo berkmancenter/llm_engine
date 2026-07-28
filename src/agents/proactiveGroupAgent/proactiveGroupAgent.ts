@@ -132,7 +132,8 @@ export default verify({
   },
   agentConfig: {
     personality: 'sarcastic-expert',
-    transcriptWindow: 10 // transcript window in minutes
+    transcriptWindow: 10, // transcript window in minutes
+    goalPriorities: { missing_perspective: 68 }
   },
   llmTemplateVars: interventionLlmTemplateVars,
   defaultLLMTemplates: {
@@ -171,12 +172,14 @@ export default verify({
     }
 
     const personalityName = this.agentConfig?.personality ?? null
+    const goalPriorities = this.agentConfig?.goalPriorities as Record<string, number> | undefined
     const systemPrompt = composeSystemPrompt(getProactiveGroupSystemPrompt(groupChatGoals), {
       conversationContext: this.conversation.conversationContext,
       behaviorPolicy: this.conversation.behaviorPolicy,
       goals: groupChatGoals,
       channelType: 'groupChat',
-      personalityName
+      personalityName,
+      goalPriorities
     })
 
     const sharedChatHistory = getConversationHistory(this.conversation.messages, {
@@ -224,7 +227,8 @@ export default verify({
       groupChatGoals,
       this.conversation.behaviorPolicy,
       'groupChat',
-      recentTranscript
+      recentTranscript,
+      goalPriorities
     )) as unknown as InterventionAnalysis | null
 
     if (!analysis) {

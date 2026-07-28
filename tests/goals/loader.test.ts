@@ -42,6 +42,26 @@ describe('loadGoal', () => {
     expect(scopes).toContain('event')
     expect(scopes).toContain('participant')
   })
+
+  test('loads missing_perspective with required fields and a high confidence floor', () => {
+    const goal = loadGoal('missing_perspective')
+    expect(goal).toMatchObject({
+      id: 'missing_perspective',
+      channel: 'groupChat',
+      label: expect.any(String),
+      description: expect.any(String)
+    })
+    expect(goal.triggers.minConfidence).toBeGreaterThanOrEqual(75)
+    expect(goal.guardrails.length).toBeGreaterThan(0)
+    expect(goal.examples.length).toBeGreaterThan(0)
+  })
+
+  test('missing_perspective mixes event/participant-scoped and normalized string conditions', () => {
+    const goal = loadGoal('missing_perspective')
+    const scopes = goal.triggers.conditions.map((c) => c.scope)
+    expect(scopes).toContain('participant')
+    expect(goal.triggers.conditions.every((c) => typeof c.condition === 'string')).toBe(true)
+  })
 })
 
 describe('loadGoals', () => {
