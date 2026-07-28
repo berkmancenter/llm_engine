@@ -138,6 +138,35 @@ archive/archive-wiki/                      llm_engine/
 
 ---
 
+### 3.1 Where the service lives, and how to launch it
+
+The API service is **not in this repo** — it ships inside the archive-wiki repo
+([szgrune/bkc-archive-wiki](https://github.com/szgrune/bkc-archive-wiki)) at
+`api/`, because it serves that repo's content off disk. Its own
+[`api/README.md`](https://github.com/szgrune/bkc-archive-wiki/blob/main/api/README.md)
+is the operational reference; the short version (Node 20+):
+
+```bash
+git clone https://github.com/szgrune/bkc-archive-wiki.git
+cd bkc-archive-wiki/api
+cp .env.example .env                 # set ARCHIVE_API_TOKEN for anything non-local
+npm ci && npm run build && npm start # production; `npm run dev` for tsx watch
+curl localhost:4000/v1/health        # unauthenticated liveness + index stats
+```
+
+Then point this engine at it in llm_engine's `.env`:
+
+```bash
+ARCHIVE_API_URL=http://<host>:4000
+ARCHIVE_API_TOKEN=<the same token>
+```
+
+Two operational notes that matter to the engine: the API's search index is built
+**at startup** from the checkout on disk, so after the wiki content changes the
+service needs a restart or a `POST /v1/reindex`; and because the engine picks
+its mode once at startup (§6), an API outage surfaces to the historian as "the
+archive is not reachable" rather than falling back to `ARCHIVE_PATH`.
+
 ## 4. REST surface (v1, JSON)
 
 | Endpoint | Mirrors | Notes |
