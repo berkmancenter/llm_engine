@@ -9,9 +9,6 @@ const mockRunInterventionAnalysis = jest.fn<(...args: any[]) => Promise<any>>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockValidateProfessionalism = jest.fn<(...args: any[]) => Promise<boolean>>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockGetTranscript = jest.fn<(...args: any[]) => string>().mockReturnValue('recent transcript text')
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockFn = () => jest.fn<(...args: any[]) => any>()
 
 jest.unstable_mockModule('../src/agents/helpers/interventionHandler.js', () => ({
@@ -25,6 +22,9 @@ jest.unstable_mockModule('../src/agents/helpers/interventionHandler.js', () => (
 jest.unstable_mockModule('../src/agents/helpers/professionalismValidator.js', () => ({
   default: mockValidateProfessionalism
 }))
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockGetTranscript = jest.fn<(...args: any[]) => string>().mockReturnValue('')
 
 jest.unstable_mockModule('../src/agents/helpers/transcript.js', () => ({
   default: {
@@ -75,7 +75,7 @@ function makeAgent(overrides: {
     instanceName: AGENT_NAME,
     agentType: 'proactiveGroupAgent',
     _id: 'test-agent-id',
-    agentConfig: { personality: null },
+    agentConfig: { personality: null } as Record<string, unknown>,
     getLLM: mockFn().mockResolvedValue({}),
     conversation: {
       name: 'Test Conversation',
@@ -104,9 +104,23 @@ function makeAgent(overrides: {
   }
 }
 
-// conversationHistory is the periodic trigger's transcript history — only .end matters here
-function makeConversationHistory(end = new Date()) {
-  return { end, messages: [] }
+function makeTranscriptMessage(text: string, offsetMs = 0) {
+  const createdAt = new Date(Date.now() - offsetMs)
+  return {
+    fromAgent: false,
+    visible: true,
+    pseudonym: 'Speaker',
+    channels: ['transcript'],
+    body: text,
+    bodyType: 'text',
+    createdAt,
+    updatedAt: createdAt
+  }
+}
+
+// conversationHistory is the periodic trigger's transcript slice passed into respond
+function makeConversationHistory(end = new Date(), messages: ReturnType<typeof makeTranscriptMessage>[] = []) {
+  return { start: new Date(end.getTime() - 600_000), end, messages }
 }
 
 // ── tests ──────────────────────────────────────────────────────────────────────
@@ -122,9 +136,12 @@ describe('proactiveGroupAgent', () => {
       expect(proactiveGroupAgent.agentConfig?.personality).toBe('sarcastic-expert')
     })
 
-    it('uses a periodic transcript trigger with a 120-second interval', () => {
+    it('uses a periodic trigger with a 120-second interval', () => {
       expect(proactiveGroupAgent.defaultTriggers?.periodic?.timerPeriod).toBe(120)
-      expect(proactiveGroupAgent.defaultTriggers?.periodic?.conversationHistorySettings?.channels).toContain('transcript')
+    })
+
+    it('defaults to a 10-minute transcript window via agentConfig', () => {
+      expect(proactiveGroupAgent.agentConfig?.transcriptWindow).toBe(10)
     })
   })
 })
@@ -226,6 +243,38 @@ describe('proactiveGroupAgent respond', () => {
 
       expect(responses).toEqual([])
       expect(mockRunInterventionAnalysis).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('transcript window', () => {
+    it('calls transcript.getTranscript with agentConfig.transcriptWindowSeconds and passes result to runInterventionAnalysis', async () => {
+      const now = new Date()
+      const agent = makeAgent({ startTime: new Date(now.getTime() - 10 * 60 * 1000) })
+      mockGetTranscript.mockReturnValue('Part-time work is the future.')
+      mockRunInterventionAnalysis.mockResolvedValue(null)
+
+      await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
+
+      expect(mockGetTranscript).toHaveBeenCalledWith(
+        agent.conversation,
+        600, // default transcriptWindow (10 min × 60)
+        expect.any(Date)
+      )
+      const callArgs = mockRunInterventionAnalysis.mock.calls[0]
+      const recentTranscript = callArgs[callArgs.length - 1] as string
+      expect(recentTranscript).toBe('Part-time work is the future.')
+    })
+
+    it('respects a custom transcriptWindow in agentConfig', async () => {
+      const now = new Date()
+      const agent = makeAgent({ startTime: new Date(now.getTime() - 10 * 60 * 1000) })
+      agent.agentConfig.transcriptWindow = 5 // 5 minutes
+      mockGetTranscript.mockReturnValue('')
+      mockRunInterventionAnalysis.mockResolvedValue(null)
+
+      await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
+
+      expect(mockGetTranscript).toHaveBeenCalledWith(agent.conversation, 300, expect.any(Date))
     })
   })
 

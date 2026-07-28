@@ -13,6 +13,7 @@ import {
 } from '../../utils/agentTestHelpers.js'
 
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
+import transcript from '../../../src/agents/helpers/transcript.js'
 import websocketGateway from '../../../src/websockets/websocketGateway.js'
 import schedule from '../../../src/jobs/schedule.js'
 
@@ -109,6 +110,30 @@ describe('proactive group agent integration tests', () => {
         const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
 
         expect(Array.isArray(responses)).toBe(true)
+      },
+      testTimeout
+    )
+
+    it(
+      'uses only the transcript window configured in agentConfig.transcriptWindow',
+      async () => {
+        // Narrow the window to 2 minutes ending at the Gallup survey section (~14:15).
+        // The opening content ("true or false no one wants to work") should not be visible;
+        // only the concluding remarks around pay and work-life balance should be in scope.
+        const endTime = new Date(startTime.getTime() + 855 * 1000) // ~14:15 into transcript
+
+        agent.agentConfig.transcriptWindow = 2 // 2 minutes
+
+        const getTranscriptSpy = jest.spyOn(transcript, 'getTranscript')
+
+        const conversationHistory = getConversationHistory(conversation.messages, {
+          channels: ['transcript'],
+          endTime
+        })
+
+        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        expect(Array.isArray(responses)).toBe(true)
+        expect(getTranscriptSpy).toHaveBeenCalledWith(agent.conversation, 120, expect.any(Date))
       },
       testTimeout
     )
