@@ -1,4 +1,4 @@
-import { loadGoal, loadGoals, getGroupChatGoals, getDmGoals } from '../../src/goals/loader.js'
+import { loadGoal, loadGoals, getGroupChatGoals, getDmGoals, listGoalIds } from '../../src/goals/loader.js'
 
 describe('loadGoal', () => {
   test('loads a known goal by id', () => {
@@ -92,6 +92,19 @@ describe('getGroupChatGoals', () => {
   test('returns empty array when no groupChat goals present', () => {
     const goals = loadGoals(['private_reassure', 'private_not_alone'])
     expect(getGroupChatGoals(goals)).toEqual([])
+  })
+})
+
+describe('listGoalIds', () => {
+  test('includes known goal ids from both channels', () => {
+    const ids = listGoalIds()
+    expect(ids).toContain('bridge_topics')
+    expect(ids).toContain('private_reassure')
+    expect(ids).toContain('missing_perspective')
+  })
+
+  test('does not include the schema.json file as a goal id', () => {
+    expect(listGoalIds()).not.toContain('schema')
   })
 })
 

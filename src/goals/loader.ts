@@ -42,4 +42,8 @@ function getDmGoals(goals: ConversationGoal[]) {
   return goals.filter((p) => p.channel === 'dm')
 }
 
-export { loadGoal, loadGoals, getGroupChatGoals, getDmGoals }
+function listGoalIds(): string[] {
+  return [...goalCache.keys()]
+}
+
+export { loadGoal, loadGoals, getGroupChatGoals, getDmGoals, listGoalIds }

@@ -388,6 +388,23 @@ describe('Conversation routes', () => {
       expect(conversation!.adapters).toHaveLength(2)
     })
 
+    test('should return 201 and persist specified goals', async () => {
+      const resp = await request(app)
+        .post(`/v1/conversations`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({
+          name: 'Test Goals Conversation',
+          topicId: publicTopic._id.toString(),
+          goals: ['challenge_consensus', 'missing_perspective']
+        })
+        .expect(httpStatus.CREATED)
+
+      expect(resp.body.goals).toEqual(['challenge_consensus', 'missing_perspective'])
+
+      const conversation = await Conversation.findById(resp.body.id)
+      expect(conversation!.goals).toEqual(['challenge_consensus', 'missing_perspective'])
+    })
+
     test('non-owner fetching a conversation with channels should not see passcodes', async () => {
       const channels = await insertChannels(conversationWithChannels.channels)
       const toInsert = {
@@ -2296,6 +2313,37 @@ describe('Conversation routes', () => {
 
       const updatedConversation = await Conversation.findById(conversationTwo._id)
       expect(updatedConversation?.name).toBe(updateBody.name)
+    })
+
+    test('should return 200 and update goals when user is conversation owner', async () => {
+      const updateBody = {
+        id: conversationOne._id,
+        goals: ['missing_perspective', 'surface_signal']
+      }
+
+      const res = await request(app)
+        .put('/v1/conversations')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send(updateBody)
+        .expect(httpStatus.OK)
+
+      expect(res.body.goals).toEqual(['missing_perspective', 'surface_signal'])
+
+      const updatedConversation = await Conversation.findById(conversationOne._id)
+      expect(updatedConversation?.goals).toEqual(['missing_perspective', 'surface_signal'])
+    })
+
+    test('should return 400 when updating with an unknown goal id', async () => {
+      const updateBody = {
+        id: conversationOne._id,
+        goals: ['not_a_real_goal']
+      }
+
+      await request(app)
+        .put('/v1/conversations')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send(updateBody)
+        .expect(httpStatus.BAD_REQUEST)
     })
 
     test('should broadcast conversation update via websocket', async () => {

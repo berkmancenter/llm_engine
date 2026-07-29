@@ -1,4 +1,10 @@
 import Joi from 'joi'
+import { listGoalIds } from '../goals/loader.js'
+
+// Validated against the known goal ids so a typo rejects with a clear 400 instead of
+// silently disabling every goal — getEligibleGoals fails closed (returns []) when any
+// id in the array doesn't resolve.
+const goalsSchema = Joi.array().items(Joi.string().valid(...listGoalIds()))
 
 const resourceSchema = Joi.object().keys({
   source: Joi.string().valid('speaker', 'ai').required(),
@@ -52,7 +58,8 @@ const updateConversation = {
       })
     ),
     resources: Joi.array().items(updateResourceSchema),
-    analyticsRefs: Joi.object().pattern(Joi.string(), Joi.string())
+    analyticsRefs: Joi.object().pattern(Joi.string(), Joi.string()),
+    goals: goalsSchema
   })
 }
 
