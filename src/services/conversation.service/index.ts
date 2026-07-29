@@ -19,7 +19,13 @@ import resolveConversationType from '../../conversations/resolver.js'
 import { supportedModels } from '../../agents/helpers/getEmbeddings.js'
 import transcript from '../../agents/helpers/transcript.js'
 import reportService from '../report.service.js'
-import { doStartConversation, doStopConversation, updateTranscriptStatus, isConversationDraft } from './lifecycle.js'
+import {
+  doStartConversation,
+  doStopConversation,
+  updateTranscriptStatus,
+  isConversationDraft,
+  satisfiesTypeProperties
+} from './lifecycle.js'
 import resourceService from '../resource.service.js'
 
 export { updateTranscriptStatus }
@@ -176,10 +182,18 @@ const createConversation = async (conversationBody, user, { allowDraft = false }
       throw new Error('No such supported embedding model')
   }
 
+  /* Trusted-caller-only, same as allowDraft itself: the public routes never pass allowDraft:true,
+     so a client can never set source.inviteUid on a conversation it creates. Without this gate,
+     an ordinary user could squat on a future invite's UID via the public API and make a
+     legitimate invite silently no-op against their decoy (see createConversationFromInvite's
+     dedup check). */
+  const canSetSourceInviteUid = allowDraft && conversationBody.source?.inviteUid !== undefined
+
   const conversation = new Conversation({
     name: conversationBody.name,
     owner: user,
     ...(topic && { topic }),
+    ...(canSetSourceInviteUid && { source: { inviteUid: conversationBody.source.inviteUid } }),
     enableAgents: !!conversationBody.agentTypes?.length,
     ...(conversationBody.enableDMs !== undefined && { enableDMs: conversationBody.enableDMs }),
     ...(conversationBody.conversationType !== undefined && { conversationType: conversationBody.conversationType }),
@@ -215,9 +229,19 @@ const createConversation = async (conversationBody, user, { allowDraft = false }
     conversation.agents.push(agent)
   }
 
-  for (const adapterProps of conversationBody.adapters || []) {
-    const adapter = await adapterService.createAdapter(adapterProps, conversation)
-    conversation.adapters.push(adapter)
+  /* allowDraft relaxes the property check, so a draft conversation can be missing a property an
+     adapter's config depends on (e.g. a Zoom event with no zoomMeetingUrl yet). Adapter config is
+     rendered from a template and saved independently, so an adapter built from a missing property
+     would save with an empty required field and fail its own validation. satisfiesTypeProperties
+     checks only conversation properties (never topic or scheduledEndTime, see resolver.ts's
+     resolvePropertyReferences, which never receives either), so a conversation that's draft for
+     one of those unrelated reasons still gets its adapters created here; updateConversation's
+     backfill block creates them once a still-missing property arrives. */
+  if (satisfiesTypeProperties(conversation)) {
+    for (const adapterProps of conversationBody.adapters || []) {
+      const adapter = await adapterService.createAdapter(adapterProps, conversation)
+      conversation.adapters.push(adapter)
+    }
   }
 
   for (const channelProps of conversationBody.channels || []) {
@@ -285,6 +309,7 @@ const updateConversation = async (conversationBody, user) => {
     throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${conversationBody.id} not found`)
   }
   if (
+    user.role !== 'admin' &&
     user._id.toString() !== conversationDoc.owner.toString() &&
     user._id.toString() !== conversationDoc.topic?.owner?.toString()
   ) {
@@ -469,11 +494,16 @@ const updateConversation = async (conversationBody, user) => {
     }
 
     /* Keep topic membership in sync on both sides. Without this, the old topic's
-       conversations list would still include this event after it's been reassigned. */
+       conversations list would still include this event after it's been reassigned.
+       oldTopic is undefined for a conversation that never had one, e.g. an invite-created
+       draft with no matching Topic at creation time (see emailSetup.service's resolveTopic),
+       so there is nothing to pull it from in that case. */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const oldTopic = conversationDoc.topic as any
     if (oldTopic?._id?.toString() !== topicId) {
-      await Topic.findByIdAndUpdate(oldTopic._id, { $pull: { conversations: conversationDoc._id } })
+      if (oldTopic?._id) {
+        await Topic.findByIdAndUpdate(oldTopic._id, { $pull: { conversations: conversationDoc._id } })
+      }
       newTopic.conversations.push(conversationDoc.toObject())
       await newTopic.save()
     }
@@ -545,6 +575,32 @@ const updateConversation = async (conversationBody, user) => {
     conversationDoc!.resources = reconciled as any
   }
 
+  /* Whatever changed above (a property, the topic, ...) may have made an adapter that was
+     deferred at creation time (see createConversation's satisfiesTypeProperties guard) safe to
+     create now. This runs on every update, not just ones that flip overall draft status: an
+     adapter only depends on conversation properties, never on topic or scheduledEndTime, so it
+     can become ready well before the conversation as a whole is no longer Draft. The existence
+     check makes this a no-op on every update that doesn't need it. */
+  const conversationType = conversationDoc!.conversationType ? getConversationType(conversationDoc!.conversationType) : null
+  if (conversationType && satisfiesTypeProperties(conversationDoc!)) {
+    const resolved = resolveConversationType(
+      {
+        platforms: conversationDoc!.platforms,
+        properties: conversationDoc!.properties,
+        features: incomingFeatures ?? conversationDoc!.features
+      },
+      conversationType
+    )
+    for (const adapterProps of resolved.adapters) {
+      const adapterType = (adapterProps as { type?: string }).type
+      const exists = await Adapter.findOne({ conversation: conversationDoc!._id, type: adapterType })
+      if (!exists) {
+        const adapter = await adapterService.createAdapter(adapterProps, conversationDoc!)
+        conversationDoc!.adapters.push(adapter)
+      }
+    }
+  }
+
   conversationDoc!.draft = isConversationDraft(conversationDoc!)
 
   await conversationDoc!.save()
@@ -604,7 +660,7 @@ const findByIdFull = async (id, user) => {
     .populate('agents')
     .populate('channels')
     .populate('adapters')
-    .populate({ path: 'topic', select: 'name slug description owner' })
+    .populate({ path: 'topic', select: 'name slug description owner private' })
     .exec()
   if (!conversation) {
     throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${id} not found`)

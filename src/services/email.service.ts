@@ -120,6 +120,64 @@ To finish setting up your event, sign up here and then resend the invite: ${sign
   await sendEmailAsync(to, subject, text, html)
 }
 
+/**
+ * Notify an organizer that their inbound calendar invite became an event. When `missing` names
+ * anything (e.g. a Zoom link, a series), the event was created as a draft that can't actually run
+ * yet: the subject calls that out directly rather than saying "ready" and burying the caveat,
+ * since a reviewer flagged that an organizer skimming "Your event is ready" could miss a required
+ * follow-up until it's too late to fix before the event starts.
+ * @param {string} to
+ * @param {Conversation} conversation
+ * @param {string[]} [missing]
+ * @returns {Promise}
+ */
+const sendEventCreatedEmail = async (to, conversation, missing: string[] = []) => {
+  const eventUrl = `${config.appHost}/login?redirectTo=/admin/${conversation.conversationType}/view/${conversation._id}`
+
+  if (missing.length > 0) {
+    const subject = 'Action needed: your event is missing required details'
+    const missingList = missing.join(', ')
+    const text = `Hello,
+We turned your calendar invite into an event, but it still needs ${missingList} before it can run. Please add that here: ${eventUrl}
+That page is also where you can edit any other details and find the moderator and participant links to share.`
+    const html = `<p>Hello,</p>
+<p>We turned your calendar invite into an event, but it still needs <strong>${missingList}</strong> before it can run. Please <a href="${eventUrl}">add that here</a>.</p>
+<p>That page is also where you can edit any other details and find the moderator and participant links to share.</p>`
+    await sendEmailAsync(to, subject, text, html)
+    return
+  }
+
+  const subject = 'Your event is ready'
+  const text = `Hello,
+We turned your calendar invite into an event. Please confirm the event details are correct: ${eventUrl}
+That page is also where you can edit any details and find the moderator and participant links to share.`
+  const html = `<p>Hello,</p>
+<p>We turned your calendar invite into an event. Please <a href="${eventUrl}">confirm the event details are correct</a>.</p>
+<p>That page is also where you can edit any details and find the moderator and participant links to share.</p>`
+  await sendEmailAsync(to, subject, text, html)
+}
+
+/**
+ * Notify an organizer that we couldn't turn their inbound calendar invite into an event.
+ * Deliberately excludes any error detail: the inbound address accepts mail from anyone, so the
+ * reply body is not a safe place for stack traces or other internals. The full error goes to the
+ * server log instead, keyed by the same referenceId so a report from the organizer is easy to
+ * trace back.
+ * @param {string} to
+ * @param {string} [referenceId]
+ * @returns {Promise}
+ */
+const sendEventCreationFailedEmail = async (to, referenceId?: string) => {
+  const subject = "We couldn't create your event"
+  const referenceLine = referenceId ? `\nReference: ${referenceId}` : ''
+  const referenceHtml = referenceId ? `<p>Reference: ${referenceId}</p>` : ''
+  const text = `Hello,
+We received your calendar invite, but ran into a problem creating your event. Please try again, or reach out to support if this keeps happening.${referenceLine}`
+  const html = `<p>Hello,</p>
+<p>We received your calendar invite, but ran into a problem creating your event. Please try again, or reach out to support if this keeps happening.</p>${referenceHtml}`
+  await sendEmailAsync(to, subject, text, html)
+}
+
 const emailService = {
   transport,
   sendEmail,
@@ -127,6 +185,8 @@ const emailService = {
   sendPasswordResetEmail,
   sendPasswordResetEmailAsync,
   sendArchiveTopicEmail,
-  sendSignupInviteEmail
+  sendSignupInviteEmail,
+  sendEventCreatedEmail,
+  sendEventCreationFailedEmail
 }
 export default emailService

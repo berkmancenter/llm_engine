@@ -6,17 +6,19 @@ export const maxScheduledInterval = 10 * 60 * 1000 // 10 minutes in milliseconds
 
 const start = async (adapter) => {
   const keys = Adapter.getUniqueKeys(adapter.type)
-  const query = {
-    ...Object.fromEntries(keys.map((key) => [key, key.split('.').reduce((obj, k) => obj?.[k], adapter)])),
-    active: true,
-    conversation: { $ne: adapter.conversation }
-  }
+  if (keys.length > 0) {
+    const query = {
+      ...Object.fromEntries(keys.map((key) => [key, key.split('.').reduce((obj, k) => obj?.[k], adapter)])),
+      active: true,
+      conversation: { $ne: adapter.conversation }
+    }
 
-  const adapters = await Adapter.find(query)
-  if (adapters.length > 0) {
-    throw new Error(
-      `Cannot start adapter. Another conversation with the same unique keys: ${keys.join(', ')} is currently active.`
-    )
+    const adapters = await Adapter.find(query)
+    if (adapters.length > 0) {
+      throw new Error(
+        `Cannot start adapter. Another conversation with the same unique keys: ${keys.join(', ')} is currently active.`
+      )
+    }
   }
   await adapter.start()
 }
@@ -36,26 +38,28 @@ const resumeRecording = async (adapter) => {
 const createAdapter = async (adapter, conversation) => {
   if (conversation.scheduledTime) {
     const keys = Adapter.getUniqueKeys(adapter.type)
-    const query = Object.fromEntries(keys.map((key) => [key, key.split('.').reduce((obj, k) => obj?.[k], adapter)]))
-    const adapters = await Adapter.find({
-      ...query,
-      conversation: { $ne: conversation._id }
-    }).populate('conversation')
+    if (keys.length > 0) {
+      const query = Object.fromEntries(keys.map((key) => [key, key.split('.').reduce((obj, k) => obj?.[k], adapter)]))
+      const adapters = await Adapter.find({
+        ...query,
+        conversation: { $ne: conversation._id }
+      }).populate('conversation')
 
-    if (adapters.length > 0) {
-      const startTime = new Date(conversation.scheduledTime.getTime() - maxScheduledInterval)
-      const endTime = new Date(conversation.scheduledTime.getTime() + maxScheduledInterval)
+      if (adapters.length > 0) {
+        const startTime = new Date(conversation.scheduledTime.getTime() - maxScheduledInterval)
+        const endTime = new Date(conversation.scheduledTime.getTime() + maxScheduledInterval)
 
-      const conversationAdapters = adapters.filter(
-        (a) => a.conversation.scheduledTime! >= startTime && a.conversation.scheduledTime! <= endTime
-      )
-      if (conversationAdapters.length > 0) {
-        throw new ApiError(
-          httpStatus.BAD_REQUEST,
-          `Cannot create a Conversation scheduled for +- ${
-            maxScheduledInterval / (60 * 1000)
-          } minutes within another Conversation with same unique adapter keys: ${keys.join(', ')}`
+        const conversationAdapters = adapters.filter(
+          (a) => a.conversation.scheduledTime! >= startTime && a.conversation.scheduledTime! <= endTime
         )
+        if (conversationAdapters.length > 0) {
+          throw new ApiError(
+            httpStatus.BAD_REQUEST,
+            `Cannot create a Conversation scheduled for +- ${
+              maxScheduledInterval / (60 * 1000)
+            } minutes within another Conversation with same unique adapter keys: ${keys.join(', ')}`
+          )
+        }
       }
     }
   }

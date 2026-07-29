@@ -777,6 +777,100 @@ describe('Conversation service methods', () => {
         expect(conversation.draft).toBe(true)
         expect(conversation.topic).toBeFalsy()
       })
+
+      /* Rendering an adapter from a missing required property (e.g. zoomMeetingUrl) produces an
+         empty config value, which the real Zoom adapter's own validation hard-rejects (see
+         zoom.ts's validateBeforeUpdate). allowDraft relaxes the property check, but nothing about
+         it reaches adapter creation, so a draft missing a property an adapter depends on must not
+         attempt to create that adapter at all. */
+      test('creates no adapter when a required property backing it is missing and allowDraft is set', async () => {
+        const params = { ...incompleteParams, topicId: topicOne._id.toString() }
+
+        const conversation = await conversationService.createConversationFromType(params, registeredUser, {
+          allowDraft: true
+        })
+
+        expect(await Adapter.countDocuments({ conversation: conversation._id })).toBe(0)
+      })
+
+      test('creates the adapter once the missing required property is filled in via update', async () => {
+        jest.spyOn(websocketGateway, 'broadcastConversationUpdate').mockImplementation()
+        const params = { ...incompleteParams, topicId: topicOne._id.toString() }
+        const conversation = await conversationService.createConversationFromType(params, registeredUser, {
+          allowDraft: true
+        })
+        expect(await Adapter.countDocuments({ conversation: conversation._id })).toBe(0)
+
+        await conversationService.updateConversation(
+          { id: conversation._id.toString(), properties: { zoomMeetingUrl: 'https://zoom.us/j/555555555' } },
+          registeredUser
+        )
+
+        const adapters = await Adapter.find({ conversation: conversation._id })
+        expect(adapters).toHaveLength(1)
+        expect(adapters[0].type).toBe('zoom')
+        expect(adapters[0].config.meetingUrl).toBe('https://zoom.us/j/555555555')
+      })
+
+      /* isConversationDraft treats a missing topic as its own independent draft gate, separate
+         from the required-property check (see lifecycle.ts's isConversationDraft: a scheduled
+         conversation with no topic returns true regardless of satisfiesTypeProperties). An
+         adapter's config is rendered only from properties (resolver.ts's resolvePropertyReferences
+         never receives topic), so a missing topic has nothing to do with whether the adapter is
+         safe to create: it's created immediately since zoomMeetingUrl is already valid. Filling in
+         the topic afterward only clears the topic-specific draft gate; it doesn't touch the adapter,
+         which already existed. */
+      test('the adapter exists at creation time even with no topic, and filling in the topic only clears draft status', async () => {
+        jest.spyOn(websocketGateway, 'broadcastConversationUpdate').mockImplementation()
+        const conversation = await conversationService.createConversationFromType(
+          { ...completeParamsNoTopic },
+          registeredUser,
+          { allowDraft: true }
+        )
+        expect(conversation.draft).toBe(true)
+        const adaptersAtCreation = await Adapter.find({ conversation: conversation._id })
+        expect(adaptersAtCreation).toHaveLength(1)
+        expect(adaptersAtCreation[0].type).toBe('zoom')
+        expect(adaptersAtCreation[0].config.meetingUrl).toBe('https://zoom.us/j/123456789?pwd=12345')
+
+        const updated = await conversationService.updateConversation(
+          { id: conversation._id.toString(), topicId: topicOne._id.toString() },
+          registeredUser
+        )
+
+        expect(updated!.draft).toBe(false)
+        expect(await Adapter.countDocuments({ conversation: conversation._id })).toBe(1)
+      })
+
+      /* An adapter's config is rendered only from conversation properties (see resolver.ts's
+         resolvePropertyReferences, which never receives topic or scheduledEndTime), so whether
+         it's safe to create should depend only on those properties being valid, not on the
+         conversation's overall draft status. draft also covers things with nothing to do with
+         adapter config, like a missing topic or a missing scheduledEndTime (see lifecycle.ts's
+         isConversationDraft). A conversation that's draft only because scheduledEndTime hasn't
+         been picked yet, with an otherwise fully valid zoomMeetingUrl, should still get its Zoom
+         adapter created immediately: nothing about that adapter is actually incomplete. */
+      test('creates the adapter at creation time when properties are valid but the conversation is still Draft for an unrelated reason', async () => {
+        const params = {
+          type: 'eventAssistant',
+          name: 'No End Time Event',
+          platforms: ['zoom'],
+          topicId: topicOne._id.toString(),
+          scheduledTime: new Date(Date.now() + 3600000),
+          // scheduledEndTime intentionally omitted: draft for a reason unrelated to the adapter.
+          properties: {
+            zoomMeetingUrl: 'https://zoom.us/j/123456789?pwd=12345'
+          }
+        }
+
+        const conversation = await conversationService.createConversationFromType(params, registeredUser)
+
+        expect(conversation.draft).toBe(true)
+        const adapters = await Adapter.find({ conversation: conversation._id })
+        expect(adapters).toHaveLength(1)
+        expect(adapters[0].type).toBe('zoom')
+        expect(adapters[0].config.meetingUrl).toBe('https://zoom.us/j/123456789?pwd=12345')
+      })
     })
 
     describe('feature agent inclusion and property resolution', () => {
@@ -1562,6 +1656,15 @@ describe('Conversation service methods', () => {
       ).rejects.toMatchObject({ statusCode: httpStatus.FORBIDDEN })
     })
 
+    test('allows an admin to update an event they do not own', async () => {
+      const adminUser = { _id: new mongoose.Types.ObjectId(), role: 'admin' }
+      const updated = await conversationService.updateConversation(
+        { id: conversation._id.toString(), name: 'Updated By Admin' },
+        adminUser
+      )
+      expect(updated!.name).toBe('Updated By Admin')
+    })
+
     test('should reject updates to an event that is currently live', async () => {
       await conversation.updateOne({ active: true })
       await expect(
@@ -1694,19 +1797,34 @@ describe('Conversation service methods', () => {
     })
 
     test('should recreate the adapter with the correct config when platforms change', async () => {
-      /* The beforeEach conversation uses platforms: ['zoom'], which resolves to the
-         zoom-only adapter config (2 dmChannels: direct agent DM + moderator DM).
-         Switching to nextspace+zoom should produce the 'nextspace,zoom' config
-         (1 dmChannel: direct agent DM only — moderator DMs go through NextSpace). */
-      const adapterBefore = await Adapter.findOne({ conversation: conversation._id, type: 'zoom' })
-      expect(adapterBefore!.dmChannels).toHaveLength(2)
-
-      await conversationService.updateConversation(
-        { id: conversation._id.toString(), platforms: ['nextspace', 'zoom'] },
+      /* Needs its own conversation, not the shared beforeEach one: that one never gets
+         scheduledEndTime, so it's Draft and (correctly) has no adapter yet to recreate. This
+         conversation is complete, so its zoom adapter exists from creation, resolving to the
+         zoom-only config (2 dmChannels: direct agent DM + moderator DM). Switching to
+         nextspace+zoom should produce the 'nextspace,zoom' config (1 dmChannel: direct agent DM
+         only — moderator DMs go through NextSpace). */
+      const completeConversation = await conversationService.createConversationFromType(
+        {
+          type: 'eventAssistant',
+          name: 'Complete Event',
+          platforms: ['zoom'],
+          topicId: topicOne._id.toString(),
+          scheduledTime: new Date(Date.now() + 3600000),
+          scheduledEndTime: new Date(Date.now() + 7200000),
+          properties: { zoomMeetingUrl: 'https://zoom.us/j/222222222' }
+        },
         registeredUser
       )
 
-      const adapterAfter = await Adapter.findOne({ conversation: conversation._id, type: 'zoom' })
+      const adapterBefore = await Adapter.findOne({ conversation: completeConversation._id, type: 'zoom' })
+      expect(adapterBefore!.dmChannels).toHaveLength(2)
+
+      await conversationService.updateConversation(
+        { id: completeConversation._id.toString(), platforms: ['nextspace', 'zoom'] },
+        registeredUser
+      )
+
+      const adapterAfter = await Adapter.findOne({ conversation: completeConversation._id, type: 'zoom' })
       /* After the fix, the adapter should be recreated with the nextspace,zoom config
          (1 dmChannel). Before the fix, the old adapter is not recreated and still has 2. */
       expect(adapterAfter!.dmChannels).toHaveLength(1)
@@ -1937,6 +2055,30 @@ describe('Conversation service methods', () => {
       const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
 
       expect(result).toHaveProperty('followed')
+    })
+
+    test('should include the topic private flag so clients can tell a private topic apart from a public one', async () => {
+      /* Override owner so registeredUser (the test caller) can create a conversation
+         on this private topic. Private topics only allow their owner to create events. */
+      const privateTopic = { ...newPrivateTopic(), owner: registeredUser._id }
+      await insertTopics([privateTopic])
+
+      const params = {
+        type: 'eventAssistant',
+        name: 'Private Topic Conversation',
+        platforms: ['zoom'],
+        topicId: privateTopic._id.toString(),
+        // Schedule 2 hours out so it doesn't conflict with the beforeEach conversation.
+        scheduledTime: new Date(Date.now() + 7200000),
+        properties: {
+          zoomMeetingUrl: 'https://zoom.us/j/555555556'
+        }
+      }
+      const privateConversation = await conversationService.createConversationFromType(params, registeredUser)
+
+      const result = await conversationService.findByIdFull(privateConversation._id.toString(), registeredUser)
+
+      expect(result.topic).toHaveProperty('private', true)
     })
 
     test('should hide channel passcode from non-owner user', async () => {

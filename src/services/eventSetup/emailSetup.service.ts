@@ -6,12 +6,15 @@
  */
 import config from '../../config/config.js'
 import logger from '../../config/logger.js'
-import { Topic } from '../../models/index.js'
+import { Conversation, Topic } from '../../models/index.js'
 import { TopicDocument } from '../../models/topic.model.js'
 import userService from '../user.service.js'
 import topicService from '../topic.service.js'
 import emailService from '../email.service.js'
-import { InboundInvite } from '../../types/index.types.js'
+import conversationService from '../conversation.service/index.js'
+import plannerService from './planner.service.js'
+import { getConversationType } from '../../conversations/index.js'
+import { ConversationType, InboundInvite } from '../../types/index.types.js'
 
 /**
  * The Topic prefix an invite's SUMMARY points at: the substring before the first colon, trimmed.
@@ -58,7 +61,7 @@ const isAllowedOrganizerDomain = (address: string): boolean => {
 }
 
 /**
- * Find the account that owns this invite, keying off the envelope From that Postmark
+ * Find the account that owns this invite, keying off the envelope From that the email webhook
  * received (never the spoofable .ics ORGANIZER). Returns the organizer, or null when no event should
  * be created. The allowlisted domain is a hard gate checked first: any sender outside it is rejected
  * outright, account or not, with no reply (confirming the address "just needs to sign up" would be a
@@ -107,4 +110,120 @@ export const resolveTopic = async (inboundInvite: InboundInvite, organizer): Pro
   if (!matched?.id) return null
 
   return Topic.findById(matched.id)
+}
+
+/* A .ics file without a title is a malformed edge case, not something worth rejecting the whole
+   invite over: the plan's own design is "best-effort data plus sane placeholders," and a
+   conversation the organizer can rename from the detail page beats none at all. */
+const PLACEHOLDER_CONVERSATION_NAME = 'Untitled event'
+
+/**
+ * Each of the type's features, enabled or disabled exactly as its own definition defaults it
+ * (e.g. moderatorSupport on, seriesHistory off). Leaving `features` unset resolves to zero
+ * feature agents rather than "apply each default" (see resolver.ts's resolveFeatures), so an
+ * invite-created event has to send this explicitly to end up with the same feature agents a
+ * manually-created event gets from the create form.
+ */
+const defaultFeatures = (conversationType: ConversationType) =>
+  (conversationType.features ?? []).map((feature) => ({ name: feature.name, enabled: feature.default }))
+
+/**
+ * Human-readable names of what's stopping this conversation from running as a scheduled event, or
+ * [] when nothing is. Mirrors lifecycle.ts's isConversationDraft/satisfiesTypeProperties rules but
+ * names each missing piece instead of collapsing them into a boolean, so the confirmation email
+ * can call them out directly rather than an organizer discovering it only once the event doesn't
+ * start.
+ */
+const missingRequirements = (
+  conversation: { topic?: unknown; properties?: Record<string, unknown> },
+  conversationType?: ConversationType
+): string[] => {
+  const missing: string[] = []
+  if (!conversation.topic) missing.push('a series')
+  ;(conversationType?.properties ?? []).forEach((property) => {
+    if (!property.required) return
+    const value = conversation.properties?.[property.name] ?? property.default
+    if (value === undefined || value === null || value === '') missing.push(property.label ?? property.name)
+  })
+  return missing
+}
+
+/**
+ * Ties organizer resolution, Topic resolution, and the fuzzy-field extraction together into an
+ * actual Conversation. Idempotent: an inbound email webhook can redeliver the same message
+ * (Postmark, for example, retries up to 10 times over ~10.5 hours), so a retry must not create a
+ * second conversation. Dedup keys off the invite's
+ * .ics UID, stored on the Conversation as source.inviteUid, which only a trusted allowDraft caller
+ * can ever set (see conversation.service/index.ts createConversation) so a public API client
+ * cannot squat on a UID and cause a future legitimate invite to silently no-op.
+ *
+ * Returns the created (or already-existing) Conversation, or null when none should be created at
+ * all, i.e. resolveOrganizer rejected the sender.
+ */
+export const createConversationFromInvite = async (inboundInvite: InboundInvite) => {
+  const { invite } = inboundInvite
+
+  if (invite.uid) {
+    const existing = await Conversation.findOne({ 'source.inviteUid': invite.uid })
+    if (existing) {
+      logger.info(`Email webhook: invite UID ${invite.uid} already created as conversation ${existing._id}, skipping`)
+      return existing
+    }
+  } else {
+    logger.warn('Email webhook: invite has no UID; cannot dedup a webhook retry for this message')
+  }
+
+  const organizer = await resolveOrganizer(inboundInvite)
+  if (!organizer) return null
+
+  try {
+    const topic = await resolveTopic(inboundInvite, organizer)
+    const extracted = await plannerService.planConversationFromInvite({ invite })
+
+    const conversationType = getConversationType('eventAssistant')
+
+    const conversation = await conversationService.createConversationFromType(
+      {
+        type: 'eventAssistant',
+        name: invite.summary ?? PLACEHOLDER_CONVERSATION_NAME,
+        topicId: topic?.id,
+        source: { inviteUid: invite.uid },
+        // An invite-created event is always managed through the admin app, so it's a hybrid
+        // event by definition. 'nextspace' alone matches no key in eventAssistant's adapter
+        // defs and silently falls back to 'default' (audio-only, no dmChannels/chatChannels);
+        // this matches the 'nextspace,zoom' hybrid def instead.
+        platforms: ['nextspace', 'zoom'],
+        scheduledTime: invite.startDate,
+        scheduledEndTime: invite.endDate,
+        description: extracted.description,
+        properties: {
+          // Present-but-undefined would still satisfy the type's "required property" presence
+          // check (see resolver.ts's `prop.name in properties`), so the key must be fully absent
+          // rather than set to undefined when there is no Zoom link.
+          ...(extracted.zoomLink !== undefined && { zoomMeetingUrl: extracted.zoomLink })
+        },
+        features: conversationType ? defaultFeatures(conversationType) : undefined,
+        presenters: extracted.speakers,
+        moderators: extracted.moderators
+      },
+      organizer,
+      { allowDraft: true }
+    )
+
+    await emailService.sendEventCreatedEmail(
+      organizer.email,
+      conversation,
+      missingRequirements(conversation, conversationType)
+    )
+    return conversation
+  } catch (err) {
+    /* handlers/email.ts acknowledges the webhook with a 200 before any of this runs, so there is no
+       retry to fall back on: this email is the only way the organizer learns something went wrong.
+       The error itself stays server-side (see email.service.ts's sendEventCreationFailedEmail),
+       since the inbound address accepts mail from anyone and the reply body is not a safe place
+       for a stack trace. */
+    logger.error(`Email webhook: failed to create conversation from invite UID ${invite.uid ?? 'none'}`, err)
+    await emailService.sendEventCreationFailedEmail(organizer.email, invite.uid)
+    return null
+  }
 }
