@@ -660,7 +660,7 @@ const findByIdFull = async (id, user) => {
     .populate('agents')
     .populate('channels')
     .populate('adapters')
-    .populate({ path: 'topic', select: 'name slug description owner' })
+    .populate({ path: 'topic', select: 'name slug description owner private' })
     .exec()
   if (!conversation) {
     throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${id} not found`)

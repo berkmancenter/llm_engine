@@ -2057,6 +2057,30 @@ describe('Conversation service methods', () => {
       expect(result).toHaveProperty('followed')
     })
 
+    test('should include the topic private flag so clients can tell a private topic apart from a public one', async () => {
+      /* Override owner so registeredUser (the test caller) can create a conversation
+         on this private topic. Private topics only allow their owner to create events. */
+      const privateTopic = { ...newPrivateTopic(), owner: registeredUser._id }
+      await insertTopics([privateTopic])
+
+      const params = {
+        type: 'eventAssistant',
+        name: 'Private Topic Conversation',
+        platforms: ['zoom'],
+        topicId: privateTopic._id.toString(),
+        // Schedule 2 hours out so it doesn't conflict with the beforeEach conversation.
+        scheduledTime: new Date(Date.now() + 7200000),
+        properties: {
+          zoomMeetingUrl: 'https://zoom.us/j/555555556'
+        }
+      }
+      const privateConversation = await conversationService.createConversationFromType(params, registeredUser)
+
+      const result = await conversationService.findByIdFull(privateConversation._id.toString(), registeredUser)
+
+      expect(result.topic).toHaveProperty('private', true)
+    })
+
     test('should hide channel passcode from non-owner user', async () => {
       const nonOwner = {
         _id: new mongoose.Types.ObjectId(),
