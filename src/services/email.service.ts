@@ -121,14 +121,33 @@ To finish setting up your event, sign up here and then resend the invite: ${sign
 }
 
 /**
- * Notify an organizer that their inbound calendar invite became an event.
+ * Notify an organizer that their inbound calendar invite became an event. When `missing` names
+ * anything (e.g. a Zoom link, a series), the event was created as a draft that can't actually run
+ * yet: the subject calls that out directly rather than saying "ready" and burying the caveat,
+ * since a reviewer flagged that an organizer skimming "Your event is ready" could miss a required
+ * follow-up until it's too late to fix before the event starts.
  * @param {string} to
  * @param {Conversation} conversation
+ * @param {string[]} [missing]
  * @returns {Promise}
  */
-const sendEventCreatedEmail = async (to, conversation) => {
-  const subject = 'Your event is ready'
+const sendEventCreatedEmail = async (to, conversation, missing: string[] = []) => {
   const eventUrl = `${config.appHost}/login?redirectTo=/admin/${conversation.conversationType}/view/${conversation._id}`
+
+  if (missing.length > 0) {
+    const subject = 'Action needed: your event is missing required details'
+    const missingList = missing.join(', ')
+    const text = `Hello,
+We turned your calendar invite into an event, but it still needs ${missingList} before it can run. Please add that here: ${eventUrl}
+That page is also where you can edit any other details and find the moderator and participant links to share.`
+    const html = `<p>Hello,</p>
+<p>We turned your calendar invite into an event, but it still needs <strong>${missingList}</strong> before it can run. Please <a href="${eventUrl}">add that here</a>.</p>
+<p>That page is also where you can edit any other details and find the moderator and participant links to share.</p>`
+    await sendEmailAsync(to, subject, text, html)
+    return
+  }
+
+  const subject = 'Your event is ready'
   const text = `Hello,
 We turned your calendar invite into an event. Please confirm the event details are correct: ${eventUrl}
 That page is also where you can edit any details and find the moderator and participant links to share.`

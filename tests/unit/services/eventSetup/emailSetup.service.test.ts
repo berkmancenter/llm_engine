@@ -348,7 +348,33 @@ describe('emailSetup.service', () => {
 
       const conversation = await createConversationFromInvite(buildInvite({}, `org@${allowedDomain}`))
 
-      expect(sendEventCreatedSpy).toHaveBeenCalledWith(organizer.email, expect.objectContaining({ _id: conversation!._id }))
+      expect(sendEventCreatedSpy).toHaveBeenCalledWith(
+        organizer.email,
+        expect.objectContaining({ _id: conversation!._id }),
+        expect.anything()
+      )
+    })
+
+    it('tells the organizer which required fields are missing, when the invite had no zoom link and matched no series', async () => {
+      const [organizer] = await insertUsers([newUser(`org@${allowedDomain}`)])
+
+      await createConversationFromInvite(buildInvite({}, `org@${allowedDomain}`))
+
+      expect(sendEventCreatedSpy).toHaveBeenCalledWith(
+        organizer.email,
+        expect.anything(),
+        expect.arrayContaining(['Zoom Meeting URL', 'a series'])
+      )
+    })
+
+    it('reports nothing missing when the invite matched a series and had a zoom link', async () => {
+      const [organizer] = await insertUsers([newUser(`org@${allowedDomain}`)])
+      await insertTopic({ name: 'BKCircle', owner: organizer._id, private: false })
+      planConversationFromInviteSpy.mockResolvedValue({ zoomLink: 'https://zoom.us/j/123456789' })
+
+      await createConversationFromInvite(buildInvite({ summary: 'BKCircle: Jane Presents' }, `org@${allowedDomain}`))
+
+      expect(sendEventCreatedSpy).toHaveBeenCalledWith(organizer.email, expect.anything(), [])
     })
 
     it('sends no confirmation email on a deduped retry, only on the original creation', async () => {

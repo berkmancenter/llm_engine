@@ -83,6 +83,41 @@ describe('email.service', () => {
       const msg = sendMailSpy.mock.calls[0][0]
       expect(msg.html.match(/href="/g)).toHaveLength(1)
     })
+
+    it('uses an action-needed subject and names what is missing, when required fields are absent', async () => {
+      const conversation = { _id: 'conv-123', conversationType: 'eventAssistant' }
+
+      await emailService.sendEventCreatedEmail('organizer@example.com', conversation, ['a Zoom meeting link', 'a series'])
+
+      const msg = sendMailSpy.mock.calls[0][0]
+      expect(msg.subject).toMatch(/action needed/i)
+      expect(msg.subject).not.toBe('Your event is ready')
+      expect(msg.text).toContain('a Zoom meeting link')
+      expect(msg.text).toContain('a series')
+      expect(msg.html).toContain('a Zoom meeting link')
+      expect(msg.html).toContain('a series')
+    })
+
+    it('still links to where the organizer can add the missing details', async () => {
+      const conversation = { _id: 'conv-123', conversationType: 'eventAssistant' }
+
+      await emailService.sendEventCreatedEmail('organizer@example.com', conversation, ['a Zoom meeting link'])
+
+      const msg = sendMailSpy.mock.calls[0][0]
+      const expectedUrl = `${config.appHost}/login?redirectTo=/admin/eventAssistant/view/conv-123`
+      expect(msg.text).toContain(expectedUrl)
+      expect(msg.html).toContain(expectedUrl)
+      expect(msg.html.match(/href="/g)).toHaveLength(1)
+    })
+
+    it('uses the ready-to-run subject when nothing is missing', async () => {
+      const conversation = { _id: 'conv-123', conversationType: 'eventAssistant' }
+
+      await emailService.sendEventCreatedEmail('organizer@example.com', conversation, [])
+
+      const msg = sendMailSpy.mock.calls[0][0]
+      expect(msg.subject).toBe('Your event is ready')
+    })
   })
 
   describe('sendEventCreationFailedEmail', () => {

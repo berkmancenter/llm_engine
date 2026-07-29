@@ -128,6 +128,27 @@ const defaultFeatures = (conversationType: ConversationType) =>
   (conversationType.features ?? []).map((feature) => ({ name: feature.name, enabled: feature.default }))
 
 /**
+ * Human-readable names of what's stopping this conversation from running as a scheduled event, or
+ * [] when nothing is. Mirrors lifecycle.ts's isConversationDraft/satisfiesTypeProperties rules but
+ * names each missing piece instead of collapsing them into a boolean, so the confirmation email
+ * can call them out directly rather than an organizer discovering it only once the event doesn't
+ * start.
+ */
+const missingRequirements = (
+  conversation: { topic?: unknown; properties?: Record<string, unknown> },
+  conversationType?: ConversationType
+): string[] => {
+  const missing: string[] = []
+  if (!conversation.topic) missing.push('a series')
+  ;(conversationType?.properties ?? []).forEach((property) => {
+    if (!property.required) return
+    const value = conversation.properties?.[property.name] ?? property.default
+    if (value === undefined || value === null || value === '') missing.push(property.label ?? property.name)
+  })
+  return missing
+}
+
+/**
  * Ties organizer resolution, Topic resolution, and the fuzzy-field extraction together into an
  * actual Conversation. Idempotent: an inbound email webhook can redeliver the same message
  * (Postmark, for example, retries up to 10 times over ~10.5 hours), so a retry must not create a
@@ -189,7 +210,11 @@ export const createConversationFromInvite = async (inboundInvite: InboundInvite)
       { allowDraft: true }
     )
 
-    await emailService.sendEventCreatedEmail(organizer.email, conversation)
+    await emailService.sendEventCreatedEmail(
+      organizer.email,
+      conversation,
+      missingRequirements(conversation, conversationType)
+    )
     return conversation
   } catch (err) {
     /* handlers/email.ts acknowledges the webhook with a 200 before any of this runs, so there is no
