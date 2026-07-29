@@ -123,15 +123,12 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
       // blank topic for the organizer to fill in. Non-draft conversations still get one at creation.
       index: true
     },
+    // How this conversation was created, when not the standard event-creation form. Deliberately
+    // untyped (Mixed) rather than a fixed sub-schema, so a future creation path can store whatever
+    // shape it needs without a migration; see the 'source.inviteUid' index below for the one shape
+    // in use today.
     source: {
-      inviteUid: {
-        type: String,
-        // Non-unique: most conversations have no invite UID at all, and a unique index would
-        // treat every missing value as a colliding duplicate. Dedup against webhook retries
-        // happens in createConversationFromInvite (a findOne before create), not via a DB
-        // constraint.
-        index: true
-      }
+      type: mongoose.SchemaTypes.Mixed
     },
     scheduledTime: {
       type: Date
@@ -218,6 +215,11 @@ conversationSchema.plugin(lock)
 // index timestamps
 conversationSchema.index({ createdAt: 1 })
 conversationSchema.index({ updatedAt: 1 })
+// Explicit path index: source is Mixed, so it has no fixed sub-schema to hang a field-level
+// index off of. Non-unique: most conversations have no invite UID at all, and a unique index
+// would treat every missing value as a colliding duplicate. Dedup against webhook retries
+// happens in createConversationFromInvite (a findOne before create), not via a DB constraint.
+conversationSchema.index({ 'source.inviteUid': 1 })
 conversationSchema.pre('validate', function (next) {
   this.slug = slugify(this.name)
   next()

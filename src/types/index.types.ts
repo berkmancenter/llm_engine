@@ -463,12 +463,13 @@ export interface IConversation {
   enableAgents?: boolean
   owner: IUser
   topic: ITopic
-  // How this conversation was created, when not the standard event-creation form. Unset for
-  // every conversation not created by the email webhook.
+  // How this conversation was created, when not the standard event-creation form. Deliberately
+  // open-ended (mirrors the model's Mixed type) so a future creation path can store whatever
+  // shape it needs; inviteUid is the one shape in use today.
+  // The .ics UID of the inbound invite is stored at source.inviteUid; used to detect a webhook
+  // retry of the same invite before creating a duplicate (see emailSetup.service.ts).
   source?: {
-    // The .ics UID of the inbound invite; used to detect a webhook retry of the same invite
-    // before creating a duplicate (see emailSetup.service.ts).
-    inviteUid?: string
+    [key: string]: unknown
   }
   transcript?: ITranscript
   followed?: boolean
