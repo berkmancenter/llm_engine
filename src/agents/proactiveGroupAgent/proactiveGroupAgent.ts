@@ -132,8 +132,7 @@ export default verify({
   },
   agentConfig: {
     personality: 'sarcastic-expert',
-    transcriptWindow: 10, // transcript window in minutes
-    goalPriorities: { missing_perspective: 68 }
+    transcriptWindow: 10 // transcript window in minutes
   },
   llmTemplateVars: interventionLlmTemplateVars,
   defaultLLMTemplates: {

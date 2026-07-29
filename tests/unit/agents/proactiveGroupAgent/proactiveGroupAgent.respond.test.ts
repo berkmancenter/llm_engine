@@ -144,8 +144,8 @@ describe('proactiveGroupAgent', () => {
       expect(proactiveGroupAgent.agentConfig?.transcriptWindow).toBe(10)
     })
 
-    it('defaults to an elevated priority for missing_perspective via agentConfig', () => {
-      expect((proactiveGroupAgent.agentConfig?.goalPriorities as Record<string, number>)?.missing_perspective).toBe(68)
+    it('has no goalPriorities set by default', () => {
+      expect(proactiveGroupAgent.agentConfig?.goalPriorities).toBeUndefined()
     })
   })
 })
