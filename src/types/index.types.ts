@@ -199,6 +199,10 @@ export interface IAdapter {
   dmChannels?: AdapterChannelConfig[]
 }
 
+export type ExperimentAgent =
+  | { agent: IAgent; agentType?: never; experimentValues?: Record<string, unknown> }
+  | { agentType: string; agent?: IAgent; experimentValues?: Record<string, unknown> }
+
 export interface IExperiment {
   name: string
   description?: string
@@ -206,11 +210,7 @@ export interface IExperiment {
   createdBy: IUser
   createdAt: Date
   status: 'running' | 'completed' | 'failed' | 'not started'
-  agentModifications?: {
-    agent: IAgent
-    experimentValues?: Record<string, unknown> // should match properties object of agentType passed in on Conversation creation
-    simulatedStartTime?: Date // The Date of the earliest message considered in the periodic interval
-  }[]
+  agents?: ExperimentAgent[]
   resultConversation?: IConversation
   executedAt?: Date
 }

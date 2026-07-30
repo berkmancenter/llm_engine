@@ -45,15 +45,15 @@ const router = express.Router()
  *                 type: string
  *                 description: ID of the base conversation to use for the experiment
  *                 example: "6123456789abcdef0123456b"
- *               agentModifications:
+ *               agents:
  *                 type: array
- *                 description: Array of agent modifications for the experiment
+ *                 description: Agents to run in the experiment (modify, add, or remove)
  *                 items:
- *                   $ref: '#/components/schemas/AgentModification'
+ *                   $ref: '#/components/schemas/ExperimentAgent'
  *               executedAt:
  *                 type: string
  *                 format: date-time
- *                 description: If provided, marks this as a past experiment (cannot be used with agentModifications)
+ *                 description: If provided, marks this as a past experiment (cannot be used with agents)
  *                 example: "2021-11-30T01:51:01.639Z"
  *     responses:
  *       201:

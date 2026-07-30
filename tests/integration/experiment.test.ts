@@ -204,7 +204,7 @@ const experimentCreateRequest = {
   name: 'Test Experiment',
   description: 'A test experiment to validate functionality',
   baseConversation: baseConversationId.toString(),
-  agentModifications: [
+  agents: [
     {
       agent: agentId,
       experimentValues: {
@@ -290,7 +290,7 @@ describe('Experiment routes', () => {
 
       const invalidAgentRequest = {
         ...experimentCreateRequest,
-        agentModifications: [
+        agents: [
           {
             agent: new mongoose.Types.ObjectId(),
             experimentValues: { conversationHistorySettings: { timeWindow: 1800 } }
@@ -325,7 +325,7 @@ describe('Experiment routes', () => {
 
       const incompleteRequest = {
         ...experimentCreateRequest,
-        agentModifications: [
+        agents: [
           {
             agent: new mongoose.Types.ObjectId()
           }
@@ -353,15 +353,12 @@ describe('Experiment routes', () => {
 
       const multiAgentRequest = {
         ...experimentCreateRequest,
-        agentModifications: [
+        agents: [
           {
             agent: agentId,
             experimentValues: { conversationHistorySettings: { timeWindow: 1800 } }
           },
-          {
-            agent: agentId2,
-            experimentValues: { conversationHistorySettings: { timeWindow: 900 } }
-          }
+          { agent: agentId2, experimentValues: { conversationHistorySettings: { timeWindow: 900 } } }
         ]
       }
 
@@ -371,8 +368,8 @@ describe('Experiment routes', () => {
         .send(multiAgentRequest)
         .expect(httpStatus.CREATED)
 
-      expect(response.body).toHaveProperty('agentModifications')
-      expect(response.body.agentModifications).toHaveLength(2)
+      expect(response.body).toHaveProperty('agents')
+      expect(response.body.agents).toHaveLength(2)
     })
 
     test('should handle recording past experiments', async () => {
@@ -396,7 +393,7 @@ describe('Experiment routes', () => {
       expect(response.body).toHaveProperty('description', experimentCreateRequest.description)
       expect(response.body).toHaveProperty('baseConversation')
       expect(response.body).toHaveProperty('executedAt')
-      expect(response.body).not.toHaveProperty('agentModifications')
+      expect(response.body).not.toHaveProperty('agents')
 
       // Verify experiment was created in database
       const experiment = await Experiment.findById(response.body.id)
@@ -406,7 +403,21 @@ describe('Experiment routes', () => {
       expect(experiment!.executedAt).toEqual(experimentBody.executedAt)
       expect(experiment!.status).toEqual('completed')
     })
-    test('should return 400 if agentModifications and executedAt are specified', async () => {
+    test('should return 400 when agent entry has neither agent nor agentType', async () => {
+      await insertUsers([registeredUser])
+      await insertTestConversation()
+
+      await request(app)
+        .post('/v1/experiments')
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({
+          ...experimentCreateRequest,
+          agents: [{ experimentValues: { llmModel: 'x' } }]
+        })
+        .expect(httpStatus.BAD_REQUEST)
+    })
+
+    test('should return 400 if agents and executedAt are specified', async () => {
       await insertUsers([registeredUser])
       await insertTestConversation()
       const executedAt = new Date(Date.now() - 60 * 60 * 1000)
@@ -480,44 +491,9 @@ describe('Experiment routes', () => {
       expect(experiment!.executedAt).toBeDefined()
     })
 
-    test('should return 200 and run experiment simulation with a simulated start time', async () => {
-      const startTimeExp = await Experiment.findOne({ _id: new mongoose.Types.ObjectId(createdExperiment.id) })
-      startTimeExp!.agentModifications = [
-        {
-          agent,
-          experimentValues: {
-            llmTemplates: { contribution: 'Do something bizarre' }
-          },
-          simulatedStartTime: new Date('2024-01-01T10:35:30Z')
-        }
-      ]
-      await startTimeExp!.save()
-
-      await request(app)
-        .post(`/v1/experiments/${createdExperiment.id}/run`)
-        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
-        .expect(httpStatus.OK)
-
-      expect(mockRespond).not.toHaveBeenCalled()
-      const resultConversation = await Conversation.findById(createdExperiment.resultConversation)
-        .populate('messages')
-        .exec()
-      expect(resultConversation).toBeTruthy()
-      // No agent response because starting before any messages were produced
-      expect(resultConversation!.messages).toHaveLength(2)
-      const experiment = await Experiment.findById(createdExperiment.id)
-      expect(experiment).toBeTruthy()
-      expect(experiment!.status).toBe('completed')
-      expect(experiment!.executedAt).toBeDefined()
-    })
-
     test('should return 200 and run experiment with no experimental values', async () => {
       const startTimeExp = await Experiment.findOne({ _id: new mongoose.Types.ObjectId(createdExperiment.id) })
-      startTimeExp!.agentModifications = [
-        {
-          agent
-        }
-      ]
+      startTimeExp!.agents = []
       await startTimeExp!.save()
       const expectedResponse = {
         visible: true,
@@ -570,6 +546,103 @@ describe('Experiment routes', () => {
       expect(experiment).toBeTruthy()
       expect(experiment!.status).toEqual('failed')
     })
+
+    test('runs all agents on the result conversation when no agents ops are specified', async () => {
+      // Create a second agent on the conversation
+      const agent2 = await Agent.create(testAgent2)
+      await agent2.start()
+      conversation.agents.push(agent2)
+      await conversation.save()
+
+      // Create experiment with no agent ops — both agents should run
+      const response = await request(app)
+        .post('/v1/experiments')
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({
+          name: 'No ops experiment',
+          baseConversation: baseConversationId.toString()
+        })
+        .expect(httpStatus.CREATED)
+
+      const expectedResponse = { visible: true, message: 'A response', pause: 0 }
+      mockRespond.mockResolvedValue([expectedResponse])
+      await request(app)
+        .post(`/v1/experiments/${response.body.id}/run`)
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .expect(httpStatus.OK)
+
+      // Both agents should have been called
+      expect(mockRespond.mock.calls.length).toBeGreaterThanOrEqual(2)
+    })
+
+    test('creates and runs a new agent type not present on the base conversation', async () => {
+      const response = await request(app)
+        .post('/v1/experiments')
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({
+          name: 'Add agent experiment',
+          baseConversation: baseConversationId.toString(),
+          agents: [
+            {
+              agent: agentId,
+              experimentValues: { llmTemplates: { contribution: 'Do something bizarre' } }
+            },
+            {
+              agentType: 'generic',
+              experimentValues: { llmTemplates: { main: 'Custom template' } }
+            }
+          ]
+        })
+        .expect(httpStatus.CREATED)
+
+      const resultConversation = await Conversation.findById(response.body.resultConversation).populate('agents').exec()
+      const agentTypes = resultConversation!.agents.map((a) => a.agentType)
+      expect(agentTypes).toContain('test')
+      expect(agentTypes).toContain('generic')
+      expect(resultConversation!.agents).toHaveLength(2)
+
+      const expectedResponse = { visible: true, message: 'A response', pause: 0 }
+      mockRespond.mockResolvedValue([expectedResponse])
+      await request(app)
+        .post(`/v1/experiments/${response.body.id}/run`)
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .expect(httpStatus.OK)
+
+      expect(mockRespond.mock.calls).toHaveLength(2)
+    })
+
+    test('only runs agents specified in the agents array, excluding unspecified base agents', async () => {
+      // Add a second agent to the base conversation
+      const agent2 = await Agent.create(testAgent2)
+      await agent2.start()
+      conversation.agents.push(agent2)
+      await conversation.save()
+
+      // Only include agent2 — agent1 should be excluded from the result conversation
+      const response = await request(app)
+        .post('/v1/experiments')
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({
+          name: 'Selective agent experiment',
+          baseConversation: baseConversationId.toString(),
+          agents: [{ agent: agentId2 }]
+        })
+        .expect(httpStatus.CREATED)
+
+      const resultConversation = await Conversation.findById(response.body.resultConversation).populate('agents').exec()
+      const resultAgentTypes = resultConversation!.agents.map((a) => a.agentType)
+      expect(resultConversation!.agents).toHaveLength(1)
+      expect(resultAgentTypes).toContain('test')
+
+      const expectedResponse = { visible: true, message: 'A response', pause: 0 }
+      mockRespond.mockResolvedValue([expectedResponse])
+      await request(app)
+        .post(`/v1/experiments/${response.body.id}/run`)
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .expect(httpStatus.OK)
+
+      expect(mockRespond.mock.calls).toHaveLength(1)
+    })
   })
   describe('GET /v1/experiments/:id', () => {
     test('should return 200 and experiment details', async () => {
@@ -599,7 +672,7 @@ describe('Experiment routes', () => {
       expect(getResponse.body).toHaveProperty('resultConversation')
       expect(getResponse.body).toHaveProperty('status', 'not started')
       expect(getResponse.body.createdBy).toEqual(registeredUser._id.toString())
-      expect(getResponse.body).toHaveProperty('agentModifications')
+      expect(getResponse.body).toHaveProperty('agents')
     })
 
     test('should return 404 for non-existent experiment', async () => {
@@ -641,7 +714,10 @@ describe('Experiment routes', () => {
       const createResponse = await request(app)
         .post('/v1/experiments')
         .set('Authorization', `Bearer ${registeredUserAccessToken}`)
-        .send(experimentCreateRequest)
+        .send({
+          ...experimentCreateRequest,
+          agents: [{ agent: agentId }, { agent: agentTextId }]
+        })
         .expect(httpStatus.CREATED)
 
       // Set up completed experiment with result conversation
@@ -2111,7 +2187,7 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         name: 'Weather Forecast Experiment',
         description: 'Testing generic agent with custom weather prompt',
         baseConversation: conversation._id.toString(),
-        agentModifications: [
+        agents: [
           {
             agent: genericAgentId,
             experimentValues: {
@@ -2180,7 +2256,7 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         name: 'Restaurant Recommendation Experiment',
         description: 'Testing generic agent with structured output',
         baseConversation: conversation._id.toString(),
-        agentModifications: [
+        agents: [
           {
             agent: genericAgentId,
             experimentValues: {
@@ -2261,7 +2337,7 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         name: 'Silent Monitor Experiment',
         description: 'Testing generic agent with invisible responses',
         baseConversation: conversation._id.toString(),
-        agentModifications: [
+        agents: [
           {
             agent: genericAgentId,
 
@@ -2325,7 +2401,7 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         name: 'Channel Specific Experiment',
         description: 'Testing generic agent with custom channel output',
         baseConversation: conversation._id.toString(),
-        agentModifications: [
+        agents: [
           {
             agent: genericAgentId,
             experimentValues: {
@@ -2492,7 +2568,7 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         name: 'Per Message Experiment',
         description: 'Testing perMessage agent responses',
         baseConversation: conversation._id.toString(),
-        agentModifications: [
+        agents: [
           {
             agent: perMessageAgentId,
             experimentValues: {}
@@ -2581,7 +2657,7 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         name: 'Direct Message Experiment',
         description: 'Testing perMessage agent with direct messages only',
         baseConversation: conversation._id.toString(),
-        agentModifications: [
+        agents: [
           {
             agent: perMessageAgentId,
             experimentValues: {}
@@ -2656,7 +2732,7 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         name: 'Channel Specific Experiment',
         description: 'Testing perMessage agent with specific channels',
         baseConversation: conversation._id.toString(),
-        agentModifications: [
+        agents: [
           {
             agent: perMessageAgentId,
             experimentValues: {
@@ -2720,7 +2796,7 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         name: 'Transcript RAG Experiment',
         description: 'Testing perMessage agent with transcript RAG collection',
         baseConversation: conversation._id.toString(),
-        agentModifications: [
+        agents: [
           {
             agent: perMessageAgentId,
             experimentValues: {}
@@ -2817,7 +2893,7 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         name: 'Mixed Channel Experiment',
         description: 'Testing perMessage agent with mixed channel configuration',
         baseConversation: conversation._id.toString(),
-        agentModifications: [
+        agents: [
           {
             agent: perMessageAgentId,
             experimentValues: {
@@ -2886,7 +2962,7 @@ ${formatTime(msg7Time)}  DMTestAgent2: Hello! How can I help?
         name: 'No Match Experiment',
         description: 'Testing perMessage agent with no matching messages',
         baseConversation: conversation._id.toString(),
-        agentModifications: [
+        agents: [
           {
             agent: perMessageAgentId,
             experimentValues: {
