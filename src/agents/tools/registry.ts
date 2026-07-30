@@ -12,14 +12,19 @@ import createEventHistoryTools from './eventHistory.js'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ToolFactory = (context?: Record<string, any>) => StructuredToolInterface[] | StructuredToolInterface
 
-const factories = new Map<string, ToolFactory>()
+interface ToolRegistration {
+  factory: ToolFactory
+  promptGuidance?: string
+}
+
+const registrations = new Map<string, ToolRegistration>()
 
 /**
- * Register a tool factory under a given name.
+ * Register a tool factory under a given name, with optional static prompt guidance.
  * Call at module init time — idempotent (last-write wins).
  */
-export function registerTool(name: string, factory: ToolFactory): void {
-  factories.set(name, factory)
+export function registerTool(name: string, factory: ToolFactory, meta?: { promptGuidance?: string }): void {
+  registrations.set(name, { factory, promptGuidance: meta?.promptGuidance })
 }
 
 /**
@@ -30,12 +35,12 @@ export function registerTool(name: string, factory: ToolFactory): void {
 export function getTools(names: string[], context?: Record<string, any>): StructuredToolInterface[] {
   const tools: StructuredToolInterface[] = []
   for (const name of names) {
-    const factory = factories.get(name)
-    if (!factory) {
+    const registration = registrations.get(name)
+    if (!registration) {
       logger.warn(`Tool registry: unknown tool "${name}" — skipping`)
       continue
     }
-    const result = factory(context)
+    const result = registration.factory(context)
     if (Array.isArray(result)) {
       tools.push(...result)
     } else {
@@ -46,10 +51,18 @@ export function getTools(names: string[], context?: Record<string, any>): Struct
 }
 
 /**
+ * Returns a tool's registered static prompt guidance, or '' if none was registered
+ * (or the name is unknown).
+ */
+export function getToolPromptGuidance(name: string): string {
+  return registrations.get(name)?.promptGuidance ?? ''
+}
+
+/**
  * List all registered tool names (useful for diagnostics).
  */
 export function listRegisteredTools(): string[] {
-  return Array.from(factories.keys())
+  return Array.from(registrations.keys())
 }
 
 // ---------------------------------------------------------------------------
