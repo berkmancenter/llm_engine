@@ -27,14 +27,20 @@ import transcript from '../helpers/transcript.js'
 function getProactiveSchema(goals: ConversationGoal[]) {
   const goalIdOptions = [...goals.map((g) => g.id), 'none'] as unknown as [string, ...string[]]
   return z.object({
+    reasoning: z
+      .string()
+      .describe(
+        'Internal analysis of what you see and why you are or are not intervening. Be concise — 3-5 sentences maximum.'
+      ),
     shouldIntervene: z.boolean().describe('Whether an intervention is warranted at this moment'),
     goalId: z.enum(goalIdOptions).describe('The goal to apply, or "none" if no intervention is warranted'),
-    reasoning: z.string().describe('Internal analysis of what you see and why you are or are not intervening'),
     sharedChatMessage: z
       .string()
       .nullable()
       .optional()
-      .describe('The message to post in shared chat, if shouldIntervene is true'),
+      .describe(
+        'The message to post in shared chat. Must be a non-null string when shouldIntervene is true. Must be null when shouldIntervene is false.'
+      ),
     confidenceScore: z.number().min(0).max(100).describe('Confidence in this intervention decision'),
     detectedPattern: z.string().nullable().optional().describe('Brief description of the pattern detected'),
     affectedUsers: z.number().nullable().optional().describe('Number of distinct users involved in the pattern')
@@ -71,10 +77,10 @@ JUDGMENT:
 Return a JSON object:
 
 {{
+  "reasoning": "Internal analysis — not posted to chat. 3-5 sentences max.",
   "shouldIntervene": boolean,
   "goalId": ${goalIdsList},
-  "reasoning": "Internal analysis — not posted to chat",
-  "sharedChatMessage": "Message for shared chat (null if not intervening)",
+  "sharedChatMessage": "Message for shared chat — non-null string if shouldIntervene is true, null otherwise",
   "confidenceScore": 0-100,
   "detectedPattern": "Brief pattern description (null if none)",
   "affectedUsers": number (use 0 if no users affected)
@@ -126,7 +132,7 @@ export default verify({
   description:
     'Makes strategic interventions in shared chat based on active behavioral patterns — facilitating discussion, surfacing signal, and generating engagement based on conversation goals.',
   priority: 85,
-  maxTokens: 3000,
+  maxTokens: 4000,
   defaultTriggers: {
     periodic: { timerPeriod: 120, conversationHistorySettings: { channels: ['transcript'] }, proactive: true }
   },
