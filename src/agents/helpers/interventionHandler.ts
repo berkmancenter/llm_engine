@@ -26,7 +26,7 @@ export interface InterventionAnalysis {
 export const USER_TEMPLATE = `## Event Topic:
 {topic}
 
-## Recent Transcript (last 10 minutes):
+## Recent Transcript:
 {recentTranscript}
 
 ## Retrieved Relevant Context from Transcript:
@@ -49,7 +49,7 @@ export const interventionLlmTemplateVars = {
   system: [],
   user: [
     { name: 'topic', description: 'The event topic' },
-    { name: 'recentTranscript', description: 'Recent transcript from the event (last 10 minutes)' },
+    { name: 'recentTranscript', description: 'Transcript from the event' },
     { name: 'retrievedChunks', description: 'Relevant retrieved context from RAG search' },
     { name: 'privateMessages', description: 'Private/direct messages from participants' },
     { name: 'sharedChatHistory', description: 'Shared chat history including agent posts' },
@@ -174,13 +174,18 @@ export async function runInterventionAnalysis(
   // Return null if shouldn't intervene or confidence too low.
   // Threshold is raised to 75 when socialSensitivity is 'high'.
   // Per-pattern minConfidence provides an additional floor applied per-call.
-  const channelPolicy = channelType === 'dm' ? behaviorPolicy?.channels?.dm?.proactivePolicy : behaviorPolicy?.channels?.groupChat?.proactivePolicy
+  const channelPolicy =
+    channelType === 'dm'
+      ? behaviorPolicy?.channels?.dm?.proactivePolicy
+      : behaviorPolicy?.channels?.groupChat?.proactivePolicy
   const policyThreshold = getConfidenceThreshold(channelPolicy)
   const matchedGoal = activeGoals?.find((g) => g.id === analysis.goalId)
   const patternFloor = matchedGoal ? getEffectiveMinConfidence(matchedGoal, goalPriorities) : 0
   const effectiveThreshold = Math.max(policyThreshold, patternFloor)
 
-  logger.debug(`[interventionHandler] goalId=${analysis.goalId} confidence=${analysis.confidenceScore} threshold=${effectiveThreshold} (policy=${policyThreshold}, patternFloor=${patternFloor})`)
+  logger.debug(
+    `[interventionHandler] goalId=${analysis.goalId} confidence=${analysis.confidenceScore} threshold=${effectiveThreshold} (policy=${policyThreshold}, patternFloor=${patternFloor})`
+  )
 
   if (!analysis.shouldIntervene || analysis.confidenceScore < effectiveThreshold) {
     return null
