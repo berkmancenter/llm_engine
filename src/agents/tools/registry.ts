@@ -1,6 +1,6 @@
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import logger from '../../config/logger.js'
-import { webSearchTool } from './webSearch.js'
+import { createWebSearchTool, WEB_SEARCH_USAGE_GUIDANCE } from './webSearch.js'
 import { searchSemanticScholarTool, getSemanticScholarRecommendationsTool } from './semanticScholar.js'
 import createEventHistoryTools from './eventHistory.js'
 
@@ -69,8 +69,12 @@ export function listRegisteredTools(): string[] {
 // Built-in registrations
 // ---------------------------------------------------------------------------
 
-registerTool('tavily_search', () => webSearchTool)
-registerTool('web_search', () => webSearchTool)
+registerTool('tavily_search', (context) => createWebSearchTool(context?.toolConfig?.tavily_search), {
+  promptGuidance: WEB_SEARCH_USAGE_GUIDANCE
+})
+registerTool('web_search', (context) => createWebSearchTool(context?.toolConfig?.web_search), {
+  promptGuidance: WEB_SEARCH_USAGE_GUIDANCE
+})
 registerTool('search_semantic_scholar', () => searchSemanticScholarTool)
 registerTool('get_semantic_scholar_recommendations', () => getSemanticScholarRecommendationsTool)
 
