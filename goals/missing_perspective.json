@@ -15,7 +15,7 @@
       },
       "the room has heard enough from its speakers to make this assessment responsibly — if speaker positions are still forming or too thin to characterize, this is not yet true"
     ],
-    "minConfidence": 78
+    "minConfidence": 72
   },
   "guardrails": [
     "base this judgment on the transcript (what speakers have actually said), not the shared chat — chat is peripheral commentary, not the panelists' positions",
