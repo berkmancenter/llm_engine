@@ -23,6 +23,7 @@ import { getEligibleGoals, getMinContributionMs, composeSystemPrompt } from '../
 import { getGroupChatGoals } from '../../goals/loader.js'
 import validateProfessionalism from '../helpers/professionalismValidator.js'
 import transcript from '../helpers/transcript.js'
+import { resolveTools } from '../tools/resolver.js'
 
 function getProactiveSchema(goals: ConversationGoal[]) {
   const goalIdOptions = [...goals.map((g) => g.id), 'none'] as unknown as [string, ...string[]]
@@ -170,14 +171,20 @@ export default verify({
       return []
     }
 
+    const { tools, promptGuidance } = resolveTools({
+      configuredTools: this.agentConfig?.tools as string[] | undefined,
+      goals: groupChatGoals
+    })
+
     const personalityName = this.agentConfig?.personality ?? null
-    const systemPrompt = composeSystemPrompt(getProactiveGroupSystemPrompt(groupChatGoals), {
+    const baseSystemPrompt = composeSystemPrompt(getProactiveGroupSystemPrompt(groupChatGoals), {
       conversationContext: this.conversation.conversationContext,
       behaviorPolicy: this.conversation.behaviorPolicy,
       goals: groupChatGoals,
       channelType: 'groupChat',
       personalityName
     })
+    const systemPrompt = promptGuidance ? `${baseSystemPrompt}\n\n${promptGuidance}` : baseSystemPrompt
 
     const sharedChatHistory = getConversationHistory(this.conversation.messages, {
       count: 100,
@@ -224,7 +231,8 @@ export default verify({
       groupChatGoals,
       this.conversation.behaviorPolicy,
       'groupChat',
-      recentTranscript
+      recentTranscript,
+      tools
     )) as unknown as InterventionAnalysis | null
 
     if (!analysis) {
