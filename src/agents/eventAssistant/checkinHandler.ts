@@ -18,6 +18,7 @@ import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { getDmGoals } from '../../goals/loader.js'
 import { getEligibleGoals, composeSystemPrompt, getMinContributionMs } from '../helpers/promptComposer.js'
 import config from '../../config/config.js'
+import { resolveTools } from '../tools/resolver.js'
 
 interface AgentLike {
   agentConfig?: { minInterval?: number; [key: string]: unknown }
@@ -263,9 +264,15 @@ async function processParticipant(
       ? formatDmHistoryByChannel(participantDmHistory.messages, [channel])
       : 'No messages yet from this participant.'
 
+  const { tools, promptGuidance } = resolveTools({
+    configuredTools: this.agentConfig?.tools as string[] | undefined,
+    goals: goalsToPursue
+  })
+
   const { behaviorPolicy, conversationContext } = this.conversation
   const personalityName = (this.agentConfig?.personality as string | null | undefined) ?? (config.enableAgentPersonality ? 'sarcastic-expert' : null)
-  const systemPrompt = buildCheckinSystemPrompt(goalsToPursue, behaviorPolicy, conversationContext, personalityName)
+  const baseSystemPrompt = buildCheckinSystemPrompt(goalsToPursue, behaviorPolicy, conversationContext, personalityName)
+  const systemPrompt = promptGuidance ? `${baseSystemPrompt}\n\n${promptGuidance}` : baseSystemPrompt
   const schema = getCheckinDmAnalysisSchema(goalsToPursue)
 
   const analysis = (await detectPrivateInterventionOpportunity.call(
@@ -279,7 +286,8 @@ async function processParticipant(
     { participantPseudonym, thisParticipantHistory, eventSignals },
     goalsToPursue,
     behaviorPolicy,
-    recentTranscript
+    recentTranscript,
+    tools
   )) as unknown as InterventionAnalysis | null
 
   if (!analysis?.directMessage) {
