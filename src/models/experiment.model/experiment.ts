@@ -2,7 +2,7 @@ import mongoose from 'mongoose'
 
 import { toJSON, paginate } from '../plugins/index.js'
 import { IExperiment } from '../../types/index.types.js'
-import agentModificationsSchema from './agentModifications.schema.js'
+import experimentAgentSchema from './experimentAgent.schema.js'
 
 const experimentSchema = new mongoose.Schema<IExperiment>(
   {
@@ -21,8 +21,8 @@ const experimentSchema = new mongoose.Schema<IExperiment>(
       required: true,
       default: 'not started'
     },
-    agentModifications: {
-      type: [agentModificationsSchema],
+    agents: {
+      type: [experimentAgentSchema],
       default: undefined
     },
     executedAt: {

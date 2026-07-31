@@ -933,21 +933,21 @@ components:
           type: string
           format: date-time
 
-    AgentModification:
+    ExperimentAgent:
       type: object
-      required:
-        - agent
       properties:
         agent:
           $ref: '#/components/schemas/Agent'
+          description: Reference to an existing agent on the base conversation. Mutually exclusive with agentType.
+        agentType:
+          type: string
+          description: Agent type to instantiate as a new agent. Mutually exclusive with agent.
         experimentValues:
           type: object
           additionalProperties: true
-          description: Should match properties object of agentType
-        simulatedStartTime:
-          type: string
-          format: date-time
-          description: The Date of the earliest message considered in the periodic interval
+          description: >
+            Spread into the cloned or created agent to override defaults
+            (e.g. llmTemplates, agentConfig, llmModel).
 
     Experiment:
       type: object
@@ -980,10 +980,10 @@ components:
         status:
           type: string
           enum: [running, completed, failed, 'not started']
-        agentModifications:
+        agents:
           type: array
           items:
-            $ref: '#/components/schemas/AgentModification'
+            $ref: '#/components/schemas/ExperimentAgent'
         resultConversation:
           oneOf:
             - type: string

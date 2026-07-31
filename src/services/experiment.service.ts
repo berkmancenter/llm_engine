@@ -2,6 +2,8 @@ import mongoose from 'mongoose'
 import httpStatus from 'http-status'
 import Experiment from '../models/experiment.model/experiment.js'
 import { Agent, Message, Conversation, Topic } from '../models/index.js'
+import { ConversationDocument } from '../models/conversation.model.js'
+import { AgentDocument } from '../models/user.model/agent.model/index.js'
 import ApiError from '../utils/ApiError.js'
 import logger from '../config/logger.js'
 import transcript from '../agents/helpers/transcript.js'
@@ -23,16 +25,22 @@ async function getAgentResponse(agent, experiment, endTime, msg?) {
   const responses = await agent.respond(msg)
   for (const response of responses) {
     const msgData = agentResponseToMessageData(response, agent)
-    const responseMsg = await Message.create({
+    const simulatedAt = new Date(endTime.getTime() + 1000)
+    const responseMsg = new Message({
       ...msgData,
       channels: msgData.channels?.map((c) => (typeof c === 'string' ? c : c.name)),
-      createdAt: new Date(endTime.getTime() + 1000)
+      createdAt: simulatedAt,
+      updatedAt: simulatedAt
     })
+    await responseMsg.save({ timestamps: false })
     experiment.resultConversation.messages.push(responseMsg)
+  }
+  if (responses.length > 0) {
+    await experiment.resultConversation.save()
   }
 }
 
-async function runPeriodicExperiment(agent, experiment, simulatedStartTime?) {
+async function runPeriodicExperiment(agent, experiment) {
   // Seed RAG for the result conversation so transcript search works against its collection.
   // The result conversation has a different _id than the base, so we must re-embed here.
   await transcript.loadEventMetadataIntoVectorStore(experiment.resultConversation)
@@ -43,12 +51,24 @@ async function runPeriodicExperiment(agent, experiment, simulatedStartTime?) {
     await transcript.loadTranscriptIntoVectorStore(transcriptMsgs, experiment.resultConversation._id)
   }
 
-  const msgStartTime = new Date(Math.min(...experiment.resultConversation.messages.map((msg) => msg.createdAt.getTime())))
-  const msgEndTime = new Date(Math.max(...experiment.resultConversation.messages.map((msg) => msg.createdAt.getTime())))
+  // Use only original (non-agent) messages to calculate the window. Agent responses added
+  // during simulation of earlier agents must not stretch the window for later agents.
+  const baseMsgs = experiment.resultConversation.messages.filter((msg) => !msg.fromAgent)
+  const msgStartTime = new Date(Math.min(...baseMsgs.map((msg) => msg.createdAt.getTime())))
+  const msgEndTime = new Date(Math.max(...baseMsgs.map((msg) => msg.createdAt.getTime())))
+
+  // Align the conversation's startTime with the earliest message so agents that use
+  // conversation.startTime as a rate-limit baseline (e.g. proactiveGroupAgent) behave
+  // correctly even when the conversation was restarted after the original messages.
+  const resultConv = experiment.resultConversation as ConversationDocument
+  if (!resultConv.startTime || resultConv.startTime > msgStartTime) {
+    resultConv.startTime = msgStartTime
+    await resultConv.save()
+  }
 
   const timeInterval = agent.triggers.periodic.timerPeriod
   const endTime = new Date(msgEndTime.getTime() + timeInterval * 1000)
-  const startTime = simulatedStartTime ?? msgStartTime
+  const startTime = msgStartTime
   let currentTime = new Date(startTime.getTime() + timeInterval * 1000)
 
   // simulate running agent at normal periodic interval, ensuring first and last messages are captured
@@ -104,33 +124,31 @@ const runExperiment = async (experimentId) => {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Experiment does not have a result conversation')
   }
 
+  await (experiment.resultConversation as ConversationDocument).populate('agents')
+
   experiment.executedAt = new Date(Date.now())
   experiment.status = 'running'
   await experiment.save()
   try {
-    if (experiment.agentModifications) {
-      for (const agentMod of experiment.agentModifications) {
-        const agent = await Agent.findOne({ _id: agentMod.agent._id })
-        if (!agent) {
-          logger.warn(`Could not find agent ${agentMod.agent._id}. Skipping experiment for this agent.`)
-          continue
-        }
-        agent.conversation = experiment.resultConversation
-        if (agentMod.experimentValues) {
-          // temp modify the agent by deep patching without saving
-          agent.deepPatch(agentMod.experimentValues)
-        }
-        if (agent.triggers?.periodic) {
-          await runPeriodicExperiment(agent, experiment, agentMod.simulatedStartTime)
-        } else if (agent.triggers?.perMessage) {
-          await runPerMessageExperiment(agent, experiment)
-        } else {
-          logger.error('Experiments with manual agents are not currently supported')
-          continue
-        }
-        if (!agent.active) {
-          await agent.start()
-        }
+    const resultConv = experiment.resultConversation as ConversationDocument
+    for (const agentDoc of resultConv.agents ?? []) {
+      const agent = await Agent.findOne({ _id: agentDoc._id ?? agentDoc })
+      if (!agent) {
+        logger.warn(`Could not find agent ${agentDoc._id ?? agentDoc}. Skipping.`)
+        continue
+      }
+      if (!agent.active) {
+        // Set active in-memory only — do not save, so the periodic job scheduler
+        // never picks this experimental agent up for real-world scheduling on server restart.
+        agent.active = true
+      }
+      if (agent.triggers?.periodic) {
+        await runPeriodicExperiment(agent, experiment)
+      } else if (agent.triggers?.perMessage) {
+        await runPerMessageExperiment(agent, experiment)
+      } else {
+        logger.error('Experiments with manual agents are not currently supported')
+        continue
       }
     }
     experiment.status = 'completed'
@@ -150,17 +168,20 @@ const createExperiment = async (experimentBody, user) => {
 
   if (!baseConversation) throw new ApiError(httpStatus.BAD_REQUEST, 'Base conversation not found')
 
-  // Make sure all agents involved in the experiment are valid
-  for (const agentMod of experimentBody.agentModifications || []) {
-    const agent = baseConversation.agents.find((a) => a._id!.toString() === agentMod.agent)
-    if (!agent) {
-      throw new ApiError(httpStatus.BAD_REQUEST, `Agent ${agentMod.agent} not found in base conversation`)
+  // Resolve agent references for entries that reference existing agents
+  const agentOps = experimentBody.agents ?? []
+  for (const op of agentOps) {
+    if (op.agent) {
+      const agent = baseConversation.agents.find((a) => a._id!.toString() === op.agent.toString())
+      if (!agent) {
+        throw new ApiError(httpStatus.BAD_REQUEST, `Agent ${op.agent} not found in base conversation`)
+      }
+      op.agent = agent
     }
-    agentMod.agent = agent
   }
 
   let resultConversation
-  if (experimentBody.agentModifications) {
+  if (!experimentBody.executedAt) {
     // clone base conversation into a new conversation that can be used for simulation
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { _id, createdAt, updatedAt, ...resultConversationData } = baseConversation.toObject()
@@ -174,9 +195,42 @@ const createExperiment = async (experimentBody, user) => {
 
     // refresh messages - delete and re-duplicate
     await Message.deleteMany({ conversation: resultConversation._id })
-    // TODO only remove the messages from agents we are experimenting with?
     await duplicateConversationMessages(baseConversation._id, resultConversation._id, { fromAgent: false })
     await resultConversation.populate('messages')
+
+    // Determine which base agents to clone:
+    // if agents array is provided, only clone those referenced; otherwise clone all.
+    const existingAgentOps = agentOps.filter((op) => op.agent)
+    const opsByAgentId = new Map(existingAgentOps.map((op) => [op.agent._id.toString(), op]))
+    const agentsToClone =
+      agentOps.length > 0
+        ? (baseConversation.agents as unknown as AgentDocument[]).filter((a) => opsByAgentId.has(a._id!.toString()))
+        : (baseConversation.agents as unknown as AgentDocument[])
+
+    resultConversation.agents = []
+    for (const baseAgent of agentsToClone) {
+      const agentObj = baseAgent.toObject() as unknown as Record<string, unknown>
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { _id: __, createdAt: ___, updatedAt: ____, conversation: _____, active: ______, ...agentFields } = agentObj
+      const op = opsByAgentId.get(baseAgent._id!.toString()) as { experimentValues?: Record<string, unknown> } | undefined
+      const clone = await Agent.create({
+        ...agentFields,
+        conversation: resultConversation._id,
+        ...(op?.experimentValues ?? {})
+      })
+      resultConversation.agents.push(clone._id)
+    }
+
+    // Create new agents for entries that specify an agentType
+    for (const op of agentOps.filter((o) => o.agentType)) {
+      const newAgent = await Agent.create({
+        agentType: op.agentType,
+        conversation: resultConversation._id,
+        ...(op.experimentValues ?? {})
+      })
+      resultConversation.agents.push(newAgent._id)
+    }
+
     await resultConversation.save()
   }
 
@@ -185,7 +239,7 @@ const createExperiment = async (experimentBody, user) => {
     description: experimentBody.description,
     baseConversation,
     createdBy: user,
-    ...(resultConversation !== undefined && { resultConversation, agentModifications: experimentBody.agentModifications }),
+    ...(resultConversation !== undefined && { resultConversation, agents: agentOps }),
     ...(experimentBody.executedAt !== undefined && {
       executedAt: experimentBody.executedAt,
       status: 'completed',
