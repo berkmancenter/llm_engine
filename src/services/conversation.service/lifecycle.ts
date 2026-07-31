@@ -79,7 +79,7 @@ export interface DraftStatusInput {
  * definition, so this stays correct as types change rather than naming any property here.
  * The same format validators back resolver.validateProperties, so the two paths agree.
  */
-function satisfiesTypeProperties(conversation: DraftStatusInput): boolean {
+export function satisfiesTypeProperties(conversation: DraftStatusInput): boolean {
   const type = conversation.conversationType ? getConversationType(conversation.conversationType) : undefined
   const propertyDefs = type?.properties ?? []
   return propertyDefs.every((property) => {

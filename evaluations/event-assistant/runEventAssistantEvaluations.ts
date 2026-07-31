@@ -16,6 +16,7 @@ import {
 import { evaluators } from '../../tests/utils/evaluators.js'
 import config from '../../src/config/config.js'
 import { evaluationTypes, initializeAgentEvaluators } from './eventAssistantConfig.js'
+import { NEUTRAL_BEHAVIORAL_POLICY } from '../../src/conversations/resolver.js'
 import agenda from '../../src/jobs/index.js'
 
 // ---------------------------------------------------------------------------
@@ -69,6 +70,27 @@ async function setupAgentOnce(testConfig: { llmPlatform: string; llmModel: strin
     testConfig.llmPlatform,
     testConfig.llmModel
   )
+
+  // Apply resolver defaults with all features enabled (collectiveVoice + catalyst)
+  // mirrors deriveDefaultsFromFeatures(['collectiveVoice', 'catalyst']) in resolver.ts
+  conversation.behaviorPolicy = NEUTRAL_BEHAVIORAL_POLICY
+  conversation.goals = [
+    'private_reassure',
+    'private_not_alone',
+    'private_transcript_hook',
+    'private_interest_bridge',
+    'synthesize_discussion',
+    'bridge_topics',
+    'surface_signal',
+    'invite_quieter_voices',
+    'structure_conversation',
+    'clarify_confusion',
+    'provoke_participation',
+    'challenge_consensus',
+    'play_commentary',
+    'poll_reveal'
+  ]
+  await conversation.save()
 
   const [agent] = conversation.agents
   return { agent, user, conversation }

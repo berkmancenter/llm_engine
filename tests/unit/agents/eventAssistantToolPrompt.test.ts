@@ -59,7 +59,7 @@ describe('event assistant tool system prompt', () => {
   })
 
   test('buildLLMTemplates with tool names produces tools-aware guidance in semanticSystem', () => {
-    const { semanticSystem } = buildLLMTemplates(null, undefined, ['web_search'])
+    const { semanticSystem } = buildLLMTemplates(undefined, ['web_search'])
     expect(semanticSystem).not.toMatch(/Suggest specific resources or places to find more information/)
     expect(semanticSystem).toMatch(/Use your available tools \(e\.g\. web_search\) to find the answer before responding/)
     expect(semanticSystem).toMatch(/If tools return no results, provide what you know from general knowledge/)
@@ -68,7 +68,7 @@ describe('event assistant tool system prompt', () => {
   })
 
   test('buildLLMTemplates without tool names retains standard resource guidance in semanticSystem', () => {
-    const { semanticSystem } = buildLLMTemplates(null)
+    const { semanticSystem } = buildLLMTemplates()
     expect(semanticSystem).toMatch(/Suggest specific resources or places to find more information/)
     expect(semanticSystem).toMatch(/point toward additional resources/)
     expect(semanticSystem).not.toMatch(/Use your available tools/)

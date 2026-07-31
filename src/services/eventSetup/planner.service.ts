@@ -29,8 +29,10 @@ import { getModelChat } from '../../agents/helpers/getModelChat.js'
 import config from '../../config/config.js'
 import logger from '../../config/logger.js'
 import { EventSetupPlan, EventSetupPlanSchema } from './planSchema.js'
+import { ExtractedFields, ExtractedFieldsSchema } from './eventFieldsSchema.js'
+import { ParsedInvite } from '../../types/index.types.js'
 
-const SYSTEM_PROMPT = `You help an organizer set up an event in Nextspace. The organizer has written a free-form description of what they already know about the event in a web form. Your job is to (a) extract any structured fields you can, (b) judge whether the description is too vague to interpret confidently, (c) recommend the next steps for the rest of the form, (d) decide which form sections can be skipped entirely, and (e) recommend feature toggles.
+const SYSTEM_PROMPT = `You help an organizer set up an event. The organizer has written a free-form description of what they already know about the event in a web form. Your job is to (a) extract any structured fields you can, (b) judge whether the description is too vague to interpret confidently, (c) recommend the next steps for the rest of the form, (d) decide which form sections can be skipped entirely, and (e) recommend feature toggles.
 
 Today's date (for resolving relative dates like "tomorrow"): {today}
 
@@ -96,10 +98,7 @@ const fallbackPlan = (): EventSetupPlan => ({
   featureDecisions: []
 })
 
-export const planEventSetup = async ({
-  description,
-  today = new Date()
-}: PlanEventSetupInput): Promise<EventSetupPlan> => {
+export const planEventSetup = async ({ description, today = new Date() }: PlanEventSetupInput): Promise<EventSetupPlan> => {
   const llm = await getModelChat(config.classificationLLMPlatform, config.classificationLLMModel)
   try {
     const result = (await getChatPromptResponse(
@@ -120,4 +119,84 @@ export const planEventSetup = async ({
   }
 }
 
-export default { planEventSetup }
+/*
+ * The LLM extraction that runs on an inbound calendar invite (see the plan's email-to-events
+ * "One LLM extraction call, not per-field regex"). Unlike planEventSetup above, this only fills in
+ * the fields the .ics file's own structured data cannot answer: a Zoom link (other video platforms
+ * are ignored), speakers, moderators, and description. Everything else about the event, name, time,
+ * and Topic, is already resolved deterministically elsewhere (see emailSetup.service.ts), so this
+ * never asks the model to guess dateTime, duration, topicName, timeZone, or eventName, and strips
+ * them if it answers anyway.
+ */
+
+const INVITE_SYSTEM_PROMPT = `You are a data extraction engine. Parse the three input fields below — **title**, **body**, and **location** — pulled directly from an inbound \`.ics\` calendar file, and return structured event metadata.
+
+**Extract exactly these four fields and no others:** \`zoomLink\`, \`speakers\`, \`moderators\`, \`description\`. Do not populate any other fields. The event's date, time, and topic are already resolved from the \`.ics\` structured fields and must not be derived from this text.
+
+---
+
+**Extraction rules:**
+
+- **\`zoomLink\`** — A Zoom URL only, if present in the location or body. Ignore all other video platforms. Leave undefined if absent.
+
+- **\`speakers\`** and **\`moderators\`** — Each is an array of objects with the shape \`{{ name, bio, alternateName? }}\`.
+  - Include an entry for every person mentioned by name, even if no bio is given — set \`bio\` to an empty string in that case.
+  - Default any unlabeled person to \`speakers\`. Only place a person in \`moderators\` if the text explicitly identifies them using the word "moderator" or "host."
+  - Set \`alternateName\` only when the text provides an explicit alias using language like "also goes by," "aka," or "nickname." Do not infer aliases.
+
+- **\`description\`** — A short summary of what the event is about, drawn from the body text. Leave undefined unless the body contains at least 2–3 sentences of substantive topical content. Do not populate it based solely on logistics such as Zoom links, dial-in numbers, or boilerplate.
+
+- Do not guess or invent any value. If a field is not clearly supported by the text, leave it undefined.
+
+---
+
+Return **only** valid JSON matching the response schema. No explanation, no commentary, no wrapper text.`
+
+const INVITE_USER_PROMPT = `Invite title: {summary}
+
+Invite body: {description}
+
+Invite location: {location}`
+
+export interface PlanConversationFromInviteInput {
+  invite: ParsedInvite
+}
+
+/* A failed extraction should not block event creation: the deterministic fields (name, time,
+   Topic) already came from the .ics file, so the worst case here is a draft missing the Zoom
+   link, speakers, or description for the organizer to fill in themselves. */
+const fallbackExtractedFields = (): ExtractedFields => ({})
+
+/* Keep only the fields this flow actually asked for, even if the model answers with more. See
+   the module comment above for why dateTime/duration/topicName/timeZone/eventName must not
+   leak through here regardless of what the model returns. */
+const pickInviteExtractedFields = ({ zoomLink, speakers, moderators, description }: ExtractedFields): ExtractedFields => ({
+  ...(zoomLink !== undefined && { zoomLink }),
+  ...(speakers !== undefined && { speakers }),
+  ...(moderators !== undefined && { moderators }),
+  ...(description !== undefined && { description })
+})
+
+export const planConversationFromInvite = async ({ invite }: PlanConversationFromInviteInput): Promise<ExtractedFields> => {
+  const llm = await getModelChat(config.classificationLLMPlatform, config.classificationLLMModel)
+  try {
+    const result = (await getChatPromptResponse(
+      llm,
+      INVITE_SYSTEM_PROMPT,
+      INVITE_USER_PROMPT,
+      {
+        summary: invite.summary ?? '(none)',
+        description: invite.description ?? '(none)',
+        location: invite.location ?? '(none)'
+      },
+      [],
+      ExtractedFieldsSchema
+    )) as ExtractedFields
+    return result ? pickInviteExtractedFields(result) : fallbackExtractedFields()
+  } catch (err) {
+    logger.error(`eventSetup planConversationFromInvite failed: ${(err as Error).message}`)
+    return fallbackExtractedFields()
+  }
+}
+
+export default { planEventSetup, planConversationFromInvite }

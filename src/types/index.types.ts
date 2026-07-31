@@ -16,8 +16,9 @@ export interface ParsedInvite {
 }
 
 /* The trust boundary in one shape: `invite` is attacker-supplied .ics file content (anyone can put
-   any UID or ORGANIZER in a raw .ics), while `fromAddress` is the envelope From that Postmark actually
-   received. Identity resolution keys off fromAddress; ORGANIZER is only ever compared against it. */
+   any UID or ORGANIZER in a raw .ics), while `fromAddress` is the envelope From that the email
+   webhook actually received. Identity resolution keys off fromAddress; ORGANIZER is only ever
+   compared against it. */
 export interface InboundInvite {
   fromAddress: string
   invite: ParsedInvite
@@ -198,6 +199,10 @@ export interface IAdapter {
   dmChannels?: AdapterChannelConfig[]
 }
 
+export type ExperimentAgent =
+  | { agent: IAgent; agentType?: never; experimentValues?: Record<string, unknown> }
+  | { agentType: string; agent?: IAgent; experimentValues?: Record<string, unknown> }
+
 export interface IExperiment {
   name: string
   description?: string
@@ -205,11 +210,7 @@ export interface IExperiment {
   createdBy: IUser
   createdAt: Date
   status: 'running' | 'completed' | 'failed' | 'not started'
-  agentModifications?: {
-    agent: IAgent
-    experimentValues?: Record<string, unknown> // should match properties object of agentType passed in on Conversation creation
-    simulatedStartTime?: Date // The Date of the earliest message considered in the periodic interval
-  }[]
+  agents?: ExperimentAgent[]
   resultConversation?: IConversation
   executedAt?: Date
 }
@@ -468,6 +469,14 @@ export interface IConversation {
   enableAgents?: boolean
   owner: IUser
   topic: ITopic
+  // How this conversation was created, when not the standard event-creation form. Deliberately
+  // open-ended (mirrors the model's Mixed type) so a future creation path can store whatever
+  // shape it needs; inviteUid is the one shape in use today.
+  // The .ics UID of the inbound invite is stored at source.inviteUid; used to detect a webhook
+  // retry of the same invite before creating a duplicate (see emailSetup.service.ts).
+  source?: {
+    [key: string]: unknown
+  }
   transcript?: ITranscript
   followed?: boolean
   resources: Resource[]

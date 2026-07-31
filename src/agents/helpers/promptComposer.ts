@@ -4,8 +4,7 @@ import { getPersonalityByName } from './agentPersonality.js'
 
 const TONE_LINES = {
   clearNeutral: '- Voice: clear and neutral — precise, even-handed, no editorializing',
-  warmSupportive:
-    '- Voice: warm and supportive — two registers available: warm (vulnerable themes, minority perspectives) and witty (transitions, lulls, callbacks). Default to warm. Never be sarcastic about participants.',
+  warmSupportive: '- Voice: warm and supportive — approachable, human, never cold',
   playful: "- Voice: playful — wit, energy, personality. Keep it warm; never at a participant's expense",
   professional: '- Voice: professional — measured, authoritative, no wit'
 }

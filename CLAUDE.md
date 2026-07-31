@@ -3,6 +3,14 @@
 `@berkmancenter/llm_engine` — Node 20/22, ESM, TypeScript. **Use `yarn`** (npm is
 blocked). Tests: see [tests/CLAUDE.md](tests/CLAUDE.md).
 
+## Stay client-agnostic
+
+llm_engine serves more than one frontend. Don't reference a specific client (e.g.
+"Nextspace") by name in backend code, comments, copy, or log lines — those assumptions
+belong in the client repo, not here. Third-party services llm_engine talks to directly
+(Zoom, Matomo, Postmark, ...) are fine to name; the rule is about the client consuming
+this API, not the services it calls out to.
+
 ## Committing (non-interactive)
 
 Commit with `-m` and a [Conventional Commit](https://www.conventionalcommits.org/)

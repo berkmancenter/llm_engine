@@ -39,10 +39,10 @@ const envVarsSchema = Joi.object()
     SMTP_USERNAME: Joi.string().description('username for email server'),
     SMTP_PASSWORD: Joi.string().description('password for email server'),
     POSTMARK_WEBHOOK_AUTH_USER: Joi.string().description(
-      'Username set on the Postmark inbound webhook Basic Auth; the handler checks it to confirm a request came from Postmark'
+      'Username set on the inbound email webhook Basic Auth; the handler checks it to confirm a request came from the configured provider'
     ),
     POSTMARK_WEBHOOK_AUTH_SECRET: Joi.string().description(
-      'Random secret set as the password on the Postmark inbound webhook Basic Auth (not a human password); rotate periodically'
+      'Random secret set as the password on the inbound email webhook Basic Auth (not a human password); rotate periodically'
     ),
     EMAIL_FROM: Joi.string().description('the from field in the emails sent by the app'),
     APP_HOST: Joi.string().description('the host url for the frontend app'),
@@ -256,7 +256,7 @@ const config = {
   slack: {
     signingSecret: envVars.SLACK_SIGNING_SECRET
   },
-  postmark: {
+  emailWebhook: {
     authUser: envVars.POSTMARK_WEBHOOK_AUTH_USER,
     authSecret: envVars.POSTMARK_WEBHOOK_AUTH_SECRET
   },

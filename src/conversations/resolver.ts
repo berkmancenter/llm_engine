@@ -29,7 +29,7 @@ export const NEUTRAL_BEHAVIORAL_POLICY: BehaviorPolicy = {
     dm: {
       qaBehavior: {
         answerScope: 'broaderSubjectArea',
-        responseLength: 'medium'
+        responseLength: 'short'
       },
       proactivePolicy: {
         initiativeLevel: 'lightlyProactive',

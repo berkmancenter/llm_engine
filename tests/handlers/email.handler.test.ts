@@ -1,14 +1,22 @@
+import { jest } from '@jest/globals'
 import httpStatus from 'http-status'
 import request from 'supertest'
 import app from '../../src/app.js'
 import config from '../../src/config/config.js'
 import logger from '../../src/config/logger.js'
 import setupIntTest from '../utils/setupIntTest.js'
+import waitFor from '../utils/waitFor.js'
+import { insertUsers } from '../fixtures/user.fixture.js'
+import { Conversation } from '../../src/models/index.js'
+import websocketGateway from '../../src/websockets/websocketGateway.js'
+import transcript from '../../src/agents/helpers/transcript.js'
+import plannerService from '../../src/services/eventSetup/planner.service.js'
+import emailService from '../../src/services/email.service.js'
 import { parseInviteFromPayload } from '../../src/handlers/email.js'
 
 setupIntTest()
 
-const webhookUser = 'postmark-webhook'
+const webhookUser = 'email-webhook'
 const webhookSecret = 'test-webhook-secret'
 
 /**
@@ -54,8 +62,8 @@ const buildIcs = (
   return lines.join('\r\n')
 }
 
-/** Wrap an .ics body in a Postmark inbound webhook payload as its base64 .ics attachment. */
-const buildPostmarkPayload = (icsBody: string, attachmentOverrides = {}) => ({
+/** Wrap an .ics body in an inbound email webhook payload (Postmark's shape) as its base64 .ics attachment. */
+const buildInboundEmailPayload = (icsBody: string, attachmentOverrides = {}) => ({
   FromName: 'Jane Organizer',
   From: 'jane@example.com',
   Subject: 'Quarterly Strategy Roundtable',
@@ -78,15 +86,15 @@ describe('POST /v1/webhooks/email', () => {
   let originalSecret
 
   beforeAll(() => {
-    originalUser = config.postmark.authUser
-    originalSecret = config.postmark.authSecret
-    config.postmark.authUser = webhookUser
-    config.postmark.authSecret = webhookSecret
+    originalUser = config.emailWebhook.authUser
+    originalSecret = config.emailWebhook.authSecret
+    config.emailWebhook.authUser = webhookUser
+    config.emailWebhook.authSecret = webhookSecret
   })
 
   afterAll(() => {
-    config.postmark.authUser = originalUser
-    config.postmark.authSecret = originalSecret
+    config.emailWebhook.authUser = originalUser
+    config.emailWebhook.authSecret = originalSecret
   })
 
   describe('Basic Auth', () => {
@@ -94,19 +102,22 @@ describe('POST /v1/webhooks/email', () => {
       await request(app)
         .post('/v1/webhooks/email')
         .auth(webhookUser, webhookSecret)
-        .send(buildPostmarkPayload(buildIcs()))
+        .send(buildInboundEmailPayload(buildIcs()))
         .expect(httpStatus.OK)
     })
 
     test('rejects a request with no Authorization header before parsing', async () => {
-      await request(app).post('/v1/webhooks/email').send(buildPostmarkPayload(buildIcs())).expect(httpStatus.UNAUTHORIZED)
+      await request(app)
+        .post('/v1/webhooks/email')
+        .send(buildInboundEmailPayload(buildIcs()))
+        .expect(httpStatus.UNAUTHORIZED)
     })
 
     test('rejects a request with the wrong password', async () => {
       await request(app)
         .post('/v1/webhooks/email')
         .auth(webhookUser, 'wrong-secret')
-        .send(buildPostmarkPayload(buildIcs()))
+        .send(buildInboundEmailPayload(buildIcs()))
         .expect(httpStatus.UNAUTHORIZED)
     })
 
@@ -114,12 +125,12 @@ describe('POST /v1/webhooks/email', () => {
       await request(app)
         .post('/v1/webhooks/email')
         .auth('impostor', webhookSecret)
-        .send(buildPostmarkPayload(buildIcs()))
+        .send(buildInboundEmailPayload(buildIcs()))
         .expect(httpStatus.UNAUTHORIZED)
     })
 
     test('responds 200 even when the message carries no calendar attachment', async () => {
-      const payload = buildPostmarkPayload(buildIcs())
+      const payload = buildInboundEmailPayload(buildIcs())
       payload.Attachments = []
       await request(app).post('/v1/webhooks/email').auth(webhookUser, webhookSecret).send(payload).expect(httpStatus.OK)
     })
@@ -137,7 +148,7 @@ describe('POST /v1/webhooks/email', () => {
       await request(app)
         .post('/v1/webhooks/email')
         .auth(webhookUser, webhookSecret)
-        .send(buildPostmarkPayload(buildIcs()))
+        .send(buildInboundEmailPayload(buildIcs()))
         .expect(httpStatus.OK)
 
       const logged = infoSpy.mock.calls.map(([message]) => String(message)).join('\n')
@@ -148,7 +159,7 @@ describe('POST /v1/webhooks/email', () => {
 
   describe('parseInviteFromPayload', () => {
     test('extracts the calendar fields from the base64-encoded .ics attachment', () => {
-      const invite = parseInviteFromPayload(buildPostmarkPayload(buildIcs()))
+      const invite = parseInviteFromPayload(buildInboundEmailPayload(buildIcs()))
 
       expect(invite).not.toBeNull()
       expect(invite?.uid).toBe('040000008200E00074C5B7101A82E00800000000ABCDEF01')
@@ -195,14 +206,14 @@ describe('POST /v1/webhooks/email', () => {
         'END:VCALENDAR'
       ].join('\r\n')
 
-      const invite = parseInviteFromPayload(buildPostmarkPayload(ics))
+      const invite = parseInviteFromPayload(buildInboundEmailPayload(ics))
 
       expect(invite?.startDate?.toISOString()).toBe('2026-09-01T17:00:00.000Z')
       expect(invite?.endDate?.toISOString()).toBe('2026-09-01T18:00:00.000Z')
     })
 
     test('identifies the .ics attachment by filename when the content type is generic', () => {
-      const payload = buildPostmarkPayload(buildIcs(), {
+      const payload = buildInboundEmailPayload(buildIcs(), {
         Name: 'meeting.ics',
         ContentType: 'application/octet-stream'
       })
@@ -213,7 +224,7 @@ describe('POST /v1/webhooks/email', () => {
     })
 
     test('returns null when there is no calendar attachment', () => {
-      const payload = buildPostmarkPayload(buildIcs())
+      const payload = buildInboundEmailPayload(buildIcs())
       payload.Attachments = [
         {
           Name: 'photo.png',
@@ -230,5 +241,84 @@ describe('POST /v1/webhooks/email', () => {
     test('returns null when the attachments array is missing', () => {
       expect(parseInviteFromPayload({ From: 'jane@example.com' })).toBeNull()
     })
+  })
+
+  describe('createConversationFromInvite wiring', () => {
+    let originalDomains
+
+    beforeAll(() => {
+      originalDomains = config.allowedOrganizerEmailDomains
+      config.allowedOrganizerEmailDomains = ['example.com']
+    })
+
+    afterAll(() => {
+      config.allowedOrganizerEmailDomains = originalDomains
+    })
+
+    let sendEventCreatedSpy
+
+    beforeEach(() => {
+      jest.spyOn(websocketGateway, 'broadcastNewConversation').mockResolvedValue(undefined as never)
+      jest.spyOn(transcript, 'loadTopicMetadataIntoVectorStore').mockResolvedValue(undefined as never)
+      jest.spyOn(transcript, 'loadEventMetadataIntoVectorStore').mockResolvedValue(undefined as never)
+      // The extraction call is unit-tested on its own (planner.service.test.ts); mocked here so
+      // this plumbing test isn't also exercising (or paying for) a real LLM call.
+      jest.spyOn(plannerService, 'planConversationFromInvite').mockResolvedValue({})
+      sendEventCreatedSpy = jest.spyOn(emailService, 'sendEventCreatedEmail').mockResolvedValue(undefined as never)
+    })
+
+    afterEach(() => {
+      jest.restoreAllMocks()
+    })
+
+    test('creates a draft conversation from a valid inbound invite', async () => {
+      await insertUsers([
+        {
+          username: 'jane',
+          email: 'jane@example.com',
+          password: 'password1',
+          role: 'user',
+          isEmailVerified: false
+        }
+      ])
+
+      await request(app)
+        .post('/v1/webhooks/email')
+        .auth(webhookUser, webhookSecret)
+        .send(buildInboundEmailPayload(buildIcs()))
+        .expect(httpStatus.OK)
+
+      /* The response comes back before background processing finishes (see handlers/email.ts's
+           ack-before-processing comment), so poll for the confirmation email rather than the
+           Conversation document: that's the signal createConversationFromInvite is fully done
+           (channels, agents, and scheduling all settled), not just that the doc first appeared.
+           Racing ahead on the doc alone left background work from this test still running when
+           the next test's setupIntTest() beforeEach wiped the database out from under it. */
+      await waitFor(() => {
+        if (sendEventCreatedSpy.mock.calls.length === 0) throw new Error('not finished yet')
+      })
+
+      const conversation = await Conversation.findOne({
+        'source.inviteUid': '040000008200E00074C5B7101A82E00800000000ABCDEF01'
+      })
+      expect(conversation).not.toBeNull()
+      expect(conversation!.name).toBe('Quarterly Strategy Roundtable')
+    }, 10000)
+
+    test('creates nothing when the sender is outside the allowlisted domain', async () => {
+      const warnSpy = jest.spyOn(logger, 'warn').mockReturnValue(logger)
+      const payload = buildInboundEmailPayload(buildIcs())
+      payload.From = 'stranger@not-an-org.invalid'
+
+      await request(app).post('/v1/webhooks/email').auth(webhookUser, webhookSecret).send(payload).expect(httpStatus.OK)
+
+      // Poll for the rejection log rather than sleeping a fixed amount: it's the observable proof
+      // that the background handling (parsing, then resolveOrganizer's domain check) has run.
+      await waitFor(() => {
+        const rejected = warnSpy.mock.calls.some(([msg]) => String(msg).includes('stranger@not-an-org.invalid'))
+        if (!rejected) throw new Error('rejection warning not logged yet')
+      })
+      expect(await Conversation.countDocuments()).toBe(0)
+    }, 10000)
   })
 })

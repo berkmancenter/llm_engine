@@ -49,6 +49,20 @@ interface Scenario {
     level?: 'standard' | 'elevated' | 'high'
     domains?: string[]
   }
+  conversationContext?: {
+    conversationType?: string
+    purpose?: string
+    audience?: {
+      expertiseLevel?: string
+      assumedBackgroundKnowledge?: string
+      type?: string[]
+      description?: string
+    }
+    contentSensitivity?: {
+      level?: string
+      domains?: string[]
+    }
+  }
 }
 
 interface Example {
@@ -132,6 +146,16 @@ const examples: Example[] = [
       contentSensitivity: {
         level: 'elevated',
         domains: ['academic integrity', 'AI-generated content in education']
+      },
+      conversationContext: {
+        conversationType: 'Academic lecture',
+        purpose:
+          'Examine the evidence on LLM integration in secondary schools and explore what teachers actually need to use these tools effectively.',
+        audience: {
+          expertiseLevel: 'expert',
+          assumedBackgroundKnowledge: 'high',
+          type: ['researchers', 'educators', 'policy makers']
+        }
       }
     },
     metadata: {
@@ -185,7 +209,22 @@ const examples: Example[] = [
       privateMessages: [
         { text: 'This is describing my last semester exactly', userIndex: 2, offsetSeconds: 532 },
         { text: 'I did not realise what I was going through had a name', userIndex: 1, offsetSeconds: 538 }
-      ]
+      ],
+      conversationContext: {
+        conversationType: 'Classroom lecture',
+        purpose:
+          'Help undergraduate students recognise early warning signs of burnout and understand the psychology behind it.',
+        audience: {
+          expertiseLevel: 'beginner',
+          assumedBackgroundKnowledge: 'low',
+          type: ['undergraduate students'],
+          description: 'Students who may be experiencing stress or burnout themselves.'
+        },
+        contentSensitivity: {
+          level: 'elevated',
+          domains: ['mental health', 'personal wellbeing']
+        }
+      }
     },
     metadata: {
       templateName: 'classroomLecture',
@@ -231,7 +270,17 @@ const examples: Example[] = [
       privateMessages: [
         { text: 'Three days is going to be really hard with my childcare situation', userIndex: 2, offsetSeconds: 390 },
         { text: 'The commute costs are going to wipe out my salary increase', userIndex: 1, offsetSeconds: 408 }
-      ]
+      ],
+      conversationContext: {
+        conversationType: 'Company meeting',
+        purpose: 'Communicate the updated return-to-office policy and help employees understand what is changing and when.',
+        audience: {
+          expertiseLevel: 'mixed',
+          assumedBackgroundKnowledge: 'medium',
+          type: ['employees', 'managers', 'leadership'],
+          description: 'Internal audience with varying seniority — power dynamics may suppress candid input.'
+        }
+      }
     },
     metadata: {
       templateName: 'companyMeeting',
@@ -296,7 +345,17 @@ const examples: Example[] = [
           userIndex: 0,
           offsetSeconds: 580
         }
-      ]
+      ],
+      conversationContext: {
+        conversationType: 'Panel discussion',
+        purpose:
+          'Debate the credibility and feasibility of corporate net-zero commitments, surfacing tensions between ambition, carbon accounting, and real-world progress.',
+        audience: {
+          expertiseLevel: 'mixed',
+          assumedBackgroundKnowledge: 'lowToMedium',
+          type: ['general public', 'sustainability professionals', 'policy observers']
+        }
+      }
     },
     metadata: {
       templateName: 'publicPanelDiscussion',
@@ -354,7 +413,16 @@ const examples: Example[] = [
         { text: 'Wait — six out of forty-two?', userIndex: 0, offsetSeconds: 455 },
         { text: 'That cannot be right', userIndex: 1, offsetSeconds: 465 }
       ],
-      privateMessages: []
+      privateMessages: [],
+      conversationContext: {
+        conversationType: 'Community forum',
+        purpose: 'Help residents understand what is in the local planning pipeline and what they can do to influence it.',
+        audience: {
+          expertiseLevel: 'mixed',
+          assumedBackgroundKnowledge: 'low',
+          type: ['local residents', 'community members']
+        }
+      }
     },
     metadata: {
       templateName: 'casualCommunityEvent',
@@ -408,6 +476,20 @@ const examples: Example[] = [
       contentSensitivity: {
         level: 'elevated',
         domains: ['mental health', 'personal disclosure in professional settings']
+      },
+      conversationContext: {
+        conversationType: 'Company meeting',
+        purpose:
+          'Present occupational health findings and communicate the updated employee support framework including EAP improvements.',
+        audience: {
+          expertiseLevel: 'mixed',
+          assumedBackgroundKnowledge: 'low',
+          type: ['employees', 'managers']
+        },
+        contentSensitivity: {
+          level: 'elevated',
+          domains: ['mental health', 'personal disclosure in professional settings']
+        }
       }
     },
     metadata: {
@@ -466,7 +548,18 @@ const examples: Example[] = [
           offsetSeconds: 530
         },
         { text: 'Is transformer architecture something we need to know for the exam?', userIndex: 0, offsetSeconds: 538 }
-      ]
+      ],
+      conversationContext: {
+        conversationType: 'Classroom lecture',
+        purpose:
+          'Help undergraduate students understand how AI tools work and how to use them responsibly in their studies.',
+        audience: {
+          expertiseLevel: 'beginner',
+          assumedBackgroundKnowledge: 'low',
+          type: ['undergraduate students'],
+          description: 'Students with no technical background encountering AI tools for the first time.'
+        }
+      }
     },
     metadata: {
       templateName: 'classroomLecture',
@@ -510,7 +603,17 @@ const examples: Example[] = [
         },
         { text: 'So what would a credible offset actually look like?', userIndex: 1, offsetSeconds: 518 }
       ],
-      privateMessages: []
+      privateMessages: [],
+      conversationContext: {
+        conversationType: 'Panel discussion',
+        purpose:
+          'Debate the credibility and feasibility of corporate net-zero commitments, surfacing tensions between ambition, carbon accounting, and real-world progress.',
+        audience: {
+          expertiseLevel: 'mixed',
+          assumedBackgroundKnowledge: 'lowToMedium',
+          type: ['general public', 'sustainability professionals', 'policy observers']
+        }
+      }
     },
     metadata: {
       templateName: 'publicPanelDiscussion',
@@ -555,7 +658,16 @@ const examples: Example[] = [
         { text: 'Amazing — sharing that now', userIndex: 1, offsetSeconds: 482 },
         { text: 'Marcus said eleven days — is that calendar days or working days?', userIndex: 2, offsetSeconds: 495 }
       ],
-      privateMessages: []
+      privateMessages: [],
+      conversationContext: {
+        conversationType: 'Community forum',
+        purpose: 'Help residents understand what is in the local planning pipeline and what they can do to influence it.',
+        audience: {
+          expertiseLevel: 'mixed',
+          assumedBackgroundKnowledge: 'low',
+          type: ['local residents', 'community members']
+        }
+      }
     },
     metadata: {
       templateName: 'casualCommunityEvent',

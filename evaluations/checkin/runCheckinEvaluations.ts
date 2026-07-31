@@ -70,7 +70,7 @@ function buildJudgeContext(inputs: any, goalId: string, template: ConversationTe
     goal?.triggers.conditions.map((c) => c.condition) ?? [],
     goal?.guardrails ?? [],
     template.behaviorPolicy,
-    template.conversationContext
+    inputs.conversationContext
   )
 }
 
@@ -104,10 +104,10 @@ async function setupAgent(
     [user2, user3]
   )
 
-  // Apply template — goals, behavior policy, and conversation context
+  // Apply template — goals and behavior policy; context is per-example
   conversation.goals = template.goals
   conversation.behaviorPolicy = template.behaviorPolicy
-  conversation.conversationContext = template.conversationContext
+  if (inputs.conversationContext) conversation.conversationContext = inputs.conversationContext
   await conversation.save()
 
   if (inputs.transcriptMessages?.length > 0) {

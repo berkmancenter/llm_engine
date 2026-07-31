@@ -305,8 +305,21 @@ describe('checkin handler tests', () => {
           ag.conversation,
           getTime(315)
         )
+        const msg4 = await createDirectMessage(
+          "I don't know, I probably just have a chip on my shoulder about this. Ignore me.",
+          user1,
+          ag.conversation,
+          getTime(420)
+        )
+        const reply4 = createAgentDirectMessage(
+          "You don't have to have a fully formed argument — half-formed thoughts are welcome here.",
+          ag,
+          user1._id,
+          ag.conversation,
+          getTime(430)
+        )
 
-        await prepareMessagesForAgent([msg1, reply1, msg2, reply2, msg3, reply3], ag.conversation, ag)
+        await prepareMessagesForAgent([msg1, reply1, msg2, reply2, msg3, reply3, msg4, reply4], ag.conversation, ag)
         const responses = await runCheckin(ag)
 
         const checkin = findCheckinForUser(responses, user1._id)
@@ -569,7 +582,7 @@ describe('checkin handler tests', () => {
     it(
       'uses only the transcript window configured in agentConfig.checkinTranscriptWindow',
       async () => {
-        const { agent: ag } = await setup([user1, user2])
+        const { agent: ag } = await setup([user1])
         await loadPartTimeWorkTranscript(ag.conversation, false)
 
         // Position at ~14:15 — well into the transcript so a narrow window excludes early content

@@ -1,9 +1,8 @@
-import { BehaviorPolicy, ConversationContext } from '../src/types/index.types.js'
+import { BehaviorPolicy } from '../src/types/index.types.js'
 
 export interface ConversationTemplate {
   goals: string[]
   behaviorPolicy: BehaviorPolicy
-  conversationContext: ConversationContext
 }
 
 export const TEMPLATES: Record<string, ConversationTemplate> = {
@@ -38,16 +37,6 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
             socialSensitivity: 'high'
           }
         }
-      }
-    },
-
-    conversationContext: {
-      conversationType: 'Academic lecture',
-      purpose: 'Deepen understanding of the presented research and open lines of scholarly inquiry.',
-      audience: {
-        expertiseLevel: 'expert',
-        assumedBackgroundKnowledge: 'high',
-        type: ['researchers', 'academics', 'graduate students']
       }
     }
   },
@@ -85,16 +74,6 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
           }
         }
       }
-    },
-    conversationContext: {
-      conversationType: 'Classroom lecture',
-      purpose: 'Help students follow along, surface confusion early, and reinforce key concepts.',
-      audience: {
-        expertiseLevel: 'beginner',
-        assumedBackgroundKnowledge: 'low',
-        type: ['students'],
-        description: 'Learners who may be encountering this material for the first time.'
-      }
     }
   },
 
@@ -130,16 +109,6 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
             minContributionMinutes: 5
           }
         }
-      }
-    },
-    conversationContext: {
-      conversationType: 'Company meeting',
-      purpose: 'Align on decisions, surface concerns across seniority levels, and capture outcomes.',
-      audience: {
-        expertiseLevel: 'mixed',
-        assumedBackgroundKnowledge: 'medium',
-        type: ['employees', 'managers', 'executives'],
-        description: 'Internal audience with varying seniority — power dynamics may suppress candid input.'
       }
     }
   },
@@ -177,16 +146,6 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
           }
         }
       }
-    },
-    conversationContext: {
-      conversationType: 'Community event',
-      purpose: 'Build connection and energy among participants — surface shared interests, spark conversation, and make the room feel alive.',
-      audience: {
-        expertiseLevel: 'mixed',
-        assumedBackgroundKnowledge: 'low',
-        type: ['community members', 'local residents', 'hobbyists', 'general public'],
-        description: 'Informal gathering — participants came to connect and have fun, not to be lectured at.'
-      }
     }
   },
 
@@ -222,16 +181,6 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
             minContributionMinutes: 4
           }
         }
-      }
-    },
-    conversationContext: {
-      conversationType: 'Panel discussion',
-      purpose: 'Draw out the tensions between panelists and connect audience reactions to the live debate.',
-      audience: {
-        expertiseLevel: 'mixed',
-        assumedBackgroundKnowledge: 'lowToMedium',
-        type: ['general public', 'practitioners', 'interested non-experts'],
-        description: 'Varied background — some domain familiarity, most engaged as interested observers.'
       }
     }
   }
