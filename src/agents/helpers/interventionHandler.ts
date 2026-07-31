@@ -1,8 +1,9 @@
 import { z } from 'zod'
+import type { StructuredToolInterface } from '@langchain/core/tools'
 import { BehaviorPolicy, ConversationHistory, ConversationGoal, IChannel } from '../../types/index.types.js'
 import { formatMultiUserConversationHistory, formatDmHistoryByChannel } from './llmInputFormatters.js'
 import transcript from './transcript.js'
-import { getChatPromptResponse } from './llmChain.js'
+import { getChatPromptResponse, getAgentStructuredResponse } from './llmChain.js'
 
 import logger from '../../config/logger.js'
 import { getConfidenceThreshold, getMinContributionMs } from './promptComposer.js'
@@ -118,7 +119,8 @@ export async function runInterventionAnalysis(
   activeGoals?: ConversationGoal[],
   behaviorPolicy?: BehaviorPolicy,
   channelType: 'dm' | 'groupChat' = 'groupChat',
-  recentTranscript?: string
+  recentTranscript?: string,
+  tools?: StructuredToolInterface[]
 ): Promise<InterventionAnalysis | null> {
   // Format conversation histories
   const sharedChatMessages = formatMultiUserConversationHistory(sharedChatHistory)
@@ -158,15 +160,26 @@ export async function runInterventionAnalysis(
     ...extraTemplateVars
   }
 
+  const renderedUserPrompt = Object.entries(templateVars).reduce(
+    (prompt, [key, value]) =>
+      // eslint-disable-next-line security/detect-non-literal-regexp
+      prompt.replace(new RegExp(`\\{${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\}`, 'g'), value ?? ''),
+    resolvedUserTemplate
+  )
+
   const llm = await this.getLLM()
-  const analysis = (await getChatPromptResponse(
-    llm,
-    baseSystemPrompt,
-    resolvedUserTemplate,
-    templateVars,
-    [], // No chat history - we provide full context in the prompt
-    schema
-  )) as z.infer<typeof schema>
+  const analysis = (
+    tools && tools.length > 0
+      ? await getAgentStructuredResponse(llm, tools, baseSystemPrompt, renderedUserPrompt, schema)
+      : await getChatPromptResponse(
+          llm,
+          baseSystemPrompt,
+          resolvedUserTemplate,
+          templateVars,
+          [], // No chat history - we provide full context in the prompt
+          schema
+        )
+  ) as z.infer<typeof schema>
 
   logger.debug(`Intervention opportunity analysis: ${JSON.stringify(analysis, null, 2)}`)
 
@@ -184,13 +197,6 @@ export async function runInterventionAnalysis(
   if (!analysis.shouldIntervene || analysis.confidenceScore < effectiveThreshold) {
     return null
   }
-
-  const renderedUserPrompt = Object.entries(templateVars).reduce(
-    (prompt, [key, value]) =>
-      // eslint-disable-next-line security/detect-non-literal-regexp
-      prompt.replace(new RegExp(`\\{${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\}`, 'g'), value ?? ''),
-    resolvedUserTemplate
-  )
 
   const result = analysis as InterventionAnalysis
   result.context = renderedUserPrompt
@@ -214,7 +220,8 @@ export async function detectPrivateInterventionOpportunity(
   extraTemplateVars?: Record<string, string>,
   activeGoals?: ConversationGoal[],
   behaviorPolicy?: BehaviorPolicy,
-  recentTranscript?: string
+  recentTranscript?: string,
+  tools?: StructuredToolInterface[]
 ): Promise<InterventionAnalysis | null> {
   const now = sharedChatHistory.end ? sharedChatHistory.end.getTime() : Date.now()
   const dmProactivePolicy = behaviorPolicy?.channels?.dm?.proactivePolicy
@@ -244,6 +251,7 @@ export async function detectPrivateInterventionOpportunity(
     activeGoals,
     behaviorPolicy,
     'dm',
-    recentTranscript
+    recentTranscript,
+    tools
   )
 }
