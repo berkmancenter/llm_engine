@@ -163,7 +163,7 @@ export async function runInterventionAnalysis(
   const renderedUserPrompt = Object.entries(templateVars).reduce(
     (prompt, [key, value]) =>
       // eslint-disable-next-line security/detect-non-literal-regexp
-      prompt.replace(new RegExp(`\\{${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\}`, 'g'), value ?? ''),
+      prompt.replace(new RegExp(`\\{${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\}`, 'g'), () => value ?? ''),
     resolvedUserTemplate
   )
 

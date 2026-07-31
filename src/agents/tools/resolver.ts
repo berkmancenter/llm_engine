@@ -27,6 +27,13 @@ export interface ResolvedTools {
  * prompt guidance. Merge order is default -> configured -> goal-derived -> extra; the first
  * goal (in `goals` order) to reference a given tool wins on conflicting `config`. Every goal
  * that references a tool contributes its `usageNotes` (if any), concatenated in goal order.
+ *
+ * NOTE: a tool's registered promptGuidance (see registry.ts's registerTool meta param) is
+ * written for whatever agent output-shape first registered it — e.g. web_search's guidance
+ * assumes a free-text Q&A reply. If a goal grants a tool to an agent with a different output
+ * shape (e.g. a structured decision or a private DM), check that the registered guidance
+ * still fits; use a goal's tools[].usageNotes to add or override context-specific instructions
+ * rather than relying on the static guidance alone.
  */
 export function resolveTools(options: ResolveToolsOptions): ResolvedTools {
   const { defaultTools = [], configuredTools = [], goals = [], extraTools = [], toolContext } = options

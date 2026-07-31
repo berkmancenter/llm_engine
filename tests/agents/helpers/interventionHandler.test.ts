@@ -470,5 +470,37 @@ describe('interventionHandler', () => {
       const callArgs = mockGetAgentStructuredResponse.mock.calls[0]
       expect(callArgs[1]).toEqual([fakeTool])
     })
+
+    it('passes the tools param through detectPrivateInterventionOpportunity to the LLM call', async () => {
+      const fakeTool = { name: 'fake_tool' } as unknown as StructuredToolInterface
+      mockGetAgentStructuredResponse.mockResolvedValue({
+        shouldIntervene: true,
+        reasoning: 'test reasoning',
+        confidenceScore: 90,
+        goalId: 'some_goal'
+      })
+
+      // conversation.startTime is 20 minutes ago (well outside the 2 min default rate
+      // limit) and participantDmHistory has no prior agent messages, so this proceeds
+      // past the rate limiter and reaches runInterventionAnalysis's LLM call.
+      await detectPrivateInterventionOpportunity.call(
+        makeContext(),
+        sharedChatHistory,
+        'system',
+        schema,
+        null,
+        { end: new Date(), messages: [] },
+        'user template {topic}',
+        undefined, // extraTemplateVars
+        undefined, // activeGoals
+        undefined, // behaviorPolicy
+        undefined, // recentTranscript
+        [fakeTool]
+      )
+
+      expect(mockGetAgentStructuredResponse).toHaveBeenCalled()
+      const callArgs = mockGetAgentStructuredResponse.mock.calls[0]
+      expect(callArgs[1]).toEqual([fakeTool])
+    })
   })
 })

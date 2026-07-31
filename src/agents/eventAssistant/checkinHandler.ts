@@ -265,7 +265,6 @@ async function processParticipant(
       : 'No messages yet from this participant.'
 
   const { tools, promptGuidance } = resolveTools({
-    configuredTools: this.agentConfig?.tools as string[] | undefined,
     goals: goalsToPursue
   })
 
