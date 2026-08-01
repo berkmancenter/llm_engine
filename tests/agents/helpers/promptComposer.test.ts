@@ -660,6 +660,42 @@ describe('buildGoalInstructions with goalPriorities', () => {
   })
 })
 
+describe('buildGoalInstructions with goalContext', () => {
+  test('appends context under the matching goal only', () => {
+    const result = buildGoalInstructions([FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL], 'groupChat', undefined, {
+      provoke_participation: 'Speaker background: Jane Doe argues for X.'
+    })
+    expect(result).toContain('Context for this pattern only:\nSpeaker background: Jane Doe argues for X.')
+    const provokeSection = result.slice(result.indexOf('Provoke participation'), result.indexOf('Bridge topics'))
+    expect(provokeSection).toContain('Speaker background: Jane Doe argues for X.')
+    const bridgeSection = result.slice(result.indexOf('Bridge topics'))
+    expect(bridgeSection).not.toContain('Speaker background')
+  })
+
+  test('renders no context section when goalContext has no entry for the goal', () => {
+    const result = buildGoalInstructions([FIXTURE_GROUP_GOAL], 'groupChat', undefined, {
+      bridge_topics: 'Unrelated context.'
+    })
+    expect(result).not.toContain('Context for this pattern only')
+  })
+
+  test('is a no-op when goalContext is absent', () => {
+    const result = buildGoalInstructions([FIXTURE_GROUP_GOAL], 'groupChat')
+    expect(result).not.toContain('Context for this pattern only')
+  })
+})
+
+describe('composeSystemPrompt with goalContext', () => {
+  test('passes goalContext through to the goal section', () => {
+    const result = composeSystemPrompt('Base.', {
+      goals: [FIXTURE_GROUP_GOAL],
+      channelType: 'groupChat',
+      goalContext: { provoke_participation: 'Speaker background: Jane Doe argues for X.' }
+    })
+    expect(result).toContain('Speaker background: Jane Doe argues for X.')
+  })
+})
+
 describe('composeSystemPrompt with goalPriorities', () => {
   test('passes goalPriorities through to goal section', () => {
     const result = composeSystemPrompt('Base.', {

@@ -178,13 +178,15 @@ export default verify({
 
     const personalityName = this.agentConfig?.personality ?? null
     const goalPriorities = this.agentConfig?.goalPriorities as Record<string, number> | undefined
+    const goalContext = this.agentConfig?.goalContext as Record<string, string> | undefined
     const systemPrompt = composeSystemPrompt(getProactiveGroupSystemPrompt(groupChatGoals), {
       conversationContext: this.conversation.conversationContext,
       behaviorPolicy: this.conversation.behaviorPolicy,
       goals: groupChatGoals,
       channelType: 'groupChat',
       personalityName,
-      goalPriorities
+      goalPriorities,
+      goalContext
     })
 
     const sharedChatHistory = getConversationHistory(this.conversation.messages, {

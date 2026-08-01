@@ -217,11 +217,15 @@ function buildBehaviorPolicySection(behaviorPolicy: BehaviorPolicy | undefined, 
  * Each goal contributes its description, trigger conditions, guardrails, and examples.
  * When goalPriorities is provided, goals are sorted by priority and a ranked preference
  * list is prepended so the LLM knows which patterns to prefer.
+ * goalContext, when provided, is keyed by goal id and appended only under that goal's
+ * own section — a way to feed a goal event-specific context without it leaking into the
+ * reasoning for any other goal.
  */
 function buildGoalInstructions(
   goals: ConversationGoal[],
   channelType: 'dm' | 'groupChat',
-  goalPriorities?: Record<string, number>
+  goalPriorities?: Record<string, number>,
+  goalContext?: Record<string, string>
 ): string {
   const allChannelGoals = channelType === 'groupChat' ? getGroupChatGoals(goals) : getDmGoals(goals)
   if (allChannelGoals.length === 0) return ''
@@ -272,6 +276,10 @@ function buildGoalInstructions(
       }
     }
 
+    if (goalContext?.[goal.id]) {
+      lines.push(`\nContext for this pattern only:\n${goalContext[goal.id]}`)
+    }
+
     lines.push('')
   }
 
@@ -293,9 +301,10 @@ function composeSystemPrompt(
     channelType?: 'dm' | 'groupChat'
     personalityName?: string | null
     goalPriorities?: Record<string, number>
+    goalContext?: Record<string, string>
   } = {}
 ): string {
-  const { conversationContext, behaviorPolicy, goals, channelType, personalityName, goalPriorities } = options
+  const { conversationContext, behaviorPolicy, goals, channelType, personalityName, goalPriorities, goalContext } = options
   const parts: string[] = [basePrompt]
 
   const contextSection = buildConversationContextSection(conversationContext)
@@ -306,7 +315,7 @@ function composeSystemPrompt(
 
   if (goals && goals.length > 0 && channelType) {
     const prioritizedGoals = filterAndSortGoalsByPriority(goals, goalPriorities)
-    const goalSection = buildGoalInstructions(prioritizedGoals, channelType, goalPriorities)
+    const goalSection = buildGoalInstructions(prioritizedGoals, channelType, goalPriorities, goalContext)
     if (goalSection) parts.push(goalSection)
   }
 
