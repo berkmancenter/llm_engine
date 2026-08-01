@@ -1,5 +1,5 @@
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import { registerTool, getTools, listRegisteredTools } from '../../../src/agents/tools/registry.js'
+import { registerTool, getTools, listRegisteredTools, getToolPromptGuidance } from '../../../src/agents/tools/registry.js'
 
 describe('Tool Registry', () => {
   test('should have built-in tools registered', () => {
@@ -86,5 +86,40 @@ describe('Tool Registry', () => {
       activeConversationId: '507f1f77bcf86cd799439012'
     })
     expect(tools).toHaveLength(3)
+  })
+
+  test('registerTool accepts optional promptGuidance metadata', () => {
+    registerTool('guidance_test_tool', () => ({ name: 'guidance_test_tool' } as unknown as StructuredToolInterface), {
+      promptGuidance: 'Use guidance_test_tool only when the user asks for it directly.'
+    })
+    expect(getToolPromptGuidance('guidance_test_tool')).toBe(
+      'Use guidance_test_tool only when the user asks for it directly.'
+    )
+  })
+
+  test('getToolPromptGuidance returns empty string when no guidance was registered', () => {
+    registerTool('no_guidance_tool', () => ({ name: 'no_guidance_tool' } as unknown as StructuredToolInterface))
+    expect(getToolPromptGuidance('no_guidance_tool')).toBe('')
+  })
+
+  test('getToolPromptGuidance returns empty string for an unknown tool name', () => {
+    expect(getToolPromptGuidance('totally_unregistered_tool')).toBe('')
+  })
+
+  test('web_search factory applies toolConfig.web_search as the maxResults default', () => {
+    const tools = getTools(['web_search'], { toolConfig: { web_search: { maxResults: 2 } } })
+    expect(tools).toHaveLength(1)
+    const parsed = (tools[0] as unknown as { schema: { parse: (v: unknown) => { maxResults: number } } }).schema.parse({
+      query: 'x'
+    })
+    expect(parsed.maxResults).toBe(2)
+  })
+
+  test('web_search factory defaults to maxResults 5 without toolConfig', () => {
+    const tools = getTools(['web_search'])
+    const parsed = (tools[0] as unknown as { schema: { parse: (v: unknown) => { maxResults: number } } }).schema.parse({
+      query: 'x'
+    })
+    expect(parsed.maxResults).toBe(5)
   })
 })

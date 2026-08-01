@@ -32,7 +32,10 @@ jest.unstable_mockModule('../src/agents/helpers/transcript.js', () => ({
     searchTranscript: mockFn().mockResolvedValue({ chunks: '' }),
     loadEventMetadataIntoVectorStore: mockFn().mockResolvedValue(undefined),
     deleteTranscript: mockFn().mockResolvedValue(undefined)
-  }
+  },
+  // resolveTools -> registry.js -> eventHistory.js imports this named export statically,
+  // so it must be present even though this test never exercises the event_history tool.
+  TOPIC_TRANSCRIPT_COLLECTION_PREFIX: 'topic-transcript'
 }))
 
 const { default: proactiveGroupAgent } = await import('../../../../src/agents/proactiveGroupAgent/proactiveGroupAgent.js')
@@ -261,7 +264,7 @@ describe('proactiveGroupAgent respond', () => {
         expect.any(Date)
       )
       const callArgs = mockRunInterventionAnalysis.mock.calls[0]
-      const recentTranscript = callArgs[callArgs.length - 1] as string
+      const recentTranscript = callArgs[9] as string
       expect(recentTranscript).toBe('Part-time work is the future.')
     })
 
@@ -275,6 +278,34 @@ describe('proactiveGroupAgent respond', () => {
       await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
 
       expect(mockGetTranscript).toHaveBeenCalledWith(agent.conversation, 300, expect.any(Date))
+    })
+  })
+
+  describe('tools', () => {
+    it('passes resolved tools through to runInterventionAnalysis when agentConfig.tools is set', async () => {
+      const now = new Date()
+      const agent = makeAgent({ startTime: new Date(now.getTime() - 10 * 60 * 1000) })
+      agent.agentConfig.tools = ['web_search']
+      mockRunInterventionAnalysis.mockResolvedValue(null)
+
+      await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
+
+      expect(mockRunInterventionAnalysis).toHaveBeenCalled()
+      const callArgs = mockRunInterventionAnalysis.mock.calls[0]
+      const toolsArg = callArgs[10] as Array<{ name: string }>
+      expect(Array.isArray(toolsArg)).toBe(true)
+      expect(toolsArg.map((t) => t.name)).toContain('web_search')
+    })
+
+    it('passes an empty tools array through when agentConfig.tools is unset', async () => {
+      const now = new Date()
+      const agent = makeAgent({ startTime: new Date(now.getTime() - 10 * 60 * 1000) })
+      mockRunInterventionAnalysis.mockResolvedValue(null)
+
+      await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
+
+      const callArgs = mockRunInterventionAnalysis.mock.calls[0]
+      expect(callArgs[10]).toEqual([])
     })
   })
 

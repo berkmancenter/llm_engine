@@ -357,6 +357,15 @@ export interface TriggerCondition {
   condition: string
 }
 
+export interface GoalToolRef {
+  /** Tool name as registered in the tool registry, e.g. "web_search". */
+  name: string
+  /** Optional per-goal config overrides passed to the tool's factory, e.g. { maxResults: 3 }. */
+  config?: Record<string, unknown>
+  /** Optional goal-specific usage guidance, appended to the tool's default usage guidance. */
+  usageNotes?: string
+}
+
 export interface ConversationGoal {
   id: string
   label: string
@@ -374,6 +383,7 @@ export interface ConversationGoal {
     pollInstructions?: string
   }
   examples: string[]
+  tools?: GoalToolRef[]
 }
 
 export interface ConversationContext {

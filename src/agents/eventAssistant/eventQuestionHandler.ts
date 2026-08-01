@@ -9,7 +9,7 @@ import config from '../../config/config.js'
 
 import { getModelChat, classificationLLMPlatform, classificationLLMModel } from '../helpers/getModelChat.js'
 import { composeSystemPrompt } from '../helpers/promptComposer.js'
-import { getTools } from '../tools/registry.js'
+import { resolveTools } from '../tools/resolver.js'
 import { TopicRef } from '../tools/eventHistory.js'
 import Topic from '../../models/topic.model.js'
 import {
@@ -408,8 +408,11 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
     }
   }
 
-  const toolNames = series ? [...configuredToolNames, 'event_history'] : configuredToolNames
-  const tools = toolNames.length > 0 ? getTools(toolNames, toolContext) : []
+  const { tools, toolNames } = resolveTools({
+    configuredTools: configuredToolNames,
+    extraTools: series ? ['event_history'] : [],
+    toolContext
+  })
   const hasWebSearch = toolNames.includes('web_search')
 
   const channelType = userMessage?.channels?.includes('chat') ? 'groupChat' : 'dm'

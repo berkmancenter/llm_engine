@@ -1,4 +1,5 @@
 import { jest } from '@jest/globals'
+import type { StructuredToolInterface } from '@langchain/core/tools'
 import setupIntTest from '../../utils/setupIntTest.js'
 import type { ConversationGoal } from '../../../src/types/index.types.js'
 
@@ -6,10 +7,13 @@ import type { ConversationGoal } from '../../../src/types/index.types.js'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockGetChatPromptResponse = jest.fn<(...args: any[]) => Promise<any>>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockGetAgentStructuredResponse = jest.fn<(...args: any[]) => Promise<any>>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockGetTranscript = jest.fn<(...args: any[]) => string>().mockReturnValue('transcript text')
 
 jest.unstable_mockModule('../src/agents/helpers/llmChain.js', () => ({
-  getChatPromptResponse: mockGetChatPromptResponse
+  getChatPromptResponse: mockGetChatPromptResponse,
+  getAgentStructuredResponse: mockGetAgentStructuredResponse
 }))
 
 jest.unstable_mockModule('../src/agents/helpers/transcript.js', () => ({
@@ -405,6 +409,98 @@ describe('interventionHandler', () => {
 
       expect(result).not.toBeNull()
       expect(result!.confidenceScore).toBe(80)
+    })
+  })
+
+  describe('runInterventionAnalysis tools param', () => {
+    function makeContext() {
+      return {
+        name: 'Test Agent',
+        agentType: 'proactiveGroupAgent',
+        _id: 'test-agent-id',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        getLLM: jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue({}),
+        llmTemplates: { user: undefined },
+        conversation: {
+          name: 'Test Conversation',
+          startTime: new Date(Date.now() - 20 * 60 * 1000),
+          channels: []
+        }
+      }
+    }
+
+    const sharedChatHistory = { end: new Date(), messages: [] }
+    const schema = { parse: jest.fn() } as unknown as import('zod').ZodSchema
+    const analysis = { shouldIntervene: false, reasoning: 'no', confidenceScore: 0 }
+
+    beforeEach(() => {
+      jest.clearAllMocks()
+    })
+
+    it('calls getChatPromptResponse, not getAgentStructuredResponse, when no tools are given', async () => {
+      mockGetChatPromptResponse.mockResolvedValue(analysis)
+
+      await runInterventionAnalysis.call(makeContext(), sharedChatHistory, 'system', schema, null, 'user template')
+
+      expect(mockGetChatPromptResponse).toHaveBeenCalled()
+      expect(mockGetAgentStructuredResponse).not.toHaveBeenCalled()
+    })
+
+    it('calls getAgentStructuredResponse, not getChatPromptResponse, when tools are given', async () => {
+      mockGetAgentStructuredResponse.mockResolvedValue(analysis)
+      const fakeTool = { name: 'fake_tool' } as unknown as StructuredToolInterface
+
+      await runInterventionAnalysis.call(
+        makeContext(),
+        sharedChatHistory,
+        'system',
+        schema,
+        null,
+        'user template {topic}',
+        undefined, // extraTemplateVars
+        undefined, // activeGoals
+        undefined, // behaviorPolicy
+        'groupChat',
+        undefined, // recentTranscript
+        [fakeTool]
+      )
+
+      expect(mockGetAgentStructuredResponse).toHaveBeenCalled()
+      expect(mockGetChatPromptResponse).not.toHaveBeenCalled()
+      const callArgs = mockGetAgentStructuredResponse.mock.calls[0]
+      expect(callArgs[1]).toEqual([fakeTool])
+    })
+
+    it('passes the tools param through detectPrivateInterventionOpportunity to the LLM call', async () => {
+      const fakeTool = { name: 'fake_tool' } as unknown as StructuredToolInterface
+      mockGetAgentStructuredResponse.mockResolvedValue({
+        shouldIntervene: true,
+        reasoning: 'test reasoning',
+        confidenceScore: 90,
+        goalId: 'some_goal'
+      })
+
+      // conversation.startTime is 20 minutes ago (well outside the 2 min default rate
+      // limit) and participantDmHistory has no prior agent messages, so this proceeds
+      // past the rate limiter and reaches runInterventionAnalysis's LLM call.
+      await detectPrivateInterventionOpportunity.call(
+        makeContext(),
+        sharedChatHistory,
+        'system',
+        schema,
+        null,
+        { end: new Date(), messages: [] },
+        'user template {topic}',
+        undefined, // extraTemplateVars
+        undefined, // activeGoals
+        undefined, // behaviorPolicy
+        undefined, // recentTranscript
+        [fakeTool]
+      )
+
+      expect(mockGetAgentStructuredResponse).toHaveBeenCalled()
+      const callArgs = mockGetAgentStructuredResponse.mock.calls[0]
+      expect(callArgs[1]).toEqual([fakeTool])
     })
   })
 })

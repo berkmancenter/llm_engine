@@ -137,6 +137,20 @@
       },
       "minItems": 1,
       "description": "Concrete example outputs demonstrating this pattern in practice."
+    },
+    "tools": {
+      "type": "array",
+      "description": "Optional LLM tools this pattern grants when active, merged with the agent's already-configured tools.",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "description": "Tool name as registered in the tool registry, e.g. \"web_search\"." },
+          "config": { "type": "object", "description": "Optional per-goal config overrides passed to the tool's factory, e.g. { \"maxResults\": 3 }." },
+          "usageNotes": { "type": "string", "description": "Optional goal-specific guidance on when/how to use this tool, appended to its default usage guidance." }
+        }
+      }
     }
   }
 }
