@@ -40,3 +40,8 @@ yarn lint && yarn prettier && yarn build   # eslint / prettier --check / tsc typ
 
 `yarn build` and tests are not enforced by any hook — run them yourself. Pushing runs
 no hooks: `git push`.
+
+## Pull requests
+
+Always fill out [.github/pull_request_template.md](.github/pull_request_template.md)
+when opening a PR (`gh pr create --body-file ...`) — don't drop or skip its sections.
