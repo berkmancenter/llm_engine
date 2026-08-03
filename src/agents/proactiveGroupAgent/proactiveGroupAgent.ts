@@ -132,7 +132,7 @@ export default verify({
   description:
     'Makes strategic interventions in shared chat based on active behavioral patterns — facilitating discussion, surfacing signal, and generating engagement based on conversation goals.',
   priority: 85,
-  maxTokens: 4000,
+  maxTokens: 5000,
   defaultTriggers: {
     periodic: { timerPeriod: 120, conversationHistorySettings: { channels: ['transcript'] }, proactive: true }
   },
