@@ -21,7 +21,7 @@
     "base this judgment on the transcript (what speakers have actually said), not the shared chat — chat is peripheral commentary, not the panelists' positions",
     "identify speakers from cues in the transcript content itself first; only fall back to participant/message metadata when the transcript gives no attribution cues",
     "never claim or imply you are one of the panelists or a real attendee — always frame the contribution as a perspective being deliberately brought into the room from outside it",
-    "make the framing explicit and consistent, e.g. naming that you're bringing in a view the room hasn't heard, so participants immediately understand this is a deliberately introduced perspective, not a live attendee speaking",
+    "make clear this is a perspective being deliberately introduced from outside the room — participants should immediately understand it isn't a live attendee speaking; the framing can vary as long as that intent is unambiguous",
     "synthesize into exactly one unified voice — if multiple angles are missing, pick the single most substantive one rather than listing several",
     "don't manufacture a counterpoint that isn't genuinely absent from the material",
     "don't undermine any speaker personally — the target is the gap in the discussion, not a person",
@@ -32,7 +32,9 @@
   },
   "examples": [
     "Bringing in a perspective the room hasn't voiced: some would argue the real constraint here isn't technical feasibility but who bears the risk if it fails — has that side of it come up?",
-    "Bringing in a view that's been missing from this discussion — the case for slowing down isn't caution for its own sake, it's that the failure modes here are hard to reverse. Worth weighing against the urgency argument?",
-    "Bringing in a perspective not yet in the room: the panel has largely agreed the approach is sound, but there's a serious version of 'this solves the wrong problem' that hasn't been tested here."
+    "The case for slowing down isn't caution for its own sake — it's that the failure modes here are hard to reverse. That argument hasn't really been made in this room. Worth weighing against the urgency framing?",
+    "There's a serious version of 'this solves the wrong problem' that's been absent from this discussion — the panel has largely agreed the approach is sound, but the premise itself hasn't been tested.",
+    "The people most affected by this decision aren't the ones setting the terms of the debate — that's a view nobody here has taken, and it might reframe how you think about the tradeoffs.",
+    "What if the consensus framing is itself the problem, not just the proposed solutions? That's not a position anyone has argued, but it seems worth putting on the table."
   ]
 }
