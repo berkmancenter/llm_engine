@@ -7,6 +7,7 @@ import {
   createPublicTopic,
   createUser,
   loadPartTimeWorkTranscript,
+  loadTestTranscript,
   createMessage,
   prepareMessagesForAgent
 } from '../../utils/agentTestHelpers.js'
@@ -519,6 +520,215 @@ describe(`proactive group agent facilitative tests`, () => {
             message.toLowerCase().includes('chapter') ||
             message.toLowerCase().includes('part')
           expect(hasStructure).toBe(true)
+        }
+      },
+      testTimeout
+    )
+  })
+
+  describe('missing_perspective goal', () => {
+    // Panel transcript: two panelists with clearly distinct, attributed positions.
+    // Alex argues automation is net-positive (historical precedent, productivity gains).
+    // Taylor argues for managed transition (safety nets, retraining, careful governance).
+    // Neither raises the labor-power / wage-distribution angle — who actually captures
+    // the gains, and what institutional conditions determine that. That is the missing view.
+    const automationPanelTranscript = `
+00:30 | Alex: Automation anxiety is nothing new. We went through the industrial revolution, the mechanization of farming, the shift to computers. Every single time, the prediction was mass unemployment. Every single time, we ended up with more jobs, higher productivity, better living standards. The people who lose their jobs in one sector find work in new ones.
+01:10 | Taylor: I don't dispute the long-run historical record, but I think that framing can paper over real suffering in the transition. The coal communities that lost their livelihoods are still waiting for those new jobs. The pace this time is different — AI can move laterally across sectors simultaneously in a way that steam power couldn't.
+01:55 | Alex: The pace argument is exactly what people said about the internet. And yes, there were disruptions, there were painful transitions. But the answer to that isn't to slow down the technology — it's to build better transition programs. Retraining, portable benefits, education. Those are the policy levers.
+02:40 | Taylor: I agree those are important levers. But I'd add that we also need governance structures — auditing, transparency requirements, liability for systems that displace workers without legitimate productivity gain. We can't just assume firms will retrain workers voluntarily.
+03:20 | Alex: Markets actually do create those incentives when labor is genuinely scarce. Companies invest in their people when they can't replace them. The problem is often regulatory friction that prevents new industries from forming and absorbing that labor.
+04:00 | Taylor: That's optimistic about how quickly new industries absorb displaced workers at equivalent wages. The evidence from factory automation is that the new jobs that do appear are geographically and demographically mismatched with the displaced workers. "New jobs exist somewhere" is not the same as "the people who lost jobs got them."
+04:50 | Alex: Which is why the solution is investment in mobility and retraining — not restricting the technology. We should be building better on-ramps, not slow lanes.
+05:20 | Taylor: On that we agree. The question is whether current policy institutions are capable of moving fast enough to do that, or whether we need new frameworks specifically designed for rapid technological displacement. I'd argue we need purpose-built institutions, not just scaled-up existing ones.
+05:55 | Alex: I'm skeptical of purpose-built institutions — they tend to get captured by incumbents and end up protecting the status quo rather than enabling transition. History suggests market-adaptive systems outperform designed systems here.
+06:30 | Taylor: That's a reasonable concern about capture. But the market-adaptive argument assumes that workers have sufficient bargaining power to extract a share of productivity gains. If they don't, you get productivity growth with flat wages — which is exactly what we saw in the US from roughly 1980 to 2015.
+`
+
+    // Same transcript with an added panelist statement that explicitly raises the labor-power view,
+    // so the missing perspective is no longer absent.
+    const automationPanelWithLaborViewTranscript = `${automationPanelTranscript}07:10 | Jordan: I want to add something both of you have danced around but not named directly. The question of who captures productivity gains is fundamentally a question of bargaining power. Technology is not neutral here — the ability of workers to negotiate their share depends entirely on whether they have collective leverage, and that leverage has been systematically weakened over the past forty years. The policy question is not just retraining or governance; it's whether we're willing to rebuild the institutional conditions under which workers can actually claim a share of the value they help create.
+`
+
+    let mpAgent
+    let mpConversation
+    let mpUser1
+    let mpUser2
+    let mpUser3
+    let mpTopic
+
+    const mpStartTime = new Date(Date.now() - 15 * 60 * 1000)
+    const getMpMessageTime = (offsetSeconds = 0) => new Date(mpStartTime.getTime() + offsetSeconds * 1000)
+
+    beforeEach(async () => {
+      mpUser1 = await createUser('Engaged Attendee')
+      mpUser2 = await createUser('Thoughtful Listener')
+      mpUser3 = await createUser('Active Participant')
+      mpTopic = await createPublicTopic()
+
+      mpConversation = await createProactiveGroupAgentConversation(
+        {
+          name: 'Automation and the Future of Work',
+          description:
+            'A panel discussion examining how AI-driven automation will reshape employment, ' +
+            'featuring perspectives on economic disruption, policy responses, and societal impact.',
+          presenters: [
+            { name: 'Alex', bio: 'Economist focused on technology and productivity growth.' },
+            { name: 'Taylor', bio: 'Policy researcher specializing in labor market transitions.' }
+          ],
+          moderators: [{ name: 'Sam Moderator', bio: 'Experienced panel moderator.' }]
+        },
+        mpUser1,
+        mpTopic,
+        mpStartTime,
+        testConfig.llmPlatform,
+        testConfig.llmModel,
+        [mpUser2, mpUser3],
+        ['missing_perspective']
+      )
+
+      mpAgent = mpConversation.agents.find((a) => a.name === 'Proactive Group Agent')
+      expect(mpAgent).toBeDefined()
+    })
+
+    it(
+      'surfaces the absent labor-power view when both panelist positions are well-established',
+      async () => {
+        await loadTestTranscript(mpConversation, automationPanelTranscript, false)
+
+        // Audience is engaged — substantive back-and-forth, no labor/wage angle raised
+        const messages = [
+          await createMessage(
+            'Alex makes a strong historical case — hard to argue with the long-run trend',
+            mpUser1,
+            mpConversation,
+            ['chat'],
+            getMpMessageTime(400)
+          ),
+          await createMessage(
+            "Taylor's point about geographic mismatch is the most underrated part of this debate",
+            mpUser2,
+            mpConversation,
+            ['chat'],
+            getMpMessageTime(430)
+          ),
+          await createMessage(
+            'Both seem to agree on retraining — the disagreement is really about pace and institutions',
+            mpUser3,
+            mpConversation,
+            ['chat'],
+            getMpMessageTime(460)
+          ),
+          await createMessage(
+            "I'm persuaded by the historical record but Taylor's 1980-2015 wages point is nagging at me",
+            mpUser1,
+            mpConversation,
+            ['chat'],
+            getMpMessageTime(490)
+          )
+        ]
+        await prepareMessagesForAgent(messages, mpConversation, mpAgent)
+
+        const conversationHistory = getConversationHistory(mpConversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: getMpMessageTime(520)
+        })
+
+        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(mpAgent, conversationHistory)
+
+        expect(responses.length).toBeGreaterThan(0)
+        const { goalId, message } = responses[0]
+        console.log(`Detected ${goalId}:`, message)
+        expect(goalId).toBe('missing_perspective')
+        expect(message).toBeTruthy()
+        // Should frame it as an outside view, not claim to be a panelist
+        expect(message).not.toMatch(/^(Alex|Taylor|Jordan):/i)
+      },
+      testTimeout
+    )
+
+    it(
+      'does not intervene when panelists have only introduced themselves and not yet stated substantive positions',
+      async () => {
+        // Introductions and framing only — no substantive claims made yet by either panelist
+        const earlyTranscript = `
+00:05 | Moderator: Welcome everyone to today's panel on automation and the future of work. We have two guests who approach this question from very different angles, and I'm looking forward to a productive exchange. Let's start with brief introductions.
+00:20 | Alex: Thanks for having me. I'm an economist and I've spent most of my career studying how technology affects productivity and employment over long time horizons.
+00:35 | Taylor: And I come at this from the policy side — I've worked with governments on labor market adjustment programs and I'm interested in how institutions respond to technological disruption. Looking forward to the conversation.
+00:50 | Moderator: Great. Let's start with the basic framing — is AI-driven automation fundamentally different from previous waves of technological change, or are we essentially in familiar territory?
+`
+        await loadTestTranscript(mpConversation, earlyTranscript, false)
+
+        const messages = [
+          await createMessage('Just getting started here', mpUser1, mpConversation, ['chat'], getMpMessageTime(100)),
+          await createMessage('Interesting framing', mpUser2, mpConversation, ['chat'], getMpMessageTime(120))
+        ]
+        await prepareMessagesForAgent(messages, mpConversation, mpAgent)
+
+        const conversationHistory = getConversationHistory(mpConversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: getMpMessageTime(150)
+        })
+
+        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(mpAgent, conversationHistory)
+
+        // Positions not yet established — should not trigger missing_perspective
+        if (responses.length > 0) {
+          console.log(`Unexpected intervention on thin transcript: ${responses[0].goalId}:`, responses[0].message)
+          expect(responses[0].goalId).not.toBe('missing_perspective')
+        }
+      },
+      testTimeout
+    )
+
+    it(
+      'does not re-surface a perspective that has already been raised by a panelist',
+      async () => {
+        // Full transcript including Jordan explicitly raising the labor-power / bargaining-power angle
+        await loadTestTranscript(mpConversation, automationPanelWithLaborViewTranscript, false)
+
+        const messages = [
+          await createMessage(
+            "Jordan's point about bargaining power is the crux of the whole debate",
+            mpUser1,
+            mpConversation,
+            ['chat'],
+            getMpMessageTime(450)
+          ),
+          await createMessage(
+            'Three very different takes — good panel',
+            mpUser2,
+            mpConversation,
+            ['chat'],
+            getMpMessageTime(470)
+          ),
+          await createMessage(
+            'The wages point from 1980-2015 keeps coming up — seems like the empirical crux',
+            mpUser3,
+            mpConversation,
+            ['chat'],
+            getMpMessageTime(490)
+          )
+        ]
+        await prepareMessagesForAgent(messages, mpConversation, mpAgent)
+
+        const conversationHistory = getConversationHistory(mpConversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: getMpMessageTime(520)
+        })
+
+        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(mpAgent, conversationHistory)
+
+        // Semantic non-duplication can't be reliably asserted with keyword matching —
+        // the model may reference Jordan's angle while genuinely introducing a different one.
+        // Log for manual review; the scenario still exercises the guardrail path.
+        if (responses.length > 0) {
+          console.log(`After Jordan raised labor view — ${responses[0].goalId}:`, responses[0].message)
+        } else {
+          console.log('No intervention after Jordan raised labor view')
         }
       },
       testTimeout

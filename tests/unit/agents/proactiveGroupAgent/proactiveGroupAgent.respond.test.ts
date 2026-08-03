@@ -61,12 +61,14 @@ function makeMessage(overrides: {
   }
 }
 
-function makeAgent(overrides: {
-  messages?: ReturnType<typeof makeMessage>[]
-  minContributionMinutes?: number
-  safetyPosture?: 'standard' | 'strict'
-  startTime?: Date
-} = {}) {
+function makeAgent(
+  overrides: {
+    messages?: ReturnType<typeof makeMessage>[]
+    minContributionMinutes?: number
+    safetyPosture?: 'standard' | 'strict'
+    startTime?: Date
+  } = {}
+) {
   const startTime = overrides.startTime ?? new Date(Date.now() - 20 * 60 * 1000) // 20 min ago
   const minContributionMinutes = overrides.minContributionMinutes ?? 2
 
@@ -104,6 +106,7 @@ function makeAgent(overrides: {
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function makeTranscriptMessage(text: string, offsetMs = 0) {
   const createdAt = new Date(Date.now() - offsetMs)
   return {
@@ -188,7 +191,7 @@ describe('proactiveGroupAgent respond', () => {
       expect(mockRunInterventionAnalysis).toHaveBeenCalled()
     })
 
-    it('does not count other agents\' messages against the rate limit', async () => {
+    it("does not count other agents' messages against the rate limit", async () => {
       const now = new Date()
       const otherAgentMessage = makeMessage({
         fromAgent: true,
