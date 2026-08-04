@@ -16,6 +16,9 @@ import {
   DeviationSignal,
   EventPlatform,
   InteractionStructure,
+  MessageActivityCount,
+  MessageLengthStats,
+  MessageMetricFilter,
   ParticipationConcentration,
   ParticipationHistoryPoint,
   ParticipationMetrics,
@@ -642,12 +645,6 @@ export function computeInteractionStructure(messages: { _id?: unknown; parentMes
   }
 }
 
-/* Counts how many times participants called on the event's configured assistant by
-   name. It reads people's chat messages, the channel where the assistant is summoned,
-   and matches each against the bot name the same fuzzy way the assistant itself does,
-   so a misspelled or @-prefixed name still counts. The name comes from the event's
-   configuration and falls back to the platform default, so a renamed assistant is
-   still counted correctly. */
 /* Pulls the human-readable text out of a message body. A plain chat message stores a
    string body; a rich or multimodal one stores an object whose typed text lives under
    `text`, the same shape report.service reads. Returns '' for anything without text
@@ -661,6 +658,149 @@ function messageText(body: unknown): string {
   return ''
 }
 
+/* What the on-demand computations need to read off one human message. Every field is optional
+   because each computation only narrows on what its filter asked for. */
+interface FilterableMessage {
+  createdAt?: Date
+  channels?: string[]
+  owner?: unknown
+  pseudonymId?: unknown
+  body?: unknown
+}
+
+/* What a filter is resolved against: the event's start (so an elapsed-minute window has an
+   origin) and the direct-channel names (so public and private can be told apart). */
+interface MessageFilterContext {
+  startTime?: Date
+  directNames: Set<string>
+}
+
+/* How many words a message body holds, reading the text the same way computeBotInvocations does
+   so a rich or multimodal body is measured, not skipped. Only the count leaves this function;
+   the text itself never does. */
+function wordCount(body: unknown): number {
+  const text = messageText(body).trim()
+  return text === '' ? 0 : text.split(/\s+/).length
+}
+
+/**
+ * Loads one event's human messages for an on-demand computation, alongside the direct-channel
+ * names a filter needs to tell a private one-to-one with the bot from the public chat. It reads
+ * the same message set every other metric counts (visibleHumanFilter), so an on-demand number
+ * always reconciles with the precomputed ones. It selects the message body too, unlike the
+ * metrics query, since a length filter has to measure it; only word counts are ever derived
+ * from it, and no message text leaves the computations that read it.
+ */
+export async function loadMessagesForOnDemandMetrics(
+  conversationId
+): Promise<{ messages: FilterableMessage[]; directNames: Set<string> }> {
+  const messages = await Message.find({ conversation: conversationId, ...visibleHumanFilter })
+    .select('createdAt channels owner pseudonymId body')
+    .sort({ createdAt: 1 })
+  const channelNames = [...new Set(messages.flatMap((message) => message.channels ?? []))]
+  return { messages, directNames: await resolveDirectNames(channelNames) }
+}
+
+/**
+ * Narrows an event's human messages to the slice a question asks about: a time window, a
+ * surface, a minimum length, or any combination. An omitted filter field narrows nothing, so
+ * an empty filter returns every message. The window runs from fromMinute (inclusive) to
+ * toMinute (exclusive) past the event start, the same bounds the activity buckets and spikes
+ * use, and falls back to the first message's timestamp when the event start is unknown, as
+ * attributeSpikeSources does. A message with no timestamp is dropped only when a window was
+ * asked for, since it cannot be placed on the timeline. Pure over the already-fetched messages.
+ */
+export function filterEventMessages<T extends FilterableMessage>(
+  messages: T[],
+  filter: MessageMetricFilter,
+  context: MessageFilterContext
+): T[] {
+  const { fromMinute, toMinute, channel, minWordCount } = filter
+  const wantsWindow = fromMinute != null || toMinute != null
+  const startMs = (context.startTime ?? messages.find((message) => message.createdAt instanceof Date)?.createdAt)?.getTime()
+
+  return messages.filter((message) => {
+    if (wantsWindow) {
+      if (!(message.createdAt instanceof Date) || startMs === undefined) return false
+      const elapsedMinutes = (message.createdAt.getTime() - startMs) / 60000
+      if (fromMinute != null && elapsedMinutes < fromMinute) return false
+      if (toMinute != null && elapsedMinutes >= toMinute) return false
+    }
+
+    if (channel != null && channel !== 'all') {
+      const isPrivate = (message.channels ?? []).some((name) => context.directNames.has(name))
+      if (channel === 'private' && !isPrivate) return false
+      if (channel === 'public' && isPrivate) return false
+    }
+
+    if (minWordCount != null && wordCount(message.body) < minWordCount) return false
+
+    return true
+  })
+}
+
+/**
+ * How much was said in one slice of an event, by how many different people, and how many of
+ * them cleared a message threshold. Posters are grouped per person the same way participation
+ * groups them (owner, else pseudonymId; a message with neither is dropped from the poster
+ * count), so a count over the whole event reconciles with participation.posterCount.
+ * postersAtOrAboveThreshold answers "how many people posted more than a few times", which no
+ * precomputed metric reports (participation counts the top tenth, not a fixed threshold); it is
+ * null when no threshold was asked for.
+ */
+export function countMessageActivity(
+  messages: FilterableMessage[],
+  filter: MessageMetricFilter,
+  minMessages: number | null,
+  context: MessageFilterContext
+): MessageActivityCount {
+  const matched = filterEventMessages(messages, filter, context)
+
+  const countBySender = new Map<string, number>()
+  for (const message of matched) {
+    const sender = senderKey(message)
+    if (sender === null) continue
+    countBySender.set(sender, (countBySender.get(sender) ?? 0) + 1)
+  }
+
+  const counts = [...countBySender.values()]
+  return {
+    messageCount: matched.length,
+    posterCount: counts.length,
+    postersAtOrAboveThreshold: minMessages == null ? null : counts.filter((count) => count >= minMessages).length
+  }
+}
+
+/**
+ * How long one slice's messages were, in words: the typical length and the longest. Answers
+ * whether a room traded one-word reactions or worked through longer thoughts, without any
+ * message text leaving the computation. Both statistics are null when the slice is empty, so
+ * nothing reads as zero-word messages where there were simply no messages.
+ */
+export function computeMessageLengthStats(
+  messages: FilterableMessage[],
+  filter: MessageMetricFilter,
+  context: MessageFilterContext
+): MessageLengthStats {
+  const lengths = filterEventMessages(messages, filter, context).map((message) => wordCount(message.body))
+
+  if (lengths.length === 0) {
+    return { messageCount: 0, medianWordCount: null, longestWordCount: null }
+  }
+
+  return {
+    messageCount: lengths.length,
+    medianWordCount: median(lengths),
+    longestWordCount: Math.max(...lengths)
+  }
+}
+
+/* Counts how many times participants called on the event's configured assistant by
+   name. It reads people's chat messages, the channel where the assistant is summoned,
+   and matches each against the bot name the same fuzzy way the assistant itself does,
+   so a misspelled or @-prefixed name still counts. The name comes from the event's
+   configuration and falls back to the platform default, so a renamed assistant is
+   still counted correctly. */
 async function computeBotInvocations(conversation): Promise<BotInvocations> {
   const botName = conversation.properties?.botName || config.conversationBotName
   /* visible:true matches every other human count (see visibleHumanFilter): a hidden or

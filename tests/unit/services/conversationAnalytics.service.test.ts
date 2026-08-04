@@ -13,12 +13,16 @@ import conversationAnalyticsService, {
   attendanceBandFor,
   attributeSpikeSources,
   computeInteractionStructure,
+  computeMessageLengthStats,
   computeParticipationConcentration,
   computeReplyLatency,
   computeResourceSummary,
   computeTimeToFirstMessage,
   computeTopDeviations,
+  countMessageActivity,
   deriveEventPlatform,
+  filterEventMessages,
+  loadMessagesForOnDemandMetrics,
   spikeSourceForChannels,
   METRICS_VERSION
 } from '../../../src/services/conversationAnalytics.service.js'
@@ -1900,5 +1904,231 @@ describe('computeTopDeviations', () => {
 
     expect(deviations).toHaveLength(5)
     expect(deviations.some((d) => d.metric === 'posterCount' && d.comparison === 'topicBaseline')).toBe(false)
+  })
+})
+
+/* The on-demand computations all read the same slice-of-an-event filter, so these fixtures give
+   an event start and a set of direct (one-to-one with the bot) channel names to resolve it
+   against. Messages are placed by elapsed minute from that start. */
+const onDemandStart = new Date('2026-07-01T12:00:00.000Z')
+const directNames = new Set(['dm-ana', 'dm-bo'])
+
+function atMinute(minute: number): Date {
+  return new Date(onDemandStart.getTime() + minute * 60 * 1000)
+}
+
+/* One human message: who sent it, when, where, and what it said. Only the word count of `body`
+   is ever read, never its text. */
+function onDemandMessage(owner: string, minute: number, body = 'a message', channels: string[] = ['chat']) {
+  return { owner, createdAt: atMinute(minute), channels, body }
+}
+
+describe('filterEventMessages', () => {
+  it('keeps messages from the start minute up to but not including the end minute', () => {
+    const messages = [
+      onDemandMessage('ana', 0),
+      onDemandMessage('ana', 5),
+      onDemandMessage('bo', 10),
+      onDemandMessage('bo', 20)
+    ]
+
+    const filtered = filterEventMessages(
+      messages,
+      { fromMinute: 5, toMinute: 20 },
+      {
+        startTime: onDemandStart,
+        directNames
+      }
+    )
+
+    expect(filtered.map((message) => message.createdAt)).toEqual([atMinute(5), atMinute(10)])
+  })
+
+  it('splits the public chat from private one-to-one messages with the bot', () => {
+    const messages = [
+      onDemandMessage('ana', 1, 'hi', ['chat']),
+      onDemandMessage('ana', 2, 'psst', ['dm-ana']),
+      onDemandMessage('bo', 3, 'hey', ['dm-bo'])
+    ]
+    const context = { startTime: onDemandStart, directNames }
+
+    expect(filterEventMessages(messages, { channel: 'public' }, context)).toHaveLength(1)
+    expect(filterEventMessages(messages, { channel: 'private' }, context)).toHaveLength(2)
+    expect(filterEventMessages(messages, { channel: 'all' }, context)).toHaveLength(3)
+  })
+
+  it('keeps only messages of at least the requested word count', () => {
+    const messages = [onDemandMessage('ana', 1, 'yes'), onDemandMessage('bo', 2, 'that is a much longer thought about it')]
+
+    const filtered = filterEventMessages(messages, { minWordCount: 5 }, { startTime: onDemandStart, directNames })
+
+    expect(filtered).toHaveLength(1)
+    expect(filtered[0].owner).toBe('bo')
+  })
+
+  it('measures the window from the first message when the event start is unknown', () => {
+    // No startTime, so minute 0 is the first message (at 12:10) rather than a real event start.
+    const messages = [onDemandMessage('ana', 10), onDemandMessage('bo', 12), onDemandMessage('bo', 25)]
+
+    const filtered = filterEventMessages(messages, { toMinute: 5 }, { directNames })
+
+    expect(filtered.map((message) => message.owner)).toEqual(['ana', 'bo'])
+  })
+
+  it('returns every message when nothing is filtered', () => {
+    const messages = [onDemandMessage('ana', 1), onDemandMessage('bo', 2)]
+
+    expect(filterEventMessages(messages, {}, { startTime: onDemandStart, directNames })).toHaveLength(2)
+  })
+
+  it('drops a message with no timestamp only when a window is asked for', () => {
+    const messages = [onDemandMessage('ana', 1), { owner: 'bo', channels: ['chat'], body: 'undated' }]
+    const context = { startTime: onDemandStart, directNames }
+
+    expect(filterEventMessages(messages, {}, context)).toHaveLength(2)
+    expect(filterEventMessages(messages, { fromMinute: 0 }, context)).toHaveLength(1)
+  })
+})
+
+describe('countMessageActivity', () => {
+  const context = { startTime: onDemandStart, directNames }
+
+  it('counts the messages in a window and how many different people sent them', () => {
+    const messages = [
+      onDemandMessage('ana', 1),
+      onDemandMessage('ana', 2),
+      onDemandMessage('bo', 3),
+      onDemandMessage('cy', 40)
+    ]
+
+    expect(countMessageActivity(messages, { toMinute: 10 }, null, context)).toEqual({
+      messageCount: 3,
+      posterCount: 2,
+      postersAtOrAboveThreshold: null
+    })
+  })
+
+  it('reports how many posters cleared a message threshold', () => {
+    const messages = [
+      onDemandMessage('ana', 1),
+      onDemandMessage('ana', 2),
+      onDemandMessage('ana', 3),
+      onDemandMessage('bo', 4),
+      onDemandMessage('bo', 5),
+      onDemandMessage('cy', 6)
+    ]
+
+    expect(countMessageActivity(messages, {}, 2, context).postersAtOrAboveThreshold).toBe(2)
+  })
+
+  it('counts only the people inside the filtered slice', () => {
+    const messages = [onDemandMessage('ana', 1, 'hi', ['dm-ana']), onDemandMessage('bo', 2)]
+
+    expect(countMessageActivity(messages, { channel: 'private' }, null, context).posterCount).toBe(1)
+  })
+
+  it('reports zeros when nothing matches the filter', () => {
+    expect(countMessageActivity([onDemandMessage('ana', 1)], { fromMinute: 30 }, 3, context)).toEqual({
+      messageCount: 0,
+      posterCount: 0,
+      postersAtOrAboveThreshold: 0
+    })
+  })
+})
+
+describe('computeMessageLengthStats', () => {
+  const context = { startTime: onDemandStart, directNames }
+
+  it('reports the typical and longest message length in words', () => {
+    const messages = [
+      onDemandMessage('ana', 1, 'one'), // 1 word
+      onDemandMessage('bo', 2, 'two words here'), // 3 words
+      onDemandMessage('cy', 3, 'a rather longer message than the others') // 7 words
+    ]
+
+    expect(computeMessageLengthStats(messages, {}, context)).toEqual({
+      messageCount: 3,
+      medianWordCount: 3,
+      longestWordCount: 7
+    })
+  })
+
+  it('nulls both statistics when the slice holds no messages', () => {
+    expect(computeMessageLengthStats([], {}, context)).toEqual({
+      messageCount: 0,
+      medianWordCount: null,
+      longestWordCount: null
+    })
+  })
+
+  it('reads the text of a rich message body the same way a plain one is read', () => {
+    const messages = [{ owner: 'ana', createdAt: atMinute(1), channels: ['chat'], body: { text: 'two words' } }]
+
+    expect(computeMessageLengthStats(messages, {}, context).longestWordCount).toBe(2)
+  })
+})
+
+describe('loadMessagesForOnDemandMetrics', () => {
+  it('loads the same human messages the metrics count, oldest first, with their direct channels resolved', async () => {
+    const conversation = await Conversation.create({
+      name: 'On-demand event',
+      slug: `ondemand-${new mongoose.Types.ObjectId().toString()}`,
+      owner: ownerId,
+      topic: new mongoose.Types.ObjectId(),
+      transcript: { status: 'stopped' }
+    })
+    const directChannel = await Channel.create({
+      name: `dm-${new mongoose.Types.ObjectId().toString()}`,
+      direct: true,
+      participants: [new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId()]
+    })
+    await Message.create([
+      {
+        body: 'second',
+        conversation: conversation._id,
+        owner: ownerFor('ana'),
+        pseudonymId: ownerId,
+        pseudonym: 'ana',
+        fromAgent: false,
+        channels: ['main'],
+        createdAt: new Date('2026-07-01T12:05:00.000Z')
+      },
+      {
+        body: 'first',
+        conversation: conversation._id,
+        owner: ownerFor('bo'),
+        pseudonymId: ownerId,
+        pseudonym: 'bo',
+        fromAgent: false,
+        channels: [directChannel.name],
+        createdAt: new Date('2026-07-01T12:01:00.000Z')
+      },
+      // Excluded the same way every other metric excludes them: the bot's own messages, the
+      // spoken transcript, and anything hidden.
+      { body: 'bot', conversation: conversation._id, pseudonymId: ownerId, pseudonym: 'bot', fromAgent: true },
+      {
+        body: 'spoken',
+        conversation: conversation._id,
+        owner: ownerFor('cy'),
+        pseudonymId: ownerId,
+        pseudonym: 'cy',
+        fromAgent: false,
+        channels: ['transcript']
+      },
+      {
+        body: 'hidden',
+        conversation: conversation._id,
+        owner: ownerFor('cy'),
+        pseudonymId: ownerId,
+        pseudonym: 'cy',
+        fromAgent: false,
+        visible: false
+      }
+    ])
+
+    const { messages, directNames: resolvedDirectNames } = await loadMessagesForOnDemandMetrics(conversation._id)
+
+    expect(messages.map((message) => message.body)).toEqual(['first', 'second'])
+    expect(resolvedDirectNames).toEqual(new Set([directChannel.name]))
   })
 })

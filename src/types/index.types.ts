@@ -879,6 +879,53 @@ export interface QuoteReception {
    limited" note. */
 export type TrackedSessionStatus = 'available' | 'notTracked' | 'unavailable'
 
+/* Which slice of one event's human messages an on-demand computation covers. Every field is
+   optional, and an omitted field narrows nothing, so an empty filter reads the whole event.
+   fromMinute and toMinute are elapsed minutes from the event start, fromMinute inclusive and
+   toMinute exclusive, the same bounds the activity buckets and spikes use. channel picks the
+   surface: 'public' is the group chat, 'private' is a one-to-one with the bot, 'all' is both.
+   minWordCount keeps only messages of at least that many words, so a question about substantial
+   messages can exclude one-word reactions. This is the whole vocabulary a question can be
+   expressed in: the computations themselves are fixed and server-side, and the filter is where
+   the specific question shows up. */
+export interface MessageMetricFilter {
+  fromMinute?: number
+  toMinute?: number
+  channel?: 'public' | 'private' | 'all'
+  minWordCount?: number
+}
+
+/* How much was said in one slice of an event, and by how many different people. posterCount
+   counts each person once however many messages they sent, grouped per person the same way
+   participation is. postersAtOrAboveThreshold is how many of those people sent at least the
+   requested number of messages, null when no threshold was asked for. */
+export interface MessageActivityCount {
+  messageCount: number
+  posterCount: number
+  postersAtOrAboveThreshold: number | null
+}
+
+/* How long the messages in one slice were, in words: the typical length and the longest. Both
+   are null when the slice holds no messages, so an empty slice never reads as zero-word
+   messages. Word counts only: no message text ever leaves this computation. */
+export interface MessageLengthStats {
+  messageCount: number
+  medianWordCount: number | null
+  longestWordCount: number | null
+}
+
+/* One computation the analyst ran over an event's own messages to answer a question its
+   precomputed metrics could not. tool names the computation, args the filter it ran with, and
+   result what the server-side function returned. The record exists so the fact-checking pass can
+   verify a cited number against the computation that produced it, exactly as it verifies every
+   other number against the metrics: a figure from a tool is still first-party, so it keeps the
+   same trust tier as the rest of the participation data. */
+export interface OnDemandComputation {
+  tool: string
+  args: MessageMetricFilter & { minMessages?: number }
+  result: MessageActivityCount | MessageLengthStats
+}
+
 /* The bundle of numbers the recap card and the curating LLM both read for one
    event. Participation (from our own database) is always present and exact. Tracked
    sessions are a separate layer (one entry per analytics source that has stored
@@ -927,6 +974,11 @@ export interface ConversationMetrics {
   resourceSummary: ResourceSummary
   // Which platform(s) the event ran on: Nextspace, Zoom, or both.
   eventPlatform: EventPlatform
+  // Computations run over this event's messages to answer one specific question, present only
+  // on that path and scoped to that one request. The analytics service never sets it and no
+  // snapshot ever stores it; it rides along so the fact-checking pass can verify a cited
+  // on-demand number the same way it verifies every other number here.
+  onDemandComputations?: OnDemandComputation[]
 }
 
 /* Private (one-to-one with the bot) messaging, all exact and first-party. privateMessageCount
