@@ -43,6 +43,12 @@ const mockResolveDisambiguationContext = jest.fn<(...args: any[]) => Promise<any
 // chain directly; mocked here so those tests can drive both the happy path and its fallback.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockGetChatPromptResponse = jest.fn<(...args: any[]) => Promise<any>>()
+// hasHistorianAgent and computeConversationMetrics back the new "question" intent branch
+// (handleQuestionSummon); mocked here the same way the rest of the pipeline is.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockHasHistorianAgent = jest.fn<(...args: any[]) => Promise<any>>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockComputeConversationMetrics = jest.fn<(...args: any[]) => Promise<any>>()
 
 jest.unstable_mockModule('../src/agents/vibesAnalyst/eventResolution.js', () => ({
   extractEventReference: mockExtract,
@@ -56,7 +62,11 @@ jest.unstable_mockModule('../src/agents/vibesAnalyst/eventResolution.js', () => 
   MAX_TREND_EVENTS: 10
 }))
 jest.unstable_mockModule('../src/agents/vibesAnalyst/buildSummary.js', () => ({
-  default: mockBuildSummary
+  default: mockBuildSummary,
+  hasHistorianAgent: mockHasHistorianAgent
+}))
+jest.unstable_mockModule('../src/services/conversationAnalytics.service.js', () => ({
+  default: { computeConversationMetrics: mockComputeConversationMetrics }
 }))
 jest.unstable_mockModule('../src/agents/vibesAnalyst/trendSummary.js', () => ({
   default: mockBuildTrend
@@ -80,7 +90,8 @@ const {
   greetingMessage,
   helpMessage,
   offTopicMessage,
-  namedTrendNotFoundMessage
+  namedTrendNotFoundMessage,
+  unanswerableQuestionMessage
 } = await import('../../../../src/agents/vibesAnalyst/summon.js')
 const { default: Conversation } = await import('../../../../src/models/conversation.model.js')
 const { default: logger } = await import('../../../../src/config/logger.js')
@@ -147,6 +158,10 @@ describe('handleSummon', () => {
     mockResolveDisambiguationContext.mockResolvedValue(null)
     mockGetChatPromptResponse.mockReset()
     mockGetChatPromptResponse.mockResolvedValue({ text: 'An in-voice smalltalk reply.' })
+    mockHasHistorianAgent.mockReset()
+    mockHasHistorianAgent.mockResolvedValue(false)
+    mockComputeConversationMetrics.mockReset()
+    mockComputeConversationMetrics.mockResolvedValue({})
   })
 
   it('posts the engagement card threaded under the summon when the event resolves', async () => {
@@ -247,7 +262,12 @@ describe('handleSummon', () => {
       mockResolve.mockReturnValue({ status: 'ambiguous', candidates: pendingCandidates })
       mockExtract.mockResolvedValue({ intent: 'offTopic', eventQuery: '', latestInTopic: false, trend: false })
 
-      const responses = await handleSummon(buildContext(), { ...bareReplyMessage, body: 'Test Fancy Vibes' }, fakeLlm, fastLlm)
+      const responses = await handleSummon(
+        buildContext(),
+        { ...bareReplyMessage, body: 'Test Fancy Vibes' },
+        fakeLlm,
+        fastLlm
+      )
 
       expect(responses[0].responseKind).toBe('eventDisambiguation')
       expect(mockBuildSummary).not.toHaveBeenCalled()
@@ -294,7 +314,7 @@ describe('handleSummon', () => {
 
     it('answers a greeting with an in-voice reply from the smalltalk model, reading nothing', async () => {
       mockExtract.mockResolvedValue({ intent: 'greeting', eventQuery: '', latestInTopic: false, trend: false })
-      mockGetChatPromptResponse.mockResolvedValue({ text: "Here, and reading the room. Ask me about a past event." })
+      mockGetChatPromptResponse.mockResolvedValue({ text: 'Here, and reading the room. Ask me about a past event.' })
 
       const responses = await handleSummon(buildContext(), { _id: 'm', body: '@Vibes are you there?' }, fakeLlm, fastLlm)
 
@@ -603,9 +623,7 @@ describe('handleSummon', () => {
 
       expect(responses).toHaveLength(1)
       expect(responses[0].responseKind).toBeUndefined()
-      expect(responses[0].message).toBe(
-        namedTrendNotFoundMessage(['Q3 Sync', 'The Gala'], [eventB, eventA] as never)
-      )
+      expect(responses[0].message).toBe(namedTrendNotFoundMessage(['Q3 Sync', 'The Gala'], [eventB, eventA] as never))
       expect(mockFetchTrendSnapshots).not.toHaveBeenCalled()
       expect(mockBuildTrend).not.toHaveBeenCalled()
     })
@@ -621,6 +639,213 @@ describe('handleSummon', () => {
 
       expect(mockBuildTrend).not.toHaveBeenCalled()
       expect(responses[0].message).toMatch(/couldn't find.*"Q3 Sync"/i)
+    })
+  })
+
+  describe('question intent', () => {
+    // A "question" intent asks something specific about one event rather than a general recap.
+    // handleQuestionSummon resolves the event the same way a recap does, then branches on scope.
+    const questionMessage = { _id: 'q-msg', body: '@Vibes how many people came to the Spring Town Hall?' }
+
+    it('answers a quantitative question live, without requiring a threaded reply under a prior card', async () => {
+      mockExtract.mockResolvedValue({
+        intent: 'question',
+        scope: 'quantitative',
+        eventQuery: 'Spring Town Hall',
+        latestInTopic: false,
+        latestOverall: false,
+        trend: false
+      })
+      mockResolve.mockReturnValue({ status: 'resolved', event: { id: 'c1', name: 'Spring Town Hall' } })
+      mockResolvedConversation(false)
+      mockComputeConversationMetrics.mockResolvedValue({ participation: { posterCount: 40 } })
+      mockBuildSnapshotPayload.mockReturnValue({ posterCount: 40 })
+      mockAnswerFollowUp.mockResolvedValue({ answerable: true, text: '40 people posted.' })
+
+      const responses = await handleSummon(buildContext(), questionMessage, fakeLlm, fastLlm)
+
+      expect(mockComputeConversationMetrics).toHaveBeenCalledWith(expect.objectContaining({ _id: 'c1' }))
+      expect(mockAnswerFollowUp).toHaveBeenCalledWith(questionMessage.body, [{ posterCount: 40 }], fakeLlm)
+      expect(responses).toHaveLength(1)
+      expect(responses[0].message).toBe('40 people posted.')
+      expect(responses[0].responseKind).toBeUndefined()
+      expect(mockBuildSummary).not.toHaveBeenCalled()
+    })
+
+    it('defers an interpretive question to the Event Historian when one is installed, without computing metrics', async () => {
+      mockExtract.mockResolvedValue({
+        intent: 'question',
+        scope: 'interpretive',
+        eventQuery: 'Spring Town Hall',
+        latestInTopic: false,
+        latestOverall: false,
+        trend: false
+      })
+      mockResolve.mockReturnValue({ status: 'resolved', event: { id: 'c1', name: 'Spring Town Hall' } })
+      mockResolvedConversation(false)
+      mockHasHistorianAgent.mockResolvedValue(true)
+
+      const responses = await handleSummon(buildContext(), questionMessage, fakeLlm, fastLlm)
+
+      expect(mockComputeConversationMetrics).not.toHaveBeenCalled()
+      expect(mockAnswerFollowUp).not.toHaveBeenCalled()
+      expect(responses[0].message).toMatch(/Event Historian/)
+    })
+
+    it('gives an honest refusal for an interpretive question when no Event Historian is installed', async () => {
+      mockExtract.mockResolvedValue({
+        intent: 'question',
+        scope: 'interpretive',
+        eventQuery: 'Spring Town Hall',
+        latestInTopic: false,
+        latestOverall: false,
+        trend: false
+      })
+      mockResolve.mockReturnValue({ status: 'resolved', event: { id: 'c1', name: 'Spring Town Hall' } })
+      mockResolvedConversation(false)
+      mockHasHistorianAgent.mockResolvedValue(false)
+
+      const responses = await handleSummon(buildContext(), questionMessage, fakeLlm, fastLlm)
+
+      expect(responses[0].message).not.toMatch(/Event Historian can help/)
+      expect(responses[0].message).toMatch(/add one here, or ask in a channel/)
+    })
+
+    it('answers the quantitative half of a mixed question and points the rest to the historian', async () => {
+      mockExtract.mockResolvedValue({
+        intent: 'question',
+        scope: 'mixed',
+        eventQuery: 'Spring Town Hall',
+        latestInTopic: false,
+        latestOverall: false,
+        trend: false
+      })
+      mockResolve.mockReturnValue({ status: 'resolved', event: { id: 'c1', name: 'Spring Town Hall' } })
+      mockResolvedConversation(false)
+      mockHasHistorianAgent.mockResolvedValue(true)
+      mockAnswerFollowUp.mockResolvedValue({ answerable: true, text: '40 people posted.' })
+
+      const responses = await handleSummon(buildContext(), questionMessage, fakeLlm, fastLlm)
+
+      expect(responses[0].message).toBe(
+        '40 people posted. For what was actually said, the Event Historian can help with the rest.'
+      )
+    })
+
+    it('answers the quantitative half of a mixed question and suggests adding a historian when none is installed', async () => {
+      mockExtract.mockResolvedValue({
+        intent: 'question',
+        scope: 'mixed',
+        eventQuery: 'Spring Town Hall',
+        latestInTopic: false,
+        latestOverall: false,
+        trend: false
+      })
+      mockResolve.mockReturnValue({ status: 'resolved', event: { id: 'c1', name: 'Spring Town Hall' } })
+      mockResolvedConversation(false)
+      mockHasHistorianAgent.mockResolvedValue(false)
+      mockAnswerFollowUp.mockResolvedValue({ answerable: true, text: '40 people posted.' })
+
+      const responses = await handleSummon(buildContext(), questionMessage, fakeLlm, fastLlm)
+
+      expect(responses[0].message).toBe(
+        "40 people posted. For what was actually said, that's a question for the Event Historian: there's none in this channel, so add one here or ask in a channel that already has one."
+      )
+    })
+
+    it('falls back to a not-found reply when the question names no matching public event', async () => {
+      mockExtract.mockResolvedValue({
+        intent: 'question',
+        scope: 'quantitative',
+        eventQuery: 'Spring Town Hall',
+        latestInTopic: false,
+        latestOverall: false,
+        trend: false
+      })
+      mockResolve.mockReturnValue({ status: 'notFound' })
+
+      const responses = await handleSummon(buildContext(), questionMessage, fakeLlm, fastLlm)
+
+      expect(responses[0].message).toBe(notFoundMessage('Spring Town Hall', []))
+      expect(mockComputeConversationMetrics).not.toHaveBeenCalled()
+    })
+
+    it('asks which event when a question matches more than one public event', async () => {
+      const candidates = [
+        { id: '1', name: 'Spring Town Hall' },
+        { id: '2', name: 'Fall Town Hall' }
+      ]
+      mockExtract.mockResolvedValue({
+        intent: 'question',
+        scope: 'quantitative',
+        eventQuery: 'Town Hall',
+        latestInTopic: false,
+        latestOverall: false,
+        trend: false
+      })
+      mockResolve.mockReturnValue({ status: 'ambiguous', candidates })
+
+      const responses = await handleSummon(buildContext(), questionMessage, fakeLlm, fastLlm)
+
+      expect(responses[0].responseKind).toBe('eventDisambiguation')
+      expect(mockComputeConversationMetrics).not.toHaveBeenCalled()
+    })
+
+    it('guides instead of resolving when a question names no event at all', async () => {
+      mockExtract.mockResolvedValue({
+        intent: 'question',
+        scope: 'quantitative',
+        eventQuery: '   ',
+        latestInTopic: false,
+        latestOverall: false,
+        trend: false
+      })
+
+      const responses = await handleSummon(
+        buildContext(),
+        { _id: 'm', body: '@Vibes how many people came?' },
+        fakeLlm,
+        fastLlm
+      )
+
+      expect(responses[0].message).toBe(helpMessage([]))
+      expect(mockResolve).not.toHaveBeenCalled()
+    })
+
+    it('refuses and never computes metrics when the resolved event is on a private topic', async () => {
+      mockExtract.mockResolvedValue({
+        intent: 'question',
+        scope: 'quantitative',
+        eventQuery: 'Spring Town Hall',
+        latestInTopic: false,
+        latestOverall: false,
+        trend: false
+      })
+      mockResolve.mockReturnValue({ status: 'resolved', event: { id: 'c1', name: 'Spring Town Hall' } })
+      mockResolvedConversation(true) // private topic
+
+      const responses = await handleSummon(buildContext(), questionMessage, fakeLlm, fastLlm)
+
+      expect(responses[0].message).toContain('can only recap public events')
+      expect(mockComputeConversationMetrics).not.toHaveBeenCalled()
+    })
+
+    it('falls back to an unanswerable-question reply when the metrics cannot answer it after all', async () => {
+      mockExtract.mockResolvedValue({
+        intent: 'question',
+        scope: 'quantitative',
+        eventQuery: 'Spring Town Hall',
+        latestInTopic: false,
+        latestOverall: false,
+        trend: false
+      })
+      mockResolve.mockReturnValue({ status: 'resolved', event: { id: 'c1', name: 'Spring Town Hall' } })
+      mockResolvedConversation(false)
+      mockAnswerFollowUp.mockResolvedValue({ answerable: false, text: null })
+
+      const responses = await handleSummon(buildContext(), questionMessage, fakeLlm, fastLlm)
+
+      expect(responses[0].message).toBe(unanswerableQuestionMessage('Spring Town Hall'))
     })
   })
 })

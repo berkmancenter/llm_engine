@@ -67,6 +67,19 @@ export async function resolveActiveAgentTypeLabels(conversation): Promise<string
   return labelActiveAgentTypes(agentDocs.map((agent) => agent.agentType))
 }
 
+/* Whether an Event Historian agent is active on this conversation, so a deferred interpretive
+   question can point to it by name only when it genuinely exists here rather than referencing a
+   capability that is not installed. Same populated-or-not idiom as resolveActiveAgentTypeLabels. */
+export async function hasHistorianAgent(conversation): Promise<boolean> {
+  const agentRefs = conversation.agents ?? []
+  if (agentRefs.length === 0) return false
+
+  const isPopulated = typeof agentRefs[0] === 'object' && 'agentType' in agentRefs[0]
+  const agentDocs = isPopulated ? agentRefs : await Agent.find({ _id: { $in: agentRefs } }).select('agentType')
+
+  return agentDocs.some((agent) => agent.agentType === 'eventHistorian')
+}
+
 /**
  * Builds the verified engagement card for one event. It computes the metrics, adds spike
  * and reception annotations from the channels the VA is allowed to read, then has the
