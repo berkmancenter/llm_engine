@@ -201,9 +201,11 @@ export default verify({
       ? lastGroupIntervention.createdAt!.getTime()
       : new Date(this.conversation.startTime).getTime()
     // Grace buffer accounts for LLM execution time between the rate-limit check and message creation.
-    // Without it, messages created 10-30s after the check causes the next periodic tick to be
-    // slightly under the interval and rate-limit every other invocation.
-    const RATE_LIMIT_GRACE_MS = 20 * 1000
+    // When minInterval equals the timer period, dissolve the check entirely (grace = minInterval)
+    // so every cycle is eligible. When minInterval exceeds the timer period, use a small fixed
+    // buffer for LLM latency only — preserving the intent of the longer minimum.
+    const timerPeriodMs = (this.triggers?.periodic?.timerPeriod ?? 120) * 1000
+    const RATE_LIMIT_GRACE_MS = minInterval <= timerPeriodMs ? minInterval : 30 * 1000
     if (now - baseline < minInterval - RATE_LIMIT_GRACE_MS) {
       logger.debug(
         `${this.name}: Rate limited — last intervention ${Math.round((now - baseline) / 1000)}s ago (min ${

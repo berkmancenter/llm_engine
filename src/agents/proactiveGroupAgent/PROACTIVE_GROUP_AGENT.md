@@ -37,7 +37,7 @@ A `behaviorPolicy` on the conversation controls how the agent operates:
 
 - **Initiative level** — `passive` (agent stays silent), `lightlyProactive`, `moderatelyProactive`, `highlyProactive`. Passive skips the agent entirely.
 - **Social sensitivity** — `standard` (confidence threshold 60) or `high` (threshold raised to 75 before the agent will post).
-- **Min contribution interval** — How many minutes must pass between the agent's own posts. Defaults to 2. A 20-second grace buffer on the rate limit compensates for LLM execution time between the rate check and message persistence.
+- **Min contribution interval** — How many minutes must pass between the agent's own posts. Defaults to 2. A grace buffer equal to the periodic timer period is subtracted from the rate limit check, so a post from the previous cycle never blocks the next one when `minContributionMinutes` matches the timer period.
 - **Safety posture** — `standard` or `strict`. When strict, proposed messages are passed through a professionalism validator before being sent.
 
 The effective confidence threshold is `max(policyThreshold, max(goal.triggers.minConfidence))` — the most conservative floor across both layers wins.
