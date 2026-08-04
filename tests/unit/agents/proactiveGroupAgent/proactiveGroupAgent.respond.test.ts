@@ -61,12 +61,14 @@ function makeMessage(overrides: {
   }
 }
 
-function makeAgent(overrides: {
-  messages?: ReturnType<typeof makeMessage>[]
-  minContributionMinutes?: number
-  safetyPosture?: 'standard' | 'strict'
-  startTime?: Date
-} = {}) {
+function makeAgent(
+  overrides: {
+    messages?: ReturnType<typeof makeMessage>[]
+    minContributionMinutes?: number
+    safetyPosture?: 'standard' | 'strict'
+    startTime?: Date
+  } = {}
+) {
   const startTime = overrides.startTime ?? new Date(Date.now() - 20 * 60 * 1000) // 20 min ago
   const minContributionMinutes = overrides.minContributionMinutes ?? 2
 
@@ -104,6 +106,7 @@ function makeAgent(overrides: {
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function makeTranscriptMessage(text: string, offsetMs = 0) {
   const createdAt = new Date(Date.now() - offsetMs)
   return {
@@ -142,6 +145,10 @@ describe('proactiveGroupAgent', () => {
 
     it('defaults to a 10-minute transcript window via agentConfig', () => {
       expect(proactiveGroupAgent.agentConfig?.transcriptWindow).toBe(10)
+    })
+
+    it('has no goalPriorities set by default', () => {
+      expect(proactiveGroupAgent.agentConfig?.goalPriorities).toBeUndefined()
     })
   })
 })
@@ -184,7 +191,7 @@ describe('proactiveGroupAgent respond', () => {
       expect(mockRunInterventionAnalysis).toHaveBeenCalled()
     })
 
-    it('does not count other agents\' messages against the rate limit', async () => {
+    it("does not count other agents' messages against the rate limit", async () => {
       const now = new Date()
       const otherAgentMessage = makeMessage({
         fromAgent: true,
@@ -261,7 +268,7 @@ describe('proactiveGroupAgent respond', () => {
         expect.any(Date)
       )
       const callArgs = mockRunInterventionAnalysis.mock.calls[0]
-      const recentTranscript = callArgs[callArgs.length - 1] as string
+      const recentTranscript = callArgs[callArgs.length - 2] as string
       expect(recentTranscript).toBe('Part-time work is the future.')
     })
 
@@ -275,6 +282,41 @@ describe('proactiveGroupAgent respond', () => {
       await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
 
       expect(mockGetTranscript).toHaveBeenCalledWith(agent.conversation, 300, expect.any(Date))
+    })
+  })
+
+  describe('goal priorities', () => {
+    it('passes agentConfig.goalPriorities through to runInterventionAnalysis and into the composed system prompt', async () => {
+      const now = new Date()
+      const agent = makeAgent({ startTime: new Date(now.getTime() - 20 * 60 * 1000) })
+      agent.agentConfig.goalPriorities = { synthesize_discussion: 80 }
+      mockRunInterventionAnalysis.mockResolvedValue(null)
+
+      await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
+
+      const callArgs = mockRunInterventionAnalysis.mock.calls[0]
+      const goalPriorities = callArgs[callArgs.length - 1]
+      expect(goalPriorities).toEqual({ synthesize_discussion: 80 })
+
+      // composeSystemPrompt is not mocked in this file — assert the real prompt it built
+      // reflects the priority (tier label rendered for priority >= 67), proving the value
+      // actually reached promptComposer and wasn't just threaded to runInterventionAnalysis.
+      const systemPrompt = callArgs[1] as string
+      expect(systemPrompt).toContain('Preferred pattern')
+    })
+
+    it('passes undefined goalPriorities through when agentConfig has none set', async () => {
+      const now = new Date()
+      const agent = makeAgent({ startTime: new Date(now.getTime() - 20 * 60 * 1000) })
+      mockRunInterventionAnalysis.mockResolvedValue(null)
+
+      await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
+
+      const callArgs = mockRunInterventionAnalysis.mock.calls[0]
+      expect(callArgs[callArgs.length - 1]).toBeUndefined()
+
+      const systemPrompt = callArgs[1] as string
+      expect(systemPrompt).not.toContain('Preferred pattern')
     })
   })
 

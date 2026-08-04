@@ -5,7 +5,7 @@ import transcript from './transcript.js'
 import { getChatPromptResponse } from './llmChain.js'
 
 import logger from '../../config/logger.js'
-import { getConfidenceThreshold, getMinContributionMs } from './promptComposer.js'
+import { getConfidenceThreshold, getEffectiveMinConfidence, getMinContributionMs } from './promptComposer.js'
 
 /**
  * Analysis result from intervention detection — shared across proactiveGroupAgent and checkinHandler.
@@ -26,7 +26,7 @@ export interface InterventionAnalysis {
 export const USER_TEMPLATE = `## Event Topic:
 {topic}
 
-## Recent Transcript (last 10 minutes):
+## Recent Transcript:
 {recentTranscript}
 
 ## Retrieved Relevant Context from Transcript:
@@ -49,7 +49,7 @@ export const interventionLlmTemplateVars = {
   system: [],
   user: [
     { name: 'topic', description: 'The event topic' },
-    { name: 'recentTranscript', description: 'Recent transcript from the event (last 10 minutes)' },
+    { name: 'recentTranscript', description: 'Transcript from the event' },
     { name: 'retrievedChunks', description: 'Relevant retrieved context from RAG search' },
     { name: 'privateMessages', description: 'Private/direct messages from participants' },
     { name: 'sharedChatHistory', description: 'Shared chat history including agent posts' },
@@ -118,7 +118,8 @@ export async function runInterventionAnalysis(
   activeGoals?: ConversationGoal[],
   behaviorPolicy?: BehaviorPolicy,
   channelType: 'dm' | 'groupChat' = 'groupChat',
-  recentTranscript?: string
+  recentTranscript?: string,
+  goalPriorities?: Record<string, number>
 ): Promise<InterventionAnalysis | null> {
   // Format conversation histories
   const sharedChatMessages = formatMultiUserConversationHistory(sharedChatHistory)
@@ -173,13 +174,18 @@ export async function runInterventionAnalysis(
   // Return null if shouldn't intervene or confidence too low.
   // Threshold is raised to 75 when socialSensitivity is 'high'.
   // Per-pattern minConfidence provides an additional floor applied per-call.
-  const channelPolicy = channelType === 'dm' ? behaviorPolicy?.channels?.dm?.proactivePolicy : behaviorPolicy?.channels?.groupChat?.proactivePolicy
+  const channelPolicy =
+    channelType === 'dm'
+      ? behaviorPolicy?.channels?.dm?.proactivePolicy
+      : behaviorPolicy?.channels?.groupChat?.proactivePolicy
   const policyThreshold = getConfidenceThreshold(channelPolicy)
   const matchedGoal = activeGoals?.find((g) => g.id === analysis.goalId)
-  const patternFloor = matchedGoal?.triggers.minConfidence ?? 0
+  const patternFloor = matchedGoal ? getEffectiveMinConfidence(matchedGoal, goalPriorities) : 0
   const effectiveThreshold = Math.max(policyThreshold, patternFloor)
 
-  logger.debug(`[interventionHandler] goalId=${analysis.goalId} confidence=${analysis.confidenceScore} threshold=${effectiveThreshold} (policy=${policyThreshold}, patternFloor=${patternFloor})`)
+  logger.debug(
+    `[interventionHandler] goalId=${analysis.goalId} confidence=${analysis.confidenceScore} threshold=${effectiveThreshold} (policy=${policyThreshold}, patternFloor=${patternFloor})`
+  )
 
   if (!analysis.shouldIntervene || analysis.confidenceScore < effectiveThreshold) {
     return null
@@ -214,7 +220,8 @@ export async function detectPrivateInterventionOpportunity(
   extraTemplateVars?: Record<string, string>,
   activeGoals?: ConversationGoal[],
   behaviorPolicy?: BehaviorPolicy,
-  recentTranscript?: string
+  recentTranscript?: string,
+  goalPriorities?: Record<string, number>
 ): Promise<InterventionAnalysis | null> {
   const now = sharedChatHistory.end ? sharedChatHistory.end.getTime() : Date.now()
   const dmProactivePolicy = behaviorPolicy?.channels?.dm?.proactivePolicy
@@ -244,6 +251,7 @@ export async function detectPrivateInterventionOpportunity(
     activeGoals,
     behaviorPolicy,
     'dm',
-    recentTranscript
+    recentTranscript,
+    goalPriorities
   )
 }

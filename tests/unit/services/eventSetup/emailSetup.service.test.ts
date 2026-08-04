@@ -24,6 +24,12 @@ const allowedDomain = 'example.edu'
 config.allowedOrganizerEmailDomains = [allowedDomain]
 const OUTSIDE_DOMAIN = 'not-an-org.invalid'
 
+// createConversation rejects a scheduledTime in the past, so these are relative to now rather than
+// fixed calendar dates, which would silently rot the whole suite once the date passed.
+const HOUR_MS = 60 * 60 * 1000
+const INVITE_START = new Date(Date.now() + 24 * HOUR_MS) // tomorrow
+const INVITE_END = new Date(INVITE_START.getTime() + HOUR_MS)
+
 // DTSTART is mandatory in a well-formed .ics VEVENT (RFC 5545), so a real inbound invite always
 // has a start date; these defaults keep that realistic instead of exercising the no-scheduledTime
 // instant-start path, which createConversationFromInvite never actually takes.
@@ -35,8 +41,8 @@ const buildInvite = (
   invite: {
     uid: 'UID-DEFAULT',
     summary: 'Some Event: additional info',
-    startDate: new Date('2026-08-01T17:00:00Z'),
-    endDate: new Date('2026-08-01T18:00:00Z'),
+    startDate: INVITE_START,
+    endDate: INVITE_END,
     ...overrides
   }
 })
@@ -232,8 +238,8 @@ describe('emailSetup.service', () => {
         buildInvite(
           {
             summary: 'BKCircle: Jane Presents',
-            startDate: new Date('2026-08-01T17:00:00Z'),
-            endDate: new Date('2026-08-01T18:00:00Z')
+            startDate: INVITE_START,
+            endDate: INVITE_END
           },
           `org@${allowedDomain}`
         )
@@ -245,8 +251,8 @@ describe('emailSetup.service', () => {
       // this freshly-created, unrefetched conversation .topic is a real Document; .id is the safe
       // comparison (Mongoose's Document#toString formats the whole document, not a hex string).
       expect((conversation!.topic as unknown as { id: string }).id).toBe(topicDoc.id)
-      expect(conversation!.scheduledTime).toEqual(new Date('2026-08-01T17:00:00Z'))
-      expect(conversation!.scheduledEndTime).toEqual(new Date('2026-08-01T18:00:00Z'))
+      expect(conversation!.scheduledTime).toEqual(INVITE_START)
+      expect(conversation!.scheduledEndTime).toEqual(INVITE_END)
       expect(conversation!.properties!.zoomMeetingUrl).toBe('https://zoom.us/j/123456789')
       expect(conversation!.presenters).toEqual([expect.objectContaining({ name: 'Jane Doe' })])
       expect(conversation!.moderators).toEqual([expect.objectContaining({ name: 'Mod Person' })])

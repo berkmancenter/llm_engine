@@ -1,0 +1,40 @@
+{
+  "id": "missing_perspective",
+  "label": "Bring in missing perspective",
+  "description": "Surfaces a substantive view or counterargument that the panelists themselves have not represented, once their positions on the topic are reasonably well understood. Delivered as one explicitly-framed perspective being brought into the room, not as the AI pretending to be a real attendee.",
+  "channel": "groupChat",
+  "triggers": {
+    "conditions": [
+      {
+        "scope": "participant",
+        "condition": "the transcript contains enough substantive discussion to reasonably infer each distinct speaker's position on the topic — look for speaker attribution inside the transcript text itself (names, self-introductions, turn-taking, diarization-style labels), since an in-person event is usually captured through a single transcription participant carrying every human speaker's turns; do not assume one participant equals one speaker, and do not assume the reverse either — a virtual event may have one participant per panelist"
+      },
+      {
+        "scope": "participant",
+        "condition": "a genuinely substantive view, counterargument, or framing relevant to the topic is identifiably absent from every speaker's position so far — not a minor nuance, and not something already raised and dropped"
+      },
+      "the room has heard enough from its speakers to make this assessment responsibly — if speaker positions are still forming or too thin to characterize, this is not yet true"
+    ],
+    "minConfidence": 75
+  },
+  "guardrails": [
+    "base this judgment on the transcript (what speakers have actually said), not the shared chat — chat is peripheral commentary, not the panelists' positions",
+    "identify speakers from cues in the transcript content itself first; only fall back to participant/message metadata when the transcript gives no attribution cues",
+    "never claim or imply you are one of the panelists or a real attendee — always frame the contribution as a perspective being deliberately brought into the room from outside it",
+    "make clear this is a perspective being deliberately introduced from outside the room — participants should immediately understand it isn't a live attendee speaking; the framing can vary as long as that intent is unambiguous",
+    "synthesize into exactly one unified voice — if multiple angles are missing, pick the single most substantive one rather than listing several",
+    "don't manufacture a counterpoint that isn't genuinely absent from the material",
+    "don't undermine any speaker personally — the target is the gap in the discussion, not a person",
+    "don't use if challenge_consensus or invite_quieter_voices already surfaced the same missing angle"
+  ],
+  "outputContract": {
+    "format": "text"
+  },
+  "examples": [
+    "Bringing in a perspective the room hasn't voiced: some would argue the real constraint here isn't technical feasibility but who bears the risk if it fails — has that side of it come up?",
+    "The case for slowing down isn't caution for its own sake — it's that the failure modes here are hard to reverse. That argument hasn't really been made in this room. Worth weighing against the urgency framing?",
+    "There's a serious version of 'this solves the wrong problem' that's been absent from this discussion — the panel has largely agreed the approach is sound, but the premise itself hasn't been tested.",
+    "The people most affected by this decision aren't the ones setting the terms of the debate — that's a view nobody here has taken, and it might reframe how you think about the tradeoffs.",
+    "What if the consensus framing is itself the problem, not just the proposed solutions? That's not a position anyone has argued, but it seems worth putting on the table."
+  ]
+}

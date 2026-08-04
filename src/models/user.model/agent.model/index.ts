@@ -488,7 +488,15 @@ agentSchema.pre('validate', function () {
   if (this.triggers === undefined) {
     this.triggers = agentTypes[this.agentType].defaultTriggers
   }
-  this.agentConfig = { ...(agentTypes[this.agentType].agentConfig || {}), ...(this.agentConfig || {}) }
+  const typeConfig = agentTypes[this.agentType].agentConfig ?? {}
+  const instanceConfig = this.agentConfig ?? {}
+  this.agentConfig = {
+    ...typeConfig,
+    ...instanceConfig,
+    ...(typeConfig.goalPriorities !== undefined || instanceConfig.goalPriorities !== undefined
+      ? { goalPriorities: { ...(typeConfig.goalPriorities ?? {}), ...(instanceConfig.goalPriorities ?? {}) } }
+      : {}),
+  }
   // ensure a botName exists
   if (!this.agentConfig!.botName) this.agentConfig!.botName = config.conversationBotName
   if (this.conversationHistorySettings === undefined && agentTypes[this.agentType].defaultConversationHistorySettings) {

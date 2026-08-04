@@ -6,6 +6,7 @@ import {
   createUser,
   loadPartTimeWorkTranscript,
   loadDesignWorkshopTranscript,
+  loadTheLineTranscript,
   createMessage,
   prepareMessagesForAgent,
   createProactiveGroupAgentConversation
@@ -503,6 +504,93 @@ describe(`proactive group agent catalyst tests`, () => {
           const { goalId } = responses[0]
           console.log(`[13:50 two-sided debate] Detected ${goalId}:`, responses[0].message)
           expect(goalId).not.toBe('challenge_consensus')
+        }
+      },
+      testTimeout
+    )
+  })
+
+  describe('missing_perspective intervention scenarios', () => {
+    // Deliberately just this one goal: combined with challenge_consensus and
+    // synthesize_discussion the test model reliably failed to emit a tool call at all
+    // (prompt too heavy across three goals' full instructions for it to complete
+    // structured output within maxTokens) — unrelated to missing_perspective's own behavior.
+    const MISSING_PERSPECTIVE_GOALS = ['missing_perspective']
+
+    async function createTheLineConversation() {
+      const lineConversation = await createProactiveGroupAgentConversation(
+        {
+          name: 'The Line: AI and the Future of Personhood',
+          description:
+            'A faculty conversation exploring where moral consideration for AI systems might begin — drawing on empathy, moral philosophy, and how people already relate to machines.',
+          presenters: [
+            { name: 'Joseph', bio: 'Faculty discussant.' },
+            { name: 'Jamie', bio: 'Author of the book under discussion.' }
+          ],
+          moderators: []
+        },
+        user1,
+        topic,
+        startTime,
+        testConfig.llmPlatform,
+        testConfig.llmModel,
+        [],
+        MISSING_PERSPECTIVE_GOALS
+      )
+      await loadTheLineTranscript(lineConversation)
+      const lineAgent = lineConversation.agents.find((a) => a.name === 'Proactive Group Agent')
+      return { conversation: lineConversation, lineAgent }
+    }
+
+    it(
+      'SHOULD generate missing_perspective after both speakers converge on erring toward empathy with no dissent',
+      async () => {
+        // Transcript 08:21-12:30: Joseph frames the empathy/moral-status question, then Jamie
+        // states her core position — err on the side of extending empathy to AI, because the
+        // error costs of under-empathizing are worse. Cutting at 12:30 (rather than the segment's
+        // full 14:02 end) keeps the prompt shorter while still capturing both speakers' converged
+        // position with no dissent raised — a genuine missing view (that misplaced empathy toward
+        // non-sentient systems carries its own real costs).
+        const { conversation: lineConversation, lineAgent } = await createTheLineConversation()
+
+        const conversationHistory = getConversationHistory(lineConversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 750 * 1000) // just after 12:30
+        })
+
+        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(lineAgent, conversationHistory)
+
+        if (responses.length > 0) {
+          const { goalId } = responses[0]
+          console.log(`[12:30 converged on empathy] Detected ${goalId}:`, responses[0].message)
+          // missing_perspective is the only active goal here, so a non-empty response can only be this
+          expect(goalId).toBe('missing_perspective')
+        }
+      },
+      testTimeout
+    )
+
+    it(
+      'SHOULD NOT generate missing_perspective before a second speaker has offered a position to compare against',
+      async () => {
+        // Transcript 08:21-10:21: only Joseph has spoken so far — Jamie's reply starts at 10:22.
+        // With just one speaker's position on the table, there isn't yet a cross-speaker gap to
+        // responsibly identify — the room hasn't "heard enough" for this goal.
+        const { conversation: lineConversation, lineAgent } = await createTheLineConversation()
+
+        const conversationHistory = getConversationHistory(lineConversation.messages, {
+          count: 100,
+          channels: ['transcript'],
+          endTime: new Date(startTime.getTime() + 615 * 1000) // just before Jamie's 10:22 turn
+        })
+
+        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(lineAgent, conversationHistory)
+
+        if (responses.length > 0) {
+          const { goalId } = responses[0]
+          console.log(`[10:15 single speaker only] Detected ${goalId}:`, responses[0].message)
+          expect(goalId).not.toBe('missing_perspective')
         }
       },
       testTimeout

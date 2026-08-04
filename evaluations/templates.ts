@@ -150,7 +150,7 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
   },
 
   publicPanelDiscussion: {
-    goals: ['provoke_participation', 'challenge_consensus', 'surface_signal', 'invite_quieter_voices', 'synthesize_discussion', 'bridge_topics', 'private_reassure', 'private_not_alone', 'private_interest_bridge', 'private_transcript_hook'],
+    goals: ['provoke_participation', 'challenge_consensus', 'missing_perspective', 'surface_signal', 'invite_quieter_voices', 'synthesize_discussion', 'bridge_topics', 'private_reassure', 'private_not_alone', 'private_interest_bridge', 'private_transcript_hook'],
     behaviorPolicy: {
       globalPolicy: {
         tone: 'warmSupportive',

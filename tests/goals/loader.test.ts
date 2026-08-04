@@ -1,4 +1,4 @@
-import { loadGoal, loadGoals, getGroupChatGoals, getDmGoals } from '../../src/goals/loader.js'
+import { loadGoal, loadGoals, getGroupChatGoals, getDmGoals, listGoalIds } from '../../src/goals/loader.js'
 
 describe('loadGoal', () => {
   test('loads a known goal by id', () => {
@@ -42,6 +42,26 @@ describe('loadGoal', () => {
     expect(scopes).toContain('event')
     expect(scopes).toContain('participant')
   })
+
+  test('loads missing_perspective with required fields and a high confidence floor', () => {
+    const goal = loadGoal('missing_perspective')
+    expect(goal).toMatchObject({
+      id: 'missing_perspective',
+      channel: 'groupChat',
+      label: expect.any(String),
+      description: expect.any(String)
+    })
+    expect(goal.triggers.minConfidence).toBeGreaterThanOrEqual(75)
+    expect(goal.guardrails.length).toBeGreaterThan(0)
+    expect(goal.examples.length).toBeGreaterThan(0)
+  })
+
+  test('missing_perspective mixes event/participant-scoped and normalized string conditions', () => {
+    const goal = loadGoal('missing_perspective')
+    const scopes = goal.triggers.conditions.map((c) => c.scope)
+    expect(scopes).toContain('participant')
+    expect(goal.triggers.conditions.every((c) => typeof c.condition === 'string')).toBe(true)
+  })
 })
 
 describe('loadGoals', () => {
@@ -72,6 +92,19 @@ describe('getGroupChatGoals', () => {
   test('returns empty array when no groupChat goals present', () => {
     const goals = loadGoals(['private_reassure', 'private_not_alone'])
     expect(getGroupChatGoals(goals)).toEqual([])
+  })
+})
+
+describe('listGoalIds', () => {
+  test('includes known goal ids from both channels', () => {
+    const ids = listGoalIds()
+    expect(ids).toContain('bridge_topics')
+    expect(ids).toContain('private_reassure')
+    expect(ids).toContain('missing_perspective')
+  })
+
+  test('does not include the schema.json file as a goal id', () => {
+    expect(listGoalIds()).not.toContain('schema')
   })
 })
 
