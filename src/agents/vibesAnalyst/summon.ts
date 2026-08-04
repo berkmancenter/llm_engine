@@ -8,6 +8,7 @@ import conversationAnalyticsService from '../../services/conversationAnalytics.s
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import buildVibesSummary, { hasHistorianAgent } from './buildSummary.js'
 import buildTrendSummary from './trendSummary.js'
+import answerWithOnDemandMetrics from './onDemand.js'
 import { resolveFollowUpContext, answerFollowUp, resolveDisambiguationContext } from './followUp.js'
 import { VIBES_SMALLTALK_SYSTEM_PROMPT, VIBES_SMALLTALK_USER_TEMPLATE } from './prompt.js'
 import {
@@ -398,6 +399,12 @@ async function tryFollowUp(
  * follow-up question already uses, so a first, unthreaded question gets identical treatment to a
  * reply under a posted card. A mixed question's interpretive half is only ever pointed at the
  * historian (or honestly disclaimed when there isn't one), never guessed at from the metrics.
+ *
+ * That answerFollowUp pass reads only the numbers already computed for this event. An open-ended
+ * question ("how many people posted more than three times?") needs a metric nobody precomputed,
+ * so a miss there escalates to the tool loop, which computes one over this event's own messages
+ * and fact-checks it before it can be sent. Only a miss escalates, so the common question costs
+ * exactly what it did before.
  */
 async function handleQuestionSummon(
   context,
@@ -437,11 +444,16 @@ async function handleQuestionSummon(
   const metricsContext = [buildSnapshotPayload(conversation, metrics, { receptionCount: null })]
   const answer = await answerFollowUp(userMessage.body ?? '', metricsContext, llm)
 
-  if (!answer.answerable || !answer.text) {
+  const answerText =
+    answer.answerable && answer.text
+      ? answer.text
+      : await answerWithOnDemandMetrics(userMessage.body ?? '', conversation, metrics, llm)
+
+  if (!answerText) {
     return [reply(context, parent, unanswerableQuestionMessage(conversation.name))]
   }
 
-  const text = reference.scope === 'mixed' ? withHistorianPointer(answer.text, hasHistorian) : answer.text
+  const text = reference.scope === 'mixed' ? withHistorianPointer(answerText, hasHistorian) : answerText
   return [reply(context, parent, text)]
 }
 

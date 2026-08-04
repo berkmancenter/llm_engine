@@ -49,7 +49,15 @@ const mockGetChatPromptResponse = jest.fn<(...args: any[]) => Promise<any>>()
 const mockHasHistorianAgent = jest.fn<(...args: any[]) => Promise<any>>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockComputeConversationMetrics = jest.fn<(...args: any[]) => Promise<any>>()
+// The on-demand agent loop (its tools and its own fact-check) is exercised in its own file;
+// mocked here to drive the escalation from "the precomputed numbers cannot answer this" to a
+// computation run over the event.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockAnswerWithOnDemandMetrics = jest.fn<(...args: any[]) => Promise<any>>()
 
+jest.unstable_mockModule('../src/agents/vibesAnalyst/onDemand.js', () => ({
+  default: mockAnswerWithOnDemandMetrics
+}))
 jest.unstable_mockModule('../src/agents/vibesAnalyst/eventResolution.js', () => ({
   extractEventReference: mockExtract,
   findCandidatePublicEvents: mockFindCandidates,
@@ -162,6 +170,8 @@ describe('handleSummon', () => {
     mockHasHistorianAgent.mockResolvedValue(false)
     mockComputeConversationMetrics.mockReset()
     mockComputeConversationMetrics.mockResolvedValue({})
+    mockAnswerWithOnDemandMetrics.mockReset()
+    mockAnswerWithOnDemandMetrics.mockResolvedValue(null)
   })
 
   it('posts the engagement card threaded under the summon when the event resolves', async () => {
@@ -830,7 +840,7 @@ describe('handleSummon', () => {
       expect(mockComputeConversationMetrics).not.toHaveBeenCalled()
     })
 
-    it('falls back to an unanswerable-question reply when the metrics cannot answer it after all', async () => {
+    it('falls back to an unanswerable-question reply when neither pass can answer it', async () => {
       mockExtract.mockResolvedValue({
         intent: 'question',
         scope: 'quantitative',
@@ -842,10 +852,77 @@ describe('handleSummon', () => {
       mockResolve.mockReturnValue({ status: 'resolved', event: { id: 'c1', name: 'Spring Town Hall' } })
       mockResolvedConversation(false)
       mockAnswerFollowUp.mockResolvedValue({ answerable: false, text: null })
+      mockAnswerWithOnDemandMetrics.mockResolvedValue(null)
 
       const responses = await handleSummon(buildContext(), questionMessage, fakeLlm, fastLlm)
 
       expect(responses[0].message).toBe(unanswerableQuestionMessage('Spring Town Hall'))
+    })
+
+    describe('escalating to an on-demand computation', () => {
+      const openEndedQuestion = { _id: 'q-msg', body: '@Vibes how many people posted more than three times?' }
+
+      function mockOpenEndedQuestion(scope = 'quantitative') {
+        mockExtract.mockResolvedValue({
+          intent: 'question',
+          scope,
+          eventQuery: 'Spring Town Hall',
+          latestInTopic: false,
+          latestOverall: false,
+          trend: false
+        })
+        mockResolve.mockReturnValue({ status: 'resolved', event: { id: 'c1', name: 'Spring Town Hall' } })
+        mockResolvedConversation(false)
+      }
+
+      it('computes a new metric over the event when the precomputed numbers cannot answer', async () => {
+        mockOpenEndedQuestion()
+        mockComputeConversationMetrics.mockResolvedValue({ participation: { posterCount: 40 } })
+        mockAnswerFollowUp.mockResolvedValue({ answerable: false, text: null })
+        mockAnswerWithOnDemandMetrics.mockResolvedValue('7 people posted more than three times.')
+
+        const responses = await handleSummon(buildContext(), openEndedQuestion, fakeLlm, fastLlm)
+
+        // The live metrics go along, so the loop only reaches for a tool when they fall short.
+        expect(mockAnswerWithOnDemandMetrics).toHaveBeenCalledWith(
+          openEndedQuestion.body,
+          expect.objectContaining({ _id: 'c1' }),
+          { participation: { posterCount: 40 } },
+          fakeLlm
+        )
+        expect(responses[0].message).toBe('7 people posted more than three times.')
+      })
+
+      it('never runs the tool loop when the precomputed numbers already answer the question', async () => {
+        mockOpenEndedQuestion()
+        mockAnswerFollowUp.mockResolvedValue({ answerable: true, text: '40 people posted.' })
+
+        const responses = await handleSummon(buildContext(), openEndedQuestion, fakeLlm, fastLlm)
+
+        expect(mockAnswerWithOnDemandMetrics).not.toHaveBeenCalled()
+        expect(responses[0].message).toBe('40 people posted.')
+      })
+
+      it('points the interpretive half of a mixed question to the historian after computing the rest', async () => {
+        mockOpenEndedQuestion('mixed')
+        mockHasHistorianAgent.mockResolvedValue(true)
+        mockAnswerFollowUp.mockResolvedValue({ answerable: false, text: null })
+        mockAnswerWithOnDemandMetrics.mockResolvedValue('7 people posted more than three times.')
+
+        const responses = await handleSummon(buildContext(), openEndedQuestion, fakeLlm, fastLlm)
+
+        expect(responses[0].message).toBe(
+          '7 people posted more than three times. For what was actually said, the Event Historian can help with the rest.'
+        )
+      })
+
+      it('never computes anything for an interpretive question', async () => {
+        mockOpenEndedQuestion('interpretive')
+
+        await handleSummon(buildContext(), openEndedQuestion, fakeLlm, fastLlm)
+
+        expect(mockAnswerWithOnDemandMetrics).not.toHaveBeenCalled()
+      })
     })
   })
 })
