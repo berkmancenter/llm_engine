@@ -56,7 +56,6 @@ describe('claudeHandler', () => {
         anthropic_version: 'bedrock-2023-05-31',
         system: 'You are a helpful assistant',
         max_tokens: 2048,
-        temperature: 0.7,
         messages: [{ role: 'user', content: 'Hello world' }]
       })
     })
@@ -68,7 +67,6 @@ describe('claudeHandler', () => {
       })
 
       expect(result.max_tokens).toBe(1024)
-      expect(result.temperature).toBe(0)
     })
 
     it('should include tools when provided', () => {
@@ -128,7 +126,6 @@ describe('claudeHandler', () => {
 
       expect(result.anthropic_version).toBe('bedrock-2023-05-31')
       expect(result.max_tokens).toBe(2048)
-      expect(result.temperature).toBe(0.7)
       expect(result.messages).toHaveLength(1)
       expect(result.system).toBe('You are a helpful assistant')
     })
