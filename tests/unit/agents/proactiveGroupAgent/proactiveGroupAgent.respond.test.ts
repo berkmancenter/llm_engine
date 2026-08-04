@@ -70,7 +70,7 @@ function makeAgent(
   } = {}
 ) {
   const startTime = overrides.startTime ?? new Date(Date.now() - 20 * 60 * 1000) // 20 min ago
-  const minContributionMinutes = overrides.minContributionMinutes ?? 2
+  const minContributionMinutes = overrides.minContributionMinutes ?? 3 // > timerPeriod (2 min) so grace buffer doesn't dissolve the check
 
   return {
     name: AGENT_NAME,
