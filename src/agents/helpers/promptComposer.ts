@@ -35,9 +35,10 @@ const JARGON_LINES: Record<string, string> = {
 }
 
 const INITIATIVE_LINES: Record<string, string> = {
-  lightlyProactive: '- Intervene sparingly — only when the signal is clear',
-  moderatelyProactive: '- Intervene regularly when you see an opportunity',
-  highlyProactive: '- Participate actively and frequently'
+  lightlyProactive: '- Intervene sparingly — only when the trigger is unambiguous and the moment is clearly right',
+  moderatelyProactive: '- Intervene regularly when you see a clear opportunity',
+  highlyProactive:
+    '- Participate actively and frequently. A recent post is not a reason to stay silent — post again whenever there is something genuinely worth saying. Do not wait for participants to respond to a previous post before contributing again; in panel settings people are often listening without typing.'
 }
 
 const QA_SCOPE_LINES: Record<string, string> = {
