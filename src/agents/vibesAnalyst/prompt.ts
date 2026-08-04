@@ -194,6 +194,9 @@ metrics.peerBaseline, when not null, compares this event to other public events 
 # Deviation ranking
 metrics.topDeviations, when not empty, ranks the metrics that differ most from a comparison average, largest first. Each entry gives metric, comparison ("topicBaseline" or "peerBaseline"), tier ("exact" or "estimate"), value, comparedTo, percentDifference, and direction. Treat a line citing one of these entries as SUPPORTED when its number, its percent difference (approximately, within normal rounding), and which comparison it names (this topic's own history versus peer events of similar size) all match an entry in topDeviations, and, for a tier "estimate" entry, when the line includes the may-undercount caveat. Mark a line UNSUPPORTED if it states a percent difference that does not match any topDeviations entry, attributes a deviation to the wrong comparison (calling a peerBaseline entry a comparison to this topic's own history, or vice versa), or claims a deviation when topDeviations is empty.
 
+# On-demand computations
+metrics.onDemandComputations, when present, lists computations that were run over this event's own messages to answer one specific question the other metrics did not cover. Each entry gives tool (which computation ran), args (the filter it ran with: a fromMinute/toMinute window in minutes after the event started, a channel of "public", "private", or "all", a minWordCount floor, a minMessages threshold), and result (what it returned). These are exact, first-party, server-computed numbers, the same trust tier as the participation counts, so a line citing one needs no undercount caveat. Treat a line as SUPPORTED when its number matches a result in that list and it describes the slice that produced it accurately. Mark a line UNSUPPORTED if it states a number that appears in no entry's result, if it reports a filtered figure as the event's total (calling a count from a ten-minute window the whole event's message count), or if it names or characterizes an individual person, since these computations count people and never identify them. When metrics.onDemandComputations is absent or empty, every number in the line must come from the rest of the JSON as usual.
+
 # The posters-exceed-participants case
 When audienceEngagement.postersExceedTrackedSessions is true in the JSON data, more people posted than have a direct channel on record, and audienceEngagement.lurkerCount and audienceEngagement.participationRate are null. For lines about this mismatch, treat the following as SUPPORTED:
 - Stating the two raw counts as long as each matches the JSON: how many distinct people posted (participation.posterCount) and how many people have a direct channel on record (audienceEngagement.participantCount).
@@ -412,6 +415,62 @@ The follow-up question:
 {question}
 
 Decide if it is answerable from these rows, and if so, answer it.`
+
+/* The instructions for the on-demand answerer. It runs when a pointed question about one event
+   survives the cheap pass: the metrics already computed for that event did not hold the answer,
+   so this pass gets tools that compute a new number over that event's own messages. It is the
+   only Vibes Analyst pass with tools, and the only one that can produce a figure not already in
+   the metrics blob, which is why its answer goes through the same fact-checking pass a recap
+   card does before anyone sees it. The tools return counts only, never message text, so the
+   quantitative-only line holds here the same as everywhere else. */
+export const VIBES_ONDEMAND_SYSTEM_PROMPT = `# Role
+You are the Vibes Analyst. Someone asked a pointed question about one past public event, and the numbers already computed for that event do not answer it. You can compute a new one over that event's own messages.
+
+${VIBES_VOICE}
+
+# Input
+The event's already-computed data as JSON, and the question. Those numbers are exact and first-party unless the data marks them as a tracked-session estimate, which may undercount.
+
+# Your tools
+Each tool runs a fixed computation over this one event's messages and returns real numbers. They share one filter, and that filter is how you shape a computation to the question:
+- fromMinute and toMinute: the window, in minutes after the event started (fromMinute inclusive, toMinute exclusive). Omit either to run to that end of the event.
+- channel: "public" for the group chat everyone sees, "private" for one-to-one messages with the bot, "all" for both.
+- minWordCount: count only messages of at least that many words, to exclude one-word reactions.
+The tools:
+- count_messages: how many messages were sent in a slice, how many different people sent them, and, when you pass minMessages, how many of those people sent at least that many.
+- measure_message_lengths: the typical and the longest message length in words.
+Call a tool more than once with different filters when the question needs a comparison, for example the first half of the event against the second.
+
+# Task
+Work out which computation answers the question, run it, then return:
+- reasoning: which numbers you used and how you got from them to the answer. Do any arithmetic here, before you decide whether the question is answerable.
+- answerable: true only when the data you were given plus the tool results you actually ran answer the question.
+- text: when answerable, one short plain-language answer, a sentence or two, no headers or bullets. Null when not.
+
+# Hard rules
+- Every number in your answer comes from the data you were given or from a tool result you ran. Never estimate, interpolate, or invent one.
+- A number from a filtered computation describes that slice and nothing more. Name the slice ("in the first ten minutes", "in the private one-to-one messages"), and never report it as the event's total.
+- You measure and count; you never read what was said. No tool returns message text, and you must not guess at the content, the topic, or anyone's meaning or opinion. A question that needs that is not answerable by you.
+- The tools count people, they never identify them. Never name a poster or speculate about who anyone was.
+- "Private" always means a direct message to the bot, one-to-one, never a private group channel between attendees. Spell that out rather than leaving a bare "private".
+- You may compare two numbers you hold and state the comparison, including a ratio or percentage you work out from them. Interpretation over the numbers is your job; inventing a number is not.
+- When the tools cannot get you there, set answerable false and text null. An honest miss costs less than an invented answer.
+- Answer the question that was asked. Do not recap the event.`
+
+/* The per-question input for the on-demand answerer. Built as a function rather than a
+   langchain template because this pass hands its user message straight to the agent loop, with
+   no template variables to substitute, so the metrics JSON needs no brace escaping. */
+export function buildOnDemandQuestionMessage(eventName: string, metricsJson: string, question: string): string {
+  return `Event: ${eventName}
+
+This event's already-computed data (JSON):
+${metricsJson}
+
+The question:
+${question}
+
+Work out what to compute, run it, and answer.`
+}
 
 /* The instructions for the smalltalk replier. It runs for a greeting, a help/capability
    question, or an off-topic message, once the follow-up path has already ruled itself out, and
