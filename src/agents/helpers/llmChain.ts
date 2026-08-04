@@ -312,22 +312,42 @@ function getStructuredResponseChain(llm, prompt, responseFormatSchema) {
   // This matches LangChain's withStructuredOutput behavior
   return prompt.pipe(llm.bindTools([toolSchema])).pipe(async (message) => {
     // Extract tool call from AIMessage
-    const aiMsg = message as { tool_calls?: Array<{ name: string; args: unknown; id?: string }> }
+    const aiMsg = message as { tool_calls?: Array<{ name: string; args: unknown; id?: string }>; content?: unknown }
 
-    if (!aiMsg.tool_calls || aiMsg.tool_calls.length === 0) {
-      throw new Error('No tool calls found in the response.')
+    const structuredResponseCall = aiMsg.tool_calls?.find((tc) => tc.name === 'structured_response')
+
+    if (structuredResponseCall) {
+      if (Array.isArray(structuredResponseCall.args) && arrayKey) {
+        return { [arrayKey]: structuredResponseCall.args }
+      }
+      return structuredResponseCall.args
     }
 
-    const structuredResponseCall = aiMsg.tool_calls.find((tc) => tc.name === 'structured_response')
-    if (!structuredResponseCall) {
-      throw new Error('No structured_response tool call found.')
+    // Fallback: model returned content instead of a tool call (e.g. BedrockChat ignores tool_choice).
+    // Try to parse the text content as JSON directly.
+    const { content } = aiMsg
+    let text: string | undefined
+    if (Array.isArray(content)) {
+      text = content.find((b) => (b as { type?: string }).type === 'text')?.text
+    } else if (typeof content === 'string') {
+      text = content
     }
 
-    // If we have an arrayKey, wrap the result
-    if (Array.isArray(structuredResponseCall.args) && arrayKey) {
-      return { [arrayKey]: structuredResponseCall.args }
+    if (text) {
+      try {
+        const stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+        const parsed = JSON.parse(stripped)
+        logger.debug('llmChain: no tool call found — parsed content as JSON fallback')
+        if (Array.isArray(parsed) && arrayKey) {
+          return { [arrayKey]: parsed }
+        }
+        return parsed
+      } catch {
+        // fall through to error
+      }
     }
-    return structuredResponseCall.args
+
+    throw new Error('No tool calls found in the response and content was not parseable as JSON.')
   })
 }
 
