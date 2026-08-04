@@ -278,44 +278,50 @@ Return the spark quote, one reaction quote, and the sentiment.`
    result is matched against real events afterward, so this only has to extract intent,
    not guess at an exact title. */
 export const VIBES_EVENT_REFERENCE_SYSTEM_PROMPT = `# Role
-You read a short message addressed to an assistant that recaps past events. You first work out why the person is writing, then, if they want a recap, pull out which event they mean.
+You read a short message addressed to an assistant that recaps past events and can also answer a specific question about one from its own numbers. You first work out why the person is writing, then, if they named an event, pull out which one they mean and what kind of question it is.
 
 # Task
-Return seven fields:
-- intent: one of "recap", "greeting", "help", or "offTopic". "recap" when they want a summary or comparison of one or more past events, including "the latest". "greeting" for a hello or a liveness check with no event ask ("hi", "are you there?"). "help" when they ask what you can do or how to use you. "offTopic" when the message is aimed at you but is none of these.
-- eventQuery: the name of the event or its topic, as the user referred to it, with the assistant's name and filler words removed. Keep only the words that identify the event. Leave it empty when the user names no event or series at all, when intent is not "recap", or when eventNames is set instead.
+Return eight fields:
+- intent: one of "recap", "question", "greeting", "help", or "offTopic". "recap" when they want a general summary or comparison of one or more past events, including "the latest" ("recap the town hall", "how did the AI Ethics series do?"). "question" when they ask something specific about one or more past events instead, a number, a fact, an opinion, or what was said or discussed, rather than a general summary ("how many people came to the town hall?", "what did people think of the keynote?"). "greeting" for a hello or a liveness check with no event ask ("hi", "are you there?"). "help" when they ask what you can do or how to use you. "offTopic" when the message is aimed at you but is not about any past event at all.
+- eventQuery: the name of the event or its topic, as the user referred to it, with the assistant's name and filler words removed. Keep only the words that identify the event. Leave it empty when the user names no event or series at all, when intent is "greeting", "help", or "offTopic", or when eventNames is set instead.
 - latestInTopic: true if the user asked for the most recent, latest, or newest event in a named series or topic rather than a specific named event; false if they named a specific event.
 - latestOverall: true if the user asked for the single most recent or last event without naming any event or topic; false otherwise.
-- trend: true if the user asked about several events together or how something changed over time (a comparison, a trend, "the last few events", "across our events"), rather than one specific event.
+- trend: true if the user asked about several events together or how something changed over time (a comparison, a trend, "the last few events", "across our events"), rather than one specific event. Only ever true when intent is "recap": a "question" is always about one event's own numbers, never a cross-event trend.
 - eventCount: when trend is true, how many recent events they asked to compare (e.g. "the last 3 events" gives 3); null when they did not say a number, or when trend is false.
 - eventNames: when trend is true and the user named two or more specific events by title to compare, rather than a topic or "the last N", the identifying words for each one, one entry per event; empty otherwise.
+- scope: only set when intent is "question", otherwise null. One of "quantitative" (answerable from computed engagement numbers: counts, timing, participation, platform, and the like), "interpretive" (about the content or meaning of what happened: what was said, what people thought, how a moment landed), or "mixed" (asks for both in the same message, e.g. "how many people came, and what did they think of it?").
 
 # Examples
-- "@Vibes recap the Spring Town Hall" gives intent "recap", eventQuery "Spring Town Hall", latestInTopic false, latestOverall false, trend false, eventCount null, eventNames []
-- "@Vibes how did the latest AI Ethics session go?" gives intent "recap", eventQuery "AI Ethics", latestInTopic true, latestOverall false, trend false, eventCount null, eventNames []
-- "@Vibes tell me about the last event" gives intent "recap", eventQuery "", latestInTopic false, latestOverall true, trend false, eventCount null, eventNames []
-- "how was engagement across the last 3 events?" gives intent "recap", eventQuery "", latestInTopic false, latestOverall false, trend true, eventCount 3, eventNames []
-- "has participation been trending up in the AI Ethics series?" gives intent "recap", eventQuery "AI Ethics", latestInTopic false, latestOverall false, trend true, eventCount null, eventNames []
-- "@Vibes compare the Spring Town Hall to the AI Ethics kickoff" gives intent "recap", eventQuery "", latestInTopic false, latestOverall false, trend true, eventCount null, eventNames ["Spring Town Hall", "AI Ethics kickoff"]
-- "how did Q3 Budget Review, the June retro, and the Town Hall stack up against each other?" gives intent "recap", eventQuery "", latestInTopic false, latestOverall false, trend true, eventCount null, eventNames ["Q3 Budget Review", "the June retro", "the Town Hall"]
-- "@Vibes are you there?" gives intent "greeting", eventQuery "", latestInTopic false, latestOverall false, trend false, eventCount null, eventNames []
-- "@Vibes what can you do?" gives intent "help", eventQuery "", latestInTopic false, latestOverall false, trend false, eventCount null, eventNames []
-- "@Vibes what's the weather today?" gives intent "offTopic", eventQuery "", latestInTopic false, latestOverall false, trend false, eventCount null, eventNames []
+- "@Vibes recap the Spring Town Hall" gives intent "recap", eventQuery "Spring Town Hall", latestInTopic false, latestOverall false, trend false, eventCount null, eventNames [], scope null
+- "@Vibes how did the latest AI Ethics session go?" gives intent "recap", eventQuery "AI Ethics", latestInTopic true, latestOverall false, trend false, eventCount null, eventNames [], scope null
+- "@Vibes tell me about the last event" gives intent "recap", eventQuery "", latestInTopic false, latestOverall true, trend false, eventCount null, eventNames [], scope null
+- "how was engagement across the last 3 events?" gives intent "recap", eventQuery "", latestInTopic false, latestOverall false, trend true, eventCount 3, eventNames [], scope null
+- "has participation been trending up in the AI Ethics series?" gives intent "recap", eventQuery "AI Ethics", latestInTopic false, latestOverall false, trend true, eventCount null, eventNames [], scope null
+- "@Vibes compare the Spring Town Hall to the AI Ethics kickoff" gives intent "recap", eventQuery "", latestInTopic false, latestOverall false, trend true, eventCount null, eventNames ["Spring Town Hall", "AI Ethics kickoff"], scope null
+- "how did Q3 Budget Review, the June retro, and the Town Hall stack up against each other?" gives intent "recap", eventQuery "", latestInTopic false, latestOverall false, trend true, eventCount null, eventNames ["Q3 Budget Review", "the June retro", "the Town Hall"], scope null
+- "@Vibes how many people came to the town hall?" gives intent "question", eventQuery "town hall", latestInTopic false, latestOverall false, trend false, eventCount null, eventNames [], scope "quantitative"
+- "@Vibes what did people think of the keynote at the AI Ethics kickoff?" gives intent "question", eventQuery "AI Ethics kickoff", latestInTopic false, latestOverall false, trend false, eventCount null, eventNames [], scope "interpretive"
+- "@Vibes how many showed up to the town hall, and what did people think of it?" gives intent "question", eventQuery "town hall", latestInTopic false, latestOverall false, trend false, eventCount null, eventNames [], scope "mixed"
+- "@Vibes are you there?" gives intent "greeting", eventQuery "", latestInTopic false, latestOverall false, trend false, eventCount null, eventNames [], scope null
+- "@Vibes what can you do?" gives intent "help", eventQuery "", latestInTopic false, latestOverall false, trend false, eventCount null, eventNames [], scope null
+- "@Vibes what's the weather today?" gives intent "offTopic", eventQuery "", latestInTopic false, latestOverall false, trend false, eventCount null, eventNames [], scope null
 
 # Hard rules
-- Classify intent first. When intent is not "recap", set eventQuery empty, every flag false, eventCount null, and eventNames empty.
-- eventQuery must be only the identifying words. Strip the assistant mention, verbs like recap or summarize, and articles.
+- Classify intent first. When intent is "greeting", "help", or "offTopic", set eventQuery empty, every flag false, eventCount null, eventNames empty, and scope null.
+- eventQuery must be only the identifying words. Strip the assistant mention, verbs like recap, summarize, or ask, and articles. This applies to "question" the same way it applies to "recap": a question still needs an event to answer about.
 - Set latestInTopic true only when the user named a topic or series and asked for its newest one.
 - Set latestOverall true only when the user asked for the single most recent event and named no event or topic.
-- Set trend true only for a genuine multi-event ask: a comparison, a trend over time, or a count of recent events. A single event, even "the latest", is not a trend.
+- Set trend true only for a genuine multi-event "recap" ask: a comparison, a trend over time, or a count of recent events. A single event, even "the latest", is not a trend, and "question" is never a trend.
 - eventCount is a number only when the user states one; otherwise null.
-- Set eventNames only when the user named two or more specific events by title to compare. A topic-wide or "last N" trend is not this case: leave eventNames empty and use eventQuery/eventCount instead. Never set both eventQuery and eventNames for the same message.`
+- Set eventNames only when the user named two or more specific events by title to compare. A topic-wide or "last N" trend is not this case: leave eventNames empty and use eventQuery/eventCount instead. Never set both eventQuery and eventNames for the same message.
+- scope is set only when intent is "question". When you cannot tell whether a question is answerable from the numbers or asks about content instead, prefer "quantitative" or "mixed" over "interpretive": it costs little to try an answer from the data, but wrongly deferring a question the numbers could have answered leaves the asker with nothing. Reserve "interpretive" for a question that is clearly and only about content (what was said, what someone meant, how something landed), with no numeric angle at all.
+- A general ask for a recap or comparison is "recap", never "question", even when it is phrased as a question ("how did the town hall go?"). "question" is for a specific, pointed ask about one fact, number, or opinion.`
 
 /* The per-message input for the summon parser. */
 export const VIBES_EVENT_REFERENCE_USER_TEMPLATE = `The message:
 {message}
 
-Return why the message was sent (recap, greeting, help, or off-topic), and for a recap, the event query, which "most recent" shortcut they meant, and whether they asked about several events as a trend.`
+Return why the message was sent (recap, question, greeting, help, or off-topic), and for a recap or question, the event query, which "most recent" shortcut they meant, whether they asked about several events as a trend, and, for a question, whether it can be answered from the numbers, is about content instead, or is a bit of both.`
 
 /* The instructions for the trend writer. It is given the stored metrics of several past
    events in one space, oldest to newest, and writes a short comparative read of how
@@ -392,7 +398,8 @@ Answer the way you would say it out loud, not the way the data is named internal
 # Hard rules
 - Answer only from the rows given: their counts (plus arithmetic that only combines counts that are present), their names, and their dates. Never invent, guess, or estimate anything the rows do not support.
 - An event's name and date are answerable: a question about when an event happened or what it was called is in scope, not out of it.
-- If the question asks for something the rows genuinely do not carry (message content, who specifically said something, a metric that is not present), set answerable to false.
+- When the question has more than one part and only some of it can be answered from the rows (for example "how many people came, and what did they think of it?"), set answerable to true and answer the part the rows support; simply leave out the part they do not, rather than failing the whole question over one unanswerable part.
+- If the question asks for something the rows genuinely do not carry (message content, who specifically said something, a metric that is not present) and none of it can be answered, set answerable to false.
 - If the question is not really about this card at all, set answerable to false.
 - Never repeat the whole card back; answer only the specific question asked.`
 
