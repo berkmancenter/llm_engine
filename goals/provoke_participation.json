@@ -9,10 +9,10 @@
       "participants are not exchanging messages with each other right now",
       "there is no active back-and-forth among participants at this moment"
     ],
-    "minConfidence": 65
+    "minConfidence": 60
   },
   "guardrails": [
-    "only use when participants are not posting RIGHT NOW — what must be absent is participant-to-participant chat, not speaker content; a speaker actively presenting to a passive audience fully satisfies this trigger",
+    "only use when participants are not posting RIGHT NOW — what must be absent is participant-to-participant chat, not speaker content; a speaker actively presenting to a passive audience fully satisfies this trigger, including during opening introductions or the early minutes of an event before substantive topic discussion has begun",
     "if participants are actively exchanging messages with each other, stay silent — even if the exchange could go deeper, even if a question was just asked that hasn't been answered yet",
     "don't introduce provocation into an already heated exchange",
     "frame as genuine question, not attack",
