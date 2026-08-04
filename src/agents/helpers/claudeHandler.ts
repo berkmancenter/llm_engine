@@ -24,6 +24,7 @@ export function buildBedrockClaudePayload({
   systemPrompt,
   userMessages,
   maxTokens = 1024,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   temperature = 0,
   tools
 }: {
@@ -37,7 +38,7 @@ export function buildBedrockClaudePayload({
     system: systemPrompt,
     anthropic_version: 'bedrock-2023-05-31',
     max_tokens: maxTokens,
-    temperature,
+    // temperature,
     messages: userMessages
   }
 
