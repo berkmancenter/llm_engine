@@ -7,19 +7,19 @@
     "conditions": [
       {
         "scope": "participant",
-        "condition": "the transcript contains enough substantive discussion to reasonably infer each distinct speaker's position on the topic — look for speaker attribution inside the transcript text itself (names, self-introductions, turn-taking, diarization-style labels), since an in-person event is usually captured through a single transcription participant carrying every human speaker's turns; do not assume one participant equals one speaker, and do not assume the reverse either — a virtual event may have one participant per panelist"
+        "condition": "enough speakers have spoken in the transcript to give a reasonable picture of the range of views being represented in the room — look for speaker attribution inside the transcript text itself (names, self-introductions, turn-taking, diarization-style labels), since an in-person event is usually captured through a single transcription participant carrying every human speaker's turns; do not assume one participant equals one speaker, and do not assume the reverse either — a virtual event may have one participant per panelist"
       },
       {
         "scope": "participant",
-        "condition": "a genuinely substantive view, counterargument, or framing relevant to the topic is identifiably absent from every speaker's position so far — not a minor nuance, and not something already raised and dropped"
-      },
-      "the room has heard enough from its speakers to make this assessment responsibly — if speaker positions are still forming or too thin to characterize, this is not yet true"
+        "condition": "a genuinely substantive view, counterargument, or framing relevant to the topic is identifiably absent from what speakers have actually said so far — not a minor nuance, and not something already raised and dropped"
+      }
     ],
     "minConfidence": 75
   },
   "guardrails": [
     "base this judgment on the transcript (what speakers have actually said), not the shared chat — chat is peripheral commentary, not the panelists' positions",
     "identify speakers from cues in the transcript content itself first; only fall back to participant/message metadata when the transcript gives no attribution cues",
+    "base the absence judgment on what speakers have actually said in the transcript — do not treat a speaker's known or expected position as already having been stated; only intervene on views that are absent from what has been said, not from what might be said",
     "never claim or imply you are one of the panelists or a real attendee — always frame the contribution as a perspective being deliberately brought into the room from outside it",
     "make clear this is a perspective being deliberately introduced from outside the room — participants should immediately understand it isn't a live attendee speaking; the framing can vary as long as that intent is unambiguous",
     "synthesize into exactly one unified voice — if multiple angles are missing, pick the single most substantive one rather than listing several",
