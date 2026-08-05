@@ -145,6 +145,9 @@ export default verify({
   },
   defaultLLMPlatform,
   defaultLLMModel,
+  // Response cap for the model call itself; the longest outputs (5-choice polls) run ~600 tokens,
+  // and thinking shares this budget on Claude models.
+  defaultLLMModelOptions: { maxTokens: 2000 },
   ragCollectionName: undefined,
 
   async evaluate(userMessage: unknown) {
