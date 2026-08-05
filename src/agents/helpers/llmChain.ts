@@ -282,6 +282,29 @@ function getStructuredResponseChain(llm, prompt, responseFormatSchema) {
     ;[arrayKey] = keys
   }
 
+  function coerce(raw: unknown) {
+    const direct = responseFormatSchema.safeParse(raw)
+    if (direct.success) return direct.data
+
+    // The model may have nested the payload under a key it invented.
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      const inner = Object.values(raw as Record<string, unknown>)
+      if (inner.length === 1) {
+        const candidate = Array.isArray(inner[0]) && arrayKey ? { [arrayKey]: inner[0] } : inner[0]
+        const unwrapped = responseFormatSchema.safeParse(candidate)
+        if (unwrapped.success) return unwrapped.data
+      }
+    }
+
+    // Bare array where the schema expects it wrapped.
+    if (Array.isArray(raw) && arrayKey) {
+      const rewrapped = responseFormatSchema.safeParse({ [arrayKey]: raw })
+      if (rewrapped.success) return rewrapped.data
+    }
+
+    throw new Error(`Structured response did not match schema: ${direct.error.message}`)
+  }
+
   // Convert Zod schema to JSON Schema and ensure it has type: 'object' for Bedrock compatibility
   // Always use the original responseFormatSchema (not unwrapped) for tool definition
   // because Claude requires the tool's input_schema to be type: 'object'
@@ -295,7 +318,7 @@ function getStructuredResponseChain(llm, prompt, responseFormatSchema) {
     type: 'function' as const,
     function: {
       name: 'structured_response',
-      description: 'Respond with structured data',
+      description: 'Always call this tool to deliver your final answer. Do not write JSON as plain text.',
       parameters: parametersSchema
     }
   }
@@ -317,10 +340,7 @@ function getStructuredResponseChain(llm, prompt, responseFormatSchema) {
     const structuredResponseCall = aiMsg.tool_calls?.find((tc) => tc.name === 'structured_response')
 
     if (structuredResponseCall) {
-      if (Array.isArray(structuredResponseCall.args) && arrayKey) {
-        return { [arrayKey]: structuredResponseCall.args }
-      }
-      return structuredResponseCall.args
+      return coerce(structuredResponseCall.args)
     }
 
     // Fallback: model returned content instead of a tool call (e.g. BedrockChat ignores tool_choice).
@@ -333,21 +353,23 @@ function getStructuredResponseChain(llm, prompt, responseFormatSchema) {
       text = content
     }
 
-    if (text) {
-      try {
-        const stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-        const parsed = JSON.parse(stripped)
-        logger.debug('llmChain: no tool call found — parsed content as JSON fallback')
-        if (Array.isArray(parsed) && arrayKey) {
-          return { [arrayKey]: parsed }
-        }
-        return parsed
-      } catch {
-        // fall through to error
-      }
+    if (!text) {
+      throw new Error('No tool calls found in the response and no text content to parse.')
     }
 
-    throw new Error('No tool calls found in the response and content was not parseable as JSON.')
+    let parsed: unknown
+    try {
+      const stripped = text
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```$/, '')
+        .trim()
+      parsed = JSON.parse(stripped)
+    } catch {
+      throw new Error('No tool calls found in the response and content was not parseable as JSON.')
+    }
+
+    logger.debug('llmChain: no tool call found — parsed content as JSON fallback')
+    return coerce(parsed)
   })
 }
 
