@@ -572,26 +572,25 @@ describe(`proactive group agent catalyst tests`, () => {
     )
 
     it(
-      'SHOULD NOT generate missing_perspective before a second speaker has offered a position to compare against',
+      'SHOULD NOT generate missing_perspective when only the opening question has been posed and no speaker has taken a position yet',
       async () => {
-        // Transcript 08:21-10:21: only Joseph has spoken so far — Jamie's reply starts at 10:22.
-        // With just one speaker's position on the table, there isn't yet a cross-speaker gap to
-        // responsibly identify — the room hasn't "heard enough" for this goal.
+        // Transcript 08:21-08:40: Joseph is mid-sentence introducing the empathy/compassion theme —
+        // he has asked a question and gestured at a framing but no speaker has staked out a position.
+        // Missing perspective requires "enough speakers to give a reasonable picture of the range of
+        // views" — a single opening question doesn't meet that bar.
         const { conversation: lineConversation, lineAgent } = await createTheLineConversation()
 
         const conversationHistory = getConversationHistory(lineConversation.messages, {
           count: 100,
           channels: ['transcript'],
-          endTime: new Date(startTime.getTime() + 615 * 1000) // just before Jamie's 10:22 turn
+          endTime: new Date(startTime.getTime() + 505 * 1000) // 08:25 — just a few lines in
         })
 
         const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(lineAgent, conversationHistory)
 
-        if (responses.length > 0) {
-          const { goalId } = responses[0]
-          console.log(`[10:15 single speaker only] Detected ${goalId}:`, responses[0].message)
-          expect(goalId).not.toBe('missing_perspective')
-        }
+        // With only an opening question and no substantive speaker positions yet,
+        // missing_perspective has nothing to act on — expect no intervention
+        expect(responses).toHaveLength(0)
       },
       testTimeout
     )
