@@ -1,3 +1,4 @@
+import type { StructuredToolInterface } from '@langchain/core/tools'
 import { getAgentStructuredResponse } from '../helpers/llmChain.js'
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
@@ -6,6 +7,7 @@ import { composeSystemPrompt } from '../helpers/promptComposer.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
 import createEventHistoryTools, { TopicRef, buildEventHistoryToolsPrompt } from '../tools/eventHistory.js'
+import { bkcArchiveWikiTools, buildArchiveWikiToolsPrompt } from '../tools/bkcArchiveWiki.js'
 import Topic from '../../models/topic.model.js'
 import Conversation from '../../models/conversation.model.js'
 import config from '../../config/config.js'
@@ -28,6 +30,9 @@ Your primary specialty is answering questions about past events and their transc
 ${buildEventHistoryToolsPrompt()}
 
 When searching, search across all series unless the question clearly refers to a specific one. Don't require the user to specify a series — use your judgment. Prefer \`search_topic_transcripts\` for broad questions; use \`search_conversation_transcript\` to retrieve specific quotes or details once you know which event to drill into. For questions that are clearly unrelated to past events, respond directly without calling any tools.
+
+You are in a live chat — respond promptly. Gather just enough to answer well: one or two searches usually suffice, and never re-run near-identical queries against the same source. Answer as soon as you have the substance.
+${bkcArchiveWikiTools.length > 0 ? `\n\n${buildArchiveWikiToolsPrompt()}` : ''}
 {topicContext}`
 
 function buildTopicContext(topics: TopicRef[]): string {
@@ -102,15 +107,22 @@ export default verify({
       personalityName = 'sarcastic-expert'
     }
 
+    const archiveEnabled = bkcArchiveWikiTools.length > 0
+
     const systemPromptBase = BASE_SYSTEM_PROMPT.replace('{botName}', this.agentConfig.botName).replace(
       '{topicContext}',
       buildTopicContext(topics)
     )
     const systemPrompt = composeSystemPrompt(systemPromptBase, { personalityName })
 
-    const tools = topics.length > 0 ? createEventHistoryTools(topics) : []
+    const tools: StructuredToolInterface[] = topics.length > 0 ? createEventHistoryTools(topics) : []
+    if (archiveEnabled) {
+      tools.push(...bkcArchiveWikiTools)
+    }
 
     // Build message array: chat history + current question
+    // Recursion limit: each tool round-trip costs 2 graph steps; with both event-history
+    // and archive tool sets the agent may need to consult several before answering.
     const response = await getAgentStructuredResponse(
       llm,
       tools,
@@ -118,7 +130,7 @@ export default verify({
       `## Question:\n${question}`,
       undefined,
       chatHistory,
-      10
+      30
     )
 
     const responseChannels = this.conversation.channels.filter((channel) => channel.name === 'historian')

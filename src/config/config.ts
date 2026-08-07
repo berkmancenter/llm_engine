@@ -127,6 +127,8 @@ const envVarsSchema = Joi.object()
     WEB_SEARCH_PROVIDER: Joi.string()
       .default('tavily')
       .description('Web search provider to use (e.g. tavily, brave, serpapi)'),
+    BKC_ARCHIVE_API_URL: Joi.string().description('Base URL of the BKC archive-wiki API (e.g. http://localhost:4000).'),
+    BKC_ARCHIVE_API_TOKEN: Joi.string().description('Bearer token for the BKC archive-wiki API'),
     CONVERSATION_AUTO_START_LEAD_TIME_MINUTES: Joi.number()
       .default(5)
       .description('Minutes before scheduledTime to auto-start a conversation'),
@@ -281,6 +283,10 @@ const config = {
   },
   tavily: {
     apiKey: envVars.TAVILY_API_KEY
+  },
+  bkcArchive: {
+    apiUrl: envVars.BKC_ARCHIVE_API_URL,
+    apiToken: envVars.BKC_ARCHIVE_API_TOKEN
   },
   webSearchProvider: envVars.WEB_SEARCH_PROVIDER,
   conversation: {
