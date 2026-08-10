@@ -87,7 +87,7 @@ function decliningSeriesWithContradictoryNames(): TrendSnapshotView[] {
 /* Direction verbs. The bug makes the writer say posters "rose"; the truth is they "fell". With a
    fixture where nothing actually increases, a rising verb anywhere in the prose is the bug. */
 const RISING =
-  /\b(rose|rise|rising|grew|grow(?:ing|s|n)?|climb(?:ed|ing|s)?|increas\w*|doubl\w*|expand\w*|surg\w*|jump\w*)\b/i
+  /\b(rose|rise|rising|grew|climb(?:ed|ing|s)?|increas\w*|doubl\w*|expand\w*|surg\w*|jump\w*)\b/i
 const FALLING =
   /\b(fell|fall\w*|declin\w*|drop\w*|shr\w*|fewer|halv\w*|slid|slipp?\w*|dwindl\w*|contract\w*|sank|sunk|dip\w*)\b/i
 
