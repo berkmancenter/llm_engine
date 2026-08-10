@@ -5,7 +5,6 @@ import verifyCuratedCard from './verifyCuration.js'
 import annotateSpikes from './spikeAnnotation.js'
 import annotateReceptions from './quoteReception.js'
 import { loadReadableMessages } from './capabilities.js'
-import { Agent } from '../../models/index.js'
 import { ConversationMetrics, CuratedVibesData } from '../../types/index.types.js'
 
 /* Pulls a log-friendly message off an unknown thrown value. */
@@ -52,6 +51,14 @@ export function labelActiveAgentTypes(agentTypes: string[]): string[] {
   return uniqueTypes.map((agentType) => AGENT_TYPE_LABELS[agentType]).filter((label): label is string => Boolean(label))
 }
 
+/* The Agent model imports the agent registry, and the registry imports this agent, so naming it
+   at the top of this file closes an import cycle: anything loading the registry first reaches it
+   half-built. Both readers below already run inside async functions, so loading the model on
+   first use costs nothing and keeps the cycle out of the import graph. */
+async function agentModel() {
+  return (await import('../../models/index.js')).Agent
+}
+
 /* Resolves which agent types are active on this conversation into their scene-setting
    labels, for light framing context only (see VIBES_CURATION_SYSTEM_PROMPT). conversation.agents
    is populated only when enableAgents is true (see Conversation's post-findOne hook), so this
@@ -62,7 +69,9 @@ export async function resolveActiveAgentTypeLabels(conversation): Promise<string
   if (agentRefs.length === 0) return []
 
   const isPopulated = typeof agentRefs[0] === 'object' && 'agentType' in agentRefs[0]
-  const agentDocs = isPopulated ? agentRefs : await Agent.find({ _id: { $in: agentRefs } }).select('agentType')
+  const agentDocs = isPopulated
+    ? agentRefs
+    : await (await agentModel()).find({ _id: { $in: agentRefs } }).select('agentType')
 
   return labelActiveAgentTypes(agentDocs.map((agent) => agent.agentType))
 }
@@ -75,7 +84,9 @@ export async function hasHistorianAgent(conversation): Promise<boolean> {
   if (agentRefs.length === 0) return false
 
   const isPopulated = typeof agentRefs[0] === 'object' && 'agentType' in agentRefs[0]
-  const agentDocs = isPopulated ? agentRefs : await Agent.find({ _id: { $in: agentRefs } }).select('agentType')
+  const agentDocs = isPopulated
+    ? agentRefs
+    : await (await agentModel()).find({ _id: { $in: agentRefs } }).select('agentType')
 
   return agentDocs.some((agent) => agent.agentType === 'eventHistorian')
 }
