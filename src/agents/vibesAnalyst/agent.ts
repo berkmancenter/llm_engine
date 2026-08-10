@@ -11,7 +11,7 @@ import access from '../../auth/access.js'
 import { AgentMessageActions, LlmPlatforms } from '../../types/index.types.js'
 import analyticsSources from '../../services/analyticsSources/index.js'
 import logger from '../../config/logger.js'
-import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
+import { matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 import buildVibesSummary from './buildSummary.js'
 import conversationMetricsSnapshotService from '../../services/conversationMetricsSnapshot.service.js'
 import handleSummon from './summon.js'
@@ -79,17 +79,24 @@ export default verify({
   // Answers a summon, but only when the message is actually addressed to the analyst.
   // Hands off to the summon handler, which resolves the event and posts (or declines)
   // its recap. The conversation history is unused: a summon names its own event.
+  //
+  // Two ways in, and neither needs a model. Naming the analyst counts, and the match tolerates
+  // typos. So does a bare threaded reply to something the analyst itself posted (a
+  // disambiguation prompt, a recap), where a plain event title answers the question and
+  // repeating the name would read oddly; once anyone else replies in that thread it stops.
+  //
+  // No LLM intent check, on purpose. Judging one message with no surrounding conversation pulled
+  // the analyst into exchanges between two people, and a recap nobody asked for costs more than
+  // making someone type the name. The price: an unaddressed "how did the last event go?" now
+  // reaches nothing.
   async respond(_conversationHistory, userMessage) {
     if (!userMessage) return []
-    const llm = await this.getLLM()
-    // A bare threaded reply to a message VA itself just posted (a disambiguation prompt, a
-    // recap) counts as addressed to VA even with no @mention: the intent check has no thread
-    // context, so a reply like a plain event title reads as unaddressed on its own. Once someone
-    // else has replied since, this stops applying and the normal intent check gates it again.
+    const words = userMessage.body?.trim().split(/\s+/) ?? []
     const addressed =
-      (await threadContinuesFromAgent(userMessage, this.conversation._id.toString(), this._id.toString())) ||
-      (await checkBotIntent(llm, this.agentConfig.botName, userMessage))
+      matchBotMention(words, this.agentConfig.botName) ||
+      (await threadContinuesFromAgent(userMessage, this.conversation._id.toString(), this._id.toString()))
     if (!addressed) return []
+    const llm = await this.getLLM()
     const fastLlm = await resolveFastLlm(this.agentConfig)
     return handleSummon(this, userMessage, llm, fastLlm)
   },
