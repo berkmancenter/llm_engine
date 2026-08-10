@@ -130,7 +130,9 @@ export default verify({
   description:
     'Makes strategic interventions in shared chat based on active behavioral patterns — facilitating discussion, surfacing signal, and generating engagement based on conversation goals.',
   priority: 85,
-  maxTokens: 5000,
+  // Response cap for the model call itself; the longest outputs (5-choice polls) run ~600 tokens,
+  // and thinking shares this budget on Claude models.
+  maxTokens: 10000,
   defaultTriggers: {
     periodic: { timerPeriod: 120, conversationHistorySettings: { channels: ['transcript'] }, proactive: true }
   },
@@ -145,9 +147,6 @@ export default verify({
   },
   defaultLLMPlatform,
   defaultLLMModel,
-  // Response cap for the model call itself; the longest outputs (5-choice polls) run ~600 tokens,
-  // and thinking shares this budget on Claude models.
-  defaultLLMModelOptions: { maxTokens: 2000 },
   ragCollectionName: undefined,
 
   async evaluate(userMessage: unknown) {
