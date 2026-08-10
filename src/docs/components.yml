@@ -880,6 +880,133 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Resource'
+        goals:
+          type: array
+          items:
+            type: string
+          description: Goal IDs active for this conversation (must match a defined goal file).
+        conversationContext:
+          type: object
+          description: Optional context hints that shape how agents interpret the conversation.
+          properties:
+            conversationType:
+              type: string
+            purpose:
+              type: string
+            audience:
+              type: object
+              properties:
+                expertiseLevel:
+                  type: string
+                  enum: [beginner, mixed, expert]
+                assumedBackgroundKnowledge:
+                  type: string
+                  enum: [low, lowToMedium, medium, high]
+                type:
+                  type: array
+                  items:
+                    type: string
+                description:
+                  type: string
+            contentSensitivity:
+              type: object
+              properties:
+                level:
+                  type: string
+                  enum: [standard, elevated, high]
+                domains:
+                  type: array
+                  items:
+                    type: string
+        behaviorPolicy:
+          type: object
+          description: Configures agent tone, verbosity, and channel-specific behavior.
+          properties:
+            globalPolicy:
+              type: object
+              properties:
+                tone:
+                  type: string
+                  enum: [clearNeutral, warmSupportive, playful, professional]
+                verbosity:
+                  type: string
+                  enum: [brief, medium, detailed]
+                formality:
+                  type: string
+                  enum: [casual, semiFormal, formal]
+                jargonLevel:
+                  type: string
+                  enum: [low, lowToMedium, medium, high]
+                safetyPosture:
+                  type: string
+                  enum: [standard, strict]
+                citationBehavior:
+                  type: string
+                uncertaintyBehavior:
+                  type: string
+                guardrails:
+                  type: array
+                  items:
+                    type: string
+            channels:
+              type: object
+              properties:
+                dm:
+                  type: object
+                  properties:
+                    qaBehavior:
+                      type: object
+                      properties:
+                        responseLength:
+                          type: string
+                          enum: [short, medium, long]
+                        clarifyWhenAmbiguous:
+                          type: boolean
+                        addContextWhenUseful:
+                          type: boolean
+                        answerScope:
+                          type: string
+                          enum: [helpUserUnderstandTheLecture, broaderSubjectArea, companyContextOnly, open]
+                        allowFollowUpDialogue:
+                          type: boolean
+                    proactivePolicy:
+                      type: object
+                      properties:
+                        initiativeLevel:
+                          type: string
+                          enum: [passive, lightlyProactive, moderatelyProactive, highlyProactive]
+                        minContributionMinutes:
+                          type: number
+                        socialSensitivity:
+                          type: string
+                          enum: [low, medium, high]
+                    guardrails:
+                      type: array
+                      items:
+                        type: string
+                groupChat:
+                  type: object
+                  properties:
+                    proactivePolicy:
+                      type: object
+                      properties:
+                        initiativeLevel:
+                          type: string
+                          enum: [passive, lightlyProactive, moderatelyProactive, highlyProactive]
+                        minContributionMinutes:
+                          type: number
+                        socialSensitivity:
+                          type: string
+                          enum: [low, medium, high]
+                    pollPolicy:
+                      type: object
+                      properties:
+                        allowed:
+                          type: boolean
+                    guardrails:
+                      type: array
+                      items:
+                        type: string
 
     Resource:
       type: object
