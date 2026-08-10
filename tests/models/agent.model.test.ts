@@ -218,6 +218,7 @@ describe('agent tests', () => {
     expect(agent.llmModel).toBe(defaultLLMModel)
     expect(agent.llmPlatform).toBe(defaultLLMPlatform)
     expect(agent.llmModelOptions!.prop).toBe('value')
+    expect(agent.llmModelOptions!.maxTokens).toBe(2000)
     expect(agent.triggers).toBe(testAgentTypes.perMessageWithMin.defaultTriggers)
     expect(agent.conversationHistorySettings).toBe(testAgentTypes.perMessageWithMin.defaultConversationHistorySettings)
   })
@@ -234,6 +235,38 @@ describe('agent tests', () => {
 
     const reloaded = await Agent.findById(agent._id)
     expect(reloaded!.triggers).toEqual(testAgentTypes.perMessageWithMin.defaultTriggers)
+  })
+
+  test('should inject maxTokens from agent type into llmModelOptions when not set', async () => {
+    const agent = new Agent({
+      agentType: 'perMessage', // no defaultLLMModelOptions
+      conversation
+    })
+    await agent.save()
+
+    expect(agent.llmModelOptions!.maxTokens).toBe(2000)
+  })
+
+  test('should not override maxTokens already set in defaultLLMModelOptions', async () => {
+    const agent = new Agent({
+      agentType: 'perMessageWithMin', // defaultLLMModelOptions has no maxTokens, so type maxTokens is used
+      conversation
+    })
+    await agent.save()
+
+    expect(agent.llmModelOptions!.maxTokens).toBe(2000)
+    expect(agent.llmModelOptions!.prop).toBe('value')
+  })
+
+  test('should not override maxTokens set on the instance', async () => {
+    const agent = new Agent({
+      agentType: 'perMessageWithMin',
+      conversation,
+      llmModelOptions: { maxTokens: 9999 }
+    })
+    await agent.save()
+
+    expect(agent.llmModelOptions!.maxTokens).toBe(9999)
   })
 
   test('should introduce itself on a specified channel', async () => {

@@ -482,8 +482,13 @@ agentSchema.pre('validate', function () {
   if (this.llmModel === undefined) {
     this.llmModel = agentTypes[this.agentType].defaultLLMModel
   }
-  if (this.llmModelOptions === undefined && agentTypes[this.agentType].defaultLLMModelOptions) {
-    this.llmModelOptions = agentTypes[this.agentType].defaultLLMModelOptions
+  const typeMaxTokens = agentTypes[this.agentType].maxTokens
+  const defaultModelOptions = agentTypes[this.agentType].defaultLLMModelOptions
+  if (this.llmModelOptions === undefined && defaultModelOptions) {
+    this.llmModelOptions = defaultModelOptions
+  }
+  if (typeMaxTokens && !this.llmModelOptions?.maxTokens) {
+    this.llmModelOptions = { ...this.llmModelOptions, maxTokens: typeMaxTokens }
   }
   if (this.triggers === undefined) {
     this.triggers = agentTypes[this.agentType].defaultTriggers
