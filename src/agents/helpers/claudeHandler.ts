@@ -24,8 +24,7 @@ export function buildBedrockClaudePayload({
   systemPrompt,
   userMessages,
   maxTokens = 1024,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  temperature = 0,
+  temperature,
   tools
 }: {
   systemPrompt: string
@@ -38,8 +37,11 @@ export function buildBedrockClaudePayload({
     system: systemPrompt,
     anthropic_version: 'bedrock-2023-05-31',
     max_tokens: maxTokens,
-    // temperature,
     messages: userMessages
+  }
+
+  if (temperature !== undefined) {
+    payload.temperature = temperature
   }
 
   if (tools && tools.length > 0) {
@@ -89,10 +91,13 @@ export function transformPayloadForClaude(bodyContent: unknown, defaultLLMModel:
       maxTokens = body.maxTokens
     }
   }
-  const temperature =
-    isObj && typeof (bodyContent as Record<string, unknown>).temperature === 'number'
-      ? ((bodyContent as Record<string, unknown>).temperature as number)
-      : 0
+  // Only forward temperature if non-zero — LangChain defaults temperature to 0,
+  // so a zero value is indistinguishable from "not set". Newer Claude models reject
+  // the parameter entirely, so we omit it unless the caller explicitly set a value.
+  const rawTemperature = isObj && typeof (bodyContent as Record<string, unknown>).temperature === 'number'
+    ? ((bodyContent as Record<string, unknown>).temperature as number)
+    : undefined
+  const temperature = rawTemperature !== undefined && rawTemperature !== 0 ? rawTemperature : undefined
 
   // Extract tools if present
   const tools =
