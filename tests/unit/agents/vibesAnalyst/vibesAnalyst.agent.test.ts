@@ -45,12 +45,34 @@ jest.unstable_mockModule('../src/agents/vibesAnalyst/capabilities.js', () => ({
   default: () => ({ read: [], write: [] }),
   loadReadableMessages: mockLoadReadableMessages
 }))
+// Mocking a module replaces every export, so each one another module in the import graph reads
+// has to be declared here: imageGenerator.ts pulls getGoogleImageModel, the agent model pulls
+// llmPlatforms, and the suite fails to load without them.
 jest.unstable_mockModule('../src/agents/helpers/getModelChat.js', () => ({
   getModelChat: mockGetModelChat,
+  getOpenAIChat: jest.fn(),
+  getGoogleChat: jest.fn(),
+  getGoogleImageModel: jest.fn(),
+  getVllmChat: jest.fn(),
+  getOllamaChat: jest.fn(),
+  getPerspectiveChat: jest.fn(),
+  getBedrockChat: jest.fn(),
+  supportedModels: [],
+  llmPlatforms: [],
   defaultLLMPlatform: 'bedrock',
   defaultLLMModel: 'test-model',
   classificationLLMPlatform: 'bedrock',
-  classificationLLMModel: 'fast-model'
+  classificationLLMModel: 'fast-model',
+  coreLLMPlatform: 'bedrock',
+  coreLLMModel: 'core-model',
+  imageGenerationLLMModel: 'image-model'
+}))
+// The agent model imports the whole agent registry, which imports this agent back, so loading
+// the analyst on its own lands in a half-initialized module. Nothing here touches the model, so
+// stubbing it breaks the cycle and lets the suite load.
+jest.unstable_mockModule('../src/models/user.model/agent.model/index.js', () => ({
+  default: {},
+  setAgentTypes: jest.fn()
 }))
 jest.unstable_mockModule('../src/services/analyticsSources/index.js', () => ({
   default: { fetchAndStoreSnapshot: mockFetchAndStoreSnapshot }
@@ -184,10 +206,11 @@ describe('vibesAnalyst agent', () => {
       expect(mockFetchAndStoreSnapshot).toHaveBeenCalledWith(expect.objectContaining({ _id: 'c1' }))
       expect(mockFetchAndStoreSnapshot.mock.invocationCallOrder[0]).toBeLessThan(computeSpy.mock.invocationCallOrder[0])
 
-      // The event ran one hour, so the card's footer duration is 60 minutes.
+      // The event ran one hour, so the card's footer duration is 60 minutes. The fixture has no
+      // presenters and no other agents installed, so the scene-setting fields come back empty.
       expect(mockCurate).toHaveBeenCalledWith(
         sampleMetrics,
-        { eventName: 'The Future of Work', durationMinutes: 60 },
+        { eventName: 'The Future of Work', durationMinutes: 60, speakerCount: 0, activeAgentTypeLabels: [] },
         { fakeLlm: true }
       )
       // Verify is the second pass, fed the draft the curator produced.
