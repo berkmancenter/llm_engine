@@ -80,6 +80,88 @@ describe('createClaudeFetchFn (Bedrock gateway transport)', () => {
     expect(capturedInit!.headers['x-api-key']).toBe(API_KEY)
   })
 
+  it('retries on 500 and succeeds when a subsequent attempt returns 200', async () => {
+    let calls = 0
+    globalThis.fetch = (() => {
+      calls++
+      if (calls < 3) {
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          statusText: 'Internal Server Error',
+          headers: { get: () => null },
+          text: async () => 'transient error'
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: { get: () => 'application/json' },
+        text: async () => '{}'
+      })
+    }) as unknown as typeof globalThis.fetch
+
+    await expect(callFetchFn()).resolves.toBeDefined()
+    expect(calls).toBe(3)
+  })
+
+  it('retries on 429 and respects Retry-After header', async () => {
+    let calls = 0
+    globalThis.fetch = (() => {
+      calls++
+      if (calls === 1) {
+        return Promise.resolve({
+          ok: false,
+          status: 429,
+          statusText: 'Too Many Requests',
+          headers: { get: (h: string) => (h === 'Retry-After' ? '0' : null) },
+          text: async () => 'rate limited'
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: { get: () => 'application/json' },
+        text: async () => '{}'
+      })
+    }) as unknown as typeof globalThis.fetch
+
+    await expect(callFetchFn()).resolves.toBeDefined()
+    expect(calls).toBe(2)
+  })
+
+  it('throws after exhausting all retries on persistent 500', async () => {
+    globalThis.fetch = (() =>
+      Promise.resolve({
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+        headers: { get: () => null },
+        text: async () => 'always failing'
+      })) as unknown as typeof globalThis.fetch
+
+    await expect(callFetchFn()).rejects.toThrow()
+  })
+
+  it('does not retry on 400 bad request', async () => {
+    let calls = 0
+    globalThis.fetch = (() => {
+      calls++
+      return Promise.resolve({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        headers: { get: () => null },
+        text: async () => 'bad request'
+      })
+    }) as unknown as typeof globalThis.fetch
+
+    await expect(callFetchFn()).rejects.toThrow()
+    expect(calls).toBe(1)
+  })
+
   it('refuses an unsafe model id before calling fetch', async () => {
     const fetchFn = createClaudeFetchFn('evil/../path', 'bedrock')
     await expect(

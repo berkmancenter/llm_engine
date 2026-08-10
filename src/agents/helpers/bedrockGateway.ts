@@ -42,61 +42,82 @@ export function buildBedrockInvokeUrl(baseUrl: string, modelId: string): string 
   return `${normalizedBaseUrl}/model/${modelId}/invoke`
 }
 
+const RETRYABLE_STATUS = new Set([429, 500, 502])
+const MAX_RETRIES = 3
+const RETRY_BASE_DELAY_MS = 500
+
 // Create a custom fetch function for Bedrock Claude or legacy LLM
 export function createClaudeFetchFn(defaultLLMModel: string, defaultLLMPlatform: string) {
   return async function fetchFn(url: string, init: Parameters<typeof fetch>[1]) {
-    const fetchImpl = async () => {
+    let bodyContent: unknown = {}
+    if (init?.body) {
+      if (
+        typeof init.body === 'string' &&
+        (init.body.trim().toLowerCase().startsWith('<!doctype') || init.body.trim().toLowerCase().startsWith('<html'))
+      ) {
+        logger.error('init.body appears to be HTML, not JSON:', init.body)
+        throw new Error('init.body is HTML, not JSON')
+      }
       try {
-        let bodyContent: unknown = {}
-        if (init?.body) {
-          if (
-            typeof init.body === 'string' &&
-            (init.body.trim().toLowerCase().startsWith('<!doctype') || init.body.trim().toLowerCase().startsWith('<html'))
-          ) {
-            logger.error('init.body appears to be HTML, not JSON:', init.body)
-            throw new Error('init.body is HTML, not JSON')
-          }
-          try {
-            bodyContent = JSON.parse(init.body as string)
-          } catch (err) {
-            logger.error('init.body is not valid JSON:', init.body)
-            throw err
-          }
-        }
+        bodyContent = JSON.parse(init.body as string)
+      } catch (err) {
+        logger.error('init.body is not valid JSON:', init.body)
+        throw err
+      }
+    }
 
-        // Transform payload for Claude if needed
-        bodyContent = transformPayloadForClaude(bodyContent, defaultLLMModel, defaultLLMPlatform)
+    // Transform payload for Claude if needed
+    bodyContent = transformPayloadForClaude(bodyContent, defaultLLMModel, defaultLLMPlatform)
 
-        // Send the native Bedrock InvokeModel request body directly.
-        const bodyString = JSON.stringify(bodyContent)
-        const modifiedInit = {
-          ...(init || {}),
-          body: bodyString,
-          headers: {
-            'Content-Type': 'application/json',
-            // Auth for an api-key gateway. Direct AWS Bedrock would use SigV4 signing instead.
-            'x-api-key': config.llms.bedrock.key
-          }
-        }
-        // Bedrock routes by model id in the path; buildBedrockInvokeUrl validates the id first.
-        const invokeUrl = buildBedrockInvokeUrl(config.llms.bedrock.baseUrl, defaultLLMModel)
+    const bodyString = JSON.stringify(bodyContent)
+    const modifiedInit = {
+      ...(init || {}),
+      body: bodyString,
+      headers: {
+        'Content-Type': 'application/json',
+        // Auth for an api-key gateway. Direct AWS Bedrock would use SigV4 signing instead.
+        'x-api-key': config.llms.bedrock.key
+      }
+    }
+    // Bedrock routes by model id in the path; buildBedrockInvokeUrl validates the id first.
+    const invokeUrl = buildBedrockInvokeUrl(config.llms.bedrock.baseUrl, defaultLLMModel)
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
         const response = await fetch(invokeUrl, modifiedInit)
-        const contentType = response.headers.get('content-type') || ''
+
+        if (RETRYABLE_STATUS.has(response.status) && attempt < MAX_RETRIES) {
+          const retryAfter = response.headers.get('Retry-After')
+          const delay = retryAfter ? parseInt(retryAfter, 10) * 1000 : RETRY_BASE_DELAY_MS * 2 ** attempt
+          logger.warn(`Bedrock proxy ${response.status} (attempt ${attempt + 1}/${MAX_RETRIES}); retrying in ${delay}ms`)
+          await new Promise((r) => setTimeout(r, delay))
+          continue
+        }
+
         if (!response.ok) {
           const responseText = await response.text()
-          logger.error('Error response Text from proxy:', responseText)
+          logger.error('Error response from Bedrock proxy:', responseText)
           throw new Error(`Bedrock proxy error: ${response.status} ${response.statusText}\n${responseText}`)
         }
+
+        const contentType = response.headers.get('content-type') || ''
         if (contentType.includes('application/json')) {
           return response
         }
         const responseText = await response.text()
         throw new Error(`Expected JSON from Bedrock proxy, got ${contentType}: ${responseText}`)
       } catch (err) {
-        logger.error('Error in fetchFn:', err)
+        if (attempt < MAX_RETRIES && !(err instanceof Error && err.message.startsWith('Bedrock proxy error'))) {
+          const delay = RETRY_BASE_DELAY_MS * 2 ** attempt
+          logger.warn(`Bedrock fetch error (attempt ${attempt + 1}/${MAX_RETRIES}); retrying in ${delay}ms`, err)
+          await new Promise((r) => setTimeout(r, delay))
+          continue
+        }
+        logger.error('Error in Bedrock fetchFn:', err)
         throw err
       }
     }
-    return fetchImpl()
+
+    throw new Error('Bedrock fetch failed after maximum retries')
   }
 }
