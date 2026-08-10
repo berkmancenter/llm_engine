@@ -44,12 +44,11 @@ describe('claudeHandler', () => {
   })
 
   describe('buildBedrockClaudePayload', () => {
-    it('should build correct Claude payload structure', () => {
+    it('should build correct Claude payload structure without temperature by default', () => {
       const result = buildBedrockClaudePayload({
         systemPrompt: 'You are a helpful assistant',
         userMessages: [{ role: 'user', content: 'Hello world' }],
-        maxTokens: 2048,
-        temperature: 0.7
+        maxTokens: 2048
       })
 
       expect(result).toEqual({
@@ -58,6 +57,18 @@ describe('claudeHandler', () => {
         max_tokens: 2048,
         messages: [{ role: 'user', content: 'Hello world' }]
       })
+      expect(result.temperature).toBeUndefined()
+    })
+
+    it('should include temperature when explicitly provided', () => {
+      const result = buildBedrockClaudePayload({
+        systemPrompt: 'You are a helpful assistant',
+        userMessages: [{ role: 'user', content: 'Hello world' }],
+        maxTokens: 2048,
+        temperature: 0.7
+      })
+
+      expect(result.temperature).toBe(0.7)
     })
 
     it('should use default values', () => {
@@ -128,14 +139,42 @@ describe('claudeHandler', () => {
       expect(result.max_tokens).toBe(2048)
       expect(result.messages).toHaveLength(1)
       expect(result.system).toBe('You are a helpful assistant')
+      expect(result.temperature).toBe(0.7)
+    })
+
+    it('should omit temperature when not present in payload', () => {
+      const inputPayload = {
+        system: 'You are a helpful assistant',
+        messages: [{ role: 'user', content: 'Hello world' }],
+        max_tokens: 2048
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = transformPayloadForClaude(inputPayload, 'anthropic.claude-3-5-sonnet-20240620-v1:0', 'bedrock') as any
+
+      expect(result.temperature).toBeUndefined()
+      expect(result.max_tokens).toBe(2048)
+    })
+
+    it('should omit temperature when set to 0 (LangChain default)', () => {
+      const inputPayload = {
+        system: 'You are a helpful assistant',
+        messages: [{ role: 'user', content: 'Hello world' }],
+        max_tokens: 2048,
+        temperature: 0
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = transformPayloadForClaude(inputPayload, 'anthropic.claude-3-5-sonnet-20240620-v1:0', 'bedrock') as any
+
+      expect(result.temperature).toBeUndefined()
     })
 
     it('should handle string messages', () => {
       const inputPayload = {
         system: 'You are a helpful assistant',
         messages: 'Hello world',
-        maxTokens: 1024,
-        temperature: 0
+        maxTokens: 1024
       }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
