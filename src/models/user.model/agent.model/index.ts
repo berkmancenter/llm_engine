@@ -495,7 +495,7 @@ agentSchema.pre('validate', function () {
     ...instanceConfig,
     ...(typeConfig.goalPriorities !== undefined || instanceConfig.goalPriorities !== undefined
       ? { goalPriorities: { ...(typeConfig.goalPriorities ?? {}), ...(instanceConfig.goalPriorities ?? {}) } }
-      : {}),
+      : {})
   }
   // ensure a botName exists
   if (!this.agentConfig!.botName) this.agentConfig!.botName = config.conversationBotName
@@ -528,6 +528,11 @@ agentSchema.post('init', function () {
   }
   if (this.description === undefined) {
     this.description = agentTypes[this.agentType]?.description || 'N/A'
+  }
+  // Backfills agents saved before their type defined triggers, mirroring pre('validate') so the
+  // perMessage gate still fires. Optional chaining survives retired agentTypes.
+  if (this.triggers === undefined) {
+    this.triggers = agentTypes[this.agentType]?.defaultTriggers
   }
 })
 
