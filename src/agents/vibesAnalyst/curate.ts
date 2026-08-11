@@ -10,13 +10,17 @@ import { ConversationMetrics, CuratedVibesChart, CuratedVibesData, CuratedVibesS
 const CurationSchema = z.object({
   header: z.string().describe('One-line verdict headline that includes the event name'),
   framing: z.string().optional().describe('Optional one-line gist shown under the header'),
-  state: z.enum(['negative', 'positive', 'quiet']),
+  // nullish, not required: the prompt still asks for a state, but nothing downstream reads it, so a
+  // dropped or null value should never fail the whole card (small models omit it often enough to matter).
+  state: z.enum(['negative', 'positive', 'quiet']).nullish(),
   standouts: z
     .array(
       z.object({
         text: z.string().describe('Slack mrkdwn insight naming the specific numbers, with caveats inline'),
-        chartKey: z.string().optional().describe('One of the provided chart keys, or omit if no chart fits'),
-        caption: z.string().optional().describe('One-line plain-language description of the attached chart')
+        // nullish, not optional: the model routinely emits an explicit null for "no chart" rather
+        // than omitting the key, and Zod's .optional() rejects null. Both are treated as "no chart".
+        chartKey: z.string().nullish().describe('One of the provided chart keys, or omit if no chart fits'),
+        caption: z.string().nullish().describe('One-line plain-language description of the attached chart')
       })
     )
     .min(2)
