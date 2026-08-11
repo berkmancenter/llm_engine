@@ -1,7 +1,13 @@
 import { z } from 'zod'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { VIBES_CURATION_SYSTEM_PROMPT, VIBES_CURATION_USER_TEMPLATE } from './prompt.js'
-import { ConversationMetrics, CuratedVibesChart, CuratedVibesData, CuratedVibesStandout } from '../../types/index.types.js'
+import {
+  ConversationMetrics,
+  CuratedVibesChart,
+  CuratedVibesData,
+  CuratedVibesStandout,
+  DeviationMetric
+} from '../../types/index.types.js'
 
 /* What the model returns: a header, optional framing, an overall mood, and 2 to 3
    short insights. Each insight can name one chart to show (by key) and a caption
@@ -34,6 +40,39 @@ interface ChartCandidate {
   description: string
   title: string
   chart: CuratedVibesChart
+}
+
+/* Per-metric labelling for the charts generated from topDeviations, so whatever the ranking
+   flagged as the biggest outlier always has a chart to point at. posterCount is intentionally
+   absent: postersVsBaseline and postersVsPeers already chart it. Rates and shares are fractions
+   in the metrics, so scaleToPercent renders them times 100 with a "%" label; note carries the
+   undercount caveat for tracked-session figures. */
+const DEVIATION_CHART_META: Partial<
+  Record<DeviationMetric, { title: string; yLabel: string; noun: string; scaleToPercent?: boolean; note?: string }>
+> = {
+  participationRate: {
+    title: 'Participation rate vs norm',
+    yLabel: 'Participation rate (%)',
+    noun: 'the share of the audience who posted',
+    scaleToPercent: true
+  },
+  topPosterMessageShare: {
+    title: 'Top-poster share vs norm',
+    yLabel: 'Top-poster message share (%)',
+    noun: 'the share of messages from the busiest few posters',
+    scaleToPercent: true
+  },
+  lurkerCount: {
+    title: 'Lurkers vs norm',
+    yLabel: 'Lurkers',
+    noun: 'how many people watched without posting'
+  },
+  avgDwellSeconds: {
+    title: 'Session length vs norm',
+    yLabel: 'Avg session length (seconds)',
+    noun: 'the average tracked-session length',
+    note: ' (tracked sessions can undercount)'
+  }
 }
 
 /* Builds the set of charts the model is allowed to attach, each from real computed
@@ -196,6 +235,106 @@ export function buildChartCandidates(metrics: ConversationMetrics): Record<strin
           }
         ],
         axisConfig: { categories: Object.keys(firstSource.actionBreakdown), yLabel: 'Actions' }
+      }
+    }
+  }
+
+  // A chart for each ranked deviation, keyed deviation:<metric>, so the biggest outlier the
+  // ranking surfaced always has a matching "this event vs the norm" chart to attach.
+  for (const deviation of metrics.topDeviations) {
+    const meta = DEVIATION_CHART_META[deviation.metric]
+    if (!meta) continue
+    const scale = meta.scaleToPercent ? 100 : 1
+    const comparisonLabel = deviation.comparison === 'peerBaseline' ? 'Similar events avg' : 'Recent avg'
+    const comparedToPhrase =
+      deviation.comparison === 'peerBaseline'
+        ? 'the average for public events of about the same size and platform'
+        : "the topic's recent average"
+    candidates[`deviation:${deviation.metric}`] = {
+      description: `This event's ${meta.noun} next to ${comparedToPhrase}${meta.note ?? ''}`,
+      title: meta.title,
+      chart: {
+        type: 'bar',
+        series: [
+          {
+            name: meta.yLabel,
+            data: [
+              { label: 'This event', value: deviation.value * scale },
+              { label: comparisonLabel, value: deviation.comparedTo * scale }
+            ]
+          }
+        ],
+        axisConfig: { categories: ['This event', comparisonLabel], yLabel: meta.yLabel }
+      }
+    }
+  }
+
+  // Time to first message: seconds from the event start to the first message on each surface.
+  // Only when both surfaces have a figure, so the chart is a real comparison rather than one bar.
+  const { publicSeconds, privateSeconds } = metrics.timeToFirstMessage
+  if (publicSeconds !== null && privateSeconds !== null) {
+    candidates.timeToFirstMessage = {
+      description:
+        'Seconds from the event start to the first public-chat message versus the first private message to the bot',
+      title: 'Time to first message',
+      chart: {
+        type: 'bar',
+        series: [
+          {
+            name: 'Seconds',
+            data: [
+              { label: 'Public chat', value: publicSeconds },
+              { label: 'Private (bot)', value: privateSeconds }
+            ]
+          }
+        ],
+        axisConfig: { categories: ['Public chat', 'Private (bot)'], yLabel: 'Seconds' }
+      }
+    }
+  }
+
+  // Distinct senders per channel. A bar, not a pie: someone who used both channels is counted in
+  // each, so the two counts overlap and do not sum to a whole.
+  const { distinctPublicSenders, distinctPrivateSenders } = metrics.privateMessaging
+  if (distinctPublicSenders + distinctPrivateSenders > 0) {
+    candidates.senderChannels = {
+      description:
+        'How many different people posted in public chat versus messaged the bot privately; someone who did both is counted in each, so these can overlap',
+      title: 'Distinct senders by channel',
+      chart: {
+        type: 'bar',
+        series: [
+          {
+            name: 'People',
+            data: [
+              { label: 'Public chat', value: distinctPublicSenders },
+              { label: 'Private (bot)', value: distinctPrivateSenders }
+            ]
+          }
+        ],
+        axisConfig: { categories: ['Public chat', 'Private (bot)'], yLabel: 'People' }
+      }
+    }
+  }
+
+  // Thread sizes: the largest reply thread against the median, both counted in messages.
+  const { threadCount, maxThreadSize, medianThreadSize } = metrics.interactionStructure
+  if (threadCount > 0 && medianThreadSize !== null) {
+    candidates.threadSizes = {
+      description: 'Messages in the largest reply thread versus the median thread',
+      title: 'Thread sizes',
+      chart: {
+        type: 'bar',
+        series: [
+          {
+            name: 'Messages',
+            data: [
+              { label: 'Largest thread', value: maxThreadSize },
+              { label: 'Median thread', value: medianThreadSize }
+            ]
+          }
+        ],
+        axisConfig: { categories: ['Largest thread', 'Median thread'], yLabel: 'Messages' }
       }
     }
   }
