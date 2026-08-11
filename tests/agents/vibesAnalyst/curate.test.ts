@@ -239,7 +239,11 @@ describe('curateVibesCard', () => {
       .map((standout) => standout.text)
       .join(' ')
       .toLowerCase()
-    expect(allText).toMatch(/dwell|session length|time spent|900/)
+    // The model may humanize 900 seconds to "15 minutes" and word dwell as engagement/attention,
+    // so accept the natural phrasings, not just the literal metric name or raw seconds.
+    expect(allText).toMatch(
+      /dwell|session length|time spent|900|minutes per|per tracked session|per visit|engagement|stayed|attention/
+    )
     expect(allText).toMatch(/undercount/)
   })
 
