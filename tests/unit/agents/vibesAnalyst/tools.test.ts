@@ -5,10 +5,9 @@ import createVibesAnalystTools from '../../../../src/agents/vibesAnalyst/tools.j
 
 setupIntTest()
 
-/* The computations themselves are covered over plain arrays in the analytics service tests.
-   What only the tool layer can be checked for is here: that a call is recorded with the filter
-   that produced it, that the message set is scoped to one event, and that nothing identifying
-   reaches the model. */
+/* The analytics service tests cover the computations themselves over plain arrays. This file
+   covers what only the tool layer can: that a call is recorded with the filter that produced it,
+   that the message set stays scoped to one event, and that nothing identifying reaches the model. */
 
 const ownerId = new mongoose.Types.ObjectId()
 const eventStart = new Date('2026-07-01T12:00:00.000Z')

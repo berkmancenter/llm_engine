@@ -51,10 +51,8 @@ export function labelActiveAgentTypes(agentTypes: string[]): string[] {
   return uniqueTypes.map((agentType) => AGENT_TYPE_LABELS[agentType]).filter((label): label is string => Boolean(label))
 }
 
-/* The Agent model imports the agent registry, and the registry imports this agent, so naming it
-   at the top of this file closes an import cycle: anything loading the registry first reaches it
-   half-built. Both readers below already run inside async functions, so loading the model on
-   first use costs nothing and keeps the cycle out of the import graph. */
+/* Loaded on first use rather than imported at the top: the Agent model imports the agent
+   registry, which imports this agent back, so a top-level import closes that cycle. */
 async function agentModel() {
   return (await import('../../models/index.js')).Agent
 }

@@ -1,10 +1,8 @@
 import { jest } from '@jest/globals'
 
-/* Event resolution (LLM extraction, candidate lookup, fuzzy matching) and the card
-   pipeline are each tested in their own files. Here we mock them to drive handleSummon
-   through its branches and check the wiring: which event it reads, what it replies, and
-   that the access re-check stops a private event from ever being read. The access gate
-   itself is the real one. */
+/* Event resolution and the card pipeline are tested in their own files, so both are mocked here
+   to drive handleSummon through its branches: which event it reads, what it replies, and that the
+   access re-check stops a private event being read. The access gate itself is real. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockExtract = jest.fn<(...args: any[]) => Promise<any>>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

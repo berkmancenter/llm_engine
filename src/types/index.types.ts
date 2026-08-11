@@ -795,19 +795,16 @@ export interface SameTopicBaseline {
 export type AttendanceBand = 'tiny' | 'small' | 'medium' | 'large'
 
 /* How today's event compares to recent public peer events of the same size and platform, across
-   ANY topic (unlike SameTopicBaseline, which only looks at this event's own recurring series).
-   Peers are drawn only from public topics (the same privacy gate summon and trend already use),
-   share today's attendance band and platform, and are capped at the 10 most recent. avgPosterCount
-   averages over every peer in eventCount. avgParticipationRate and avgTopPosterMessageShare each
-   average only over the peers that had that figure (a peer with postersExceedTrackedSessions, or
-   too few posters for a top-few share to mean anything, is left out of that one average), so
-   participationRateEventCount and concentrationEventCount are reported alongside so a reader never
-   assumes either average spans every peer. null when fewer than 3 public peers share the band and
-   platform, since a thinner cohort would read as more authoritative than it is. */
+   any topic, unlike SameTopicBaseline, which only looks at this event's own recurring series.
+   Peers come only from public topics, the same privacy gate summon and trend use, and are capped
+   at the 10 most recent. Null below 3 qualifying peers, where a thin cohort would read as more
+   authoritative than it is. */
 export interface PeerBaseline {
   band: AttendanceBand
   eventCount: number
   avgPosterCount: number
+  // The next two average only over peers that had the figure, so each carries its own count and
+  // a reader never assumes the average spans every peer.
   avgParticipationRate: number | null
   participationRateEventCount: number
   avgTopPosterMessageShare: number | null
@@ -879,47 +876,41 @@ export interface QuoteReception {
    limited" note. */
 export type TrackedSessionStatus = 'available' | 'notTracked' | 'unavailable'
 
-/* Which slice of one event's human messages an on-demand computation covers. Every field is
-   optional, and an omitted field narrows nothing, so an empty filter reads the whole event.
-   fromMinute and toMinute are elapsed minutes from the event start, fromMinute inclusive and
-   toMinute exclusive, the same bounds the activity buckets and spikes use. channel picks the
-   surface: 'public' is the group chat, 'private' is a one-to-one with the bot, 'all' is both.
-   minWordCount keeps only messages of at least that many words, so a question about substantial
-   messages can exclude one-word reactions. This is the whole vocabulary a question can be
-   expressed in: the computations themselves are fixed and server-side, and the filter is where
-   the specific question shows up. */
+/* Which slice of one event's human messages an on-demand computation covers. The computations
+   are fixed and server-side, so this filter is the whole vocabulary a question can be asked in.
+   An omitted field narrows nothing, so an empty filter reads the whole event. */
 export interface MessageMetricFilter {
+  // Elapsed minutes from the event start, from inclusive and to exclusive, as activity buckets use.
   fromMinute?: number
   toMinute?: number
+  // 'public' is the group chat, 'private' is a one-to-one with the bot.
   channel?: 'public' | 'private' | 'all'
+  // Drops shorter messages, so a question about substantial replies can exclude one-word ones.
   minWordCount?: number
 }
 
-/* How much was said in one slice of an event, and by how many different people. posterCount
-   counts each person once however many messages they sent, grouped per person the same way
-   participation is. postersAtOrAboveThreshold is how many of those people sent at least the
-   requested number of messages, null when no threshold was asked for. */
+/* How much was said in one slice of an event, and by how many different people. */
 export interface MessageActivityCount {
   messageCount: number
+  // Each person counted once, grouped the same way participation is.
   posterCount: number
+  // How many of those people sent at least the requested number of messages, null when none asked.
   postersAtOrAboveThreshold: number | null
 }
 
-/* How long the messages in one slice were, in words: the typical length and the longest. Both
-   are null when the slice holds no messages, so an empty slice never reads as zero-word
-   messages. Word counts only: no message text ever leaves this computation. */
+/* How long the messages in one slice were, in words. Word counts only: no message text leaves
+   this computation. */
 export interface MessageLengthStats {
   messageCount: number
+  // Null on an empty slice, so it never reads as zero-word messages.
   medianWordCount: number | null
   longestWordCount: number | null
 }
 
 /* One computation the analyst ran over an event's own messages to answer a question its
-   precomputed metrics could not. tool names the computation, args the filter it ran with, and
-   result what the server-side function returned. The record exists so the fact-checking pass can
-   verify a cited number against the computation that produced it, exactly as it verifies every
-   other number against the metrics: a figure from a tool is still first-party, so it keeps the
-   same trust tier as the rest of the participation data. */
+   precomputed metrics could not. Recorded so the fact-checking pass can trace a cited number back
+   to the computation behind it. Tool results are server-computed, so they stay first-party and
+   keep the same trust tier as the rest of the participation data. */
 export interface OnDemandComputation {
   tool: string
   args: MessageMetricFilter & { minMessages?: number }
@@ -949,9 +940,8 @@ export interface ConversationMetrics {
   // How today compares to recent public peer events of the same size and platform, across any
   // topic; null when too few peers qualify.
   peerBaseline: PeerBaseline | null
-  // The metrics that differ most from a comparison average (topic history or peer cohort),
-  // ranked by size of the difference, largest first; empty when nothing was available to
-  // compare against.
+  // Metrics furthest from a comparison average, largest difference first; empty when nothing
+  // was available to compare against.
   topDeviations: DeviationSignal[]
   // Counts of people's messages: public chat vs private one-to-one with the bot.
   channelSplit: { public: number; private: number }
@@ -981,19 +971,16 @@ export interface ConversationMetrics {
   onDemandComputations?: OnDemandComputation[]
 }
 
-/* Private (one-to-one with the bot) messaging, all exact and first-party. privateMessageCount
-   is the same private count as channelSplit.private. distinctPrivateSenders and
-   distinctPublicSenders are how many different people sent at least one message in each
-   channel kind, grouped per person the same way participation is. A person who used both
-   channels is counted in both, so the two sender totals overlap: they are not additive and
-   their sum can exceed posterCount. avgPrivateMessagesPerPoster is privateMessageCount over the
-   total distinct posters (posterCount), derived at read time and 0 when no one posted, so the
-   read layer can compare the two sender counts (e.g. how much more likely a poster was to
-   message privately than publicly) without storing a ratio. */
+/* Private (one-to-one with the bot) messaging, all exact and first-party, grouped per person the
+   same way participation is. */
 export interface PrivateMessaging {
+  // The same count as channelSplit.private.
   privateMessageCount: number
+  // Someone who used both channels lands in both, so these overlap: not additive, and their sum
+  // can exceed posterCount.
   distinctPrivateSenders: number
   distinctPublicSenders: number
+  // Over all distinct posters, derived at read time and 0 when nobody posted.
   avgPrivateMessagesPerPoster: number
 }
 
@@ -1020,38 +1007,31 @@ export interface ReplyLatency {
   repliedMessageCount: number
 }
 
-/* Participation concentration: how much of the chat came from a small core, and how many
-   people posted just once. All exact and first-party, grouped per person the same way
-   participation is. topPosterCount is how many posters the share covers: a fixed few (the
-   busiest three by message volume), or the poster count when the room is smaller.
-   topPosterMessageShare is the fraction of all messages those top posters sent (0 to 1), a
-   fixed-count companion to participation.frequentPosterMessageShare, which instead scales with
-   room size (top 10%). It is null below a handful of posters, where a "top few" share covers
-   nearly the whole room and says nothing. oneTimePosterCount and repeatPosterCount split
-   posters by whether they sent exactly one message or more than one, so the card can tell a
-   room of drive-by single posts apart from one with sustained back-and-forth; they always sum
-   to the poster count. */
+/* Participation concentration: how much of the chat came from a small core, and how many people
+   posted just once. All exact and first-party, grouped per person the same way participation is. */
 export interface ParticipationConcentration {
+  // The busiest three by message volume, or the poster count when the room is smaller.
   topPosterCount: number
+  // Those posters' share of all messages (0 to 1). A fixed-count companion to
+  // participation.frequentPosterMessageShare, which scales with room size instead (top 10%).
+  // Null below a handful of posters, where a top-few share covers the room and says nothing.
   topPosterMessageShare: number | null
+  // Splits drive-by single posts from sustained back-and-forth. Always sums to the poster count.
   oneTimePosterCount: number
   repeatPosterCount: number
 }
 
-/* The shape of threaded conversation, from the parentMessage links among human messages. A
-   thread is a root message (one with no parent, or whose parent is not in the human set, e.g. a
-   reply to the bot) together with every message that descends from it, and it counts only once
-   it drew at least one reply, so a lone unanswered post is not a thread. threadCount is how many
-   such threads there were. maxThreadSize is the message count of the largest thread, root
-   included; medianThreadSize is the median thread size, null when there were no threads.
-   maxReplyDepth is the deepest reply chain across all threads, counting edges from the root, so a
-   direct reply to a root is depth 1; it is 0 when nothing was threaded. Together these say
-   whether the room held a few long back-and-forths or many shallow ones. All exact and
-   first-party, from message ids and parent links. */
+/* The shape of threaded conversation, from the parentMessage links among human messages. A thread
+   is a root message (no parent, or a parent outside the human set such as the bot) plus everything
+   descending from it, and it counts only once it drew a reply, so a lone unanswered post is not a
+   thread. Together these say whether the room held a few long back-and-forths or many shallow
+   ones. All exact and first-party. */
 export interface InteractionStructure {
   threadCount: number
+  // Message count of the largest thread, root included.
   maxThreadSize: number
   medianThreadSize: number | null
+  // Deepest reply chain, in edges from the root, so a direct reply is 1. Zero when nothing threaded.
   maxReplyDepth: number
 }
 

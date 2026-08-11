@@ -33,10 +33,9 @@ setupIntTest()
 
 const ownerId = new mongoose.Types.ObjectId()
 
-/* Participation is now counted per person (owner), not per pseudonym, so every distinct
-   persona in a fixture needs its own owner id or they collapse into one poster. This maps
-   each pseudonym to a stable owner id so a persona keeps the same owner across its
-   messages while different personas stay distinct. */
+/* Participation counts per person (owner) rather than per pseudonym, so every distinct persona in
+   a fixture needs its own owner id or they collapse into one poster. This maps each pseudonym to a
+   stable owner id, keeping a persona consistent across its messages while personas stay apart. */
 const ownerByPseudonym = new Map<string, mongoose.Types.ObjectId>()
 function ownerFor(pseudonym: string): mongoose.Types.ObjectId {
   if (!ownerByPseudonym.has(pseudonym)) {
@@ -152,10 +151,9 @@ async function seedAgent(conversation) {
 }
 
 /* Seeds one direct (1:1 bot-DM) channel between a person and an agent, the way joinConversation
-   provisions one automatically the moment someone connects (see conversation.service). Registers
-   the channel on the conversation's own channels array, since that is what the real participant
-   count reads: not a standalone Channel query, but the conversation's own channels list filtered
-   to direct:true, with any of its own agents excluded from the headcount. */
+   provisions one when someone connects (see conversation.service). Registers it on the
+   conversation's own channels array, which is what the participant count reads: that list
+   filtered to direct:true, minus the conversation's own agents. */
 async function seedDirectChannel(conversation, agent) {
   const userId = new mongoose.Types.ObjectId()
   const channel = await Channel.create({
@@ -1197,13 +1195,10 @@ describe('computeConversationMetrics bot invocations', () => {
   })
 })
 
-/* Creates a past event in a topic: one message from each name in `speakers` (a
-   pseudonym is a poster's anonymous display name), so posterCount = speakers.length.
-   `tracked` still stores the old web-analytics snapshot for completeness, but the audience
-   headcount now comes from direct channels (see countChannelParticipants), so this also
-   seeds one direct channel per `attendeeCount`, joining an agent this conversation owns.
-   Without `tracked`, the event has no channels and no lurker data, so its lurker count is
-   unknown (null). */
+/* Creates a past event in a topic: one message per name in `speakers`, so posterCount =
+   speakers.length. `tracked` stores the web-analytics snapshot and seeds one direct channel per
+   `attendeeCount`, since the audience headcount reads from direct channels (see
+   countChannelParticipants). Without it the event has no channels, so its lurker count is null. */
 async function seedTopicEvent(
   topicId: mongoose.Types.ObjectId,
   options: {

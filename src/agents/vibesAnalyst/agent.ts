@@ -76,19 +76,11 @@ export default verify({
     }
   },
 
-  // Answers a summon, but only when the message is actually addressed to the analyst.
-  // Hands off to the summon handler, which resolves the event and posts (or declines)
-  // its recap. The conversation history is unused: a summon names its own event.
-  //
-  // Two ways in, and neither needs a model. Naming the analyst counts, and the match tolerates
-  // typos. So does a bare threaded reply to something the analyst itself posted (a
-  // disambiguation prompt, a recap), where a plain event title answers the question and
-  // repeating the name would read oddly; once anyone else replies in that thread it stops.
-  //
-  // No LLM intent check, on purpose. Judging one message with no surrounding conversation pulled
-  // the analyst into exchanges between two people, and a recap nobody asked for costs more than
-  // making someone type the name. The price: an unaddressed "how did the last event go?" now
-  // reaches nothing.
+  // Answers a summon, handing off to the summon handler to resolve the event and post or decline
+  // a recap. Only addressed messages get through: ones naming the analyst (typos tolerated), or a
+  // threaded reply to something it posted, where a bare event title is the natural answer.
+  // No LLM intent check on purpose, since judging a message with no surrounding conversation
+  // pulled the analyst into other people's exchanges. History is unused: a summon names its event.
   async respond(_conversationHistory, userMessage) {
     if (!userMessage) return []
     const words = userMessage.body?.trim().split(/\s+/) ?? []

@@ -45,23 +45,16 @@ export const METRICS_VERSION = 1
 /* Six windows keeps the activity chart readable and under Slack's 20-point limit. */
 const ACTIVITY_BUCKET_COUNT = 6
 
-/* The one predicate that defines "a human message for this event". Every human-message
-   query below spreads this in alongside the conversation id, so all three metrics
-   (participation, channel split, activity series) count the exact same set of messages
-   and stay mutually consistent.
+/* The one predicate that defines "a human message for this event". Every human-message query
+   below spreads this in alongside the conversation id, so participation, channel split, and
+   activity series all count the same messages and stay consistent.
 
-   fromAgent:false drops the bot's own messages.
+   channels:$ne 'transcript' drops the talk transcript, saved as non-agent messages on that
+   channel. Without it the speaker's spoken words count as live chat and inflate the poster and
+   message counts. report.service excludes it the same way.
 
-   channels:$ne 'transcript' drops the talk transcript, which is saved as non-agent
-   messages on the 'transcript' channel. Those are the speaker's spoken words, not live
-   chat, so fromAgent:false alone would still count them as live participant chat and
-   inflate the poster and message counts. report.service excludes it the same way.
-
-   visible:true drops backchannel and hidden messages, so only messages a person actually
-   sent in the open are counted. visible is required and defaults to true, so a real chat
-   message always carries it. This intentionally counts replies (parentMessage set) too,
-   unlike Conversation.messageCount, which counts only top-level posts: a threaded reply is
-   still a message a participant sent, and an engagement recap should reflect every one. */
+   visible:true drops backchannel and hidden messages. Replies (parentMessage set) do count,
+   unlike Conversation.messageCount, which counts only top-level posts. */
 const visibleHumanFilter = { fromAgent: false, visible: true, channels: { $ne: 'transcript' } }
 
 /* A chat spike is a window holding at least this many times the messages of the
@@ -544,16 +537,11 @@ export function computeReplyLatency(messages: { _id?: unknown; createdAt?: Date;
   return { medianSecondsToFirstReply: median(gaps), repliedMessageCount: gaps.length }
 }
 
-/* Participation concentration over the already-fetched human messages: how much of the chat
-   came from the busiest few posters, and how many people posted only once. Groups messages by
-   person the same way participation does (owner, else pseudonymId; a message with neither is
-   dropped, as in computePrivateMessaging), so its poster count reconciles with participation.
-   topPosterCount is how many posters the share spans (CONCENTRATION_TOP_POSTERS, or the poster
-   count when smaller). topPosterMessageShare is those posters' share of all messages, null below
+/* Participation concentration over the already-fetched human messages: how much of the chat came
+   from the busiest few posters, and how many people posted only once. Groups by person the same
+   way participation does, so the poster counts reconcile. topPosterMessageShare is null below
    FREQUENT_POSTER_MIN_POSTERS posters, where a top-few share covers nearly the whole room and
-   says nothing. oneTimePosterCount and repeatPosterCount split posters by whether they sent
-   exactly one message or more, and always sum to the poster count. Pure over the fetched
-   messages. */
+   says nothing. Pure over the fetched messages. */
 export function computeParticipationConcentration(
   messages: { owner?: unknown; pseudonymId?: unknown }[]
 ): ParticipationConcentration {
@@ -580,13 +568,10 @@ export function computeParticipationConcentration(
 }
 
 /* The shape of threaded conversation over the already-fetched human messages, read from their
-   parentMessage links. Builds a forest: each message links to its parent when that parent is in
-   the human set, and any other message (no parent, or a reply to something outside the set like
-   the bot) is a thread root. Walks each root's subtree for its size (root plus every descendant)
-   and its depth (edges from the root, so a direct reply is depth 1). A root counts as a thread
-   only once it has at least one reply, so a lone unanswered post is not a thread. Reports the
-   thread count, the largest and median thread sizes, and the deepest reply chain, with zeros and
-   a null median when nothing was threaded. Pure over the fetched messages. */
+   parentMessage links. Builds a forest, where anything without a parent in the human set (a reply
+   to the bot, say) becomes a root, then walks each root's subtree for size and depth. A root
+   counts as a thread only once it has a reply, so a lone unanswered post is not one. Pure over
+   the fetched messages. */
 export function computeInteractionStructure(messages: { _id?: unknown; parentMessage?: unknown }[]): InteractionStructure {
   const idOf = (ref: unknown): string => String((ref as { _id?: unknown })?._id ?? ref)
 
@@ -615,9 +600,7 @@ export function computeInteractionStructure(messages: { _id?: unknown; parentMes
   for (const root of roots) {
     let size = 0
     let depth = 0
-    /* Depth-first walk from the root. The visited guard only matters if the data ever formed a
-       cycle (a reply is always created after its parent, so real threads are acyclic); it keeps a
-       malformed link from looping forever. */
+    // Real threads are acyclic, so the visited guard only stops a malformed link looping forever.
     const visited = new Set<string>()
     const stack: { id: string; level: number }[] = [{ id: root, level: 0 }]
     while (stack.length > 0) {
@@ -984,14 +967,12 @@ async function computeHistoryAndBaseline(
   return { participationHistory, baseline }
 }
 
-/* Builds this event's cross-topic peer comparison (see PeerBaseline). Unlike the same-topic
-   baseline above, a peer can come from any topic, so its numbers are only safe to read into
-   another topic's card when that peer's own topic is public: the same privacy gate summon and
-   trend already enforce (toPublicCandidates in vibesAnalyst/eventResolution). This queries
-   candidate snapshots by band, platform, and metrics version first, then joins to Conversation
-   and Topic to drop anything from a private topic, so a private series's numbers can never
-   surface inside a different topic's peer comparison. Returns null when fewer than
-   PEER_COHORT_MIN_EVENTS public peers qualify. */
+/* Builds this event's cross-topic peer comparison (see PeerBaseline). A peer can come from any
+   topic, so its numbers are only safe to read into another topic's card when that peer's topic is
+   public, the same privacy gate summon and trend enforce (toPublicCandidates in
+   vibesAnalyst/eventResolution). Queries candidate snapshots by band, platform, and metrics
+   version, then joins to Conversation and Topic to drop private ones. Returns null when fewer
+   than PEER_COHORT_MIN_EVENTS public peers qualify. */
 async function computePeerBaseline(
   conversation,
   current: { posterCount: number; eventPlatform: EventPlatform }

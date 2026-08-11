@@ -1,10 +1,9 @@
 import { ConversationMetrics } from '../../src/types/index.types.js'
 
 /* A complete, neutral ConversationMetrics for unit tests: a modest positive event with no tracked
-   sessions. Pass overrides to set only the fields a test cares about; every other field, including
-   any metric added later, comes from this default, so a new metric is one change here instead of one
-   per fixture. Overrides shallow-merge at the top level, so a sub-object override (e.g.
-   audienceEngagement) replaces that whole sub-object, matching how these fixtures were written. */
+   sessions. Pass overrides for the fields a test cares about; everything else, including metrics
+   added later, comes from here, so a new metric is one change instead of one per fixture.
+   Overrides shallow-merge, so a sub-object override replaces that whole sub-object. */
 export default function makeMetrics(overrides: Partial<ConversationMetrics> = {}): ConversationMetrics {
   return {
     participation: { posterCount: 20, frequentPosterCount: 2, frequentPosterMessageShare: 0.4, messageCount: 50 },

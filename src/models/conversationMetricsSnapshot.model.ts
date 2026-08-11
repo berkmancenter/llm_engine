@@ -127,8 +127,8 @@ const conversationMetricsSnapshotSchema = new mongoose.Schema<ConversationMetric
     // reception pass did not run (a backfill recomputes scalars only, so it cannot know this).
     receptionCount: { type: Number, default: null },
 
-    // The four pacing/shape metrics (exact), mirroring their ConversationMetrics shape so
-    // peer-cohort comparison and future trends can read them straight off the snapshot.
+    // Pacing and shape metrics, keeping their ConversationMetrics shape so peer comparison and
+    // trends read them straight off the snapshot.
     timeToFirstMessage: {
       publicSeconds: { type: Number, default: null },
       privateSeconds: { type: Number, default: null }

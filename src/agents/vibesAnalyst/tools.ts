@@ -39,15 +39,14 @@ const TOOL_SCOPE =
   "Covers only this one event, only messages people sent (never the bot's own), and never returns any message text."
 
 /**
- * Builds the set of computations the analyst can run over one event's messages when a question
- * needs a number its precomputed metrics do not hold, alongside the record of what actually ran.
+ * Builds the computations the analyst can run over one event's messages when a question needs a
+ * number its precomputed metrics do not hold, plus the record of what actually ran.
  *
  * Every tool is bound to this one conversation, so a question can never pull in another event's
- * data. The messages are loaded once, on the first call, and reused across the rest.
+ * data. Messages load once on the first call and are reused after.
  *
- * The returned `computations` array fills as the model calls tools. It is what the fact-checking
- * pass reads to verify a cited number against the computation that produced it, the same way it
- * verifies every other number against the metrics.
+ * The returned `computations` array fills as the model calls tools, and the fact-checking pass
+ * reads it to trace a cited number back to the computation behind it.
  */
 export default function createVibesAnalystTools(conversation): {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

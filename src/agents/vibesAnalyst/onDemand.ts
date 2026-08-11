@@ -22,19 +22,16 @@ const OnDemandAnswerSchema = z.object({
 
 /**
  * Answers one question about a single event by computing something new over that event's own
- * messages, for the questions its precomputed metrics cannot reach ("how many people posted
- * more than three times?", "how busy were the first ten minutes?").
+ * messages, for questions its precomputed metrics cannot reach ("how many people posted more
+ * than three times?").
  *
- * The model runs against tools bound to this one conversation, so the answer can never draw on
- * another event, and the tools return counts only, never message text, so this stays a
- * measuring pass rather than a reading one. Whatever it computes then goes through the same
- * fact-checking pass a recap card does, with the tool results attached to the metrics so a
- * cited on-demand number can be traced back to the computation that produced it. An answer the
- * fact-checker cannot back is withheld rather than sent.
+ * Tools are bound to this one conversation and return counts only, so the answer stays scoped to
+ * this event and this remains a measuring pass rather than a reading one. The answer then goes
+ * through the same fact-checking pass a recap card does, and anything the fact-checker cannot
+ * back is withheld.
  *
- * Returns null whenever no answer should be sent: the model found the question unanswerable,
- * the fact-checker rejected the answer, or the loop failed outright. The caller falls back to
- * its own honest "I couldn't work that out" reply, so a failure here never surfaces as an error.
+ * Returns null when no answer should be sent, whether the question was unanswerable, the
+ * fact-checker rejected it, or the loop failed. The caller then sends its own honest fallback.
  */
 export default async function answerWithOnDemandMetrics(
   question: string,

@@ -279,18 +279,17 @@ async function recapResolvedEvent(
 }
 
 /**
- * Answers a cross-event trend question. When the host named specific events to compare
- * (reference.eventNames), scopes to exactly those, resolved by fuzzy title match; otherwise
- * scopes to the named series or all public events, taking the most recent N, same as before. It
- * prefers stored snapshots, and when too few exist to compare (a fresh deploy, or events that
- * ended before the snapshot write shipped) it recomputes the scoped events live instead of
- * dead-ending, so a trend still answers when the data exists but was never snapshotted. Live
- * rows are used for the WHOLE comparison rather than mixed with stored ones, so every event is
- * measured the same way. Either source is confined to the privacy-filtered candidate set, so a
- * private event can never enter a trend. With nothing to compare it says so; with exactly one
- * event it falls back to a normal single-event recap, since one event is not a trend. A named
- * event that failed to resolve is never silently dropped: it is noted alongside whatever the
- * comparison still produces from the rest.
+ * Answers a cross-event trend question. Named events (reference.eventNames) scope the comparison
+ * to exactly those by fuzzy title match, otherwise it takes the most recent N from the series or
+ * all public events.
+ *
+ * Prefers stored snapshots, and recomputes the scoped events live when too few exist to compare,
+ * so a trend still answers for events that ended before the snapshot write shipped. Live rows
+ * cover the whole comparison rather than mixing with stored ones, so every event is measured the
+ * same way. Either source stays inside the privacy-filtered candidate set.
+ *
+ * One event falls back to a normal recap, since one event is not a trend. A named event that
+ * failed to resolve is noted alongside whatever the rest produced, never dropped silently.
  */
 async function handleTrendSummon(
   context,
@@ -391,20 +390,16 @@ async function tryFollowUp(
 }
 
 /**
- * Answers a specific question about one event, rather than a general recap. Resolves the event
- * the same way a recap does (a named title, a topic's latest, or the single latest overall), then
- * branches on scope: "interpretive" defers outright to the Event Historian (when one is installed
- * on this conversation) rather than guessing at content VA never reads; "quantitative" and "mixed"
- * compute this event's metrics live and answer through the same answerFollowUp pass a threaded
- * follow-up question already uses, so a first, unthreaded question gets identical treatment to a
- * reply under a posted card. A mixed question's interpretive half is only ever pointed at the
- * historian (or honestly disclaimed when there isn't one), never guessed at from the metrics.
+ * Answers a specific question about one event, rather than a general recap. Resolves the event the
+ * same way a recap does, then branches on scope. "interpretive" defers to the Event Historian when
+ * one is installed, rather than guessing at content the analyst never reads. "quantitative" and
+ * "mixed" compute this event's metrics live and answer through the same answerFollowUp pass a
+ * threaded follow-up uses, so a first question gets identical treatment to a reply under a card.
  *
- * That answerFollowUp pass reads only the numbers already computed for this event. An open-ended
- * question ("how many people posted more than three times?") needs a metric nobody precomputed,
- * so a miss there escalates to the tool loop, which computes one over this event's own messages
- * and fact-checks it before it can be sent. Only a miss escalates, so the common question costs
- * exactly what it did before.
+ * That pass reads only precomputed numbers, so an open-ended question ("how many people posted
+ * more than three times?") misses and escalates to the tool loop, which computes one over this
+ * event's own messages and fact-checks it. Only a miss escalates, so common questions cost what
+ * they did before.
  */
 async function handleQuestionSummon(
   context,
