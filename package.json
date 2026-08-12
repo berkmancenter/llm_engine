@@ -57,6 +57,7 @@
     "@langchain/ollama": "^1.0.0",
     "@langchain/openai": "^1.0.0",
     "@langchain/textsplitters": "^1.0.0",
+    "@sentry/node": "^10.70.0",
     "@slack/web-api": "^7.15.1",
     "@smithy/eventstream-codec": "^4.1.0",
     "@socket.io/cluster-adapter": "^0.2.2",
@@ -114,6 +115,7 @@
     "unique-names-generator": "^4.7.1",
     "validator": "^13.12.0",
     "winston": "^3.17.0",
+    "winston-transport": "^4.9.0",
     "xss-clean": "^0.1.4",
     "zod": "^3.24.2",
     "zod-to-json-schema": "^3.25.2"

@@ -1,5 +1,26 @@
+import * as Sentry from '@sentry/node'
 import winston from 'winston'
+import Transport from 'winston-transport'
 import config from './config.js'
+
+// Sentry starts here (rather than a dedicated instrument file) so init is guaranteed before the transport below is created
+if (config.sentryDsn) {
+  Sentry.init({
+    dsn: config.sentryDsn,
+    environment: config.env,
+    enableLogs: true
+  })
+}
+
+const loggerTransports: winston.transport[] = [
+  new winston.transports.Console({
+    stderrLevels: ['error']
+  })
+]
+if (config.sentryDsn) {
+  const SentryWinstonTransport = Sentry.createSentryWinstonTransport(Transport)
+  loggerTransports.push(new SentryWinstonTransport({ levels: ['info', 'warn', 'error'] }))
+}
 
 const enumerateErrorFormat = winston.format((info) => {
   if (info.message && info[Symbol.for('splat')]) {
@@ -29,11 +50,7 @@ const logger = winston.createLogger({
     winston.format.splat(),
     winston.format.printf(({ level, message, timestamp }) => `${timestamp} ${level}: ${message}`)
   ),
-  transports: [
-    new winston.transports.Console({
-      stderrLevels: ['error']
-    })
-  ]
+  transports: loggerTransports
 })
 
 export default logger

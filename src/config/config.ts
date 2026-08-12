@@ -10,6 +10,7 @@ const envVarsSchema = Joi.object()
   .keys({
     NODE_ENV: Joi.string().valid('production', 'development', 'test').required(),
     LOG_LEVEL: Joi.string().valid('debug', 'info', 'warn', 'error').allow('').optional(),
+    SENTRY_DSN: Joi.string().allow('').optional(),
     PORT: Joi.number().default(3000),
     WEBSOCKET_BASE_PORT: Joi.number().default(5555),
     WEBSOCKET_MAX_PARALLELISM: Joi.number().default(availableParallelism()).description('Max parallelism for websocket use'),
@@ -157,6 +158,7 @@ const config = {
   websocketBasePort: envVars.WEBSOCKET_BASE_PORT,
   websocketMaxParallelism: Math.min(envVars.WEBSOCKET_MAX_PARALLELISM, availableParallelism()),
   logLevel: envVars.LOG_LEVEL,
+  sentryDsn: envVars.SENTRY_DSN,
   mongoose: {
     url: envVars.MONGODB_URL + (envVars.NODE_ENV === 'test' ? '-test' : ''),
     debug: envVars.MONGODB_DEBUG,
