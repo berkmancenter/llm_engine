@@ -64,14 +64,6 @@ const numberCruncher: ConversationType = {
         'Array of budget configs. Each entry: { "label": "AWS Bedrock", "endpoint": "https://...", "apiKey": "...", "thresholdPercent": 80 }. Endpoints must return { "quota": { "limit": "250.0" }, "remaining_limit": "199.40" }.',
       required: true,
       type: 'array'
-    },
-    {
-      name: 'checkInterval',
-      label: 'Check Interval (seconds)',
-      description: 'How often to check budgets, in seconds. Defaults to 86400 (24 hours).',
-      required: false,
-      type: 'string',
-      default: '86400'
     }
   ],
   // internal
@@ -80,9 +72,7 @@ const numberCruncher: ConversationType = {
       name: 'numberCruncher',
       properties: [
         { $ref: 'botName', as: 'agentConfig.botName' },
-        { $ref: 'budgets', as: 'agentConfig.budgets' },
-        { $ref: 'checkInterval', as: 'triggers.periodic.timerPeriod' },
-        { name: 'proactive', as: 'triggers.periodic.proactive', type: 'boolean', required: false, default: true }
+        { $ref: 'budgets', as: 'agentConfig.budgets' }
       ]
     }
   ],

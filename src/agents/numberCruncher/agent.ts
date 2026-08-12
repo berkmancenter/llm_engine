@@ -61,10 +61,7 @@ export default verify({
   priority: 100,
   maxTokens: undefined,
   defaultTriggers: {
-    periodic: {
-      timerPeriod: 86400, // once every 24 hours by default
-      proactive: true
-    }
+    cron: { expression: '0 3 * * *' }
   },
   llmTemplateVars: undefined,
   defaultLLMTemplates: undefined,
