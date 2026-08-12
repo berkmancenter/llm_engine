@@ -10,6 +10,12 @@ const schedule = {
   cancelPeriodicAgent: async (agentId) => {
     await agenda.cancel({ name: `periodic - ${agentId}` })
   },
+  cronAgent: async (expression: string, data) => {
+    await agenda.every(expression, `cron - ${data.agentId}`, data, { skipImmediate: true })
+  },
+  cancelCronAgent: async (agentId) => {
+    await agenda.cancel({ name: `cron - ${agentId}` })
+  },
   autoStartConversation: async (scheduledAt: Date, data) => {
     await agenda.schedule(scheduledAt, 'autoStart', data)
   },
