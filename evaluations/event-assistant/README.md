@@ -8,7 +8,7 @@ This directory contains quality evaluations for the Event Assistant agent.
 
 ```
 event-assistant/
-├── event-assistant-config.ts          # EA-specific evaluation prompts and types
+├── eventAssistantConfig.ts            # EA-specific evaluation prompts and types
 ├── runEventAssistantEvaluations.ts    # Standalone evaluation runner
 └── README.md                          # This file
 ```
@@ -41,14 +41,16 @@ yarn evaluate:event-assistant --dataset=my-custom-dataset
 
 ## Evaluation Types
 
-The Event Assistant supports two evaluation types, configured in `event-assistant-config.ts`:
+The Event Assistant supports two evaluation types, configured in `eventAssistantConfig.ts`:
 
-1. **semantic** - Full semantic quality evaluation
+1. **semantic** - Full quality + personality evaluation
 
-   - Evaluators: correctness, hallucination, groundedness, helpfulness, retrievalRelevance, conciseness
+   - Quality evaluators: `correctness`, `hallucination`, `groundedness`, `helpfulness`, `retrievalRelevance`
+   - Personality evaluators: `conciseness`, `ceremony`, `leadWithAnswer`, `antiSycophancy`, `pragmatic`, `opinionatedBounded`, `confidentNotCocky`, `witAndHumor`, `honestyAboutLimits`
 
 2. **timewindow** - For catch-up queries about recent content
-   - Evaluators: correctness, hallucination, groundedness
+   - Quality evaluators: `correctness`, `hallucination`, `groundedness`
+   - Personality evaluators: same set as semantic
 
 The evaluation type is determined by the `promptType` field in the LangSmith example metadata. If no `promptType` is specified, the default evaluators (same as semantic) are used.
 
