@@ -1159,6 +1159,7 @@ export interface Triggers {
     allowMessagesFromAgents?: boolean
   }
   periodic?: { timerPeriod: number; proactive?: boolean; conversationHistorySettings?: ConversationHistorySettings }
+  cron?: { expression: string }
 }
 
 export interface GenericAgentAnswer {

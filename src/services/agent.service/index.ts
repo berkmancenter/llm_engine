@@ -16,6 +16,13 @@ async function schedulePeriodicAgent(agent) {
   await schedule.periodicAgent(`${agent.triggers.periodic.timerPeriod} seconds`, { agentId: agent._id })
   logger.debug(`Set timer for ${agent.agentType} ${agent._id} ${agent.triggers.periodic.timerPeriod} seconds`)
 }
+
+async function scheduleCronAgent(agent) {
+  await schedule.cancelCronAgent(agent._id)
+  await defineJob.cronAgent(agent._id)
+  await schedule.cronAgent(agent.triggers.cron.expression, { agentId: agent._id })
+  logger.debug(`Set cron for ${agent.agentType} ${agent._id} "${agent.triggers.cron.expression}"`)
+}
 async function initialize(agent) {
   try {
     if (!agent.triggers || agent.triggers?.perMessage) {
@@ -24,6 +31,9 @@ async function initialize(agent) {
     }
     if (agent.active && agent.triggers?.periodic) {
       await schedulePeriodicAgent(agent)
+    }
+    if (agent.active && agent.triggers?.cron) {
+      await scheduleCronAgent(agent)
     }
   } catch (err) {
     logger.error(err)
@@ -67,14 +77,18 @@ async function patchAgent(agent, agentProps) {
   if (agent.active && agent.triggers?.periodic) {
     await schedulePeriodicAgent(agent)
   }
+  if (agent.active && agent.triggers?.cron) {
+    await scheduleCronAgent(agent)
+  }
 }
 
 async function startAgent(agent) {
   logger.debug(`Agent service start: ${agent._id}`)
   await agent.start()
   if (agent.triggers?.periodic) {
-    // periodic activation
     await schedulePeriodicAgent(agent)
+  } else if (agent.triggers?.cron) {
+    await scheduleCronAgent(agent)
   } else if (!agent.triggers) {
     // activate manual agent
     await schedule.agentResponse({ agentId: agent._id })
@@ -86,6 +100,9 @@ async function stopAgent(agent) {
   await agent.stop()
   if (agent.triggers?.periodic) {
     await schedule.cancelPeriodicAgent(agent._id)
+  }
+  if (agent.triggers?.cron) {
+    await schedule.cancelCronAgent(agent._id)
   }
 }
 

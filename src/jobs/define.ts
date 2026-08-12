@@ -6,6 +6,10 @@ const defineJob = {
     await agenda.start()
     await agenda.define(`periodic - ${agentId}`, JobHandlers.periodicAgent)
   },
+  cronAgent: async (agentId) => {
+    await agenda.start()
+    await agenda.define(`cron - ${agentId}`, JobHandlers.periodicAgent)
+  },
   agentResponse: async (agentId) => {
     await agenda.start()
     await agenda.define(`response - ${agentId}`, JobHandlers.agentResponse)
