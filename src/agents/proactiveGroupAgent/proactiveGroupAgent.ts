@@ -285,33 +285,35 @@ export default verify({
     ]
   },
 
-  formatTraceInput(conversationHistory: ConversationHistory) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  formatTraceInput(_conversationHistory: ConversationHistory) {
     return {
-      transcript: conversationHistory.messages.map((m) => ({
-        role: m.fromAgent ? 'agent' : 'participant',
-        pseudonym: m.pseudonym,
-        text: m.bodyType === 'json' ? (m.body as { text?: string })?.text : m.body,
-        createdAt: m.createdAt
-      }))
+      behaviorPolicy: this.conversation.behaviorPolicy,
+      goals: getGroupChatGoals(resolveActiveGoals(this.conversation)),
+      conversationContext: this.conversation.conversationContext,
+      personality: this.agentConfig?.personality ?? null
     }
   },
 
   formatTraceOutput(responses: InterventionAnalysis[]) {
-    if (responses.length === 0) return { goalId: 'none', messageSent: null }
+    if (responses.length === 0) return { goalId: 'none', messageSent: null, context: null }
     const r = responses[0]
+    const activeGoals = getGroupChatGoals(resolveActiveGoals(this.conversation))
+    const matchedGoal = activeGoals.find((g) => g.id === r.goalId) ?? null
     return {
       goalId: r.goalId,
+      goal: matchedGoal,
       reasoning: r.reasoning,
       confidenceScore: r.confidenceScore,
       detectedPattern: r.detectedPattern,
-      messageSent: r.sharedChatMessage
+      messageSent: r.sharedChatMessage,
+      context: r.context
     }
   },
 
-  getTraceMetadata(_conversationHistory: ConversationHistory, _userMessage: unknown, responses: InterventionAnalysis[]) {
+  getTraceMetadata() {
     return {
-      topic: this.conversation.name,
-      context: responses[0]?.context
+      topic: this.conversation.name
     }
   },
 
