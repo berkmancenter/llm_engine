@@ -7,8 +7,7 @@ This directory contains standalone evaluation suites for LLM agents. Each agent 
 ```
 evaluations/
 ├── templates.ts                  # Shared conversation templates (event types, behavior policies, audience)
-├── sharedEvaluators.ts           # Shared LLM-as-judge evaluator prompts and factory
-├── event-assistant/              # Event Assistant evaluations
+├── event-assistant/              # Event Assistant Q&A quality + personality evaluations
 │   ├── eventAssistantConfig.ts      # EA-specific prompts and evaluation types
 │   ├── runEventAssistantEvaluations.ts  # Standalone runner
 │   └── README.md
@@ -22,8 +21,15 @@ evaluations/
 │   ├── runCheckinEvaluations.ts     # Standalone runner
 │   ├── seedDataset.ts               # Seeds starter scenarios into LangSmith
 │   └── README.md
+├── qa-behavior/                  # Event Assistant Q&A behavior policy compliance evaluations
+│   ├── behaviorPolicyConfig.ts      # Evaluator registry and judge context builder
+│   ├── runQABehaviorPolicyEvaluations.ts  # Standalone runner
+│   ├── seedDataset.ts               # Seeds starter scenarios into LangSmith
+│   └── README.md
 └── README.md                     # This file
 ```
+
+Shared evaluation infrastructure (judge factory, evaluator factories, prompt strings) lives in `evaluations/sharedEvaluators.ts`.
 
 ## CI Tests vs Evaluation Suites
 
@@ -75,6 +81,15 @@ yarn evaluate:checkin --verbose
 yarn evaluate:checkin --dataset=my-dataset
 ```
 
+### QA Behavior Policy (Event Assistant DM Q&A compliance)
+
+```bash
+yarn evaluate:qa-behavior
+yarn evaluate:qa-behavior --verbose
+yarn evaluate:qa-behavior --dataset=my-dataset
+yarn evaluate:qa-behavior --dimension=clarifyWhenAmbiguous
+```
+
 ### Future Agents
 
 When you create evaluations for other agents, add similar scripts:
@@ -99,12 +114,12 @@ mkdir -p evaluations/<agent-name>
 
 ### 2. Create Configuration File
 
-Create `<agent-name>-config.ts`:
+Create `<agentName>Config.ts`:
 
 ```typescript
-import { initializeEvaluators } from '../../tests/utils/evaluators.js'
+import { createJudge, createQualityEvaluators, createPersonalityEvaluators } from '../sharedEvaluators.js'
 
-// Agent-specific custom evaluation prompts (optional)
+// Agent-specific custom evaluation prompts (optional overrides)
 const correctnessPrompt = `...tailored to agent's purpose...`
 
 // Evaluation types specific to this agent
@@ -116,13 +131,17 @@ export const evaluationTypes = {
   // ... other types
 }
 
-// Initialize evaluators with custom prompts
+export const evaluators: Record<string, any> = {}
+
+// Initialize evaluators — call this once before running examples
 export async function initializeAgentEvaluators() {
-  await initializeEvaluators({
-    correctness: correctnessPrompt
-  })
+  const judge = await createJudge()
+  Object.assign(evaluators, createQualityEvaluators(judge, { correctness: correctnessPrompt }))
+  Object.assign(evaluators, createPersonalityEvaluators(judge))
 }
 ```
+
+Evaluator factory functions and prompt strings live in `evaluations/sharedEvaluators.ts`. Use the factories directly rather than duplicating prompt strings.
 
 ### 3. Create LangSmith Dataset
 
