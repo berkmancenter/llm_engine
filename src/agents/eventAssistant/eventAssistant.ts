@@ -16,6 +16,7 @@ import generateImageResponse from './imageGenerator.js'
 import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from '../helpers/slashCommandParser.js'
 import generateMindMap from './mindMapGenerator.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
+import { loadGoal } from '../../goals/loader.js'
 
 /**
  * Builds a dynamic capability description for the WELCOME check-in message.
@@ -337,37 +338,55 @@ export default verify({
   },
 
   formatTraceInput(_conversationHistory: ConversationHistory, userMessage: IMessage | undefined) {
-    if (!userMessage) return { trigger: 'periodic' }
-    return userMessage?.body
+    const personality = this.agentConfig?.personality ?? (config.enableAgentPersonality ? 'sarcastic-expert' : null)
+    if (!userMessage) {
+      return {
+        trigger: 'periodic',
+        behaviorPolicy: this.conversation.behaviorPolicy,
+        goals: (this.conversation.goals ?? []).flatMap((id) => {
+          try { return [loadGoal(id)] } catch { return [] }
+        }),
+        conversationContext: this.conversation.conversationContext,
+        personality
+      }
+    }
+    return {
+      question: userMessage?.body,
+      behaviorPolicy: this.conversation.behaviorPolicy,
+      conversationContext: this.conversation.conversationContext,
+      personality
+    }
   },
 
   formatTraceOutput(responses: TraceResponse[]) {
     if (responses.length > 0 && (responses[0]?.message as { type?: string })?.type === 'checkin') {
-      return responses.map((r) => ({
-        participant: r.participantPseudonym,
-        eligibleGoals: r.eligibleGoals,
-        goalId: r.goalId,
-        confidenceScore: r.confidenceScore,
-        detectedPattern: r.detectedPattern,
-        reasoning: r.reasoning,
-        messageSent: (r.message as { text?: string })?.text
-      }))
+      return responses.map((r) => {
+        const goal = r.goalId ? (this.conversation.goals ?? []).flatMap((id) => {
+          try { return [loadGoal(id)] } catch { return [] }
+        }).find((g) => g.id === r.goalId) ?? null : null
+        return {
+          participant: r.participantPseudonym,
+          goalId: r.goalId,
+          goal,
+          confidenceScore: r.confidenceScore,
+          detectedPattern: r.detectedPattern,
+          reasoning: r.reasoning,
+          messageSent: (r.message as { text?: string })?.text,
+          context: r.context
+        }
+      })
     }
-    return responses[0]?.message
+    return { message: responses[0]?.message, context: responses[0]?.context }
   },
 
   getTraceMetadata(conversationHistory: ConversationHistory, userMessage: IMessage | undefined, responses: TraceResponse[]) {
     if (!userMessage) {
       return {
         triggerType: 'periodic',
-        topic: this.conversation.name,
-        context: responses
-          .map((r) => `# Participant: ${r.participantPseudonym} (${r.channels?.[0]?.name})\n\n${r.context}`)
-          .join('\n\n---\n\n')
+        topic: this.conversation.name
       }
     }
     return {
-      context: responses[0]?.context,
       conversationHistory,
       channels: userMessage?.channels,
       promptType: responses[0]?.promptType,
