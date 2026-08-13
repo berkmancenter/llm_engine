@@ -335,7 +335,18 @@ function getStructuredResponseChain(llm, prompt, responseFormatSchema) {
   // This matches LangChain's withStructuredOutput behavior
   return prompt.pipe(llm.bindTools([toolSchema])).pipe(async (message) => {
     // Extract tool call from AIMessage
-    const aiMsg = message as { tool_calls?: Array<{ name: string; args: unknown; id?: string }>; content?: unknown }
+    const aiMsg = message as {
+      tool_calls?: Array<{ name: string; args: unknown; id?: string }>
+      content?: unknown
+      response_metadata?: { stop_reason?: string }
+    }
+
+    /* A response cut off at the token cap still arrives as a tool call, but with only the
+       fields written before the cutoff, so parsing it reports whatever field went missing
+       rather than the truncation that caused it. Name the real cause instead. */
+    if (aiMsg.response_metadata?.stop_reason === 'max_tokens') {
+      throw new Error('Model response was cut off at the max_tokens cap, so the structured payload is incomplete.')
+    }
 
     const structuredResponseCall = aiMsg.tool_calls?.find((tc) => tc.name === 'structured_response')
 
