@@ -109,6 +109,7 @@ flowchart TD
 ## Repo/Folder overview
 
 - docs - Documentation files, including this file!
+- infra - Reference Terraform modules for production deployment (see [Deploying](../deploying/index.md))
 - k6 - Load testing
 - promptfoo - [Promptfoo](https://www.promptfoo.dev/) safety testing configuration
 - rag_documents - Saved documents used with some agents

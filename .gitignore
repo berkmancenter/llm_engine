@@ -48,3 +48,6 @@ CLAUDE.local.md
 *.tfstate.*
 crash.log
 crash.*.log
+
+# mkdocs local build output (docs/mkdocs.yml site_dir)
+docs/output
