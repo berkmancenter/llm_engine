@@ -6,6 +6,7 @@ import eventHistorian from './eventHistorian.js'
 import eventSetup from './eventSetup.js'
 import vibesAnalyst from './vibesAnalyst.js'
 import numberCruncher from './numberCruncher.js'
+import scorekeeper from './scorekeeper.js'
 
 // Internal conversation types are usable by the service but not exposed via the config API
 const internal: Record<string, ConversationType> = {
@@ -13,7 +14,8 @@ const internal: Record<string, ConversationType> = {
   eventHistorian,
   eventSetup,
   vibesAnalyst,
-  numberCruncher
+  numberCruncher,
+  scorekeeper
 }
 
 const defaultConversationTypes: Record<string, ConversationType> = {

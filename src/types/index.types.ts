@@ -1054,6 +1054,35 @@ export interface BudgetAlertData {
   checkedAt: string
 }
 
+export interface QualityReportEvaluatorScore {
+  key: string
+  mean: number
+  min: number
+  count: number
+  lowScoreCount: number
+}
+
+export interface QualityReportLowScoreTrace {
+  runId: string
+  url: string | null
+  lowScores: Array<{ key: string; score: number }>
+}
+
+export interface QualityReportData {
+  conversationName: string
+  conversationId: string
+  evaluators: QualityReportEvaluatorScore[]
+  overallMean: number
+  tracesScored: number
+  lowScoreTraces: QualityReportLowScoreTrace[]
+  totalLowScoreCount: number
+  generatedAt: string
+  /** Per-evaluator delta vs. 30-day cross-conversation baseline. Omitted when baseline has < 5 samples. */
+  deltas?: Record<string, number>
+  /** Number of reports used to compute the baseline. */
+  baselineSampleCount?: number
+}
+
 /* Per-model aggregation of a conversation's llm-type LangSmith runs. Costs come from
    LangSmith's own pricing table, not the provider invoice, so every figure is an
    estimate — user-facing copy must say so.
