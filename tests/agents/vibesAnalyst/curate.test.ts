@@ -80,7 +80,9 @@ describe('curateVibesCard', () => {
   beforeAll(async () => {
     const llmPlatform = process.env.TEST_LLM_PLATFORM || supportedModels[0].llmPlatform
     const llmModel = process.env.TEST_LLM_MODEL || supportedModels[0].llmModel
-    llm = await getModelChat(llmPlatform as LlmPlatforms, llmModel)
+    // Matches the cap the Vibes Analyst agent runs with. Without it the model defaults to 1024
+    // tokens, which cuts the longest cards off mid-response.
+    llm = await getModelChat(llmPlatform as LlmPlatforms, llmModel, { maxTokens: 10000 })
   })
 
   it('writes a header and 2 to 3 standouts, only attaching well-formed charts', async () => {

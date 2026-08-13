@@ -32,7 +32,10 @@ export default verify({
   name: 'Vibes Analyst',
   description: 'Posts engagement metrics to its admin channel when a public event ends.',
   priority: 100,
-  maxTokens: undefined,
+  // Response cap for the model call itself. A recap card runs 400 to 600 tokens and a summon
+  // answer runs longer, while thinking shares this budget on Claude models. The default cap of
+  // 1024 cut the richest cards off mid-response, which surfaces as an unparseable card.
+  maxTokens: 10000,
   defaultTriggers,
   llmTemplateVars: undefined,
   defaultLLMTemplates: undefined,
@@ -133,7 +136,9 @@ export default verify({
     // Build the verified engagement card from the shared pipeline (compute metrics,
     // annotate from the allowed channels, curate, then fact-check). The snapshot fetch
     // above is the only event-stop-specific step; the rest is reused by the summon path.
-    const llm = await getModelChat(defaultLLMPlatform as LlmPlatforms, defaultLLMModel)
+    // getLLM, not a bare getModelChat: it carries this agent's configured model options,
+    // including the maxTokens cap above, the same way the summon path builds its model.
+    const llm = await this.getLLM()
     const fastLlm = await resolveFastLlm(this.agentConfig)
     const { renderData, metrics } = await buildVibesSummary(conversation, llm, fastLlm)
 

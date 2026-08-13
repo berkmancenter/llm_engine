@@ -109,12 +109,15 @@ describe('vibesAnalyst agent', () => {
     const adminChannel = { name: 'va-admin' }
 
     // A fake agent context: __t marks it as an Agent for the access check, and
-    // the allPublicTopics read grant matches any non-private event.
+    // the allPublicTopics read grant matches any non-private event. getLLM stands in for the
+    // real agent document's model builder, which carries the agent's configured model options
+    // (the token cap among them); the recap passes must run on that model, not a bare default.
     function buildContext() {
       return {
         __t: 'Agent',
         capabilities: { read: [{ type: 'allPublicTopics' }], write: [{ type: 'ownConversation' }] },
-        conversation: { _id: 'va-conv-id', channels: [adminChannel] }
+        conversation: { _id: 'va-conv-id', channels: [adminChannel] },
+        getLLM: jest.fn<() => Promise<unknown>>().mockResolvedValue({ agentLlm: true })
       }
     }
 
@@ -162,7 +165,7 @@ describe('vibesAnalyst agent', () => {
       // Opus-tier model for curate and verify, the faster classification model for the
       // mechanical spike and reception annotation.
       mockGetModelChat.mockImplementation((_platform, model) =>
-        Promise.resolve(model === 'fast-model' ? { fastLlm: true } : { fakeLlm: true })
+        Promise.resolve(model === 'fast-model' ? { fastLlm: true } : { agentLlm: true })
       )
       mockFetchAndStoreSnapshot.mockReset()
       mockFetchAndStoreSnapshot.mockResolvedValue(undefined)
@@ -211,10 +214,10 @@ describe('vibesAnalyst agent', () => {
       expect(mockCurate).toHaveBeenCalledWith(
         sampleMetrics,
         { eventName: 'The Future of Work', durationMinutes: 60, speakerCount: 0, activeAgentTypeLabels: [] },
-        { fakeLlm: true }
+        { agentLlm: true }
       )
       // Verify is the second pass, fed the draft the curator produced.
-      expect(mockVerify).toHaveBeenCalledWith(draftCard, sampleMetrics, { fakeLlm: true })
+      expect(mockVerify).toHaveBeenCalledWith(draftCard, sampleMetrics, { agentLlm: true })
 
       expect(responses).toHaveLength(1)
       const [response] = responses
@@ -296,7 +299,7 @@ describe('vibesAnalyst agent', () => {
       expect(mockAnnotateSpikes).toHaveBeenCalledWith(readableMessages, expect.any(Date), [rawSpike], { fastLlm: true })
       // The curator sees the annotated spikes, not the bare ones.
       expect(mockCurate).toHaveBeenCalledWith(expect.objectContaining({ spikes: annotatedSpikes }), expect.anything(), {
-        fakeLlm: true
+        agentLlm: true
       })
     })
 
@@ -334,7 +337,7 @@ describe('vibesAnalyst agent', () => {
       // Reception annotation also runs on the faster classification model.
       expect(mockAnnotateReceptions).toHaveBeenCalledWith(readableMessages, 12, { fastLlm: true })
       // The curator sees the receptions the annotator produced.
-      expect(mockCurate).toHaveBeenCalledWith(expect.objectContaining({ receptions }), expect.anything(), { fakeLlm: true })
+      expect(mockCurate).toHaveBeenCalledWith(expect.objectContaining({ receptions }), expect.anything(), { agentLlm: true })
     })
 
     it('throws AccessDeniedError and reads no metrics when the event is on a private topic', async () => {
