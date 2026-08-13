@@ -61,7 +61,9 @@ describe('verifyCuratedCard critic', () => {
   beforeAll(async () => {
     const llmPlatform = process.env.TEST_LLM_PLATFORM || supportedModels[0].llmPlatform
     const llmModel = process.env.TEST_LLM_MODEL || supportedModels[0].llmModel
-    llm = await getModelChat(llmPlatform as LlmPlatforms, llmModel)
+    // Matches the cap the Vibes Analyst agent runs its main-model passes with. Without it the
+    // model defaults to 1024 tokens, which cuts the longest answers off mid-response.
+    llm = await getModelChat(llmPlatform as LlmPlatforms, llmModel, { maxTokens: 10000 })
   })
 
   it('keeps standouts whose claims match the metrics', async () => {
@@ -178,7 +180,9 @@ describe('verifyCuratedCard critic over the interpretation-layer metrics', () =>
   beforeAll(async () => {
     const llmPlatform = process.env.TEST_LLM_PLATFORM || supportedModels[0].llmPlatform
     const llmModel = process.env.TEST_LLM_MODEL || supportedModels[0].llmModel
-    llm = await getModelChat(llmPlatform as LlmPlatforms, llmModel)
+    // Matches the cap the Vibes Analyst agent runs its main-model passes with. Without it the
+    // model defaults to 1024 tokens, which cuts the longest answers off mid-response.
+    llm = await getModelChat(llmPlatform as LlmPlatforms, llmModel, { maxTokens: 10000 })
   })
 
   it('keeps a comparative read over the new metrics that the exact figures back', async () => {
