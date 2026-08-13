@@ -1,8 +1,9 @@
 import type { KnownBlock } from '@slack/types'
-import { CuratedVibesData, BudgetAlertData, ConversationCostData } from '../../../types/index.types.js'
+import { CuratedVibesData, BudgetAlertData, ConversationCostData, QualityReportData } from '../../../types/index.types.js'
 import renderCuratedVibesCard from './vibesAnalyst/curatedCard.js'
 import renderBudgetAlertCard from './numberCruncher/budgetAlertCard.js'
 import renderConversationCostCard from './numberCruncher/conversationCostCard.js'
+import renderQualityReportCard from './scorekeeper/qualityReportCard.js'
 
 /* Maps an agent response's responseKind to the renderer that turns its neutral
    renderData into Slack Block Kit. Add an entry here when an agent introduces a
@@ -10,7 +11,8 @@ import renderConversationCostCard from './numberCruncher/conversationCostCard.js
 const renderers: Record<string, (renderData: unknown) => KnownBlock[]> = {
   curatedVibesSummary: (renderData) => renderCuratedVibesCard(renderData as CuratedVibesData),
   budgetAlert: (renderData) => renderBudgetAlertCard(renderData as BudgetAlertData),
-  conversationCostSummary: (renderData) => renderConversationCostCard(renderData as ConversationCostData)
+  conversationCostSummary: (renderData) => renderConversationCostCard(renderData as ConversationCostData),
+  qualityReport: (renderData) => renderQualityReportCard(renderData as QualityReportData)
 }
 
 /**
