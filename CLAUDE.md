@@ -1,7 +1,8 @@
 # Project guide
 
 `@berkmancenter/llm_engine` — Node 20/22, ESM, TypeScript. **Use `yarn`** (npm is
-blocked). Tests: see [tests/CLAUDE.md](tests/CLAUDE.md).
+blocked). Tests: see [tests/CLAUDE.md](tests/CLAUDE.md). Agenda jobs: see
+[src/jobs/CLAUDE.md](src/jobs/CLAUDE.md).
 
 ## Stay client-agnostic
 

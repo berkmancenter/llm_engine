@@ -158,6 +158,19 @@ variable "domain" {
   # shared reference module should assume.
 }
 
+variable "additional_domains" {
+  description = <<-EOT
+    Extra hostnames to add to the managed SSL cert and URL map host rule
+    alongside var.domain — e.g. a test/staging domain pointed at the same
+    LB IP. Google's managed cert supports up to 100 domains on one
+    certificate, so this doesn't need its own cert/proxy/forwarding rule;
+    all listed hosts route through the same "main" path_matcher (so
+    /socket.io/* routing works identically for every domain here).
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 variable "labels" {
   type    = map(string)
   default = {}

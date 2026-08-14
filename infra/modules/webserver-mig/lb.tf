@@ -38,7 +38,7 @@ resource "google_compute_url_map" "web_server" {
   default_service = google_compute_backend_service.api.id
 
   host_rule {
-    hosts        = [var.domain]
+    hosts        = concat([var.domain], var.additional_domains)
     path_matcher = "main"
   }
 
@@ -58,7 +58,7 @@ resource "google_compute_managed_ssl_certificate" "web_server" {
   name    = "llm-engine-cert"
 
   managed {
-    domains = [var.domain]
+    domains = concat([var.domain], var.additional_domains)
   }
 }
 
