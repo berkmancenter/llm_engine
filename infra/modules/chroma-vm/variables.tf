@@ -72,6 +72,26 @@ variable "boot_disk_image" {
   default = "debian-cloud/debian-12"
 }
 
+variable "snapshot_hour_utc" {
+  description = <<-EOT
+    Hour (0-23, UTC) GCP's scheduled snapshot policy targets for the data
+    disk. Same disk-snapshot-policy module, and the same default hour and
+    retention, as mongo-vm's data disk snapshot — see infra/README.md's
+    "Disk snapshots" section for why every stateful disk in this infra
+    shares one strategy. Unlike mongo-vm's, this one isn't staggered after
+    anything — there's no application-level dump step for Chroma to wait
+    on, just the snapshot itself.
+  EOT
+  type        = number
+  default     = 4
+}
+
+variable "snapshot_retention_days" {
+  description = "How many daily snapshots to retain — same default as mongo-vm's data disk."
+  type        = number
+  default     = 7
+}
+
 variable "labels" {
   type    = map(string)
   default = {}
