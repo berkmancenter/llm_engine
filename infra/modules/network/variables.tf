@@ -39,6 +39,23 @@ variable "chroma_port" {
   default     = 8000
 }
 
+variable "enable_mongo_vm_firewall" {
+  description = <<-EOT
+    Whether to open the firewall from the web server tier to a standalone
+    mongo-vm instance (mongo-vm module). Leave false when running on
+    Atlas (atlas-cluster module) — Atlas reaches the web servers over its
+    own VPC peering, which doesn't go through this firewall at all.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "mongo_vm_port" {
+  description = "TCP port MongoDB listens on inside the mongo-vm instance."
+  type        = number
+  default     = 27017
+}
+
 variable "health_check_source_ranges" {
   description = <<-EOT
     Source ranges GCP health checks originate from. These are fixed

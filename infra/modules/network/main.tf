@@ -114,6 +114,25 @@ resource "google_compute_firewall" "web_server_to_chroma" {
   }
 }
 
+# --- Firewall: web server -> standalone mongo-vm, internal only (opt-in) ---
+# Only relevant if you're using the mongo-vm module instead of Atlas — see
+# enable_mongo_vm_firewall's description.
+
+resource "google_compute_firewall" "web_server_to_mongo_vm" {
+  count       = var.enable_mongo_vm_firewall ? 1 : 0
+  project     = var.project_id
+  name        = "${var.network_name}-web-server-to-mongo-vm"
+  network     = google_compute_network.vpc.id
+  direction   = "INGRESS"
+  priority    = 1000
+  source_tags = ["web-server"]
+  target_tags = ["mongo-vm"]
+  allow {
+    protocol = "tcp"
+    ports    = [tostring(var.mongo_vm_port)]
+  }
+}
+
 # --- Firewall: SSH via IAP tunnel only (no public SSH) ---
 # Google-owned range for Identity-Aware Proxy TCP forwarding; see
 # https://cloud.google.com/iap/docs/using-tcp-forwarding#configuring_firewall_rules
