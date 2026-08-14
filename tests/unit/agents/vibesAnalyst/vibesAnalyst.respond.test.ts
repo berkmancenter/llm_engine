@@ -24,15 +24,36 @@ jest.unstable_mockModule('../src/agents/helpers/intentChecks.js', () => ({
   matchBotMention: mockMatchBotMention,
   normalizeBotMention: mockNormalizeBotMention
 }))
+// The agent model imports the whole agent registry, which imports this agent back, so loading
+// the analyst on its own lands in a half-initialized module. Nothing here touches the model, so
+// stubbing it breaks the cycle and lets the suite load.
+jest.unstable_mockModule('../src/models/user.model/agent.model/index.js', () => ({
+  default: {},
+  setAgentTypes: jest.fn()
+}))
 jest.unstable_mockModule('../src/agents/vibesAnalyst/summon.js', () => ({
   default: mockHandleSummon
 }))
+// Mocking a module replaces every export, so each one another module in the import graph reads
+// has to be declared here or the suite fails to load.
 jest.unstable_mockModule('../src/agents/helpers/getModelChat.js', () => ({
   getModelChat: mockGetModelChat,
+  getOpenAIChat: jest.fn(),
+  getGoogleChat: jest.fn(),
+  getGoogleImageModel: jest.fn(),
+  getVllmChat: jest.fn(),
+  getOllamaChat: jest.fn(),
+  getPerspectiveChat: jest.fn(),
+  getBedrockChat: jest.fn(),
+  supportedModels: [],
+  llmPlatforms: [],
   defaultLLMPlatform: 'bedrock',
   defaultLLMModel: 'test-model',
   classificationLLMPlatform: 'bedrock',
-  classificationLLMModel: 'fast-model'
+  classificationLLMModel: 'fast-model',
+  coreLLMPlatform: 'bedrock',
+  coreLLMModel: 'core-model',
+  imageGenerationLLMModel: 'image-model'
 }))
 jest.unstable_mockModule('../src/agents/vibesAnalyst/thread.js', () => ({
   threadContinuesFromAgent: mockThreadContinuesFromAgent
@@ -91,17 +112,25 @@ describe('vibesAnalyst respond', () => {
     mockThreadContinuesFromAgent.mockResolvedValue(false)
   })
 
-  it('stays silent when the message is not addressed to it', async () => {
-    mockCheckBotIntent.mockResolvedValue(false)
+  // Why there is no LLM intent check here: it judged one message with no surrounding
+  // conversation, and its own prompt lists "What does this do?" as bot-directed, so two people
+  // talking to each other pulled the analyst in. Naming it or replying to it is the only way in.
+  it('stays silent for a question between two people that never names it', async () => {
+    mockMatchBotMention.mockReturnValue(false)
+    mockCheckBotIntent.mockResolvedValue(true)
 
-    const responses = await vibesAnalyst.respond.call(buildContext(), undefined, { body: 'hello', _id: 'm1' })
+    const responses = await vibesAnalyst.respond.call(buildContext(), undefined, {
+      body: 'what does this do?',
+      _id: 'm1'
+    })
 
     expect(responses).toEqual([])
     expect(mockHandleSummon).not.toHaveBeenCalled()
+    expect(mockCheckBotIntent).not.toHaveBeenCalled()
   })
 
-  it('hands off to the summon handler when addressed', async () => {
-    mockCheckBotIntent.mockResolvedValue(true)
+  it('hands off to the summon handler when the message names it', async () => {
+    mockMatchBotMention.mockReturnValue(true)
     const summonResult = [{ visible: true, message: 'card' }]
     mockHandleSummon.mockResolvedValue(summonResult)
     const context = buildContext()
@@ -110,19 +139,47 @@ describe('vibesAnalyst respond', () => {
     const responses = await vibesAnalyst.respond.call(context, undefined, message)
 
     expect(responses).toBe(summonResult)
-    // The main model handles intent and card writing; the faster classification model is passed
-    // alongside for the summon's mechanical passes (parsing, annotation).
+    // The main model writes the card; the faster classification model is passed alongside for
+    // the summon's mechanical passes (parsing, annotation).
     expect(mockHandleSummon).toHaveBeenCalledWith(context, message, fakeLlm, fastLlm)
   })
 
-  it('returns empty without checking intent when there is no user message', async () => {
-    const responses = await vibesAnalyst.respond.call(buildContext(), undefined, null)
+  // A name match settles it alone, so the gate skips the thread lookup rather than running it
+  // and discarding the answer. That keeps an addressed message off a database round trip.
+  it('does not look up the thread when the message already names it', async () => {
+    mockMatchBotMention.mockReturnValue(true)
+    mockHandleSummon.mockResolvedValue([])
 
-    expect(responses).toEqual([])
-    expect(mockCheckBotIntent).not.toHaveBeenCalled()
+    await vibesAnalyst.respond.call(buildContext(), undefined, { body: '@Vibes recap town hall', _id: 'm1' })
+
+    expect(mockThreadContinuesFromAgent).not.toHaveBeenCalled()
   })
 
-  it('hands off to the summon handler for a bare threaded reply continuing a thread VA just spoke in, without checking intent', async () => {
+  it('returns empty without resolving a model when there is no user message', async () => {
+    const context = buildContext()
+
+    const responses = await vibesAnalyst.respond.call(context, undefined, null)
+
+    expect(responses).toEqual([])
+    expect(context.getLLM).not.toHaveBeenCalled()
+  })
+
+  // The gate runs before any model is resolved, so a message that is not addressed to the
+  // analyst costs nothing.
+  it('resolves no model for a message it stays silent on', async () => {
+    mockMatchBotMention.mockReturnValue(false)
+    const context = buildContext()
+
+    await vibesAnalyst.respond.call(context, undefined, { body: 'what does this do?', _id: 'm1' })
+
+    expect(context.getLLM).not.toHaveBeenCalled()
+    expect(mockGetModelChat).not.toHaveBeenCalled()
+  })
+
+  // Answering a disambiguation prompt with a bare event title is the case this covers: repeating
+  // the analyst's name there would be unnatural, so the thread itself carries the address.
+  it('hands off to the summon handler for a bare threaded reply continuing a thread it just spoke in', async () => {
+    mockMatchBotMention.mockReturnValue(false)
     mockThreadContinuesFromAgent.mockResolvedValue(true)
     const summonResult = [{ visible: true, message: 'card' }]
     mockHandleSummon.mockResolvedValue(summonResult)
@@ -132,14 +189,13 @@ describe('vibesAnalyst respond', () => {
     const responses = await vibesAnalyst.respond.call(context, undefined, message)
 
     expect(responses).toBe(summonResult)
-    expect(mockCheckBotIntent).not.toHaveBeenCalled()
     expect(mockThreadContinuesFromAgent).toHaveBeenCalledWith(message, 'conversation-1', 'agent-1')
     expect(mockHandleSummon).toHaveBeenCalledWith(context, message, fakeLlm, fastLlm)
   })
 
-  it('still gates on intent for a threaded reply once someone other than VA spoke last', async () => {
+  it('still requires a mention for a threaded reply once someone other than the analyst spoke last', async () => {
+    mockMatchBotMention.mockReturnValue(false)
     mockThreadContinuesFromAgent.mockResolvedValue(false)
-    mockCheckBotIntent.mockResolvedValue(false)
     const message = { body: 'unrelated aside', _id: 'm1', parentMessage: 'root-1' }
 
     const responses = await vibesAnalyst.respond.call(buildContext(), undefined, message)

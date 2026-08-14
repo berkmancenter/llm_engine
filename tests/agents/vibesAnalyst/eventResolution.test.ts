@@ -80,10 +80,7 @@ describe('extractEventReference', () => {
   })
 
   it('extracts a list of specific named events to compare, rather than a topic or a count', async () => {
-    const reference = await extractEventReference(
-      '@Vibes compare the Spring Town Hall to the AI Ethics kickoff',
-      llm
-    )
+    const reference = await extractEventReference('@Vibes compare the Spring Town Hall to the AI Ethics kickoff', llm)
 
     expect(reference.trend).toBe(true)
     expect(reference.eventNames?.length).toBe(2)
@@ -97,5 +94,51 @@ describe('extractEventReference', () => {
     const reference = await extractEventReference('@Vibes how was engagement across the last 3 events?', llm)
 
     expect(reference.eventNames ?? []).toEqual([])
+  })
+
+  it('classifies a specific numeric question as a question intent with quantitative scope', async () => {
+    const reference = await extractEventReference('@Vibes how many people came to the Spring Town Hall?', llm)
+
+    expect(reference.intent).toBe('question')
+    expect(reference.scope).toBe('quantitative')
+    expect(reference.eventQuery.toLowerCase()).toContain('town hall')
+  })
+
+  it('classifies a content question as a question intent with interpretive scope', async () => {
+    const reference = await extractEventReference(
+      '@Vibes what did people think of the keynote at the AI Ethics kickoff?',
+      llm
+    )
+
+    expect(reference.intent).toBe('question')
+    expect(reference.scope).toBe('interpretive')
+  })
+
+  it('classifies a question with both a numeric and a content ask as mixed scope', async () => {
+    const reference = await extractEventReference(
+      '@Vibes how many people showed up to the town hall, and what did people think of it?',
+      llm
+    )
+
+    expect(reference.intent).toBe('question')
+    expect(reference.scope).toBe('mixed')
+  })
+
+  it('does not flag a specific question as a trend', async () => {
+    const reference = await extractEventReference('@Vibes how many people came to the Spring Town Hall?', llm)
+
+    expect(reference.trend).toBe(false)
+  })
+
+  it('classifies a general recap ask as a recap intent even when phrased as a question, not a question intent', async () => {
+    const reference = await extractEventReference('@Vibes how did the Spring Town Hall go?', llm)
+
+    expect(reference.intent).toBe('recap')
+  })
+
+  it('sets scope to null for every intent other than question', async () => {
+    const reference = await extractEventReference('@Vibes are you there?', llm)
+
+    expect(reference.scope ?? null).toBeNull()
   })
 })

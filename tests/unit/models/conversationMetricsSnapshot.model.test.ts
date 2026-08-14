@@ -36,7 +36,16 @@ const sampleSnapshot = () => ({
   botInvocationCount: 7,
   resourceSummary: { total: 4, required: 2, referenced: 1, suggested: 1, withLinks: 3 },
   spikeCount: 2,
-  receptionCount: 3
+  receptionCount: 3,
+  timeToFirstMessage: { publicSeconds: 45, privateSeconds: 120 },
+  replyLatency: { medianSecondsToFirstReply: 30, repliedMessageCount: 8 },
+  participationConcentration: {
+    topPosterCount: 3,
+    topPosterMessageShare: 0.6,
+    oneTimePosterCount: 5,
+    repeatPosterCount: 7
+  },
+  interactionStructure: { threadCount: 4, maxThreadSize: 6, medianThreadSize: 2, maxReplyDepth: 3 }
 })
 
 describe('ConversationMetricsSnapshot model', () => {
@@ -72,6 +81,20 @@ describe('ConversationMetricsSnapshot model', () => {
     expect(stored!.resourceSummary).toMatchObject({ total: 4, required: 2, referenced: 1, suggested: 1, withLinks: 3 })
     expect(stored!.spikeCount).toBe(2)
     expect(stored!.receptionCount).toBe(3)
+    expect(stored!.timeToFirstMessage).toMatchObject({ publicSeconds: 45, privateSeconds: 120 })
+    expect(stored!.replyLatency).toMatchObject({ medianSecondsToFirstReply: 30, repliedMessageCount: 8 })
+    expect(stored!.participationConcentration).toMatchObject({
+      topPosterCount: 3,
+      topPosterMessageShare: 0.6,
+      oneTimePosterCount: 5,
+      repeatPosterCount: 7
+    })
+    expect(stored!.interactionStructure).toMatchObject({
+      threadCount: 4,
+      maxThreadSize: 6,
+      medianThreadSize: 2,
+      maxReplyDepth: 3
+    })
     expect(stored!.metricsVersion).toBe(1)
     expect(stored!.endTime).toEqual(new Date('2026-06-10T18:00:00.000Z'))
     expect(stored!.capturedAt).toEqual(new Date('2026-06-10T18:05:00.000Z'))
@@ -97,11 +120,35 @@ describe('ConversationMetricsSnapshot model', () => {
     expect(stored!.lurkerCount).toBeNull()
   })
 
+  it('allows nulls on the pacing and shape metrics for an event where nothing threaded or replied', async () => {
+    const snapshot = {
+      ...sampleSnapshot(),
+      timeToFirstMessage: { publicSeconds: null, privateSeconds: null },
+      replyLatency: { medianSecondsToFirstReply: null, repliedMessageCount: 0 },
+      participationConcentration: {
+        topPosterCount: 0,
+        topPosterMessageShare: null,
+        oneTimePosterCount: 0,
+        repeatPosterCount: 0
+      },
+      interactionStructure: { threadCount: 0, maxThreadSize: 0, medianThreadSize: null, maxReplyDepth: 0 }
+    }
+    await ConversationMetricsSnapshot.create(snapshot)
+
+    const stored = await ConversationMetricsSnapshot.findOne({ conversationId: snapshot.conversationId })
+    expect(stored!.timeToFirstMessage).toMatchObject({ publicSeconds: null, privateSeconds: null })
+    expect(stored!.replyLatency!.medianSecondsToFirstReply).toBeNull()
+    expect(stored!.participationConcentration!.topPosterMessageShare).toBeNull()
+    expect(stored!.interactionStructure!.medianThreadSize).toBeNull()
+  })
+
   it('rejects a second snapshot for the same conversation and metrics version', async () => {
     const conversationId = new mongoose.Types.ObjectId()
     await ConversationMetricsSnapshot.create({ ...sampleSnapshot(), conversationId, metricsVersion: 1 })
 
-    await expect(ConversationMetricsSnapshot.create({ ...sampleSnapshot(), conversationId, metricsVersion: 1 })).rejects.toThrow()
+    await expect(
+      ConversationMetricsSnapshot.create({ ...sampleSnapshot(), conversationId, metricsVersion: 1 })
+    ).rejects.toThrow()
   })
 
   it('lets the same conversation hold a snapshot per metrics version', async () => {

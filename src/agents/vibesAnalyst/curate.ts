@@ -1,7 +1,13 @@
 import { z } from 'zod'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { VIBES_CURATION_SYSTEM_PROMPT, VIBES_CURATION_USER_TEMPLATE } from './prompt.js'
-import { ConversationMetrics, CuratedVibesChart, CuratedVibesData, CuratedVibesStandout } from '../../types/index.types.js'
+import {
+  ConversationMetrics,
+  CuratedVibesChart,
+  CuratedVibesData,
+  CuratedVibesStandout,
+  DeviationMetric
+} from '../../types/index.types.js'
 
 /* What the model returns: a header, optional framing, an overall mood, and 2 to 3
    short insights. Each insight can name one chart to show (by key) and a caption
@@ -10,13 +16,17 @@ import { ConversationMetrics, CuratedVibesChart, CuratedVibesData, CuratedVibesS
 const CurationSchema = z.object({
   header: z.string().describe('One-line verdict headline that includes the event name'),
   framing: z.string().optional().describe('Optional one-line gist shown under the header'),
-  state: z.enum(['negative', 'positive', 'quiet']),
+  // nullish, not required: the prompt still asks for a state, but nothing downstream reads it, so a
+  // dropped or null value should never fail the whole card (small models omit it often enough to matter).
+  state: z.enum(['negative', 'positive', 'quiet']).nullish(),
   standouts: z
     .array(
       z.object({
         text: z.string().describe('Slack mrkdwn insight naming the specific numbers, with caveats inline'),
-        chartKey: z.string().optional().describe('One of the provided chart keys, or omit if no chart fits'),
-        caption: z.string().optional().describe('One-line plain-language description of the attached chart')
+        // nullish, not optional: the model routinely emits an explicit null for "no chart" rather
+        // than omitting the key, and Zod's .optional() rejects null. Both are treated as "no chart".
+        chartKey: z.string().nullish().describe('One of the provided chart keys, or omit if no chart fits'),
+        caption: z.string().nullish().describe('One-line plain-language description of the attached chart')
       })
     )
     .min(2)
@@ -30,6 +40,39 @@ interface ChartCandidate {
   description: string
   title: string
   chart: CuratedVibesChart
+}
+
+/* Per-metric labelling for the charts generated from topDeviations, so whatever the ranking
+   flagged as the biggest outlier always has a chart to point at. posterCount is intentionally
+   absent: postersVsBaseline and postersVsPeers already chart it. Rates and shares are fractions
+   in the metrics, so scaleToPercent renders them times 100 with a "%" label; note carries the
+   undercount caveat for tracked-session figures. */
+const DEVIATION_CHART_META: Partial<
+  Record<DeviationMetric, { title: string; yLabel: string; noun: string; scaleToPercent?: boolean; note?: string }>
+> = {
+  participationRate: {
+    title: 'Participation rate vs norm',
+    yLabel: 'Participation rate (%)',
+    noun: 'the share of the audience who posted',
+    scaleToPercent: true
+  },
+  topPosterMessageShare: {
+    title: 'Top-poster share vs norm',
+    yLabel: 'Top-poster message share (%)',
+    noun: 'the share of messages from the busiest few posters',
+    scaleToPercent: true
+  },
+  lurkerCount: {
+    title: 'Lurkers vs norm',
+    yLabel: 'Lurkers',
+    noun: 'how many people watched without posting'
+  },
+  avgDwellSeconds: {
+    title: 'Session length vs norm',
+    yLabel: 'Avg session length (seconds)',
+    noun: 'the average tracked-session length',
+    note: ' (tracked sessions can undercount)'
+  }
 }
 
 /* Builds the set of charts the model is allowed to attach, each from real computed
@@ -116,6 +159,26 @@ export function buildChartCandidates(metrics: ConversationMetrics): Record<strin
     }
   }
 
+  if (metrics.peerBaseline) {
+    candidates.postersVsPeers = {
+      description: "This event's poster count next to the average for public events of about the same size and platform",
+      title: 'This event vs similar-sized events',
+      chart: {
+        type: 'bar',
+        series: [
+          {
+            name: 'Posters',
+            data: [
+              { label: 'This event', value: metrics.participation.posterCount },
+              { label: 'Similar events avg', value: metrics.peerBaseline.avgPosterCount }
+            ]
+          }
+        ],
+        axisConfig: { categories: ['This event', 'Similar events avg'], yLabel: 'Posters' }
+      }
+    }
+  }
+
   const total = metrics.channelSplit.public + metrics.channelSplit.private
   if (total > 0) {
     candidates.channelSplit = {
@@ -126,6 +189,21 @@ export function buildChartCandidates(metrics: ConversationMetrics): Record<strin
         segments: [
           { label: 'Public chat', value: metrics.channelSplit.public },
           { label: 'Private (bot)', value: metrics.channelSplit.private }
+        ]
+      }
+    }
+  }
+
+  // An empty room has no one-time/repeat split to draw: both counts sum to posterCount.
+  if (metrics.participation.posterCount > 0) {
+    candidates.posterMix = {
+      description: 'How many people posted just once versus came back to post more than once',
+      title: 'Repeat vs one-time posters',
+      chart: {
+        type: 'pie',
+        segments: [
+          { label: 'Posted once', value: metrics.participationConcentration.oneTimePosterCount },
+          { label: 'Posted more than once', value: metrics.participationConcentration.repeatPosterCount }
         ]
       }
     }
@@ -157,6 +235,106 @@ export function buildChartCandidates(metrics: ConversationMetrics): Record<strin
           }
         ],
         axisConfig: { categories: Object.keys(firstSource.actionBreakdown), yLabel: 'Actions' }
+      }
+    }
+  }
+
+  // A chart for each ranked deviation, keyed deviation:<metric>, so the biggest outlier the
+  // ranking surfaced always has a matching "this event vs the norm" chart to attach.
+  for (const deviation of metrics.topDeviations) {
+    const meta = DEVIATION_CHART_META[deviation.metric]
+    if (!meta) continue
+    const scale = meta.scaleToPercent ? 100 : 1
+    const comparisonLabel = deviation.comparison === 'peerBaseline' ? 'Similar events avg' : 'Recent avg'
+    const comparedToPhrase =
+      deviation.comparison === 'peerBaseline'
+        ? 'the average for public events of about the same size and platform'
+        : "the topic's recent average"
+    candidates[`deviation:${deviation.metric}`] = {
+      description: `This event's ${meta.noun} next to ${comparedToPhrase}${meta.note ?? ''}`,
+      title: meta.title,
+      chart: {
+        type: 'bar',
+        series: [
+          {
+            name: meta.yLabel,
+            data: [
+              { label: 'This event', value: deviation.value * scale },
+              { label: comparisonLabel, value: deviation.comparedTo * scale }
+            ]
+          }
+        ],
+        axisConfig: { categories: ['This event', comparisonLabel], yLabel: meta.yLabel }
+      }
+    }
+  }
+
+  // Time to first message: seconds from the event start to the first message on each surface.
+  // Only when both surfaces have a figure, so the chart is a real comparison rather than one bar.
+  const { publicSeconds, privateSeconds } = metrics.timeToFirstMessage
+  if (publicSeconds !== null && privateSeconds !== null) {
+    candidates.timeToFirstMessage = {
+      description:
+        'Seconds from the event start to the first public-chat message versus the first private message to the bot',
+      title: 'Time to first message',
+      chart: {
+        type: 'bar',
+        series: [
+          {
+            name: 'Seconds',
+            data: [
+              { label: 'Public chat', value: publicSeconds },
+              { label: 'Private (bot)', value: privateSeconds }
+            ]
+          }
+        ],
+        axisConfig: { categories: ['Public chat', 'Private (bot)'], yLabel: 'Seconds' }
+      }
+    }
+  }
+
+  // Distinct senders per channel. A bar, not a pie: someone who used both channels is counted in
+  // each, so the two counts overlap and do not sum to a whole.
+  const { distinctPublicSenders, distinctPrivateSenders } = metrics.privateMessaging
+  if (distinctPublicSenders + distinctPrivateSenders > 0) {
+    candidates.senderChannels = {
+      description:
+        'How many different people posted in public chat versus messaged the bot privately; someone who did both is counted in each, so these can overlap',
+      title: 'Distinct senders by channel',
+      chart: {
+        type: 'bar',
+        series: [
+          {
+            name: 'People',
+            data: [
+              { label: 'Public chat', value: distinctPublicSenders },
+              { label: 'Private (bot)', value: distinctPrivateSenders }
+            ]
+          }
+        ],
+        axisConfig: { categories: ['Public chat', 'Private (bot)'], yLabel: 'People' }
+      }
+    }
+  }
+
+  // Thread sizes: the largest reply thread against the median, both counted in messages.
+  const { threadCount, maxThreadSize, medianThreadSize } = metrics.interactionStructure
+  if (threadCount > 0 && medianThreadSize !== null) {
+    candidates.threadSizes = {
+      description: 'Messages in the largest reply thread versus the median thread',
+      title: 'Thread sizes',
+      chart: {
+        type: 'bar',
+        series: [
+          {
+            name: 'Messages',
+            data: [
+              { label: 'Largest thread', value: maxThreadSize },
+              { label: 'Median thread', value: medianThreadSize }
+            ]
+          }
+        ],
+        axisConfig: { categories: ['Largest thread', 'Median thread'], yLabel: 'Messages' }
       }
     }
   }
@@ -199,7 +377,7 @@ function candidateCatalogForPrompt(candidates: Record<string, ChartCandidate>) {
  */
 export default async function curateVibesCard(
   metrics: ConversationMetrics,
-  eventMeta: { eventName: string; durationMinutes: number },
+  eventMeta: { eventName: string; durationMinutes: number; speakerCount?: number; activeAgentTypeLabels?: string[] },
   llm
 ): Promise<CuratedVibesData> {
   const candidates = buildChartCandidates(metrics)
@@ -211,6 +389,8 @@ export default async function curateVibesCard(
     {
       eventName: eventMeta.eventName,
       durationMinutes: eventMeta.durationMinutes,
+      speakerCount: eventMeta.speakerCount ?? 0,
+      activeAgentTypeLabels: (eventMeta.activeAgentTypeLabels ?? []).join(', ') || 'none',
       trackedSessionStatus: metrics.trackedSessionStatus,
       metricsJson: JSON.stringify(metrics),
       candidatesJson: JSON.stringify(candidateCatalogForPrompt(candidates))

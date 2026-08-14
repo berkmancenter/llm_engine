@@ -16,10 +16,16 @@ export interface EventCandidate {
   endTime: Date
 }
 
-/* Why the message addressed VA: recap an event, a greeting/liveness check, a help or
-   capability question, or something off-topic. Only "recap" reads an event; the rest get a
-   canned reply. Optional so callers that predate intent classification default to a recap. */
-export type SummonIntent = 'recap' | 'greeting' | 'help' | 'offTopic'
+/* Why the message addressed VA: recap an event, ask something specific about one, a
+   greeting/liveness check, a help or capability question, or something off-topic. "recap" and
+   "question" both read an event; the rest get a canned reply. Optional so callers that predate
+   intent classification default to a recap. */
+export type SummonIntent = 'recap' | 'question' | 'greeting' | 'help' | 'offTopic'
+
+/* For a "question" intent, whether it is answerable from VA's own computed numbers
+   ("quantitative"), about the content or meaning of what happened instead ("interpretive"), or
+   both in the same message ("mixed"). Only meaningful when intent is "question"; null otherwise. */
+export type SummonScope = 'quantitative' | 'interpretive' | 'mixed'
 
 /* What the user asked for, extracted from their summon message: the text naming the
    event (a title, or a topic when they want its latest), and which "most recent" shortcut
@@ -32,7 +38,9 @@ export type SummonIntent = 'recap' | 'greeting' | 'help' | 'offTopic'
    unspecified). eventNames carries a specific list of events to compare when the user named
    more than one by title rather than a topic or "the last N" ("compare the Spring Town Hall to
    the AI Ethics kickoff"); empty otherwise, and mutually exclusive with eventQuery for a trend.
-   intent is why they addressed VA at all; when it is not "recap" the event fields are empty.
+   intent is why they addressed VA at all; when it is neither "recap" nor "question" the event
+   fields are empty. scope only applies to a "question" intent: whether it is answerable from
+   the numbers, about content instead, or both; null for every other intent.
    All are optional so callers that only resolve a single event need not set them. */
 export interface EventReference {
   eventQuery: string
@@ -42,6 +50,7 @@ export interface EventReference {
   eventCount?: number | null
   eventNames?: string[]
   intent?: SummonIntent
+  scope?: SummonScope | null
 }
 
 /* The outcome of matching a reference against the public events on offer. */
@@ -265,9 +274,9 @@ export async function findCandidatePublicEvents(): Promise<EventCandidate[]> {
    for the latest in a topic. Re-validated against real events afterward. */
 const EventReferenceSchema = z.object({
   intent: z
-    .enum(['recap', 'greeting', 'help', 'offTopic'])
+    .enum(['recap', 'question', 'greeting', 'help', 'offTopic'])
     .describe(
-      'Why the message addressed the assistant: "recap" to summarize or compare past events, "greeting" for a hello or liveness check, "help" for a what-can-you-do question, "offTopic" for anything else'
+      'Why the message addressed the assistant: "recap" to summarize or compare past events, "question" to ask something specific about one (a number, a fact, an opinion, or what was said), "greeting" for a hello or liveness check, "help" for a what-can-you-do question, "offTopic" for anything else'
     ),
   eventQuery: z
     .string()
@@ -289,6 +298,12 @@ const EventReferenceSchema = z.object({
     .array(z.string())
     .describe(
       'When trend is true and the user named two or more specific events to compare (not a topic and not "the last N"), the identifying words for each one, one entry per event; empty otherwise'
+    ),
+  scope: z
+    .enum(['quantitative', 'interpretive', 'mixed'])
+    .nullable()
+    .describe(
+      'Only set when intent is "question": "quantitative" when answerable from computed engagement numbers, "interpretive" when about content or meaning instead, "mixed" when both. Null for every other intent.'
     )
 })
 

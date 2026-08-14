@@ -4,14 +4,20 @@ import { buildChartCandidates } from './curate.js'
 import { VIBES_CRITIC_SYSTEM_PROMPT, VIBES_CRITIC_USER_TEMPLATE } from './prompt.js'
 import { ConversationMetrics, CuratedVibesChart, CuratedVibesData } from '../../types/index.types.js'
 
-/* What the critic returns: one verdict per standout it was shown. `supported` is
-   false when a claim is not backed by the metrics (wrong direction, invented
-   number or trend, or a tracked-session figure stated without the undercount
+/* What the critic returns: one verdict per standout it was shown. `reasoning` comes
+   first so the model works through each claim, and any ratio arithmetic, before it
+   commits to a verdict; without it a small model tends to reason its way to a
+   conclusion but leave the boolean at whatever it emitted first. `supported` is false
+   when a claim is not backed by the metrics (wrong direction, invented number or
+   trend, an off ratio, or a tracked-session figure stated without the undercount
    caveat). `issue` is a short reason, present only when unsupported. */
 const CriticSchema = z.object({
   verdicts: z.array(
     z.object({
       index: z.number().describe('Zero-based position of the standout being judged'),
+      reasoning: z
+        .string()
+        .describe('Check each claim against the data here, working out any ratio arithmetic, before deciding supported'),
       supported: z.boolean().describe('True only if every claim in the standout is backed by the metrics'),
       issue: z.string().optional().describe('Short reason the standout is unsupported, when it is')
     })

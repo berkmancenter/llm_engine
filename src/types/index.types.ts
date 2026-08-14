@@ -789,6 +789,59 @@ export interface SameTopicBaseline {
   avgDwellSeconds: number | null
 }
 
+/* A room-size bucket for peer comparison across different topics, based on posterCount. Fixed
+   tiers rather than a window around today's own size, so the prompt can name a band plainly
+   ("a typical small event") instead of an unstable relative range. */
+export type AttendanceBand = 'tiny' | 'small' | 'medium' | 'large'
+
+/* How today's event compares to recent public peer events of the same size and platform, across
+   any topic, unlike SameTopicBaseline, which only looks at this event's own recurring series.
+   Peers come only from public topics, the same privacy gate summon and trend use, and are capped
+   at the 10 most recent. Null below 3 qualifying peers, where a thin cohort would read as more
+   authoritative than it is. */
+export interface PeerBaseline {
+  band: AttendanceBand
+  eventCount: number
+  avgPosterCount: number
+  // The next two average only over peers that had the figure, so each carries its own count and
+  // a reader never assumes the average spans every peer.
+  avgParticipationRate: number | null
+  participationRateEventCount: number
+  avgTopPosterMessageShare: number | null
+  concentrationEventCount: number
+}
+
+/* A metric that has a comparison average to measure against. Named after the field it reads:
+   posterCount and lurkerCount read from participation/audienceEngagement, participationRate and
+   topPosterMessageShare from their own metrics, avgDwellSeconds from the primary tracked source. */
+export type DeviationMetric =
+  | 'posterCount'
+  | 'participationRate'
+  | 'topPosterMessageShare'
+  | 'lurkerCount'
+  | 'avgDwellSeconds'
+
+/* Which average a deviation is measured against: this topic's own recent history, or public
+   peer events of about the same size and platform, across any topic. */
+export type DeviationComparison = 'topicBaseline' | 'peerBaseline'
+
+/* One metric's difference from a comparison average, already computed so the curator does not
+   have to eyeball the raw numbers to find what stands out. tier carries the same two-tier trust
+   split as the rest of the data: 'exact' for first-party counts (posterCount, participationRate,
+   topPosterMessageShare, lurkerCount), 'estimate' for a tracked-session figure (avgDwellSeconds),
+   which still needs the usual possible-undercount caveat. percentDifference is signed: positive
+   means value ran above comparedTo, negative means below; direction restates that sign in words
+   so a reader never has to work out which way a negative number points. */
+export interface DeviationSignal {
+  metric: DeviationMetric
+  comparison: DeviationComparison
+  tier: 'exact' | 'estimate'
+  value: number
+  comparedTo: number
+  percentDifference: number
+  direction: 'above' | 'below'
+}
+
 /* How many times participants called on the event's configured assistant by name.
    botName is the name set at event creation (or the default); count is how many
    participant chat messages addressed it, matched the same fuzzy way the assistant
@@ -823,6 +876,47 @@ export interface QuoteReception {
    limited" note. */
 export type TrackedSessionStatus = 'available' | 'notTracked' | 'unavailable'
 
+/* Which slice of one event's human messages an on-demand computation covers. The computations
+   are fixed and server-side, so this filter is the whole vocabulary a question can be asked in.
+   An omitted field narrows nothing, so an empty filter reads the whole event. */
+export interface MessageMetricFilter {
+  // Elapsed minutes from the event start, from inclusive and to exclusive, as activity buckets use.
+  fromMinute?: number
+  toMinute?: number
+  // 'public' is the group chat, 'private' is a one-to-one with the bot.
+  channel?: 'public' | 'private' | 'all'
+  // Drops shorter messages, so a question about substantial replies can exclude one-word ones.
+  minWordCount?: number
+}
+
+/* How much was said in one slice of an event, and by how many different people. */
+export interface MessageActivityCount {
+  messageCount: number
+  // Each person counted once, grouped the same way participation is.
+  posterCount: number
+  // How many of those people sent at least the requested number of messages, null when none asked.
+  postersAtOrAboveThreshold: number | null
+}
+
+/* How long the messages in one slice were, in words. Word counts only: no message text leaves
+   this computation. */
+export interface MessageLengthStats {
+  messageCount: number
+  // Null on an empty slice, so it never reads as zero-word messages.
+  medianWordCount: number | null
+  longestWordCount: number | null
+}
+
+/* One computation the analyst ran over an event's own messages to answer a question its
+   precomputed metrics could not. Recorded so the fact-checking pass can trace a cited number back
+   to the computation behind it. Tool results are server-computed, so they stay first-party and
+   keep the same trust tier as the rest of the participation data. */
+export interface OnDemandComputation {
+  tool: string
+  args: MessageMetricFilter & { minMessages?: number }
+  result: MessageActivityCount | MessageLengthStats
+}
+
 /* The bundle of numbers the recap card and the curating LLM both read for one
    event. Participation (from our own database) is always present and exact. Tracked
    sessions are a separate layer (one entry per analytics source that has stored
@@ -843,11 +937,25 @@ export interface ConversationMetrics {
   participationHistory: ParticipationHistoryPoint[]
   // The topic's recent average, or null when this is the topic's only event.
   baseline: SameTopicBaseline | null
+  // How today compares to recent public peer events of the same size and platform, across any
+  // topic; null when too few peers qualify.
+  peerBaseline: PeerBaseline | null
+  // Metrics furthest from a comparison average, largest difference first; empty when nothing
+  // was available to compare against.
+  topDeviations: DeviationSignal[]
   // Counts of people's messages: public chat vs private one-to-one with the bot.
   channelSplit: { public: number; private: number }
   // Private (one-to-one with the bot) messaging: counts plus distinct senders, with the
   // per-poster average derived at read time.
   privateMessaging: PrivateMessaging
+  // How long after the event started the first human message landed, per surface.
+  timeToFirstMessage: TimeToFirstMessage
+  // How quickly people replied to each other, over threaded human replies.
+  replyLatency: ReplyLatency
+  // How concentrated the chat was in a few posters, plus one-time vs repeat posters.
+  participationConcentration: ParticipationConcentration
+  // The shape of threaded conversation: thread count, sizes, and deepest reply chain.
+  interactionStructure: InteractionStructure
   // The configured assistant's name and how many times participants called on it.
   botInvocations: BotInvocations
   // Speaker moments that drew a chat reaction, with how the room responded; empty when none.
@@ -856,22 +964,75 @@ export interface ConversationMetrics {
   resourceSummary: ResourceSummary
   // Which platform(s) the event ran on: Nextspace, Zoom, or both.
   eventPlatform: EventPlatform
+  // Computations run over this event's messages to answer one specific question, present only
+  // on that path and scoped to that one request. The analytics service never sets it and no
+  // snapshot ever stores it; it rides along so the fact-checking pass can verify a cited
+  // on-demand number the same way it verifies every other number here.
+  onDemandComputations?: OnDemandComputation[]
 }
 
-/* Private (one-to-one with the bot) messaging, all exact and first-party. privateMessageCount
-   is the same private count as channelSplit.private. distinctPrivateSenders and
-   distinctPublicSenders are how many different people sent at least one message in each
-   channel kind, grouped per person the same way participation is. A person who used both
-   channels is counted in both, so the two sender totals overlap: they are not additive and
-   their sum can exceed posterCount. avgPrivateMessagesPerPoster is privateMessageCount over the
-   total distinct posters (posterCount), derived at read time and 0 when no one posted, so the
-   read layer can compare the two sender counts (e.g. how much more likely a poster was to
-   message privately than publicly) without storing a ratio. */
+/* Private (one-to-one with the bot) messaging, all exact and first-party, grouped per person the
+   same way participation is. */
 export interface PrivateMessaging {
+  // The same count as channelSplit.private.
   privateMessageCount: number
+  // Someone who used both channels lands in both, so these overlap: not additive, and their sum
+  // can exceed posterCount.
   distinctPrivateSenders: number
   distinctPublicSenders: number
+  // Over all distinct posters, derived at read time and 0 when nobody posted.
   avgPrivateMessagesPerPoster: number
+}
+
+/* Seconds from the event start to the first human message on each surface, both first-party.
+   public is the open group chat (the default for any non-direct channel, including the
+   no-channel main feed); private is a one-to-one with the bot. Each is null when that surface
+   had no timestamped human message, and both are null when the event start is unknown, since
+   "time to first" has no meaning without a start. The bot's own messages (including its intro)
+   never count: the metric reads the same human-only message set as every other participation
+   count. A message stamped before the recorded start reports 0, not negative time. */
+export interface TimeToFirstMessage {
+  publicSeconds: number | null
+  privateSeconds: number | null
+}
+
+/* Reply speed over threaded human replies (a message answering another via parentMessage).
+   medianSecondsToFirstReply is the median, across every human message that drew a reply, of the
+   seconds to its first reply; null when no human replied to another (including events with no
+   threading). repliedMessageCount is how many messages drew at least one reply, so the read layer
+   knows how much of the conversation was threaded before trusting the median. Both first-party,
+   from message timestamps and parent links. */
+export interface ReplyLatency {
+  medianSecondsToFirstReply: number | null
+  repliedMessageCount: number
+}
+
+/* Participation concentration: how much of the chat came from a small core, and how many people
+   posted just once. All exact and first-party, grouped per person the same way participation is. */
+export interface ParticipationConcentration {
+  // The busiest three by message volume, or the poster count when the room is smaller.
+  topPosterCount: number
+  // Those posters' share of all messages (0 to 1). A fixed-count companion to
+  // participation.frequentPosterMessageShare, which scales with room size instead (top 10%).
+  // Null below a handful of posters, where a top-few share covers the room and says nothing.
+  topPosterMessageShare: number | null
+  // Splits drive-by single posts from sustained back-and-forth. Always sums to the poster count.
+  oneTimePosterCount: number
+  repeatPosterCount: number
+}
+
+/* The shape of threaded conversation, from the parentMessage links among human messages. A thread
+   is a root message (no parent, or a parent outside the human set such as the bot) plus everything
+   descending from it, and it counts only once it drew a reply, so a lone unanswered post is not a
+   thread. Together these say whether the room held a few long back-and-forths or many shallow
+   ones. All exact and first-party. */
+export interface InteractionStructure {
+  threadCount: number
+  // Message count of the largest thread, root included.
+  maxThreadSize: number
+  medianThreadSize: number | null
+  // Deepest reply chain, in edges from the root, so a direct reply is 1. Zero when nothing threaded.
+  maxReplyDepth: number
 }
 
 /* The event's readings and references, counted only from what participants could see
@@ -956,6 +1117,13 @@ export interface ConversationMetricsSnapshotData {
   // How many speaker moments drew a chat reaction; quotes are not stored. Null when the
   // reception pass did not run (e.g. a backfill that recomputes scalars only).
   receptionCount: number | null
+  // The four pacing/shape metrics (exact, first-party), stored as computed so peer-cohort
+  // comparison (see computePeerBaseline) and future trends can read them, the same shape as
+  // their ConversationMetrics counterparts.
+  timeToFirstMessage: TimeToFirstMessage
+  replyLatency: ReplyLatency
+  participationConcentration: ParticipationConcentration
+  interactionStructure: InteractionStructure
 }
 
 /* The snapshot fields the trend chart and label read by name, off a stored snapshot or a live

@@ -125,7 +125,30 @@ const conversationMetricsSnapshotSchema = new mongoose.Schema<ConversationMetric
 
     // How many speaker moments drew a chat reaction; quotes are not stored. null when the
     // reception pass did not run (a backfill recomputes scalars only, so it cannot know this).
-    receptionCount: { type: Number, default: null }
+    receptionCount: { type: Number, default: null },
+
+    // Pacing and shape metrics, keeping their ConversationMetrics shape so peer comparison and
+    // trends read them straight off the snapshot.
+    timeToFirstMessage: {
+      publicSeconds: { type: Number, default: null },
+      privateSeconds: { type: Number, default: null }
+    },
+    replyLatency: {
+      medianSecondsToFirstReply: { type: Number, default: null },
+      repliedMessageCount: { type: Number, default: 0 }
+    },
+    participationConcentration: {
+      topPosterCount: { type: Number, default: 0 },
+      topPosterMessageShare: { type: Number, default: null },
+      oneTimePosterCount: { type: Number, default: 0 },
+      repeatPosterCount: { type: Number, default: 0 }
+    },
+    interactionStructure: {
+      threadCount: { type: Number, default: 0 },
+      maxThreadSize: { type: Number, default: 0 },
+      medianThreadSize: { type: Number, default: null },
+      maxReplyDepth: { type: Number, default: 0 }
+    }
   },
   {
     timestamps: true

@@ -1,10 +1,28 @@
 import mongoose from 'mongoose'
 import setupIntTest from '../../utils/setupIntTest.js'
-import { Conversation, Message, ConversationAnalytics, ConversationMetricsSnapshot, Channel, Agent } from '../../../src/models/index.js'
+import {
+  Conversation,
+  Message,
+  ConversationAnalytics,
+  ConversationMetricsSnapshot,
+  Channel,
+  Agent,
+  Topic
+} from '../../../src/models/index.js'
 import conversationAnalyticsService, {
+  attendanceBandFor,
   attributeSpikeSources,
+  computeInteractionStructure,
+  computeMessageLengthStats,
+  computeParticipationConcentration,
+  computeReplyLatency,
   computeResourceSummary,
+  computeTimeToFirstMessage,
+  computeTopDeviations,
+  countMessageActivity,
   deriveEventPlatform,
+  filterEventMessages,
+  loadMessagesForOnDemandMetrics,
   spikeSourceForChannels,
   METRICS_VERSION
 } from '../../../src/services/conversationAnalytics.service.js'
@@ -15,10 +33,9 @@ setupIntTest()
 
 const ownerId = new mongoose.Types.ObjectId()
 
-/* Participation is now counted per person (owner), not per pseudonym, so every distinct
-   persona in a fixture needs its own owner id or they collapse into one poster. This maps
-   each pseudonym to a stable owner id so a persona keeps the same owner across its
-   messages while different personas stay distinct. */
+/* Participation counts per person (owner) rather than per pseudonym, so every distinct persona in
+   a fixture needs its own owner id or they collapse into one poster. This maps each pseudonym to a
+   stable owner id, keeping a persona consistent across its messages while personas stay apart. */
 const ownerByPseudonym = new Map<string, mongoose.Types.ObjectId>()
 function ownerFor(pseudonym: string): mongoose.Types.ObjectId {
   if (!ownerByPseudonym.has(pseudonym)) {
@@ -134,10 +151,9 @@ async function seedAgent(conversation) {
 }
 
 /* Seeds one direct (1:1 bot-DM) channel between a person and an agent, the way joinConversation
-   provisions one automatically the moment someone connects (see conversation.service). Registers
-   the channel on the conversation's own channels array, since that is what the real participant
-   count reads: not a standalone Channel query, but the conversation's own channels list filtered
-   to direct:true, with any of its own agents excluded from the headcount. */
+   provisions one when someone connects (see conversation.service). Registers it on the
+   conversation's own channels array, which is what the participant count reads: that list
+   filtered to direct:true, minus the conversation's own agents. */
 async function seedDirectChannel(conversation, agent) {
   const userId = new mongoose.Types.ObjectId()
   const channel = await Channel.create({
@@ -747,6 +763,271 @@ describe('attributeSpikeSources', () => {
   })
 })
 
+describe('computeTimeToFirstMessage', () => {
+  const start = new Date('2026-06-10T10:00:00.000Z')
+  const at = (minutes: number) => new Date(start.getTime() + minutes * 60 * 1000)
+  const directNames = new Set(['dm-1'])
+
+  it('measures seconds from event start to the first message on each surface', () => {
+    const messages = [
+      { createdAt: at(3), channels: ['chat'] },
+      { createdAt: at(5), channels: ['chat'] },
+      { createdAt: at(1), channels: ['dm-1'] },
+      { createdAt: at(4), channels: ['dm-1'] }
+    ]
+
+    expect(computeTimeToFirstMessage(messages, directNames, start)).toEqual({
+      publicSeconds: 180,
+      privateSeconds: 60
+    })
+  })
+
+  it('treats a message with no channel as the public group chat', () => {
+    const messages = [{ createdAt: at(2), channels: undefined }]
+
+    expect(computeTimeToFirstMessage(messages, directNames, start)).toEqual({
+      publicSeconds: 120,
+      privateSeconds: null
+    })
+  })
+
+  it('returns null for a surface with no human message', () => {
+    const messages = [{ createdAt: at(2), channels: ['chat'] }]
+
+    expect(computeTimeToFirstMessage(messages, directNames, start)).toEqual({
+      publicSeconds: 120,
+      privateSeconds: null
+    })
+  })
+
+  it('clamps a message sent before the event start to zero', () => {
+    const messages = [{ createdAt: at(-2), channels: ['chat'] }]
+
+    expect(computeTimeToFirstMessage(messages, directNames, start)).toEqual({
+      publicSeconds: 0,
+      privateSeconds: null
+    })
+  })
+
+  it('returns null on both surfaces when the event start is unknown', () => {
+    const messages = [{ createdAt: at(3), channels: ['chat'] }]
+
+    expect(computeTimeToFirstMessage(messages, directNames, undefined)).toEqual({
+      publicSeconds: null,
+      privateSeconds: null
+    })
+  })
+
+  it('ignores messages that carry no timestamp', () => {
+    const messages = [{ channels: ['chat'] }, { createdAt: at(4), channels: ['chat'] }]
+
+    expect(computeTimeToFirstMessage(messages, directNames, start)).toEqual({
+      publicSeconds: 240,
+      privateSeconds: null
+    })
+  })
+})
+
+describe('computeReplyLatency', () => {
+  const start = new Date('2026-06-10T10:00:00.000Z')
+  const at = (minutes: number) => new Date(start.getTime() + minutes * 60 * 1000)
+
+  it("takes the median gap to each replied-to message's first reply", () => {
+    const messages = [
+      { _id: 'a', createdAt: at(0) },
+      { _id: 'b', createdAt: at(2), parentMessage: 'a' }, // first reply to a: 2 min
+      { _id: 'c', createdAt: at(5), parentMessage: 'a' }, // later reply to a, ignored
+      { _id: 'd', createdAt: at(1) },
+      { _id: 'e', createdAt: at(4), parentMessage: 'd' } // first reply to d: 3 min
+    ]
+
+    expect(computeReplyLatency(messages)).toEqual({
+      medianSecondsToFirstReply: 150, // median of 120s and 180s
+      repliedMessageCount: 2
+    })
+  })
+
+  it('takes the middle value for an odd number of replied-to messages', () => {
+    const messages = [
+      { _id: 'a', createdAt: at(0) },
+      { _id: 'b', createdAt: at(1), parentMessage: 'a' }, // 60s
+      { _id: 'c', createdAt: at(10) },
+      { _id: 'd', createdAt: at(12), parentMessage: 'c' }, // 120s
+      { _id: 'e', createdAt: at(20) },
+      { _id: 'f', createdAt: at(25), parentMessage: 'e' } // 300s
+    ]
+
+    expect(computeReplyLatency(messages)).toEqual({
+      medianSecondsToFirstReply: 120,
+      repliedMessageCount: 3
+    })
+  })
+
+  it('uses the earliest reply regardless of message order', () => {
+    const messages = [
+      { _id: 'a', createdAt: at(0) },
+      { _id: 'c', createdAt: at(5), parentMessage: 'a' }, // out of order, later
+      { _id: 'b', createdAt: at(1), parentMessage: 'a' } // earliest reply: 60s
+    ]
+
+    expect(computeReplyLatency(messages)).toEqual({
+      medianSecondsToFirstReply: 60,
+      repliedMessageCount: 1
+    })
+  })
+
+  it('ignores a reply whose parent is not in the human message set', () => {
+    const messages = [
+      { _id: 'a', createdAt: at(0) },
+      { _id: 'b', createdAt: at(2), parentMessage: 'bot-msg' } // parent absent (e.g. a bot reply)
+    ]
+
+    expect(computeReplyLatency(messages)).toEqual({
+      medianSecondsToFirstReply: null,
+      repliedMessageCount: 0
+    })
+  })
+
+  it('returns a null median and zero count when nothing was a reply', () => {
+    const messages = [
+      { _id: 'a', createdAt: at(0) },
+      { _id: 'b', createdAt: at(2) }
+    ]
+
+    expect(computeReplyLatency(messages)).toEqual({
+      medianSecondsToFirstReply: null,
+      repliedMessageCount: 0
+    })
+  })
+})
+
+describe('computeParticipationConcentration', () => {
+  const posts = (owner: string, count: number) => Array.from({ length: count }, () => ({ owner }))
+
+  it('reports the top-few share and the one-time vs repeat split', () => {
+    const messages = [...posts('p1', 4), ...posts('p2', 3), ...posts('p3', 2), ...posts('p4', 2), ...posts('p5', 1)]
+
+    expect(computeParticipationConcentration(messages)).toEqual({
+      topPosterCount: 3,
+      topPosterMessageShare: 0.75, // top 3 sent 9 of 12 messages
+      oneTimePosterCount: 1,
+      repeatPosterCount: 4
+    })
+  })
+
+  it('nulls the share below a handful of posters but still splits one-time from repeat', () => {
+    const messages = [...posts('a', 3), ...posts('b', 2), ...posts('c', 1), ...posts('d', 1)]
+
+    expect(computeParticipationConcentration(messages)).toEqual({
+      topPosterCount: 3,
+      topPosterMessageShare: null,
+      oneTimePosterCount: 2,
+      repeatPosterCount: 2
+    })
+  })
+
+  it('caps the top count at the poster count when fewer than a few posted', () => {
+    const messages = [...posts('a', 2), ...posts('b', 1)]
+
+    expect(computeParticipationConcentration(messages)).toEqual({
+      topPosterCount: 2,
+      topPosterMessageShare: null,
+      oneTimePosterCount: 1,
+      repeatPosterCount: 1
+    })
+  })
+
+  it('returns zeros and a null share when no one posted', () => {
+    expect(computeParticipationConcentration([])).toEqual({
+      topPosterCount: 0,
+      topPosterMessageShare: null,
+      oneTimePosterCount: 0,
+      repeatPosterCount: 0
+    })
+  })
+
+  it('groups by pseudonymId when there is no owner and drops a message with neither', () => {
+    const messages = [{}, { pseudonymId: 'x' }, { pseudonymId: 'x' }, { owner: 'y' }]
+
+    expect(computeParticipationConcentration(messages)).toEqual({
+      topPosterCount: 2,
+      topPosterMessageShare: null,
+      oneTimePosterCount: 1,
+      repeatPosterCount: 1
+    })
+  })
+})
+
+describe('computeInteractionStructure', () => {
+  it('measures thread size and reply depth for a nested thread', () => {
+    const messages = [
+      { _id: 'a' },
+      { _id: 'b', parentMessage: 'a' },
+      { _id: 'c', parentMessage: 'a' },
+      { _id: 'd', parentMessage: 'b' } // deepest chain: a -> b -> d
+    ]
+
+    expect(computeInteractionStructure(messages)).toEqual({
+      threadCount: 1,
+      maxThreadSize: 4,
+      medianThreadSize: 4,
+      maxReplyDepth: 2
+    })
+  })
+
+  it('counts across threads and ignores a lone unanswered message', () => {
+    const messages = [
+      { _id: 'a' },
+      { _id: 'b', parentMessage: 'a' }, // thread 1: size 2, depth 1
+      { _id: 'c' },
+      { _id: 'd', parentMessage: 'c' },
+      { _id: 'e', parentMessage: 'd' }, // thread 2: size 3, depth 2
+      { _id: 'f' } // lone root, no replies
+    ]
+
+    expect(computeInteractionStructure(messages)).toEqual({
+      threadCount: 2,
+      maxThreadSize: 3,
+      medianThreadSize: 2.5, // median of [3, 2]
+      maxReplyDepth: 2
+    })
+  })
+
+  it('treats a reply whose parent is outside the human set as its own thread root', () => {
+    const messages = [
+      { _id: 'a', parentMessage: 'bot-msg' }, // parent absent, so a starts a thread
+      { _id: 'b', parentMessage: 'a' }
+    ]
+
+    expect(computeInteractionStructure(messages)).toEqual({
+      threadCount: 1,
+      maxThreadSize: 2,
+      medianThreadSize: 2,
+      maxReplyDepth: 1
+    })
+  })
+
+  it('returns zeros and a null median when nothing was threaded', () => {
+    const messages = [{ _id: 'a' }, { _id: 'b' }, { _id: 'c' }]
+
+    expect(computeInteractionStructure(messages)).toEqual({
+      threadCount: 0,
+      maxThreadSize: 0,
+      medianThreadSize: null,
+      maxReplyDepth: 0
+    })
+  })
+
+  it('returns zeros and a null median for no messages', () => {
+    expect(computeInteractionStructure([])).toEqual({
+      threadCount: 0,
+      maxThreadSize: 0,
+      medianThreadSize: null,
+      maxReplyDepth: 0
+    })
+  })
+})
+
 describe('computeResourceSummary', () => {
   it('counts visible readings by category and how many carry a link', () => {
     const conversation = {
@@ -914,13 +1195,10 @@ describe('computeConversationMetrics bot invocations', () => {
   })
 })
 
-/* Creates a past event in a topic: one message from each name in `speakers` (a
-   pseudonym is a poster's anonymous display name), so posterCount = speakers.length.
-   `tracked` still stores the old web-analytics snapshot for completeness, but the audience
-   headcount now comes from direct channels (see countChannelParticipants), so this also
-   seeds one direct channel per `attendeeCount`, joining an agent this conversation owns.
-   Without `tracked`, the event has no channels and no lurker data, so its lurker count is
-   unknown (null). */
+/* Creates a past event in a topic: one message per name in `speakers`, so posterCount =
+   speakers.length. `tracked` stores the web-analytics snapshot and seeds one direct channel per
+   `attendeeCount`, since the audience headcount reads from direct channels (see
+   countChannelParticipants). Without it the event has no channels, so its lurker count is null. */
 async function seedTopicEvent(
   topicId: mongoose.Types.ObjectId,
   options: {
@@ -1313,5 +1591,539 @@ describe('computeConversationMetrics history and baseline', () => {
 
     expect(metrics.baseline).toBeNull()
     expect(metrics.participationHistory).toEqual([{ label: 'Today', posterCount: 2, lurkerCount: null }])
+  })
+})
+
+describe('attendanceBandFor', () => {
+  it('buckets posterCount into tiny, small, medium, and large', () => {
+    expect(attendanceBandFor(0)).toBe('tiny')
+    expect(attendanceBandFor(9)).toBe('tiny')
+    expect(attendanceBandFor(10)).toBe('small')
+    expect(attendanceBandFor(24)).toBe('small')
+    expect(attendanceBandFor(25)).toBe('medium')
+    expect(attendanceBandFor(49)).toBe('medium')
+    expect(attendanceBandFor(50)).toBe('large')
+    expect(attendanceBandFor(200)).toBe('large')
+  })
+})
+
+/* Seeds one public or private topic, so a peer-cohort test can prove the privacy filter
+   actually excludes a private topic's events rather than just checking a query shape. */
+async function seedTopic(overrides: { private: boolean }) {
+  return Topic.create({
+    name: `Peer cohort topic ${new mongoose.Types.ObjectId().toString()}`,
+    slug: `peer-cohort-${new mongoose.Types.ObjectId().toString()}`,
+    owner: ownerId,
+    votingAllowed: false,
+    conversationCreationAllowed: false,
+    archivable: false,
+    private: overrides.private
+  })
+}
+
+/* Seeds one past peer event as a persisted snapshot plus the real Conversation/Topic documents
+   behind it, since computePeerBaseline joins to Topic to enforce its public-only privacy gate
+   (the same gate as summon), unlike the same-topic baseline which never needed one. */
+async function seedPeerEvent(
+  topicId: mongoose.Types.ObjectId,
+  options: {
+    endTime: Date
+    posterCount: number
+    platform?: 'nextspace' | 'zoom' | 'both'
+    participationRate?: number | null
+    topPosterMessageShare?: number | null
+    metricsVersion?: number
+  }
+) {
+  const conversation = await Conversation.create({
+    name: 'Peer event',
+    slug: `peer-${new mongoose.Types.ObjectId().toString()}`,
+    owner: ownerId,
+    topic: topicId,
+    endTime: options.endTime,
+    transcript: { status: 'stopped' }
+  })
+  await ConversationMetricsSnapshot.create({
+    conversationId: conversation._id,
+    topicId,
+    name: 'Peer event',
+    endTime: options.endTime,
+    platform: options.platform ?? 'nextspace',
+    metricsVersion: options.metricsVersion ?? METRICS_VERSION,
+    capturedAt: options.endTime,
+    posterCount: options.posterCount,
+    messageCount: options.posterCount,
+    frequentPosterCount: 0,
+    frequentPosterMessageShare: null,
+    trackedSessionStatus: 'notTracked',
+    trackedSessions: null,
+    participantCount: null,
+    lurkerCount: null,
+    participationRate: options.participationRate ?? null,
+    postersExceedTrackedSessions: null,
+    avgDwellSeconds: null,
+    totalActions: null,
+    channelSplit: { public: 0, private: 0 },
+    botInvocationCount: 0,
+    resourceSummary: { total: 0, required: 0, referenced: 0, suggested: 0, withLinks: 0 },
+    spikeCount: 0,
+    receptionCount: null,
+    timeToFirstMessage: { publicSeconds: null, privateSeconds: null },
+    replyLatency: { medianSecondsToFirstReply: null, repliedMessageCount: 0 },
+    participationConcentration: {
+      topPosterCount: 0,
+      topPosterMessageShare: options.topPosterMessageShare ?? null,
+      oneTimePosterCount: 0,
+      repeatPosterCount: 0
+    },
+    interactionStructure: { threadCount: 0, maxThreadSize: 0, medianThreadSize: null, maxReplyDepth: 0 }
+  })
+  return conversation
+}
+
+describe('computeConversationMetrics peer baseline', () => {
+  it('averages same-band, same-platform public peers, excluding the current event and its own topic', async () => {
+    const publicTopic = await seedTopic({ private: false })
+    // Same band (small: 10-24) and same platform as the live event below.
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-01T12:00:00.000Z'),
+      posterCount: 15,
+      participationRate: 0.5,
+      topPosterMessageShare: 0.4
+    })
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-02T12:00:00.000Z'),
+      posterCount: 20,
+      participationRate: 0.6,
+      topPosterMessageShare: 0.6
+    })
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-03T12:00:00.000Z'),
+      posterCount: 19,
+      participationRate: 0.4,
+      topPosterMessageShare: 0.5
+    })
+    // Different band (large): must not be pulled into a "small" cohort.
+    await seedPeerEvent(publicTopic._id, { endTime: new Date('2026-06-04T12:00:00.000Z'), posterCount: 90 })
+
+    const current = await seedTopicEvent(publicTopic._id, { speakers: Array.from({ length: 18 }, (_, i) => `p${i}`) })
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(current)
+
+    expect(metrics.peerBaseline).toEqual({
+      band: 'small',
+      eventCount: 3,
+      avgPosterCount: 18,
+      avgParticipationRate: 0.5,
+      participationRateEventCount: 3,
+      avgTopPosterMessageShare: 0.5,
+      concentrationEventCount: 3
+    })
+  })
+
+  it('excludes peer events from a private topic even when they match the band and platform', async () => {
+    const publicTopic = await seedTopic({ private: false })
+    const privateTopic = await seedTopic({ private: true })
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-01T12:00:00.000Z'),
+      posterCount: 15,
+      participationRate: 0.5
+    })
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-02T12:00:00.000Z'),
+      posterCount: 16,
+      participationRate: 0.5
+    })
+    // A private topic's events must never enter another topic's peer comparison, even though
+    // their numbers would otherwise qualify (same band, same platform).
+    await seedPeerEvent(privateTopic._id, {
+      endTime: new Date('2026-06-03T12:00:00.000Z'),
+      posterCount: 17,
+      participationRate: 0.9
+    })
+
+    const current = await seedTopicEvent(publicTopic._id, { speakers: Array.from({ length: 18 }, (_, i) => `p${i}`) })
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(current)
+
+    // Below PEER_COHORT_MIN_EVENTS (3) once the private topic's event is excluded, so this
+    // reports null rather than a thin, misleading average built from just 2 events.
+    expect(metrics.peerBaseline).toBeNull()
+  })
+
+  it('only compares events on the same platform', async () => {
+    const publicTopic = await seedTopic({ private: false })
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-01T12:00:00.000Z'),
+      posterCount: 15,
+      platform: 'zoom',
+      participationRate: 0.9
+    })
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-02T12:00:00.000Z'),
+      posterCount: 16,
+      platform: 'zoom',
+      participationRate: 0.9
+    })
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-03T12:00:00.000Z'),
+      posterCount: 17,
+      platform: 'zoom',
+      participationRate: 0.9
+    })
+
+    // The live event runs on nextspace (seedTopicEvent's conversation carries no platforms, so
+    // deriveEventPlatform defaults it to nextspace), so none of the zoom peers above should count.
+    const current = await seedTopicEvent(publicTopic._id, { speakers: Array.from({ length: 18 }, (_, i) => `p${i}`) })
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(current)
+
+    expect(metrics.peerBaseline).toBeNull()
+  })
+
+  it('ignores peer snapshots stamped with a different metrics version', async () => {
+    const publicTopic = await seedTopic({ private: false })
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-01T12:00:00.000Z'),
+      posterCount: 15,
+      participationRate: 0.5
+    })
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-02T12:00:00.000Z'),
+      posterCount: 16,
+      participationRate: 0.5
+    })
+    await seedPeerEvent(publicTopic._id, {
+      endTime: new Date('2026-06-03T12:00:00.000Z'),
+      posterCount: 999,
+      participationRate: 0.99,
+      metricsVersion: METRICS_VERSION + 1
+    })
+
+    const current = await seedTopicEvent(publicTopic._id, { speakers: Array.from({ length: 18 }, (_, i) => `p${i}`) })
+
+    const metrics = await conversationAnalyticsService.computeConversationMetrics(current)
+
+    // Only 2 current-version peers qualify, below PEER_COHORT_MIN_EVENTS, so null.
+    expect(metrics.peerBaseline).toBeNull()
+  })
+})
+
+describe('computeTopDeviations', () => {
+  const today = {
+    posterCount: 40,
+    participationRate: 0.5,
+    topPosterMessageShare: 0.6,
+    lurkerCount: 10,
+    avgDwellSeconds: 300
+  }
+
+  it('returns an empty list when there is nothing to compare against', () => {
+    expect(computeTopDeviations(today, null, null)).toEqual([])
+  })
+
+  it('ranks by size of percent difference, largest first', () => {
+    const baseline = { eventCount: 4, trackedEventCount: 4, avgPosterCount: 38, avgLurkerCount: 9, avgDwellSeconds: 290 }
+    const peerBaseline = {
+      band: 'medium' as const,
+      eventCount: 5,
+      avgPosterCount: 30,
+      avgParticipationRate: 0.4,
+      participationRateEventCount: 5,
+      avgTopPosterMessageShare: 0.2,
+      concentrationEventCount: 5
+    }
+
+    const deviations = computeTopDeviations(today, baseline, peerBaseline)
+
+    const magnitudes = deviations.map((d) => Math.abs(d.percentDifference))
+    expect(magnitudes).toEqual([...magnitudes].sort((a, b) => b - a))
+    // topPosterMessageShare vs peers (0.6 vs 0.2, +200%) is the largest swing here.
+    expect(deviations[0].metric).toBe('topPosterMessageShare')
+    expect(deviations[0].comparison).toBe('peerBaseline')
+    expect(deviations[0].direction).toBe('above')
+  })
+
+  it('omits a comparison whose average is null', () => {
+    const peerBaseline = {
+      band: 'medium' as const,
+      eventCount: 5,
+      avgPosterCount: 20,
+      avgParticipationRate: null,
+      participationRateEventCount: 0,
+      avgTopPosterMessageShare: null,
+      concentrationEventCount: 0
+    }
+
+    const deviations = computeTopDeviations(today, null, peerBaseline)
+
+    expect(deviations.some((d) => d.metric === 'participationRate')).toBe(false)
+    expect(deviations.some((d) => d.metric === 'topPosterMessageShare')).toBe(false)
+    expect(deviations.some((d) => d.metric === 'posterCount' && d.comparison === 'peerBaseline')).toBe(true)
+  })
+
+  it('omits a comparison whose average is zero to avoid a divide-by-zero', () => {
+    const baseline = { eventCount: 3, trackedEventCount: 3, avgPosterCount: 38, avgLurkerCount: 0, avgDwellSeconds: 290 }
+
+    const deviations = computeTopDeviations(today, baseline, null)
+
+    expect(deviations.some((d) => d.metric === 'lurkerCount')).toBe(false)
+  })
+
+  it('marks avgDwellSeconds as an estimate and every other metric as exact', () => {
+    const baseline = { eventCount: 3, trackedEventCount: 3, avgPosterCount: 38, avgLurkerCount: 9, avgDwellSeconds: 100 }
+
+    const deviations = computeTopDeviations(today, baseline, null)
+
+    const dwell = deviations.find((d) => d.metric === 'avgDwellSeconds')
+    const posters = deviations.find((d) => d.metric === 'posterCount')
+    expect(dwell?.tier).toBe('estimate')
+    expect(posters?.tier).toBe('exact')
+  })
+
+  it('caps the list at the top 5 deviations', () => {
+    // All 6 possible comparisons qualify; avgPosterCount vs topicBaseline is the smallest
+    // swing (40 vs 39, roughly +2.6%) and should be the one dropped.
+    const baseline = { eventCount: 4, trackedEventCount: 4, avgPosterCount: 39, avgLurkerCount: 4, avgDwellSeconds: 100 }
+    const peerBaseline = {
+      band: 'medium' as const,
+      eventCount: 5,
+      avgPosterCount: 10,
+      avgParticipationRate: 0.1,
+      participationRateEventCount: 5,
+      avgTopPosterMessageShare: 0.1,
+      concentrationEventCount: 5
+    }
+
+    const deviations = computeTopDeviations(today, baseline, peerBaseline)
+
+    expect(deviations).toHaveLength(5)
+    expect(deviations.some((d) => d.metric === 'posterCount' && d.comparison === 'topicBaseline')).toBe(false)
+  })
+})
+
+/* The on-demand computations all read the same slice-of-an-event filter, so these fixtures give
+   an event start and a set of direct (one-to-one with the bot) channel names to resolve it
+   against. Messages are placed by elapsed minute from that start. */
+const onDemandStart = new Date('2026-07-01T12:00:00.000Z')
+const directNames = new Set(['dm-ana', 'dm-bo'])
+
+function atMinute(minute: number): Date {
+  return new Date(onDemandStart.getTime() + minute * 60 * 1000)
+}
+
+/* One human message: who sent it, when, where, and what it said. Only the word count of `body`
+   is ever read, never its text. */
+function onDemandMessage(owner: string, minute: number, body = 'a message', channels: string[] = ['chat']) {
+  return { owner, createdAt: atMinute(minute), channels, body }
+}
+
+describe('filterEventMessages', () => {
+  it('keeps messages from the start minute up to but not including the end minute', () => {
+    const messages = [
+      onDemandMessage('ana', 0),
+      onDemandMessage('ana', 5),
+      onDemandMessage('bo', 10),
+      onDemandMessage('bo', 20)
+    ]
+
+    const filtered = filterEventMessages(
+      messages,
+      { fromMinute: 5, toMinute: 20 },
+      {
+        startTime: onDemandStart,
+        directNames
+      }
+    )
+
+    expect(filtered.map((message) => message.createdAt)).toEqual([atMinute(5), atMinute(10)])
+  })
+
+  it('splits the public chat from private one-to-one messages with the bot', () => {
+    const messages = [
+      onDemandMessage('ana', 1, 'hi', ['chat']),
+      onDemandMessage('ana', 2, 'psst', ['dm-ana']),
+      onDemandMessage('bo', 3, 'hey', ['dm-bo'])
+    ]
+    const context = { startTime: onDemandStart, directNames }
+
+    expect(filterEventMessages(messages, { channel: 'public' }, context)).toHaveLength(1)
+    expect(filterEventMessages(messages, { channel: 'private' }, context)).toHaveLength(2)
+    expect(filterEventMessages(messages, { channel: 'all' }, context)).toHaveLength(3)
+  })
+
+  it('keeps only messages of at least the requested word count', () => {
+    const messages = [onDemandMessage('ana', 1, 'yes'), onDemandMessage('bo', 2, 'that is a much longer thought about it')]
+
+    const filtered = filterEventMessages(messages, { minWordCount: 5 }, { startTime: onDemandStart, directNames })
+
+    expect(filtered).toHaveLength(1)
+    expect(filtered[0].owner).toBe('bo')
+  })
+
+  it('measures the window from the first message when the event start is unknown', () => {
+    // No startTime, so minute 0 is the first message (at 12:10) rather than a real event start.
+    const messages = [onDemandMessage('ana', 10), onDemandMessage('bo', 12), onDemandMessage('bo', 25)]
+
+    const filtered = filterEventMessages(messages, { toMinute: 5 }, { directNames })
+
+    expect(filtered.map((message) => message.owner)).toEqual(['ana', 'bo'])
+  })
+
+  it('returns every message when nothing is filtered', () => {
+    const messages = [onDemandMessage('ana', 1), onDemandMessage('bo', 2)]
+
+    expect(filterEventMessages(messages, {}, { startTime: onDemandStart, directNames })).toHaveLength(2)
+  })
+
+  it('drops a message with no timestamp only when a window is asked for', () => {
+    const messages = [onDemandMessage('ana', 1), { owner: 'bo', channels: ['chat'], body: 'undated' }]
+    const context = { startTime: onDemandStart, directNames }
+
+    expect(filterEventMessages(messages, {}, context)).toHaveLength(2)
+    expect(filterEventMessages(messages, { fromMinute: 0 }, context)).toHaveLength(1)
+  })
+})
+
+describe('countMessageActivity', () => {
+  const context = { startTime: onDemandStart, directNames }
+
+  it('counts the messages in a window and how many different people sent them', () => {
+    const messages = [
+      onDemandMessage('ana', 1),
+      onDemandMessage('ana', 2),
+      onDemandMessage('bo', 3),
+      onDemandMessage('cy', 40)
+    ]
+
+    expect(countMessageActivity(messages, { toMinute: 10 }, null, context)).toEqual({
+      messageCount: 3,
+      posterCount: 2,
+      postersAtOrAboveThreshold: null
+    })
+  })
+
+  it('reports how many posters cleared a message threshold', () => {
+    const messages = [
+      onDemandMessage('ana', 1),
+      onDemandMessage('ana', 2),
+      onDemandMessage('ana', 3),
+      onDemandMessage('bo', 4),
+      onDemandMessage('bo', 5),
+      onDemandMessage('cy', 6)
+    ]
+
+    expect(countMessageActivity(messages, {}, 2, context).postersAtOrAboveThreshold).toBe(2)
+  })
+
+  it('counts only the people inside the filtered slice', () => {
+    const messages = [onDemandMessage('ana', 1, 'hi', ['dm-ana']), onDemandMessage('bo', 2)]
+
+    expect(countMessageActivity(messages, { channel: 'private' }, null, context).posterCount).toBe(1)
+  })
+
+  it('reports zeros when nothing matches the filter', () => {
+    expect(countMessageActivity([onDemandMessage('ana', 1)], { fromMinute: 30 }, 3, context)).toEqual({
+      messageCount: 0,
+      posterCount: 0,
+      postersAtOrAboveThreshold: 0
+    })
+  })
+})
+
+describe('computeMessageLengthStats', () => {
+  const context = { startTime: onDemandStart, directNames }
+
+  it('reports the typical and longest message length in words', () => {
+    const messages = [
+      onDemandMessage('ana', 1, 'one'), // 1 word
+      onDemandMessage('bo', 2, 'two words here'), // 3 words
+      onDemandMessage('cy', 3, 'a rather longer message than the others') // 7 words
+    ]
+
+    expect(computeMessageLengthStats(messages, {}, context)).toEqual({
+      messageCount: 3,
+      medianWordCount: 3,
+      longestWordCount: 7
+    })
+  })
+
+  it('nulls both statistics when the slice holds no messages', () => {
+    expect(computeMessageLengthStats([], {}, context)).toEqual({
+      messageCount: 0,
+      medianWordCount: null,
+      longestWordCount: null
+    })
+  })
+
+  it('reads the text of a rich message body the same way a plain one is read', () => {
+    const messages = [{ owner: 'ana', createdAt: atMinute(1), channels: ['chat'], body: { text: 'two words' } }]
+
+    expect(computeMessageLengthStats(messages, {}, context).longestWordCount).toBe(2)
+  })
+})
+
+describe('loadMessagesForOnDemandMetrics', () => {
+  it('loads the same human messages the metrics count, oldest first, with their direct channels resolved', async () => {
+    const conversation = await Conversation.create({
+      name: 'On-demand event',
+      slug: `ondemand-${new mongoose.Types.ObjectId().toString()}`,
+      owner: ownerId,
+      topic: new mongoose.Types.ObjectId(),
+      transcript: { status: 'stopped' }
+    })
+    const directChannel = await Channel.create({
+      name: `dm-${new mongoose.Types.ObjectId().toString()}`,
+      direct: true,
+      participants: [new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId()]
+    })
+    await Message.create([
+      {
+        body: 'second',
+        conversation: conversation._id,
+        owner: ownerFor('ana'),
+        pseudonymId: ownerId,
+        pseudonym: 'ana',
+        fromAgent: false,
+        channels: ['main'],
+        createdAt: new Date('2026-07-01T12:05:00.000Z')
+      },
+      {
+        body: 'first',
+        conversation: conversation._id,
+        owner: ownerFor('bo'),
+        pseudonymId: ownerId,
+        pseudonym: 'bo',
+        fromAgent: false,
+        channels: [directChannel.name],
+        createdAt: new Date('2026-07-01T12:01:00.000Z')
+      },
+      // Excluded the same way every other metric excludes them: the bot's own messages, the
+      // spoken transcript, and anything hidden.
+      { body: 'bot', conversation: conversation._id, pseudonymId: ownerId, pseudonym: 'bot', fromAgent: true },
+      {
+        body: 'spoken',
+        conversation: conversation._id,
+        owner: ownerFor('cy'),
+        pseudonymId: ownerId,
+        pseudonym: 'cy',
+        fromAgent: false,
+        channels: ['transcript']
+      },
+      {
+        body: 'hidden',
+        conversation: conversation._id,
+        owner: ownerFor('cy'),
+        pseudonymId: ownerId,
+        pseudonym: 'cy',
+        fromAgent: false,
+        visible: false
+      }
+    ])
+
+    const { messages, directNames: resolvedDirectNames } = await loadMessagesForOnDemandMetrics(conversation._id)
+
+    expect(messages.map((message) => message.body)).toEqual(['first', 'second'])
+    expect(resolvedDirectNames).toEqual(new Set([directChannel.name]))
   })
 })

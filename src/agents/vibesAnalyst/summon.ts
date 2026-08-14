@@ -4,9 +4,11 @@ import access from '../../auth/access.js'
 import logger from '../../config/logger.js'
 import { AgentResponse } from '../../types/index.types.js'
 import { buildSnapshotPayload } from '../../services/conversationMetricsSnapshot.service.js'
+import conversationAnalyticsService from '../../services/conversationAnalytics.service.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
-import buildVibesSummary from './buildSummary.js'
+import buildVibesSummary, { hasHistorianAgent } from './buildSummary.js'
 import buildTrendSummary from './trendSummary.js'
+import answerWithOnDemandMetrics from './onDemand.js'
 import { resolveFollowUpContext, answerFollowUp, resolveDisambiguationContext } from './followUp.js'
 import { VIBES_SMALLTALK_SYSTEM_PROMPT, VIBES_SMALLTALK_USER_TEMPLATE } from './prompt.js'
 import {
@@ -145,6 +147,32 @@ export function offTopicMessage(): string {
   return 'That\'s outside what I read. I analyze engagement from public events: mention me with an event name, or ask for "the latest" and I\'ll take the most recent.'
 }
 
+/* The reply to a question whose interpretive half (what was said, what people thought, how a
+   moment landed) VA cannot read from its own numbers. Points to the Event Historian only when
+   one is actually installed on this conversation, so VA never references a capability that is
+   not there; otherwise it says plainly that it has no way to read that. */
+export function interpretiveDeferMessage(hasHistorian: boolean): string {
+  if (hasHistorian) {
+    return "That's about what was actually said, not something I can read from the numbers. The Event Historian can help with that."
+  }
+  return "That's a question for the Event Historian, out of scope for my data analysis. There's no Event Historian in this channel: add one here, or ask in a channel that already has one, for a more informed answer."
+}
+
+/* Appends an honest note about the interpretive half of a mixed question after answering its
+   numeric half: a pointer to the Event Historian when one is installed, or the same actionable
+   nudge to add or ask one elsewhere when there isn't one, rather than silently dropping that half. */
+export function withHistorianPointer(answerText: string, hasHistorian: boolean): string {
+  if (hasHistorian) return `${answerText} For what was actually said, the Event Historian can help with the rest.`
+  return `${answerText} For what was actually said, that's a question for the Event Historian: there's none in this channel, so add one here or ask in a channel that already has one.`
+}
+
+/* The reply when a question was classified as answerable from the numbers, but the answerer
+   still could not work one out from this event's own metrics (an edge the classifier missed).
+   Points back to a full recap instead of a dead end. */
+export function unanswerableQuestionMessage(eventName: string): string {
+  return `I couldn't work out an answer to that from ${eventName}'s numbers. Ask for a recap and I'll show what I've got.`
+}
+
 const SmallTalkSchema = z.object({
   text: z.string().describe('One short, in-voice Slack reply that fits why the message was sent')
 })
@@ -188,6 +216,28 @@ export async function smallTalkReply(
   }
 }
 
+/* Re-checks read access for a resolved event before its data is used, failing closed: anything
+   but an explicit public topic is refused. Returns a refusal message when access is denied, or
+   null when the event may be read. Shared by the recap path and the on-demand question path,
+   since both load and read a live event by id rather than trusting the candidate list alone. */
+function accessDeniedMessage(context, conversation): string | null {
+  const topic = conversation.topic as { _id?: { toString(): string }; private?: boolean } | undefined
+  try {
+    access.assertCanRead(context, {
+      type: 'conversation',
+      id: conversation._id.toString(),
+      topicId: topic?._id?.toString(),
+      topicIsPrivate: topic?.private !== false
+    })
+    return null
+  } catch (error: unknown) {
+    logger.warn(
+      `Vibes Analyst refused summon for ${conversation._id}: ${error instanceof Error ? error.message : String(error)}`
+    )
+    return `I can only recap public events, and "${conversation.name}" isn't one I can share.`
+  }
+}
+
 /**
  * Recaps one resolved public event on demand. Loads the event, re-checks read access (fail
  * closed: anything but an explicit public topic is refused, not recapped), and posts its
@@ -208,20 +258,8 @@ async function recapResolvedEvent(
     return [reply(context, parent, notFoundMessage(fallbackQuery, recent))]
   }
 
-  const topic = conversation.topic as { _id?: { toString(): string }; private?: boolean } | undefined
-  try {
-    access.assertCanRead(context, {
-      type: 'conversation',
-      id: conversation._id.toString(),
-      topicId: topic?._id?.toString(),
-      topicIsPrivate: topic?.private !== false
-    })
-  } catch (error: unknown) {
-    logger.warn(
-      `Vibes Analyst refused summon for ${conversation._id}: ${error instanceof Error ? error.message : String(error)}`
-    )
-    return [reply(context, parent, `I can only recap public events, and "${conversation.name}" isn't one I can share.`)]
-  }
+  const denied = accessDeniedMessage(context, conversation)
+  if (denied) return [reply(context, parent, denied)]
 
   // A summon recaps a past event on demand. Only the auto path persists a metrics snapshot
   // (an event is snapshotted once, when it ends), so the metrics computed here are not written
@@ -241,18 +279,17 @@ async function recapResolvedEvent(
 }
 
 /**
- * Answers a cross-event trend question. When the host named specific events to compare
- * (reference.eventNames), scopes to exactly those, resolved by fuzzy title match; otherwise
- * scopes to the named series or all public events, taking the most recent N, same as before. It
- * prefers stored snapshots, and when too few exist to compare (a fresh deploy, or events that
- * ended before the snapshot write shipped) it recomputes the scoped events live instead of
- * dead-ending, so a trend still answers when the data exists but was never snapshotted. Live
- * rows are used for the WHOLE comparison rather than mixed with stored ones, so every event is
- * measured the same way. Either source is confined to the privacy-filtered candidate set, so a
- * private event can never enter a trend. With nothing to compare it says so; with exactly one
- * event it falls back to a normal single-event recap, since one event is not a trend. A named
- * event that failed to resolve is never silently dropped: it is noted alongside whatever the
- * comparison still produces from the rest.
+ * Answers a cross-event trend question. Named events (reference.eventNames) scope the comparison
+ * to exactly those by fuzzy title match, otherwise it takes the most recent N from the series or
+ * all public events.
+ *
+ * Prefers stored snapshots, and recomputes the scoped events live when too few exist to compare,
+ * so a trend still answers for events that ended before the snapshot write shipped. Live rows
+ * cover the whole comparison rather than mixing with stored ones, so every event is measured the
+ * same way. Either source stays inside the privacy-filtered candidate set.
+ *
+ * One event falls back to a normal recap, since one event is not a trend. A named event that
+ * failed to resolve is noted alongside whatever the rest produced, never dropped silently.
  */
 async function handleTrendSummon(
   context,
@@ -353,6 +390,69 @@ async function tryFollowUp(
 }
 
 /**
+ * Answers a specific question about one event, rather than a general recap. Resolves the event the
+ * same way a recap does, then branches on scope. "interpretive" defers to the Event Historian when
+ * one is installed, rather than guessing at content the analyst never reads. "quantitative" and
+ * "mixed" compute this event's metrics live and answer through the same answerFollowUp pass a
+ * threaded follow-up uses, so a first question gets identical treatment to a reply under a card.
+ *
+ * That pass reads only precomputed numbers, so an open-ended question ("how many people posted
+ * more than three times?") misses and escalates to the tool loop, which computes one over this
+ * event's own messages and fact-checks it. Only a miss escalates, so common questions cost what
+ * they did before.
+ */
+async function handleQuestionSummon(
+  context,
+  parent: AgentResponse<string>['parent'],
+  userMessage,
+  reference: EventReference,
+  candidates: EventCandidate[],
+  recent: EventCandidate[],
+  llm
+): Promise<AgentResponse<string>[]> {
+  if (!(reference.eventQuery ?? '').trim() && !reference.latestOverall && !reference.latestInTopic) {
+    return [reply(context, parent, helpMessage(recent))]
+  }
+
+  const resolution = resolveSummonedEvent(reference, candidates)
+  if (resolution.status === 'notFound') {
+    return [reply(context, parent, notFoundMessage(reference.eventQuery, recent))]
+  }
+  if (resolution.status === 'ambiguous') {
+    return [ambiguousReply(context, parent, resolution.candidates)]
+  }
+
+  const conversation = await Conversation.findById(resolution.event.id).populate('topic')
+  if (!conversation) {
+    return [reply(context, parent, notFoundMessage(reference.eventQuery, recent))]
+  }
+  const denied = accessDeniedMessage(context, conversation)
+  if (denied) return [reply(context, parent, denied)]
+
+  const hasHistorian = await hasHistorianAgent(conversation)
+
+  if (reference.scope === 'interpretive') {
+    return [reply(context, parent, interpretiveDeferMessage(hasHistorian))]
+  }
+
+  const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
+  const metricsContext = [buildSnapshotPayload(conversation, metrics, { receptionCount: null })]
+  const answer = await answerFollowUp(userMessage.body ?? '', metricsContext, llm)
+
+  const answerText =
+    answer.answerable && answer.text
+      ? answer.text
+      : await answerWithOnDemandMetrics(userMessage.body ?? '', conversation, metrics, llm)
+
+  if (!answerText) {
+    return [reply(context, parent, unanswerableQuestionMessage(conversation.name))]
+  }
+
+  const text = reference.scope === 'mixed' ? withHistorianPointer(answerText, hasHistorian) : answerText
+  return [reply(context, parent, text)]
+}
+
+/**
  * Handles one on-demand summon. First works out whether the message asks about one event or a
  * cross-event trend, then routes accordingly: a trend is answered from stored snapshots, a
  * single event is resolved by name and recapped live. The candidate set is privacy-filtered and
@@ -404,6 +504,9 @@ export default async function handleSummon(context, userMessage, llm, fastLlm = 
   }
   if (reference.intent === 'help') {
     return [reply(context, parent, await smallTalkReply('help', userMessage.body ?? '', recent, llm))]
+  }
+  if (reference.intent === 'question') {
+    return handleQuestionSummon(context, parent, userMessage, reference, candidates, recent, llm)
   }
   if (reference.intent === 'offTopic') {
     const followUp = await tryFollowUp(context, parent, userMessage, llm)

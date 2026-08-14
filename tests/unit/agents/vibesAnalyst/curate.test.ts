@@ -1,5 +1,6 @@
 import { buildChartCandidates } from '../../../../src/agents/vibesAnalyst/curate.js'
 import { ConversationMetrics, CuratedVibesChart, TrackedSessionMetrics } from '../../../../src/types/index.types.js'
+import makeMetrics from '../../../utils/metricsFixture.js'
 
 /* A tracked-session source with the given breakdown maps, so a test can opt into the
    device and feature-usage charts that only appear when a source carries data. */
@@ -25,34 +26,7 @@ function trackedSource(overrides: Partial<TrackedSessionMetrics> = {}): TrackedS
    (0 participants against 20 posters), so a test opts into the audience split by
    overriding it with a reconciled count. */
 function metricsFixture(overrides: Partial<ConversationMetrics> = {}): ConversationMetrics {
-  return {
-    participation: { posterCount: 20, frequentPosterCount: 2, frequentPosterMessageShare: 0.4, messageCount: 50 },
-    trackedSessionSources: [],
-    trackedSessionStatus: 'notTracked',
-    audienceEngagement: { participantCount: 0, lurkerCount: null, participationRate: null, postersExceedTrackedSessions: true },
-    activitySeries: [
-      { label: '0-10', messageCount: 5 },
-      { label: '10-20', messageCount: 15 }
-    ],
-    spikes: [],
-    participationHistory: [
-      { label: 'E1', posterCount: 18, lurkerCount: null },
-      { label: 'Today', posterCount: 20, lurkerCount: null }
-    ],
-    baseline: { eventCount: 3, trackedEventCount: 0, avgPosterCount: 18, avgLurkerCount: null, avgDwellSeconds: null },
-    channelSplit: { public: 30, private: 20 },
-    privateMessaging: {
-      privateMessageCount: 20,
-      distinctPrivateSenders: 6,
-      distinctPublicSenders: 18,
-      avgPrivateMessagesPerPoster: 1
-    },
-    botInvocations: { botName: 'Berkie', count: 0 },
-    receptions: [],
-    resourceSummary: { total: 0, required: 0, referenced: 0, suggested: 0, withLinks: 0 },
-    eventPlatform: 'nextspace',
-    ...overrides
-  }
+  return makeMetrics(overrides)
 }
 
 /* The number of data series on a bar/line chart (pie charts have none). */
@@ -75,6 +49,26 @@ describe('buildChartCandidates', () => {
 
     expect(candidates.engagementHistory).toBeDefined()
     expect(candidates.postersVsBaseline).toBeDefined()
+  })
+
+  it('offers the posters-vs-peers chart only when a peer baseline exists', () => {
+    expect(buildChartCandidates(metricsFixture()).postersVsPeers).toBeUndefined()
+
+    const withPeers = buildChartCandidates(
+      metricsFixture({
+        peerBaseline: {
+          band: 'small',
+          eventCount: 5,
+          avgPosterCount: 15,
+          avgParticipationRate: 0.4,
+          participationRateEventCount: 4,
+          avgTopPosterMessageShare: 0.5,
+          concentrationEventCount: 3
+        }
+      })
+    )
+
+    expect(withPeers.postersVsPeers).toBeDefined()
   })
 
   it('offers the posters-vs-lurkers split only when the participant count reconciles', () => {
@@ -129,6 +123,46 @@ describe('buildChartCandidates', () => {
       })
     )
     expect(seriesCount(someUntracked.engagementHistory)).toBe(1)
+  })
+
+  it('offers the poster-mix split of one-time versus repeat posters when anyone posted', () => {
+    const candidates = buildChartCandidates(
+      metricsFixture({
+        participation: { posterCount: 20, frequentPosterCount: 2, frequentPosterMessageShare: 0.4, messageCount: 50 },
+        participationConcentration: {
+          topPosterCount: 3,
+          topPosterMessageShare: 0.3,
+          oneTimePosterCount: 14,
+          repeatPosterCount: 6
+        }
+      })
+    )
+
+    expect(candidates.posterMix).toBeDefined()
+    const { chart } = candidates.posterMix!
+    expect(chart.type).toBe('pie')
+    if (chart.type === 'pie') {
+      expect(chart.segments).toEqual([
+        { label: 'Posted once', value: 14 },
+        { label: 'Posted more than once', value: 6 }
+      ])
+    }
+  })
+
+  it('omits the poster-mix split when no one posted', () => {
+    const candidates = buildChartCandidates(
+      metricsFixture({
+        participation: { posterCount: 0, frequentPosterCount: 0, frequentPosterMessageShare: 0, messageCount: 0 },
+        participationConcentration: {
+          topPosterCount: 0,
+          topPosterMessageShare: null,
+          oneTimePosterCount: 0,
+          repeatPosterCount: 0
+        }
+      })
+    )
+
+    expect(candidates.posterMix).toBeUndefined()
   })
 
   it('offers a feature-usage bar chart only when the first source has a non-empty action breakdown', () => {

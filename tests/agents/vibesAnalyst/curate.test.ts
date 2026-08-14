@@ -1,6 +1,7 @@
 import curateVibesCard from '../../../src/agents/vibesAnalyst/curate.js'
 import { getModelChat, supportedModels } from '../../../src/agents/helpers/getModelChat.js'
 import { ConversationMetrics, LlmPlatforms } from '../../../src/types/index.types.js'
+import makeMetrics from '../../utils/metricsFixture.js'
 
 jest.setTimeout(45000) // LLM calls can be slow
 
@@ -10,7 +11,7 @@ const CHART_TYPES = ['bar', 'line', 'area', 'pie']
    choose to feature (participation below the topic's norm, late drop-off in
    activity, a private-heavy channel split, and tracked sessions to draw on). */
 function negativeEventMetrics(): ConversationMetrics {
-  return {
+  return makeMetrics({
     participation: { posterCount: 17, frequentPosterCount: 2, frequentPosterMessageShare: 0.5, messageCount: 64 },
     trackedSessionSources: [
       {
@@ -70,7 +71,7 @@ function negativeEventMetrics(): ConversationMetrics {
     ],
     resourceSummary: { total: 0, required: 0, referenced: 0, suggested: 0, withLinks: 0 },
     eventPlatform: 'nextspace'
-  }
+  })
 }
 
 describe('curateVibesCard', () => {
@@ -79,7 +80,9 @@ describe('curateVibesCard', () => {
   beforeAll(async () => {
     const llmPlatform = process.env.TEST_LLM_PLATFORM || supportedModels[0].llmPlatform
     const llmModel = process.env.TEST_LLM_MODEL || supportedModels[0].llmModel
-    llm = await getModelChat(llmPlatform as LlmPlatforms, llmModel)
+    // Matches the cap the Vibes Analyst agent runs with. Without it the model defaults to 1024
+    // tokens, which cuts the longest cards off mid-response.
+    llm = await getModelChat(llmPlatform as LlmPlatforms, llmModel, { maxTokens: 10000 })
   })
 
   it('writes a header and 2 to 3 standouts, only attaching well-formed charts', async () => {
@@ -102,6 +105,170 @@ describe('curateVibesCard', () => {
 
     // Tracked-session data is present, so there is no "data is limited" note.
     expect(card.availabilityNote).toBeUndefined()
+  })
+
+  it('surfaces the concentration signal when a tiny core dominates a room of one-time posters', async () => {
+    // Everything else is neutral (no spikes, receptions, tracked sessions, or baseline swing),
+    // so the concentrated posting is the one thing worth surfacing: of 30 posters, 27 posted
+    // once and 3 wrote 85% of the messages.
+    const metrics = makeMetrics({
+      participation: { posterCount: 30, frequentPosterCount: 3, frequentPosterMessageShare: 0.85, messageCount: 120 },
+      trackedSessionSources: [],
+      trackedSessionStatus: 'notTracked',
+      audienceEngagement: {
+        participantCount: 0,
+        lurkerCount: null,
+        participationRate: null,
+        postersExceedTrackedSessions: true
+      },
+      participationConcentration: {
+        topPosterCount: 3,
+        topPosterMessageShare: 0.85,
+        oneTimePosterCount: 27,
+        repeatPosterCount: 3
+      },
+      spikes: [],
+      receptions: [],
+      participationHistory: [{ label: 'Today', posterCount: 30, lurkerCount: null }],
+      baseline: null,
+      channelSplit: { public: 110, private: 10 }
+    })
+
+    const card = await curateVibesCard(metrics, { eventName: 'Open Forum', durationMinutes: 40 }, llm)
+
+    expect(card.standouts.length).toBeGreaterThanOrEqual(2)
+    const allText = card.standouts
+      .map((standout) => standout.text)
+      .join(' ')
+      .toLowerCase()
+    expect(allText).toMatch(/once|one-time|one time|single|drive-by|core|few|handful|85|concentrat|dominat|most of the/)
+  })
+
+  it('surfaces a peer comparison when this event ran well above similar-sized public events', async () => {
+    // Everything else is neutral (no spikes, receptions, tracked sessions, or same-topic
+    // baseline), so the peer comparison is the one thing worth surfacing: 40 posters against
+    // a peer average of 16 for similarly sized public events on the same platform.
+    const metrics = makeMetrics({
+      participation: { posterCount: 40, frequentPosterCount: 4, frequentPosterMessageShare: 0.3, messageCount: 150 },
+      trackedSessionSources: [],
+      trackedSessionStatus: 'notTracked',
+      audienceEngagement: {
+        participantCount: 0,
+        lurkerCount: null,
+        participationRate: null,
+        postersExceedTrackedSessions: true
+      },
+      spikes: [],
+      receptions: [],
+      participationHistory: [{ label: 'Today', posterCount: 40, lurkerCount: null }],
+      baseline: null,
+      peerBaseline: {
+        band: 'medium',
+        eventCount: 6,
+        avgPosterCount: 16,
+        avgParticipationRate: null,
+        participationRateEventCount: 0,
+        avgTopPosterMessageShare: null,
+        concentrationEventCount: 0
+      },
+      channelSplit: { public: 140, private: 10 }
+    })
+
+    const card = await curateVibesCard(metrics, { eventName: 'Open Forum', durationMinutes: 45 }, llm)
+
+    expect(card.standouts.length).toBeGreaterThanOrEqual(2)
+    const allText = card.standouts
+      .map((standout) => standout.text)
+      .join(' ')
+      .toLowerCase()
+    expect(allText).toMatch(/similar|peer|typical|other events|events this size|16/)
+  })
+
+  it('leads with the ranked deviation when a tracked-session figure swung far from the topic norm', async () => {
+    // Poster count and lurkers are both close to their recent norm (no story there), but average
+    // dwell time nearly tripled versus the topic's baseline. topDeviations names that as the one
+    // outlier, so it should be the standout even though nothing else in the fixture stands out.
+    const metrics = makeMetrics({
+      participation: { posterCount: 21, frequentPosterCount: 2, frequentPosterMessageShare: 0.3, messageCount: 60 },
+      trackedSessionSources: [
+        {
+          source: 'matomo',
+          capturedAt: new Date('2026-06-10T18:05:00.000Z'),
+          trackedSessions: 25,
+          attendeeCount: 21,
+          avgDwellSeconds: 900,
+          totalActions: 100,
+          deviceBreakdown: {},
+          actionBreakdown: {},
+          actionUserBreakdown: {},
+          activeVisitorCount: 0,
+          actionBreakdownPerActiveVisitor: {}
+        }
+      ],
+      trackedSessionStatus: 'available',
+      audienceEngagement: {
+        participantCount: 25,
+        lurkerCount: 4,
+        participationRate: 0.84,
+        postersExceedTrackedSessions: false
+      },
+      spikes: [],
+      receptions: [],
+      participationHistory: [
+        { label: 'E1', posterCount: 20, lurkerCount: 4 },
+        { label: 'Today', posterCount: 21, lurkerCount: 4 }
+      ],
+      baseline: { eventCount: 4, trackedEventCount: 4, avgPosterCount: 20, avgLurkerCount: 4, avgDwellSeconds: 310 },
+      peerBaseline: null,
+      topDeviations: [
+        {
+          metric: 'avgDwellSeconds',
+          comparison: 'topicBaseline',
+          tier: 'estimate',
+          value: 900,
+          comparedTo: 310,
+          percentDifference: (900 - 310) / 310,
+          direction: 'above'
+        }
+      ],
+      channelSplit: { public: 55, private: 5 }
+    })
+
+    const card = await curateVibesCard(metrics, { eventName: 'Deep Dive Session', durationMinutes: 60 }, llm)
+
+    expect(card.standouts.length).toBeGreaterThanOrEqual(2)
+    const allText = card.standouts
+      .map((standout) => standout.text)
+      .join(' ')
+      .toLowerCase()
+    // The model may humanize 900 seconds to "15 minutes" and word dwell as engagement/attention,
+    // so accept the natural phrasings, not just the literal metric name or raw seconds.
+    expect(allText).toMatch(
+      /dwell|session length|time spent|900|minutes per|per tracked session|per visit|engagement|stayed|attention/
+    )
+    expect(allText).toMatch(/undercount/)
+  })
+
+  it('uses speaker count and active agent labels as light framing context, not a standout', async () => {
+    const card = await curateVibesCard(
+      negativeEventMetrics(),
+      {
+        eventName: 'The Future of Work',
+        durationMinutes: 58,
+        speakerCount: 3,
+        activeAgentTypeLabels: ['a jargon filter']
+      },
+      llm
+    )
+
+    // The scene-setting facts may appear in the framing line, but never as one of the
+    // 2 to 3 headline standouts: the participation and activity numbers are what stood out
+    // in this fixture, not who spoke or which other assistants ran.
+    const standoutText = card.standouts
+      .map((standout) => standout.text)
+      .join(' ')
+      .toLowerCase()
+    expect(standoutText).not.toMatch(/jargon filter/)
   })
 
   it('adds a data-availability note when no tracked sessions were captured', async () => {

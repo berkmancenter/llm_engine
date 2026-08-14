@@ -1,11 +1,11 @@
 import { jest } from '@jest/globals'
 import { ConversationMetrics, TrackedSessionMetrics } from '../../../../src/types/index.types.js'
+import makeMetrics from '../../../utils/metricsFixture.js'
 
-/* buildChartCandidates is unit-tested directly elsewhere; here we drive the whole curateVibesCard
-   function with a mocked model so we can assert the surfacing seam deterministically: when the
-   model names a chart key, the card attaches the real, computed chart (not the model's numbers),
-   and when it names a key we never offered, no chart is attached. The model call is the only LLM
-   dependency, so it is the only thing mocked. */
+/* buildChartCandidates is unit-tested elsewhere. Here the whole curateVibesCard runs against a
+   mocked model to pin the surfacing seam: naming a chart key attaches the real computed chart
+   rather than the model's numbers, and naming a key we never offered attaches nothing. The model
+   call is the only LLM dependency, so it is the only mock. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockGetChatPromptResponse = jest.fn<(...args: any[]) => Promise<any>>()
 
@@ -33,8 +33,7 @@ function trackedSource(overrides: Partial<TrackedSessionMetrics> = {}): TrackedS
 }
 
 function metricsFixture(): ConversationMetrics {
-  return {
-    participation: { posterCount: 20, frequentPosterCount: 2, frequentPosterMessageShare: 0.4, messageCount: 50 },
+  return makeMetrics({
     trackedSessionSources: [trackedSource()],
     trackedSessionStatus: 'available',
     audienceEngagement: {
@@ -42,29 +41,8 @@ function metricsFixture(): ConversationMetrics {
       lurkerCount: 60,
       participationRate: 0.25,
       postersExceedTrackedSessions: false
-    },
-    activitySeries: [
-      { label: '0-10', messageCount: 5 },
-      { label: '10-20', messageCount: 15 }
-    ],
-    spikes: [],
-    participationHistory: [
-      { label: 'E1', posterCount: 18, lurkerCount: null },
-      { label: 'Today', posterCount: 20, lurkerCount: null }
-    ],
-    baseline: { eventCount: 3, trackedEventCount: 0, avgPosterCount: 18, avgLurkerCount: null, avgDwellSeconds: null },
-    channelSplit: { public: 30, private: 20 },
-    privateMessaging: {
-      privateMessageCount: 20,
-      distinctPrivateSenders: 6,
-      distinctPublicSenders: 18,
-      avgPrivateMessagesPerPoster: 1
-    },
-    botInvocations: { botName: 'Berkie', count: 0 },
-    receptions: [],
-    resourceSummary: { total: 0, required: 0, referenced: 0, suggested: 0, withLinks: 0 },
-    eventPlatform: 'nextspace'
-  }
+    }
+  })
 }
 
 describe('curateVibesCard surfacing', () => {

@@ -1,35 +1,20 @@
 import { dropUnbackedCharts } from '../../../../src/agents/vibesAnalyst/verifyCuration.js'
 import { buildChartCandidates } from '../../../../src/agents/vibesAnalyst/curate.js'
 import { ConversationMetrics, CuratedVibesData } from '../../../../src/types/index.types.js'
+import makeMetrics from '../../../utils/metricsFixture.js'
 
 /* Minimal metrics with enough to build at least the activity and channel-split
    charts, so the test can attach a real chart and a fabricated one. */
 function metricsFixture(): ConversationMetrics {
-  return {
-    participation: { posterCount: 20, frequentPosterCount: 2, frequentPosterMessageShare: 0.4, messageCount: 50 },
-    trackedSessionSources: [],
-    trackedSessionStatus: 'notTracked',
-    audienceEngagement: { participantCount: 0, lurkerCount: null, participationRate: null, postersExceedTrackedSessions: true },
+  return makeMetrics({
     activitySeries: [
       { label: '0-10', messageCount: 5 },
       { label: '10-20', messageCount: 15 },
       { label: '20-30', messageCount: 30 }
     ],
-    spikes: [],
     participationHistory: [],
-    baseline: null,
-    channelSplit: { public: 30, private: 20 },
-    privateMessaging: {
-      privateMessageCount: 20,
-      distinctPrivateSenders: 6,
-      distinctPublicSenders: 18,
-      avgPrivateMessagesPerPoster: 1
-    },
-    botInvocations: { botName: 'Berkie', count: 0 },
-    receptions: [],
-    resourceSummary: { total: 0, required: 0, referenced: 0, suggested: 0, withLinks: 0 },
-    eventPlatform: 'nextspace'
-  }
+    baseline: null
+  })
 }
 
 describe('dropUnbackedCharts', () => {

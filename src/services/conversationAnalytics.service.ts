@@ -1,5 +1,6 @@
 import Message from '../models/message.model.js'
 import Channel from '../models/channel.model.js'
+import Conversation from '../models/conversation.model.js'
 import ConversationAnalytics from '../models/conversationAnalytics.model.js'
 import ConversationMetricsSnapshot from '../models/conversationMetricsSnapshot.model.js'
 import { matchBotMention } from '../agents/helpers/intentChecks.js'
@@ -7,17 +8,27 @@ import eventDateLabel from '../utils/eventDateLabel.js'
 import config from '../config/config.js'
 import {
   ActivityBucket,
+  AttendanceBand,
   AudienceEngagement,
   BotInvocations,
   ChatSpike,
   ConversationMetrics,
+  DeviationSignal,
   EventPlatform,
+  InteractionStructure,
+  MessageActivityCount,
+  MessageLengthStats,
+  MessageMetricFilter,
+  ParticipationConcentration,
   ParticipationHistoryPoint,
   ParticipationMetrics,
+  PeerBaseline,
   PrivateMessaging,
+  ReplyLatency,
   ResourceSummary,
   SameTopicBaseline,
   SpikeSource,
+  TimeToFirstMessage,
   TrackedSessionMetrics,
   TrackedSessionStatus
 } from '../types/index.types.js'
@@ -34,23 +45,16 @@ export const METRICS_VERSION = 1
 /* Six windows keeps the activity chart readable and under Slack's 20-point limit. */
 const ACTIVITY_BUCKET_COUNT = 6
 
-/* The one predicate that defines "a human message for this event". Every human-message
-   query below spreads this in alongside the conversation id, so all three metrics
-   (participation, channel split, activity series) count the exact same set of messages
-   and stay mutually consistent.
+/* The one predicate that defines "a human message for this event". Every human-message query
+   below spreads this in alongside the conversation id, so participation, channel split, and
+   activity series all count the same messages and stay consistent.
 
-   fromAgent:false drops the bot's own messages.
+   channels:$ne 'transcript' drops the talk transcript, saved as non-agent messages on that
+   channel. Without it the speaker's spoken words count as live chat and inflate the poster and
+   message counts. report.service excludes it the same way.
 
-   channels:$ne 'transcript' drops the talk transcript, which is saved as non-agent
-   messages on the 'transcript' channel. Those are the speaker's spoken words, not live
-   chat, so fromAgent:false alone would still count them as live participant chat and
-   inflate the poster and message counts. report.service excludes it the same way.
-
-   visible:true drops backchannel and hidden messages, so only messages a person actually
-   sent in the open are counted. visible is required and defaults to true, so a real chat
-   message always carries it. This intentionally counts replies (parentMessage set) too,
-   unlike Conversation.messageCount, which counts only top-level posts: a threaded reply is
-   still a message a participant sent, and an engagement recap should reflect every one. */
+   visible:true drops backchannel and hidden messages. Replies (parentMessage set) do count,
+   unlike Conversation.messageCount, which counts only top-level posts. */
 const visibleHumanFilter = { fromAgent: false, visible: true, channels: { $ne: 'transcript' } }
 
 /* A chat spike is a window holding at least this many times the messages of the
@@ -84,8 +88,54 @@ export interface TimedActivityBucket {
 const BASELINE_EVENT_LIMIT = 10
 
 /* A handful of posters. Below this, naming a "few voices dominated" share is
-   meaningless, so the frequent-poster share is reported as null instead. */
+   meaningless, so the frequent-poster share is reported as null instead. Shared with
+   the participation-concentration share, which becomes trivial in the same small room. */
 const FREQUENT_POSTER_MIN_POSTERS = 5
+
+/* How many top posters the concentration share covers. A fixed few, so it measures a tight
+   core regardless of room size, unlike the frequent-poster share, which is the top 10% and so
+   widens with the crowd. */
+const CONCENTRATION_TOP_POSTERS = 3
+
+/* Fixed posterCount tiers a peer cohort is bucketed by (see PeerBaseline). Deliberately small:
+   this platform's largest events run at most 75-100 attendees, so a "large" event here is
+   nowhere near a large public conference. */
+const ATTENDANCE_BAND_MAX: { name: AttendanceBand; max: number | null }[] = [
+  { name: 'tiny', max: 9 },
+  { name: 'small', max: 24 },
+  { name: 'medium', max: 49 },
+  { name: 'large', max: null }
+]
+
+/* Buckets a posterCount into its attendance band. Exported so the same bucketing that builds a
+   peer cohort can also be asserted on directly, without needing a live query. */
+export function attendanceBandFor(posterCount: number): AttendanceBand {
+  const band = ATTENDANCE_BAND_MAX.find((candidate) => candidate.max === null || posterCount <= candidate.max)
+  return band!.name
+}
+
+/* The posterCount range (inclusive) for a given band, used to build the peer cohort query. */
+function attendanceBandRange(band: AttendanceBand): { min: number; max: number | null } {
+  const index = ATTENDANCE_BAND_MAX.findIndex((candidate) => candidate.name === band)
+  const min = index === 0 ? 0 : ATTENDANCE_BAND_MAX[index - 1].max! + 1
+  return { min, max: ATTENDANCE_BAND_MAX[index].max }
+}
+
+/* At most this many recent peers make up a cohort average, the same span as the same-topic
+   baseline (BASELINE_EVENT_LIMIT), so neither reads as more current than the other. */
+const PEER_COHORT_EVENT_LIMIT = 10
+
+/* Below this many qualifying public peers, a cohort average would read as more authoritative
+   than a 1- or 2-event sample actually is, so the baseline is reported as null instead (the
+   same "thin data reports null" precedent as the same-topic baseline and the frequent-poster
+   share). */
+const PEER_COHORT_MIN_EVENTS = 3
+
+/* How many raw candidates to pull before the privacy filter runs. Generous relative to
+   PEER_COHORT_EVENT_LIMIT because some candidates will belong to a private topic and get
+   dropped, and the candidates are already sorted newest-first so the final slice after
+   filtering is still the most recent qualifying peers. */
+const PEER_COHORT_CANDIDATE_LIMIT = 50
 
 function average(values: number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length
@@ -409,12 +459,175 @@ export function attributeSpikeSources(
   })
 }
 
-/* Counts how many times participants called on the event's configured assistant by
-   name. It reads people's chat messages, the channel where the assistant is summoned,
-   and matches each against the bot name the same fuzzy way the assistant itself does,
-   so a misspelled or @-prefixed name still counts. The name comes from the event's
-   configuration and falls back to the platform default, so a renamed assistant is
-   still counted correctly. */
+/* Seconds from the event start to the first human message on each surface: the public group
+   chat and the private one-to-one with the bot. A message is private when one of its channels
+   is a direct channel, the same split computeChannelSplit uses. Pure over the already-fetched
+   human messages (fromAgent:false, so the bot's intro never counts), the resolved direct-channel
+   names, and the event start. A surface with no timestamped message is null; both are null when
+   the start is unknown; a message sent before the start clamps to 0 rather than reporting
+   negative time. */
+export function computeTimeToFirstMessage(
+  messages: { createdAt?: Date; channels?: string[] }[],
+  directNames: Set<string>,
+  startTime: Date | undefined
+): TimeToFirstMessage {
+  if (startTime === undefined) return { publicSeconds: null, privateSeconds: null }
+  const startMs = startTime.getTime()
+
+  let firstPublicMs: number | null = null
+  let firstPrivateMs: number | null = null
+  for (const message of messages) {
+    if (!(message.createdAt instanceof Date)) continue
+    const sentMs = message.createdAt.getTime()
+    const isPrivate = (message.channels ?? []).some((name) => directNames.has(name))
+    if (isPrivate) {
+      if (firstPrivateMs === null || sentMs < firstPrivateMs) firstPrivateMs = sentMs
+    } else if (firstPublicMs === null || sentMs < firstPublicMs) {
+      firstPublicMs = sentMs
+    }
+  }
+
+  const toSeconds = (firstMs: number | null): number | null =>
+    firstMs === null ? null : Math.max(0, Math.round((firstMs - startMs) / 1000))
+
+  return { publicSeconds: toSeconds(firstPublicMs), privateSeconds: toSeconds(firstPrivateMs) }
+}
+
+/* The median of a list of numbers, or null when the list is empty. Averages the two middle
+   values for an even count and takes the middle one for an odd count. */
+function median(values: number[]): number | null {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+}
+
+/* Reply speed, measured over threaded human replies (parentMessage) so a burst of unrelated
+   messages is never read as a fast conversation. For each human message that drew at least one
+   reply from another human, it takes the gap to that message's first reply, then reports the
+   median of those gaps and how many messages were replied to. A reply whose parent is not in the
+   human set (e.g. a reply to the bot) is skipped, since the gap would not be one person answering
+   another. Null median with a zero count when nothing was a reply. Pure over the already-fetched
+   human messages. */
+export function computeReplyLatency(messages: { _id?: unknown; createdAt?: Date; parentMessage?: unknown }[]): ReplyLatency {
+  const idOf = (ref: unknown): string => String((ref as { _id?: unknown })?._id ?? ref)
+
+  const createdAtById = new Map<string, number>()
+  for (const message of messages) {
+    if (message._id != null && message.createdAt instanceof Date) {
+      createdAtById.set(idOf(message._id), message.createdAt.getTime())
+    }
+  }
+
+  const firstReplyByParent = new Map<string, number>()
+  for (const message of messages) {
+    if (!(message.createdAt instanceof Date) || message.parentMessage == null) continue
+    const parentId = idOf(message.parentMessage)
+    if (!createdAtById.has(parentId)) continue
+    const replyMs = message.createdAt.getTime()
+    const existing = firstReplyByParent.get(parentId)
+    if (existing === undefined || replyMs < existing) firstReplyByParent.set(parentId, replyMs)
+  }
+
+  const gaps: number[] = []
+  for (const [parentId, replyMs] of firstReplyByParent) {
+    gaps.push(Math.max(0, Math.round((replyMs - (createdAtById.get(parentId) as number)) / 1000)))
+  }
+
+  return { medianSecondsToFirstReply: median(gaps), repliedMessageCount: gaps.length }
+}
+
+/* Participation concentration over the already-fetched human messages: how much of the chat came
+   from the busiest few posters, and how many people posted only once. Groups by person the same
+   way participation does, so the poster counts reconcile. topPosterMessageShare is null below
+   FREQUENT_POSTER_MIN_POSTERS posters, where a top-few share covers nearly the whole room and
+   says nothing. Pure over the fetched messages. */
+export function computeParticipationConcentration(
+  messages: { owner?: unknown; pseudonymId?: unknown }[]
+): ParticipationConcentration {
+  const countBySender = new Map<string, number>()
+  for (const message of messages) {
+    const sender = senderKey(message)
+    if (sender === null) continue
+    countBySender.set(sender, (countBySender.get(sender) ?? 0) + 1)
+  }
+
+  const counts = [...countBySender.values()].sort((a, b) => b - a)
+  const posterCount = counts.length
+  const messageCount = counts.reduce((sum, count) => sum + count, 0)
+
+  const oneTimePosterCount = counts.filter((count) => count === 1).length
+  const repeatPosterCount = posterCount - oneTimePosterCount
+
+  const topPosterCount = Math.min(CONCENTRATION_TOP_POSTERS, posterCount)
+  const topMessages = counts.slice(0, topPosterCount).reduce((sum, count) => sum + count, 0)
+  const topPosterMessageShare =
+    posterCount >= FREQUENT_POSTER_MIN_POSTERS && messageCount > 0 ? topMessages / messageCount : null
+
+  return { topPosterCount, topPosterMessageShare, oneTimePosterCount, repeatPosterCount }
+}
+
+/* The shape of threaded conversation over the already-fetched human messages, read from their
+   parentMessage links. Builds a forest, where anything without a parent in the human set (a reply
+   to the bot, say) becomes a root, then walks each root's subtree for size and depth. A root
+   counts as a thread only once it has a reply, so a lone unanswered post is not one. Pure over
+   the fetched messages. */
+export function computeInteractionStructure(messages: { _id?: unknown; parentMessage?: unknown }[]): InteractionStructure {
+  const idOf = (ref: unknown): string => String((ref as { _id?: unknown })?._id ?? ref)
+
+  const inSet = new Set<string>()
+  for (const message of messages) {
+    if (message._id != null) inSet.add(idOf(message._id))
+  }
+
+  const childrenByParent = new Map<string, string[]>()
+  const roots: string[] = []
+  for (const message of messages) {
+    if (message._id == null) continue
+    const id = idOf(message._id)
+    const parentId = message.parentMessage != null ? idOf(message.parentMessage) : null
+    if (parentId !== null && inSet.has(parentId)) {
+      const siblings = childrenByParent.get(parentId) ?? []
+      siblings.push(id)
+      childrenByParent.set(parentId, siblings)
+    } else {
+      roots.push(id)
+    }
+  }
+
+  const threadSizes: number[] = []
+  let maxReplyDepth = 0
+  for (const root of roots) {
+    let size = 0
+    let depth = 0
+    // Real threads are acyclic, so the visited guard only stops a malformed link looping forever.
+    const visited = new Set<string>()
+    const stack: { id: string; level: number }[] = [{ id: root, level: 0 }]
+    while (stack.length > 0) {
+      const { id, level } = stack.pop()!
+      if (visited.has(id)) continue
+      visited.add(id)
+      size += 1
+      if (level > depth) depth = level
+      for (const child of childrenByParent.get(id) ?? []) {
+        stack.push({ id: child, level: level + 1 })
+      }
+    }
+
+    if (size >= 2) {
+      threadSizes.push(size)
+      if (depth > maxReplyDepth) maxReplyDepth = depth
+    }
+  }
+
+  return {
+    threadCount: threadSizes.length,
+    maxThreadSize: threadSizes.length > 0 ? Math.max(...threadSizes) : 0,
+    medianThreadSize: median(threadSizes),
+    maxReplyDepth
+  }
+}
+
 /* Pulls the human-readable text out of a message body. A plain chat message stores a
    string body; a rich or multimodal one stores an object whose typed text lives under
    `text`, the same shape report.service reads. Returns '' for anything without text
@@ -428,6 +641,149 @@ function messageText(body: unknown): string {
   return ''
 }
 
+/* What the on-demand computations need to read off one human message. Every field is optional
+   because each computation only narrows on what its filter asked for. */
+interface FilterableMessage {
+  createdAt?: Date
+  channels?: string[]
+  owner?: unknown
+  pseudonymId?: unknown
+  body?: unknown
+}
+
+/* What a filter is resolved against: the event's start (so an elapsed-minute window has an
+   origin) and the direct-channel names (so public and private can be told apart). */
+interface MessageFilterContext {
+  startTime?: Date
+  directNames: Set<string>
+}
+
+/* How many words a message body holds, reading the text the same way computeBotInvocations does
+   so a rich or multimodal body is measured, not skipped. Only the count leaves this function;
+   the text itself never does. */
+function wordCount(body: unknown): number {
+  const text = messageText(body).trim()
+  return text === '' ? 0 : text.split(/\s+/).length
+}
+
+/**
+ * Loads one event's human messages for an on-demand computation, alongside the direct-channel
+ * names a filter needs to tell a private one-to-one with the bot from the public chat. It reads
+ * the same message set every other metric counts (visibleHumanFilter), so an on-demand number
+ * always reconciles with the precomputed ones. It selects the message body too, unlike the
+ * metrics query, since a length filter has to measure it; only word counts are ever derived
+ * from it, and no message text leaves the computations that read it.
+ */
+export async function loadMessagesForOnDemandMetrics(
+  conversationId
+): Promise<{ messages: FilterableMessage[]; directNames: Set<string> }> {
+  const messages = await Message.find({ conversation: conversationId, ...visibleHumanFilter })
+    .select('createdAt channels owner pseudonymId body')
+    .sort({ createdAt: 1 })
+  const channelNames = [...new Set(messages.flatMap((message) => message.channels ?? []))]
+  return { messages, directNames: await resolveDirectNames(channelNames) }
+}
+
+/**
+ * Narrows an event's human messages to the slice a question asks about: a time window, a
+ * surface, a minimum length, or any combination. An omitted filter field narrows nothing, so
+ * an empty filter returns every message. The window runs from fromMinute (inclusive) to
+ * toMinute (exclusive) past the event start, the same bounds the activity buckets and spikes
+ * use, and falls back to the first message's timestamp when the event start is unknown, as
+ * attributeSpikeSources does. A message with no timestamp is dropped only when a window was
+ * asked for, since it cannot be placed on the timeline. Pure over the already-fetched messages.
+ */
+export function filterEventMessages<T extends FilterableMessage>(
+  messages: T[],
+  filter: MessageMetricFilter,
+  context: MessageFilterContext
+): T[] {
+  const { fromMinute, toMinute, channel, minWordCount } = filter
+  const wantsWindow = fromMinute != null || toMinute != null
+  const startMs = (context.startTime ?? messages.find((message) => message.createdAt instanceof Date)?.createdAt)?.getTime()
+
+  return messages.filter((message) => {
+    if (wantsWindow) {
+      if (!(message.createdAt instanceof Date) || startMs === undefined) return false
+      const elapsedMinutes = (message.createdAt.getTime() - startMs) / 60000
+      if (fromMinute != null && elapsedMinutes < fromMinute) return false
+      if (toMinute != null && elapsedMinutes >= toMinute) return false
+    }
+
+    if (channel != null && channel !== 'all') {
+      const isPrivate = (message.channels ?? []).some((name) => context.directNames.has(name))
+      if (channel === 'private' && !isPrivate) return false
+      if (channel === 'public' && isPrivate) return false
+    }
+
+    if (minWordCount != null && wordCount(message.body) < minWordCount) return false
+
+    return true
+  })
+}
+
+/**
+ * How much was said in one slice of an event, by how many different people, and how many of
+ * them cleared a message threshold. Posters are grouped per person the same way participation
+ * groups them (owner, else pseudonymId; a message with neither is dropped from the poster
+ * count), so a count over the whole event reconciles with participation.posterCount.
+ * postersAtOrAboveThreshold answers "how many people posted more than a few times", which no
+ * precomputed metric reports (participation counts the top tenth, not a fixed threshold); it is
+ * null when no threshold was asked for.
+ */
+export function countMessageActivity(
+  messages: FilterableMessage[],
+  filter: MessageMetricFilter,
+  minMessages: number | null,
+  context: MessageFilterContext
+): MessageActivityCount {
+  const matched = filterEventMessages(messages, filter, context)
+
+  const countBySender = new Map<string, number>()
+  for (const message of matched) {
+    const sender = senderKey(message)
+    if (sender === null) continue
+    countBySender.set(sender, (countBySender.get(sender) ?? 0) + 1)
+  }
+
+  const counts = [...countBySender.values()]
+  return {
+    messageCount: matched.length,
+    posterCount: counts.length,
+    postersAtOrAboveThreshold: minMessages == null ? null : counts.filter((count) => count >= minMessages).length
+  }
+}
+
+/**
+ * How long one slice's messages were, in words: the typical length and the longest. Answers
+ * whether a room traded one-word reactions or worked through longer thoughts, without any
+ * message text leaving the computation. Both statistics are null when the slice is empty, so
+ * nothing reads as zero-word messages where there were simply no messages.
+ */
+export function computeMessageLengthStats(
+  messages: FilterableMessage[],
+  filter: MessageMetricFilter,
+  context: MessageFilterContext
+): MessageLengthStats {
+  const lengths = filterEventMessages(messages, filter, context).map((message) => wordCount(message.body))
+
+  if (lengths.length === 0) {
+    return { messageCount: 0, medianWordCount: null, longestWordCount: null }
+  }
+
+  return {
+    messageCount: lengths.length,
+    medianWordCount: median(lengths),
+    longestWordCount: Math.max(...lengths)
+  }
+}
+
+/* Counts how many times participants called on the event's configured assistant by
+   name. It reads people's chat messages, the channel where the assistant is summoned,
+   and matches each against the bot name the same fuzzy way the assistant itself does,
+   so a misspelled or @-prefixed name still counts. The name comes from the event's
+   configuration and falls back to the platform default, so a renamed assistant is
+   still counted correctly. */
 async function computeBotInvocations(conversation): Promise<BotInvocations> {
   const botName = conversation.properties?.botName || config.conversationBotName
   /* visible:true matches every other human count (see visibleHumanFilter): a hidden or
@@ -611,6 +967,144 @@ async function computeHistoryAndBaseline(
   return { participationHistory, baseline }
 }
 
+/* Builds this event's cross-topic peer comparison (see PeerBaseline). A peer can come from any
+   topic, so its numbers are only safe to read into another topic's card when that peer's topic is
+   public, the same privacy gate summon and trend enforce (toPublicCandidates in
+   vibesAnalyst/eventResolution). Queries candidate snapshots by band, platform, and metrics
+   version, then joins to Conversation and Topic to drop private ones. Returns null when fewer
+   than PEER_COHORT_MIN_EVENTS public peers qualify. */
+async function computePeerBaseline(
+  conversation,
+  current: { posterCount: number; eventPlatform: EventPlatform }
+): Promise<PeerBaseline | null> {
+  const band = attendanceBandFor(current.posterCount)
+  const { min, max } = attendanceBandRange(band)
+  const posterCountFilter: Record<string, number> = { $gte: min }
+  if (max !== null) posterCountFilter.$lte = max
+
+  const candidates = await ConversationMetricsSnapshot.find({
+    conversationId: { $ne: conversation._id },
+    metricsVersion: METRICS_VERSION,
+    platform: current.eventPlatform,
+    posterCount: posterCountFilter,
+    endTime: { $exists: true, $ne: null }
+  })
+    .sort({ endTime: -1 })
+    .limit(PEER_COHORT_CANDIDATE_LIMIT)
+    .select('conversationId posterCount participationRate participationConcentration')
+
+  if (candidates.length === 0) return null
+
+  const candidateConversations = await Conversation.find({ _id: { $in: candidates.map((c) => c.conversationId) } })
+    .populate('topic')
+    .select('topic')
+  const publicConversationIds = new Set(
+    candidateConversations
+      .filter((candidate) => candidate.topic?.private === false)
+      .map((candidate) => candidate._id.toString())
+  )
+
+  const publicPeers = candidates
+    .filter((candidate) => publicConversationIds.has(candidate.conversationId.toString()))
+    .slice(0, PEER_COHORT_EVENT_LIMIT)
+
+  if (publicPeers.length < PEER_COHORT_MIN_EVENTS) return null
+
+  const posterCounts = publicPeers.map((peer) => peer.posterCount)
+  const participationRates = publicPeers
+    .map((peer) => peer.participationRate)
+    .filter((rate): rate is number => rate !== null && rate !== undefined)
+  const topPosterShares = publicPeers
+    .map((peer) => peer.participationConcentration?.topPosterMessageShare)
+    .filter((share): share is number => share !== null && share !== undefined)
+
+  return {
+    band,
+    eventCount: publicPeers.length,
+    avgPosterCount: average(posterCounts),
+    avgParticipationRate: participationRates.length ? average(participationRates) : null,
+    participationRateEventCount: participationRates.length,
+    avgTopPosterMessageShare: topPosterShares.length ? average(topPosterShares) : null,
+    concentrationEventCount: topPosterShares.length
+  }
+}
+
+const TOP_DEVIATIONS_LIMIT = 5
+
+/* Adds one deviation signal when both sides of the comparison are available. Skipped when
+   either side is null (nothing to compare, or the metric was not available today) or when
+   comparedTo is 0, since dividing by a zero average produces an unusable percent difference
+   rather than a real signal. */
+function pushDeviation(
+  signals: DeviationSignal[],
+  metric: DeviationSignal['metric'],
+  comparison: DeviationSignal['comparison'],
+  tier: DeviationSignal['tier'],
+  value: number | null,
+  comparedTo: number | null
+): void {
+  if (value === null || comparedTo === null || comparedTo === 0) return
+  const percentDifference = (value - comparedTo) / comparedTo
+  signals.push({
+    metric,
+    comparison,
+    tier,
+    value,
+    comparedTo,
+    percentDifference,
+    direction: percentDifference >= 0 ? 'above' : 'below'
+  })
+}
+
+/* Ranks every metric that has a comparison average by how far today's value sits from it,
+   largest percent difference first, capped at TOP_DEVIATIONS_LIMIT. This is the deterministic
+   alternative to letting the curator guess at what is notable from the raw numbers alone: it
+   surfaces the actual outliers, from either this topic's own recent history (baseline) or
+   public peer events of the same size and platform (peerBaseline). Every comparison the two
+   baselines support is checked; whichever ones are missing (no baseline yet, too thin a peer
+   cohort, a null participation rate) are simply left out rather than guessed at. */
+export function computeTopDeviations(
+  today: {
+    posterCount: number
+    participationRate: number | null
+    topPosterMessageShare: number | null
+    lurkerCount: number | null
+    avgDwellSeconds: number | null
+  },
+  baseline: SameTopicBaseline | null,
+  peerBaseline: PeerBaseline | null
+): DeviationSignal[] {
+  const signals: DeviationSignal[] = []
+
+  if (baseline) {
+    pushDeviation(signals, 'posterCount', 'topicBaseline', 'exact', today.posterCount, baseline.avgPosterCount)
+    pushDeviation(signals, 'lurkerCount', 'topicBaseline', 'exact', today.lurkerCount, baseline.avgLurkerCount)
+    pushDeviation(signals, 'avgDwellSeconds', 'topicBaseline', 'estimate', today.avgDwellSeconds, baseline.avgDwellSeconds)
+  }
+
+  if (peerBaseline) {
+    pushDeviation(signals, 'posterCount', 'peerBaseline', 'exact', today.posterCount, peerBaseline.avgPosterCount)
+    pushDeviation(
+      signals,
+      'participationRate',
+      'peerBaseline',
+      'exact',
+      today.participationRate,
+      peerBaseline.avgParticipationRate
+    )
+    pushDeviation(
+      signals,
+      'topPosterMessageShare',
+      'peerBaseline',
+      'exact',
+      today.topPosterMessageShare,
+      peerBaseline.avgTopPosterMessageShare
+    )
+  }
+
+  return signals.sort((a, b) => Math.abs(b.percentDifference) - Math.abs(a.percentDifference)).slice(0, TOP_DEVIATIONS_LIMIT)
+}
+
 /* True when the event names at least one analytics source to pull data from.
    analyticsRefs can arrive as a Mongoose Map or a plain object, so we handle both.
    This is how we tell "no data because nothing was tracked" apart from "no data
@@ -674,13 +1168,17 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
     conversation: conversation._id,
     ...visibleHumanFilter
   })
-    .select('createdAt channels owner pseudonymId')
+    .select('createdAt channels owner pseudonymId parentMessage')
     .sort({ createdAt: 1 })
   const channelNames = [...new Set(humanMessages.flatMap((message) => message.channels ?? []))]
   const directNames = await resolveDirectNames(channelNames)
   const activityBuckets = bucketMessagesOverTime(humanMessages, conversation.startTime, conversation.endTime)
   const channelSplit = computeChannelSplit(humanMessages, directNames)
   const privateMessaging = computePrivateMessaging(humanMessages, directNames, participation.posterCount)
+  const timeToFirstMessage = computeTimeToFirstMessage(humanMessages, directNames, conversation.startTime)
+  const replyLatency = computeReplyLatency(humanMessages)
+  const participationConcentration = computeParticipationConcentration(humanMessages)
+  const interactionStructure = computeInteractionStructure(humanMessages)
   const spikes = attributeSpikeSources(
     computeSpikes(activityBuckets, participation.posterCount),
     humanMessages,
@@ -692,6 +1190,19 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
     posterCount: participation.posterCount,
     lurkerCount: audienceEngagement.lurkerCount
   })
+  const eventPlatform = deriveEventPlatform(conversation)
+  const peerBaseline = await computePeerBaseline(conversation, { posterCount: participation.posterCount, eventPlatform })
+  const topDeviations = computeTopDeviations(
+    {
+      posterCount: participation.posterCount,
+      participationRate: audienceEngagement.participationRate,
+      topPosterMessageShare: participationConcentration.topPosterMessageShare,
+      lurkerCount: audienceEngagement.lurkerCount,
+      avgDwellSeconds: trackedSessionSources[0]?.avgDwellSeconds ?? null
+    },
+    baseline,
+    peerBaseline
+  )
 
   return {
     participation,
@@ -702,11 +1213,17 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
     spikes,
     participationHistory,
     baseline,
+    peerBaseline,
+    topDeviations,
     channelSplit,
     privateMessaging,
+    timeToFirstMessage,
+    replyLatency,
+    participationConcentration,
+    interactionStructure,
     botInvocations,
     resourceSummary: computeResourceSummary(conversation),
-    eventPlatform: deriveEventPlatform(conversation),
+    eventPlatform,
     // Filled by the Vibes Analyst from message content; the service leaves it empty.
     receptions: []
   }
