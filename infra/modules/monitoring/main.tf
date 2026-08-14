@@ -10,7 +10,7 @@
 # it's worth committing to Terraform.
 
 resource "google_monitoring_dashboard" "overview" {
-  project        = var.project_id
+  project = var.project_id
   dashboard_json = jsonencode({
     displayName = "llm_engine — split infra overview"
     gridLayout = {
@@ -21,7 +21,7 @@ resource "google_monitoring_dashboard" "overview" {
             dataSets = [{
               timeSeriesQuery = {
                 timeSeriesFilter = {
-                  filter = "resource.type=\"instance_group\" AND resource.label.\"instance_group_name\"=\"${var.mig_name}\" AND metric.type=\"compute.googleapis.com/instance_group/size\""
+                  filter      = "resource.type=\"instance_group\" AND resource.label.\"instance_group_name\"=\"${var.mig_name}\" AND metric.type=\"compute.googleapis.com/instance_group/size\""
                   aggregation = { alignmentPeriod = "60s", perSeriesAligner = "ALIGN_MEAN" }
                 }
               }
@@ -38,7 +38,7 @@ resource "google_monitoring_dashboard" "overview" {
                   # module applies to its instance template — there's no
                   # automatic "which MIG is this instance in" resource
                   # label on gce_instance itself.
-                  filter = "resource.type=\"gce_instance\" AND metadata.user_labels.\"component\"=\"web-server\" AND metric.type=\"compute.googleapis.com/instance/cpu/utilization\""
+                  filter      = "resource.type=\"gce_instance\" AND metadata.user_labels.\"component\"=\"web-server\" AND metric.type=\"compute.googleapis.com/instance/cpu/utilization\""
                   aggregation = { alignmentPeriod = "60s", perSeriesAligner = "ALIGN_MEAN" }
                 }
               }
@@ -51,7 +51,7 @@ resource "google_monitoring_dashboard" "overview" {
             dataSets = [{
               timeSeriesQuery = {
                 timeSeriesFilter = {
-                  filter = "metric.type=\"custom.googleapis.com/app/concurrent_connections\""
+                  filter      = "metric.type=\"custom.googleapis.com/app/concurrent_connections\""
                   aggregation = { alignmentPeriod = "60s", perSeriesAligner = "ALIGN_MEAN" }
                 }
               }
@@ -64,7 +64,7 @@ resource "google_monitoring_dashboard" "overview" {
             dataSets = [{
               timeSeriesQuery = {
                 timeSeriesFilter = {
-                  filter = "resource.type=\"gce_instance\" AND resource.label.\"instance_id\"!=\"\" AND metadata.system_labels.\"name\"=\"${var.chroma_instance_name}\" AND metric.type=\"compute.googleapis.com/instance/cpu/utilization\""
+                  filter      = "resource.type=\"gce_instance\" AND resource.label.\"instance_id\"!=\"\" AND metadata.system_labels.\"name\"=\"${var.chroma_instance_name}\" AND metric.type=\"compute.googleapis.com/instance/cpu/utilization\""
                   aggregation = { alignmentPeriod = "60s", perSeriesAligner = "ALIGN_MEAN" }
                 }
               }
@@ -77,7 +77,7 @@ resource "google_monitoring_dashboard" "overview" {
             dataSets = [{
               timeSeriesQuery = {
                 timeSeriesFilter = {
-                  filter = "resource.type=\"gce_instance\" AND metadata.system_labels.\"name\"=\"${var.chroma_instance_name}\" AND metric.type=\"agent.googleapis.com/memory/percent_used\""
+                  filter      = "resource.type=\"gce_instance\" AND metadata.system_labels.\"name\"=\"${var.chroma_instance_name}\" AND metric.type=\"agent.googleapis.com/memory/percent_used\""
                   aggregation = { alignmentPeriod = "60s", perSeriesAligner = "ALIGN_MEAN" }
                 }
               }
@@ -103,11 +103,21 @@ resource "google_monitoring_alert_policy" "mig_scale_up_frequency" {
       threshold_value = 1 # min replicas — see webserver-mig module; revisit once real traffic data exists
       duration        = "0s"
       aggregations {
-        alignment_period   = "300s"
-        per_series_aligner = "ALIGN_DELTA"
+        alignment_period = "300s"
+        # compute.googleapis.com/instance_group/size is a GAUGE/INT64 metric —
+        # ALIGN_DELTA (rate-of-change aligners) only applies to DELTA/CUMULATIVE
+        # metrics and was rejected outright by the API. ALIGN_MAX catches any
+        # spike above min_replicas within each 5-minute window instead.
+        per_series_aligner = "ALIGN_MAX"
       }
       trigger {
-        count = 3 # 3 scale-events within the alignment window
+        # NOTE: this filter matches one specific instance_group_name, so
+        # there's only ever one time series — `count` here is "how many
+        # series must violate simultaneously," which a single-series filter
+        # can never satisfy at count=3. Left as-is (not the bug this fix
+        # targets); revisit alongside the threshold/duration tuning already
+        # flagged above once real traffic data exists.
+        count = 3
       }
     }
   }
