@@ -11,7 +11,7 @@ import logger from '../../config/logger.js'
 import adapterService from '../adapter.service.js'
 import { getChatPromptResponse } from '../../agents/helpers/llmChain.js'
 import { coreLLMModel, coreLLMPlatform, getModelChat } from '../../agents/helpers/getModelChat.js'
-import { Conversation, User } from '../../models/index.js'
+import { Channel, Conversation, User } from '../../models/index.js'
 import { formatTranscript, formatMultiUserConversationHistory } from '../../agents/helpers/llmInputFormatters.js'
 import getConversationHistory from '../../agents/helpers/getConversationHistory.js'
 import Poll from '../../models/poll.model/poll.js'
@@ -19,6 +19,8 @@ import { getConversationType } from '../../conversations/index.js'
 import { isValidPropertyFormat } from '../../conversations/propertyFormats.js'
 
 const transcriptBatchInterval = 30
+const autoStopCheckInterval = 5 * 60
+const autoStopGracePeriod = 15 * 60
 const SUMMARIZATION_PROMPT = `
   Please summarize what happened during this conversation. Where possible, also draw conclusions about outcomes of the discussion.
   When available, use as reference the listed speaker(s), moderator(s) and their bios, and event description.
@@ -57,6 +59,15 @@ async function scheduleTranscriptBatching(conversation) {
   await schedule.cancelBatchTranscript(conversation._id)
   await defineJob.batchTranscript(conversation._id)
   await schedule.batchTranscript(`${transcriptBatchInterval} seconds`, { conversationId: conversation._id })
+}
+
+async function scheduleAutoStop(conversation) {
+  const hasTranscriptChannel = await Channel.exists({ _id: { $in: conversation.channels }, name: 'transcript' })
+  if (!hasTranscriptChannel) return
+  await schedule.cancelAutoStopConversation(conversation._id)
+  await defineJob.autoStopConversation(conversation._id)
+  const firstCheckAt = new Date(Date.now() + autoStopGracePeriod * 1000)
+  await schedule.autoStopConversation(`${autoStopCheckInterval} seconds`, { conversationId: conversation._id }, firstCheckAt)
 }
 
 /**
@@ -125,6 +136,7 @@ export async function doStartConversation(conversation) {
     await agentService.startAgent(agent)
   }
   await scheduleTranscriptBatching(doc)
+  await scheduleAutoStop(doc)
   for (const adapter of doc.adapters) {
     adapter.conversation = doc
     await adapterService.start(adapter)
@@ -144,6 +156,7 @@ export async function doStopConversation(conversation) {
     await agentService.stopAgent(agent)
   }
   await schedule.cancelBatchTranscript(doc._id)
+  await schedule.cancelAutoStopConversation(doc._id)
   const activePolls = await Poll.find({ conversation: doc._id, expirationDate: { $gt: new Date() } }, '_id')
   await Promise.all(activePolls.map((poll) => schedule.cancelPollExpired(poll._id.toString())))
   for (const adapter of doc.adapters) {

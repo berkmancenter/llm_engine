@@ -1,4 +1,5 @@
-import { Conversation } from '../../../src/models/index.js'
+import mongoose from 'mongoose'
+import { Conversation, Message } from '../../../src/models/index.js'
 import { publicTopic, conversationOne } from '../../fixtures/conversation.fixture.js'
 import { insertTopics } from '../../fixtures/topic.fixture.js'
 import { insertUsers, userOne } from '../../fixtures/user.fixture.js'
@@ -63,11 +64,13 @@ describe('conversation handler tests', () => {
   })
 
   describe('autoStopConversation', () => {
+    const startedLongAgo = new Date(Date.now() - 20 * 60 * 1000) // 20 min ago, past NEVER_STARTED_TIMEOUT_MS
+
     beforeEach(async () => {
-      await Conversation.findByIdAndUpdate(conversation._id, { active: true, startTime: new Date() })
+      await Conversation.findByIdAndUpdate(conversation._id, { active: true, startTime: startedLongAgo })
     })
 
-    test('should stop an active conversation', async () => {
+    test('stops when no transcript messages exist (never-started case)', async () => {
       await JobHandlers.autoStopConversation({ attrs: { data: { conversationId: conversation._id } } })
 
       const updated = await Conversation.findById(conversation._id)
@@ -75,16 +78,41 @@ describe('conversation handler tests', () => {
       expect(updated!.endTime).toBeDefined()
     })
 
-    test('should skip if conversation is already inactive', async () => {
-      await Conversation.findByIdAndUpdate(conversation._id, { active: false })
+    test('stops when last transcript message is older than IDLE_TIMEOUT_MS', async () => {
+      await Message.create({
+        conversation: conversation._id,
+        channels: ['transcript'],
+        body: 'hello',
+        pseudonym: 'Speaker',
+        pseudonymId: new mongoose.Types.ObjectId(),
+        createdAt: new Date(Date.now() - 6 * 60 * 1000) // 6 min ago
+      })
 
       await JobHandlers.autoStopConversation({ attrs: { data: { conversationId: conversation._id } } })
 
       const updated = await Conversation.findById(conversation._id)
+      expect(updated!.active).toBe(false)
+      expect(updated!.endTime).toBeDefined()
+    })
+
+    test('does not stop when a recent transcript message exists', async () => {
+      await Message.create({
+        conversation: conversation._id,
+        channels: ['transcript'],
+        body: 'hello',
+        pseudonym: 'Speaker',
+        pseudonymId: new mongoose.Types.ObjectId(),
+        createdAt: new Date(Date.now() - 60 * 1000) // 1 min ago
+      })
+
+      await JobHandlers.autoStopConversation({ attrs: { data: { conversationId: conversation._id } } })
+
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.active).toBe(true)
       expect(updated!.endTime).toBeUndefined()
     })
 
-    test('should not throw if conversation not found', async () => {
+    test('does not throw if conversation not found', async () => {
       const fakeId = '000000000000000000000000'
       await expect(JobHandlers.autoStopConversation({ attrs: { data: { conversationId: fakeId } } })).resolves.not.toThrow()
     })

@@ -1,11 +1,12 @@
 import logger from '../../config/logger.js'
-import { Conversation } from '../../models/index.js'
+import { Conversation, Message } from '../../models/index.js'
 import {
   doConversationEndingSoon,
   doStartConversation,
   doStopConversation
 } from '../../services/conversation.service/lifecycle.js'
-import websocketGateway from '../../websockets/websocketGateway.js'
+
+const IDLE_TIMEOUT_MS = 5 * 60 * 1000
 
 const autoStartConversation = async (job) => {
   const { conversationId } = job.attrs.data
@@ -26,25 +27,6 @@ const autoStartConversation = async (job) => {
   }
 }
 
-const autoStopConversation = async (job) => {
-  const { conversationId } = job.attrs.data
-  try {
-    const conversation = await Conversation.findOne({ _id: conversationId })
-    if (!conversation) {
-      logger.warn(`Auto-stop: conversation ${conversationId} not found`)
-      return
-    }
-    if (!conversation.active) {
-      logger.debug(`Auto-stop: conversation ${conversationId} already inactive, skipping`)
-      return
-    }
-    await conversation.populate(['topic', 'agents', 'adapters'])
-    await doStopConversation(conversation)
-  } catch (err) {
-    logger.error(`Auto-stop failed for conversation ${conversationId}`, err)
-  }
-}
-
 const conversationEndingSoon = async (job) => {
   const { conversationId } = job.attrs.data
   try {
@@ -60,6 +42,40 @@ const conversationEndingSoon = async (job) => {
     await doConversationEndingSoon(conversation)
   } catch (err) {
     logger.error(`Conversation ending soon failed for conversation ${conversationId}`, err)
+  }
+}
+
+const autoStopConversation = async (job) => {
+  const { conversationId } = job.attrs.data
+  try {
+    const conversation = await Conversation.findOne({ _id: conversationId })
+    if (!conversation) {
+      logger.warn(`autoStop: conversation ${conversationId} not found`)
+      return
+    }
+
+    const now = Date.now()
+    const lastTranscriptMessage = await Message.findOne({
+      conversation: conversationId,
+      channels: { $in: ['transcript'] }
+    })
+      .sort({ createdAt: -1 })
+      .select('createdAt')
+      .lean()
+
+    const shouldStop = !lastTranscriptMessage || now - (lastTranscriptMessage.createdAt?.getTime() ?? 0) >= IDLE_TIMEOUT_MS
+
+    if (shouldStop) {
+      logger.info(
+        `autoStop: stopping conversation ${conversationId} — ${
+          lastTranscriptMessage ? `idle for ${IDLE_TIMEOUT_MS / 60000} minutes` : 'no transcript activity in grace period'
+        }`
+      )
+      await conversation.populate(['topic', 'agents', 'adapters'])
+      await doStopConversation(conversation)
+    }
+  } catch (err) {
+    logger.error(`Auto stop check failed for conversation ${conversationId}`, err)
   }
 }
 

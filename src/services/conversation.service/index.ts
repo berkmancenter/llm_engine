@@ -37,7 +37,6 @@ const returnFields =
 const draftEditLockoutMs = 6 * 60 * 1000 // 6 minutes
 export const maxScheduledInterval = 10 * 60 * 1000 // 10 minutes in milliseconds
 export const { autoStartLeadTimeMs } = config.conversation
-export const { autoStopDelayMs } = config.conversation
 
 /**
  * Removed messages array property and replaces with messageCount
@@ -125,13 +124,6 @@ async function scheduleConversationAutoStart(conversation) {
   const scheduledAt = new Date(conversation.scheduledTime.getTime() - autoStartLeadTimeMs)
   await schedule.autoStartConversation(scheduledAt, { conversationId: conversation._id })
   logger.debug(`Scheduled auto-start for conversation ${conversation._id} at ${scheduledAt}`)
-}
-
-async function scheduleConversationAutoStop(conversation) {
-  await schedule.cancelAutoStopConversation(conversation._id)
-  const scheduledAt = new Date(conversation.scheduledEndTime.getTime() + autoStopDelayMs)
-  await schedule.autoStopConversation(scheduledAt, { conversationId: conversation._id })
-  logger.debug(`Scheduled auto-stop for conversation ${conversation._id} at ${scheduledAt}`)
 }
 
 async function scheduleConversationEndingSoon(conversation) {
@@ -262,7 +254,6 @@ const createConversation = async (conversationBody, user, { allowDraft = false }
   if (conversation.scheduledTime) {
     await scheduleConversationAutoStart(conversation)
     if (conversation.scheduledEndTime) {
-      await scheduleConversationAutoStop(conversation)
       await scheduleConversationEndingSoon(conversation)
     }
   } else {
@@ -612,7 +603,6 @@ const updateConversation = async (conversationBody, user) => {
     await scheduleConversationAutoStart(conversationDoc!)
   }
   if (restBody.scheduledEndTime !== undefined && conversationDoc!.scheduledEndTime) {
-    await scheduleConversationAutoStop(conversationDoc!)
     await scheduleConversationEndingSoon(conversationDoc!)
   }
 

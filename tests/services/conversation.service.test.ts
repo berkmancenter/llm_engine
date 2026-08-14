@@ -5,7 +5,7 @@ import { insertUsers, registeredUser } from '../fixtures/user.fixture.js'
 import { insertTopics, newPublicTopic, newPrivateTopic } from '../fixtures/topic.fixture.js'
 import conversationService from '../../src/services/conversation.service/index.js'
 import { Feature } from '../../src/types/index.types.js'
-import { Agent, Adapter, Conversation, Topic } from '../../src/models/index.js'
+import { Agent, Adapter, Conversation, Topic, Channel } from '../../src/models/index.js'
 import { setConversationTypes, resetConversationTypes, getAllConversationTypes } from '../../src/conversations/index.js'
 import ApiError from '../../src/utils/ApiError.js'
 import websocketGateway from '../../src/websockets/websocketGateway.js'
@@ -1369,6 +1369,60 @@ describe('Conversation service methods', () => {
     })
   })
 
+  describe('startConversation() auto-stop scheduling', () => {
+    beforeEach(async () => {
+      await insertUsers([registeredUser])
+      await insertTopics([topicOne])
+    })
+
+    test('schedules auto-stop when conversation has a transcript channel', async () => {
+      const defineJobSpy = jest.spyOn(defineJob, 'autoStopConversation').mockResolvedValue(undefined)
+      const scheduleSpy = jest.spyOn(schedule, 'autoStopConversation').mockResolvedValue(undefined)
+
+      const conversation = new Conversation({
+        name: 'Event With Transcript',
+        owner: registeredUser._id,
+        topic: topicOne._id,
+        draft: false,
+        agents: [],
+        adapters: [],
+        messages: []
+      })
+      await conversation.save()
+
+      const channel = await Channel.create({ name: 'transcript', conversation: conversation._id })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      conversation.channels.push(channel._id as any)
+      await conversation.save()
+
+      await conversationService.startConversation(conversation._id.toString(), registeredUser)
+
+      expect(defineJobSpy).toHaveBeenCalledWith(conversation._id)
+      expect(scheduleSpy).toHaveBeenCalled()
+    })
+
+    test('does not schedule auto-stop when conversation has no transcript channel', async () => {
+      const defineJobSpy = jest.spyOn(defineJob, 'autoStopConversation').mockResolvedValue(undefined)
+      const scheduleSpy = jest.spyOn(schedule, 'autoStopConversation').mockResolvedValue(undefined)
+
+      const conversation = new Conversation({
+        name: 'Chat Only Event',
+        owner: registeredUser._id,
+        topic: topicOne._id,
+        draft: false,
+        agents: [],
+        adapters: [],
+        messages: []
+      })
+      await conversation.save()
+
+      await conversationService.startConversation(conversation._id.toString(), registeredUser)
+
+      expect(defineJobSpy).not.toHaveBeenCalled()
+      expect(scheduleSpy).not.toHaveBeenCalled()
+    })
+  })
+
   describe('startConversation() draft gating', () => {
     beforeEach(async () => {
       await insertUsers([registeredUser])
@@ -1682,20 +1736,6 @@ describe('Conversation service methods', () => {
       const newStart = new Date(Date.now() + 7200000)
       await conversationService.updateConversation(
         { id: conversation._id.toString(), scheduledTime: newStart },
-        registeredUser
-      )
-
-      expect(cancelSpy).toHaveBeenCalledWith(conversation._id)
-      expect(scheduleSpy).toHaveBeenCalled()
-    })
-
-    test('should reschedule the auto-stop job when scheduledEndTime changes', async () => {
-      const cancelSpy = jest.spyOn(schedule, 'cancelAutoStopConversation').mockResolvedValue(undefined)
-      const scheduleSpy = jest.spyOn(schedule, 'autoStopConversation').mockResolvedValue(undefined)
-
-      const newEnd = new Date(Date.now() + 10800000)
-      await conversationService.updateConversation(
-        { id: conversation._id.toString(), scheduledEndTime: newEnd },
         registeredUser
       )
 
