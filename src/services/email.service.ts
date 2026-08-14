@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer'
 import config from '../config/config.js'
 import logger from '../config/logger.js'
+import eventUrls from './eventUrls.service.js'
 
 const transport = nodemailer.createTransport(config.email.smtp)
 /* istanbul ignore next */
@@ -132,7 +133,7 @@ To finish setting up your event, sign up here and then resend the invite: ${sign
  * @returns {Promise}
  */
 const sendEventCreatedEmail = async (to, conversation, missing: string[] = []) => {
-  const eventUrl = `${config.appHost}/login?redirectTo=/admin/${conversation.conversationType}/view/${conversation._id}`
+  const eventUrl = eventUrls.eventPageUrl(conversation)
 
   if (missing.length > 0) {
     const subject = 'Action needed: your event is missing required details'
