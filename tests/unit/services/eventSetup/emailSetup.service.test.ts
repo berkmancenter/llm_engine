@@ -101,7 +101,7 @@ describe('emailSetup.service', () => {
       const email = `known@${allowedDomain}`
       await insertUsers([newUser(email)])
 
-      const organizer = await resolveOrganizer(buildInvite({}, email))
+      const organizer = await resolveOrganizer(email)
 
       expect(organizer).not.toBeNull()
       expect(organizer!.email).toBe(email)
@@ -112,7 +112,7 @@ describe('emailSetup.service', () => {
       const storedEmail = `known@${allowedDomain}`
       await insertUsers([newUser(storedEmail)])
 
-      const organizer = await resolveOrganizer(buildInvite({}, `Known@${allowedDomain.toUpperCase()}`))
+      const organizer = await resolveOrganizer(`Known@${allowedDomain.toUpperCase()}`)
 
       expect(organizer).not.toBeNull()
       expect(organizer!.email).toBe(storedEmail)
@@ -122,7 +122,7 @@ describe('emailSetup.service', () => {
     it('sends the signup invite and returns null for an unknown sender inside an allowlisted domain', async () => {
       const email = `newcomer@${allowedDomain}`
 
-      const organizer = await resolveOrganizer(buildInvite({}, email))
+      const organizer = await resolveOrganizer(email)
 
       expect(organizer).toBeNull()
       expect(sendSignupSpy).toHaveBeenCalledWith(email)
@@ -131,7 +131,7 @@ describe('emailSetup.service', () => {
     it('sends no email and returns null for an unknown sender outside the allowlist', async () => {
       const email = `stranger@${OUTSIDE_DOMAIN}`
 
-      const organizer = await resolveOrganizer(buildInvite({}, email))
+      const organizer = await resolveOrganizer(email)
 
       expect(organizer).toBeNull()
       expect(sendSignupSpy).not.toHaveBeenCalled()
@@ -141,7 +141,7 @@ describe('emailSetup.service', () => {
       const email = `has-account@${OUTSIDE_DOMAIN}`
       await insertUsers([newUser(email)])
 
-      const organizer = await resolveOrganizer(buildInvite({}, email))
+      const organizer = await resolveOrganizer(email)
 
       expect(organizer).toBeNull()
       expect(sendSignupSpy).not.toHaveBeenCalled()
@@ -151,7 +151,7 @@ describe('emailSetup.service', () => {
       const email = `known@${allowedDomain}`
       await insertUsers([newUser(email)])
 
-      await resolveOrganizer(buildInvite({ organizer: `someone-else@${allowedDomain}` }, email))
+      await resolveOrganizer(email, `someone-else@${allowedDomain}`)
 
       expect(loggerWarnSpy).toHaveBeenCalledWith(expect.stringContaining('someone-else'))
     })
@@ -160,7 +160,7 @@ describe('emailSetup.service', () => {
       const email = `known@${allowedDomain}`
       await insertUsers([newUser(email)])
 
-      await resolveOrganizer(buildInvite({ organizer: email }, email))
+      await resolveOrganizer(email, email)
 
       expect(loggerWarnSpy).not.toHaveBeenCalled()
     })
