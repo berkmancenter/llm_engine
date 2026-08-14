@@ -130,6 +130,13 @@ export async function doStartConversation(conversation) {
   }
   logger.debug(`Start conversation: ${doc._id}`)
   doc.startTime = new Date()
+  /* Persist active=true before starting agents/adapters, not after. If an instance is
+     torn down mid-flight (autoscaler scale-down, rolling deploy) and this job is retried
+     from scratch, the retry's `if (conversation.active) skip` guard in the job handler
+     only prevents a double-run when this flips early — otherwise every agent/adapter
+     gets started a second time. */
+  doc.active = true
+  await doc.save()
   for (const agent of doc.agents) {
     // needed so agent has all conversation info for activation
     agent.conversation = doc
@@ -141,8 +148,6 @@ export async function doStartConversation(conversation) {
     adapter.conversation = doc
     await adapterService.start(adapter)
   }
-  doc.active = true
-  await doc.save()
   return doc
 }
 
@@ -150,6 +155,12 @@ export async function doStopConversation(conversation) {
   const doc = conversation
   logger.debug(`Stop conversation: ${doc._id}`)
   doc.endTime = new Date()
+  /* Same reasoning as doStartConversation: persist active=false before running the stop
+     side effects (agent/adapter stop, the LLM summary call below), so a from-scratch
+     retry after a mid-flight kill sees the handler's `if (!conversation.active) skip`
+     guard and doesn't redo them. */
+  doc.active = false
+  await doc.save()
   for (const agent of doc.agents) {
     // needed so agent has all conversation info for activation
     agent.conversation = doc
@@ -163,7 +174,6 @@ export async function doStopConversation(conversation) {
     adapter.conversation = doc
     await adapterService.stop(adapter)
   }
-  doc.active = false
 
   if (doc.transcript) {
     await updateTranscriptStatus(doc, 'stopped')
