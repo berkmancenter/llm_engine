@@ -11,6 +11,11 @@ import rag from './rag.js'
 
 const RESPONSE_PLACEHOLDER = '(user sent an empty message)'
 
+/* The model answered, but not in the shape the schema demands: a hollow or misshapen tool
+   call, or prose where JSON belonged. Distinct from transport errors so callers can
+   resample the model once instead of failing outright. */
+class MalformedStructuredResponseError extends Error {}
+
 // Helper to determine if we should use structured output for a given LLM
 function shouldUseStructuredOutput(llm): boolean {
   // Skip structured output for Claude models to avoid tool calling issues
@@ -302,7 +307,7 @@ function getStructuredResponseChain(llm, prompt, responseFormatSchema) {
       if (rewrapped.success) return rewrapped.data
     }
 
-    throw new Error(`Structured response did not match schema: ${direct.error.message}`)
+    throw new MalformedStructuredResponseError(`Structured response did not match schema: ${direct.error.message}`)
   }
 
   // Convert Zod schema to JSON Schema and ensure it has type: 'object' for Bedrock compatibility
@@ -354,7 +359,7 @@ function getStructuredResponseChain(llm, prompt, responseFormatSchema) {
     }
 
     if (!text) {
-      throw new Error('No tool calls found in the response and no text content to parse.')
+      throw new MalformedStructuredResponseError('No tool calls found in the response and no text content to parse.')
     }
 
     let parsed: unknown
@@ -365,7 +370,9 @@ function getStructuredResponseChain(llm, prompt, responseFormatSchema) {
         .trim()
       parsed = JSON.parse(stripped)
     } catch {
-      throw new Error('No tool calls found in the response and content was not parseable as JSON.')
+      throw new MalformedStructuredResponseError(
+        'No tool calls found in the response and content was not parseable as JSON.'
+      )
     }
 
     logger.debug('llmChain: no tool call found — parsed content as JSON fallback')
@@ -449,7 +456,19 @@ async function getChatPromptResponse(
 
   const invokeParams = { ...inputParams }
 
-  return chain.invoke(invokeParams)
+  if (!structuredOutputSchema) return chain.invoke(invokeParams)
+
+  /* A structured call can fail because the model shaped its answer wrong (hollow tool
+     call, prose instead of JSON) even though the request itself was fine. One fresh
+     sample usually fixes that, so resample once before giving up. Transport errors are
+     not retried here; the model client handles those. */
+  try {
+    return await chain.invoke(invokeParams)
+  } catch (error: unknown) {
+    if (!(error instanceof MalformedStructuredResponseError)) throw error
+    logger.warn(`llmChain: structured response was malformed, retrying once: ${error.message}`)
+    return chain.invoke(invokeParams)
+  }
   // You can do this if you want detailed logging:
   // return chain.invoke(invokeParams, { callbacks: [new ConsoleCallbackHandler()] })
 }
