@@ -16,7 +16,9 @@ jest.unstable_mockModule('../src/agents/helpers/getModelChat.js', () => ({
   getModelChat: mockGetModelChat
 }))
 
-const { planConversationFromInvite } = await import('../../../../src/services/eventSetup/planner.service.js')
+const { planConversationFromInvite, planConversationFromEmail } = await import(
+  '../../../../src/services/eventSetup/planner.service.js'
+)
 const { ExtractedFieldsSchema } = await import('../../../../src/services/eventSetup/eventFieldsSchema.js')
 const { default: logger } = await import('../../../../src/config/logger.js')
 
@@ -155,6 +157,110 @@ describe('planConversationFromInvite', () => {
     mockGetChatPromptResponse.mockResolvedValue(undefined)
 
     const result = await planConversationFromInvite({ invite: invite() })
+
+    expect(result).toEqual({})
+  })
+})
+
+describe('planConversationFromEmail', () => {
+  beforeEach(() => {
+    mockGetChatPromptResponse.mockReset()
+    mockGetModelChat.mockReset()
+    mockGetModelChat.mockResolvedValue({ fake: true })
+    jest.spyOn(logger, 'error').mockReturnValue(undefined as never)
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it('returns the fuzzy fields the model extracted', async () => {
+    mockGetChatPromptResponse.mockResolvedValue({
+      zoomLink: 'https://zoom.us/j/123456789',
+      speakers: [{ name: 'Jane Doe', bio: '' }],
+      description: 'A quick catch-up'
+    })
+
+    const result = await planConversationFromEmail({
+      subject: 'Quick sync',
+      body: 'Join here: https://zoom.us/j/123456789'
+    })
+
+    expect(result).toEqual({
+      zoomLink: 'https://zoom.us/j/123456789',
+      speakers: [{ name: 'Jane Doe', bio: '' }],
+      description: 'A quick catch-up'
+    })
+  })
+
+  /* Naming and Topic resolution for this flow are both deterministic (see emailSetup.service.ts
+     and topic.service.ts's findOrCreateEmailTopic), never model-derived, so eventName and
+     topicName must not leak through even if the model answers with them anyway. */
+  it('drops eventName and topicName even if the model returns them', async () => {
+    mockGetChatPromptResponse.mockResolvedValue({
+      eventName: 'Quick sync',
+      topicName: 'Team Sync',
+      zoomLink: 'https://zoom.us/j/123456789'
+    })
+
+    const result = await planConversationFromEmail({ subject: 'Quick sync', body: 'body text' })
+
+    expect(result).toEqual({
+      zoomLink: 'https://zoom.us/j/123456789'
+    })
+  })
+
+  it('returns no zoomLink when the email has no meeting link at all', async () => {
+    mockGetChatPromptResponse.mockResolvedValue({ description: 'Catching up' })
+
+    const result = await planConversationFromEmail({ subject: 'Catch up', body: 'Let us catch up sometime' })
+
+    expect(result.zoomLink).toBeUndefined()
+  })
+
+  it('sends the subject and body to the model, validated against the shared ExtractedFieldsSchema', async () => {
+    mockGetChatPromptResponse.mockResolvedValue({})
+
+    await planConversationFromEmail({ subject: 'Zoom call', body: 'Here is the link: https://zoom.us/j/123' })
+
+    expect(mockGetChatPromptResponse).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(String),
+      expect.any(String),
+      { subject: 'Zoom call', body: 'Here is the link: https://zoom.us/j/123' },
+      [],
+      ExtractedFieldsSchema
+    )
+  })
+
+  it('substitutes a placeholder when the email has no subject or body', async () => {
+    mockGetChatPromptResponse.mockResolvedValue({})
+
+    await planConversationFromEmail({ subject: undefined, body: undefined })
+
+    expect(mockGetChatPromptResponse).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(String),
+      expect.any(String),
+      { subject: '(none)', body: '(none)' },
+      [],
+      ExtractedFieldsSchema
+    )
+  })
+
+  it('falls back to an empty result and logs when the model call throws', async () => {
+    mockGetChatPromptResponse.mockRejectedValue(new Error('rate limited'))
+
+    const result = await planConversationFromEmail({ subject: 'Zoom call', body: 'link' })
+
+    expect(result).toEqual({})
+    expect(logger.error).toHaveBeenCalled()
+  })
+
+  it('falls back to an empty result when the model returns nothing', async () => {
+    mockGetChatPromptResponse.mockResolvedValue(undefined)
+
+    const result = await planConversationFromEmail({ subject: 'Zoom call', body: 'link' })
 
     expect(result).toEqual({})
   })

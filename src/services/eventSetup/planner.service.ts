@@ -199,4 +199,95 @@ export const planConversationFromInvite = async ({ invite }: PlanConversationFro
   }
 }
 
-export default { planEventSetup, planConversationFromInvite }
+/*
+ * The LLM extraction that runs on a plain inbound email with no .ics attachment (see
+ * emailSetup.service.ts's createConversationFromEmail). Unlike the invite path, there is no
+ * structured calendar data to fall back on, so this asks for the fuzzy fields plus timing.
+ * eventName and topicName are both dropped: naming and Topic resolution for this flow are fully
+ * deterministic (see emailSetup.service.ts's name fallback and topic.service.ts's
+ * findOrCreateEmailTopic), so a model-guessed name or Topic would never be read anyway.
+ */
+
+const EMAIL_SYSTEM_PROMPT = `You are a data extraction engine. The input below is a person's email, not a calendar file. Ignore signature blocks, quoted replies, and forwarded-message headers, but treat a Zoom link inside a quoted section as valid. Parse the subject and body and return structured event metadata.
+
+**Extract these fields:** \`dateTime\`, \`duration\`, \`description\`, \`zoomLink\`, \`speakers\`, \`moderators\`, \`timeZone\`. Do not populate \`eventName\` or \`topicName\`: both are resolved separately, not from this text.
+
+---
+
+**Extraction rules:**
+
+- **\`zoomLink\`**: a Zoom URL only, if present anywhere in the body, including a quoted or forwarded section. Ignore all other video platforms. Leave undefined if absent.
+
+- **\`dateTime\`**: ISO 8601 in UTC (always end with Z), only if the email states or clearly implies a specific start time. Leave undefined if the email describes joining right away, or gives no time at all.
+
+- **\`timeZone\`**: the IANA timezone name (e.g. America/New_York) if the sender mentions one (e.g. "3pm ET"). Leave undefined otherwise.
+
+- **\`duration\`**: in minutes, only if the email states one explicitly.
+
+- **\`speakers\`** and **\`moderators\`**: each is an array of objects with the shape \`{{ name, bio, alternateName? }}\`.
+  - Include an entry for every person mentioned by name, even if no bio is given: set \`bio\` to an empty string in that case.
+  - Default any unlabeled person to \`speakers\`. Only place a person in \`moderators\` if the text explicitly identifies them using the word "moderator" or "host."
+  - Set \`alternateName\` only when the text provides an explicit alias using language like "also goes by," "aka," or "nickname." Do not infer aliases.
+
+- **\`description\`**: a short summary of what the event is about, drawn from the body text. Leave undefined unless the body contains at least 2 to 3 sentences of substantive topical content. Do not populate it based solely on logistics such as Zoom links, dial-in numbers, or boilerplate.
+
+- Do not guess or invent any value. If a field is not clearly supported by the text, leave it undefined.
+
+---
+
+Return **only** valid JSON matching the response schema. No explanation, no commentary, no wrapper text.`
+
+const EMAIL_USER_PROMPT = `Email subject: {subject}
+
+Email body: {body}`
+
+export interface PlanConversationFromEmailInput {
+  subject?: string
+  body?: string
+}
+
+/* Keep every field this flow asked for except eventName and topicName, even if the model answers
+   with one. See the module comment above for why both are always resolved elsewhere. */
+const pickEmailExtractedFields = ({
+  dateTime,
+  duration,
+  description,
+  zoomLink,
+  speakers,
+  moderators,
+  timeZone
+}: ExtractedFields): ExtractedFields => ({
+  ...(dateTime !== undefined && { dateTime }),
+  ...(duration !== undefined && { duration }),
+  ...(description !== undefined && { description }),
+  ...(zoomLink !== undefined && { zoomLink }),
+  ...(speakers !== undefined && { speakers }),
+  ...(moderators !== undefined && { moderators }),
+  ...(timeZone !== undefined && { timeZone })
+})
+
+export const planConversationFromEmail = async ({
+  subject,
+  body
+}: PlanConversationFromEmailInput): Promise<ExtractedFields> => {
+  const llm = await getModelChat(config.classificationLLMPlatform, config.classificationLLMModel)
+  try {
+    const result = (await getChatPromptResponse(
+      llm,
+      EMAIL_SYSTEM_PROMPT,
+      EMAIL_USER_PROMPT,
+      {
+        subject: subject ?? '(none)',
+        body: body ?? '(none)'
+      },
+      [],
+      ExtractedFieldsSchema
+    )) as ExtractedFields
+    return result ? pickEmailExtractedFields(result) : fallbackExtractedFields()
+  } catch (err) {
+    logger.error(`eventSetup planConversationFromEmail failed: ${(err as Error).message}`)
+    return fallbackExtractedFields()
+  }
+}
+
+export default { planEventSetup, planConversationFromInvite, planConversationFromEmail }
