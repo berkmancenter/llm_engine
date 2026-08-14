@@ -63,6 +63,12 @@ const topicSchema = new mongoose.Schema<ITopic>(
     archiveEmail: {
       type: String
     },
+    source: {
+      type: String,
+      enum: ['email'],
+      required: false,
+      index: true
+    },
     owner: {
       type: mongoose.SchemaTypes.ObjectId,
       ref: 'BaseUser',

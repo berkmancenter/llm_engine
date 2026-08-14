@@ -87,6 +87,9 @@ export interface ITopic {
   latestMessageCreatedAt?: Date
   messageCount?: number
   conversationCount?: number
+  // Marks a Topic we auto-created instead of the organizer, so we can find it again by owner +
+  // source instead of by its (renamable) name. See findOrCreateEmailTopic in topic.service.ts.
+  source?: 'email'
 }
 
 export interface Vote {
