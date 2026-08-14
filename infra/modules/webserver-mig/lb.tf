@@ -54,11 +54,22 @@ resource "google_compute_url_map" "web_server" {
 }
 
 resource "google_compute_managed_ssl_certificate" "web_server" {
-  project = var.project_id
-  name    = "llm-engine-cert"
+  project     = var.project_id
+  name_prefix = "llm-engine-cert-"
 
   managed {
     domains = concat([var.domain], var.additional_domains)
+  }
+
+  # A managed cert's domains list forces replacement (Google doesn't support
+  # updating it in place) — without create_before_destroy, Terraform tries
+  # to delete the old cert before the new one exists, which GCP rejects
+  # outright while the https proxy below still references it
+  # (resourceInUseByAnotherResource). name_prefix (not a fixed name) is
+  # required alongside this: two certs can't share one name while both
+  # briefly exist during the swap, same reasoning as the instance template.
+  lifecycle {
+    create_before_destroy = true
   }
 }
 
