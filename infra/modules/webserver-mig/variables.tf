@@ -7,6 +7,21 @@ variable "region" {
   default = "us-central1"
 }
 
+variable "zone" {
+  description = <<-EOT
+    Single zone the regional MIG's instances are pinned to
+    (distribution_policy_zones). Not really an HA choice at this scale (see
+    max_replicas) — it's here because GCP requires a *fixed* max_surge/
+    max_unavailable on a regional MIG to be either 0 or >= the number of
+    zones the group spans; defaulting to every zone in the region (the
+    behavior with no distribution_policy_zones at all) means max_surge=1
+    fails outright. Revisit alongside max_replicas once real multi-zone HA
+    is actually a goal.
+  EOT
+  type        = string
+  default     = "us-central1-a"
+}
+
 variable "subnet_self_link" {
   type = string
 }
@@ -38,8 +53,8 @@ variable "boot_disk_size_gb" {
     just needs room for the OS + Docker + gcloud CLI + the pulled image.
     20GB is comfortable headroom for that in practice.
   EOT
-  type    = number
-  default = 20
+  type        = number
+  default     = 20
 }
 
 variable "artifact_registry_repo" {
@@ -77,7 +92,7 @@ variable "mongodb_url_secret_id" {
     same pattern as app_env_secret_id — never templated into instance
     metadata in plaintext.
   EOT
-  type = string
+  type        = string
 }
 
 variable "chroma_url" {

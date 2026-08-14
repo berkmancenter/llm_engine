@@ -110,11 +110,12 @@ resource "google_compute_health_check" "web_server" {
 # --- Regional Managed Instance Group ---
 
 resource "google_compute_region_instance_group_manager" "web_server" {
-  project            = var.project_id
-  name               = "llm-engine-web-mig"
-  region             = var.region
-  base_instance_name = "llm-engine-web"
-  target_size        = var.min_replicas # autoscaler takes ownership of this after creation
+  project                   = var.project_id
+  name                      = "llm-engine-web-mig"
+  region                    = var.region
+  distribution_policy_zones = [var.zone] # see var.zone for why this is pinned to one zone
+  base_instance_name        = "llm-engine-web"
+  target_size               = var.min_replicas # autoscaler takes ownership of this after creation
 
   version {
     instance_template = google_compute_instance_template.web_server.id
