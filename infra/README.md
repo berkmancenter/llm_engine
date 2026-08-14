@@ -1,18 +1,23 @@
 # Infrastructure modules (Terraform, GCP)
 
 A reference set of Terraform modules for running `llm_engine` on GCP as split
-infrastructure: an autoscaled web-server tier, a dedicated ChromaDB VM, and a MongoDB
-Atlas cluster, fronted by a global HTTPS load balancer — instead of one box running
-Node + Caddy + MongoDB + ChromaDB together.
+infrastructure: an autoscaled web-server tier, a dedicated ChromaDB VM, and MongoDB,
+fronted by a global HTTPS load balancer — instead of one box running Node + Caddy +
+MongoDB + ChromaDB together.
+
+MongoDB has two interchangeable module choices — pick one per environment, not both
+(see "Atlas vs. mongo-vm" below):
 
 ```
 infra/
 └── modules/
-    ├── network/          # VPC, subnet, firewall rules, Cloud NAT
-    ├── atlas-cluster/     # MongoDB Atlas cluster/user/peering/backup (mongodbatlas provider)
-    ├── chroma-vm/         # standalone ChromaDB VM — deliberately not autoscaled
-    ├── webserver-mig/     # instance template, MIG, autoscaler, HTTPS load balancer
-    └── monitoring/        # dashboards, alert policies, billing budget
+    ├── network/              # VPC, subnet, firewall rules, Cloud NAT
+    ├── atlas-cluster/         # MongoDB Atlas cluster/user/peering/backup (mongodbatlas provider)
+    ├── mongo-vm/              # standalone single-node MongoDB VM — the no-Atlas fallback
+    ├── chroma-vm/             # standalone ChromaDB VM — deliberately not autoscaled
+    ├── disk-snapshot-policy/  # shared scheduled-snapshot policy, used by mongo-vm and chroma-vm
+    ├── webserver-mig/         # instance template, MIG, autoscaler, HTTPS load balancer
+    └── monitoring/            # dashboards, alert policies, billing budget
 ```
 
 These are **modules, not a deployment** — there's no `environments/` directory here on
@@ -20,6 +25,64 @@ purpose. A real deployment (real project ID, domain, `terraform.tfvars`, and the
 runbook for the one-time manual GCP/Atlas setup these modules assume) is
 environment-specific and belongs in your own private ops repo, not a public one — see
 "Bringing your own environment" below.
+
+## Atlas vs. mongo-vm
+
+`atlas-cluster` and `mongo-vm` both end by writing the same thing: a Secret Manager
+secret (default name `llm-engine-mongodb-url`) holding a full MongoDB connection
+string, which `webserver-mig`'s `mongodb_url_secret_id` variable takes without caring
+which module produced it. Instantiate whichever one module you're actually running —
+they're not designed to coexist in one environment, and nothing here union-merges
+them.
+
+- **`atlas-cluster`** — a managed replica set (default M10, 3 nodes), autoscaling,
+  automated backups, VPC peering. The default choice; use it whenever you have (or can
+  get) an Atlas Marketplace subscription.
+- **`mongo-vm`** — a single standalone `mongod` on one `n2d-standard-2` VM (2 vCPU / 4
+  GB RAM), no replica set, no autoscaling. It exists for environments where Atlas
+  isn't available yet — no org permission for the Marketplace subscription, for
+  example — not as a cheaper everyday alternative to Atlas. Swapping to it later just
+  means standing up `mongo-vm`, pointing `webserver-mig` at its `mongodb_url_secret_id`
+  output instead of `atlas-cluster`'s, migrating data (`mongodump`/`mongorestore`
+  between the two connection strings), and tearing down `atlas-cluster` (or leaving it
+  running unused, if you want a fast way back). llm_engine doesn't use multi-document
+  transactions or change streams, so a standalone `mongod` is functionally sufficient —
+  see `mongo-vm/main.tf` for what that does and doesn't get you: it has backups (see
+  below), but no failover — a VM reboot/replacement is real downtime, not a
+  replica-set failover.
+
+  Backups are two layered, deliberately independent mechanisms, not one:
+  1. A daily cron job on the VM (`startup-script.sh.tpl`) runs `mongodump` at
+     `backup_hour_utc` (default 02:00 UTC) straight to a `backups/` directory on the
+     same data disk, gzipped, pruned after `backup_retention_days` (default 30 days).
+  2. The scheduled disk snapshot described below, timed to run after the dump —
+     see "Disk snapshots".
+
+  The dump gives you a logical, `mongorestore`-able backup; the snapshot gives you a
+  whole-disk recovery point independent of mongodump ever having run successfully.
+  Neither is stored off-disk/off-project (no Cloud Storage upload) — both still live
+  in the same GCP project as the VM they back up, so they don't protect against
+  project-level loss.
+
+## Disk snapshots
+
+Every stateful data disk in this infra — mongo-vm's and chroma-vm's — shares one
+scheduled-snapshot strategy via the `disk-snapshot-policy` module, so it's wired up
+identically everywhere instead of hand-copied per module and liable to drift (a
+missed attachment, a different retention window, etc.):
+
+| Disk | Snapshot hour (UTC) | Retention | Why that hour |
+|---|---|---|---|
+| `mongo-vm`'s data disk | `snapshot_hour_utc` (default 04:00) | `snapshot_retention_days` (default 7) | 2 hours after `backup_hour_utc`'s mongodump (default 02:00), so the snapshot only ever runs once that day's dump has reliably finished — see "Atlas vs. mongo-vm" above |
+| `chroma-vm`'s data disk | `snapshot_hour_utc` (default 04:00) | `snapshot_retention_days` (default 7) | Same default hour/retention for consistency, but nothing to stagger after — Chroma has no application-level dump step |
+
+Deliberately **not** covered, and not meant to be:
+- **Boot disks** (all VMs) and **`webserver-mig`'s instance-template disks** — stateless,
+  `auto_delete`d, and rebuilt from the boot image + startup script on every
+  replacement; there's no unique state on them worth a recovery point.
+- **`atlas-cluster`** — it's not a GCP disk at all, so this module doesn't apply;
+  Atlas has its own backup mechanism (`mongodbatlas_cloud_backup_schedule` in
+  `atlas-cluster/main.tf`), which is where its snapshot strategy actually lives.
 
 ## Design notes worth knowing before you wire these up
 
@@ -62,26 +125,30 @@ module "network" {
   project_id = var.project_id
   region     = var.region
 }
-# ...atlas_cluster, chroma_vm, webserver_mig, monitoring modules, each wired to the
-# previous ones' outputs — see each module's variables.tf for its full interface.
+# ...atlas_cluster (or mongo_vm — see "Atlas vs. mongo-vm" above, pick one), chroma_vm,
+# webserver_mig, monitoring modules, each wired to the previous ones' outputs — see
+# each module's variables.tf for its full interface. disk-snapshot-policy isn't
+# something you wire up yourself — mongo_vm and chroma_vm each call it internally.
 ```
 
 Pin `?ref=` to a tag or commit once you've settled on a version, rather than tracking
 `main` indefinitely. You'll also need:
 
-- A `backend "gcs"` block and a provider config for `google`/`google-beta`/
-  `mongodbatlas`/`random` (see each module's `versions.tf` for what's required).
-- The one-time manual setup these modules assume already exists: a MongoDB Atlas
-  Marketplace subscription (for unified GCP billing), the GCP APIs enabled
+- A `backend "gcs"` block and a provider config for `google`/`google-beta`/`random`,
+  plus `mongodbatlas` if you're using `atlas-cluster` (see each module's `versions.tf`
+  for what's required; `mongo-vm` needs no provider beyond `google`/`random`).
+- The one-time manual setup these modules assume already exists: the GCP APIs enabled
   (`compute`, `monitoring`, `billingbudgets`, `secretmanager`, `certificatemanager`),
-  a service account with least-privilege IAM for whatever's applying this (roughly:
+  and a service account with least-privilege IAM for whatever's applying this (roughly:
   Compute Instance/Network/Security/LoadBalancer Admin, Storage Admin for the state
-  bucket, Monitoring Editor, Secret Manager Accessor+Viewer), and an Atlas API key
-  pair in Secret Manager for the `mongodbatlas` provider to authenticate with.
-- Two Secret Manager secrets your own `environments/` config will need to create and
-  reference: one holding the app's runtime env vars (JWT secret, LLM provider keys,
-  etc. — see `.env.example`), and one the `atlas-cluster` module itself writes the
-  Atlas connection string into.
+  bucket, Monitoring Editor, Secret Manager Accessor+Viewer). If you're using
+  `atlas-cluster`, add a MongoDB Atlas Marketplace subscription (for unified GCP
+  billing) and an Atlas API key pair in Secret Manager for the `mongodbatlas` provider
+  to authenticate with — neither is needed for `mongo-vm`.
+- One Secret Manager secret your own `environments/` config will need to create and
+  reference, holding the app's runtime env vars (JWT secret, LLM provider keys, etc. —
+  see `.env.example`). The MongoDB connection-string secret doesn't belong on this
+  list — whichever of `atlas-cluster`/`mongo-vm` you use writes that one itself.
 
 ## Cost estimate (illustrative, not a quote)
 
@@ -92,14 +159,23 @@ underlying resources, not a bill for any particular deployment; your actual sizi
 
 | Item | Rate |
 |---|---|
-| `n2d-standard-2` (web server or Chroma VM) | $0.0845/hr (~$62/mo on-demand, ~$43/mo after full-month Sustained Use Discount) |
+| `n2d-standard-2` (web server, Chroma VM, or mongo-vm) | $0.0845/hr (~$62/mo on-demand, ~$43/mo after full-month Sustained Use Discount) |
 | `pd-balanced` boot disk | $0.10/GB-mo |
 | `pd-ssd` (Chroma's data disk) | $0.17/GB-mo |
+| `pd-balanced` data disk (mongo-vm's default) | $0.10/GB-mo |
+| Compute Engine snapshot storage (mongo-vm's and Chroma's scheduled snapshots) | ~$0.026/GB-mo, billed on the incremental (changed-block) size, not the full disk each time |
 | Cloud NAT | $0.0014/hr per VM + $0.005/hr per IP + $0.045/GiB processed |
 | Global external HTTPS LB | $0.025/hr flat for the first 5 forwarding rules + $0.008/GiB each direction |
 | MongoDB Atlas M10 | $0.08/hr (~$58/mo) |
 | MongoDB Atlas M20 | $0.20/hr (~$146/mo) |
 | Secret Manager, Monitoring | negligible at low volume (generous free tiers) |
+
+`mongo-vm` has no Atlas-equivalent line item — its cost is the `n2d-standard-2` VM,
+its two disks (boot + data, sized to also hold `backup_retention_days` of mongodump
+archives — see `mongo-vm/variables.tf`), and its 7 retained snapshots, all above. That
+still undercuts Atlas M10 (~$58/mo) at typical low-volume sizing, before accounting for
+what you give up — no managed failover (a VM reboot/replacement is real downtime,
+unlike a replica-set failover) and no compute/disk autoscaling.
 
 **What's automatic vs. a decision:**
 
