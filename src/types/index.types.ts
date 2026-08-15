@@ -24,6 +24,18 @@ export interface InboundInvite {
   invite: ParsedInvite
 }
 
+/* A plain inbound email with no .ics attachment (see emailSetup.service.ts's
+   createConversationFromEmail). fromName is the sender's display name off the webhook payload
+   (Postmark's FromName), used to name the event when there's no subject; messageId is Postmark's
+   MessageID, the dedup key for this path since there's no invite UID to use instead. */
+export interface InboundEmail {
+  fromAddress: string
+  fromName?: string
+  subject?: string
+  body?: string
+  messageId?: string
+}
+
 export interface PaginateResults<T> {
   results: Array<T>
   page: number

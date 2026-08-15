@@ -220,6 +220,9 @@ conversationSchema.index({ updatedAt: 1 })
 // would treat every missing value as a colliding duplicate. Dedup against webhook retries
 // happens in createConversationFromInvite (a findOne before create), not via a DB constraint.
 conversationSchema.index({ 'source.inviteUid': 1 })
+// Same reasoning as source.inviteUid above, for the plain-email path's dedup key
+// (createConversationFromEmail).
+conversationSchema.index({ 'source.messageId': 1 })
 conversationSchema.pre('validate', function (next) {
   this.slug = slugify(this.name)
   next()

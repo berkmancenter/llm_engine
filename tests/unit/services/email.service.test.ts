@@ -25,6 +25,19 @@ describe('email.service', () => {
       expect(msg.text).toContain(`${config.appHost}/signup`)
       expect(msg.html).toContain(`${config.appHost}/signup`)
     })
+
+    /* An allowlisted sender with no account can reach this email from either the calendar-invite
+       path or the plain-email path (see emailSetup.service.ts's resolveOrganizer, shared by both),
+       so the wording can't assume a calendar invite prompted it. */
+    it('uses wording that fits both an invite and a plain email, not calendar-invite-specific language', async () => {
+      await emailService.sendSignupInviteEmail('newcomer@cyber.harvard.edu')
+
+      const msg = sendMailSpy.mock.calls[0][0]
+      expect(msg.text).not.toMatch(/calendar invite/i)
+      expect(msg.text).not.toMatch(/resend the invite/i)
+      expect(msg.html).not.toMatch(/calendar invite/i)
+      expect(msg.html).not.toMatch(/resend the invite/i)
+    })
   })
 
   describe('sendEventCreatedEmail', () => {
@@ -151,6 +164,130 @@ describe('email.service', () => {
       const msg = sendMailSpy.mock.calls[0][0]
       expect(msg.text).not.toContain('undefined')
       expect(msg.html).not.toContain('undefined')
+    })
+  })
+
+  describe('sendOnDemandEventEmail', () => {
+    let sendMailSpy
+
+    const urls = {
+      eventPageUrl: 'https://app.example.com/login?redirectTo=/admin/eventAssistant/view/conv-123',
+      moderatorUrl: 'https://app.example.com/moderator/?conversationId=conv-123&channel=moderator%2Cabc',
+      participantUrl: 'https://app.example.com/assistant/?conversationId=conv-123&channel=chat%2Cxyz'
+    }
+
+    beforeEach(() => {
+      sendMailSpy = jest.spyOn(emailService.transport, 'sendMail').mockResolvedValue(undefined as never)
+    })
+
+    afterEach(() => {
+      sendMailSpy.mockRestore()
+    })
+
+    it('sends to the given address', async () => {
+      await emailService.sendOnDemandEventEmail('organizer@cyber.harvard.edu', urls)
+
+      expect(sendMailSpy).toHaveBeenCalledTimes(1)
+      const msg = sendMailSpy.mock.calls[0][0]
+      expect(msg.to).toBe('organizer@cyber.harvard.edu')
+      expect(msg.from).toBe(config.email.from)
+    })
+
+    it('uses the instant-join subject and says Berkie is joining now, when no joinAt is given', async () => {
+      await emailService.sendOnDemandEventEmail('organizer@cyber.harvard.edu', urls)
+
+      const msg = sendMailSpy.mock.calls[0][0]
+      expect(msg.subject).toBe('Berkie is joining your Zoom meeting')
+      expect(msg.text).toMatch(/joining.*now/i)
+    })
+
+    it('uses the scheduled subject and states the join time, when joinAt is given', async () => {
+      const joinAt = new Date('2026-09-01T17:00:00Z')
+
+      await emailService.sendOnDemandEventEmail('organizer@cyber.harvard.edu', urls, { joinAt })
+
+      const msg = sendMailSpy.mock.calls[0][0]
+      expect(msg.subject).toBe('Berkie will join your Zoom meeting')
+      expect(msg.text).toContain(joinAt.toISOString())
+      expect(msg.html).toContain(joinAt.toISOString())
+    })
+
+    it('leads with the moderator link labeled private, and the participant link', async () => {
+      await emailService.sendOnDemandEventEmail('organizer@cyber.harvard.edu', urls)
+
+      const msg = sendMailSpy.mock.calls[0][0]
+      expect(msg.text).toContain(urls.moderatorUrl)
+      expect(msg.text).toContain(urls.participantUrl)
+      expect(msg.text).toMatch(/private/i)
+      expect(msg.html).toContain(urls.moderatorUrl)
+      expect(msg.html).toContain(urls.participantUrl)
+    })
+
+    it('omits the moderator link entirely when the conversation has no moderator passcode', async () => {
+      await emailService.sendOnDemandEventEmail('organizer@cyber.harvard.edu', { ...urls, moderatorUrl: undefined })
+
+      const msg = sendMailSpy.mock.calls[0][0]
+      expect(msg.html.match(/href="/g)).toHaveLength(2)
+    })
+
+    it('includes the event page link last, labeled as where to edit the event', async () => {
+      await emailService.sendOnDemandEventEmail('organizer@cyber.harvard.edu', urls)
+
+      const msg = sendMailSpy.mock.calls[0][0]
+      expect(msg.text).toContain(urls.eventPageUrl)
+      expect(msg.text).toMatch(/edit/i)
+      const [moderatorIndex, participantIndex, eventPageIndex] = [
+        msg.text.indexOf(urls.moderatorUrl),
+        msg.text.indexOf(urls.participantUrl),
+        msg.text.indexOf(urls.eventPageUrl)
+      ]
+      expect(eventPageIndex).toBeGreaterThan(moderatorIndex)
+      expect(eventPageIndex).toBeGreaterThan(participantIndex)
+    })
+  })
+
+  describe('sendOnDemandEventFailedEmail', () => {
+    let sendMailSpy
+
+    beforeEach(() => {
+      sendMailSpy = jest.spyOn(emailService.transport, 'sendMail').mockResolvedValue(undefined as never)
+    })
+
+    afterEach(() => {
+      sendMailSpy.mockRestore()
+    })
+
+    it('sends to the given address', async () => {
+      await emailService.sendOnDemandEventFailedEmail('organizer@cyber.harvard.edu', 'noZoomLink')
+
+      expect(sendMailSpy).toHaveBeenCalledTimes(1)
+      const msg = sendMailSpy.mock.calls[0][0]
+      expect(msg.to).toBe('organizer@cyber.harvard.edu')
+      expect(msg.from).toBe(config.email.from)
+    })
+
+    it('tells the sender no Zoom link was found, for reason noZoomLink', async () => {
+      await emailService.sendOnDemandEventFailedEmail('organizer@cyber.harvard.edu', 'noZoomLink')
+
+      const msg = sendMailSpy.mock.calls[0][0]
+      expect(msg.text).toMatch(/zoom link/i)
+      expect(msg.text).not.toMatch(/invalid/i)
+    })
+
+    it('tells the sender the Zoom link was not valid, for reason invalidZoomLink', async () => {
+      await emailService.sendOnDemandEventFailedEmail('organizer@cyber.harvard.edu', 'invalidZoomLink')
+
+      const msg = sendMailSpy.mock.calls[0][0]
+      expect(msg.text).toMatch(/zoom link/i)
+      expect(msg.text).toMatch(/valid/i)
+    })
+
+    it('includes no error internals in the body', async () => {
+      await emailService.sendOnDemandEventFailedEmail('organizer@cyber.harvard.edu', 'noZoomLink')
+
+      const msg = sendMailSpy.mock.calls[0][0]
+      expect(msg.text).not.toMatch(/at \w+\.\w+ \(/)
+      expect(msg.html).not.toMatch(/at \w+\.\w+ \(/)
     })
   })
 })

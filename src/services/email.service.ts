@@ -103,7 +103,7 @@ To prevent archival and keep your channel on Conversations, please copy and past
 }
 
 /**
- * Invite an inbound-invite sender who has no account yet to sign up.
+ * Invite the sender of an inbound invite or plain email who has no account yet to sign up.
  * Only sent to senders inside an allowlisted domain (see emailSetup.service); an event is created
  * only once they have an account, so this is the reply that unblocks them.
  * @param {string} to
@@ -113,11 +113,11 @@ const sendSignupInviteEmail = async (to) => {
   const subject = 'Set up your account to create your event'
   const signupUrl = `${config.appHost}/signup`
   const text = `Hello,
-We received your calendar invite, but there's no account for this email address yet.
-To finish setting up your event, sign up here and then resend the invite: ${signupUrl}`
+We received your email, but there's no account for this email address yet.
+To finish setting up your event, sign up here and then send your email again: ${signupUrl}`
   const html = `<p>Hello,</p>
-<p>We received your calendar invite, but there's no account for this email address yet.</p>
-<p>To finish setting up your event, <a href="${signupUrl}">sign up here</a> and then resend the invite.</p>`
+<p>We received your email, but there's no account for this email address yet.</p>
+<p>To finish setting up your event, <a href="${signupUrl}">sign up here</a> and then send your email again.</p>`
   await sendEmailAsync(to, subject, text, html)
 }
 
@@ -179,6 +179,61 @@ We received your calendar invite, but ran into a problem creating your event. Pl
   await sendEmailAsync(to, subject, text, html)
 }
 
+/**
+ * Notify an organizer that their emailed Zoom link turned into an on-demand event. Leads with the
+ * moderator and participant links, since those are the ones that open straight into the room
+ * without signing in (unlike the event page link, which requires an account); the event page
+ * link comes last as the place to edit the event or find these links again.
+ * @param {string} to
+ * @param {Object} urls - { eventPageUrl, moderatorUrl?, participantUrl } from eventUrls.service
+ * @param {Object} [options]
+ * @param {Date} [options.joinAt] - when the email describes a scheduled join rather than an immediate one
+ * @returns {Promise}
+ */
+const sendOnDemandEventEmail = async (to, urls, { joinAt }: { joinAt?: Date } = {}) => {
+  const subject = joinAt ? 'Berkie will join your Zoom meeting' : 'Berkie is joining your Zoom meeting'
+  const whenLine = joinAt
+    ? `Berkie will join your Zoom meeting at ${joinAt.toISOString()}.`
+    : 'Berkie is joining your Zoom meeting now.'
+
+  const moderatorLine = urls.moderatorUrl ? `Moderator link (keep this one private): ${urls.moderatorUrl}\n` : ''
+  const moderatorHtml = urls.moderatorUrl
+    ? `<p>Moderator link (keep this one private): <a href="${urls.moderatorUrl}">${urls.moderatorUrl}</a></p>`
+    : ''
+
+  const text = `Hello,
+${whenLine}
+${moderatorLine}Participant link (share with anyone joining): ${urls.participantUrl}
+Edit the event, or find these links again: ${urls.eventPageUrl}`
+  const html = `<p>Hello,</p>
+<p>${whenLine}</p>
+${moderatorHtml}
+<p>Participant link (share with anyone joining): <a href="${urls.participantUrl}">${urls.participantUrl}</a></p>
+<p>Edit the event, or find these links again: <a href="${urls.eventPageUrl}">${urls.eventPageUrl}</a></p>`
+  await sendEmailAsync(to, subject, text, html)
+}
+
+/**
+ * Notify an organizer that their emailed Zoom link could not become an event. Deliberately
+ * excludes any error detail, same reasoning as sendEventCreationFailedEmail: the inbound address
+ * accepts mail from anyone.
+ * @param {string} to
+ * @param {'noZoomLink' | 'invalidZoomLink'} reason
+ * @returns {Promise}
+ */
+const sendOnDemandEventFailedEmail = async (to, reason: 'noZoomLink' | 'invalidZoomLink') => {
+  const subject = "We couldn't join your Zoom meeting"
+  const reasonLine =
+    reason === 'noZoomLink'
+      ? "we couldn't find a Zoom link in your email."
+      : "the Zoom link in your email didn't look valid."
+  const text = `Hello,
+We received your email, but ${reasonLine} Please send it again with a Zoom meeting link included.`
+  const html = `<p>Hello,</p>
+<p>We received your email, but ${reasonLine} Please send it again with a Zoom meeting link included.</p>`
+  await sendEmailAsync(to, subject, text, html)
+}
+
 const emailService = {
   transport,
   sendEmail,
@@ -188,6 +243,8 @@ const emailService = {
   sendArchiveTopicEmail,
   sendSignupInviteEmail,
   sendEventCreatedEmail,
-  sendEventCreationFailedEmail
+  sendEventCreationFailedEmail,
+  sendOnDemandEventEmail,
+  sendOnDemandEventFailedEmail
 }
 export default emailService

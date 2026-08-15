@@ -147,7 +147,10 @@ const envVarsSchema = Joi.object()
       .description('Comma-separated list of system accounts to create on startup, in username:role format'),
     ALLOWED_ORGANIZER_EMAIL_DOMAINS: Joi.string().description(
       'Comma-separated email domains whose senders, if they have no account yet, get a "please sign up" reply to an inbound invite. Invites from any other domain are rejected: no event, no reply. Unset means none, so no signup invites are ever sent.'
-    )
+    ),
+    ON_DEMAND_EVENT_DURATION_MINUTES: Joi.number()
+      .default(120)
+      .description('Default length of an event created from a plain emailed Zoom link, when the email states no duration')
   })
   .unknown()
 
@@ -315,6 +318,7 @@ const config = {
   allowedOrganizerEmailDomains: (envVars.ALLOWED_ORGANIZER_EMAIL_DOMAINS ?? '')
     .split(',')
     .map((domain: string) => domain.trim().toLowerCase())
-    .filter((domain: string) => domain.length > 0)
+    .filter((domain: string) => domain.length > 0),
+  onDemandEventDurationMinutes: envVars.ON_DEMAND_EVENT_DURATION_MINUTES
 }
 export default config

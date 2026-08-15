@@ -102,7 +102,8 @@ const createTopic = async (topicBody, user) => {
 
 // A short name for the organizer to show in an auto-generated Topic name. Prefers their
 // username; falls back to the part of their email before the @ when they have no username set.
-const organizerLabel = (user): string => {
+// Exported for emailSetup.service.ts's on-demand naming fallback, which needs the same logic.
+export const organizerLabel = (user): string => {
   const username = (user.username ?? '').trim()
   if (username) return username
   return (user.email ?? '').split('@')[0]
@@ -344,6 +345,7 @@ const follow = async (status, topicId, user) => {
 const topicService = {
   createTopic,
   findOrCreateEmailTopic,
+  organizerLabel,
   userTopics,
   findById,
   allPublicTopics,

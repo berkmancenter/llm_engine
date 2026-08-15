@@ -5,7 +5,7 @@ import ICAL from 'ical.js'
 import ApiError from '../utils/ApiError.js'
 import config from '../config/config.js'
 import logger from '../config/logger.js'
-import { createConversationFromInvite } from '../services/eventSetup/emailSetup.service.js'
+import { createConversationFromInvite, createConversationFromEmail } from '../services/eventSetup/emailSetup.service.js'
 import { ParsedInvite } from '../types/index.types.js'
 
 /** A single entry from an inbound email webhook's `Attachments` array (Postmark's shape, for example). */
@@ -76,27 +76,35 @@ const handleEvent = async (req, res) => {
 
   try {
     const invite = parseInviteFromPayload(req.body)
-    if (!invite) {
-      logger.warn('Email webhook: inbound message had no calendar (.ics) attachment; nothing to process')
-      return
-    }
-    // Times log as UTC; a bad zone conversion is otherwise invisible until the event runs an hour off.
-    logger.info(
-      `Email webhook: parsed invite "${invite.summary ?? '(no summary)'}" (UID ${invite.uid ?? 'none'}) ` +
-        `from ${req.body?.From ?? 'unknown sender'}, organizer ${invite.organizer ?? 'none'}, ` +
-        `starts ${invite.startDate?.toISOString() ?? 'unknown'}, ends ${invite.endDate?.toISOString() ?? 'unknown'}`
-    )
 
     // The provider's docs may confirm From is always a clean address (Postmark's does; the display
     // name travels separately in FromName/FromFull.Name), but req.body is unvalidated wire input,
-    // so check the shape anyway.
+    // so check the shape anyway. Shared by both the invite and plain-email paths below.
     const fromAddress = req.body?.From
     if (typeof fromAddress !== 'string' || fromAddress.length === 0) {
       logger.warn('Email webhook: inbound message had no From address; cannot resolve an organizer')
       return
     }
 
-    await createConversationFromInvite({ fromAddress, invite })
+    if (invite) {
+      // Times log as UTC; a bad zone conversion is otherwise invisible until the event runs an hour off.
+      logger.info(
+        `Email webhook: parsed invite "${invite.summary ?? '(no summary)'}" (UID ${invite.uid ?? 'none'}) ` +
+          `from ${fromAddress}, organizer ${invite.organizer ?? 'none'}, ` +
+          `starts ${invite.startDate?.toISOString() ?? 'unknown'}, ends ${invite.endDate?.toISOString() ?? 'unknown'}`
+      )
+      await createConversationFromInvite({ fromAddress, invite })
+      return
+    }
+
+    // No .ics attachment: a plain email, on-demand join-now request rather than a calendar invite.
+    const fromName = typeof req.body?.FromName === 'string' ? req.body.FromName : undefined
+    const subject = typeof req.body?.Subject === 'string' ? req.body.Subject : undefined
+    const body = typeof req.body?.TextBody === 'string' ? req.body.TextBody : undefined
+    const messageId = typeof req.body?.MessageID === 'string' ? req.body.MessageID : undefined
+
+    logger.info(`Email webhook: no calendar attachment from ${fromAddress}; treating as a plain on-demand email`)
+    await createConversationFromEmail({ fromAddress, fromName, subject, body, messageId })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     logger.error(`Email webhook: failed to parse inbound invite: ${message}`)

@@ -81,6 +81,17 @@ const buildInboundEmailPayload = (icsBody: string, attachmentOverrides = {}) => 
   ]
 })
 
+/** An inbound plain-email webhook payload (Postmark's shape), no .ics attachment. */
+const buildOnDemandEmailPayload = (overrides: Record<string, unknown> = {}) => ({
+  FromName: 'Jane Organizer',
+  From: 'jane@example.com',
+  Subject: 'Quick sync',
+  MessageID: 'msg-on-demand-1',
+  TextBody: 'Join here: https://zoom.us/j/123456789',
+  Attachments: [],
+  ...overrides
+})
+
 describe('POST /v1/webhooks/email', () => {
   let originalUser
   let originalSecret
@@ -314,6 +325,102 @@ describe('POST /v1/webhooks/email', () => {
 
       // Poll for the rejection log rather than sleeping a fixed amount: it's the observable proof
       // that the background handling (parsing, then resolveOrganizer's domain check) has run.
+      await waitFor(() => {
+        const rejected = warnSpy.mock.calls.some(([msg]) => String(msg).includes('stranger@not-an-org.invalid'))
+        if (!rejected) throw new Error('rejection warning not logged yet')
+      })
+      expect(await Conversation.countDocuments()).toBe(0)
+    }, 10000)
+  })
+
+  describe('createConversationFromEmail wiring', () => {
+    let originalDomains
+
+    beforeAll(() => {
+      originalDomains = config.allowedOrganizerEmailDomains
+      config.allowedOrganizerEmailDomains = ['example.com']
+    })
+
+    afterAll(() => {
+      config.allowedOrganizerEmailDomains = originalDomains
+    })
+
+    let sendOnDemandEventSpy
+
+    beforeEach(() => {
+      jest.spyOn(websocketGateway, 'broadcastNewConversation').mockResolvedValue(undefined as never)
+      jest.spyOn(transcript, 'loadTopicMetadataIntoVectorStore').mockResolvedValue(undefined as never)
+      jest.spyOn(transcript, 'loadEventMetadataIntoVectorStore').mockResolvedValue(undefined as never)
+      // The extraction call is unit-tested on its own (planner.service.test.ts); mocked here so
+      // this plumbing test isn't also exercising (or paying for) a real LLM call.
+      jest.spyOn(plannerService, 'planConversationFromEmail').mockResolvedValue({ zoomLink: 'https://zoom.us/j/123456789' })
+      sendOnDemandEventSpy = jest.spyOn(emailService, 'sendOnDemandEventEmail').mockResolvedValue(undefined as never)
+    })
+
+    afterEach(() => {
+      jest.restoreAllMocks()
+    })
+
+    test('creates an on-demand conversation from a plain email with a Zoom link', async () => {
+      await insertUsers([
+        {
+          username: 'jane',
+          email: 'jane@example.com',
+          password: 'password1',
+          role: 'user',
+          isEmailVerified: false
+        }
+      ])
+
+      await request(app)
+        .post('/v1/webhooks/email')
+        .auth(webhookUser, webhookSecret)
+        .send(buildOnDemandEmailPayload())
+        .expect(httpStatus.OK)
+
+      // Same reasoning as the invite-wiring test above: poll for the confirmation email, the
+      // signal that background processing (extraction, Topic, conversation creation) is done.
+      await waitFor(() => {
+        if (sendOnDemandEventSpy.mock.calls.length === 0) throw new Error('not finished yet')
+      })
+
+      const conversation = await Conversation.findOne({ 'source.messageId': 'msg-on-demand-1' })
+      expect(conversation).not.toBeNull()
+      expect(conversation!.name).toBe('Quick sync')
+    }, 10000)
+
+    test('names the event from the sender display name when the email has no subject', async () => {
+      await insertUsers([
+        {
+          username: 'jane',
+          email: 'jane@example.com',
+          password: 'password1',
+          role: 'user',
+          isEmailVerified: false
+        }
+      ])
+
+      await request(app)
+        .post('/v1/webhooks/email')
+        .auth(webhookUser, webhookSecret)
+        .send(buildOnDemandEmailPayload({ Subject: '', FromName: 'Jane Organizer' }))
+        .expect(httpStatus.OK)
+
+      await waitFor(() => {
+        if (sendOnDemandEventSpy.mock.calls.length === 0) throw new Error('not finished yet')
+      })
+
+      const conversation = await Conversation.findOne({ 'source.messageId': 'msg-on-demand-1' })
+      expect(conversation).not.toBeNull()
+      expect(conversation!.name).toMatch(/^Jane Organizer Call \d{1,2}-\d{1,2}-\d{2}$/)
+    }, 10000)
+
+    test('creates nothing when the sender is outside the allowlisted domain', async () => {
+      const warnSpy = jest.spyOn(logger, 'warn').mockReturnValue(logger)
+      const payload = buildOnDemandEmailPayload({ From: 'stranger@not-an-org.invalid' })
+
+      await request(app).post('/v1/webhooks/email').auth(webhookUser, webhookSecret).send(payload).expect(httpStatus.OK)
+
       await waitFor(() => {
         const rejected = warnSpy.mock.calls.some(([msg]) => String(msg).includes('stranger@not-an-org.invalid'))
         if (!rejected) throw new Error('rejection warning not logged yet')

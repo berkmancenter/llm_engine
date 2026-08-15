@@ -873,6 +873,52 @@ describe('Conversation service methods', () => {
       })
     })
 
+    /* source is gated the same way as allowDraft itself: only a trusted internal caller (the
+       email webhook) ever passes allowDraft: true, so a public API client can never write to
+       source and squat on a dedup key (see emailSetup.service.ts's createConversationFromInvite
+       and createConversationFromEmail, which both dedup by reading source back). */
+    describe('source gating (allowDraft)', () => {
+      const baseParams = {
+        type: 'eventAssistant',
+        name: 'Source Gating Event',
+        platforms: ['zoom'],
+        topicId: topicOne._id.toString(),
+        properties: {
+          zoomMeetingUrl: 'https://zoom.us/j/123456789'
+        }
+      }
+
+      test('sets an allowlisted source key when allowDraft is set', async () => {
+        const conversation = await conversationService.createConversationFromType(
+          { ...baseParams, source: { messageId: 'MSG-1' } },
+          registeredUser,
+          { allowDraft: true }
+        )
+
+        expect(conversation.source?.messageId).toBe('MSG-1')
+      })
+
+      test('drops source entirely when allowDraft is not set, even for an allowlisted key', async () => {
+        const conversation = await conversationService.createConversationFromType(
+          { ...baseParams, source: { messageId: 'MSG-2' } },
+          registeredUser
+        )
+
+        expect(conversation.source).toBeFalsy()
+      })
+
+      test('drops a key not on the allowlist even when allowDraft is set', async () => {
+        const conversation = await conversationService.createConversationFromType(
+          { ...baseParams, source: { messageId: 'MSG-3', notAllowed: 'sneaky' } },
+          registeredUser,
+          { allowDraft: true }
+        )
+
+        expect(conversation.source?.messageId).toBe('MSG-3')
+        expect(conversation.source?.notAllowed).toBeUndefined()
+      })
+    })
+
     describe('feature agent inclusion and property resolution', () => {
       const baseParams = {
         type: 'eventAssistant',

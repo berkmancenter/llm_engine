@@ -1,7 +1,8 @@
 /**
- * An inbound calendar invite doesn't say who owns the event or which Topic it's in, so we work
- * those out here with plain rules, no LLM. Everything fuzzier (Zoom link, speakers, etc.) is
- * extracted separately.
+ * Two ways an event can arrive by email: a calendar invite (createConversationFromInvite) or a
+ * plain email carrying a Zoom link (createConversationFromEmail). Neither says who owns the
+ * event or which Topic it's in, so we work those out here with plain rules, no LLM. Everything
+ * fuzzier (Zoom link, speakers, etc.) is extracted separately.
  */
 import config from '../../config/config.js'
 import logger from '../../config/logger.js'
@@ -10,10 +11,13 @@ import { TopicDocument } from '../../models/topic.model.js'
 import userService from '../user.service.js'
 import topicService from '../topic.service.js'
 import emailService from '../email.service.js'
+import eventUrls from '../eventUrls.service.js'
 import conversationService from '../conversation.service/index.js'
 import plannerService from './planner.service.js'
+import { ExtractedFields } from './eventFieldsSchema.js'
 import { getConversationType } from '../../conversations/index.js'
-import { ConversationType, InboundInvite } from '../../types/index.types.js'
+import { isZoomUrl } from '../../conversations/propertyFormats.js'
+import { ConversationType, InboundInvite, InboundEmail } from '../../types/index.types.js'
 
 /**
  * Everything before the first colon in the invite's SUMMARY, trimmed: "Team Sync: Jane Presents"
@@ -243,6 +247,138 @@ export const createConversationFromInvite = async (inboundInvite: InboundInvite)
     // failure is already handled inside createEventForOrganizer and never reaches here.
     logger.error(`Email webhook: failed to create conversation from invite UID ${invite.uid ?? 'none'}`, err)
     await emailService.sendEventCreationFailedEmail(organizer.email, invite.uid)
+    return null
+  }
+}
+
+/* When the subject is blank, name the event after whoever sent it and when. fromName is the
+   sender's display name off the inbound webhook payload (Postmark's FromName), a truer read of
+   "the organizer's name" than the account; organizerLabel (username, then email local part) is
+   the same fallback topic.service.ts uses for its auto-created Topic name, for when fromName is
+   also blank. */
+const onDemandEventName = ({
+  subject,
+  fromName,
+  organizer
+}: {
+  subject?: string
+  fromName?: string
+  organizer: { username?: string; email?: string }
+}): string => {
+  const trimmedSubject = (subject ?? '').trim()
+  if (trimmedSubject) return trimmedSubject
+
+  const name = (fromName ?? '').trim() || topicService.organizerLabel(organizer)
+  const now = new Date()
+  const shortDate = `${now.getMonth() + 1}-${now.getDate()}-${String(now.getFullYear()).slice(-2)}`
+  return `${name} Call ${shortDate}`
+}
+
+/* A dateTime that parses to a future instant schedules the event, with an end time computed from
+   the stated or default duration; anything else (none stated, a past instant, unparseable text)
+   takes the join-now branch, since createConversation rejects a scheduledTime in the past anyway.
+   A join-now event gets neither field: nothing reads scheduledEndTime once scheduledTime is
+   absent (see isConversationDraft), and every other instant-start conversation in this codebase
+   (the existing "create and start now" web flow) leaves it unset too. */
+const onDemandTiming = (extracted: ExtractedFields): { scheduledTime?: Date; scheduledEndTime?: Date } => {
+  const parsed = extracted.dateTime ? new Date(extracted.dateTime) : null
+  const isFuture = parsed !== null && !Number.isNaN(parsed.getTime()) && parsed.getTime() > Date.now()
+  if (!isFuture) return {}
+
+  const durationMs = (extracted.duration ?? config.onDemandEventDurationMinutes) * 60 * 1000
+  return { scheduledTime: parsed!, scheduledEndTime: new Date(parsed!.getTime() + durationMs) }
+}
+
+/* Shared by a freshly-created conversation and an already-active one found by Zoom link below.
+   Reads channels back from the database with populate rather than off the in-memory document:
+   this avoids depending on whether Mongoose's in-memory array still holds the full Channel
+   documents createConversation just pushed, or only their ids. */
+const sendOnDemandReply = async (
+  organizerEmail: string | undefined,
+  conversation: { _id: string | { toString(): string }; scheduledTime?: Date }
+) => {
+  const populated = (await Conversation.findById(conversation._id).populate('channels')) ?? conversation
+  await emailService.sendOnDemandEventEmail(
+    organizerEmail,
+    {
+      eventPageUrl: eventUrls.eventPageUrl(populated),
+      moderatorUrl: eventUrls.moderatorUrl(populated),
+      participantUrl: eventUrls.participantUrl(populated)
+    },
+    { joinAt: conversation.scheduledTime }
+  )
+}
+
+/**
+ * Safe to run twice for the same email: Postmark can retry a webhook, so a retry must reuse the
+ * existing event instead of creating a second one. We track that with source.messageId, the same
+ * way the invite flow tracks source.inviteUid.
+ *
+ * Unlike an invite, a plain email has no Topic to match and no title guaranteed, so this always
+ * provisions the organizer's own auto-created Topic (findOrCreateEmailTopic) and, when the
+ * subject is blank, builds a name from the sender and the date instead of a placeholder.
+ *
+ * Returns null when resolveOrganizer rejects the sender, or when the email carries no usable
+ * Zoom link.
+ */
+export const createConversationFromEmail = async (inboundEmail: InboundEmail) => {
+  const { fromAddress, fromName, subject, body, messageId } = inboundEmail
+
+  if (messageId) {
+    const existing = await findConversationBySource('messageId', messageId)
+    if (existing) {
+      logger.info(`Email webhook: message ID ${messageId} already created as conversation ${existing._id}, skipping`)
+      return existing
+    }
+  } else {
+    logger.warn('Email webhook: email has no Message-ID; cannot dedup a webhook retry for this message')
+  }
+
+  const organizer = await resolveOrganizer(fromAddress)
+  if (!organizer) return null
+
+  try {
+    const extracted = await plannerService.planConversationFromEmail({ subject, body })
+
+    if (!extracted.zoomLink) {
+      logger.info(`Email webhook: no Zoom link found in email from ${fromAddress}; nothing created`)
+      await emailService.sendOnDemandEventFailedEmail(organizer.email, 'noZoomLink')
+      return null
+    }
+    if (!isZoomUrl(extracted.zoomLink)) {
+      logger.info(`Email webhook: "${extracted.zoomLink}" from ${fromAddress} is not a valid Zoom link`)
+      await emailService.sendOnDemandEventFailedEmail(organizer.email, 'invalidZoomLink')
+      return null
+    }
+
+    // Pre-empts adapter.service.ts's active-meeting-uniqueness throw and makes a repeat email
+    // (e.g. someone forwarding the same link to a colleague, who also emails it in) idempotent.
+    const activeMeeting = await Conversation.findOne({ active: true, 'properties.zoomMeetingUrl': extracted.zoomLink })
+    if (activeMeeting) {
+      logger.info(
+        `Email webhook: ${extracted.zoomLink} is already active as conversation ${activeMeeting._id}; replying with its links`
+      )
+      await sendOnDemandReply(organizer.email, activeMeeting)
+      return activeMeeting
+    }
+
+    const topic = await topicService.findOrCreateEmailTopic(organizer)
+
+    return await createEventForOrganizer({
+      organizer,
+      topic,
+      extracted,
+      name: onDemandEventName({ subject, fromName, organizer }),
+      timing: onDemandTiming(extracted),
+      source: { messageId, origin: 'emailOnDemand' },
+      referenceId: messageId,
+      sendReply: (conversation) => sendOnDemandReply(organizer.email, conversation)
+    })
+  } catch (err) {
+    // Only covers extraction/Topic resolution above. A createConversationFromType failure is
+    // already handled inside createEventForOrganizer and never reaches here.
+    logger.error(`Email webhook: failed to create conversation from email (message ${messageId ?? 'none'})`, err)
+    await emailService.sendEventCreationFailedEmail(organizer.email, messageId)
     return null
   }
 }
