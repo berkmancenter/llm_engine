@@ -462,7 +462,6 @@ describe('emailSetup.service', () => {
       expect(conversation!.presenters).toEqual([expect.objectContaining({ name: 'Jane Doe' })])
       expect(conversation!.description).toBe('Weekly sync')
       expect(conversation!.source?.messageId).toBe('MSG-DEFAULT')
-      expect(conversation!.source?.origin).toBe('emailOnDemand')
 
       const topic = await Topic.findOne({ owner: organizer._id, source: 'email' })
       expect(topic).not.toBeNull()

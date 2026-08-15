@@ -180,8 +180,8 @@ const createConversation = async (conversationBody, user, { allowDraft = false }
      make a legitimate one silently no-op against their decoy (see createConversationFromInvite
      and createConversationFromEmail, which both dedup by reading source back). The allowlist
      itself, not just allowDraft, still applies: an allowDraft caller can only ever write these
-     three known keys, never an arbitrary one. */
-  const ALLOWED_SOURCE_KEYS = ['inviteUid', 'messageId', 'origin']
+     two known keys, never an arbitrary one. */
+  const ALLOWED_SOURCE_KEYS = ['inviteUid', 'messageId']
   const allowedSource = allowDraft
     ? Object.fromEntries(Object.entries(conversationBody.source ?? {}).filter(([key]) => ALLOWED_SOURCE_KEYS.includes(key)))
     : {}

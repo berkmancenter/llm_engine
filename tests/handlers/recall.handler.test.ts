@@ -367,7 +367,7 @@ describe('POST /v1/webhooks/recall', () => {
       conversation.transcript = {
         status: 'active'
       }
-      conversation.source = { origin: 'emailOnDemand', messageId: 'MSG-1' }
+      conversation.source = { messageId: 'MSG-1' }
       await conversation.save()
 
       const statusChangeEvent = {

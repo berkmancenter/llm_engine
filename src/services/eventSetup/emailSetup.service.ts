@@ -370,7 +370,7 @@ export const createConversationFromEmail = async (inboundEmail: InboundEmail) =>
       extracted,
       name: onDemandEventName({ subject, fromName, organizer }),
       timing: onDemandTiming(extracted),
-      source: { messageId, origin: 'emailOnDemand' },
+      source: { messageId },
       referenceId: messageId,
       sendReply: (conversation) => sendOnDemandReply(organizer.email, conversation)
     })
