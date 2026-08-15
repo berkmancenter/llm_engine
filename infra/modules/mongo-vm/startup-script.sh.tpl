@@ -43,6 +43,12 @@ fi
 # entrypoint skips everything in docker-entrypoint-initdb.d/ (and skips
 # creating MONGO_INITDB_ROOT_USERNAME/PASSWORD) on every boot after the
 # data directory already has a database in it.
+#
+# db.getSiblingDB(app_database_name).createUser(...) makes app_database_name
+# this user's *authentication* database (separate from the readWrite role
+# below, which is what actually scopes its permissions) — every consumer of
+# this user (main.tf's connection string, the backup script below) must use
+# authSource=app_database_name to match, not "admin".
 cat > "$INITDB_DIR/init-app-user.js" <<EOF
 db.getSiblingDB("${app_database_name}").createUser({
   user: "${app_db_username}",
@@ -83,7 +89,7 @@ BACKUP_DIR="/mnt/mongo-data/backups"
 docker exec mongo mongodump \
   --host 127.0.0.1 --port 27017 \
   --username '${app_db_username}' --password '${app_db_password}' \
-  --authenticationDatabase admin \
+  --authenticationDatabase '${app_database_name}' \
   --db '${app_database_name}' \
   --archive="/backup/mongodump-$TS.gz" --gzip
 

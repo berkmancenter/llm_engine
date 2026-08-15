@@ -142,12 +142,20 @@ resource "google_secret_manager_secret_version" "mongodb_url" {
   # require a replica set or mongos, and this is a standalone mongod — the
   # driver rejects writes with retryWrites=true (or the default omitted)
   # against a standalone deployment.
+  #
+  # authSource must be app_database_name, not "admin": the init script
+  # (startup-script.sh.tpl) creates app_db_username via
+  # db.getSiblingDB(app_database_name).createUser(...), which makes
+  # app_database_name that user's authentication database, not admin — only
+  # root_username (MONGO_INITDB_ROOT_USERNAME) lives in admin. authSource=admin
+  # here would make every connection attempt fail with UserNotFound.
   secret_data = format(
-    "mongodb://%s:%s@%s:%s/%s?authSource=admin&retryWrites=false",
+    "mongodb://%s:%s@%s:%s/%s?authSource=%s&retryWrites=false",
     var.app_db_username,
     random_password.app_db_user.result,
     google_compute_instance.mongo.network_interface[0].network_ip,
     var.mongo_port,
+    var.app_database_name,
     var.app_database_name
   )
 }
