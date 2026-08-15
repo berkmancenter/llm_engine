@@ -88,24 +88,30 @@ describe('planConversationFromInvite', () => {
     expect(result.zoomLink).toBeUndefined()
   })
 
-  it('sends the invite title, body, and location to the model, validated against the shared ExtractedFieldsSchema', async () => {
+  it('sends the invite title, description, location, and email body to the model, validated against the shared ExtractedFieldsSchema', async () => {
     mockGetChatPromptResponse.mockResolvedValue({})
 
     await planConversationFromInvite({
-      invite: invite({ summary: 'BKCircle: Jane Presents', description: 'A talk on AI', location: 'Room 101' })
+      invite: invite({ summary: 'BKCircle: Jane Presents', description: 'A talk on AI', location: 'Room 101' }),
+      body: 'See you there, bring your own laptop.'
     })
 
     expect(mockGetChatPromptResponse).toHaveBeenCalledWith(
       expect.anything(),
       expect.any(String),
       expect.any(String),
-      { summary: 'BKCircle: Jane Presents', description: 'A talk on AI', location: 'Room 101' },
+      {
+        summary: 'BKCircle: Jane Presents',
+        description: 'A talk on AI',
+        location: 'Room 101',
+        body: 'See you there, bring your own laptop.'
+      },
       [],
       ExtractedFieldsSchema
     )
   })
 
-  it('substitutes a placeholder when the invite has no description or location', async () => {
+  it('substitutes a placeholder when the invite has no description, location, or email body', async () => {
     mockGetChatPromptResponse.mockResolvedValue({})
 
     await planConversationFromInvite({ invite: invite({ description: undefined, location: undefined }) })
@@ -114,7 +120,7 @@ describe('planConversationFromInvite', () => {
       expect.anything(),
       expect.any(String),
       expect.any(String),
-      { summary: 'Team Sync: standup', description: '(none)', location: '(none)' },
+      { summary: 'Team Sync: standup', description: '(none)', location: '(none)', body: '(none)' },
       [],
       ExtractedFieldsSchema
     )

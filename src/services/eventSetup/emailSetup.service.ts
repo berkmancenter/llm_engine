@@ -213,7 +213,7 @@ export const createEventForOrganizer = async ({
  * Returns null when resolveOrganizer rejects the sender.
  */
 export const createConversationFromInvite = async (inboundInvite: InboundInvite) => {
-  const { invite, fromAddress } = inboundInvite
+  const { invite, fromAddress, body } = inboundInvite
 
   if (invite.uid) {
     const existing = await findConversationBySource('inviteUid', invite.uid)
@@ -230,7 +230,7 @@ export const createConversationFromInvite = async (inboundInvite: InboundInvite)
 
   try {
     const topic = await resolveTopic(inboundInvite, organizer)
-    const extracted = await plannerService.planConversationFromInvite({ invite })
+    const extracted = await plannerService.planConversationFromInvite({ invite, body })
 
     return await createEventForOrganizer({
       organizer,

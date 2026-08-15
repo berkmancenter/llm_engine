@@ -129,7 +129,7 @@ export const planEventSetup = async ({ description, today = new Date() }: PlanEv
  * them if it answers anyway.
  */
 
-const INVITE_SYSTEM_PROMPT = `You are a data extraction engine. Parse the three input fields below — **title**, **body**, and **location** — pulled directly from an inbound \`.ics\` calendar file, and return structured event metadata.
+const INVITE_SYSTEM_PROMPT = `You are a data extraction engine. Parse the input fields below, pulled from an inbound calendar invite: **title**, **description**, and **location** come from the \`.ics\` calendar file; **email body** is the plain text of the email the invite arrived in. Return structured event metadata.
 
 **Extract exactly these four fields and no others:** \`zoomLink\`, \`speakers\`, \`moderators\`, \`description\`. Do not populate any other fields. The event's date, time, and topic are already resolved from the \`.ics\` structured fields and must not be derived from this text.
 
@@ -137,14 +137,16 @@ const INVITE_SYSTEM_PROMPT = `You are a data extraction engine. Parse the three 
 
 **Extraction rules:**
 
-- **\`zoomLink\`** — A Zoom URL only, if present in the location or body. Ignore all other video platforms. Leave undefined if absent.
+- The \`.ics\` fields (title, description, location) win on conflict. Only use the email body to fill in a field none of the \`.ics\` fields answer.
+
+- **\`zoomLink\`**: a Zoom URL only, if present in the location, the \`.ics\` description, or the email body. Ignore all other video platforms. Leave undefined if absent everywhere.
 
 - **\`speakers\`** and **\`moderators\`** — Each is an array of objects with the shape \`{{ name, bio, alternateName? }}\`.
   - Include an entry for every person mentioned by name, even if no bio is given — set \`bio\` to an empty string in that case.
   - Default any unlabeled person to \`speakers\`. Only place a person in \`moderators\` if the text explicitly identifies them using the word "moderator" or "host."
   - Set \`alternateName\` only when the text provides an explicit alias using language like "also goes by," "aka," or "nickname." Do not infer aliases.
 
-- **\`description\`** — A short summary of what the event is about, drawn from the body text. Leave undefined unless the body contains at least 2–3 sentences of substantive topical content. Do not populate it based solely on logistics such as Zoom links, dial-in numbers, or boilerplate.
+- **\`description\`**: a short summary of what the event is about. Prefer the \`.ics\` description when it has substantive content; fall back to the email body only when the \`.ics\` description is empty or purely logistical (e.g. just a Zoom link or dial-in number). Leave undefined unless at least one of the two has 2 to 3 sentences of substantive topical content.
 
 - Do not guess or invent any value. If a field is not clearly supported by the text, leave it undefined.
 
@@ -154,12 +156,15 @@ Return **only** valid JSON matching the response schema. No explanation, no comm
 
 const INVITE_USER_PROMPT = `Invite title: {summary}
 
-Invite body: {description}
+Invite description: {description}
 
-Invite location: {location}`
+Invite location: {location}
+
+Email body: {body}`
 
 export interface PlanConversationFromInviteInput {
   invite: ParsedInvite
+  body?: string
 }
 
 /* A failed extraction should not block event creation: the deterministic fields (name, time,
@@ -177,7 +182,10 @@ const pickInviteExtractedFields = ({ zoomLink, speakers, moderators, description
   ...(description !== undefined && { description })
 })
 
-export const planConversationFromInvite = async ({ invite }: PlanConversationFromInviteInput): Promise<ExtractedFields> => {
+export const planConversationFromInvite = async ({
+  invite,
+  body
+}: PlanConversationFromInviteInput): Promise<ExtractedFields> => {
   const llm = await getModelChat(config.classificationLLMPlatform, config.classificationLLMModel)
   try {
     const result = (await getChatPromptResponse(
@@ -187,7 +195,8 @@ export const planConversationFromInvite = async ({ invite }: PlanConversationFro
       {
         summary: invite.summary ?? '(none)',
         description: invite.description ?? '(none)',
-        location: invite.location ?? '(none)'
+        location: invite.location ?? '(none)',
+        body: body ?? '(none)'
       },
       [],
       ExtractedFieldsSchema

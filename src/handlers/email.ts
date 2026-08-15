@@ -86,6 +86,10 @@ const handleEvent = async (req, res) => {
       return
     }
 
+    // Both paths below read the email body: the invite path fills gaps the .ics fields leave open,
+    // the plain-email path reads it as the only source it has.
+    const body = typeof req.body?.TextBody === 'string' ? req.body.TextBody : undefined
+
     if (invite) {
       // Times log as UTC; a bad zone conversion is otherwise invisible until the event runs an hour off.
       logger.info(
@@ -93,14 +97,13 @@ const handleEvent = async (req, res) => {
           `from ${fromAddress}, organizer ${invite.organizer ?? 'none'}, ` +
           `starts ${invite.startDate?.toISOString() ?? 'unknown'}, ends ${invite.endDate?.toISOString() ?? 'unknown'}`
       )
-      await createConversationFromInvite({ fromAddress, invite })
+      await createConversationFromInvite({ fromAddress, invite, body })
       return
     }
 
     // No .ics attachment: a plain email, on-demand join-now request rather than a calendar invite.
     const fromName = typeof req.body?.FromName === 'string' ? req.body.FromName : undefined
     const subject = typeof req.body?.Subject === 'string' ? req.body.Subject : undefined
-    const body = typeof req.body?.TextBody === 'string' ? req.body.TextBody : undefined
     const messageId = typeof req.body?.MessageID === 'string' ? req.body.MessageID : undefined
 
     logger.info(`Email webhook: no calendar attachment from ${fromAddress}; treating as a plain on-demand email`)

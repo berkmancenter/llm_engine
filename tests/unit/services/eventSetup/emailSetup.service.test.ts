@@ -329,6 +329,19 @@ describe('emailSetup.service', () => {
       expect(planConversationFromInviteSpy).not.toHaveBeenCalled()
     })
 
+    it('threads the email body through to the invite extraction', async () => {
+      await insertUsers([newUser(`org@${allowedDomain}`)])
+
+      await createConversationFromInvite({
+        ...buildInvite({}, `org@${allowedDomain}`),
+        body: 'Bring your laptop, we will demo the new feature.'
+      })
+
+      expect(planConversationFromInviteSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ body: 'Bring your laptop, we will demo the new feature.' })
+      )
+    })
+
     it('creates the conversation with a blank topic when nothing matches', async () => {
       await insertUsers([newUser(`org@${allowedDomain}`)])
 

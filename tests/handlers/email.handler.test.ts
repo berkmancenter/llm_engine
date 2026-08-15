@@ -267,6 +267,7 @@ describe('POST /v1/webhooks/email', () => {
     })
 
     let sendEventCreatedSpy
+    let planConversationFromInviteSpy
 
     beforeEach(() => {
       jest.spyOn(websocketGateway, 'broadcastNewConversation').mockResolvedValue(undefined as never)
@@ -274,7 +275,7 @@ describe('POST /v1/webhooks/email', () => {
       jest.spyOn(transcript, 'loadEventMetadataIntoVectorStore').mockResolvedValue(undefined as never)
       // The extraction call is unit-tested on its own (planner.service.test.ts); mocked here so
       // this plumbing test isn't also exercising (or paying for) a real LLM call.
-      jest.spyOn(plannerService, 'planConversationFromInvite').mockResolvedValue({})
+      planConversationFromInviteSpy = jest.spyOn(plannerService, 'planConversationFromInvite').mockResolvedValue({})
       sendEventCreatedSpy = jest.spyOn(emailService, 'sendEventCreatedEmail').mockResolvedValue(undefined as never)
     })
 
@@ -330,6 +331,30 @@ describe('POST /v1/webhooks/email', () => {
         if (!rejected) throw new Error('rejection warning not logged yet')
       })
       expect(await Conversation.countDocuments()).toBe(0)
+    }, 10000)
+
+    test('threads the email TextBody through to the invite extraction as the fill-gap body', async () => {
+      await insertUsers([
+        {
+          username: 'jane',
+          email: 'jane@example.com',
+          password: 'password1',
+          role: 'user',
+          isEmailVerified: false
+        }
+      ])
+
+      await request(app)
+        .post('/v1/webhooks/email')
+        .auth(webhookUser, webhookSecret)
+        .send(buildInboundEmailPayload(buildIcs()))
+        .expect(httpStatus.OK)
+
+      await waitFor(() => {
+        if (sendEventCreatedSpy.mock.calls.length === 0) throw new Error('not finished yet')
+      })
+
+      expect(planConversationFromInviteSpy).toHaveBeenCalledWith(expect.objectContaining({ body: 'You are invited.' }))
     }, 10000)
   })
 
