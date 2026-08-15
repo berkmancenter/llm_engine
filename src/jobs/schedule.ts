@@ -22,11 +22,14 @@ const schedule = {
   cancelAutoStartConversation: async (conversationId) => {
     await agenda.cancel({ name: 'autoStart', 'data.conversationId': conversationId })
   },
-  autoStopConversation: async (scheduledAt: Date, data) => {
-    await agenda.schedule(scheduledAt, 'autoStop', data)
+  autoStopConversation: async (timerPeriod, data, firstRunAt: Date) => {
+    const job = agenda.create(`autoStop - ${data.conversationId}`, data)
+    job.repeatEvery(timerPeriod)
+    job.schedule(firstRunAt)
+    await job.save()
   },
   cancelAutoStopConversation: async (conversationId) => {
-    await agenda.cancel({ name: 'autoStop', 'data.conversationId': conversationId })
+    await agenda.cancel({ name: `autoStop - ${conversationId}` })
   },
   batchTranscript: async (timerPeriod, data) => {
     await agenda.every(timerPeriod, `batchTranscript - ${data.conversationId}`, data, { skipImmediate: true })

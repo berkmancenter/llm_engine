@@ -11,7 +11,6 @@ export async function startJobs() {
     await defineJob.cleanUpTranscripts()
     await schedule.cleanUpTranscripts()
     await defineJob.autoStartConversation()
-    await defineJob.autoStopConversation()
     await defineJob.conversationEndingSoon()
     await defineJob.summarizePdf()
     await defineJob.conversationEvent()
