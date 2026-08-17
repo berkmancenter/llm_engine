@@ -146,7 +146,7 @@ const envVarsSchema = Joi.object()
       .default('event-setup-bot:serviceAccount')
       .description('Comma-separated list of system accounts to create on startup, in username:role format'),
     ALLOWED_ORGANIZER_EMAIL_DOMAINS: Joi.string().description(
-      'Comma-separated email domains whose senders, if they have no account yet, get a "please sign up" reply to an inbound invite. Invites from any other domain are rejected: no event, no reply. Unset means none, so no signup invites are ever sent.'
+      'Comma-separated email domains whose senders, if they have no account yet, get a "please sign up" reply to an inbound email, calendar invite or plain on-demand email alike. A message from any other domain is rejected: no event, no reply. Unset means none, so every inbound email is silently dropped on both paths.'
     ),
     ON_DEMAND_EVENT_DURATION_MINUTES: Joi.number()
       .default(120)
