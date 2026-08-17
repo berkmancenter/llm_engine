@@ -25,3 +25,8 @@ output "managed_ssl_certificate_name" {
   EOT
   value       = google_compute_managed_ssl_certificate.web_server.name
 }
+
+output "frontend_backend_service_name" {
+  description = "Null when var.frontend_origin is unset (\"\") — no frontend backend/NEG exists in that case."
+  value       = one(google_compute_backend_service.frontend[*].name)
+}

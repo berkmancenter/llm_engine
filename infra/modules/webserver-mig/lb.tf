@@ -1,6 +1,10 @@
 # Global external HTTPS load balancer: path-based routing to the api-port
-# and ws-port backend services on the same MIG. TLS terminates here — no
-# Caddy on the instances themselves.
+# and ws-port backend services on the same MIG, plus (optionally) an
+# external frontend origin as the fallback route — see "frontend proxy"
+# below. TLS terminates here — no Caddy on the instances themselves. This
+# mirrors the previous single-box Caddyfile's handle blocks: /v1/* ->
+# api, /socket.io/* -> websocket, fallback -> the FE origin with its Host
+# header rewritten.
 
 resource "google_compute_backend_service" "api" {
   project                         = var.project_id
@@ -32,10 +36,20 @@ resource "google_compute_backend_service" "websocket" {
   }
 }
 
+locals {
+  # Everything not matched by the path_rules below (i.e. not /v1/* or
+  # /socket.io/*) falls through to this. With frontend_origin unset, that's
+  # the api backend (its own 404 handler), same behavior as before the
+  # frontend proxy existed.
+  default_backend_service_id = (
+    var.frontend_origin != "" ? google_compute_backend_service.frontend[0].id : google_compute_backend_service.api.id
+  )
+}
+
 resource "google_compute_url_map" "web_server" {
   project         = var.project_id
   name            = "llm-engine-url-map"
-  default_service = google_compute_backend_service.api.id
+  default_service = local.default_backend_service_id
 
   host_rule {
     hosts        = concat([var.domain], var.additional_domains)
@@ -44,12 +58,64 @@ resource "google_compute_url_map" "web_server" {
 
   path_matcher {
     name            = "main"
-    default_service = google_compute_backend_service.api.id
+    default_service = local.default_backend_service_id
 
     path_rule {
       paths   = ["/socket.io/*"]
       service = google_compute_backend_service.websocket.id
     }
+
+    path_rule {
+      paths   = ["/v1/*"]
+      service = google_compute_backend_service.api.id
+    }
+  }
+}
+
+# --- Frontend proxy (optional) ---
+#
+# Proxies the fallback route (anything not /v1/* or /socket.io/*) to an
+# external frontend origin — e.g. a Vercel deployment — through this same
+# LB/domain, the same role the old single-box Caddyfile's `handle {
+# reverse_proxy https://... }` fallback block played. Implemented as a
+# global "internet NEG" (network_endpoint_type = INTERNET_FQDN_PORT): the
+# LB makes an outbound HTTPS connection to frontend_origin for every
+# request that reaches this backend, no VPC networking or health checks
+# involved (GCP doesn't support health checks on internet NEGs — the
+# backend is treated as always up).
+#
+# custom_request_headers rewrites the Host header the origin actually
+# sees to frontend_origin itself, regardless of what domain the client
+# requested (var.domain / additional_domains) — needed because Vercel (and
+# most host-based routers) picks which deployment to serve by Host header,
+# and would otherwise see this LB's own domain and not know which project
+# to serve.
+resource "google_compute_global_network_endpoint_group" "frontend" {
+  count                 = var.frontend_origin != "" ? 1 : 0
+  project               = var.project_id
+  name                  = "llm-engine-frontend-neg"
+  network_endpoint_type = "INTERNET_FQDN_PORT"
+  default_port          = 443
+}
+
+resource "google_compute_global_network_endpoint" "frontend" {
+  count                         = var.frontend_origin != "" ? 1 : 0
+  global_network_endpoint_group = google_compute_global_network_endpoint_group.frontend[0].id
+  fqdn                          = var.frontend_origin
+  port                          = 443
+}
+
+resource "google_compute_backend_service" "frontend" {
+  count                  = var.frontend_origin != "" ? 1 : 0
+  project                = var.project_id
+  name                   = "llm-engine-frontend-backend"
+  protocol               = "HTTPS"
+  load_balancing_scheme  = "EXTERNAL_MANAGED"
+  timeout_sec            = 30
+  custom_request_headers = ["Host: ${var.frontend_origin}"]
+
+  backend {
+    group = google_compute_global_network_endpoint_group.frontend[0].id
   }
 }
 

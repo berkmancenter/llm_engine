@@ -171,6 +171,25 @@ variable "additional_domains" {
   default     = []
 }
 
+variable "frontend_origin" {
+  description = <<-EOT
+    Hostname (no scheme, no path — e.g. "my-app.vercel.app") of an
+    external frontend origin to proxy at this LB's fallback route (any
+    path not matched by /v1/* or /socket.io/*, see lb.tf), so the frontend
+    and this backend can be served from the same domain. Built for a
+    Vercel deployment specifically: the LB's Host header is rewritten to
+    this value on the way out, since Vercel (like most host-based routers)
+    picks which deployment to serve by Host header and would otherwise see
+    var.domain instead and not know what to serve.
+
+    Leave "" (the default) to skip this entirely — no frontend backend/NEG
+    gets created, and the fallback route just goes to the api backend
+    (its own 404 handler), same as before this existed.
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "labels" {
   type    = map(string)
   default = {}

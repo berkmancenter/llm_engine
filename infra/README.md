@@ -25,6 +25,14 @@ environment-specific and belongs in your own private ops repo, not a public one 
 
 - **No Caddy anywhere** — TLS termination and path-based routing both happen at the
   load balancer (`webserver-mig`'s `lb.tf`), not on the instances.
+- **`webserver-mig`'s `frontend_origin`** (optional, default `""`) lets the LB proxy
+  its fallback route (anything not `/v1/*` or `/socket.io/*`) to an external frontend
+  origin — e.g. a Vercel deployment — so the frontend and this backend share one
+  domain. Implemented as a global "internet NEG" backend with the outbound `Host`
+  header rewritten to `frontend_origin`, since host-based routers like Vercel need
+  that to pick the right deployment. Same three-way split (`/v1/*` -> api,
+  `/socket.io/*` -> websocket, fallback -> frontend) as the old single-box
+  Caddyfile's `handle` blocks, just moved to the LB.
 - **Chroma is a fixed singleton, not autoscaled** — it holds an in-process index and
   only temporary/rebuildable data, so a MIG's multi-instance, replace-on-deploy model
   is the wrong shape for it. It gets its own persistent disk instead.
