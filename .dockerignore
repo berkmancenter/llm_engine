@@ -14,7 +14,6 @@ evaluations
 promptfoo
 k6
 docs
-goals
 infra
 rag_documents
 *.md

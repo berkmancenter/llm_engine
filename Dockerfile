@@ -34,6 +34,7 @@ COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
 COPY report_templates ./report_templates
+COPY goals ./goals
 
 RUN mkdir -p /app/rag_documents && chown -R nodejs:nodejs /app
 
