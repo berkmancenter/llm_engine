@@ -1,4 +1,4 @@
-import { ChatPromptTemplate, PromptTemplate } from '@langchain/core/prompts'
+import { ChatPromptTemplate, MessagesPlaceholder, PromptTemplate } from '@langchain/core/prompts'
 // import { ConsoleCallbackHandler } from 'langchain/callbacks'
 import { StringOutputParser, StructuredOutputParser } from '@langchain/core/output_parsers'
 import { RunnableSequence } from '@langchain/core/runnables'
@@ -451,9 +451,9 @@ async function getChatPromptResponse(
   const chatHistory = platform === 'vllm' ? ensureAlternatingChat(inputChatHistory || []) : inputChatHistory || []
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const messages: any = [
+  const messages: any[] = [
     ['system', systemTemplate],
-    ...(chatHistory && chatHistory.length > 0 ? chatHistory : []),
+    new MessagesPlaceholder({ variableName: 'chatHistory', optional: true }),
     ['user', userTemplate]
   ]
 
@@ -465,7 +465,7 @@ async function getChatPromptResponse(
     ? getStructuredResponseChain(llm, chatPrompt, structuredOutputSchema)
     : RunnableSequence.from([chatPrompt, llm, new StringOutputParser()])
 
-  const invokeParams = { ...inputParams }
+  const invokeParams = { ...inputParams, chatHistory: chatHistory ?? [] }
 
   if (!structuredOutputSchema) return chain.invoke(invokeParams)
 
