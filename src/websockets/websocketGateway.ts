@@ -92,6 +92,21 @@ class WebsocketGateway {
     await this.broadcast(conversationId, 'resources:updated', { resources: resources.map((r) => r.toJSON()) })
   }
 
+  /**
+   * Broadcasts one incremental sentence of a still-generating agent answer, so a voice
+   * client can start speaking before the full response finishes (see llmChain.ts's
+   * streamAgentAndReportChunks). Ephemeral - never persisted as a Message, unlike
+   * broadcastNewMessage - so it's safe to emit many times per request with no history/RAG
+   * side effects. `done: true` marks the last chunk for a given requestId.
+   */
+  async broadcastAnswerChunk(
+    conversationId: string,
+    channels: string[],
+    payload: { requestId: string; text: string; done: boolean }
+  ) {
+    await this.broadcast(conversationId, 'berky:answer_chunk', payload, channels)
+  }
+
   async broadcastTranscriptStatusChange(conversation, status) {
     await this.broadcast(
       conversation._id.toString(),
