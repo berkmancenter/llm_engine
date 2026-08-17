@@ -7,6 +7,20 @@ variable "billing_account_id" {
   type        = string
 }
 
+variable "enable_budget" {
+  description = <<-EOT
+    Whether to create the project_budget google_billing_budget resource.
+    Defaults to true. Set to false when the caller's service account lacks
+    the billing-account-level IAM role google_billing_budget needs (a 403
+    on create, not a bug in this module) and that grant is still pending —
+    e.g. llm_engine-infra's manual-setup-checklist.md item 3, blocked on
+    IT as of 2026-08-17. Flip back to true (or drop the override) once that
+    grant lands.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "budget_amount_usd" {
   description = <<-EOT
     Monthly budget threshold in USD covering the whole project — Atlas

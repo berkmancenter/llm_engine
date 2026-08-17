@@ -154,6 +154,7 @@ resource "google_monitoring_alert_policy" "chroma_memory_pressure" {
 # google_billing_budget lives in the google-beta provider; see providers.tf.
 
 resource "google_billing_budget" "project_budget" {
+  count           = var.enable_budget ? 1 : 0
   provider        = google-beta
   billing_account = var.billing_account_id
   display_name    = "llm_engine split infra — monthly budget"

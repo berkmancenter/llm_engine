@@ -3,5 +3,6 @@ output "dashboard_id" {
 }
 
 output "budget_id" {
-  value = google_billing_budget.project_budget.id
+  # null when enable_budget = false, rather than an index-out-of-range error.
+  value = one(google_billing_budget.project_budget[*].id)
 }
