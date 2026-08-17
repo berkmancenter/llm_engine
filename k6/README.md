@@ -46,12 +46,14 @@ Follow the instructions below to first run the script that simulates speakers. W
 
 This script emulates a speaker giving an approximately 15 minute talk in a specified number of concurrent conversations. A single dedicated user in each conversation sends transcript chunks and then pauses for (default) six seconds to roughly emulate human speech.
 
-This script should start first, at least ten seconds before you run the script to emulate users chatting with the Event Assistant. Be sure to update the `NUM_CONVERSATIONS` constant to the number of conversations you want to simulate. This should be the same for both scripts.
+This script should start first, at least ten seconds before you run the script to emulate users chatting with the Event Assistant. Be sure to update the `NUM_CONVERSATIONS` constant to the number of conversations you want to simulate. This should be the same for all scripts below.
 
-The script first creates a new user, a new topic, and the specified number of conversations. It then starts the transcript feed. Pass any USERNAME and PASSWORD you wish (password must contain at least one number), but again, these should be the same for both scripts. The API_BASE should point to the server you are testing and the RECALL_WEBHOOK_TOKEN should match the RECALL_TOKEN defined in the server's `.env` file.
+The script first creates a new user, a new topic, and the specified number of conversations. It then starts the transcript feed. Pass any USERNAME and PASSWORD you wish (password must contain at least one number), but again, these should be the same across all scripts. The API_BASE should point to the server you are testing.
+
+`RECALL_REALTIME_SECRET` must be the target server's actual `RECALL_REALTIME_SECRET` value (a `whsec_...` string - see `src/handlers/recall.ts`'s `verifyRequestFromRecall` and `src/config/config.ts`'s `recall.realtimeSecret`), not an arbitrary token: every request is HMAC-signed with it and the server rejects anything that doesn't verify. For a local server this is whatever's in your `.env`; for a deployed environment it's in the `app_env_secret_id` Secret Manager secret.
 
 ```sh
-k6 run -e API_BASE=http://localhost:3000/v1 -e RECALL_WEBHOOK_TOKEN=[token] -e USERNAME=loadtest -e PASSWORD=loadtestload1 transcriptLoad.js
+k6 run -e API_BASE=http://localhost:3000/v1 -e RECALL_REALTIME_SECRET=whsec_... -e USERNAME=loadtest -e PASSWORD=loadtestload1 transcriptLoad.js
 ```
 
 #### Simulating participants chatting with the Event Assistant
@@ -63,12 +65,32 @@ By default, this test will run for 15 minutes (roughly the duration of the trans
 Each user sends a question and then waits 1-3 minutes to simulate natural pacing. This wait period can be configured by changing the `MIN_TIME_BETWEEN_MESSAGES` and `MAX_TIME_BETWEEN_MESSAGES` values (in seconds).
 
 ```sh
-k6 run -e API_BASE=http://localhost:3000/v1 -e RECALL_WEBHOOK_TOKEN=[token] -e USERNAME=loadtest -e PASSWORD=loadtestload1 --out json=results.json eventAssistantLoad.js
+k6 run -e API_BASE=http://localhost:3000/v1 -e RECALL_REALTIME_SECRET=whsec_... -e USERNAME=loadtest -e PASSWORD=loadtestload1 --out json=results.json eventAssistantLoad.js
 ```
+
+#### Simulating the websocket connection stampede
+
+The two scripts above only exercise the HTTP webhook path - they never open a real websocket connection, so they can't tell you anything about connection-establishment behavior or broadcast fan-out latency under load, which matter most for autoscaling since that's what actually drives the `concurrent_connections` custom metric the autoscaler scales on (see `infra/modules/webserver-mig/autoscaler.tf`).
+
+`websocketStampede.js` opens `NUM_CONVERSATIONS * PARTICIPANTS_PER_CONVERSATION` real Socket.IO connections nearly simultaneously (a stampede, not a ramp), joins each into its conversation's rooms, and holds them open for the rest of the simulated talk, listening for broadcasts. Run it as a third parallel process, after the transcript script has created conversations:
+
+```sh
+k6 run -e API_BASE=http://localhost:3000/v1 -e USERNAME=loadtest -e PASSWORD=loadtestload1 websocketStampede.js
+```
+
+It doesn't need `RECALL_REALTIME_SECRET` (it never posts to the webhook endpoint) but does need a valid access token, which it gets itself via login - see its `setup()`.
+
+Against a **local** server, also pass `-e WEBSOCKET_BASE=ws://localhost:5555` (or whatever `WEBSOCKET_BASE_PORT` is in your `.env`, default 5555) - locally there's no load balancer doing path-based routing, so the websocket sticky-dispatcher's own port has to be addressed directly (see `src/websockets/index.ts`). Against a deployed environment, omit `WEBSOCKET_BASE` entirely - the GCLB puts `/socket.io/*` on the same host/443 as the API, so the script derives it from `API_BASE` automatically.
+
+Notes:
+
+- This is most useful run against a real deployed (e.g. staging) environment, not localhost - the whole point is observing whether the MIG autoscaler reacts to the connection stampede fast enough (60s cooldown) and whether the load balancer keeps connections stable while it does. Correlate the `ws_unexpected_closes` / `ws_connect_errors` metrics against GCP Monitoring's instance count, CPU, and `custom.googleapis.com/app/concurrent_connections` series for the same time window.
+- The websocket backend service (`google_compute_backend_service.websocket` in `lb.tf`) currently has no `session_affinity` set. If you see a spike in `ws_unexpected_closes` once the MIG has more than one healthy instance, this is the likely cause - Socket.IO's handshake does several HTTP requests before upgrading, and without sticky routing they can land on different instances mid-handshake.
+- It hand-rolls the Engine.IO/Socket.IO v4 wire protocol directly over `k6/websockets` (there's no Socket.IO client for k6) - see the comments in the script if the server-side protocol details (room naming, the `conversation:join` payload shape, the per-event JWT check) ever change.
 
 ### Analyzing the results
 
-Summary results will be printed to the console and available in `transcriptSummary.json` and `summary.json` files. The `eventAssistantLoad` time-series results are saved to `results.json' (as specified in the run command).
+Summary results will be printed to the console and available in `transcriptSummary.json`, `summary.json`, and `websocketSummary.json` files. The `eventAssistantLoad` time-series results are saved to `results.json' (as specified in the run command).
 
 Run the following script to analyze time series data to determine if/when performance degraded over time:
 

@@ -5,6 +5,7 @@ import { check, sleep } from 'k6'
 import exec from 'k6/execution'
 
 import { Trend, Counter } from 'k6/metrics'
+import { signRecallWebhook } from './recallSignature.js'
 
 const userMessageDuration = new Trend('user_message_duration')
 const timeoutCounter = new Counter('timeout_errors')
@@ -108,10 +109,12 @@ export function sendUserMessage(conversations) {
   const username = `user${vuIndex}`
   const question = getRandomElement(QUESTIONS)
   const webhookPayload = createChatMessageWebhook(username, question)
+  const body = JSON.stringify(webhookPayload)
 
   const params = {
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      ...signRecallWebhook(__ENV.RECALL_REALTIME_SECRET, body)
     },
     tags: {
       conversation_id: conversationId,
@@ -119,10 +122,10 @@ export function sendUserMessage(conversations) {
     }
   }
 
-  const url = `${__ENV.API_BASE}/webhooks/recall?token=${__ENV.RECALL_WEBHOOK_TOKEN}&conversationId=${conversationId}`
+  const url = `${__ENV.API_BASE}/webhooks/recall?conversationId=${conversationId}`
 
   const startTime = Date.now()
-  const res = http.post(url, JSON.stringify(webhookPayload), params)
+  const res = http.post(url, body, params)
   const duration = Date.now() - startTime
 
   // Record custom metrics

@@ -5,6 +5,7 @@ import { check, sleep } from 'k6'
 import exec from 'k6/execution'
 
 import { Trend } from 'k6/metrics'
+import { signRecallWebhook } from './recallSignature.js'
 
 const transcriptDuration = new Trend('transcript_duration')
 
@@ -310,18 +311,20 @@ export function sendTranscript(conversations) {
   for (let i = 0; i < TRANSCRIPT_CHUNKS.length; i++) {
     const chunk = TRANSCRIPT_CHUNKS[i]
     const webhookPayload = createTranscriptWebhook(speakerName, chunk)
+    const body = JSON.stringify(webhookPayload)
 
     const params = {
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...signRecallWebhook(__ENV.RECALL_REALTIME_SECRET, body)
       },
       tags: { conversation_id: conversationId }
     }
 
-    const url = `${__ENV.API_BASE}/webhooks/recall?token=${__ENV.RECALL_WEBHOOK_TOKEN}&conversationId=${conversationId}`
+    const url = `${__ENV.API_BASE}/webhooks/recall?conversationId=${conversationId}`
 
     const startTime = Date.now()
-    const res = http.post(url, JSON.stringify(webhookPayload), params)
+    const res = http.post(url, body, params)
     const duration = Date.now() - startTime
 
     // Record transcript-specific metrics
