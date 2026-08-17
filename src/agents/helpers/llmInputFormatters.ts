@@ -12,7 +12,16 @@ function formatTime(date, timezone = 'UTC') {
 }
 
 function formatTranscriptMessage(message, timezone = 'UTC') {
-  return `[${formatTime(message.createdAt, timezone)}] ${message.body}`
+  // Berky's voice pipeline attaches a diarized speaker label (e.g.
+  // "SPEAKER_00") on source.speaker when diarization is enabled - surface it
+  // here so the LLM can actually distinguish speakers in the transcript.
+  // Previously this was computed and sent but never read anywhere in
+  // llm_engine, so every "how many people are talking" question got
+  // answered as "the transcript doesn't have proper diarization" even with
+  // diarization running - the label was silently discarded at this step.
+  const speaker = message.source?.speaker
+  const speakerPrefix = speaker ? `[${speaker}] ` : ''
+  return `[${formatTime(message.createdAt, timezone)}] ${speakerPrefix}${message.body}`
 }
 
 function formatTranscript(messages, timezone = 'UTC') {
@@ -81,7 +90,9 @@ function extractMessageText(message: IMessage) {
       return `${body.text}\n[Poll: "${body.title}"]\nChoices:\n${choiceList}`
     }
     if (!body?.text) {
-      logger.warn(`Message with ID ${message._id} has bodyType '${message.bodyType}' but no 'text' property. Defaulting to empty string.`)
+      logger.warn(
+        `Message with ID ${message._id} has bodyType '${message.bodyType}' but no 'text' property. Defaulting to empty string.`
+      )
       return ''
     }
     return body.text as string
