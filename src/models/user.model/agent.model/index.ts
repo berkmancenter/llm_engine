@@ -271,7 +271,7 @@ agentSchema.method('evaluate', async function (userMessage = null) {
 
   // do not process if no new messages
   // Skip this check for perMessage triggers (when userMessage is defined) or proactive periodic agents
-  if (!userMessage && !this.triggers?.periodic?.proactive && messageCount === this.lastActiveMessageCount) {
+  if (!userMessage && !this.triggers?.periodic?.proactive && !this.triggers?.cron && messageCount === this.lastActiveMessageCount) {
     logger.debug(`No new messages to respond to ${this.agentType} ${this._id}`)
     return { action: AgentMessageActions.OK, userContributionVisible: true }
   }

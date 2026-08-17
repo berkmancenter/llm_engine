@@ -132,6 +132,21 @@ const testAgentTypes = {
       return translatedMsg
     }
   },
+  cron: {
+    respond: mockRespond,
+    evaluate: mockEvaluate,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Test Cron',
+    description: 'An agent that runs on a cron schedule',
+    maxTokens: 2000,
+    defaultTriggers: { cron: { expression: '0 4 * * *' } },
+    priority: 100,
+    llmTemplateVars: {},
+    llmTemplates: {},
+    defaultLLMPlatform,
+    defaultLLMModel
+  },
   withGoalPriorities: {
     respond: mockRespond,
     evaluate: mockEvaluate,
@@ -612,6 +627,29 @@ describe('agent tests', () => {
 
     // No messages in conversation — messageCount === lastActiveMessageCount (both 0).
     // A non-proactive agent would skip; a proactive one should still call evaluate.
+    await agent.evaluate()
+    expect(mockEvaluate).toHaveBeenCalledTimes(1)
+  })
+
+  test('should allow cron agent to evaluate even when no new messages since last check', async () => {
+    const agent = new Agent({
+      agentType: 'cron',
+      conversation,
+      triggers: { cron: { expression: '0 4 * * *' } }
+    })
+    await agent.save()
+    await agent.start()
+
+    mockEvaluate.mockResolvedValue({
+      userMessage: null,
+      action: AgentMessageActions.CONTRIBUTE,
+      agentContributionVisible: false,
+      userContributionVisible: true,
+      suggestion: undefined
+    })
+
+    // No messages in conversation — messageCount === lastActiveMessageCount (both 0).
+    // A cron agent should always bypass this guard and call evaluate.
     await agent.evaluate()
     expect(mockEvaluate).toHaveBeenCalledTimes(1)
   })
@@ -1762,6 +1800,33 @@ describe('agent tests', () => {
 
       expect(responses).toEqual([])
       expect(mockRespond).not.toHaveBeenCalled()
+    })
+
+    test('should call respond for cron agent even when no messages in conversation', async () => {
+      const agent = new Agent({
+        agentType: 'cron',
+        conversation: testConversation,
+        triggers: { cron: { expression: '0 4 * * *' } }
+      })
+      await agent.save()
+      await agent.start()
+      await testConversation.populate(['messages', 'channels'])
+
+      mockEvaluate.mockResolvedValue({
+        userMessage: null,
+        action: AgentMessageActions.CONTRIBUTE,
+        agentContributionVisible: false,
+        userContributionVisible: true,
+        suggestion: undefined
+      })
+      mockRespond.mockResolvedValue([{ visible: true, message: 'Cron response', pause: 0 }])
+
+      // No messages — a non-proactive periodic agent would bail; cron should not.
+      await agent.evaluate()
+      const responses = await agent.respond()
+
+      expect(mockRespond).toHaveBeenCalledTimes(1)
+      expect(responses).toHaveLength(1)
     })
 
     test('should only get direct channels from userMessage when userMessage is present', async () => {
