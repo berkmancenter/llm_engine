@@ -12,6 +12,7 @@ import eventSetup from './eventSetup/eventSetup.js'
 import vibesAnalyst from './vibesAnalyst/index.js'
 import numberCruncher from './numberCruncher/agent.js'
 import scorekeeper from './scorekeeper/agent.js'
+import reachyLiveAgent from './reachyLive/reachyLiveAgent.js'
 
 // Development agents
 import civilityPerMessage from './development/civilityPerMessage.js'
@@ -55,7 +56,8 @@ const agentTypes = {
   eventSetup,
   vibesAnalyst,
   numberCruncher,
-  scorekeeper
+  scorekeeper,
+  reachyLiveAgent
 }
 
 for (const [key, agentType] of Object.entries(agentTypes)) {

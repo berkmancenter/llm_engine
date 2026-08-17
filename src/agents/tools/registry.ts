@@ -3,6 +3,7 @@ import logger from '../../config/logger.js'
 import { webSearchTool } from './webSearch.js'
 import { searchSemanticScholarTool, getSemanticScholarRecommendationsTool } from './semanticScholar.js'
 import createEventHistoryTools from './eventHistory.js'
+import { bkcArchiveWikiTools } from './bkcArchiveWiki.js'
 
 /**
  * A factory that returns one or more LangChain tools.
@@ -70,3 +71,5 @@ registerTool('event_history', (context) => {
   }
   return createEventHistoryTools(topics, { activeConversationId: context?.activeConversationId })
 })
+
+registerTool('archive_wiki', () => bkcArchiveWikiTools)
