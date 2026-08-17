@@ -10,7 +10,8 @@ import { transformPayloadForClaude } from './claudeHandler.js'
  * provider.
  *
  * The default targets an API-key gateway. It sends the native Bedrock InvokeModel request to
- * `{BEDROCK_BASE_URL}/model/{modelId}/invoke` with an `x-api-key` header, and assumes the
+ * `{BEDROCK_BASE_URL}/model/{modelId}/invoke` (or `/invoke-with-response-stream`, mirroring
+ * whichever method BedrockChat itself requested) with an `x-api-key` header, and assumes the
  * gateway signs the upstream AWS request (SigV4) on its side.
  *
  * If you call Amazon Bedrock directly, AWS requires SigV4-signed requests rather than an api
@@ -22,8 +23,10 @@ import { transformPayloadForClaude } from './claudeHandler.js'
 // cannot alter the URL path; the colon in dated ids is valid in a path segment and stays.
 const BEDROCK_MODEL_ID_PATTERN = /^[A-Za-z0-9._:-]+$/
 
+export type BedrockInvokeMethod = 'invoke' | 'invoke-with-response-stream'
+
 /**
- * Builds the Bedrock InvokeModel URL for a model: `{baseUrl}/model/{modelId}/invoke`.
+ * Builds the Bedrock InvokeModel URL for a model: `{baseUrl}/model/{modelId}/{method}`.
  *
  * `baseUrl` is everything up to the `/model` segment for your endpoint. For Amazon Bedrock
  * that is the bedrock-runtime host; for a gateway it is the gateway base path. The model id
@@ -33,13 +36,13 @@ const BEDROCK_MODEL_ID_PATTERN = /^[A-Za-z0-9._:-]+$/
  *
  * @throws if the model id contains characters that are not valid in a Bedrock model id.
  */
-export function buildBedrockInvokeUrl(baseUrl: string, modelId: string): string {
+export function buildBedrockInvokeUrl(baseUrl: string, modelId: string, method: BedrockInvokeMethod = 'invoke'): string {
   if (!BEDROCK_MODEL_ID_PATTERN.test(modelId)) {
     throw new Error(`Invalid Bedrock model id: "${modelId}"`)
   }
   // Drop any trailing slash on the base url so the path does not end up with a double slash.
   const normalizedBaseUrl = baseUrl.replace(/\/+$/, '')
-  return `${normalizedBaseUrl}/model/${modelId}/invoke`
+  return `${normalizedBaseUrl}/model/${modelId}/${method}`
 }
 
 const RETRYABLE_STATUS = new Set([429, 500, 502])
@@ -48,7 +51,8 @@ const RETRY_BASE_DELAY_MS = 500
 
 // Create a custom fetch function for Bedrock Claude or legacy LLM
 export function createClaudeFetchFn(defaultLLMModel: string, defaultLLMPlatform: string) {
-  return async function fetchFn(url: string, init: Parameters<typeof fetch>[1]) {
+  return async function fetchFn(rawUrl: string | URL | Request, init: Parameters<typeof fetch>[1]) {
+    const url = typeof rawUrl === 'string' ? rawUrl : rawUrl.toString()
     let bodyContent: unknown = {}
     if (init?.body) {
       if (
@@ -79,8 +83,16 @@ export function createClaudeFetchFn(defaultLLMModel: string, defaultLLMPlatform:
         'x-api-key': config.llms.bedrock.key
       }
     }
-    // Bedrock routes by model id in the path; buildBedrockInvokeUrl validates the id first.
-    const invokeUrl = buildBedrockInvokeUrl(config.llms.bedrock.baseUrl, defaultLLMModel)
+    // BedrockChat._streamResponseChunks() builds its own request URL (targeting a direct
+    // AWS endpoint host we don't use) and calls this same fetchFn with it - only the method
+    // segment ("invoke" vs "invoke-with-response-stream") is meaningful to us, so mirror
+    // that against our own gateway base URL/model id rather than trusting the rest of it.
+    const isStreaming = url.includes('invoke-with-response-stream')
+    const invokeUrl = buildBedrockInvokeUrl(
+      config.llms.bedrock.baseUrl,
+      defaultLLMModel,
+      isStreaming ? 'invoke-with-response-stream' : 'invoke'
+    )
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
@@ -101,7 +113,9 @@ export function createClaudeFetchFn(defaultLLMModel: string, defaultLLMPlatform:
         }
 
         const contentType = response.headers.get('content-type') || ''
-        if (contentType.includes('application/json')) {
+        // AWS event-stream framing for invoke-with-response-stream - BedrockChat decodes
+        // the body itself, so pass the response through untouched (don't consume it here).
+        if (contentType.includes('application/json') || contentType.includes('application/vnd.amazon.eventstream')) {
           return response
         }
         const responseText = await response.text()
