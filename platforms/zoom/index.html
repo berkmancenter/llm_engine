@@ -572,10 +572,10 @@ NEXTSPACE_URL=https://your-nextspace-domain.com
 </ol>
 <p>Example conversation body:</p>
 <div class="highlight"><pre><span></span><code>{
-    &quot;name&quot;: &quot;Should plastic water bottles be banned?&quot;,
-    &quot;topicId&quot;: &quot;{{defaultTopic}}&quot;,
-    &quot;channels&quot;: [ { &quot;name&quot;: &quot;transcript&quot;}],
-    &quot;adapters&quot;: [ {&quot;type&quot;: &quot;zoom&quot;, &quot;config&quot; : {&quot;meetingUrl&quot;: &quot;{{ZOOM_MEETING_URL}}&quot;}}]
+    "name": "Should plastic water bottles be banned?",
+    "topicId": "{{defaultTopic}}",
+    "channels": [ { "name": "transcript"}],
+    "adapters": [ {"type": "zoom", "config" : {"meetingUrl": "{{ZOOM_MEETING_URL}}"}}]
 }
 </code></pre></div>
 <p><strong>NOTE: A unique Zoom meeting URL can only be associated with one active Conversation</strong></p>
@@ -586,10 +586,10 @@ NEXTSPACE_URL=https://your-nextspace-domain.com
 <p>By default, Zoom meeting recordings are retained on the Recall server for one hour after the meeting. You can specify a different retention policy in your adapter config. Set retention to null for zero data retention (but note, this will impact your ability to debug Recall issues). Otherwise, see <a href="https://docs.recall.ai/docs/storage-and-playback">Recall documentation</a> for supported options.</p>
 <p>Example setting data retention to four hours:</p>
 <div class="highlight"><pre><span></span><code>{
-    &quot;name&quot;: &quot;Should plastic water bottles be banned?&quot;,
-    &quot;topicId&quot;: &quot;{{defaultTopic}}&quot;,
-    &quot;channels&quot;: [ { &quot;name&quot;: &quot;transcript&quot;}],
-    &quot;adapters&quot;: [ {&quot;type&quot;: &quot;zoom&quot;, &quot;config&quot; : {&quot;meetingUrl&quot;: &quot;{{ZOOM_MEETING_URL}}&quot;,     &quot;retention&quot;: {&quot;type&quot;: &quot;timed&quot;,hours: 4}}, &quot;audioChannels&quot;: [{&quot;name&quot;: &quot;transcript&quot;}]}]
+    "name": "Should plastic water bottles be banned?",
+    "topicId": "{{defaultTopic}}",
+    "channels": [ { "name": "transcript"}],
+    "adapters": [ {"type": "zoom", "config" : {"meetingUrl": "{{ZOOM_MEETING_URL}}",     "retention": {"type": "timed",hours: 4}}, "audioChannels": [{"name": "transcript"}]}]
 }
 </code></pre></div>
 <ol>
@@ -599,13 +599,13 @@ NEXTSPACE_URL=https://your-nextspace-domain.com
 <h3 id="enabling-direct-messages">Enabling Direct Messages</h3>
 <p>If you wish to enable direct messages between agents and users, you must set the <code>"enableDMs": ["agents"]</code> property during Conversation creation. You must also specify a <code>dmChannel</code> in the <code>Adapter</code> configuration for each agent that should receive DMs.</p>
 <div class="highlight"><pre><span></span><code>{
-&quot;name&quot;: &quot;Should plastic water bottles be banned?&quot;,
-&quot;topicId&quot;: &quot;{{defaultTopic}}&quot;,
-&quot;enableDMs&quot;: [&quot;agents&quot;],
-&quot;channels&quot;: [ { &quot;name&quot;: &quot;transcript&quot;}],
-&quot;adapters&quot;: [ {&quot;type&quot;: &quot;zoom&quot;, &quot;config&quot; : {&quot;meetingUrl&quot;: &quot;{{ZOOM_MEETING_URL}}&quot;},
-    &quot;dmChannels&quot;: [{&quot;direct&quot;: true, &quot;agent&quot;: &quot;eventAssistant&quot;, &quot;direction&quot;: &quot;both&quot;}],
-    &quot;audioChannels&quot;: [{&quot;name&quot;: &quot;transcript&quot;}]}]
+"name": "Should plastic water bottles be banned?",
+"topicId": "{{defaultTopic}}",
+"enableDMs": ["agents"],
+"channels": [ { "name": "transcript"}],
+"adapters": [ {"type": "zoom", "config" : {"meetingUrl": "{{ZOOM_MEETING_URL}}"},
+    "dmChannels": [{"direct": true, "agent": "eventAssistant", "direction": "both"}],
+    "audioChannels": [{"name": "transcript"}]}]
 }
 </code></pre></div>
 <p>If you do not need transcription, remove the <code>transcript</code> channel from the configuration.</p>
@@ -620,16 +620,16 @@ NEXTSPACE_URL=https://your-nextspace-domain.com
 <p>Targeted DM channels use <code>"direction": "outgoing"</code> since they are used for one-way delivery to specific participants, not for receiving messages.</p>
 <p>Example using <code>"moderators"</code> mode:</p>
 <div class="highlight"><pre><span></span><code>{
-&quot;name&quot;: &quot;Should plastic water bottles be banned?&quot;,
-&quot;topicId&quot;: &quot;{{defaultTopic}}&quot;,
-&quot;enableDMs&quot;: [&quot;agents&quot;],
-&quot;channels&quot;: [{&quot;name&quot;: &quot;transcript&quot;}, {&quot;name&quot;: &quot;moderator&quot;}],
-&quot;adapters&quot;: [{&quot;type&quot;: &quot;zoom&quot;, &quot;config&quot;: {&quot;meetingUrl&quot;: &quot;{{ZOOM_MEETING_URL}}&quot;},
-    &quot;dmChannels&quot;: [
-        {&quot;direct&quot;: true, &quot;agent&quot;: &quot;eventAssistant&quot;, &quot;direction&quot;: &quot;both&quot;},
-        {&quot;name&quot;: &quot;moderator&quot;, &quot;direction&quot;: &quot;outgoing&quot;, &quot;users&quot;: &quot;moderators&quot;}
+"name": "Should plastic water bottles be banned?",
+"topicId": "{{defaultTopic}}",
+"enableDMs": ["agents"],
+"channels": [{"name": "transcript"}, {"name": "moderator"}],
+"adapters": [{"type": "zoom", "config": {"meetingUrl": "{{ZOOM_MEETING_URL}}"},
+    "dmChannels": [
+        {"direct": true, "agent": "eventAssistant", "direction": "both"},
+        {"name": "moderator", "direction": "outgoing", "users": "moderators"}
     ],
-    &quot;audioChannels&quot;: [{&quot;name&quot;: &quot;transcript&quot;}]}]
+    "audioChannels": [{"name": "transcript"}]}]
 }
 </code></pre></div>
 <p>DM channel targeting is resolved at join time — when a participant joins (or updates their display name or host status), the engine checks whether they match the <code>users</code> criteria and registers them for that channel if so.</p>

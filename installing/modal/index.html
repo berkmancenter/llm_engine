@@ -515,7 +515,7 @@ $ modal deploy vllm_inference.py
 </ol>
 <div class="highlight"><pre><span></span><code>VLLM_API_URL=https://{prefix}--example-vllm-inference-serve.modal.run/v1
 # if using the default function with no security
-VLLM_API_KEY=&#39;dummy&#39;
+VLLM_API_KEY='dummy'
 </code></pre></div>
 <h3 id="cold-starts-and-scaling">Cold starts and Scaling</h3>
 <p>Modal performs auto-scaling of functions. They scale down to 0 when not in use (default idle timeout is 15 minutes).</p>
@@ -524,14 +524,14 @@ VLLM_API_KEY=&#39;dummy&#39;
 <h2 id="sanity-testing">Sanity Testing</h2>
 <p>You can use curl to test your endpoint's OpenAI compatible API. Adjust the <code>PREFIX</code> and <code>VLLM_API_KEY</code> and model accordingly. Just remember the first request may take a while while the endpoint is brought online.</p>
 <div class="highlight"><pre><span></span><code>curl -X POST https://{PREFIX}--example-vllm-inference-serve.modal.run/v1/chat/completions \
- -H &#39;Content-Type: application/json&#39; \
- -H &#39;Authorization: Bearer VLLM_API_KEY&#39; \
- -d &#39;{
-&quot;model&quot;: &quot;RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8&quot;,
-&quot;messages&quot;: [
-{&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: &quot;Hello, how are you?&quot;}
+ -H 'Content-Type: application/json' \
+ -H 'Authorization: Bearer VLLM_API_KEY' \
+ -d '{
+"model": "RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8",
+"messages": [
+{"role": "user", "content": "Hello, how are you?"}
 ]
-}&#39;
+}'
 </code></pre></div>
 <h2 id="keep-alive">Keep Alive?</h2>
 <p>We have not yet implemented keep alive pings during the duration of a conversation. That would be an alternative to setting a long idle timeout. Managing the pings to run only when any conversation is running could be done, but would take a little work.</p>

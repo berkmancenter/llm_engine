@@ -548,14 +548,14 @@ VLLM_API_KEY={token}
 <h2 id="sanity-testing">Sanity Testing</h2>
 <p>You can use curl to test your endpoint's OpenAI compatible API. Adjust the <code>ENDPOINT_ID</code> and <code>VLLM_API_KEY</code> and model accordingly. Just remember the first request may take a while while the endpoint is brought online.</p>
 <div class="highlight"><pre><span></span><code>curl -X POST https://api.runpod.ai/v2/ENDPOINT_ID/openai/v1/chat/completions \
-  -H &#39;Content-Type: application/json&#39; \
-  -H &#39;Authorization: Bearer VLLM_API_KEY&#39; \
-  -d &#39;{
-    &quot;model&quot;: &quot;mistralai/Mistral-7B-Instruct-v0.3&quot;,
-    &quot;messages&quot;: [
-      {&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: &quot;Hello, how are you?&quot;}
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer VLLM_API_KEY' \
+  -d '{
+    "model": "mistralai/Mistral-7B-Instruct-v0.3",
+    "messages": [
+      {"role": "user", "content": "Hello, how are you?"}
     ]
-  }&#39;
+  }'
 </code></pre></div>
 <h2 id="keep-alive">Keep Alive?</h2>
 <p>We have not yet implemented keep alive pings during the duration of a conversation. That would be an alternative to setting a long idle timeout. Managing the pings to run only when any conversation is running could be done, but would take a little work. With FastBoot and a reasonable idle timeout, hopefully that is not needed.</p>

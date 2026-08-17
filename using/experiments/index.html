@@ -461,11 +461,11 @@
 <h2 id="running-an-experiment-against-updated-agent-code">Running an experiment against updated agent code</h2>
 <p>If you updated an agent that was previously used in a conversation, you can easily rerun the conversation through the new agent code and view the new responses. Use a retrieval endpoint to find the conversation and agent IDs, then POST the following body to <code>/experiments/</code></p>
 <div class="highlight"><pre><span></span><code>{
-    &quot;name&quot;: &quot;My Event&quot;,
-    &quot;baseConversation&quot;: &quot;{{conversationId}}&quot;,
-    &quot;agentModifications&quot;: [
+    "name": "My Event",
+    "baseConversation": "{{conversationId}}",
+    "agentModifications": [
         {
-            &quot;agent&quot;: &quot;{{agentId}}&quot;,
+            "agent": "{{agentId}}",
         }
     ]
 }
@@ -473,17 +473,17 @@
 <h2 id="running-an-experiment-with-experimental-agent-property-values">Running an experiment with experimental agent property values</h2>
 <p>To modify agent property values like prompt or llmModel, you can create an experiment with <code>experimentValues</code> properties. Use a retrieval endpoint to find the conversation and agent IDs, then POST the following body to <code>/experiments/</code></p>
 <div class="highlight"><pre><span></span><code>{
-    &quot;name&quot;: &quot;My Event&quot;,
-    &quot;baseConversation&quot;: &quot;{{conversationId}}&quot;,
-    &quot;agentModifications&quot;: [
+    "name": "My Event",
+    "baseConversation": "{{conversationId}}",
+    "agentModifications": [
         {
-            &quot;agent&quot;: &quot;{{agentId}}&quot;,
-            &quot;experimentValues&quot;: {
-                &quot;llmTemplates&quot;: {
-                    &quot;system&quot;: &quot;Do something different than the last prompt I gave you&quot;,
+            "agent": "{{agentId}}",
+            "experimentValues": {
+                "llmTemplates": {
+                    "system": "Do something different than the last prompt I gave you",
                 },
-                &quot;llmPlatform&quot;: &quot;openai&quot;,
-                &quot;llmModel&quot;: &quot;gpt-4o-mini&quot;
+                "llmPlatform": "openai",
+                "llmModel": "gpt-4o-mini"
             }
         }
     ]
@@ -514,7 +514,7 @@ Average Engagements Per User: 4.09375
 ---------------------------
 **User: Steely Angelfish**
 
-5:21:01 PM  Event Assistant: Hi! I&#39;m the LLM Event Assistant. If you miss something, or want a clarification on something that’s been said during the event, you can DM me. None of your messages to me will be surfaced to the moderator or the rest of the audience.
+5:21:01 PM  Event Assistant: Hi! I'm the LLM Event Assistant. If you miss something, or want a clarification on something that’s been said during the event, you can DM me. None of your messages to me will be surfaced to the moderator or the rest of the audience.
 
 5:21:05 PM  Steely Angelfish: What is this event about?
 
@@ -524,7 +524,7 @@ Average Engagements Per User: 4.09375
 ---------------------------
 **User: Scholarly Babbler**
 
-5:35:51 PM  Event Assistant: Hi! I&#39;m the LLM Event Assistant. If you miss something, or want a clarification on something that’s been said during the event, you can DM me. None of your messages to me will be surfaced to the moderator or the rest of the audience.
+5:35:51 PM  Event Assistant: Hi! I'm the LLM Event Assistant. If you miss something, or want a clarification on something that’s been said during the event, you can DM me. None of your messages to me will be surfaced to the moderator or the rest of the audience.
 
 5:42:19 PM  Scholarly Babbler: I just joined. What have I missed?
 
@@ -553,18 +553,18 @@ Agent Name: Back Channel Insights Agent
 
 ***Messages in time period: 12:31:27 PM - 12:33:27 PM***
 
-12:32:39 PM  Blithe Belemnite: What is the speaker&#39;s definition of artificial intelligence?
+12:32:39 PM  Blithe Belemnite: What is the speaker's definition of artificial intelligence?
 
 
 **Agent Responses**
 
   Insights:
 
-      Value: What is the speaker&#39;s definition of artificial intelligence?
+      Value: What is the speaker's definition of artificial intelligence?
       Comments:
 
           User: Blithe Belemnite
-          Text: What is the speaker&#39;s definition of artificial intelligence?
+          Text: What is the speaker's definition of artificial intelligence?
 
 ...
 </code></pre></div>

@@ -631,11 +631,11 @@
 </ol>
 <p>Example conversation body:</p>
 <div class="highlight"><pre><span></span><code>{
-    &quot;name&quot;: &quot;Should plastic water bottles be banned?&quot;,
-    &quot;topicId&quot;: &quot;{{defaultTopic}}&quot;,
-    &quot;channels&quot;: [ { &quot;name&quot;: &quot;moderator&quot;}, { &quot;name&quot;: &quot;participant&quot;}],
-    &quot;adapters&quot;: [ {&quot;type&quot;: &quot;slack&quot;, &quot;config&quot; : {&quot;channel&quot;: &quot;C08US6FL6DV&quot;, &quot;workspace: &quot;T123494&quot;, &quot;botToken&quot;:&quot;[token]&quot;, &quot;botName&quot;: &quot;Berkie&quot;},
-        &quot;chatChannels&quot;: [ { &quot;name&quot;: &quot;playfulSlack&quot;, &quot;direction&quot;: &quot;both&quot;}]}]
+    "name": "Should plastic water bottles be banned?",
+    "topicId": "{{defaultTopic}}",
+    "channels": [ { "name": "moderator"}, { "name": "participant"}],
+    "adapters": [ {"type": "slack", "config" : {"channel": "C08US6FL6DV", "workspace: "T123494", "botToken":"[token]", "botName": "Berkie"},
+        "chatChannels": [ { "name": "playfulSlack", "direction": "both"}]}]
 }
 </code></pre></div>
 <p><strong>NOTE: A unique Slack workspace and channel combination can only be associated with one active Conversation</strong></p>
@@ -702,20 +702,20 @@
 <li><strong>Create a Conversation</strong> by POSTing to the admin API with the body below. Replace the four <code>&lt;PLACEHOLDER&gt;</code> values with the identifiers from step 3, your topic ID, and the name you want the bot to display in Slack.</li>
 </ol>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Event Setup&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;topicId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;NEXTSPACE_TOPIC_ID&gt;&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;channels&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;setup&quot;</span><span class="w"> </span><span class="p">}],</span>
-<span class="w">  </span><span class="nt">&quot;agentTypes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;eventSetup&quot;</span><span class="p">],</span>
-<span class="w">  </span><span class="nt">&quot;adapters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">  </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Event Setup"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"topicId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;NEXTSPACE_TOPIC_ID&gt;"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"channels"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"setup"</span><span class="w"> </span><span class="p">}],</span>
+<span class="w">  </span><span class="nt">"agentTypes"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"eventSetup"</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"adapters"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">    </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;slack&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;config&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="nt">&quot;channel&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;SLACK_CHANNEL_ID&gt;&quot;</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">&quot;workspace&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;SLACK_WORKSPACE_ID&gt;&quot;</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">&quot;botToken&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;SLACK_BOT_TOKEN&gt;&quot;</span><span class="p">,</span>
-<span class="w">        </span><span class="nt">&quot;botName&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;BOT_DISPLAY_NAME&gt;&quot;</span>
+<span class="w">      </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"slack"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"config"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nt">"channel"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;SLACK_CHANNEL_ID&gt;"</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"workspace"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;SLACK_WORKSPACE_ID&gt;"</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"botToken"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;SLACK_BOT_TOKEN&gt;"</span><span class="p">,</span>
+<span class="w">        </span><span class="nt">"botName"</span><span class="p">:</span><span class="w"> </span><span class="s2">"&lt;BOT_DISPLAY_NAME&gt;"</span>
 <span class="w">      </span><span class="p">},</span>
-<span class="w">      </span><span class="nt">&quot;chatChannels&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;setup&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;direction&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;both&quot;</span><span class="w"> </span><span class="p">}]</span>
+<span class="w">      </span><span class="nt">"chatChannels"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"setup"</span><span class="p">,</span><span class="w"> </span><span class="nt">"direction"</span><span class="p">:</span><span class="w"> </span><span class="s2">"both"</span><span class="w"> </span><span class="p">}]</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">]</span>
 <span class="p">}</span>
@@ -799,20 +799,20 @@
 <li>Hit the planner endpoint directly with curl to iterate on the LLM prompt without the frontend. The token is the part of the bot's URL after <code>#token=</code>:</li>
 </ol>
 <div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:3000/v1/event-setup/plan<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;X-Handoff-Token: &lt;token from the # fragment of the bot&#39;s URL&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;description&quot;:&quot;AI ethics roundtable next Thursday at 3pm ET, online via Zoom&quot;}&#39;</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">"X-Handoff-Token: &lt;token from the # fragment of the bot's URL&gt;"</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"description":"AI ethics roundtable next Thursday at 3pm ET, online via Zoom"}'</span>
 </code></pre></div>
 <h3 id="direct-messages">Direct messages</h3>
 <p>If you wish to support DMs between users and agents, you must configure a separate Conversation for all DMs. <strong>You can only have one such Conversation active at a time.</strong> Private communication between a user and the Slack app happens on a dedicated channel (different for each user). Therefore, you must use the keyword 'direct' for channel name, to signal that the conversation should process all direct messages.</p>
 <p>Example conversation body:</p>
 <div class="highlight"><pre><span></span><code>{
-    &quot;name&quot;: &quot;A chat&quot;,
-    &quot;topicId&quot;: &quot;{{defaultTopic}}&quot;,
-    &quot;enableDMs&quot;: [&#39;agents&#39;],
-    &quot;agentTypes&quot;: [agents],
-    &quot;adapters&quot;: [ {&quot;type&quot;: &quot;slack&quot;, &quot;config&quot; : {&quot;channel&quot;: &quot;direct&quot;, &quot;workspace: &quot;T123494&quot;,  &quot;botToken&quot;:&quot;[token]&quot;, &quot;botName&quot;: &quot;Berkie&quot;},
-        &quot;dmChannels&quot;: [{ &quot;direct&quot;: true, &quot;agent&quot;: &quot;playfulPerMessage&quot;, &quot;direction&quot;: &quot;both&quot;}]}]
+    "name": "A chat",
+    "topicId": "{{defaultTopic}}",
+    "enableDMs": ['agents'],
+    "agentTypes": [agents],
+    "adapters": [ {"type": "slack", "config" : {"channel": "direct", "workspace: "T123494",  "botToken":"[token]", "botName": "Berkie"},
+        "dmChannels": [{ "direct": true, "agent": "playfulPerMessage", "direction": "both"}]}]
 }
 </code></pre></div>
 

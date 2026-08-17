@@ -502,11 +502,11 @@
 <p>The easiest way to create a conversation is to use the <code>/conversations/from-type</code> endpoint, which allows you to specify only the minimal properties needed to create a conversation that uses either our Event Assistant or Back Channel production agents.</p>
 <p>Here is an example conversation that uses the Event Assistant:</p>
 <div class="highlight"><pre><span></span><code>{
-    &quot;name&quot;: &quot;Where are all the aliens?&quot;,
-    &quot;topicId&quot;: &quot;{{topicId}}&quot;,
-    &quot;type&quot;: &quot;eventAssistant&quot;,
-    &quot;platforms&quot;: [&quot;zoom&quot;],
-    &quot;properties&quot;: {&quot;zoomMeetingUrl&quot;: &quot;{{ZOOM_MEETING_URL}}&quot;}
+    "name": "Where are all the aliens?",
+    "topicId": "{{topicId}}",
+    "type": "eventAssistant",
+    "platforms": ["zoom"],
+    "properties": {"zoomMeetingUrl": "{{ZOOM_MEETING_URL}}"}
 }
 </code></pre></div>
 <p><strong>Note: These agents require Zoom for transcription, so you must provide a valid Zoom Meeting URL.</strong> See our <a href="../platforms/zoom/">Zoom guide</a> for more information.</p>

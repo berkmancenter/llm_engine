@@ -474,21 +474,21 @@
 
    // This example uses botId from payload and an internal
    // conversation ID configured as a URL query param
-   const conversation = await Conversation.findOne({ _id: conversationId }).populate(&#39;adapters&#39;).exec()
+   const conversation = await Conversation.findOne({ _id: conversationId }).populate('adapters').exec()
    if (!conversation) {
-    throw new ApiError(httpStatus.NOT_FOUND, &#39;Conversation not found&#39;)
+    throw new ApiError(httpStatus.NOT_FOUND, 'Conversation not found')
    }
    const botId = req.body.data.bot.id
-   const zoomAdapter = conversation.adapters?.find((adapter) =&gt;   adapter.type === &#39;zoom&#39; &amp;&amp; adapter.config.botId === botId)
+   const zoomAdapter = conversation.adapters?.find((adapter) =&gt;   adapter.type === 'zoom' &amp;&amp; adapter.config.botId === botId)
   if (!zoomAdapter) {
     throw new ApiError(httpStatus.NOT_FOUND, `No Zoom adapter with botId ${botId} configured for this conversation`)
   }
-  if (event === &#39;transcript.data&#39; || event === &#39;participant_events.chat_message&#39;) {
+  if (event === 'transcript.data' || event === 'participant_events.chat_message') {
     await webhookService.receiveMessage(zoomAdapter, req.body)
   } else {
     await webhookService.participantJoined(zoomAdapter, req.body.data.data.participant)
   }
-  res.status(httpStatus.OK).send(&#39;ok&#39;)
+  res.status(httpStatus.OK).send('ok')
 }
 </code></pre></div>
 <ol>
@@ -521,29 +521,29 @@
 <p>If your external system supports transcription, configure the audioChannels property as below. NOTE: <em>all transcripts must be placed on a channel named <code>transcript</code>.</em> We may support additional channel names in the future.</p>
 <p>Example <code>Conversation</code> payload using transcription:</p>
 <div class="highlight"><pre><span></span><code>{
-    &quot;name&quot;: &quot;Should plastic water bottles be banned?&quot;,
-    &quot;topicId&quot;: &quot;{{defaultTopic}}&quot;,
-    &quot;channels&quot;: [ { &quot;name&quot;: &quot;transcript&quot;}],
-    &quot;adapters&quot;: [ {&quot;type&quot;: &quot;[adapterName]&quot;, &quot;config&quot; : {&quot;customProp&quot;: &quot;customValue&quot;}, &quot;audioChannels&quot;: [{&quot;name&quot;: &quot;transcript&quot;}]}]
+    "name": "Should plastic water bottles be banned?",
+    "topicId": "{{defaultTopic}}",
+    "channels": [ { "name": "transcript"}],
+    "adapters": [ {"type": "[adapterName]", "config" : {"customProp": "customValue"}, "audioChannels": [{"name": "transcript"}]}]
 }
 </code></pre></div>
 <p>For chat, you can send/receive on group channels using <code>chatChannels</code></p>
 <p>Example <code>Conversation</code> payload using a general chat channel:</p>
 <div class="highlight"><pre><span></span><code>{
-    &quot;name&quot;: &quot;Should plastic water bottles be banned?&quot;,
-    &quot;topicId&quot;: &quot;{{defaultTopic}}&quot;,
-    &quot;channels&quot;: [ { &quot;name&quot;: &quot;participant&quot;}],
-    &quot;adapters&quot;: [ {&quot;type&quot;: &quot;[adapterName]&quot;, &quot;config&quot; : {&quot;customProp&quot;: &quot;customValue&quot;}, &quot;chatChannels&quot;: [{&quot;name&quot;: &quot;participant&quot;, direction: &quot;both&quot;}]}]
+    "name": "Should plastic water bottles be banned?",
+    "topicId": "{{defaultTopic}}",
+    "channels": [ { "name": "participant"}],
+    "adapters": [ {"type": "[adapterName]", "config" : {"customProp": "customValue"}, "chatChannels": [{"name": "participant", direction: "both"}]}]
 }
 </code></pre></div>
 <p>If you wish to enable direct messages between agents and users, you must set the <code>enableDMs": ["agents"]</code> property during Conversation creation. You must also specify a <code>dmChannel</code> for each agent that should receive DMs.</p>
 <div class="highlight"><pre><span></span><code>{
-&quot;name&quot;: &quot;Should plastic water bottles be banned?&quot;,
-&quot;topicId&quot;: &quot;{{defaultTopic}}&quot;,
-&quot;enableDMs&quot;: [&quot;agents&quot;]
-&quot;channels&quot;: [ { &quot;name&quot;: &quot;participant&quot;}],
-&quot;adapters&quot;: [ {&quot;type&quot;: &quot;[adapterName]&quot;, &quot;config&quot; : {&quot;customProp&quot;: &quot;customValue&quot;},
-    &quot;dmChannels&quot;: [{&quot;direct&quot;: true, &quot;agent&quot;: &quot;eventAssistant&quot;, &quot;direction&quot;: &quot;both&quot;}]}]
+"name": "Should plastic water bottles be banned?",
+"topicId": "{{defaultTopic}}",
+"enableDMs": ["agents"]
+"channels": [ { "name": "participant"}],
+"adapters": [ {"type": "[adapterName]", "config" : {"customProp": "customValue"},
+    "dmChannels": [{"direct": true, "agent": "eventAssistant", "direction": "both"}]}]
 }
 </code></pre></div>
 
