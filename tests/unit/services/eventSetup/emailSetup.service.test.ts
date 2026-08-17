@@ -550,6 +550,22 @@ describe('emailSetup.service', () => {
       expect(sendOnDemandEventSpy).toHaveBeenCalledWith(organizer.email, expect.anything(), expect.anything())
     })
 
+    it("never hands another organizer the links to someone else's active meeting on the same Zoom link", async () => {
+      const [, second] = await insertUsers([newUser(`org1@${allowedDomain}`), newUser(`org2@${allowedDomain}`)])
+      planConversationFromEmailSpy.mockResolvedValue({ zoomLink: 'https://zoom.us/j/123456789' })
+      const first = await createConversationFromEmail(buildEmail({ messageId: 'MSG-A' }, `org1@${allowedDomain}`))
+      first!.active = true
+      await first!.save()
+      sendOnDemandEventSpy.mockClear()
+
+      await createConversationFromEmail(buildEmail({ messageId: 'MSG-B' }, `org2@${allowedDomain}`))
+
+      // The only reply a moderator link can travel in is sendOnDemandEventEmail; it must never be
+      // sent to org2 for org1's meeting.
+      expect(sendOnDemandEventSpy).not.toHaveBeenCalledWith(second.email, expect.anything(), expect.anything())
+      expect(sendEventCreationFailedSpy).toHaveBeenCalledWith(second.email, 'MSG-B')
+    })
+
     it('returns the existing conversation instead of creating a duplicate when the message ID was already processed', async () => {
       await insertUsers([newUser(`org@${allowedDomain}`)])
       const email = buildEmail({ messageId: 'MSG-RETRY' }, `org@${allowedDomain}`)

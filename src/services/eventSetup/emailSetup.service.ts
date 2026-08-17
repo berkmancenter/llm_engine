@@ -353,7 +353,13 @@ export const createConversationFromEmail = async (inboundEmail: InboundEmail) =>
 
     // Pre-empts adapter.service.ts's active-meeting-uniqueness throw and makes a repeat email
     // (e.g. someone forwarding the same link to a colleague, who also emails it in) idempotent.
-    const activeMeeting = await Conversation.findOne({ active: true, 'properties.zoomMeetingUrl': extracted.zoomLink })
+    // Scoped to this organizer: an unscoped match would leak another organizer's moderator link
+    // to anyone who happens to email in the same Zoom URL.
+    const activeMeeting = await Conversation.findOne({
+      active: true,
+      owner: organizer._id,
+      'properties.zoomMeetingUrl': extracted.zoomLink
+    })
     if (activeMeeting) {
       logger.info(
         `Email webhook: ${extracted.zoomLink} is already active as conversation ${activeMeeting._id}; replying with its links`
