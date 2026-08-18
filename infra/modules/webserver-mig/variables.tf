@@ -113,9 +113,15 @@ variable "min_replicas" {
 }
 
 variable "max_replicas" {
-  description = "MIG maximum size to start. Revisit once real usage data exists (see plan's open items)."
+  description = <<-EOT
+    MIG maximum size. Raised from the original placeholder of 2 to 8 —
+    scale-down to min_replicas when idle keeps the cost of a higher ceiling
+    negligible, so there's no reason to artificially cap burst capacity this
+    low before real usage data (e.g. the k6 load tests, see k6/README.md)
+    says otherwise.
+  EOT
   type        = number
-  default     = 2
+  default     = 8
 }
 
 variable "concurrent_connections_target" {
