@@ -41,18 +41,29 @@ yarn evaluate:event-assistant --dataset=my-custom-dataset
 
 ## Evaluation Types
 
-The Event Assistant supports two evaluation types, configured in `eventAssistantConfig.ts`:
+The Event Assistant supports three evaluation types, configured in `eventAssistantConfig.ts`. The evaluation type is determined by the `promptType` field in the LangSmith example metadata. If no `promptType` is specified, the default evaluators (same as `semantic`) are used.
 
-1. **semantic** - Full quality + personality evaluation
+> **`correctness` is the only quality evaluator applied across all prompt types.** It is the only one that is meaningful regardless of how the response was generated. The others are scoped to types where the judge has the necessary context to score them accurately.
 
-   - Quality evaluators: `correctness`, `hallucination`, `groundedness`, `helpfulness`, `retrievalRelevance`
-   - Personality evaluators: `conciseness`, `ceremony`, `leadWithAnswer`, `antiSycophancy`, `pragmatic`, `opinionatedBounded`, `confidentNotCocky`, `witAndHumor`, `honestyAboutLimits`
+| Evaluator | `semantic` | `timeWindow` | `webSearch` |
+|---|---|---|---|
+| `correctness` | ✓ | ✓ | ✓ |
+| `hallucination` | ✓ | ✓ | — |
+| `groundedness` | ✓ | ✓ | — |
+| `helpfulness` | ✓ | — | ✓ |
+| `retrievalRelevance` | ✓ | — | — |
+| Personality evaluators | ✓ | ✓ | ✓ |
 
-2. **timewindow** - For catch-up queries about recent content
-   - Quality evaluators: `correctness`, `hallucination`, `groundedness`
-   - Personality evaluators: same set as semantic
+**Why the gaps?**
+- `hallucination` / `groundedness` require the judge to have the full source material. Web search results are not included in the context string, so the judge cannot reliably detect hallucinations.
+- `retrievalRelevance` only makes sense when the response was built from RAG retrieval. Web search responses don't have a `## Relevant Retrieved Context` section to evaluate.
+- `helpfulness` is excluded from `timeWindow` because those responses synthesize transcript content by time range — the rubric for "did it directly address the question" is less meaningful in that format.
 
-The evaluation type is determined by the `promptType` field in the LangSmith example metadata. If no `promptType` is specified, the default evaluators (same as semantic) are used.
+### Prompt type reference
+
+1. **`semantic`** — Standard Q&A responses backed by RAG retrieval from the event transcript
+2. **`timeWindow`** — Catch-up queries that summarize recent content by time range
+3. **`webSearch`** — Questions answered using live web search rather than transcript retrieval
 
 ## Adding Test Cases
 
@@ -76,7 +87,7 @@ Test cases are stored in the LangSmith dataset (default: `event-assistant`). You
 
 **Metadata fields:**
 
-- `metadata.promptType` - Evaluation type: `semantic` or `timewindow`
+- `metadata.promptType` - Evaluation type: `semantic`, `timeWindow`, or `webSearch`
 - `metadata.context` - Context to provide to the agent (optional)
 - `metadata.conversationHistory` - Prior conversation history (optional)
 

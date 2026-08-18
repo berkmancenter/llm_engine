@@ -85,10 +85,6 @@ that LangSmith substitutes from the trace.
 
 #### Event Assistant quality evaluators (from `evaluations/event-assistant/eventAssistantConfig.ts`)
 
-These use built-in `openevals` prompts (`CORRECTNESS_PROMPT`, `HALLUCINATION_PROMPT`,
-`RAG_HELPFULNESS_PROMPT`, `RAG_GROUNDEDNESS_PROMPT`, `RAG_RETRIEVAL_RELEVANCE_PROMPT`,
-`CONCISENESS_PROMPT`) unless overridden in the config.
-
 | Feedback key | Agent type | What it measures |
 |---|---|---|
 | `quality.correctness` | Event Assistant, Proactive Group Agent | Factual accuracy relative to context and general knowledge |
@@ -98,11 +94,14 @@ These use built-in `openevals` prompts (`CORRECTNESS_PROMPT`, `HALLUCINATION_PRO
 | `quality.groundedness` | Proactive Group Agent only | Whether claims are grounded in the retrieved context |
 | `quality.retrievalRelevance` | Proactive Group Agent only | Whether the retrieved context was relevant to the question |
 
-> **Note:** `hallucination`, `groundedness`, and `retrievalRelevance` are not applied to
-> Event Assistant traces. Event Assistant uses web search as a tool, and the search
-> results are not captured in the trace context — so these evaluators cannot accurately
-> judge whether a response is grounded in or consistent with what the search actually
-> returned.
+> **Note:** `hallucination`, `groundedness`, `retrievalRelevance`, and `helpfulness` are
+> not configured as online evaluators for Event Assistant. Online evaluators run on every
+> trace without knowledge of `promptType` — since EA sometimes uses web search and those
+> results are not captured in the trace context, these evaluators cannot accurately score
+> all traces. `correctness` is the only quality evaluator applied to EA online because it
+> is meaningful regardless of how the response was generated. The offline evaluation suite
+> (`yarn evaluate:event-assistant`) applies the full set of evaluators with prompt-type
+> awareness.
 
 #### Personality evaluators (from `tests/utils/evaluators.ts`, used by Event Assistant suite)
 
