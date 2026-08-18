@@ -31,6 +31,19 @@ resource "google_compute_backend_service" "websocket" {
   health_checks                   = [google_compute_health_check.web_server.id]
   connection_draining_timeout_sec = var.connection_draining_timeout_sec
 
+  # Socket.IO's handshake is several plain HTTP requests (polling transport
+  # negotiation, then the websocket upgrade) before the connection is actually
+  # established - without affinity those can land on different instances
+  # mid-handshake and fail. GENERATED_COOKIE has the LB inject a cookie on the
+  # first response and route every later request carrying it to the same
+  # instance; a k6 websocket-stampede load test against preview confirmed this
+  # was live-dropping connections (605/1000 unexpected closes, 51 connect
+  # errors) with 2 healthy instances up and no scaling event in progress - see
+  # k6/README.md. TTL matches this backend's own timeout_sec so an affinity
+  # cookie outlives any single connection's lifetime.
+  session_affinity        = "GENERATED_COOKIE"
+  affinity_cookie_ttl_sec = 3600
+
   backend {
     group = google_compute_region_instance_group_manager.web_server.instance_group
   }
