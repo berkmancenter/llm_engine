@@ -14,6 +14,11 @@ RUN corepack enable
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN yarn build
+# The spec sources (src/docs/*.yml, jsdoc comments in src/routes) are not compiled into
+# dist/ and are not shipped in the runtime stage below, so swagger-jsdoc cannot assemble
+# the spec there. Bake it once here instead; the script fails the build if the result is
+# empty. See src/docs/openapiSpec.ts.
+RUN node dist/scripts/generateOpenApiSpec.js
 
 # --- prod-deps: install production-only dependencies for the final image ---
 FROM node:22-slim AS prod-deps
@@ -32,6 +37,7 @@ RUN groupadd --system --gid 1001 nodejs && useradd --system --uid 1001 --gid nod
 
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/openapi.json ./
 COPY package.json ./
 COPY report_templates ./report_templates
 COPY goals ./goals

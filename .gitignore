@@ -51,3 +51,6 @@ crash.*.log
 
 # mkdocs local build output (docs/mkdocs.yml site_dir)
 docs/output
+
+# Generated at image build time by scripts/generateOpenApiSpec.ts (see src/docs/openapiSpec.ts)
+openapi.json
