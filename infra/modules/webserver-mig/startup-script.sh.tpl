@@ -48,7 +48,15 @@ gcloud secrets versions access latest --secret=${app_env_secret_id} > "$ENV_FILE
 } >> "$ENV_FILE"
 
 docker rm -f llm-engine 2>/dev/null || true
-docker pull "${image}"
+# Skipped when the exact tagged image is already present - a per-release
+# baked image (packer/web-server-release.pkr.hcl) pre-pulls it, so most
+# boots hit this branch and skip the pull entirely. Falls back to a normal
+# pull whenever it isn't there (boot_disk_image not baked, a bake that
+# failed and fell back to the plain base image, a rollback where only
+# web_server_image_tag was flipped) - always correct, just not always fast.
+if ! docker image inspect "${image}" >/dev/null 2>&1; then
+  docker pull "${image}"
+fi
 docker run -d \
   --name llm-engine \
   --restart=always \
