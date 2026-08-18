@@ -60,7 +60,7 @@ k6 run -e API_BASE=http://localhost:3000/v1 -e RECALL_REALTIME_SECRET=whsec_... 
 
 One you are sure the transcript script has created the necessary conversations, run this script in parallel to do a ramping load test of users interacting with the Event Assistant across the specified number of conversations. Ensure that the `NUM_CONVERSATIONS` variable matches what is set in the transcript script.
 
-By default, this test will run for 15 minutes (roughly the duration of the transcript) and ramp up to 500 total users across 25 conversations (20 users per conversation). The test randomly chooses from a generic question bank (questions that can be answered at any point in the talk).
+By default, this test will run for 15 minutes (roughly the duration of the transcript) and ramp up to 1000 total users across 20 conversations (50 users per conversation). The test randomly chooses from a generic question bank (questions that can be answered at any point in the talk).
 
 Each user sends a question and then waits 1-3 minutes to simulate natural pacing. This wait period can be configured by changing the `MIN_TIME_BETWEEN_MESSAGES` and `MAX_TIME_BETWEEN_MESSAGES` values (in seconds).
 

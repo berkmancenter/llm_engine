@@ -9,7 +9,7 @@ import { signRecallWebhook } from './recallSignature.js'
 
 const transcriptDuration = new Trend('transcript_duration')
 
-const NUM_CONVERSATIONS = 25
+const NUM_CONVERSATIONS = 20
 
 // this must be set to loadtest so that server will bypass sending agent messages to Recall
 const BOT_ID = 'loadtest'

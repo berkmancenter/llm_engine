@@ -15,8 +15,8 @@ const serverErrorCounter = new Counter('server_errors')
 const conversationMessageCount = new Counter('conversation_message_count')
 const conversationErrorCount = new Counter('conversation_error_count')
 
-// 20 users per meeting in max 500 scenario
-const NUM_CONVERSATIONS = 25
+// 50 users per meeting in max 1000 scenario
+const NUM_CONVERSATIONS = 20
 
 // this must be set to loadtest so that server will bypass sending agent messages to Recall
 const BOT_ID = 'loadtest'
@@ -44,17 +44,17 @@ export const options = {
       startVUs: 0,
       startTime: '10s',
       stages: [
-        { duration: '1m', target: 150 }, // 6 users/conv (light)
-        { duration: '2m', target: 150 },
+        { duration: '1m', target: 300 }, // 15 users/conv (light)
+        { duration: '2m', target: 300 },
 
-        { duration: '1m', target: 250 }, // 10 users/conv (realistic)
-        { duration: '2m', target: 250 },
-
-        { duration: '1m', target: 375 }, // 15 users/conv (realistic)
-        { duration: '2m', target: 375 },
-
-        { duration: '1m', target: 500 }, // 20 users/conv (realistic max)
+        { duration: '1m', target: 500 }, // 25 users/conv (realistic)
         { duration: '2m', target: 500 },
+
+        { duration: '1m', target: 750 }, // ~38 users/conv (realistic)
+        { duration: '2m', target: 750 },
+
+        { duration: '1m', target: 1000 }, // 50 users/conv (realistic max)
+        { duration: '2m', target: 1000 },
 
         { duration: '30s', target: 0 }
       ],

@@ -25,11 +25,11 @@ import { Counter, Trend } from 'k6/metrics'
 // event shape, and the per-event JWT check in the `socket.use` middleware).
 // ============================================================================
 
-const NUM_CONVERSATIONS = 25
-// 20 participants/conversation matches eventAssistantLoad.js's "realistic
-// max" tier (500 total) - but ramped there over 5+ minutes. Here they all
+const NUM_CONVERSATIONS = 20
+// 50 participants/conversation matches eventAssistantLoad.js's "realistic
+// max" tier (1000 total) - but ramped there over 5+ minutes. Here they all
 // arrive in one burst, which is the actual scenario under test.
-const PARTICIPANTS_PER_CONVERSATION = 20
+const PARTICIPANTS_PER_CONVERSATION = 50
 
 // Roughly the transcript talk's length (see TRANSCRIPT_CHUNKS.length * 6s in
 // transcriptLoad.js) plus a buffer so sockets stay open for the full run.
@@ -57,8 +57,8 @@ export const options = {
     }
   },
   thresholds: {
-    ws_connect_errors: ['count<25'], // <5% of 500
-    ws_unexpected_closes: ['count<25'],
+    ws_connect_errors: ['count<50'], // <5% of 1000
+    ws_unexpected_closes: ['count<50'],
     ws_connect_duration: ['p(95)<3000']
   }
 }
