@@ -199,3 +199,5 @@ jobs:
           TEST_LLM_PLATFORM: ${{ github.event.inputs.llmPlatform || 'bedrock'}}
           TEST_LLM_MODEL: ${{ github.event.inputs.llmModel || 'us.anthropic.claude-sonnet-4-6' }}
           ENABLE_AGENT_PERSONALITY: true
+          BKC_ARCHIVE_API_URL: ${{ secrets.BKC_ARCHIVE_API_URL }}
+          BKC_ARCHIVE_API_TOKEN: ${{ secrets.BKC_ARCHIVE_API_TOKEN }}
