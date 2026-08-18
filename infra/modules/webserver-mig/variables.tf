@@ -42,7 +42,20 @@ variable "machine_type" {
 }
 
 variable "boot_disk_image" {
-  description = "Base OS image the startup script installs Docker onto."
+  description = <<-EOT
+    Base OS image. startup-script.sh.tpl installs Docker onto it at boot,
+    but only if it isn't already there (`if ! command -v docker` - see the
+    script) - so this is safe to point at either a plain OS image or a
+    pre-baked one. Defaults to plain debian-cloud/debian-12, which installs
+    Docker fresh on every instance boot: ~35s of the ~136s boot-to-healthy
+    time measured during the autoscaling load test (see k6/README.md and
+    the published diagnostic report). For faster scale-out, build
+    packer/web-server-base.pkr.hcl and point this at the image family it
+    produces instead:
+      "projects/<project_id>/global/images/family/llm-engine-web-base"
+    No other change needed - the startup script's own idempotency check is
+    what makes this a drop-in swap.
+  EOT
   type        = string
   default     = "debian-cloud/debian-12"
 }
