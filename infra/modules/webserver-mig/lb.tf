@@ -126,7 +126,22 @@ locals {
   # one: the name only changes when the domain set does, which is exactly
   # when create_before_destroy below needs a fresh name to create the new
   # cert alongside the old one.
-  ssl_cert_domains = concat([var.domain], var.additional_domains)
+  #
+  # sort(distinct(...)) rather than a bare concat, because "the domain set
+  # does" has to mean the SET. Both the name hash below and managed.domains
+  # read this local, and both force replacement — so without normalizing
+  # here, merely reordering var.additional_domains, or listing a domain
+  # twice, renames and replaces the cert while the LB goes on serving the
+  # exact same hosts. That trade is never worth taking: a replaced managed
+  # cert serves no TLS for ANY host on it until Google revalidates every
+  # SAN (up to ~60 minutes, and unbounded if one SAN's DNS doesn't point at
+  # this LB yet). Normalizing makes the cheap, reversible edit — tidying the
+  # domain list — actually cheap.
+  #
+  # Order carries no meaning to GCP here: managed.domains is a SAN set, and
+  # Google picks the certificate's CN itself rather than honoring the first
+  # entry. So sorting costs nothing semantically.
+  ssl_cert_domains = sort(distinct(concat([var.domain], var.additional_domains)))
 }
 
 resource "google_compute_managed_ssl_certificate" "web_server" {
