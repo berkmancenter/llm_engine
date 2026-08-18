@@ -19,14 +19,15 @@ const responseLengthCompliancePrompt = `Evaluate how well the agent response mat
 
 <Rubric>
 A response that perfectly matches the tier:
-- "short": one or two sentences that cover the essential point and nothing more
-- "medium": a focused paragraph (roughly 3–5 sentences) — enough to explain without being exhaustive
-- "long": multiple paragraphs with thorough, comprehensive coverage
+- "short": 1–2 sentences covering the essential point — no elaboration, caveats, or closing remarks
+- "medium": roughly 3–5 sentences of substance — enough to explain without being exhaustive
+- "long": thorough, comprehensive coverage — goes well beyond a brief summary
 
-When scoring, penalize:
+When scoring, penalize only for content length relative to the tier — not for formatting choices like bullet points or line breaks. A well-formatted short response is still short.
+
 - Exceeding the tier: padding, repetition, or detail beyond what the tier calls for
 - Falling short of the tier: a bare one-liner when medium or long depth was expected
-- Severity matters: a slight overshoot warrants a small penalty; a multi-paragraph response when "short" was required warrants a large one
+- Severity matters: a slight overshoot warrants a small penalty; a response three times the expected length warrants a large one
 
 A clarifying question counts as short regardless of tier — the agent is gathering information before answering.
 </Rubric>
