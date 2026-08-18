@@ -324,11 +324,18 @@ describe('buildBehaviorPolicySection', () => {
       expect(buildBehaviorPolicySection(policy, 'dm')).toContain('bridging context')
     })
 
-    test('renders allowFollowUpDialogue', () => {
+    test('renders allowFollowUpDialogue true as invitation', () => {
       const policy: BehaviorPolicy = {
         channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, allowFollowUpDialogue: true } } }
       }
-      expect(buildBehaviorPolicySection(policy, 'dm')).toContain('invite continued dialogue')
+      expect(buildBehaviorPolicySection(policy, 'dm')).toContain('invitation')
+    })
+
+    test('renders allowFollowUpDialogue false as clean close', () => {
+      const policy: BehaviorPolicy = {
+        channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, allowFollowUpDialogue: false } } }
+      }
+      expect(buildBehaviorPolicySection(policy, 'dm')).toContain('clean close')
     })
 
     test('renders companyContextOnly answerScope', () => {
@@ -361,8 +368,8 @@ describe('buildBehaviorPolicySection', () => {
 
     describe('responseLength', () => {
       test.each([
-        ['short', 'one to two sentences'],
-        ['medium', 'Medium length answers'],
+        ['short', 'Two sentences maximum'],
+        ['medium', '3–5 sentences'],
         ['long', 'completeness is more important']
       ] as const)('renders %s responseLength', (responseLength, expected) => {
         const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, responseLength } } } }
@@ -371,7 +378,26 @@ describe('buildBehaviorPolicySection', () => {
 
       test('responseLength is not emitted for groupChat', () => {
         const policy: BehaviorPolicy = { channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, responseLength: 'short' } } } }
-        expect(buildBehaviorPolicySection(policy, 'groupChat')).not.toContain('one to two sentences')
+        expect(buildBehaviorPolicySection(policy, 'groupChat')).not.toContain('Two sentences maximum')
+      })
+
+      test('suppresses global verbosity in dm when qaBehavior.responseLength is set', () => {
+        const policy: BehaviorPolicy = {
+          globalPolicy: { ...BASE_GLOBAL_POLICY, verbosity: 'brief' },
+          channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, responseLength: 'medium' } } }
+        }
+        const result = buildBehaviorPolicySection(policy, 'dm')
+        expect(result).not.toContain('one or two sentences where possible')
+        expect(result).toContain('3–5 sentences')
+      })
+
+      test('emits global verbosity in groupChat even when dm qaBehavior.responseLength is set', () => {
+        const policy: BehaviorPolicy = {
+          globalPolicy: { ...BASE_GLOBAL_POLICY, verbosity: 'brief' },
+          channels: { dm: { qaBehavior: { ...BASE_QA_BEHAVIOR, responseLength: 'medium' } } }
+        }
+        const result = buildBehaviorPolicySection(policy, 'groupChat')
+        expect(result).toContain('one or two sentences where possible')
       })
     })
   })

@@ -22,8 +22,8 @@ const VERBOSITY_LINES = {
 }
 
 const RESPONSE_LENGTH_LINES: Record<string, string> = {
-  short: '- Keep answers short — one to two sentences',
-  medium: '- Medium length answers — cover what is needed without going into exhaustive detail',
+  short: '- Two sentences maximum — cover the essential point and stop',
+  medium: '- 3–5 sentences — enough to explain without being exhaustive',
   long: '- Give thorough, detailed answers — completeness is more important than brevity'
 }
 
@@ -156,7 +156,9 @@ function buildConversationContextSection(conversationContext: ConversationContex
       sensitivityLines.push(`- Level: ${cs.level} — apply extra care with how you frame interventions`)
     }
     if (cs.domains && cs.domains.length > 0) {
-      sensitivityLines.push(`- Sensitive domains: ${cs.domains.join(', ')} — avoid editorializing, taking sides, or making light of these topics`)
+      sensitivityLines.push(
+        `- Sensitive domains: ${cs.domains.join(', ')} — avoid editorializing, taking sides, or making light of these topics`
+      )
     }
     lines.push(sensitivityLines.join('\n'))
   }
@@ -177,7 +179,8 @@ function buildBehaviorPolicySection(behaviorPolicy: BehaviorPolicy | undefined, 
   if (gp) {
     if (gp.tone) lines.push(TONE_LINES[gp.tone])
     if (gp.formality) lines.push(FORMALITY_LINES[gp.formality])
-    if (gp.verbosity) lines.push(VERBOSITY_LINES[gp.verbosity])
+    const dmOverridesVerbosity = channelType === 'dm' && behaviorPolicy.channels?.dm?.qaBehavior?.responseLength
+    if (gp.verbosity && !dmOverridesVerbosity) lines.push(VERBOSITY_LINES[gp.verbosity])
     const jargonLine = gp.jargonLevel && JARGON_LINES[gp.jargonLevel]
     if (jargonLine) lines.push(jargonLine)
     if (gp.citationBehavior) lines.push(`- ${gp.citationBehavior}`)
@@ -192,7 +195,11 @@ function buildBehaviorPolicySection(behaviorPolicy: BehaviorPolicy | undefined, 
     if (responseLengthLine) lines.push(responseLengthLine)
     if (qa.clarifyWhenAmbiguous) lines.push('- Ask a clarifying question before answering when the question is ambiguous')
     if (qa.addContextWhenUseful) lines.push('- Add bridging context when it would help a non-expert audience')
-    if (qa.allowFollowUpDialogue) lines.push('- You may invite continued dialogue if it would be useful')
+    if (qa.allowFollowUpDialogue) {
+      lines.push('- Close with a brief, genuine invitation for the participant to ask more or continue the conversation')
+    } else {
+      lines.push('- End with a clean close — do not invite further questions or signal openness to continued dialogue')
+    }
     const scopeLine = QA_SCOPE_LINES[qa.answerScope]
     if (scopeLine) lines.push(scopeLine)
   }
@@ -201,9 +208,7 @@ function buildBehaviorPolicySection(behaviorPolicy: BehaviorPolicy | undefined, 
   if (initiativeLine && INITIATIVE_LINES[initiativeLine]) lines.push(INITIATIVE_LINES[initiativeLine])
 
   const channelGuardrails =
-    channelType === 'groupChat'
-      ? behaviorPolicy.channels?.groupChat?.guardrails
-      : behaviorPolicy.channels?.dm?.guardrails
+    channelType === 'groupChat' ? behaviorPolicy.channels?.groupChat?.guardrails : behaviorPolicy.channels?.dm?.guardrails
   const allGuardrails = [...(gp?.guardrails ?? []), ...(channelGuardrails ?? [])]
   if (allGuardrails.length > 0) {
     lines.push('Guardrails:')
