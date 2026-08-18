@@ -115,7 +115,11 @@ resource "google_compute_region_instance_group_manager" "web_server" {
   region                    = var.region
   distribution_policy_zones = [var.zone] # see var.zone for why this is pinned to one zone
   base_instance_name        = "llm-engine-web"
-  target_size               = var.min_replicas # autoscaler takes ownership of this after creation
+
+  # Seeds the group's initial size only. From then on the autoscaler owns
+  # it, so ignore_changes below stops Terraform taking it back — see the
+  # lifecycle block at the bottom of this resource.
+  target_size = var.min_replicas
 
   version {
     instance_template = google_compute_instance_template.web_server.id
@@ -141,5 +145,25 @@ resource "google_compute_region_instance_group_manager" "web_server" {
     minimal_action        = "REPLACE"
     max_surge_fixed       = var.max_surge
     max_unavailable_fixed = var.max_unavailable
+  }
+
+  # target_size is set by the autoscaler at runtime, not by this config, so
+  # Terraform must stop treating a scaled-up group as drift to correct.
+  #
+  # Without this, target_size reads as a diff (`1 -> 2`, or `1 -> 8` at the
+  # current max) on any plan taken while the autoscaler is above
+  # min_replicas — and applying that diff scales the group back down to the
+  # minimum. That is worst exactly when it is least affordable: the group is
+  # only ever scaled up because load put it there, and the deploy pipeline's
+  # apply is unscoped, so a routine release during a traffic spike would
+  # cut capacity to min_replicas mid-spike. The autoscaler would climb back,
+  # but only after new instances boot and pass health checks.
+  #
+  # ignore_changes applies to updates only, so var.min_replicas still seeds
+  # the group at creation. Changing min_replicas later is still honored —
+  # it flows through the autoscaler's own minNumReplicas (autoscaler.tf),
+  # which is the thing that actually enforces a floor at runtime.
+  lifecycle {
+    ignore_changes = [target_size]
   }
 }
