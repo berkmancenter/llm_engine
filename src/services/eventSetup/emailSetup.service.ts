@@ -174,6 +174,9 @@ export const createEventForOrganizer = async ({
         name,
         topicId: topic?.id,
         source,
+        // Matches nextspace's own create-event form, so an event created by email is trackable in
+        // Matomo the same as one created through the UI.
+        analyticsRefs: { matomo: 'dimension7' },
         // Must be exactly this pair. ['nextspace'] alone matches no adapter config here and falls
         // back to audio-only, with no chat channels.
         platforms: ['nextspace', 'zoom'],

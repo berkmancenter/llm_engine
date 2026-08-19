@@ -281,6 +281,9 @@ describe('emailSetup.service', () => {
       expect(conversation!.moderators).toEqual([expect.objectContaining({ name: 'Mod Person' })])
       expect(conversation!.description).toBe('Weekly sync')
       expect(conversation!.source?.inviteUid).toBe('UID-DEFAULT')
+      // Matches nextspace's own create-event form, which always tags a new event this way (see
+      // EventCreationForm.tsx); without it, an email-created event is invisible to Matomo dimension7.
+      expect(conversation!.analyticsRefs?.get('matomo')).toBe('dimension7')
 
       const persisted = await Conversation.findById(conversation!._id)
       expect(persisted).not.toBeNull()
@@ -475,6 +478,9 @@ describe('emailSetup.service', () => {
       expect(conversation!.presenters).toEqual([expect.objectContaining({ name: 'Jane Doe' })])
       expect(conversation!.description).toBe('Weekly sync')
       expect(conversation!.source?.messageId).toBe('MSG-DEFAULT')
+      // Matches nextspace's own create-event form, which always tags a new event this way (see
+      // EventCreationForm.tsx); without it, an email-created event is invisible to Matomo dimension7.
+      expect(conversation!.analyticsRefs?.get('matomo')).toBe('dimension7')
 
       const topic = await Topic.findOne({ owner: organizer._id, source: 'email' })
       expect(topic).not.toBeNull()
