@@ -83,6 +83,7 @@ resource "google_compute_instance_template" "web_server" {
       mongodb_url_secret_id = var.mongodb_url_secret_id
       app_env_secret_id     = var.app_env_secret_id
       chroma_url            = var.chroma_url
+      log_level             = var.log_level
     })
   }
 

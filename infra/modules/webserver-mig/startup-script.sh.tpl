@@ -77,4 +77,5 @@ docker run -d \
   -p ${api_port}:${api_port} \
   -p ${ws_port}:${ws_port} \
   --env-file "$ENV_FILE" \
+  -e LOG_LEVEL=${log_level} \
   "${image}"

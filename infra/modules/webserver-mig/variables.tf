@@ -213,3 +213,28 @@ variable "labels" {
   type    = map(string)
   default = {}
 }
+
+variable "log_level" {
+  description = <<-EOT
+    Minimum severity the app logs. Passed to the container explicitly so the
+    volume shipped to Cloud Logging is bounded by config rather than by
+    whatever LOG_LEVEL happens to be in the app-env secret.
+
+    "info" is the app's own production default, so this normally changes
+    nothing — it makes the guarantee explicit and reviewable. Note the
+    container's stdout reaches Cloud Logging as severity INFO regardless of
+    the app's internal level (winston formats the level into the message
+    text, and only `error` goes to stderr), so debug lines cannot be filtered
+    or excluded after the fact. Keeping them out at the source is the only
+    control over ingestion volume.
+
+    Raise to "debug" deliberately and temporarily when diagnosing something,
+    and put it back — debug is many times the volume of info.
+  EOT
+  type        = string
+  default     = "info"
+  validation {
+    condition     = contains(["debug", "info", "warn", "error"], var.log_level)
+    error_message = "log_level must be one of: debug, info, warn, error."
+  }
+}
