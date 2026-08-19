@@ -34,6 +34,37 @@ resource "google_compute_router_nat" "nat" {
   router                             = google_compute_router.router.name
   nat_ip_allocate_option             = "AUTO_ONLY"
   source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
+
+  /* Every instance here has no external IP, so ALL outbound traffic - LLM provider APIs
+     above all, plus Artifact Registry and Google APIs - leaves through this NAT. GCP's
+     default allocation is 64 ports per VM, and because endpoint-independent mapping is
+     off, each concurrent connection to a distinct destination consumes its own port. 64
+     concurrent outbound connections per instance is far too few for a web tier whose
+     request handling fans out to an LLM API.
+
+     This is not theoretical: during a 2026-08-19 load test the NAT reported
+     port_usage at 64/64 with 228 dropped packets, and even a near-idle run sat at
+     63/64 with 50 drops. Dropped egress packets show up as request timeouts, which is
+     the most likely explanation for the chat timeouts observed in the same runs
+     (49 timeouts, one taking the full 60s to fail).
+
+     Dynamic port allocation lets a busy instance scale up from min to max as it needs
+     ports, instead of every instance being permanently capped at the default. Set the
+     floor well above 64 so the common case never queues, and a ceiling that still lets
+     one NAT IP serve a reasonable number of VMs (each IP has 64512 usable ports; at a
+     4096 ceiling that is 15 instances per IP, and nat_ip_allocate_option = AUTO_ONLY
+     adds IPs as needed). */
+  enable_dynamic_port_allocation = true
+  min_ports_per_vm               = 512
+  max_ports_per_vm               = 4096
+
+  /* Surface exhaustion instead of having to infer it from timeouts. Without this the
+     only signal is the aggregate router metric, which does not say which instance ran
+     out. */
+  log_config {
+    enable = true
+    filter = "ERRORS_ONLY"
+  }
 }
 
 # --- Firewall: explicit deny-all ingress baseline (documents intent; the
