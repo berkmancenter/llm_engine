@@ -72,11 +72,39 @@ variable "base_image_family" {
   default     = "llm-engine-web-base"
 }
 
+variable "impersonate_service_account" {
+  description = <<-EOT
+    Service account for Packer itself to impersonate when calling the
+    Compute API. Not the same thing as service_account_email below, which
+    is the identity ATTACHED to the temporary build VM; this is the
+    identity that creates that VM in the first place.
+
+    Empty (the default) means "use ambient credentials", which is right for
+    a human running this locally with their own gcloud ADC.
+
+    CI needs it set. deploy_prod_gcp.yml authenticates as a deploy service
+    account that deliberately holds almost nothing directly — Terraform
+    gets its power by impersonating an infra-manager account (see that
+    environment's providers.tf). Packer was reading the ambient deploy
+    identity instead, which has only compute.viewer, so every CI bake
+    failed with a 403 on compute.instances.create while the same template
+    built fine on a laptop. Pointing this at the same account Terraform
+    impersonates closes that gap without widening what the deploy account
+    itself can do.
+  EOT
+  type        = string
+  default     = ""
+}
+
 locals {
   app_image = "${var.region}-docker.pkg.dev/${var.project_id}/${var.repository}/${var.image}:${var.image_tag}"
 }
 
 source "googlecompute" "web_server_release" {
+  # See the variable's own description for why CI must set this and a
+  # local run should not.
+  impersonate_service_account = var.impersonate_service_account
+
   project_id          = var.project_id
   zone                = var.zone
   source_image_family = var.base_image_family
