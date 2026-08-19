@@ -2,6 +2,36 @@
 
 This load test uses `k6` to simulate concurrent 15 minute conversations in which a variable number of users interact with the Event Assistant while a speaker delivers a talk. It uses the same API endpoints that Recall uses to send data to our system from Zoom, in order to emulate Zoom meetings.
 
+## These tests cost real money — pick the smallest one that answers your question
+
+Two of the three scripts drive live LLM inference, and against a deployed environment that
+is billed provider spend, not just CPU. Measured on the 2026-08-19 preview run:
+
+| Script | Requests | LLM inference | Notes |
+| --- | --- | --- | --- |
+| `eventAssistantLoad.js` | 3,486 chat requests | **Yes — the bulk of the cost** | every question ramps an agent response chain |
+| `transcriptLoad.js` | 3,023 transcript posts | **Yes** | transcript chunks drive periodic/proactive agents |
+| `websocketStampede.js` | 1,000 connections | **No — effectively zero** | only Engine.IO frames (`3` pong, `40`, `42 conversation:join`); it never posts a message |
+
+So the cost is roughly proportional to how much of the trio you run, and the websocket
+stampede is nearly free. Before reaching for all three, ask what you are actually trying to
+learn:
+
+- **Connection establishment, sticky routing, autoscaler reaction, scale-out latency** —
+  run `websocketStampede.js` alone. It exercises the `concurrent_connections` metric the
+  autoscaler scales on and costs essentially nothing in inference. It does need
+  conversations to already exist, so either reuse a previous run's test user or run
+  `transcriptLoad.js` once to create the fixtures.
+- **Agent response quality, chat latency, end-to-end behaviour under load** — you need the
+  full trio, and you should expect to pay for it. Run it deliberately, not as a smoke test.
+
+Other levers when you do need the expensive scripts: shorten the run (most scale-out
+behaviour resolves in the first ~5 minutes, though a 2026-08-19 run saw a burst of
+connection closes at ~10 minutes), lower `NUM_CONVERSATIONS` (inference scales with
+conversations and agents, not with websocket count), or point the target environment at a
+cheaper model — the last of which invalidates latency comparisons against earlier runs, so
+note it in the results if you do.
+
 ## Getting started
 
 ### Install k6
