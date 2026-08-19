@@ -4,6 +4,12 @@ This load test uses `k6` to simulate concurrent 15 minute conversations in which
 
 ## These tests cost real money — pick the smallest one that answers your question
 
+> **Running these on someone's behalf?** See [`CLAUDE.md`](CLAUDE.md) in this directory.
+> The short version: approval to run a load test is **not** approval to spend on LLM
+> inference. Ask about the spend separately, before each run that incurs it — including
+> any re-run after a failed or invalid attempt.
+
+
 Two of the three scripts drive live LLM inference, and against a deployed environment that
 is billed provider spend, not just CPU. Measured on the 2026-08-19 preview run:
 
