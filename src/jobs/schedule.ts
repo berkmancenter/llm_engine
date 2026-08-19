@@ -10,6 +10,11 @@ const schedule = {
   cancelPeriodicAgent: async (agentId) => {
     await agenda.cancel({ name: `periodic - ${agentId}` })
   },
+  /* Existence checks so callers can tell "this agent already has a live schedule in the
+     shared job collection" from "this agent needs one". Kept here rather than in the
+     caller so the job-name format stays owned by this file. */
+  periodicAgentExists: async (agentId) => (await agenda.jobs({ name: `periodic - ${agentId}` })).length > 0,
+  cronAgentExists: async (agentId) => (await agenda.jobs({ name: `cron - ${agentId}` })).length > 0,
   cronAgent: async (expression: string, data) => {
     await agenda.every(expression, `cron - ${data.agentId}`, data, { skipImmediate: true })
   },

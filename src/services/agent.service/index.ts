@@ -8,31 +8,82 @@ import defineJob from '../../jobs/define.js'
 const MAX_CONCURRENCY = 20
 // initialize all agent to set up their timers as needed
 
-async function schedulePeriodicAgent(agent) {
-  // cancel in case of multiple start attempts. Should be a no-op if not already running
-  await schedule.cancelPeriodicAgent(agent._id)
+/* Boot vs. reschedule.
+   ---------------------
+   These job documents live in MongoDB and are shared by every autoscaled instance, so
+   "set up this agent's timer" means two different things depending on who is asking:
+
+   - A RESCHEDULE (patchAgent, startAgent, a newly created agent) genuinely wants the old
+     schedule gone and a new one in its place. That is `reschedule: true`, the default.
+
+   - A BOOT (initializeAgents, on every instance, on every scale-out) does not. If the
+     cluster already has a live instance, the schedule is already in Mongo and is already
+     being processed. Recreating it there is not a harmless no-op:
+
+       * agenda.every() upserts on {name, type:'single'}, and save-job.js only protects
+         nextRunAt via $setOnInsert when it is in the PAST. Both callers below pass
+         skipImmediate, so nextRunAt is always in the future - which means the upsert
+         overwrites it and pushes the agent's next run out by a full interval. Every
+         boot. If instances boot more often than an agent's interval (a 1->5 scale-out
+         boots four in ~70s; a rolling deploy walks the whole group) that agent is
+         starved for as long as the churn lasts - exactly when load is highest and
+         proactive agents matter most.
+       * The cancel that used to run first is redundant for de-duplication, because
+         every() is already an upsert keyed by name. All it added was a window in which
+         the job did not exist - a tick landing there is lost - and the chance of
+         deleting a job another instance was mid-run on.
+       * It is also 2 writes per agent per boot per instance, landing at the same moment
+         new instances are doing everything else they do at startup.
+
+   So on the boot path we still define the handler (in-memory, per-process, genuinely
+   required on every instance) and only touch Mongo if no schedule exists yet - which is
+   the real recovery case this code was written for: the whole cluster having been down.
+
+   POSSIBLE FUTURE WORK - leader election. The cleanest version of this is for exactly
+   one instance to own scheduling, via a lock in Mongo, so schedule creation is not
+   racy-by-construction across a scaling group at all. Not done here because it is
+   materially more machinery (lock acquisition, renewal, handover when the leader is
+   scaled down or replaced mid-deploy) and the split below removes the harm without it.
+   Worth revisiting if scheduling ever needs to do more than create-if-absent, or if
+   agents start being rescheduled frequently enough that "who owns this" matters. */
+async function schedulePeriodicAgent(agent, { reschedule = true } = {}) {
+  if (reschedule) {
+    // Genuine reschedule: the interval may have changed, so the old job must go.
+    await schedule.cancelPeriodicAgent(agent._id)
+  }
+  // Always: in-memory handler registration, required on every instance.
   await defineJob.periodicAgent(agent._id)
-  await schedule.periodicAgent(`${agent.triggers.periodic.timerPeriod} seconds`, { agentId: agent._id })
-  logger.debug(`Set timer for ${agent.agentType} ${agent._id} ${agent.triggers.periodic.timerPeriod} seconds`)
+  if (reschedule || !(await schedule.periodicAgentExists(agent._id))) {
+    await schedule.periodicAgent(`${agent.triggers.periodic.timerPeriod} seconds`, { agentId: agent._id })
+    logger.debug(`Set timer for ${agent.agentType} ${agent._id} ${agent.triggers.periodic.timerPeriod} seconds`)
+  } else {
+    logger.debug(`Timer already scheduled for ${agent.agentType} ${agent._id}; left as-is`)
+  }
 }
 
-async function scheduleCronAgent(agent) {
-  await schedule.cancelCronAgent(agent._id)
+async function scheduleCronAgent(agent, { reschedule = true } = {}) {
+  if (reschedule) {
+    await schedule.cancelCronAgent(agent._id)
+  }
   await defineJob.cronAgent(agent._id)
-  await schedule.cronAgent(agent.triggers.cron.expression, { agentId: agent._id })
-  logger.debug(`Set cron for ${agent.agentType} ${agent._id} "${agent.triggers.cron.expression}"`)
+  if (reschedule || !(await schedule.cronAgentExists(agent._id))) {
+    await schedule.cronAgent(agent.triggers.cron.expression, { agentId: agent._id })
+    logger.debug(`Set cron for ${agent.agentType} ${agent._id} "${agent.triggers.cron.expression}"`)
+  } else {
+    logger.debug(`Cron already scheduled for ${agent.agentType} ${agent._id}; left as-is`)
+  }
 }
-async function initialize(agent) {
+async function initialize(agent, { reschedule = true } = {}) {
   try {
     if (!agent.triggers || agent.triggers?.perMessage) {
       // Define the job used to retrieve response async during per-message or manual activation
       await defineJob.agentResponse(agent._id)
     }
     if (agent.active && agent.triggers?.periodic) {
-      await schedulePeriodicAgent(agent)
+      await schedulePeriodicAgent(agent, { reschedule })
     }
     if (agent.active && agent.triggers?.cron) {
-      await scheduleCronAgent(agent)
+      await scheduleCronAgent(agent, { reschedule })
     }
   } catch (err) {
     logger.error(err)
@@ -47,7 +98,8 @@ async function initialize(agent) {
    still making the failure visible in logs. */
 async function initializeForBoot(agent) {
   try {
-    await initialize(agent)
+    // reschedule: false - see the "Boot vs. reschedule" note above.
+    await initialize(agent, { reschedule: false })
   } catch (err) {
     logger.error(`Agent ${agent?._id} failed to initialize at boot; continuing`, err)
   }
