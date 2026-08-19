@@ -51,7 +51,32 @@ variable "image_family" {
   default     = "llm-engine-web-base"
 }
 
+variable "impersonate_service_account" {
+  description = <<-EOT
+    Service account for Packer itself to impersonate when calling the
+    Compute API — the identity that CREATES the temporary build VM, not one
+    attached to it.
+
+    Empty (the default) means "use ambient credentials", which is right for
+    a human running this locally with their own gcloud ADC. This template is
+    built by hand today, so that default is the normal path.
+
+    Set it if this is ever automated. A CI deploy account typically holds
+    almost nothing directly and gets its power by impersonating an
+    infra-manager account; Packer reading the ambient identity instead is
+    what made every CI run of the sibling release template 403 on
+    compute.instances.create while building fine on a laptop. Kept here so
+    automating this one doesn't rediscover that the hard way — see
+    web-server-release.pkr.hcl.
+  EOT
+  type        = string
+  default     = ""
+}
+
 source "googlecompute" "web_server_base" {
+  # See the variable's description: needed only if this is automated.
+  impersonate_service_account = var.impersonate_service_account
+
   project_id              = var.project_id
   zone                    = var.zone
   source_image_family     = "debian-12"
@@ -66,20 +91,20 @@ source "googlecompute" "web_server_base" {
   ssh_username            = "packer"
   # Only needs to run apt-get for a few minutes, not serve traffic -
   # smallest practical machine type keeps build cost negligible.
-  machine_type            = "e2-small"
-  disk_size               = 20
+  machine_type = "e2-small"
+  disk_size    = 20
 
   # This project's network has no "default" VPC (network module creates
   # llm-engine-vpc instead) and webserver-mig's own instances have no
   # external IP - mirror both here, plus the iap-ssh tag the network
   # module's firewall rule already targets, so Packer reaches the build
   # instance the same way the real MIG instances are reached.
-  network           = "llm-engine-vpc"
-  subnetwork        = "llm-engine-vpc-us-central1"
-  omit_external_ip  = true
-  use_internal_ip   = true
-  use_iap           = true
-  tags              = ["iap-ssh"]
+  network          = "llm-engine-vpc"
+  subnetwork       = "llm-engine-vpc-us-central1"
+  omit_external_ip = true
+  use_internal_ip  = true
+  use_iap          = true
+  tags             = ["iap-ssh"]
 }
 
 build {

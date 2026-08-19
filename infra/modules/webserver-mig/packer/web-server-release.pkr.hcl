@@ -121,12 +121,12 @@ source "googlecompute" "web_server_release" {
 
   # Same VPC as web-server-base.pkr.hcl - this project has no default
   # network, and webserver-mig's own instances have no external IP.
-  network         = "llm-engine-vpc"
-  subnetwork      = "llm-engine-vpc-us-central1"
+  network          = "llm-engine-vpc"
+  subnetwork       = "llm-engine-vpc-us-central1"
   omit_external_ip = true
-  use_internal_ip = true
-  use_iap         = true
-  tags            = ["iap-ssh"]
+  use_internal_ip  = true
+  use_iap          = true
+  tags             = ["iap-ssh"]
 
   # Reuses webserver-mig's own service account rather than creating a new
   # one - it already has exactly the Artifact Registry read permission
