@@ -57,9 +57,23 @@ docker rm -f llm-engine 2>/dev/null || true
 if ! docker image inspect "${image}" >/dev/null 2>&1; then
   docker pull "${image}"
 fi
+# --log-driver=gcplogs ships the container's stdout/stderr to Cloud Logging.
+# Without it the app's own logs exist only inside the container, reachable
+# only by SSHing to a live instance - which is correctly permission-gated and
+# impossible once an instance has been replaced by the autoscaler. That gap
+# blocked three separate investigations in Aug 2026: attributing boot-to-healthy
+# time between Mongo connect and agent initialisation, explaining a burst of
+# websocket disconnects, and confirming what the app did during a scale-out.
+# In an autoscaled group the instance holding the evidence is usually gone by
+# the time anyone looks, so "just SSH in" is not a recovery plan.
+#
+# The instance service account already holds roles/logging.logWriter (granted
+# for the connection metric), so this needs no additional IAM.
 docker run -d \
   --name llm-engine \
   --restart=always \
+  --log-driver=gcplogs \
+  --log-opt labels=container_name \
   -p ${api_port}:${api_port} \
   -p ${ws_port}:${ws_port} \
   --env-file "$ENV_FILE" \
