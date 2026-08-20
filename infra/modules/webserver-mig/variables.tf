@@ -45,9 +45,14 @@ variable "machine_type" {
     "-<vCPU count>" (n2d-standard-N, n2d-highmem-N, ...); a shared-core
     shape (e2-micro/small/medium) won't parse and isn't used by this module
     today.
+
+    Default raised from n2d-standard-2 to n2d-standard-4: at 2 cores,
+    WEBSOCKET_MAX_PARALLELISM = cores - 1 leaves exactly one websocket
+    worker, no real parallelism. See
+    docs/autoscaling-completion-checklist.md §3 point 4.
   EOT
   type        = string
-  default     = "n2d-standard-2"
+  default     = "n2d-standard-4"
 }
 
 variable "boot_disk_image" {
