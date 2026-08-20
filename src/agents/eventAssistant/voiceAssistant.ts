@@ -1,59 +1,10 @@
-import * as fuzzball from 'fuzzball'
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory, IMessage } from '../../types/index.types.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { eventAssistantLLMTemplates, eventAssistantLlmTemplateVars, answerQuestion } from './eventQuestionHandler.js'
-import { extractMessageText } from '../helpers/slashCommandParser.js'
-import { matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 import logger from '../../config/logger.js'
 import getDefaultEventAssistantToolNames from './eventAssistantDefaultTools.js'
-
-const heyMatchThreshold = 85
-
-function matchHeyDirective(text: string, botName: string): { matched: boolean; question: string } {
-  // Split and scan all consecutive word pairs for "hey <botName>" anywhere in the message
-  const words = text.trim().split(/\s+/)
-  if (words.length < 2) return { matched: false, question: '' }
-  
-  for (let i = 0; i < words.length - 1; i++) {
-    const heyToken = words[i].replace(/[,!.]+$/, '')
-    const heyScore = fuzzball.ratio(heyToken.toLowerCase(), 'hey')
-
-    if (heyScore >= heyMatchThreshold && matchBotMention(words, botName)) {
-      const extracted = words
-        .slice(i + 2)
-        .join(' ')
-        .trim()
-      const question = extracted.charAt(0).toUpperCase() + extracted.slice(1)
-      return { matched: true, question }
-    }
-  }
-
-  return { matched: false, question: '' }
-}
-
-// Returns the extracted question text if the voice assistant should respond, or null otherwise.
-// Called from both evaluate (to gate) and respond (to extract the question), since respond runs
-// asynchronously in a job with a freshly loaded agent and cannot rely on in-memory state from evaluate.
-function extractVoiceQuestion(userMessage, conversationMessages, botName: string) {
-  const messageText = extractMessageText(userMessage)
-  const { matched, question } = matchHeyDirective(messageText, botName)
-
-  if (matched && question) return question
-  if (matched && !question) return null // bare trigger, wait for next message
-
-  // No trigger in current message — check if the previous transcript message was a bare "hey botName"
-  const prevTranscriptMessage = [...conversationMessages]
-    .reverse()
-    .find((msg) => msg.channels?.some((c) => c === 'transcript'))
-  if (prevTranscriptMessage) {
-    const prevText = extractMessageText(prevTranscriptMessage)
-    const prev = matchHeyDirective(prevText, botName)
-    if (prev.matched && !prev.question) return messageText
-  }
-
-  return null
-}
+import { extractVoiceQuestion, evaluateVoiceTrigger } from '../helpers/voiceDirectives.js'
 
 export default verify({
   name: 'Voice Assistant',
@@ -87,23 +38,10 @@ export default verify({
 
   async evaluate(userMessage) {
     const botName = this.agentConfig.botName as string
-    const questionText = extractVoiceQuestion(userMessage, this.conversation.messages as Array<IMessage>, botName)
-
-    if (questionText) {
-      logger.debug(`Voice trigger matched, question: "${questionText}"`)
-      const modifiedMessage = { ...userMessage, body: normalizeBotMention(userMessage.body, botName, false) }
-      return { userMessage: modifiedMessage, action: AgentMessageActions.CONTRIBUTE, userContributionVisible: true, suggestion: undefined }
-    }
-
-    const messageText = extractMessageText(userMessage)
-    const { matched } = matchHeyDirective(messageText, botName)
-    if (matched) {
-      logger.debug(`Voice trigger matched (bare), waiting for next message`)
-      const modifiedMessage = { ...userMessage, body: normalizeBotMention(userMessage.body, botName, false) }
-      return { userMessage: modifiedMessage, action: AgentMessageActions.OK, userContributionVisible: true, suggestion: undefined }
-    }
-
-    return { userMessage, action: AgentMessageActions.OK, userContributionVisible: true, suggestion: undefined }
+    const result = evaluateVoiceTrigger(userMessage, botName, this.conversation.messages as Array<IMessage>)
+    if (result.action === AgentMessageActions.CONTRIBUTE) logger.debug(`Voice trigger matched`)
+    else if (result.userMessage !== userMessage) logger.debug(`Voice trigger matched (bare), waiting for next message`)
+    return result
   },
 
   async respond(conversationHistory: ConversationHistory, userMessage) {
