@@ -19,6 +19,8 @@ import {
 import { AgentMessageActions, InboundInvite, InboundEmail } from '../../../../src/types/index.types.js'
 import { setAgentTypes } from '../../../../src/models/user.model/agent.model/index.js'
 import defaultAgentTypes from '../../../../src/agents/index.js'
+import { setAdapterTypes } from '../../../../src/models/adapter.model.js'
+import defaultAdapterTypes from '../../../../src/adapters/index.js'
 import { defaultLLMPlatform, defaultLLMModel } from '../../../../src/agents/helpers/getModelChat.js'
 
 setupIntTest()
@@ -171,6 +173,24 @@ const testAgentTypes = {
   }
 }
 
+// The on-demand flow starts the conversation immediately, which drives the real 'zoom' adapter's
+// start() (a live network call to Recall.ai) unless it's stubbed here too.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockAdapterStart = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue(undefined)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockAdapterStop = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue(undefined)
+// Real keys, not []: adapter.service.ts's active-meeting-uniqueness check (which the "never hands
+// another organizer" test below depends on) is a no-op when getUniqueKeys returns no keys.
+const mockGetUniqueKeys = jest.fn<() => string[]>().mockReturnValue(['type', 'config.meetingUrl'])
+
+const testAdapterTypes = {
+  zoom: {
+    start: mockAdapterStart,
+    stop: mockAdapterStop,
+    getUniqueKeys: mockGetUniqueKeys
+  }
+}
+
 // Set the allowlist explicitly so these tests don't depend on an ambient env var.
 const allowedDomain = 'example.edu'
 config.allowedOrganizerEmailDomains = [allowedDomain]
@@ -243,10 +263,12 @@ describe('emailSetup.service', () => {
 
   beforeAll(() => {
     setAgentTypes(testAgentTypes)
+    setAdapterTypes(testAdapterTypes)
   })
 
   afterAll(() => {
     setAgentTypes(defaultAgentTypes)
+    setAdapterTypes(defaultAdapterTypes)
   })
 
   beforeEach(() => {
