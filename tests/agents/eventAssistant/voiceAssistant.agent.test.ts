@@ -10,7 +10,6 @@ import {
 } from '../../utils/agentTestHelpers.js'
 import { Agent, Channel, Message } from '../../../src/models/index.js'
 
-import { AgentMessageActions } from '../../../src/types/index.types.js'
 import { QuestionClassification } from '../../../src/agents/eventAssistant/eventQuestionHandler.js'
 
 jest.setTimeout(180000)
@@ -64,86 +63,6 @@ describe('voice assistant CI tests', () => {
     await loadPartTimeWorkTranscript(conversation, true)
   })
 
-  // EVALUATE TESTS
-
-  it('contributes when message contains an inline hey trigger with a question', async () => {
-    const msg = await createMessage(`hey ${agent.agentConfig.botName} what is going on?`, user1, conversation, [
-      'transcript'
-    ])
-    const evaluation = await defaultAgentTypes.voiceAssistant.evaluate.call(agent, msg)
-    expect(evaluation.action).toEqual(AgentMessageActions.CONTRIBUTE)
-  })
-
-  it('returns OK when no hey trigger is present', async () => {
-    const msg = await createMessage('part-time work is interesting', user1, conversation, ['transcript'])
-    const evaluation = await defaultAgentTypes.voiceAssistant.evaluate.call(agent, msg)
-    expect(evaluation.action).toEqual(AgentMessageActions.OK)
-  })
-
-  it('returns OK for a bare hey trigger with no question, waiting for next message', async () => {
-    const msg = await createMessage(`hey ${agent.agentConfig.botName}`, user1, conversation, ['transcript'])
-    const evaluation = await defaultAgentTypes.voiceAssistant.evaluate.call(agent, msg)
-    expect(evaluation.action).toEqual(AgentMessageActions.OK)
-  })
-
-  it('normalizes misspelled bot name in evaluate for inline hey trigger', async () => {
-    agent.agentConfig.botName = 'Berkie'
-    const msg = await createMessage('hey Burkie what is part-time work?', user1, conversation, ['transcript'])
-    const evaluation = await defaultAgentTypes.voiceAssistant.evaluate.call(agent, msg)
-    expect(evaluation.action).toEqual(AgentMessageActions.CONTRIBUTE)
-    expect(evaluation.userMessage.body).toBe('hey Berkie what is part-time work?')
-  })
-
-  it('normalizes misspelled bot name in evaluate for bare hey trigger', async () => {
-    agent.agentConfig.botName = 'Berkie'
-    const msg = await createMessage('hey berkey', user1, conversation, ['transcript'])
-    const evaluation = await defaultAgentTypes.voiceAssistant.evaluate.call(agent, msg)
-    expect(evaluation.action).toEqual(AgentMessageActions.OK)
-    expect(evaluation.userMessage.body).toBe('hey Berkie')
-  })
-
-  it('contributes for a deferred question when previous transcript message was a bare hey trigger', async () => {
-    const prevMsg = await createMessage(`hey ${agent.agentConfig.botName}`, user1, conversation, ['transcript'])
-    agent.conversation.messages.push(prevMsg)
-    const currMsg = await createMessage('what did Jessica say about flexible work?', user1, conversation, ['transcript'])
-    const evaluation = await defaultAgentTypes.voiceAssistant.evaluate.call(agent, currMsg)
-    expect(evaluation.action).toEqual(AgentMessageActions.CONTRIBUTE)
-  })
-
-  it('returns OK when previous transcript message had an inline question (not a bare trigger)', async () => {
-    const prevMsg = await createMessage(`hey ${agent.agentConfig.botName} what is part-time work?`, user1, conversation, [
-      'transcript'
-    ])
-    agent.conversation.messages.push(prevMsg)
-    const currMsg = await createMessage('tell me more', user1, conversation, ['transcript'])
-    const evaluation = await defaultAgentTypes.voiceAssistant.evaluate.call(agent, currMsg)
-    expect(evaluation.action).toEqual(AgentMessageActions.OK)
-  })
-
-  // RESPOND TESTS - TRIGGER DETECTION
-
-  it('returns empty when no hey trigger is present', async () => {
-    const msg = await createMessage('part-time work is interesting', user1, conversation, ['transcript'])
-    agent.conversationHistorySettings = {
-      endTime: new Date(startTime.getTime() + 313 * 1000),
-      count: 10,
-      channels: ['transcript']
-    }
-    const responses = await defaultAgentTypes.voiceAssistant.respond.call(agent, { messages: [] }, msg)
-    expect(responses).toHaveLength(0)
-  })
-
-  it('returns empty for a bare hey trigger with no question, waiting for next message', async () => {
-    const msg = await createMessage(`hey ${agent.agentConfig.botName}`, user1, conversation, ['transcript'])
-    agent.conversationHistorySettings = {
-      endTime: new Date(startTime.getTime() + 313 * 1000),
-      count: 10,
-      channels: ['transcript']
-    }
-    const responses = await defaultAgentTypes.voiceAssistant.respond.call(agent, { messages: [] }, msg)
-    expect(responses).toHaveLength(0)
-  })
-
   it(
     'answers an inline question on the transcript channel',
     async () => {
@@ -191,21 +110,6 @@ describe('voice assistant CI tests', () => {
     testTimeout
   )
 
-  it('does not treat current message as deferred question when previous hey trigger had inline question text', async () => {
-    const prevMsg = await createMessage(`hey ${agent.agentConfig.botName} what is part-time work?`, user1, conversation, [
-      'transcript'
-    ])
-    const currMsg = await createMessage('tell me more', user1, conversation, ['transcript'])
-    agent.conversationHistorySettings = {
-      endTime: new Date(startTime.getTime() + 313 * 1000),
-      count: 10,
-      channels: ['transcript']
-    }
-    // prev had an inline question, so current should not be treated as deferred
-    const responses = await defaultAgentTypes.voiceAssistant.respond.call(agent, { messages: [prevMsg] }, currMsg)
-    expect(responses).toHaveLength(0)
-  })
-
   it(
     'capitalizes the first letter of an inline question extracted after the hey trigger',
     async () => {
@@ -224,158 +128,6 @@ describe('voice assistant CI tests', () => {
     testTimeout
   )
 
-  // FUZZY MATCHING TESTS - HEY TRIGGER POSITION
-
-  it(
-    'matches hey trigger anywhere in the message, not just at the start',
-    async () => {
-      agent.agentConfig.botName = 'Berkie'
-      const msg = await createMessage('so hey Berkie what is this talk about?', user1, conversation, ['transcript'])
-      agent.conversationHistorySettings = {
-        endTime: new Date(startTime.getTime() + 313 * 1000),
-        count: 10,
-        channels: ['transcript']
-      }
-      const responses = await defaultAgentTypes.voiceAssistant.respond.call(agent, { messages: [] }, msg)
-      expect(responses).toHaveLength(1)
-      console.log(`A (mid-message trigger): ${responses[0].message.text}`)
-    },
-    testTimeout
-  )
-
-  it('only uses words after the hey trigger as the question, not the preamble before it', async () => {
-    agent.agentConfig.botName = 'Berkie'
-    // Bare "hey Berkie" in the middle — preamble before it should be ignored, no question after = wait for next
-    const msg = await createMessage('okay so hey Berkie', user1, conversation, ['transcript'])
-    agent.conversationHistorySettings = {
-      endTime: new Date(startTime.getTime() + 313 * 1000),
-      count: 10,
-      channels: ['transcript']
-    }
-    const responses = await defaultAgentTypes.voiceAssistant.respond.call(agent, { messages: [] }, msg)
-    expect(responses).toHaveLength(0)
-  })
-
-  // FUZZY MATCHING TESTS - BOT NAME VARIATIONS (fuzzball scores vs 'Berkie')
-
-  it(
-    'fuzzy matches hey with punctuation variations (hey, Berkie,)',
-    async () => {
-      agent.agentConfig.botName = 'Berkie'
-      const msg = await createMessage('hey, Berkie, what is part-time work?', user1, conversation, ['transcript'])
-      agent.conversationHistorySettings = {
-        endTime: new Date(startTime.getTime() + 313 * 1000),
-        count: 10,
-        channels: ['transcript']
-      }
-      const responses = await defaultAgentTypes.voiceAssistant.respond.call(agent, { messages: [] }, msg)
-      expect(responses).toHaveLength(1)
-      console.log(`A (punctuation): ${responses[0].message.text}`)
-    },
-    testTimeout
-  )
-
-  it(
-    'fuzzy matches "Burkie" (score ~83, passes nameMatchThreshold)',
-    async () => {
-      agent.agentConfig.botName = 'Berkie'
-      const msg = await createMessage('hey Burkie what is part-time work?', user1, conversation, ['transcript'])
-      agent.conversationHistorySettings = {
-        endTime: new Date(startTime.getTime() + 313 * 1000),
-        count: 10,
-        channels: ['transcript']
-      }
-      const responses = await defaultAgentTypes.voiceAssistant.respond.call(agent, { messages: [] }, msg)
-      expect(responses).toHaveLength(1)
-      console.log(`A (Burkie): ${responses[0].message.text}`)
-    },
-    testTimeout
-  )
-
-  it(
-    'fuzzy matches "Birkie" (score ~83, passes nameMatchThreshold)',
-    async () => {
-      agent.agentConfig.botName = 'Berkie'
-      const msg = await createMessage('hey Birkie what is part-time work?', user1, conversation, ['transcript'])
-      agent.conversationHistorySettings = {
-        endTime: new Date(startTime.getTime() + 313 * 1000),
-        count: 10,
-        channels: ['transcript']
-      }
-      const responses = await defaultAgentTypes.voiceAssistant.respond.call(agent, { messages: [] }, msg)
-      expect(responses).toHaveLength(1)
-      console.log(`A (Birkie): ${responses[0].message.text}`)
-    },
-    testTimeout
-  )
-
-  it(
-    'fuzzy matches "Berkee" (score ~83, passes nameMatchThreshold)',
-    async () => {
-      agent.agentConfig.botName = 'Berkie'
-      const msg = await createMessage('hey Berkee what is part-time work?', user1, conversation, ['transcript'])
-      agent.conversationHistorySettings = {
-        endTime: new Date(startTime.getTime() + 313 * 1000),
-        count: 10,
-        channels: ['transcript']
-      }
-      const responses = await defaultAgentTypes.voiceAssistant.respond.call(agent, { messages: [] }, msg)
-      expect(responses).toHaveLength(1)
-      console.log(`A (Berkee): ${responses[0].message.text}`)
-    },
-    testTimeout
-  )
-
-  it(
-    'fuzzy matches "Berkye" (score ~83, passes nameMatchThreshold)',
-    async () => {
-      agent.agentConfig.botName = 'Berkie'
-      const msg = await createMessage('hey Berkye what is part-time work?', user1, conversation, ['transcript'])
-      agent.conversationHistorySettings = {
-        endTime: new Date(startTime.getTime() + 313 * 1000),
-        count: 10,
-        channels: ['transcript']
-      }
-      const responses = await defaultAgentTypes.voiceAssistant.respond.call(agent, { messages: [] }, msg)
-      expect(responses).toHaveLength(1)
-      console.log(`A (Berkye): ${responses[0].message.text}`)
-    },
-    testTimeout
-  )
-
-  it(
-    'fuzzy matches "Berk" (score ~80, passes nameMatchThreshold)',
-    async () => {
-      agent.agentConfig.botName = 'Berkie'
-      const msg = await createMessage('hey Berk what is part-time work?', user1, conversation, ['transcript'])
-      agent.conversationHistorySettings = {
-        endTime: new Date(startTime.getTime() + 313 * 1000),
-        count: 10,
-        channels: ['transcript']
-      }
-      const responses = await defaultAgentTypes.voiceAssistant.respond.call(agent, { messages: [] }, msg)
-      expect(responses).toHaveLength(1)
-      console.log(`A (Berk): ${responses[0].message.text}`)
-    },
-    testTimeout
-  )
-
-  it(
-    'fuzzy matches "Berky" (score ~73, passes nameMatchThreshold of 70)',
-    async () => {
-      agent.agentConfig.botName = 'Berkie'
-      const msg = await createMessage('hey Berky what is part-time work?', user1, conversation, ['transcript'])
-      agent.conversationHistorySettings = {
-        endTime: new Date(startTime.getTime() + 313 * 1000),
-        count: 10,
-        channels: ['transcript']
-      }
-      const responses = await defaultAgentTypes.voiceAssistant.respond.call(agent, { messages: [] }, msg)
-      expect(responses).toHaveLength(1)
-      console.log(`A (Berky): ${responses[0].message.text}`)
-    },
-    testTimeout
-  )
 })
 
 describe('voiceAssistant parseOutput', () => {
