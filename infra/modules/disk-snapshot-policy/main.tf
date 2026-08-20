@@ -26,6 +26,16 @@ resource "google_compute_resource_policy" "snapshot" {
 
     snapshot_properties {
       labels = var.labels
+      # Without this, GCP defaults new snapshots to the "US" multi-region.
+      # This project's org policy (constraints/gcp.resourceLocations) only
+      # allows us-central1*/us-east4* locations, so every scheduled snapshot
+      # was silently failing with a resourceLocations violation from the
+      # day this policy was first attached — confirmed via
+      # `gcloud logging read` showing repeated ScheduledSnapshots errors and
+      # zero snapshots ever landing for either mongo-vm's or chroma-vm's
+      # data disk. Pinning storage to the disk's own region keeps snapshots
+      # inside the allowed locations.
+      storage_locations = [var.region]
     }
   }
 }
