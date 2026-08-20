@@ -52,7 +52,7 @@ async function schedulePeriodicAgent(agent, { reschedule = true } = {}) {
     await schedule.cancelPeriodicAgent(agent._id)
   }
   // Always: in-memory handler registration, required on every instance.
-  await defineJob.periodicAgent(agent._id)
+  await defineJob.periodicAgent()
   if (reschedule || !(await schedule.periodicAgentExists(agent._id))) {
     await schedule.periodicAgent(`${agent.triggers.periodic.timerPeriod} seconds`, { agentId: agent._id })
     logger.debug(`Set timer for ${agent.agentType} ${agent._id} ${agent.triggers.periodic.timerPeriod} seconds`)
@@ -65,7 +65,7 @@ async function scheduleCronAgent(agent, { reschedule = true } = {}) {
   if (reschedule) {
     await schedule.cancelCronAgent(agent._id)
   }
-  await defineJob.cronAgent(agent._id)
+  await defineJob.cronAgent()
   if (reschedule || !(await schedule.cronAgentExists(agent._id))) {
     await schedule.cronAgent(agent.triggers.cron.expression, { agentId: agent._id })
     logger.debug(`Set cron for ${agent.agentType} ${agent._id} "${agent.triggers.cron.expression}"`)
@@ -77,7 +77,7 @@ async function initialize(agent, { reschedule = true } = {}) {
   try {
     if (!agent.triggers || agent.triggers?.perMessage) {
       // Define the job used to retrieve response async during per-message or manual activation
-      await defineJob.agentResponse(agent._id)
+      await defineJob.agentResponse()
     }
     if (agent.active && agent.triggers?.periodic) {
       await schedulePeriodicAgent(agent, { reschedule })
