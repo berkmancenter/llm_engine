@@ -215,9 +215,23 @@ afterEach(async () => {
   a single file while iterating. `--forceExit` is there because Mongo/agenda handles don't
   always close cleanly; if you see the suite hang at the end, that's expected teardown
   behavior, not your test. Don't rely on process-exit side effects.
-- **Memory**: the suite runs with `--max-old-space-size` bumped (8 GB main / 7 GB agent).
-  It is genuinely memory-hungry because it loads the whole app; avoid adding tests that
-  retain large objects across the file.
+- **Memory**: the suite is genuinely memory-hungry because each test file loads the whole
+  app and jest never frees that module registry within a process; avoid adding tests that
+  retain large objects across the file. Locally, `yarn test` runs the whole main suite in
+  one process with `--max-old-space-size=10240`. CI's runner only has 7 GB of RAM, so it
+  can't fit the whole suite in one process; CI instead runs `yarn test:ci` in 6 sequential
+  shards (`--shard=N/6`, `--max-old-space-size=4096`), giving each shard a fresh process
+  and a bounded slice of files. `test:agents` still runs as a single process locally and in
+  CI. Since shard membership is assigned by hashing file paths, adding or removing a test
+  file can reshuffle which files land in the same shard on later runs. If a test only
+  passed because an earlier file in the same process left behind global state (see
+  "Global-state hygiene" below), it can start failing on an unrelated PR that merely added
+  a file elsewhere; fix the leaking test's cleanup rather than treating it as a sharding
+  bug. `tsconfig.json` also has `isolatedModules: true`, so ts-jest transpiles each file
+  without a full type program instead of typechecking it; `yarn build` is the actual type
+  gate, both locally and in CI. The `coverage`/`coverage:coveralls` scripts still run the
+  full suite in one uncapped process; if either ever moves into CI it will need the same
+  sharding treatment.
 - **`development/` folders are excluded** from both suites (`tests/**/development/**`).
   Put throwaway/manual exploration tests there if you don't want them in CI; put anything
   that should actually run outside `development/`.

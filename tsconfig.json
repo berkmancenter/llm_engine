@@ -6,6 +6,7 @@
     "rootDir": ".",
     "outDir": "./dist",
     "esModuleInterop": true,
+    "isolatedModules": true,
     "forceConsistentCasingInFileNames": true,
     "strict": false,
     "strictNullChecks": true,  // temp needed for Mongoose automatic type inference until we enable strict

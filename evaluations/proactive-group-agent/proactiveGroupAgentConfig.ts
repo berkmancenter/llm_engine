@@ -2,7 +2,8 @@
 
 import { createSharedEvaluators, createJudge } from '../sharedEvaluators.js'
 
-export { ConversationTemplate, TEMPLATES } from '../templates.js'
+export type { ConversationTemplate } from '../templates.js'
+export { TEMPLATES } from '../templates.js'
 
 // ---------------------------------------------------------------------------
 // Evaluator registry
