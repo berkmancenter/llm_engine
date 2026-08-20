@@ -2,6 +2,17 @@
 # balancer (module B4). No Caddy anywhere — TLS termination and path-based
 # routing both happen at the load balancer.
 
+# The process model is one primary (Express API + websocket sticky master,
+# sharing an event loop) plus one cluster worker per core — cores + 1
+# threads on cores cores, oversubscribed unless a worker is held back. See
+# docs/autoscaling-completion-checklist.md §3 point 4. Parsed from
+# machine_type rather than a second variable so the two can't drift — see
+# that variable's description for the shape this expects.
+locals {
+  vcpu_count                = tonumber(regex("-([0-9]+)$", var.machine_type)[0])
+  websocket_max_parallelism = max(local.vcpu_count - 1, 1)
+}
+
 # --- Service account the VMs run as ---
 
 resource "google_service_account" "web_server" {
@@ -76,14 +87,15 @@ resource "google_compute_instance_template" "web_server" {
 
   metadata = {
     startup-script = templatefile("${path.module}/startup-script.sh.tpl", {
-      image                 = "${var.region}-docker.pkg.dev/${var.project_id}/${var.artifact_registry_repo}/llm-engine:${var.web_server_image_tag}"
-      region                = var.region
-      api_port              = var.api_port
-      ws_port               = var.ws_port
-      mongodb_url_secret_id = var.mongodb_url_secret_id
-      app_env_secret_id     = var.app_env_secret_id
-      chroma_url            = var.chroma_url
-      log_level             = var.log_level
+      image                     = "${var.region}-docker.pkg.dev/${var.project_id}/${var.artifact_registry_repo}/llm-engine:${var.web_server_image_tag}"
+      region                    = var.region
+      api_port                  = var.api_port
+      ws_port                   = var.ws_port
+      mongodb_url_secret_id     = var.mongodb_url_secret_id
+      app_env_secret_id         = var.app_env_secret_id
+      chroma_url                = var.chroma_url
+      log_level                 = var.log_level
+      websocket_max_parallelism = local.websocket_max_parallelism
     })
   }
 

@@ -78,4 +78,5 @@ docker run -d \
   -p ${ws_port}:${ws_port} \
   --env-file "$ENV_FILE" \
   -e LOG_LEVEL=${log_level} \
+  -e WEBSOCKET_MAX_PARALLELISM=${websocket_max_parallelism} \
   "${image}"

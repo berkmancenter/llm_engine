@@ -37,8 +37,17 @@ variable "iap_ssh_tag" {
 }
 
 variable "machine_type" {
-  type    = string
-  default = "n2d-standard-2"
+  description = <<-EOT
+    Instance shape. Drives WEBSOCKET_MAX_PARALLELISM (main.tf's
+    websocket_max_parallelism local, cores - 1) as well as vCPU/RAM, so
+    there is no separate "core count" variable to keep in sync — bumping
+    this alone is enough. Expects a standard N-family shape ending in
+    "-<vCPU count>" (n2d-standard-N, n2d-highmem-N, ...); a shared-core
+    shape (e2-micro/small/medium) won't parse and isn't used by this module
+    today.
+  EOT
+  type        = string
+  default     = "n2d-standard-2"
 }
 
 variable "boot_disk_image" {
