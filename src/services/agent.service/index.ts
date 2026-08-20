@@ -4,6 +4,7 @@ import agenda from '../../jobs/index.js'
 import Agent from '../../models/user.model/agent.model/index.js'
 import schedule from '../../jobs/schedule.js'
 import defineJob from '../../jobs/define.js'
+import migrateJobs from '../../jobs/migrateLegacyAgentJobNames.js'
 
 const MAX_CONCURRENCY = 20
 // initialize all agent to set up their timers as needed
@@ -108,13 +109,41 @@ async function initializeForBoot(agent) {
 async function initializeAgents() {
   // stop to clear locks
   await agenda.stop()
+
+  // One-time (per boot, effectively no-op after the first) conversion of any job document
+  // still under the old per-agent name scheme. Must happen before defineJob below: see
+  // migrateLegacyAgentJobNames.ts for why a job left under an old name is never processed
+  // again by anyone once this ships.
+  await migrateJobs.migrateLegacyAgentJobNames()
+
+  /* One definition per job type, unconditionally, regardless of which agents exist. This
+     used to be reachable only by walking every agent document and calling defineJob per
+     agent - since names were per-agent, the definition itself was tied to enumerating
+     agents. Now the name is generic (see define.ts), so defining it needs no agent data at
+     all: every instance can handle any due periodic/cron/response job the moment it boots,
+     not only once it happens to enumerate a relevant agent. */
+  await defineJob.periodicAgent()
+  await defineJob.cronAgent()
+  await defineJob.agentResponse()
+
   const queue = new PQueue({ concurrency: MAX_CONCURRENCY })
-  /* Only the fields initialize() actually reads, as lean plain objects rather than
-     hydrated Mongoose documents. This runs over every agent document in the database on
-     every boot, so the per-document cost is paid once per instance per scale-out event -
-     and under autoscaling that is no longer a once-a-deploy cost. Nothing below calls a
-     document method, so there is nothing to lose by not hydrating. */
-  const cursor = Agent.find({}, '_id agentType active triggers').lean().cursor()
+  /* Only active agents with a periodic or cron trigger - NOT every agent ever created.
+     That used to be necessary because defineJob was per-agent (see above); now that it
+     isn't, the only thing left for this loop to do is the recovery case described in the
+     "Boot vs. reschedule" note: create a schedule for an active agent that doesn't have one
+     yet (e.g. the whole cluster was down). An inactive agent, or one with only a perMessage
+     trigger, has no schedule to recover - and if it's reactivated later, startAgent/
+     patchAgent create its schedule synchronously as part of that call, on whichever
+     instance handles it. Scoping by `active` and trigger type is safe precisely because it
+     is NOT scoping by conversation recency: it excludes only agents that structurally have
+     nothing for this loop to do, not agents whose data might still be needed later (see
+     ticket #262 for the scoping that was tried and rejected as unsafe, and why). */
+  const cursor = Agent.find(
+    { active: true, $or: [{ 'triggers.periodic': { $exists: true } }, { 'triggers.cron': { $exists: true } }] },
+    '_id agentType active triggers'
+  )
+    .lean()
+    .cursor()
   let count = 0
 
   for (let agent = await cursor.next(); agent; agent = await cursor.next()) {
