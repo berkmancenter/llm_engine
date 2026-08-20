@@ -18,6 +18,7 @@
     "start": "NODE_ENV=production node dist/src/index.js",
     "dev": "cross-env NODE_ENV=development nodemon --watch 'src/**/*.ts' --exec node --loader ts-node/esm src/index.ts",
     "test": "NODE_ENV=test node --max-old-space-size=10240 --experimental-vm-modules ./node_modules/.bin/jest -i --colors --verbose --forceExit --bail",
+    "test:ci": "NODE_ENV=test node --max-old-space-size=4096 --experimental-vm-modules ./node_modules/.bin/jest -i --colors --verbose --forceExit --bail",
     "test:agents": "NODE_ENV=test node --max-old-space-size=10240 --experimental-vm-modules ./node_modules/.bin/jest -i --colors --verbose --forceExit --bail --config jest.agent.config.ts",
     "test:agents:all-models": "NODE_ENV=test node --loader ts-node/esm scripts/test-all-models.ts",
     "test:agents:development": "NODE_ENV=test node --max-old-space-size=10240 --experimental-vm-modules ./node_modules/.bin/jest -i --colors --verbose --forceExit --config jest.agent.development.config.ts",

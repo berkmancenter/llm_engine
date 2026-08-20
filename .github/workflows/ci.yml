@@ -24,6 +24,7 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     services:
       mongodb:
@@ -141,8 +142,14 @@ jobs:
         run: yarn audit:high
         continue-on-error: true
 
-      - name: Run tests
-        run: yarn test
+      - name: Run tests (sequential shards, fresh process each)
+        run: |
+          SHARDS=6
+          for shard in $(seq 1 $SHARDS); do
+            echo "::group::Test shard ${shard}/${SHARDS}"
+            yarn test:ci --shard=${shard}/${SHARDS}
+            echo "::endgroup::"
+          done
         env:
           PORT: 3000
           MONGODB_URL: mongodb://127.0.0.1:27017/node-boilerplate
