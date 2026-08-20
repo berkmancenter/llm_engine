@@ -13,8 +13,178 @@ import transcript from '../../src/agents/helpers/transcript.js'
 import plannerService from '../../src/services/eventSetup/planner.service.js'
 import emailService from '../../src/services/email.service.js'
 import { parseInviteFromPayload } from '../../src/handlers/email.js'
+import { AgentMessageActions } from '../../src/types/index.types.js'
+import { setAgentTypes } from '../../src/models/user.model/agent.model/index.js'
+import defaultAgentTypes from '../../src/agents/index.js'
+import { setAdapterTypes } from '../../src/models/adapter.model.js'
+import defaultAdapterTypes from '../../src/adapters/index.js'
+import { defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/getModelChat.js'
 
 setupIntTest()
+
+// Both wiring flows below enable a default set of feature agents (see resolveFeatures), and the
+// on-demand flow starts the conversation immediately, driving the real 'zoom' adapter's start()
+// (a live network call to Recall.ai). Stub both registries so this suite never calls a real LLM
+// or a real third-party service; see tests/CLAUDE.md's Mocking section for the pattern.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockRespond = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue([])
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockEvaluate = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue({
+  userMessage: '',
+  action: AgentMessageActions.REJECT,
+  userContributionVisible: false,
+  suggestion: ''
+})
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockStart = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue(undefined)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockStop = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue(undefined)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockIntroduce = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue([])
+
+const testAgentTypes = {
+  eventAssistant: {
+    respond: mockRespond,
+    evaluate: mockEvaluate,
+    start: mockStart,
+    stop: mockStop,
+    introduce: mockIntroduce,
+    name: 'Test Event Assistant',
+    description: 'A test agent',
+    maxTokens: 2000,
+    defaultTriggers: { perMessage: { minNewMessage: 2 } },
+    priority: 100,
+    llmTemplateVars: { contribution: [], voting: [] },
+    defaultLLMTemplates: {
+      contribution: 'You are an agent that does awesome stuff. Be awesome!',
+      voting: 'You should vote on this data {voteData}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel
+  },
+  backChannelInsights: {
+    respond: mockRespond,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Manual Test Agent',
+    description: 'A manually activated test agent with no triggers',
+    maxTokens: 2000,
+    defaultTriggers: undefined,
+    priority: 100,
+    llmTemplateVars: { contribution: [], voting: [] },
+    defaultLLMTemplates: {
+      contribution: 'You are an agent that does awesome stuff. Be awesome!',
+      voting: 'You should vote on this data {voteData}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel
+  },
+  proactiveGroupAgent: {
+    respond: mockRespond,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Proactive Group Test Agent',
+    description: 'Test proactive agent with agentConfig',
+    maxTokens: 2000,
+    defaultTriggers: { periodic: { timerPeriod: 60 } },
+    priority: 85,
+    llmTemplateVars: { contribution: [], voting: [] },
+    defaultLLMTemplates: {
+      contribution: 'You are a mediator agent',
+      voting: 'You should vote on this data {voteData}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel,
+    agentConfig: {
+      mediatorMinInterval: 1,
+      personality: 'sarcastic-expert'
+    }
+  },
+  jargonFilterAgent: {
+    respond: mockRespond,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Jargon Filter Agent',
+    description: 'Test jargon filter agent',
+    maxTokens: 500,
+    defaultTriggers: { periodic: { timerPeriod: 120 } },
+    priority: 50,
+    llmTemplateVars: { system: [], user: [] },
+    defaultLLMTemplates: {
+      system: 'You are a jargon filter agent',
+      user: 'Analyze this transcript: {transcript}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel
+  },
+  voiceAssistant: {
+    respond: mockRespond,
+    evaluate: mockEvaluate,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Voice Assistant',
+    description: 'Test voice assistant agent',
+    maxTokens: 2000,
+    defaultTriggers: { perMessage: { channels: ['transcript'] } },
+    priority: 100,
+    llmTemplateVars: { contribution: [], voting: [] },
+    defaultLLMTemplates: {
+      contribution: 'You are a voice assistant agent',
+      voting: 'You should vote on this data {voteData}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel
+  },
+  moderatorNotifier: {
+    respond: mockRespond,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Moderator Notifier',
+    description: 'Test moderator notifier agent',
+    maxTokens: 500,
+    defaultTriggers: { periodic: { timerPeriod: 60 } },
+    priority: 50,
+    llmTemplateVars: { system: [], user: [] },
+    defaultLLMTemplates: {
+      system: 'You are a moderator notifier agent',
+      user: 'Analyze this transcript: {transcript}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel
+  },
+  librarian: {
+    respond: mockRespond,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Librarian',
+    description: 'Test librarian agent',
+    maxTokens: 500,
+    defaultTriggers: { periodic: { timerPeriod: 120 } },
+    priority: 50,
+    llmTemplateVars: { system: [], user: [] },
+    defaultLLMTemplates: {
+      system: 'You are a librarian agent',
+      user: 'Recommend readings for: {transcript}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockAdapterStart = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue(undefined)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockAdapterStop = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue(undefined)
+// Real keys, not []: adapter.service.ts's active-meeting-uniqueness check is a no-op otherwise.
+const mockGetUniqueKeys = jest.fn<() => string[]>().mockReturnValue(['type', 'config.meetingUrl'])
+
+const testAdapterTypes = {
+  zoom: {
+    start: mockAdapterStart,
+    stop: mockAdapterStop,
+    getUniqueKeys: mockGetUniqueKeys
+  }
+}
 
 const webhookUser = 'email-webhook'
 const webhookSecret = 'test-webhook-secret'
@@ -101,11 +271,15 @@ describe('POST /v1/webhooks/email', () => {
     originalSecret = config.emailWebhook.authSecret
     config.emailWebhook.authUser = webhookUser
     config.emailWebhook.authSecret = webhookSecret
+    setAgentTypes(testAgentTypes)
+    setAdapterTypes(testAdapterTypes)
   })
 
   afterAll(() => {
     config.emailWebhook.authUser = originalUser
     config.emailWebhook.authSecret = originalSecret
+    setAgentTypes(defaultAgentTypes)
+    setAdapterTypes(defaultAdapterTypes)
   })
 
   describe('Basic Auth', () => {
