@@ -445,6 +445,38 @@ describe('LLM Input Formatter Tests', () => {
       // UTC 20:00 = GMT 20:00 (8:00 PM)
       expect(formatted).toBe('[8:00:00 PM] Single message')
     })
+
+    it('should include speaker label when source.speaker is set', async () => {
+      const msg = await createMessage('Hello everyone', 'User 1', new Date('2024-01-15T10:00:00Z'))
+      msg.source = { speaker: 'SPEAKER_00' } as never
+
+      const formatted = formatTranscript([msg])
+
+      expect(formatted).toBe('[10:00:00 AM] [SPEAKER_00] Hello everyone')
+    })
+
+    it('should omit speaker prefix when source.speaker is absent', async () => {
+      const msg = await createMessage('Hello everyone', 'User 1', new Date('2024-01-15T10:00:00Z'))
+
+      const formatted = formatTranscript([msg])
+
+      expect(formatted).toBe('[10:00:00 AM] Hello everyone')
+    })
+
+    it('should use distinct speaker labels across multiple messages', async () => {
+      const msg1 = await createMessage('First', 'User 1', new Date('2024-01-15T10:00:00Z'))
+      msg1.source = { speaker: 'SPEAKER_00' } as never
+      const msg2 = await createMessage('Second', 'User 2', new Date('2024-01-15T10:01:00Z'))
+      msg2.source = { speaker: 'SPEAKER_01' } as never
+      const msg3 = await createMessage('Third', 'User 1', new Date('2024-01-15T10:02:00Z'))
+      msg3.source = { speaker: 'SPEAKER_00' } as never
+
+      const formatted = formatTranscript([msg1, msg2, msg3])
+
+      expect(formatted).toBe(
+        '[10:00:00 AM] [SPEAKER_00] First\n[10:01:00 AM] [SPEAKER_01] Second\n[10:02:00 AM] [SPEAKER_00] Third'
+      )
+    })
   })
 
   describe('formatDmHistoryByChannel', () => {
