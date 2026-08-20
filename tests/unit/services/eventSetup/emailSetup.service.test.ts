@@ -16,9 +16,160 @@ import {
   createConversationFromInvite,
   createConversationFromEmail
 } from '../../../../src/services/eventSetup/emailSetup.service.js'
-import { InboundInvite, InboundEmail } from '../../../../src/types/index.types.js'
+import { AgentMessageActions, InboundInvite, InboundEmail } from '../../../../src/types/index.types.js'
+import { setAgentTypes } from '../../../../src/models/user.model/agent.model/index.js'
+import defaultAgentTypes from '../../../../src/agents/index.js'
+import { defaultLLMPlatform, defaultLLMModel } from '../../../../src/agents/helpers/getModelChat.js'
 
 setupIntTest()
+
+// Stub the feature agents both flows enable by default, so this suite never calls a real LLM.
+// Resolved values matter: the on-demand flow calls agent.introduce synchronously, and this file
+// doesn't mock 'agenda', so respond/evaluate can also fire from a real background job.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockRespond = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue([])
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockEvaluate = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue({
+  userMessage: '',
+  action: AgentMessageActions.REJECT,
+  userContributionVisible: false,
+  suggestion: ''
+})
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockStart = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue(undefined)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockStop = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue(undefined)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockIntroduce = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue([])
+
+const testAgentTypes = {
+  eventAssistant: {
+    respond: mockRespond,
+    evaluate: mockEvaluate,
+    start: mockStart,
+    stop: mockStop,
+    introduce: mockIntroduce,
+    name: 'Test Event Assistant',
+    description: 'A test agent',
+    maxTokens: 2000,
+    defaultTriggers: { perMessage: { minNewMessage: 2 } },
+    priority: 100,
+    llmTemplateVars: { contribution: [], voting: [] },
+    defaultLLMTemplates: {
+      contribution: 'You are an agent that does awesome stuff. Be awesome!',
+      voting: 'You should vote on this data {voteData}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel
+  },
+  backChannelInsights: {
+    respond: mockRespond,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Manual Test Agent',
+    description: 'A manually activated test agent with no triggers',
+    maxTokens: 2000,
+    defaultTriggers: undefined,
+    priority: 100,
+    llmTemplateVars: { contribution: [], voting: [] },
+    defaultLLMTemplates: {
+      contribution: 'You are an agent that does awesome stuff. Be awesome!',
+      voting: 'You should vote on this data {voteData}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel
+  },
+  proactiveGroupAgent: {
+    respond: mockRespond,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Proactive Group Test Agent',
+    description: 'Test proactive agent with agentConfig',
+    maxTokens: 2000,
+    defaultTriggers: { periodic: { timerPeriod: 60 } },
+    priority: 85,
+    llmTemplateVars: { contribution: [], voting: [] },
+    defaultLLMTemplates: {
+      contribution: 'You are a mediator agent',
+      voting: 'You should vote on this data {voteData}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel,
+    agentConfig: {
+      mediatorMinInterval: 1,
+      personality: 'sarcastic-expert'
+    }
+  },
+  jargonFilterAgent: {
+    respond: mockRespond,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Jargon Filter Agent',
+    description: 'Test jargon filter agent',
+    maxTokens: 500,
+    defaultTriggers: { periodic: { timerPeriod: 120 } },
+    priority: 50,
+    llmTemplateVars: { system: [], user: [] },
+    defaultLLMTemplates: {
+      system: 'You are a jargon filter agent',
+      user: 'Analyze this transcript: {transcript}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel
+  },
+  voiceAssistant: {
+    respond: mockRespond,
+    evaluate: mockEvaluate,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Voice Assistant',
+    description: 'Test voice assistant agent',
+    maxTokens: 2000,
+    defaultTriggers: { perMessage: { channels: ['transcript'] } },
+    priority: 100,
+    llmTemplateVars: { contribution: [], voting: [] },
+    defaultLLMTemplates: {
+      contribution: 'You are a voice assistant agent',
+      voting: 'You should vote on this data {voteData}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel
+  },
+  moderatorNotifier: {
+    respond: mockRespond,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Moderator Notifier',
+    description: 'Test moderator notifier agent',
+    maxTokens: 500,
+    defaultTriggers: { periodic: { timerPeriod: 60 } },
+    priority: 50,
+    llmTemplateVars: { system: [], user: [] },
+    defaultLLMTemplates: {
+      system: 'You are a moderator notifier agent',
+      user: 'Analyze this transcript: {transcript}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel
+  },
+  librarian: {
+    respond: mockRespond,
+    start: mockStart,
+    stop: mockStop,
+    name: 'Librarian',
+    description: 'Test librarian agent',
+    maxTokens: 500,
+    defaultTriggers: { periodic: { timerPeriod: 120 } },
+    priority: 50,
+    llmTemplateVars: { system: [], user: [] },
+    defaultLLMTemplates: {
+      system: 'You are a librarian agent',
+      user: 'Recommend readings for: {transcript}'
+    },
+    defaultLLMPlatform,
+    defaultLLMModel
+  }
+}
 
 // Set the allowlist explicitly so these tests don't depend on an ambient env var.
 const allowedDomain = 'example.edu'
@@ -89,6 +240,14 @@ describe('emailSetup.service', () => {
   let loggerErrorSpy
   let planConversationFromInviteSpy
   let planConversationFromEmailSpy
+
+  beforeAll(() => {
+    setAgentTypes(testAgentTypes)
+  })
+
+  afterAll(() => {
+    setAgentTypes(defaultAgentTypes)
+  })
 
   beforeEach(() => {
     jest.spyOn(emailService.transport, 'sendMail').mockResolvedValue(undefined as never)

@@ -191,10 +191,11 @@ We received your calendar invite, but ran into a problem creating your event. Pl
  * @returns {Promise}
  */
 const sendOnDemandEventEmail = async (to, urls, { joinAt }: { joinAt?: Date } = {}) => {
-  const subject = joinAt ? 'Berkie will join your Zoom meeting' : 'Berkie is joining your Zoom meeting'
+  const botName = config.conversationBotName
+  const subject = joinAt ? `${botName} will join your Zoom meeting` : `${botName} is joining your Zoom meeting`
   const whenLine = joinAt
-    ? `Berkie will join your Zoom meeting at ${joinAt.toISOString()}.`
-    : 'Berkie is joining your Zoom meeting now.'
+    ? `${botName} will join your Zoom meeting at ${joinAt.toISOString()}.`
+    : `${botName} is joining your Zoom meeting now.`
 
   const moderatorLine = urls.moderatorUrl ? `Moderator link (keep this one private): ${urls.moderatorUrl}\n` : ''
   const moderatorHtml = urls.moderatorUrl
