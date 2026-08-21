@@ -6,9 +6,7 @@ import { formatMultiUserConversationHistory } from '../helpers/llmInputFormatter
 import { composeSystemPrompt } from '../helpers/promptComposer.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
-import createEventHistoryTools, { TopicRef, buildEventHistoryToolsPrompt } from '../tools/eventHistory.js'
-import { bkcArchiveWikiTools, buildArchiveWikiToolsPrompt } from '../tools/bkcArchiveWiki.js'
-import Topic from '../../models/topic.model.js'
+import { getTools, buildToolsGuidance } from '../tools/registry.js'
 import Conversation from '../../models/conversation.model.js'
 import config from '../../config/config.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
@@ -24,24 +22,7 @@ const BASE_SYSTEM_PROMPT = `You are {botName}, a helpful AI assistant participat
 - You are talking in a shared channel, so keep context of the group conversation in mind.
 - The message you are being asked to respond to is labeled **## Question:**
 
-**Event history tools:**
-Your primary specialty is answering questions about past events and their transcripts. You have access to tools for this purpose — use them whenever a question touches on past events, speakers, topics discussed, or anything that may be in an event transcript.
-
-${buildEventHistoryToolsPrompt()}
-
-When searching, search across all series unless the question clearly refers to a specific one. Don't require the user to specify a series — use your judgment. Prefer \`search_topic_transcripts\` for broad questions; use \`search_conversation_transcript\` to retrieve specific quotes or details once you know which event to drill into. For questions that are clearly unrelated to past events, respond directly without calling any tools.
-
-You are in a live chat — respond promptly. Gather just enough to answer well: one or two searches usually suffice, and never re-run near-identical queries against the same source. Answer as soon as you have the substance.
-${bkcArchiveWikiTools.length > 0 ? `\n\n${buildArchiveWikiToolsPrompt()}` : ''}
-{topicContext}`
-
-function buildTopicContext(topics: TopicRef[]): string {
-  const lines = topics.map((t) => {
-    const desc = t.description ? `: ${t.description}` : ''
-    return `- "${t.name}" (id: ${t.id})${desc}`
-  })
-  return `\n\n**Available event series:**\n${lines.join('\n')}`
-}
+{toolGuidance}Search efficiently: one or two tool calls usually suffice, and never re-run near-identical queries against the same source. For questions answerable from conversation history alone, respond directly without calling any tools.`
 
 export default verify({
   name: 'Community Assistant',
@@ -54,6 +35,7 @@ export default verify({
   },
   agentConfig: {
     enablePersonality: config.enableAgentPersonality,
+    tools: ['event_history', 'bkc_archive_wiki', 'web_search'] as string[],
     topicIds: [] as string[]
   },
   llmTemplateVars: {
@@ -88,17 +70,8 @@ export default verify({
     const chatHistory = formatMultiUserConversationHistory(conversationHistory)
     const question = extractMessageText(userMessage).trim()
 
-    // Load topic metadata for system prompt and tools
-    const configuredTopicIds: string[] = this.agentConfig?.topicIds || []
-    let topicDocs
-    if (configuredTopicIds.length > 0) {
-      topicDocs = await Topic.find({ _id: { $in: configuredTopicIds } })
-        .select('_id name description')
-        .lean()
-    } else {
-      topicDocs = await Topic.find({ private: false, isDeleted: false }).select('_id name description').lean()
-    }
-    const topics: TopicRef[] = topicDocs.map((t) => ({ id: t._id.toString(), name: t.name, description: t.description }))
+    const toolNames: string[] = this.agentConfig?.tools || []
+    const topicIds: string[] = this.agentConfig?.topicIds || []
 
     let personalityName: string | null = null
     if (this.agentConfig?.personality !== undefined) {
@@ -107,18 +80,13 @@ export default verify({
       personalityName = 'sarcastic-expert'
     }
 
-    const archiveEnabled = bkcArchiveWikiTools.length > 0
-
     const systemPromptBase = BASE_SYSTEM_PROMPT.replace('{botName}', this.agentConfig.botName).replace(
-      '{topicContext}',
-      buildTopicContext(topics)
+      '{toolGuidance}',
+      await buildToolsGuidance(toolNames, { topicIds })
     )
     const systemPrompt = composeSystemPrompt(systemPromptBase, { personalityName })
 
-    const tools: StructuredToolInterface[] = topics.length > 0 ? createEventHistoryTools(topics) : []
-    if (archiveEnabled) {
-      tools.push(...bkcArchiveWikiTools)
-    }
+    const tools: StructuredToolInterface[] = await getTools(toolNames, { topicIds })
 
     // Build message array: chat history + current question
     // Recursion limit: each tool round-trip costs 2 graph steps; with both event-history

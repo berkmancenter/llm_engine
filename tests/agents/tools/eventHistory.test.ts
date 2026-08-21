@@ -8,7 +8,7 @@ import {
   loadPartTimeWorkTranscript,
   loadAliensTranscript
 } from '../../utils/agentTestHelpers.js'
-import createEventHistoryTools, { TopicRef } from '../../../src/agents/tools/eventHistory.js'
+import createEventHistoryTools, { TopicRef, buildEventHistoryToolsPrompt } from '../../../src/agents/tools/eventHistory.js'
 import { getTools } from '../../../src/agents/tools/registry.js'
 import { newPublicTopic, insertTopics } from '../../fixtures/topic.fixture.js'
 
@@ -237,7 +237,7 @@ describe('eventHistory tools', () => {
     it('honors activeConversationId end-to-end when built through the tool registry', async () => {
       // Verifies the registry forwards activeConversationId into createEventHistoryTools, not just
       // that the factory returns tools — exercises the same path the eventAssistant uses at runtime.
-      const registryTools = getTools(['event_history'], {
+      const registryTools = await getTools(['event_history'], {
         topics: [{ id: topic._id.toString(), name: topic.name }],
         activeConversationId: conv2._id.toString()
       })
@@ -459,5 +459,59 @@ describe('get_event_list – calendar date filtering', () => {
     expect(result).toHaveLength(1)
     expect(result[0].name).toBe('Mid-Month Event')
     expect(result[0].id).toBe(convMidMonth._id.toString())
+  })
+})
+
+describe('buildEventHistoryToolsPrompt', () => {
+  let topic
+
+  beforeEach(async () => {
+    topic = newPublicTopic()
+    await insertTopics([topic])
+  })
+
+  it('returns only the tool list when hasActiveConversation=true — no wrapper, no DB lookup', async () => {
+    const prompt = await buildEventHistoryToolsPrompt(true)
+    expect(prompt).toMatch(/get_event_list/)
+    expect(prompt).toMatch(/search_topic_transcripts/)
+    expect(prompt).toMatch(/search_conversation_transcript/)
+    expect(prompt).toMatch(/current event is already excluded/)
+    expect(prompt).not.toMatch(/\*\*Event history tools:\*\*/)
+    expect(prompt).not.toMatch(/Available event series/)
+  })
+
+  it('returns a full section with wrapper and workflow notes when hasActiveConversation=false', async () => {
+    const prompt = await buildEventHistoryToolsPrompt(false)
+    expect(prompt).toMatch(/\*\*Event history tools:\*\*/)
+    expect(prompt).toMatch(/get_event_list/)
+    expect(prompt).toMatch(/search_topic_transcripts/)
+    expect(prompt).toMatch(/search_conversation_transcript/)
+    expect(prompt).toMatch(/search_topic_transcripts.*for broad questions/i)
+  })
+
+  it('includes topic listing when topicIds are provided', async () => {
+    const prompt = await buildEventHistoryToolsPrompt(false, [topic._id.toString()])
+    expect(prompt).toMatch(/\*\*Available event series:\*\*/)
+    expect(prompt).toContain(topic.name)
+    expect(prompt).toContain(topic._id.toString())
+  })
+
+  it('includes all public topics when topicIds is an empty array', async () => {
+    const prompt = await buildEventHistoryToolsPrompt(false, [])
+    // The topic created in beforeEach is public, so it should appear
+    expect(prompt).toMatch(/\*\*Available event series:\*\*/)
+    expect(prompt).toContain(topic.name)
+  })
+
+  it('omits the topic listing when topicIds is undefined', async () => {
+    const prompt = await buildEventHistoryToolsPrompt(false, undefined)
+    expect(prompt).not.toMatch(/Available event series/)
+  })
+
+  it('includes topic description when present', async () => {
+    const prompt = await buildEventHistoryToolsPrompt(false, [topic._id.toString()])
+    if (topic.description) {
+      expect(prompt).toContain(topic.description)
+    }
   })
 })

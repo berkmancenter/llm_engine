@@ -6,7 +6,7 @@ const slackCommunityAssistant: ConversationType = {
   name: 'slackCommunityAssistant',
   label: 'Community Assistant',
   description:
-    'An AI assistant specialized in answering questions about past events and their transcripts, accessible via a shared Slack channel',
+    'A configurable AI assistant that helps community members with questions and discussion, with access to community-specific tools such as event history and archive search, accessible via a shared Slack channel',
   platforms: [{ name: 'slack', label: 'Slack' }],
   properties: [
     {
@@ -71,15 +71,16 @@ const slackCommunityAssistant: ConversationType = {
     {
       name: 'notifications',
       label: 'Notifications',
-      description: 'Notification types the assistant will post. Available: event_ended. Defaults to none.',
+      description: 'Notification types the assistant will post. Available: event_ended. Defaults to event_ended.',
       required: false,
-      type: 'object'
+      type: 'object',
+      default: ['event_ended']
     },
     {
       name: 'tools',
       label: 'Enabled Tools',
       description:
-        'Tool names the assistant can use. Available: web_search, event_history, bkc_archive_wiki. Defaults to [web_search].',
+        'Tool names the assistant can use. Available: web_search, event_history, bkc_archive_wiki. Defaults to all.',
       required: false,
       type: 'object'
     },

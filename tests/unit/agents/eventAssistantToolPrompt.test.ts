@@ -39,11 +39,11 @@ describe('event assistant tool system prompt', () => {
     expect(webSearchTool.description).toMatch(/Omit only/i)
   })
 
-  test('buildEventAssistantToolSystemPrompt places tool rules before context', () => {
+  test('buildEventAssistantToolSystemPrompt places tool rules before context', async () => {
     const base = 'BASE_SYSTEM_TEMPLATE'
     const topic = 'Test topic title'
     const ctx = 'TRANSCRIPT_SNIPPET_ONLY_HERE'
-    const full = buildEventAssistantToolSystemPrompt(base, topic, ctx)
+    const full = await buildEventAssistantToolSystemPrompt(base, topic, ctx)
     expect(full.startsWith(base)).toBe(true)
     const toolRulesPos = full.indexOf(EVENT_ASSISTANT_TOOL_USAGE_RULES)
     const contextPos = full.indexOf(ctx)
@@ -52,8 +52,8 @@ describe('event assistant tool system prompt', () => {
     expect(toolRulesPos).toBeLessThan(contextPos)
   })
 
-  test('buildEventAssistantToolSystemPrompt omits web-search rules when hasWebSearch is false', () => {
-    const full = buildEventAssistantToolSystemPrompt('BASE', 'topic', 'ctx', { hasWebSearch: false })
+  test('buildEventAssistantToolSystemPrompt omits web-search rules when hasWebSearch is false', async () => {
+    const full = await buildEventAssistantToolSystemPrompt('BASE', 'topic', 'ctx', { hasWebSearch: false })
     expect(full).not.toContain(EVENT_ASSISTANT_TOOL_USAGE_RULES)
     expect(full.startsWith('BASE')).toBe(true)
   })
