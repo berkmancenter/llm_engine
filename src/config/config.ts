@@ -29,6 +29,14 @@ const envVarsSchema = Joi.object()
       .description(
         'Sockets Mongoose keeps warm per connection even when idle. 0 (the driver default) is fine unless cold-start latency matters more than idle connection count.'
       ),
+    ENABLE_GCP_CONNECTION_METRICS: Joi.boolean()
+      .default(false)
+      .description(
+        'Publish a custom.googleapis.com/app/concurrent_connections Cloud Monitoring metric — the primary signal ' +
+          "infra/modules/webserver-mig/autoscaler.tf's autoscaler is built around. Opt-in and off by default: only " +
+          'meaningful when actually running on GCE, and even there this is only worth turning on once you intend for ' +
+          'the autoscaler to use it.'
+      ),
     ENABLE_DEVELOPMENT_AGENTS: Joi.boolean().default(false).description('Enable development agent support'),
     ENABLE_DEVELOPMENT_ADAPTERS: Joi.boolean().default(false).description('Enable development adapter support'),
     ENABLE_PUBLIC_CHANNEL_CREATION: Joi.boolean().default(false).description('Enable channel creation'),
@@ -228,6 +236,7 @@ const config = {
     authTokenSecret: envVars.AUTH_TOKEN_SECRET
   },
   maxMessageLength: envVars.MAX_MESSAGE_LENGTH,
+  enableGcpConnectionMetrics: envVars.ENABLE_GCP_CONNECTION_METRICS,
   enableDevelopmentAgents: envVars.ENABLE_DEVELOPMENT_AGENTS,
   enableDevelopmentAdapters: envVars.ENABLE_DEVELOPMENT_ADAPTERS,
   enablePublicChannelCreation: envVars.ENABLE_PUBLIC_CHANNEL_CREATION,
