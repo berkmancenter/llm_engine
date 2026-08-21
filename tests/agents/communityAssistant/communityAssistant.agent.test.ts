@@ -336,35 +336,62 @@ A single mom of two children with primary custody, she is passionate about findi
     })
   })
 
-  describe('onConversationEvent', () => {
+  describe('onConversationEvent / notifications configuration', () => {
     let stoppedConversation
+    let notifyAgent
+    let notifyConversation
 
     beforeEach(async () => {
       stoppedConversation = await createConversation({ name: 'Past Event' }, user1, topic)
+
+      // Agent with event_ended notification enabled
+      notifyConversation = await createConversation({ name: 'Notify Agent Conversation' }, user1, topic)
+      notifyAgent = new Agent({
+        agentType: 'communityAssistant',
+        conversation: notifyConversation,
+        llmPlatform: testConfig.llmPlatform,
+        llmModel: testConfig.llmModel,
+        agentConfig: { botName: BOT_NAME, notifications: ['event_ended'] }
+      })
+      const channels = await Channel.create([{ name: 'chat' }])
+      notifyConversation.channels.push(...channels)
+      await notifyAgent.save()
+      notifyConversation.agents.push(notifyAgent)
+      await notifyConversation.save()
+      await notifyAgent.start()
     })
 
-    it('returns empty array for non-conversationStopped event types', async () => {
-      const responses = await defaultAgentTypes.communityAssistant.onConversationEvent.call(agent, {
+    it('returns empty for non-conversationStopped event types regardless of notifications config', async () => {
+      const responses = await defaultAgentTypes.communityAssistant.onConversationEvent.call(notifyAgent, {
         type: 'unknownEvent',
         conversationId: stoppedConversation._id.toString()
       })
-
       expect(responses).toHaveLength(0)
     })
 
-    it('returns empty array when conversation has no summary', async () => {
+    it('returns empty when notifications does not include event_ended, even with a summary', async () => {
+      await stoppedConversation.updateOne({ summary: 'Key takeaways from the event.' })
+
+      // agent (from outer beforeEach) has no notifications configured
       const responses = await defaultAgentTypes.communityAssistant.onConversationEvent.call(agent, {
         type: 'conversationStopped',
         conversationId: stoppedConversation._id.toString()
       })
-
       expect(responses).toHaveLength(0)
     })
 
-    it('returns a summary message when conversation has a summary', async () => {
+    it('returns empty when event_ended is enabled but the conversation has no summary', async () => {
+      const responses = await defaultAgentTypes.communityAssistant.onConversationEvent.call(notifyAgent, {
+        type: 'conversationStopped',
+        conversationId: stoppedConversation._id.toString()
+      })
+      expect(responses).toHaveLength(0)
+    })
+
+    it('posts a summary message when event_ended is enabled and the conversation has a summary', async () => {
       await stoppedConversation.updateOne({ summary: 'Key takeaways from the event.' })
 
-      const responses = await defaultAgentTypes.communityAssistant.onConversationEvent.call(agent, {
+      const responses = await defaultAgentTypes.communityAssistant.onConversationEvent.call(notifyAgent, {
         type: 'conversationStopped',
         conversationId: stoppedConversation._id.toString()
       })
@@ -375,12 +402,9 @@ A single mom of two children with primary custody, she is passionate about findi
     })
 
     it('posts to the chat channel when one exists', async () => {
-      const chatChannel = await Channel.create({ name: 'chat' })
-      conversation.channels.push(chatChannel)
-      await conversation.save()
       await stoppedConversation.updateOne({ summary: 'A summary.' })
 
-      const responses = await defaultAgentTypes.communityAssistant.onConversationEvent.call(agent, {
+      const responses = await defaultAgentTypes.communityAssistant.onConversationEvent.call(notifyAgent, {
         type: 'conversationStopped',
         conversationId: stoppedConversation._id.toString()
       })
