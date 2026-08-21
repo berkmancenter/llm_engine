@@ -370,6 +370,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#the-two-paths" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The two paths
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#set-up-postmark" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -458,11 +469,14 @@
   <h1>Email</h1>
 
 <h2 id="email-integration">Email integration</h2>
-<p>LLM Engine can receive calendar invites by email. An event organizer adds the event setup bot as an attendee on a meeting invite, and the invite arrives here as an inbound webhook.</p>
+<p>LLM Engine can create an event from either of two kinds of inbound email, both arriving at the same webhook.</p>
 <p>Email integration requires the use of <a href="https://postmarkapp.com">Postmark</a>, a third party service that receives mail on your behalf and posts it to your server as JSON.</p>
-<blockquote>
-<p><strong>Current scope:</strong> the webhook verifies the request, parses the attached calendar file, and logs what it found. It does not create events or send mail yet.</p>
-</blockquote>
+<h3 id="the-two-paths">The two paths</h3>
+<ul>
+<li><strong>Calendar invite.</strong> An organizer adds the event setup bot as an attendee on a meeting invite. The webhook parses the attached <code>.ics</code> file for the title, time, and location, matches the invite title against a <code>Prefix:</code> in one of the organizer's existing Topics, and creates a draft event on that schedule.</li>
+<li><strong>Plain email, on demand.</strong> An organizer emails the bot directly with a Zoom link and no calendar invite. An LLM call reads the email for the Zoom link, speakers, and, if stated, a start time. With no stated time, the Event Assistant joins the call right away; with a future time, the event is scheduled instead. Either way the organizer gets a reply with direct links to the event, the moderator view, and the participant view, and the bot leaves the call automatically once it ends.</li>
+</ul>
+<p>Both paths are gated by <code>ALLOWED_ORGANIZER_EMAIL_DOMAINS</code> (see below): a sender outside the allowlist gets no event and no reply of any kind, not even an error.</p>
 <h3 id="set-up-postmark">Set up Postmark</h3>
 <h4 id="one-time-setup">One Time Setup</h4>
 <ol>
@@ -500,9 +514,29 @@
 <td>yes</td>
 <td>Secret half of the same credentials. Generate it randomly and rotate it periodically. Must match the value Postmark sends.</td>
 </tr>
+<tr>
+<td><code>ALLOWED_ORGANIZER_EMAIL_DOMAINS</code></td>
+<td>no</td>
+<td>Comma-separated domains allowed to create an event on either path. A sender outside this list gets no event and no reply, silently. <strong>Leaving this unset drops every inbound message, on both paths.</strong></td>
+</tr>
+<tr>
+<td><code>ON_DEMAND_EVENT_DURATION_MINUTES</code></td>
+<td>no</td>
+<td>Default length, in minutes, for an on-demand event whose email states no duration. Defaults to 60.</td>
+</tr>
+<tr>
+<td><code>EVENT_PARTICIPANT_PATH</code></td>
+<td>no</td>
+<td>Path appended to <code>APP_HOST</code> for the participant link emailed to the organizer. Defaults to <code>/assistant/</code>.</td>
+</tr>
+<tr>
+<td><code>EVENT_MODERATOR_PATH</code></td>
+<td>no</td>
+<td>Path appended to <code>APP_HOST</code> for the moderator link emailed to the organizer. Defaults to <code>/moderator/</code>.</td>
+</tr>
 </tbody>
 </table>
-<p>Both are required to use this endpoint, but neither is required to boot the server. If either is unset, the handler rejects every request rather than accepting unverified ones, and logs that it is not configured.</p>
+<p><code>POSTMARK_WEBHOOK_AUTH_USER</code> and <code>POSTMARK_WEBHOOK_AUTH_SECRET</code> are required to use this endpoint, but neither is required to boot the server. If either is unset, the handler rejects every request rather than accepting unverified ones, and logs that it is not configured.</p>
 <h3 id="how-verification-works">How verification works</h3>
 <p>Postmark does not sign inbound webhooks, so there is no signature to check. Basic Auth over TLS is the verification method Postmark's documentation recommends for inbound, and it is what this handler implements.</p>
 <p>Rejected requests return <code>401</code>, never <code>403</code>. Postmark stops retrying a message permanently once it sees a <code>403</code>, so that status is reserved for messages that should never be delivered again.</p>
@@ -521,12 +555,24 @@
 <td>The calendar attachment parsed. Start and end times are in UTC.</td>
 </tr>
 <tr>
-<td><code>inbound message had no calendar (.ics) attachment</code></td>
-<td>The message arrived but carried nothing to process.</td>
+<td><code>no calendar attachment from ...; treating as a plain on-demand email</code></td>
+<td>No <code>.ics</code> file was attached, so the message is routed to the on-demand path.</td>
+</tr>
+<tr>
+<td><code>sender ... is outside the allowlisted domains; rejecting, no event created</code></td>
+<td><code>ALLOWED_ORGANIZER_EMAIL_DOMAINS</code> rejected the sender. No event, no reply.</td>
+</tr>
+<tr>
+<td><code>no Zoom link found in email from ...; nothing created</code></td>
+<td>An on-demand email had no usable link. A failure email was sent.</td>
+</tr>
+<tr>
+<td><code>"..." from ... is not a valid Zoom link</code></td>
+<td>An on-demand email linked to a non-Zoom platform. A failure email was sent.</td>
 </tr>
 <tr>
 <td><code>failed to parse inbound invite: ...</code></td>
-<td>A calendar attachment was present but unreadable.</td>
+<td>The message could not be processed at all (either path).</td>
 </tr>
 </tbody>
 </table>
