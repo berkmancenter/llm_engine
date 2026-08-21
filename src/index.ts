@@ -3,6 +3,7 @@ import app from './app.js'
 import config from './config/config.js'
 import logger from './config/logger.js'
 import setup from './setup.js'
+import { drainAgenda } from './jobs/gracefulShutdown.js'
 
 logger.info(`Environment: ${config.env} -> Reading config from file: ${config.envFile}`)
 
@@ -39,4 +40,5 @@ process.on('SIGTERM', () => {
   if (server) {
     server.close()
   }
+  drainAgenda().catch((err) => logger.error('Error while draining agenda on shutdown', err))
 })
