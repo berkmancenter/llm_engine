@@ -89,11 +89,51 @@ const createTopic = async (topicBody, user) => {
     archivable: topicBody.archivable,
     archiveEmail: topicBody.archiveEmail,
     passcode,
-    owner: user
+    owner: user,
+    // Left out entirely rather than set to undefined when absent, same reasoning as
+    // conversation.service/index.ts's zoomMeetingUrl: a present-but-undefined key can still
+    // satisfy a schema's "required" check. The public create-topic route's Joi schema doesn't
+    // allow a source field, so only trusted internal callers (like findOrCreateEmailTopic) can set it.
+    ...(topicBody.source !== undefined && { source: topicBody.source })
   })
   await transcript.loadTopicMetadataIntoVectorStore(topic)
   return topic
 }
+
+// A short name for the organizer to show in an auto-generated Topic name. Prefers their
+// username; falls back to the part of their email before the @ when they have no username set.
+// Exported for emailSetup.service.ts's on-demand naming fallback, which needs the same logic.
+export const organizerLabel = (user): string => {
+  const username = (user.username ?? '').trim()
+  if (username) return username
+  return (user.email ?? '').split('@')[0]
+}
+
+/**
+ * Finds the organizer's one Topic for events that arrive by email, creating it on first use.
+ * Matches on owner + source: 'email' rather than name, so the organizer can freely rename the
+ * Topic later without breaking the match on their next email.
+ * @param {Object} user
+ * @returns {Promise<Topic>}
+ */
+const findOrCreateEmailTopic = async (user) => {
+  const existing = await Topic.findOne({ owner: user, source: 'email', isDeleted: false })
+  if (existing) return existing
+
+  return createTopic(
+    {
+      name: `${organizerLabel(user)}'s emailed events`,
+      description: 'Events created automatically from emails sent directly to Berkie.',
+      votingAllowed: false,
+      conversationCreationAllowed: false,
+      private: true,
+      archivable: false,
+      source: 'email'
+    },
+    user
+  )
+}
+
 /**
  * Update a topic
  * @param {Object} topicBody
@@ -304,6 +344,8 @@ const follow = async (status, topicId, user) => {
 
 const topicService = {
   createTopic,
+  findOrCreateEmailTopic,
+  organizerLabel,
   userTopics,
   findById,
   allPublicTopics,

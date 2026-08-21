@@ -99,6 +99,23 @@ const handleBotStatusChange = async (adapter, body) => {
   ]
 
   if (code === 'call_ended' && subCode && stoppedSubCodes.includes(subCode)) {
+    // source.messageId is only ever set by the on-demand email flow (see
+    // emailSetup.service.ts's createConversationFromEmail); an invite-created conversation has
+    // source.inviteUid instead, and a manually created one has no source at all.
+    if (conversation.source?.messageId) {
+      // A one-off on-demand call, not a standing meeting worth retrying to rejoin.
+      logger.info(
+        `Bot left call for on-demand conversation ${conversation._id} (${subCode}); stopping instead of redeploying`
+      )
+      try {
+        await conversationService.autoStop(conversation._id)
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+        logger.error(`Failed to stop on-demand conversation ${conversation._id}: ${errorMessage}`)
+      }
+      return
+    }
+
     // Attempt to redeploy the bot
     logger.warn(`Bot left call but meeting still active (${subCode}). Attempting to redeploy...`)
     try {

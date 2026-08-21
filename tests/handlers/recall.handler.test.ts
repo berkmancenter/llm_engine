@@ -361,6 +361,35 @@ describe('POST /v1/webhooks/recall', () => {
       expect(updateTranscriptStatusSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }), 'stopped')
       expect(mockZoomStart).not.toHaveBeenCalled()
     })
+
+    test('stops instead of redeploying when the conversation is an on-demand email event', async () => {
+      conversation.active = true
+      conversation.transcript = {
+        status: 'active'
+      }
+      conversation.source = { messageId: 'MSG-1' }
+      await conversation.save()
+
+      const statusChangeEvent = {
+        event: 'bot.call_ended',
+        data: {
+          bot: { id: botId },
+          data: {
+            code: 'call_ended',
+            sub_code: 'bot_received_leave_call',
+            message: 'Bot received leave call request'
+          }
+        }
+      }
+      const headers = generateWebhookSignature(statusChangeEvent, config.recall.realtimeSecret)
+      await request(app).post(`/v1/webhooks/recall`).set(headers).send(statusChangeEvent).expect(httpStatus.OK)
+
+      expect(mockZoomStart).not.toHaveBeenCalled()
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.active).toBe(false)
+      expect(updated!.endTime).toBeDefined()
+      expect(updated!.transcript?.status).toBe('stopped')
+    })
   })
 
   describe('bot.in_call_recording event', () => {

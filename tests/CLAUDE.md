@@ -78,6 +78,26 @@ setAgentTypes({ myTestAgent: { respond: mockRespond, evaluate: mockEvaluate, /* 
 This is how `agent.model.test.ts` and `conversation.service.test.ts` keep the LLM out
 of the main suite. Reach for this first — it sidesteps ESM mocking entirely.
 
+**If the flow under test actually starts the conversation** (not just creates a draft),
+stub adapter types too, the same way, with `setAdapterTypes()`:
+
+```ts
+import { setAdapterTypes } from '../../src/models/adapter.model.js'
+const mockAdapterStart = jest.fn()
+setAdapterTypes({ zoom: { start: mockAdapterStart, stop: jest.fn(), getUniqueKeys: jest.fn() } })
+```
+
+Starting a conversation calls the real adapter type's `start()`, which for `zoom` makes
+a live network call to Recall.ai to deploy the meeting bot. `emailSetup.service.test.ts`'s
+on-demand flow does this; its invite-flow tests don't need it because that flow only ever
+creates a draft.
+
+Don't stub `getUniqueKeys` to return `[]` by reflex: `adapter.service.ts` uses it to
+reject a second adapter starting on an already-active meeting, and `[]` silently defeats
+that check. Return the real key list (for zoom, `['type', 'config.meetingUrl']`) if the
+test depends on that uniqueness behavior, as `emailSetup.service.test.ts`'s "never hands
+another organizer the links to someone else's active meeting" test does.
+
 ### ✅ Module mocking: `jest.unstable_mockModule` + `await import` (in this order)
 
 This is the **only** reliable way to mock an ES module. The mock declaration must come
@@ -198,6 +218,11 @@ afterEach(async () => {
 
 ## Other gotchas
 
+- **A real credential in your local `.env` can mask incomplete mocking.** If a service
+  (Recall.ai, OpenAI, etc.) isn't stubbed, a live call to it will quietly succeed locally
+  using your own `.env` secret and only fail in CI, where that secret isn't set. A test
+  passing locally isn't proof it's fully mocked. If you're unsure, unset the credential
+  (or point it at garbage) and rerun; it should still pass.
 - **Mongoose indexes are NOT built automatically in tests.** If your test relies on a
   `unique`/compound index (e.g. asserting an upsert dedupes, or a duplicate insert
   rejects), call `await Model.syncIndexes()` in `beforeAll`. `setupIntTest()` clears

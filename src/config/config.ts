@@ -50,6 +50,12 @@ const envVarsSchema = Joi.object()
     NEXTSPACE_URL: Joi.string().description(
       'Base URL of the NextSpace frontend, used to generate links in external adapters'
     ),
+    EVENT_PARTICIPANT_PATH: Joi.string()
+      .default('/assistant/')
+      .description("Path on APP_HOST for a participant's view of an event; override for a frontend that routes differently"),
+    EVENT_MODERATOR_PATH: Joi.string()
+      .default('/moderator/')
+      .description("Path on APP_HOST for a moderator's view of an event; override for a frontend that routes differently"),
     TRULY_RANDOM_PSEUDONYMS: Joi.string()
       .default('false')
       .description('true/false if pseudonyms are made truly random with UID'),
@@ -140,8 +146,11 @@ const envVarsSchema = Joi.object()
       .default('event-setup-bot:serviceAccount')
       .description('Comma-separated list of system accounts to create on startup, in username:role format'),
     ALLOWED_ORGANIZER_EMAIL_DOMAINS: Joi.string().description(
-      'Comma-separated email domains whose senders, if they have no account yet, get a "please sign up" reply to an inbound invite. Invites from any other domain are rejected: no event, no reply. Unset means none, so no signup invites are ever sent.'
-    )
+      'Comma-separated email domains whose senders, if they have no account yet, get a "please sign up" reply to an inbound email, calendar invite or plain on-demand email alike. A message from any other domain is rejected: no event, no reply. Unset means none, so every inbound email is silently dropped on both paths.'
+    ),
+    ON_DEMAND_EVENT_DURATION_MINUTES: Joi.number()
+      .default(120)
+      .description('Default length of an event created from a plain emailed Zoom link, when the email states no duration')
   })
   .unknown()
 
@@ -272,6 +281,13 @@ const config = {
   transcriptRetentionPeriod: envVars.TRANSCRIPT_RETENTION_PERIOD,
   appHost: envVars.APP_HOST,
   nextspaceUrl: envVars.NEXTSPACE_URL,
+  /* Paths appended to appHost when building an event's participant and moderator links.
+     The query string is llm_engine's own convention, so these two paths are the only
+     part of those URLs a different frontend needs to change. */
+  eventUrlPaths: {
+    participant: envVars.EVENT_PARTICIPANT_PATH,
+    moderator: envVars.EVENT_MODERATOR_PATH
+  },
   trulyRandomPseudonyms: envVars.TRULY_RANDOM_PSEUDONYMS,
   DAYS_FOR_GOOD_REPUTATION: envVars.DAYS_FOR_GOOD_REPUTATION,
   conversationBotName: envVars.CONVERSATION_BOT_NAME,
@@ -302,6 +318,7 @@ const config = {
   allowedOrganizerEmailDomains: (envVars.ALLOWED_ORGANIZER_EMAIL_DOMAINS ?? '')
     .split(',')
     .map((domain: string) => domain.trim().toLowerCase())
-    .filter((domain: string) => domain.length > 0)
+    .filter((domain: string) => domain.length > 0),
+  onDemandEventDurationMinutes: envVars.ON_DEMAND_EVENT_DURATION_MINUTES
 }
 export default config

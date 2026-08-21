@@ -1,6 +1,6 @@
 import faker from 'faker'
 import setupIntTest from '../utils/setupIntTest.js'
-import { insertUsers, userOne } from '../fixtures/user.fixture.js'
+import { insertUsers, userOne, userTwo } from '../fixtures/user.fixture.js'
 import { newPublicTopic, newPrivateTopic, insertTopics } from '../fixtures/topic.fixture.js'
 import { topicService, emailService } from '../../src/services/index.js'
 import Topic from '../../src/models/topic.model.js'
@@ -61,6 +61,110 @@ describe('Topic service methods', () => {
       await topicService.createTopic(topicBody, userOne)
 
       expect(loadTopicMetadataSpy).toHaveBeenCalledTimes(1)
+    })
+
+    test('should set source when the caller provides one', async () => {
+      const topicBody = {
+        name: 'Email Series',
+        votingAllowed: false,
+        conversationCreationAllowed: false,
+        private: true,
+        archivable: false,
+        source: 'email'
+      }
+
+      const topic = await topicService.createTopic(topicBody, userOne)
+
+      expect(topic.source).toBe('email')
+    })
+
+    test('should leave source unset when the caller omits it', async () => {
+      const topicBody = {
+        name: 'Manually Created Series',
+        votingAllowed: true,
+        conversationCreationAllowed: true,
+        private: false,
+        archivable: true
+      }
+
+      const topic = await topicService.createTopic(topicBody, userOne)
+
+      expect(topic.source).toBeUndefined()
+    })
+  })
+
+  describe('findOrCreateEmailTopic()', () => {
+    let loadTopicMetadataSpy
+
+    beforeEach(async () => {
+      await insertUsers([userOne, userTwo])
+      loadTopicMetadataSpy = jest.spyOn(transcript, 'loadTopicMetadataIntoVectorStore').mockResolvedValue()
+    })
+
+    afterEach(() => {
+      loadTopicMetadataSpy.mockRestore()
+    })
+
+    test('creates a private, source: email Topic named after the organizer on first call', async () => {
+      const topic = await topicService.findOrCreateEmailTopic(userOne)
+
+      expect(topic.name).toBe(`${userOne.username}'s emailed events`)
+      expect(topic.private).toBe(true)
+      expect(topic.votingAllowed).toBe(false)
+      expect(topic.conversationCreationAllowed).toBe(false)
+      expect(topic.archivable).toBe(false)
+      expect(topic.source).toBe('email')
+      expect(topic.owner.toString()).toBe(userOne._id.toString())
+    })
+
+    test('reuses createTopic: generates a passcode and loads topic metadata into the vector store', async () => {
+      const topic = await topicService.findOrCreateEmailTopic(userOne)
+
+      expect(topic.passcode).toEqual(expect.any(Number))
+      expect(loadTopicMetadataSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: topic._id }))
+    })
+
+    test('returns the same Topic on a second call instead of creating a duplicate', async () => {
+      const first = await topicService.findOrCreateEmailTopic(userOne)
+      const second = await topicService.findOrCreateEmailTopic(userOne)
+
+      expect(second._id.toString()).toBe(first._id.toString())
+      expect(await Topic.countDocuments({ owner: userOne._id, source: 'email' })).toBe(1)
+    })
+
+    test("does not reuse another organizer's email Topic", async () => {
+      const topicForOne = await topicService.findOrCreateEmailTopic(userOne)
+      const topicForTwo = await topicService.findOrCreateEmailTopic(userTwo)
+
+      expect(topicForTwo._id.toString()).not.toBe(topicForOne._id.toString())
+    })
+
+    test('does not match an existing Topic for the same owner that lacks the source: email marker', async () => {
+      await insertTopics([{ ...newPrivateTopic(), owner: userOne._id, name: "won't match" }])
+
+      const topic = await topicService.findOrCreateEmailTopic(userOne)
+
+      expect(topic.name).toBe(`${userOne.username}'s emailed events`)
+      expect(await Topic.countDocuments({ owner: userOne._id })).toBe(2)
+    })
+
+    test('creates a new Topic when the previous email Topic was soft-deleted', async () => {
+      const first = await topicService.findOrCreateEmailTopic(userOne)
+      first.isDeleted = true
+      await first.save()
+
+      const second = await topicService.findOrCreateEmailTopic(userOne)
+
+      expect(second._id.toString()).not.toBe(first._id.toString())
+      expect(second.isDeleted).toBe(false)
+    })
+
+    test('falls back to the email local part when the organizer has no username', async () => {
+      const noUsernameUser = { ...userOne, _id: userTwo._id, username: undefined, email: 'jane.smith@example.edu' }
+
+      const topic = await topicService.findOrCreateEmailTopic(noUsernameUser)
+
+      expect(topic.name).toBe("jane.smith's emailed events")
     })
   })
 

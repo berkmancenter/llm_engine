@@ -18,10 +18,25 @@ export interface ParsedInvite {
 /* The trust boundary in one shape: `invite` is attacker-supplied .ics file content (anyone can put
    any UID or ORGANIZER in a raw .ics), while `fromAddress` is the envelope From that the email
    webhook actually received. Identity resolution keys off fromAddress; ORGANIZER is only ever
-   compared against it. */
+   compared against it. body is the email's plain-text body alongside the .ics attachment; the
+   .ics fields still win on conflict, body only fills in what they leave out (see
+   planner.service.ts's INVITE_SYSTEM_PROMPT). */
 export interface InboundInvite {
   fromAddress: string
   invite: ParsedInvite
+  body?: string
+}
+
+/* A plain inbound email with no .ics attachment (see emailSetup.service.ts's
+   createConversationFromEmail). fromName is the sender's display name off the webhook payload
+   (Postmark's FromName), used to name the event when there's no subject; messageId is Postmark's
+   MessageID, the dedup key for this path since there's no invite UID to use instead. */
+export interface InboundEmail {
+  fromAddress: string
+  fromName?: string
+  subject?: string
+  body?: string
+  messageId?: string
 }
 
 export interface PaginateResults<T> {
@@ -87,6 +102,9 @@ export interface ITopic {
   latestMessageCreatedAt?: Date
   messageCount?: number
   conversationCount?: number
+  // Marks a Topic we auto-created instead of the organizer, so we can find it again by owner +
+  // source instead of by its (renamable) name. See findOrCreateEmailTopic in topic.service.ts.
+  source?: 'email'
 }
 
 export interface Vote {
