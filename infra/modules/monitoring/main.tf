@@ -368,14 +368,13 @@ resource "google_monitoring_alert_policy" "scheduled_snapshot_silence" {
   conditions {
     display_name = "Zero ScheduledSnapshots log entries in 23.5h"
     condition_absent {
-      # No resource.type clause: a log-based counter metric with no label
-      # extractors materializes under Cloud Monitoring's own default
-      # resource type (typically "global"), not the log entries' own
-      # resource.type — asserting gce_disk here risked the filter never
-      # matching anything and the "absence" condition being permanently
-      # (falsely) true from the moment it's created. Verify the actual
-      # resource type once real data exists and tighten this filter if
-      # useful.
+      # resource.type=gce_disk is required, not optional: the API 400s
+      # without it ("must specify a restriction on resource.type in the
+      # filter") — confirmed live, and confirmed via the metric
+      # descriptor's monitoredResourceTypes that a log-based counter metric
+      # keeps its source log entries' own resource type (gce_disk here),
+      # it does not fall back to some type-agnostic default the way an
+      # earlier version of this comment guessed.
       #
       # duration is capped at 23h30m by the API itself (confirmed live:
       # 93600s/26h 400'd with "Durations longer than 23h30m are not
@@ -392,7 +391,7 @@ resource "google_monitoring_alert_policy" "scheduled_snapshot_silence" {
       # which is a longer false-positive window, not a shorter one. Treat
       # a single brief firing near the expected run time as likely benign;
       # a sustained one, or one at an unexpected time, is the real signal.
-      filter   = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.scheduled_snapshot_activity.name}\""
+      filter   = "resource.type=\"gce_disk\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.scheduled_snapshot_activity.name}\""
       duration = "84600s" # 23h30m — the API's own maximum, see comment above
       aggregations {
         alignment_period   = "3600s"
@@ -450,11 +449,12 @@ resource "google_monitoring_alert_policy" "mongo_backup_silence" {
   conditions {
     display_name = "Zero MONGO_BACKUP_OK log entries in 23.5h"
     condition_absent {
-      # Same "no resource.type clause" and duration-cap reasoning as
-      # scheduled_snapshot_silence above — 84600s (23h30m) is the API's own
-      # maximum, confirmed live; expect a brief, self-clearing false
-      # positive once a day near the backup's usual run time.
-      filter   = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.mongo_backup_ok[0].name}\""
+      # resource.type=gce_instance required — see scheduled_snapshot_silence
+      # above for why (confirmed live + via the metric descriptor's
+      # monitoredResourceTypes). Same duration-cap reasoning too: 84600s
+      # (23h30m) is the API's own maximum; expect a brief, self-clearing
+      # false positive once a day near the backup's usual run time.
+      filter   = "resource.type=\"gce_instance\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.mongo_backup_ok[0].name}\""
       duration = "84600s"
       aggregations {
         alignment_period   = "3600s"
