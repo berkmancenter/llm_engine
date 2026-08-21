@@ -330,6 +330,17 @@ resource "google_monitoring_alert_policy" "scheduled_snapshot_failure" {
     }
   }
   notification_channels = var.notification_channels
+  # Required by the API for log-based alert policies (condition_matched_log)
+  # — confirmed live: creation 400s without it ("log-based alert policies
+  # need to specify a notification rate limit"). This snapshot policy runs
+  # at most once/day per disk, so 300s costs nothing in practice; it exists
+  # to prevent a notification storm on a log filter that could otherwise
+  # match many entries in a burst.
+  alert_strategy {
+    notification_rate_limit {
+      period = "300s"
+    }
+  }
 }
 
 # --- Alert: scheduled disk-snapshot silence (no attempt logged at all) ---
@@ -391,6 +402,13 @@ resource "google_monitoring_alert_policy" "mongo_backup_failure" {
     }
   }
   notification_channels = var.notification_channels
+  # Required by the API for log-based alert policies — see
+  # scheduled_snapshot_failure's comment above for why/confirmed-how.
+  alert_strategy {
+    notification_rate_limit {
+      period = "300s"
+    }
+  }
 }
 
 # --- Alert: mongo-vm's mongodump backup cron silent (no OK in 26h) ---
