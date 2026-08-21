@@ -25,6 +25,14 @@ const envVarsSchema = Joi.object()
     ENABLE_CONVERSATION_COST_TRACKING: Joi.boolean()
       .default(true)
       .description('Track and persist estimated LLM cost for every conversation on stop, independent of Number Cruncher'),
+    DISABLE_POST_EVENT_ANALYSIS: Joi.boolean()
+      .default(false)
+      .description(
+        'Skip the LLM work a conversation stop triggers (the summary call in doStopConversation and the ' +
+          'conversationStopped dispatch that drives Vibes Analyst). Stop still runs normally otherwise - agents/' +
+          'adapters/schedules are torn down as usual. For load-test environments, where auto-stop fires on its ' +
+          'own idle timer with no one watching, independent of whether the test itself is meant to cost inference.'
+      ),
     JWT_SECRET: Joi.string().required().description('JWT secret key'),
     JWT_ACCESS_EXPIRATION_MINUTES: Joi.number().default(30).description('minutes after which access tokens expire'),
     JWT_REFRESH_EXPIRATION_DAYS: Joi.number().default(30).description('days after which refresh tokens expire'),
@@ -211,6 +219,7 @@ const config = {
   enableExportOptOut: envVars.ENABLE_EXPORT_OPT_OUT,
   enableAgentPersonality: envVars.ENABLE_AGENT_PERSONALITY,
   enableConversationCostTracking: envVars.ENABLE_CONVERSATION_COST_TRACKING,
+  disablePostEventAnalysis: envVars.DISABLE_POST_EVENT_ANALYSIS,
   langsmith: {
     tracingEnabled: Boolean(envVars.LANGSMITH_TRACING_V2),
     key: envVars.LANGSMITH_API_KEY,
