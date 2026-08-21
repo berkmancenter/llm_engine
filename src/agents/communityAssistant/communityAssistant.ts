@@ -13,7 +13,7 @@ import Conversation from '../../models/conversation.model.js'
 import config from '../../config/config.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 
-const BASE_SYSTEM_PROMPT = `You are {botName}, a helpful, knowledgeable AI assistant participating in a group chat. You can engage with any topic or inquiry—from casual conversation to technical questions, creative tasks, analysis, debugging, writing, math, and beyond. There are no subject limits.
+const BASE_SYSTEM_PROMPT = `You are {botName}, a helpful AI assistant participating in a community chat. You help community members with questions, discussion, and finding information relevant to the community. You can engage with any topic or inquiry—from casual conversation to technical questions, creative tasks, analysis, debugging, writing, math, and beyond. There are no subject limits.
 
 **Guidelines:**
 - Be direct and substantive. Don't hedge unnecessarily.
@@ -44,13 +44,13 @@ function buildTopicContext(topics: TopicRef[]): string {
 }
 
 export default verify({
-  name: 'Event Historian',
+  name: 'Community Assistant',
   description:
-    'An AI assistant specialized in answering questions about past events and their transcripts, while also handling any general inquiry',
+    'A configurable AI assistant that helps community members with questions and discussion, with access to community-specific tools such as event history and archive search',
   priority: 100,
   maxTokens: 4000,
   defaultTriggers: {
-    perMessage: { channels: ['historian'] }
+    perMessage: { channels: ['chat'] }
   },
   agentConfig: {
     enablePersonality: config.enableAgentPersonality,
@@ -65,7 +65,7 @@ export default verify({
   defaultLLMPlatform,
   defaultLLMModel,
   ragCollectionName: undefined,
-  defaultConversationHistorySettings: { count: 100, channels: ['historian'] },
+  defaultConversationHistorySettings: { count: 100, channels: ['chat'] },
 
   async evaluate(userMessage) {
     const words = userMessage?.body?.trim().split(/\s+/) ?? []
@@ -133,7 +133,7 @@ export default verify({
       30
     )
 
-    const responseChannels = this.conversation.channels.filter((channel) => channel.name === 'historian')
+    const responseChannels = this.conversation.channels.filter((channel) => channel.name === 'chat')
     const parentMessageId = userMessage.parentMessage
 
     return [
@@ -152,7 +152,7 @@ export default verify({
     const conv = await Conversation.findById(evt.conversationId).select('name summary').lean()
     if (!conv?.summary) return []
     const name = conv.name ?? 'An event'
-    const responseChannels = this.conversation.channels.filter((c) => c.name === 'historian')
+    const responseChannels = this.conversation.channels.filter((c) => c.name === 'chat')
     return [
       {
         visible: true,
