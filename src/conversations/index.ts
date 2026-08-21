@@ -2,7 +2,7 @@ import eventAssistant from './eventAssistant.js'
 import backChannel from './backChannel.js'
 import type { ConversationType } from '../types/index.types.js'
 import chatbot from './chatbot.js'
-import eventHistorian from './eventHistorian.js'
+import slackCommunityAssistant from './slackCommunityAssistant.js'
 import eventSetup from './eventSetup.js'
 import vibesAnalyst from './vibesAnalyst.js'
 import numberCruncher from './numberCruncher.js'
@@ -11,7 +11,7 @@ import scorekeeper from './scorekeeper.js'
 // Internal conversation types are usable by the service but not exposed via the config API
 const internal: Record<string, ConversationType> = {
   chatbot,
-  eventHistorian,
+  slackCommunityAssistant,
   eventSetup,
   vibesAnalyst,
   numberCruncher,
