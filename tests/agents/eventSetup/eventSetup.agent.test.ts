@@ -64,8 +64,7 @@ describe('eventSetup agent tests', () => {
   describe('evaluate()', () => {
     /* evaluate() always returns CONTRIBUTE for any message on the setup
        channel. The "should the bot actually reply?" decision is deferred to
-       checkEventSetupIntent inside respond(), which uses an LLM. This
-       matches the pattern used by chatbot and eventHistorian: evaluate marks
+       checkEventSetupIntent inside respond(), which uses an LLM. Evaluate marks
        every message as a contribution so the agent is considered for
        respond(), then respond() decides whether to post. */
     it('returns CONTRIBUTE for any message on the setup channel', async () => {
