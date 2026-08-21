@@ -363,10 +363,10 @@ resource "google_logging_metric" "scheduled_snapshot_activity" {
 
 resource "google_monitoring_alert_policy" "scheduled_snapshot_silence" {
   project      = var.project_id
-  display_name = "llm-engine: no scheduled snapshot activity in 26h"
+  display_name = "llm-engine: no scheduled snapshot activity in 23.5h"
   combiner     = "OR"
   conditions {
-    display_name = "Zero ScheduledSnapshots log entries in 26h"
+    display_name = "Zero ScheduledSnapshots log entries in 23.5h"
     condition_absent {
       # No resource.type clause: a log-based counter metric with no label
       # extractors materializes under Cloud Monitoring's own default
@@ -376,8 +376,24 @@ resource "google_monitoring_alert_policy" "scheduled_snapshot_silence" {
       # (falsely) true from the moment it's created. Verify the actual
       # resource type once real data exists and tighten this filter if
       # useful.
+      #
+      # duration is capped at 23h30m by the API itself (confirmed live:
+      # 93600s/26h 400'd with "Durations longer than 23h30m are not
+      # supported") — a hard Cloud Monitoring limit, not something this
+      # module can raise. That's under the ~24h gap between two healthy
+      # runs (daily cadence plus GCP's own up-to-1h scheduling slack on the
+      # snapshot side), so a brief false-positive firing once a day, right
+      # around the expected run time, is expected and not a bug — it
+      # should self-clear within roughly an hour once that day's run lands.
+      # A wider aggregation bucket (e.g. a 24h-aligned window) was
+      # considered instead of a rolling duration, but has the same problem
+      # in a worse shape: the *current*, still-accumulating bucket reads
+      # zero for several hours every day until that day's run happens,
+      # which is a longer false-positive window, not a shorter one. Treat
+      # a single brief firing near the expected run time as likely benign;
+      # a sustained one, or one at an unexpected time, is the real signal.
       filter   = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.scheduled_snapshot_activity.name}\""
-      duration = "93600s" # 26h: one day's cadence plus GCP's up-to-1h scheduling slack
+      duration = "84600s" # 23h30m — the API's own maximum, see comment above
       aggregations {
         alignment_period   = "3600s"
         per_series_aligner = "ALIGN_COUNT"
@@ -429,14 +445,17 @@ resource "google_logging_metric" "mongo_backup_ok" {
 resource "google_monitoring_alert_policy" "mongo_backup_silence" {
   count        = var.mongo_instance_name == null ? 0 : 1
   project      = var.project_id
-  display_name = "llm-engine: no successful mongodump backup in 26h"
+  display_name = "llm-engine: no successful mongodump backup in 23.5h"
   combiner     = "OR"
   conditions {
-    display_name = "Zero MONGO_BACKUP_OK log entries in 26h"
+    display_name = "Zero MONGO_BACKUP_OK log entries in 23.5h"
     condition_absent {
-      # Same "no resource.type clause" reasoning as scheduled_snapshot_silence.
+      # Same "no resource.type clause" and duration-cap reasoning as
+      # scheduled_snapshot_silence above — 84600s (23h30m) is the API's own
+      # maximum, confirmed live; expect a brief, self-clearing false
+      # positive once a day near the backup's usual run time.
       filter   = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.mongo_backup_ok[0].name}\""
-      duration = "93600s"
+      duration = "84600s"
       aggregations {
         alignment_period   = "3600s"
         per_series_aligner = "ALIGN_COUNT"
