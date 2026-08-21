@@ -60,6 +60,22 @@ variable "chroma_instance_name" {
   type = string
 }
 
+variable "mongo_instance_name" {
+  description = <<-EOT
+    gce_instance name for mongo-vm's CPU/memory/disk dashboard widgets and
+    alerts. Null when running on Atlas instead of mongo-vm — there's no VM
+    to monitor this way (Atlas has its own native alerting; see the
+    open-item comment at the top of main.tf).
+  EOT
+  type    = string
+  default = null
+}
+
+variable "domain" {
+  description = "Public domain the uptime check hits — same value passed to webserver-mig's domain variable."
+  type        = string
+}
+
 variable "region" {
   type    = string
   default = "us-central1"
