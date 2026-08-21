@@ -25,15 +25,20 @@ import { Counter, Trend } from 'k6/metrics'
 // event shape, and the per-event JWT check in the `socket.use` middleware).
 // ============================================================================
 
-const NUM_CONVERSATIONS = 20
+// Overridable via -e so smaller-scale runs (e.g. the 150/300-connection
+// tiers in docs/autoscaling-completion-checklist.md) don't require editing
+// this file - defaults match the original 1,000-connection stampede.
+const NUM_CONVERSATIONS = __ENV.NUM_CONVERSATIONS ? parseInt(__ENV.NUM_CONVERSATIONS, 10) : 20
 // 50 participants/conversation matches eventAssistantLoad.js's "realistic
 // max" tier (1000 total) - but ramped there over 5+ minutes. Here they all
 // arrive in one burst, which is the actual scenario under test.
-const PARTICIPANTS_PER_CONVERSATION = 50
+const PARTICIPANTS_PER_CONVERSATION = __ENV.PARTICIPANTS_PER_CONVERSATION
+  ? parseInt(__ENV.PARTICIPANTS_PER_CONVERSATION, 10)
+  : 50
 
 // Roughly the transcript talk's length (see TRANSCRIPT_CHUNKS.length * 6s in
 // transcriptLoad.js) plus a buffer so sockets stay open for the full run.
-const SESSION_DURATION_SEC = 16 * 60
+const SESSION_DURATION_SEC = __ENV.SESSION_DURATION_SEC ? parseInt(__ENV.SESSION_DURATION_SEC, 10) : 16 * 60
 
 const wsConnectDuration = new Trend('ws_connect_duration', true)
 const wsJoinDuration = new Trend('ws_join_duration', true)
