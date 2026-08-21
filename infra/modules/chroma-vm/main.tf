@@ -18,6 +18,35 @@ resource "google_compute_disk" "chroma_data" {
   labels  = merge(var.labels, { component = "chroma" })
 }
 
+# Dedicated service account for the Ops Agent (CPU/memory/disk metrics —
+# see monitoring module). Without this, the instance runs with NO service
+# account at all — Terraform's google_compute_instance, unlike `gcloud
+# compute instances create`, does not implicitly attach the project's
+# default Compute Engine service account when the service_account block is
+# omitted (confirmed live: `gcloud compute instances describe ...
+# --format='yaml(serviceAccounts)'` returns null) — which is why the
+# existing chroma_memory_pressure alert (monitoring module) has never
+# actually been able to fire: the Ops Agent was never installed, and even
+# installed, had nothing to authenticate with. Mirrors webserver-mig's own
+# dedicated-SA pattern.
+resource "google_service_account" "chroma_vm" {
+  project      = var.project_id
+  account_id   = "llm-engine-chroma-vm"
+  display_name = "llm_engine chroma-vm (Ops Agent)"
+}
+
+resource "google_project_iam_member" "chroma_vm_log_writer" {
+  project = var.project_id
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${google_service_account.chroma_vm.email}"
+}
+
+resource "google_project_iam_member" "chroma_vm_metric_writer" {
+  project = var.project_id
+  role    = "roles/monitoring.metricWriter"
+  member  = "serviceAccount:${google_service_account.chroma_vm.email}"
+}
+
 resource "google_compute_instance" "chroma" {
   project      = var.project_id
   name         = "llm-engine-chroma-vm"
@@ -43,6 +72,11 @@ resource "google_compute_instance" "chroma" {
     subnetwork = var.subnet_self_link
     # No access_config block: intentionally no external IP. Reachable only
     # from inside the VPC, and administratively only via IAP SSH tunneling.
+  }
+
+  service_account {
+    email  = google_service_account.chroma_vm.email
+    scopes = ["https://www.googleapis.com/auth/cloud-platform"]
   }
 
   metadata = {

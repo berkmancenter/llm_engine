@@ -37,6 +37,34 @@ resource "random_password" "root_user" {
   special = false
 }
 
+# Dedicated service account for the Ops Agent (CPU/memory/disk metrics —
+# see monitoring module) and the backup cron's status log lines. Without
+# this, the instance runs with NO service account at all — Terraform's
+# google_compute_instance, unlike `gcloud compute instances create`, does
+# not implicitly attach the project's default Compute Engine service
+# account when the service_account block is omitted (confirmed live via
+# `gcloud compute instances describe ... --format='yaml(serviceAccounts)'`
+# returning null), so neither the Ops Agent nor a `gcloud logging write`
+# could ever have authenticated. Mirrors webserver-mig's own dedicated-SA
+# pattern.
+resource "google_service_account" "mongo_vm" {
+  project      = var.project_id
+  account_id   = "llm-engine-mongo-vm"
+  display_name = "llm_engine mongo-vm (Ops Agent + backup logging)"
+}
+
+resource "google_project_iam_member" "mongo_vm_log_writer" {
+  project = var.project_id
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${google_service_account.mongo_vm.email}"
+}
+
+resource "google_project_iam_member" "mongo_vm_metric_writer" {
+  project = var.project_id
+  role    = "roles/monitoring.metricWriter"
+  member  = "serviceAccount:${google_service_account.mongo_vm.email}"
+}
+
 resource "google_compute_instance" "mongo" {
   project      = var.project_id
   name         = "llm-engine-mongo-vm"
@@ -64,6 +92,11 @@ resource "google_compute_instance" "mongo" {
     # chroma-vm. Reachable only from inside the VPC — the network module's
     # firewall further restricts it to web-server-tagged instances — and
     # administratively only via IAP SSH tunneling.
+  }
+
+  service_account {
+    email  = google_service_account.mongo_vm.email
+    scopes = ["https://www.googleapis.com/auth/cloud-platform"]
   }
 
   metadata = {

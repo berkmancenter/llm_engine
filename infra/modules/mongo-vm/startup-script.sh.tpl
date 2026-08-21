@@ -39,6 +39,18 @@ if ! command -v crontab >/dev/null 2>&1; then
   systemctl enable --now cron
 fi
 
+# Ops Agent: ships this VM's CPU/memory/disk metrics (monitoring module's
+# mongo-vm dashboard/alerts) and forwards journald/syslog — including the
+# backup cron's OK/FAIL markers below — to Cloud Logging. Requires the
+# service_account block above (main.tf); without it, the agent runs but
+# every write 403s silently. Idempotent: skipped once already installed, so
+# a re-run of this script on a later boot doesn't reinstall it.
+if ! dpkg -s google-cloud-ops-agent >/dev/null 2>&1; then
+  curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh
+  bash add-google-cloud-ops-agent-repo.sh --also-install
+  rm -f add-google-cloud-ops-agent-repo.sh
+fi
+
 # Runs once, only against an empty data directory: the mongo image's
 # entrypoint skips everything in docker-entrypoint-initdb.d/ (and skips
 # creating MONGO_INITDB_ROOT_USERNAME/PASSWORD) on every boot after the
@@ -86,6 +98,17 @@ set -euo pipefail
 TS="$(date -u +%Y%m%d-%H%M%S)"
 BACKUP_DIR="/mnt/mongo-data/backups"
 
+# MONGO_BACKUP_OK / MONGO_BACKUP_FAIL markers, shipped to Cloud Logging by
+# the Ops Agent (see the install block above) via journald/syslog — the
+# monitoring module alerts on FAIL appearing, and separately on neither
+# marker appearing at all in a day (the cron itself not running, or every
+# command before this line failing). Written as a literal marker in the
+# message text, not just the `logger -t` tag, so the Cloud Logging filter
+# doesn't depend on which field the Ops Agent's syslog receiver puts the tag
+# in. `set -e` means the ERR trap fires (and the shell then exits) on any
+# failing command below, including mongodump itself.
+trap 'logger -t llm-engine-mongo-backup "MONGO_BACKUP_FAIL ts=$TS"' ERR
+
 docker exec mongo mongodump \
   --host 127.0.0.1 --port 27017 \
   --username '${app_db_username}' --password '${app_db_password}' \
@@ -97,6 +120,8 @@ docker exec mongo mongodump \
 # the *local* copy only — the scheduled disk snapshot (main.tf) is what
 # gives these dumps their own independent retention window on GCP's side.
 find "$BACKUP_DIR" -maxdepth 1 -name 'mongodump-*.gz' -mtime +${backup_retention_days} -delete
+
+logger -t llm-engine-mongo-backup "MONGO_BACKUP_OK ts=$TS"
 BACKUP_EOF
 chmod +x /opt/mongo-backup.sh
 

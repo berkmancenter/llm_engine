@@ -23,6 +23,17 @@ if ! command -v docker >/dev/null 2>&1; then
   systemctl enable --now docker
 fi
 
+# Ops Agent: ships this VM's CPU/memory/disk metrics to Cloud Monitoring —
+# what the monitoring module's chroma_memory_pressure alert and disk-space
+# alert both actually need to fire. Requires the service_account block
+# above (main.tf); without it, the agent runs but every write 403s
+# silently. Idempotent: skipped once already installed.
+if ! dpkg -s google-cloud-ops-agent >/dev/null 2>&1; then
+  curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh
+  bash add-google-cloud-ops-agent-repo.sh --also-install
+  rm -f add-google-cloud-ops-agent-repo.sh
+fi
+
 docker rm -f chroma 2>/dev/null || true
 docker run -d \
   --name chroma \
