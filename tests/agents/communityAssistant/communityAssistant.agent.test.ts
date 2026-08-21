@@ -16,11 +16,11 @@ import { newPublicTopic, insertTopics } from '../../fixtures/topic.fixture.js'
 
 jest.setTimeout(300000)
 
-const testConfig = setupAgentTest('eventHistorian')
+const testConfig = setupAgentTest('communityAssistant')
 
 const BOT_NAME = 'Berkie'
 
-describe('eventHistorian agent tests', () => {
+describe('communityAssistant agent tests', () => {
   let agent
   let conversation
   let topic
@@ -28,16 +28,16 @@ describe('eventHistorian agent tests', () => {
   let user2
   let user3
 
-  async function createEventHistorianConversation() {
-    const conv = await createConversation({ name: 'Event Historian Test Conversation' }, user1, topic)
+  async function createCommunityAssistantConversation() {
+    const conv = await createConversation({ name: 'Community Assistant Test Conversation' }, user1, topic)
     const testAgent = new Agent({
-      agentType: 'eventHistorian',
+      agentType: 'communityAssistant',
       conversation: conv,
       llmPlatform: testConfig.llmPlatform,
       llmModel: testConfig.llmModel,
       agentConfig: { botName: BOT_NAME }
     })
-    const channels = await Channel.create([{ name: 'eventHistorian' }])
+    const channels = await Channel.create([{ name: 'communityAssistant' }])
     conv.channels.push(...channels)
     await testAgent.save()
     conv.agents.push(testAgent)
@@ -52,7 +52,7 @@ describe('eventHistorian agent tests', () => {
     user1 = await createUser('Alice')
     user2 = await createUser('Bob')
     user3 = await createUser('Carol')
-    const result = await createEventHistorianConversation()
+    const result = await createCommunityAssistantConversation()
     conversation = result.conv
     agent = result.testAgent
   })
@@ -67,11 +67,11 @@ describe('eventHistorian agent tests', () => {
 
   async function ask(body, user = user1) {
     console.log(`Q (${user.pseudonyms[0].pseudonym}): ${body}`)
-    return createMessage(body, user, conversation, ['historian'])
+    return createMessage(body, user, conversation, ['chat'])
   }
 
   async function respond(history: ConversationHistory, userMessage) {
-    const responses = await defaultAgentTypes.eventHistorian.respond.call(agent, history, userMessage)
+    const responses = await defaultAgentTypes.communityAssistant.respond.call(agent, history, userMessage)
     console.log(`A: ${responses[0]?.message}`)
     return responses
   }
@@ -95,7 +95,7 @@ describe('eventHistorian agent tests', () => {
 
   it('responds to a misspelled @mention of the bot name and normalizes spelling in evaluate', async () => {
     const msg = await ask('@Berkei what is the capital of France?')
-    const evaluation = await defaultAgentTypes.eventHistorian.evaluate.call(agent, msg)
+    const evaluation = await defaultAgentTypes.communityAssistant.evaluate.call(agent, msg)
     expect(evaluation.userMessage.body).toBe(`@${BOT_NAME} what is the capital of France?`)
 
     const responses = await respond(buildHistory([]), evaluation.userMessage)
@@ -116,33 +116,21 @@ describe('eventHistorian agent tests', () => {
     // messages that previously triggered placeholder injection
     const t = Date.now()
     const history = buildHistory([
-      await createMessage(
-        'Anyone know a good way to learn TypeScript?',
-        user1,
-        conversation,
-        ['historian'],
-        new Date(t - 5000)
-      ),
-      await createMessage(
-        'I found the official docs really helpful',
-        user2,
-        conversation,
-        ['historian'],
-        new Date(t - 4000)
-      ),
+      await createMessage('Anyone know a good way to learn TypeScript?', user1, conversation, ['chat'], new Date(t - 5000)),
+      await createMessage('I found the official docs really helpful', user2, conversation, ['chat'], new Date(t - 4000)),
       await createMessage(
         'Same, plus the TS playground is great for experimenting',
         user3,
         conversation,
-        ['historian'],
+        ['chat'],
         new Date(t - 3000)
       ),
-      await createMessage('What about books?', user2, conversation, ['historian'], new Date(t - 2000)),
+      await createMessage('What about books?', user2, conversation, ['chat'], new Date(t - 2000)),
       await createMessage(
         'Programming TypeScript by Boris Cherny is solid',
         user1,
         conversation,
-        ['historian'],
+        ['chat'],
         new Date(t - 1000)
       )
     ])
@@ -166,7 +154,7 @@ describe('eventHistorian agent tests', () => {
       pseudonym: BOT_NAME,
       pseudonymId: new mongoose.Types.ObjectId(),
       owner: agent._id,
-      channels: ['historian'],
+      channels: ['chat'],
       fromAgent: true,
       visible: true,
       createdAt: new Date(t - 2000),
@@ -177,9 +165,9 @@ describe('eventHistorian agent tests', () => {
     }
 
     const history = buildHistory([
-      await createMessage(`@${BOT_NAME} where is the Eiffel Tower?`, user1, conversation, ['historian'], new Date(t - 3000)),
+      await createMessage(`@${BOT_NAME} where is the Eiffel Tower?`, user1, conversation, ['chat'], new Date(t - 3000)),
       agentPriorResponse,
-      await createMessage('Interesting!', user2, conversation, ['historian'], new Date(t - 1000))
+      await createMessage('Interesting!', user2, conversation, ['chat'], new Date(t - 1000))
     ])
 
     const msg = await ask(`@${BOT_NAME} how tall is it?`)
@@ -193,7 +181,7 @@ describe('eventHistorian agent tests', () => {
     let eventTopic
     let partTimeConv
     let aliensConv
-    let eventHistorian
+    let communityAssistant
     let eventConversation
 
     beforeEach(async () => {
@@ -240,33 +228,33 @@ A single mom of two children with primary custody, she is passionate about findi
       await loadPartTimeWorkTranscript(partTimeConv, true)
       await loadAliensTranscript(aliensConv, true)
 
-      // Create an eventHistorian agent configured to know about this event series
-      eventConversation = await createConversation({ name: 'Event Historian Test' }, user1, topic)
-      eventHistorian = new Agent({
-        agentType: 'eventHistorian',
+      // Create an communityAssistant agent configured to know about this event series
+      eventConversation = await createConversation({ name: 'Community Assistant Test' }, user1, topic)
+      communityAssistant = new Agent({
+        agentType: 'communityAssistant',
         conversation: eventConversation,
         llmPlatform: testConfig.llmPlatform,
         llmModel: testConfig.llmModel,
         agentConfig: { botName: BOT_NAME, topicIds: [eventTopic._id.toString()] }
       })
-      const channels = await Channel.create([{ name: 'historian' }])
+      const channels = await Channel.create([{ name: 'chat' }])
       eventConversation.channels.push(...channels)
-      await eventHistorian.save()
-      eventConversation.agents.push(eventHistorian)
+      await communityAssistant.save()
+      eventConversation.agents.push(communityAssistant)
       await eventConversation.save()
-      await eventHistorian.start()
+      await communityAssistant.start()
     })
 
-    async function askEventHistorian(body: string) {
+    async function askCommunityAssistant(body: string) {
       console.log(`Q: ${body}`)
-      const msg = await createMessage(body, user1, eventConversation, ['historian'])
-      const responses = await defaultAgentTypes.eventHistorian.respond.call(eventHistorian, buildHistory([]), msg)
+      const msg = await createMessage(body, user1, eventConversation, ['chat'])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(communityAssistant, buildHistory([]), msg)
       console.log(`A: ${responses[0]?.message}`)
       return responses
     }
 
     it('lists all events since January with one-sentence summaries', async () => {
-      const responses = await askEventHistorian(
+      const responses = await askCommunityAssistant(
         `@${BOT_NAME} give me a one sentence summary and name of all events since January 2026`
       )
 
@@ -278,7 +266,9 @@ A single mom of two children with primary custody, she is passionate about findi
     })
 
     it('identifies a speaker on extraterrestrials and UFOs', async () => {
-      const responses = await askEventHistorian(`@${BOT_NAME} who was the speaker we had that talked about UFOs and aliens?`)
+      const responses = await askCommunityAssistant(
+        `@${BOT_NAME} who was the speaker we had that talked about UFOs and aliens?`
+      )
 
       expect(responses).toHaveLength(1)
       expect(responses[0].message).toBeDefined()
@@ -286,7 +276,9 @@ A single mom of two children with primary custody, she is passionate about findi
     })
 
     it('identifies which events covered part-time work and flexible employment', async () => {
-      const responses = await askEventHistorian(`@${BOT_NAME} which events covered part-time work or flexible employment?`)
+      const responses = await askCommunityAssistant(
+        `@${BOT_NAME} which events covered part-time work or flexible employment?`
+      )
 
       expect(responses).toHaveLength(1)
       expect(responses[0].message).toBeDefined()
@@ -295,7 +287,7 @@ A single mom of two children with primary custody, she is passionate about findi
     })
 
     it('retrieves what a specific presenter said on a specific topic at a specific event', async () => {
-      const responses = await askEventHistorian(
+      const responses = await askCommunityAssistant(
         `@${BOT_NAME} what did Jessica say about working 40 hours per week at the part-time work event?`
       )
 
@@ -314,7 +306,7 @@ A single mom of two children with primary custody, she is passionate about findi
     })
 
     it('returns empty array for non-conversationStopped event types', async () => {
-      const responses = await defaultAgentTypes.eventHistorian.onConversationEvent.call(agent, {
+      const responses = await defaultAgentTypes.communityAssistant.onConversationEvent.call(agent, {
         type: 'unknownEvent',
         conversationId: stoppedConversation._id.toString()
       })
@@ -323,7 +315,7 @@ A single mom of two children with primary custody, she is passionate about findi
     })
 
     it('returns empty array when conversation has no summary', async () => {
-      const responses = await defaultAgentTypes.eventHistorian.onConversationEvent.call(agent, {
+      const responses = await defaultAgentTypes.communityAssistant.onConversationEvent.call(agent, {
         type: 'conversationStopped',
         conversationId: stoppedConversation._id.toString()
       })
@@ -334,7 +326,7 @@ A single mom of two children with primary custody, she is passionate about findi
     it('returns a summary message when conversation has a summary', async () => {
       await stoppedConversation.updateOne({ summary: 'Key takeaways from the event.' })
 
-      const responses = await defaultAgentTypes.eventHistorian.onConversationEvent.call(agent, {
+      const responses = await defaultAgentTypes.communityAssistant.onConversationEvent.call(agent, {
         type: 'conversationStopped',
         conversationId: stoppedConversation._id.toString()
       })
@@ -344,19 +336,19 @@ A single mom of two children with primary custody, she is passionate about findi
       expect(responses[0].message).toContain('Key takeaways from the event.')
     })
 
-    it('posts to the historian channel when one exists', async () => {
-      const historianChannel = await Channel.create({ name: 'historian' })
-      conversation.channels.push(historianChannel)
+    it('posts to the chat channel when one exists', async () => {
+      const chatChannel = await Channel.create({ name: 'chat' })
+      conversation.channels.push(chatChannel)
       await conversation.save()
       await stoppedConversation.updateOne({ summary: 'A summary.' })
 
-      const responses = await defaultAgentTypes.eventHistorian.onConversationEvent.call(agent, {
+      const responses = await defaultAgentTypes.communityAssistant.onConversationEvent.call(agent, {
         type: 'conversationStopped',
         conversationId: stoppedConversation._id.toString()
       })
 
       expect(responses[0].channels).toHaveLength(1)
-      expect(responses[0].channels[0].name).toBe('historian')
+      expect(responses[0].channels[0].name).toBe('chat')
     })
   })
 
@@ -364,7 +356,7 @@ A single mom of two children with primary custody, she is passionate about findi
     let eventTopic
     let partTimeConv
     let aliensConv
-    let eventHistorianNoTopicIds
+    let communityAssistantNoTopicIds
     let eventConversation
 
     beforeEach(async () => {
@@ -397,26 +389,30 @@ A single mom of two children with primary custody, she is passionate about findi
       await loadAliensTranscript(aliensConv, true)
 
       // Agent created with NO topicIds — should fall back to all public topics
-      eventConversation = await createConversation({ name: 'Event Historian No TopicIds Test' }, user1, topic)
-      eventHistorianNoTopicIds = new Agent({
-        agentType: 'eventHistorian',
+      eventConversation = await createConversation({ name: 'Community Assistant No TopicIds Test' }, user1, topic)
+      communityAssistantNoTopicIds = new Agent({
+        agentType: 'communityAssistant',
         conversation: eventConversation,
         llmPlatform: testConfig.llmPlatform,
         llmModel: testConfig.llmModel,
         agentConfig: { botName: BOT_NAME }
       })
-      const channels = await Channel.create([{ name: 'historian' }])
+      const channels = await Channel.create([{ name: 'chat' }])
       eventConversation.channels.push(...channels)
-      await eventHistorianNoTopicIds.save()
-      eventConversation.agents.push(eventHistorianNoTopicIds)
+      await communityAssistantNoTopicIds.save()
+      eventConversation.agents.push(communityAssistantNoTopicIds)
       await eventConversation.save()
-      await eventHistorianNoTopicIds.start()
+      await communityAssistantNoTopicIds.start()
     })
 
     async function askNoTopicIds(body: string) {
       console.log(`Q: ${body}`)
-      const msg = await createMessage(body, user1, eventConversation, ['historian'])
-      const responses = await defaultAgentTypes.eventHistorian.respond.call(eventHistorianNoTopicIds, buildHistory([]), msg)
+      const msg = await createMessage(body, user1, eventConversation, ['chat'])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(
+        communityAssistantNoTopicIds,
+        buildHistory([]),
+        msg
+      )
       console.log(`A: ${responses[0]?.message}`)
       return responses
     }
