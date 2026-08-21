@@ -298,6 +298,44 @@ A single mom of two children with primary custody, she is passionate about findi
     })
   })
 
+  describe('tool configuration', () => {
+    async function createAgentWithTools(tools: string[]) {
+      const conv = await createConversation({ name: `Tool Config Test (${tools.join(',')})` }, user1, topic)
+      const testAgent = new Agent({
+        agentType: 'communityAssistant',
+        conversation: conv,
+        llmPlatform: testConfig.llmPlatform,
+        llmModel: testConfig.llmModel,
+        agentConfig: { botName: BOT_NAME, tools }
+      })
+      const channels = await Channel.create([{ name: 'chat' }])
+      conv.channels.push(...channels)
+      await testAgent.save()
+      conv.agents.push(testAgent)
+      await conv.save()
+      await testAgent.start()
+      return { conv, testAgent }
+    }
+
+    it('answers a factual question using web_search when configured with only web_search', async () => {
+      const { conv, testAgent } = await createAgentWithTools(['web_search'])
+      const msg = await createMessage(`@${BOT_NAME} what is the capital of Japan?`, user1, conv, ['chat'])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(testAgent, buildHistory([]), msg)
+
+      expect(responses).toHaveLength(1)
+      expect(responses[0].message.toLowerCase()).toContain('tokyo')
+    })
+
+    it('responds without error when configured with no tools', async () => {
+      const { conv, testAgent } = await createAgentWithTools([])
+      const msg = await createMessage(`@${BOT_NAME} what is two plus two?`, user1, conv, ['chat'])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(testAgent, buildHistory([]), msg)
+
+      expect(responses).toHaveLength(1)
+      expect(responses[0].message).toBeDefined()
+    })
+  })
+
   describe('onConversationEvent', () => {
     let stoppedConversation
 
