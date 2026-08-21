@@ -409,7 +409,7 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
   }
 
   const toolNames = series ? [...configuredToolNames, 'event_history'] : configuredToolNames
-  const tools = toolNames.length > 0 ? getTools(toolNames, toolContext) : []
+  const tools = toolNames.length > 0 ? await getTools(toolNames, toolContext) : []
   const hasWebSearch = toolNames.includes('web_search')
 
   const channelType = userMessage?.channels?.includes('chat') ? 'groupChat' : 'dm'
@@ -554,7 +554,7 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
   if (tools.length > 0) {
     logger.debug(`Responding with tools enabled: [${toolNames.join(', ')}], systemTemplate: ${templateType}`)
     const llm = await this.getLLM()
-    const toolSystemPrompt = buildEventAssistantToolSystemPrompt(systemTemplate, topic, contextString, {
+    const toolSystemPrompt = await buildEventAssistantToolSystemPrompt(systemTemplate, topic, contextString, {
       hasWebSearch,
       series: series ? { name: series.name } : undefined
     })
