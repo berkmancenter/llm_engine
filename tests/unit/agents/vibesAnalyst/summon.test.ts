@@ -41,10 +41,10 @@ const mockResolveDisambiguationContext = jest.fn<(...args: any[]) => Promise<any
 // chain directly; mocked here so those tests can drive both the happy path and its fallback.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockGetChatPromptResponse = jest.fn<(...args: any[]) => Promise<any>>()
-// hasHistorianAgent and computeConversationMetrics back the new "question" intent branch
+// hasCommunityAssistantAgent and computeConversationMetrics back the new "question" intent branch
 // (handleQuestionSummon); mocked here the same way the rest of the pipeline is.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockHasHistorianAgent = jest.fn<(...args: any[]) => Promise<any>>()
+const mockHasCommunityAssistantAgent = jest.fn<(...args: any[]) => Promise<any>>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockComputeConversationMetrics = jest.fn<(...args: any[]) => Promise<any>>()
 // The on-demand agent loop (its tools and its own fact-check) is exercised in its own file;
@@ -69,7 +69,7 @@ jest.unstable_mockModule('../src/agents/vibesAnalyst/eventResolution.js', () => 
 }))
 jest.unstable_mockModule('../src/agents/vibesAnalyst/buildSummary.js', () => ({
   default: mockBuildSummary,
-  hasHistorianAgent: mockHasHistorianAgent
+  hasCommunityAssistantAgent: mockHasCommunityAssistantAgent
 }))
 jest.unstable_mockModule('../src/services/conversationAnalytics.service.js', () => ({
   default: { computeConversationMetrics: mockComputeConversationMetrics }
@@ -164,8 +164,8 @@ describe('handleSummon', () => {
     mockResolveDisambiguationContext.mockResolvedValue(null)
     mockGetChatPromptResponse.mockReset()
     mockGetChatPromptResponse.mockResolvedValue({ text: 'An in-voice smalltalk reply.' })
-    mockHasHistorianAgent.mockReset()
-    mockHasHistorianAgent.mockResolvedValue(false)
+    mockHasCommunityAssistantAgent.mockReset()
+    mockHasCommunityAssistantAgent.mockResolvedValue(false)
     mockComputeConversationMetrics.mockReset()
     mockComputeConversationMetrics.mockResolvedValue({})
     mockAnswerWithOnDemandMetrics.mockReset()
@@ -680,7 +680,7 @@ describe('handleSummon', () => {
       expect(mockBuildSummary).not.toHaveBeenCalled()
     })
 
-    it('defers an interpretive question to the Event Historian when one is installed, without computing metrics', async () => {
+    it('defers an interpretive question to the Community Assistant when one is installed, without computing metrics', async () => {
       mockExtract.mockResolvedValue({
         intent: 'question',
         scope: 'interpretive',
@@ -691,16 +691,16 @@ describe('handleSummon', () => {
       })
       mockResolve.mockReturnValue({ status: 'resolved', event: { id: 'c1', name: 'Spring Town Hall' } })
       mockResolvedConversation(false)
-      mockHasHistorianAgent.mockResolvedValue(true)
+      mockHasCommunityAssistantAgent.mockResolvedValue(true)
 
       const responses = await handleSummon(buildContext(), questionMessage, fakeLlm, fastLlm)
 
       expect(mockComputeConversationMetrics).not.toHaveBeenCalled()
       expect(mockAnswerFollowUp).not.toHaveBeenCalled()
-      expect(responses[0].message).toMatch(/Event Historian/)
+      expect(responses[0].message).toMatch(/Community Assistant/)
     })
 
-    it('gives an honest refusal for an interpretive question when no Event Historian is installed', async () => {
+    it('gives an honest refusal for an interpretive question when no Community Assistant is installed', async () => {
       mockExtract.mockResolvedValue({
         intent: 'question',
         scope: 'interpretive',
@@ -711,15 +711,15 @@ describe('handleSummon', () => {
       })
       mockResolve.mockReturnValue({ status: 'resolved', event: { id: 'c1', name: 'Spring Town Hall' } })
       mockResolvedConversation(false)
-      mockHasHistorianAgent.mockResolvedValue(false)
+      mockHasCommunityAssistantAgent.mockResolvedValue(false)
 
       const responses = await handleSummon(buildContext(), questionMessage, fakeLlm, fastLlm)
 
-      expect(responses[0].message).not.toMatch(/Event Historian can help/)
+      expect(responses[0].message).not.toMatch(/Community Assistant can help/)
       expect(responses[0].message).toMatch(/add one here, or ask in a channel/)
     })
 
-    it('answers the quantitative half of a mixed question and points the rest to the historian', async () => {
+    it('answers the quantitative half of a mixed question and points the rest to the community assistant', async () => {
       mockExtract.mockResolvedValue({
         intent: 'question',
         scope: 'mixed',
@@ -730,17 +730,17 @@ describe('handleSummon', () => {
       })
       mockResolve.mockReturnValue({ status: 'resolved', event: { id: 'c1', name: 'Spring Town Hall' } })
       mockResolvedConversation(false)
-      mockHasHistorianAgent.mockResolvedValue(true)
+      mockHasCommunityAssistantAgent.mockResolvedValue(true)
       mockAnswerFollowUp.mockResolvedValue({ answerable: true, text: '40 people posted.' })
 
       const responses = await handleSummon(buildContext(), questionMessage, fakeLlm, fastLlm)
 
       expect(responses[0].message).toBe(
-        '40 people posted. For what was actually said, the Event Historian can help with the rest.'
+        '40 people posted. For what was actually said, the Community Assistant can help with the rest.'
       )
     })
 
-    it('answers the quantitative half of a mixed question and suggests adding a historian when none is installed', async () => {
+    it('answers the quantitative half of a mixed question and suggests adding a community assistant when none is installed', async () => {
       mockExtract.mockResolvedValue({
         intent: 'question',
         scope: 'mixed',
@@ -751,13 +751,13 @@ describe('handleSummon', () => {
       })
       mockResolve.mockReturnValue({ status: 'resolved', event: { id: 'c1', name: 'Spring Town Hall' } })
       mockResolvedConversation(false)
-      mockHasHistorianAgent.mockResolvedValue(false)
+      mockHasCommunityAssistantAgent.mockResolvedValue(false)
       mockAnswerFollowUp.mockResolvedValue({ answerable: true, text: '40 people posted.' })
 
       const responses = await handleSummon(buildContext(), questionMessage, fakeLlm, fastLlm)
 
       expect(responses[0].message).toBe(
-        "40 people posted. For what was actually said, that's a question for the Event Historian: there's none in this channel, so add one here or ask in a channel that already has one."
+        "40 people posted. For what was actually said, that's a question for the Community Assistant: there's none in this channel, so add one here or ask in a channel that already has one."
       )
     })
 
@@ -901,16 +901,16 @@ describe('handleSummon', () => {
         expect(responses[0].message).toBe('40 people posted.')
       })
 
-      it('points the interpretive half of a mixed question to the historian after computing the rest', async () => {
+      it('points the interpretive half of a mixed question to the community assistant after computing the rest', async () => {
         mockOpenEndedQuestion('mixed')
-        mockHasHistorianAgent.mockResolvedValue(true)
+        mockHasCommunityAssistantAgent.mockResolvedValue(true)
         mockAnswerFollowUp.mockResolvedValue({ answerable: false, text: null })
         mockAnswerWithOnDemandMetrics.mockResolvedValue('7 people posted more than three times.')
 
         const responses = await handleSummon(buildContext(), openEndedQuestion, fakeLlm, fastLlm)
 
         expect(responses[0].message).toBe(
-          '7 people posted more than three times. For what was actually said, the Event Historian can help with the rest.'
+          '7 people posted more than three times. For what was actually said, the Community Assistant can help with the rest.'
         )
       })
 

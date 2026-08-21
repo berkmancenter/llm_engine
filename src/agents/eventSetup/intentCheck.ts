@@ -5,7 +5,7 @@
  * The setup channel is single-purpose, so the bar is "is the user
  * expressing intent to plan, create, set up, or schedule an event?"
  * rather than the more general "is this directed at the bot?" check used
- * by chatbot and eventHistorian. We avoid posting the handoff link in
+ * by chatbot and communityAssistant. We avoid posting the handoff link in
  * response to casual chatter ("hey berkie, you alive?") or off-topic
  * conversation in the channel.
  *

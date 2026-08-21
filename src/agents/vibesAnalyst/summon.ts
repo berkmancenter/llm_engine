@@ -6,7 +6,7 @@ import { AgentResponse } from '../../types/index.types.js'
 import { buildSnapshotPayload } from '../../services/conversationMetricsSnapshot.service.js'
 import conversationAnalyticsService from '../../services/conversationAnalytics.service.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
-import buildVibesSummary, { hasHistorianAgent } from './buildSummary.js'
+import buildVibesSummary, { hasCommunityAssistantAgent } from './buildSummary.js'
 import buildTrendSummary from './trendSummary.js'
 import answerWithOnDemandMetrics from './onDemand.js'
 import { resolveFollowUpContext, answerFollowUp, resolveDisambiguationContext } from './followUp.js'
@@ -148,22 +148,23 @@ export function offTopicMessage(): string {
 }
 
 /* The reply to a question whose interpretive half (what was said, what people thought, how a
-   moment landed) VA cannot read from its own numbers. Points to the Event Historian only when
+   moment landed) VA cannot read from its own numbers. Points to the Community Assistant only when
    one is actually installed on this conversation, so VA never references a capability that is
    not there; otherwise it says plainly that it has no way to read that. */
-export function interpretiveDeferMessage(hasHistorian: boolean): string {
-  if (hasHistorian) {
-    return "That's about what was actually said, not something I can read from the numbers. The Event Historian can help with that."
+export function interpretiveDeferMessage(hasCommunityAssistant: boolean): string {
+  if (hasCommunityAssistant) {
+    return "That's about what was actually said, not something I can read from the numbers. The Community Assistant can help with that."
   }
-  return "That's a question for the Event Historian, out of scope for my data analysis. There's no Event Historian in this channel: add one here, or ask in a channel that already has one, for a more informed answer."
+  return "That's a question for the Community Assistant, out of scope for my data analysis. There's no Community Assistant in this channel: add one here, or ask in a channel that already has one, for a more informed answer."
 }
 
 /* Appends an honest note about the interpretive half of a mixed question after answering its
-   numeric half: a pointer to the Event Historian when one is installed, or the same actionable
+   numeric half: a pointer to the Community Assistant when one is installed, or the same actionable
    nudge to add or ask one elsewhere when there isn't one, rather than silently dropping that half. */
-export function withHistorianPointer(answerText: string, hasHistorian: boolean): string {
-  if (hasHistorian) return `${answerText} For what was actually said, the Event Historian can help with the rest.`
-  return `${answerText} For what was actually said, that's a question for the Event Historian: there's none in this channel, so add one here or ask in a channel that already has one.`
+export function withCommunityAssistantPointer(answerText: string, hasCommunityAssistant: boolean): string {
+  if (hasCommunityAssistant)
+    return `${answerText} For what was actually said, the Community Assistant can help with the rest.`
+  return `${answerText} For what was actually said, that's a question for the Community Assistant: there's none in this channel, so add one here or ask in a channel that already has one.`
 }
 
 /* The reply when a question was classified as answerable from the numbers, but the answerer
@@ -391,7 +392,7 @@ async function tryFollowUp(
 
 /**
  * Answers a specific question about one event, rather than a general recap. Resolves the event the
- * same way a recap does, then branches on scope. "interpretive" defers to the Event Historian when
+ * same way a recap does, then branches on scope. "interpretive" defers to the Community Assistant when
  * one is installed, rather than guessing at content the analyst never reads. "quantitative" and
  * "mixed" compute this event's metrics live and answer through the same answerFollowUp pass a
  * threaded follow-up uses, so a first question gets identical treatment to a reply under a card.
@@ -429,10 +430,10 @@ async function handleQuestionSummon(
   const denied = accessDeniedMessage(context, conversation)
   if (denied) return [reply(context, parent, denied)]
 
-  const hasHistorian = await hasHistorianAgent(conversation)
+  const hasCommunityAssistant = await hasCommunityAssistantAgent(conversation)
 
   if (reference.scope === 'interpretive') {
-    return [reply(context, parent, interpretiveDeferMessage(hasHistorian))]
+    return [reply(context, parent, interpretiveDeferMessage(hasCommunityAssistant))]
   }
 
   const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
@@ -448,7 +449,7 @@ async function handleQuestionSummon(
     return [reply(context, parent, unanswerableQuestionMessage(conversation.name))]
   }
 
-  const text = reference.scope === 'mixed' ? withHistorianPointer(answerText, hasHistorian) : answerText
+  const text = reference.scope === 'mixed' ? withCommunityAssistantPointer(answerText, hasCommunityAssistant) : answerText
   return [reply(context, parent, text)]
 }
 

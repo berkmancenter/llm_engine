@@ -66,7 +66,7 @@ export default verify({
      every message in that channel as a contribution and defer the actual
      "should the bot respond?" decision to checkEventSetupIntent inside
      respond(). This matches the pattern used by chatbot and
-     eventHistorian. */
+     communityAssistant. */
   async evaluate(userMessage) {
     return {
       userMessage,

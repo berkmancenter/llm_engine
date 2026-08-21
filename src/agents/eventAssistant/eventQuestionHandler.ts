@@ -392,7 +392,7 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
   const configuredToolNames: string[] = this.agentConfig?.tools || []
 
   /*
-   * Series history: when enabled, give the assistant the eventHistorian's event_history tools,
+   * Series history: when enabled, give the assistant the event_history tools,
    * scoped to this conversation's containing series (topic) and excluding the current event so the
    * search returns only *other* past events (the live transcript is already in normal context).
    */
