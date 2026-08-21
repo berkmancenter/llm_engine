@@ -40,3 +40,11 @@ CLAUDE.local.md
 .claudeignore
 # local cache and state
 .mcp.json
+
+# Terraform (infra/) — .terraform.lock.hcl IS committed on purpose, don't add it here
+**/.terraform/
+*.tfplan
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
