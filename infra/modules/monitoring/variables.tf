@@ -56,6 +56,19 @@ variable "mig_name" {
   type = string
 }
 
+variable "frontend_backend_service_name" {
+  description = <<-EOT
+    webserver-mig's frontend backend service name (its frontend_backend_service_name
+    output), used to split the 5xx alert into a frontend-proxy policy and a
+    backend policy that says which tier actually erred. Null when
+    var.frontend_origin is unset there - no frontend backend/NEG exists in that
+    case, so only the backend policy is created (and its filter has nothing to
+    exclude, since every https_lb_rule 5xx is a backend one).
+  EOT
+  type    = string
+  default = null
+}
+
 variable "chroma_instance_name" {
   type = string
 }

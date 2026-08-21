@@ -473,23 +473,99 @@ resource "google_monitoring_alert_policy" "mongo_backup_silence" {
 # route to returns 502s to clients, which count as response_code_class=500
 # here — confirmed empirically during the 2026-08-20 incident's recovery,
 # where 502s were observed while the MIG was being recreated.
-resource "google_monitoring_alert_policy" "backend_5xx_rate" {
+# The LB backend name (resource.label."backend_target_name") is the only thing in this
+# metric that says which tier actually erred - frontend (Vercel proxy, backend_5xx_rate_frontend)
+# vs. our own API/websocket backends (backend_5xx_rate_backend). The original single combined
+# policy summed all three backends into one number with no way to tell which one from the
+# notification alone - confirmed cryptic in practice on 2026-08-21 (an alert fired with no
+# indication it was 8 requests against the frontend proxy backend, not the app). Split so the
+# policy's own display_name says which tier, and each condition's documentation block explains
+# what to actually check for that tier.
+#
+# Also widened from the original 60s-aligned/5-count/5-minute-duration condition: a single
+# transient 60s spike of the load balancer's own health/retry traffic could satisfy that
+# threshold on one aligned point, and (per Cloud Monitoring's evaluation of sparse delta
+# metrics - this one only reports a point when a 5xx actually occurs) a lone spike with no
+# contradicting sample after it can hold "in violation" for the rest of the duration window
+# instead of requiring genuinely sustained badness. Aligning the bucket width to the duration
+# (300s buckets, 600s/two-bucket duration) means it takes 5xx activity sustained across two
+# consecutive 5-minute windows to fire, not one bad minute - confirmed against the 2026-08-21
+# incident's actual data (a single isolated 60s/8-request spike, nothing before or after it in
+# a 6-hour window), which would not have crossed this policy's threshold.
+resource "google_monitoring_alert_policy" "backend_5xx_rate_frontend" {
+  count        = var.frontend_backend_service_name == null ? 0 : 1
   project      = var.project_id
-  display_name = "llm-engine: elevated 5xx rate from the load balancer"
+  display_name = "llm-engine: elevated 5xx rate - FRONTEND (Vercel proxy)"
   combiner     = "OR"
   conditions {
-    display_name = "5xx responses > 5/min for 5m"
+    display_name = "Frontend proxy backend: 5xx sum > 10 per 5-min bucket, sustained 10 min"
     condition_threshold {
-      filter          = "resource.type=\"https_lb_rule\" AND metric.type=\"loadbalancing.googleapis.com/https/request_count\" AND metric.label.\"response_code_class\"=\"500\""
+      filter          = "resource.type=\"https_lb_rule\" AND resource.label.\"backend_target_name\"=\"${var.frontend_backend_service_name}\" AND metric.type=\"loadbalancing.googleapis.com/https/request_count\" AND metric.label.\"response_code_class\"=\"500\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 5
-      duration        = "300s"
+      threshold_value = 10
+      duration        = "600s"
       aggregations {
-        alignment_period     = "60s"
+        alignment_period     = "300s"
         per_series_aligner   = "ALIGN_SUM"
         cross_series_reducer = "REDUCE_SUM"
       }
     }
+  }
+  documentation {
+    content = <<-EOT
+      This is the **frontend proxy backend** (Vercel), not our app's API or websocket
+      backends. It fires on requests that fell through the URL map's path routing
+      (`matched_url_path_rule = UNMATCHED` - i.e. not `/v1/*` or `/socket.io/*`) and got
+      a 5xx from the Vercel deployment behind it.
+
+      **Check first:** is the Vercel preview deployment (`vercel_frontend_url` in
+      `llm_engine-infra`'s `terraform.tfvars`) actually up? A branch preview going cold,
+      redeploying, or being torn down is a Vercel-side event, not an app-tier incident -
+      there is no web-server/API/websocket action to take here.
+    EOT
+    mime_type = "text/markdown"
+  }
+  notification_channels = var.notification_channels
+}
+
+resource "google_monitoring_alert_policy" "backend_5xx_rate_backend" {
+  project      = var.project_id
+  display_name = "llm-engine: elevated 5xx rate - BACKEND (API/websocket)"
+  combiner     = "OR"
+  conditions {
+    display_name = "API/websocket backends: 5xx sum > 10 per 5-min bucket, sustained 10 min"
+    condition_threshold {
+      filter = join(" AND ", compact([
+        "resource.type=\"https_lb_rule\"",
+        var.frontend_backend_service_name == null ? null : "resource.label.\"backend_target_name\"!=\"${var.frontend_backend_service_name}\"",
+        "metric.type=\"loadbalancing.googleapis.com/https/request_count\"",
+        "metric.label.\"response_code_class\"=\"500\""
+      ]))
+      comparison      = "COMPARISON_GT"
+      threshold_value = 10
+      duration        = "600s"
+      aggregations {
+        alignment_period     = "300s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+    }
+  }
+  documentation {
+    content = <<-EOT
+      This is our own **API or websocket backend** (`llm-engine-api-backend` /
+      `llm-engine-ws-backend`), not the Vercel frontend proxy - a real app-tier error
+      rate.
+
+      **Check first:**
+      - `gcloud compute instance-groups managed list-instances llm-engine-web-mig
+        --region=us-central1` - is the instance healthy?
+      - `gcloud logging read 'resource.type="gce_instance" AND severity>=ERROR'
+        --freshness=15m` - what's actually erroring?
+      - The live dashboard (`terraform output monitoring_dashboard_url` from
+        `infra/environments/prod`) for CPU/connection context at the same time.
+    EOT
+    mime_type = "text/markdown"
   }
   notification_channels = var.notification_channels
 }
