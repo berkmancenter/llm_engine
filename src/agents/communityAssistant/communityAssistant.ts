@@ -36,7 +36,8 @@ export default verify({
   agentConfig: {
     enablePersonality: config.enableAgentPersonality,
     tools: ['event_history', 'bkc_archive_wiki', 'web_search'] as string[],
-    topicIds: [] as string[]
+    topicIds: [] as string[],
+    notifications: [] as string[]
   },
   llmTemplateVars: {
     user: [{ name: 'question', description: 'The user message or question' }]
@@ -117,6 +118,8 @@ export default verify({
 
   async onConversationEvent(evt) {
     if (evt.type !== 'conversationStopped') return []
+    const notifications: string[] = this.agentConfig?.notifications || []
+    if (!notifications.includes('event_ended')) return []
     const conv = await Conversation.findById(evt.conversationId).select('name summary').lean()
     if (!conv?.summary) return []
     const name = conv.name ?? 'An event'
