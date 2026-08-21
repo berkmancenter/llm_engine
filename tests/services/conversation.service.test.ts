@@ -1413,6 +1413,19 @@ describe('Conversation service methods', () => {
       expect(snapshotSpy).not.toHaveBeenCalled()
       expect(dispatchSpy).toHaveBeenCalledTimes(1)
     })
+
+    test('skips the conversationStopped dispatch when post-event analysis is disabled', async () => {
+      const original = config.disablePostEventAnalysis
+      config.disablePostEventAnalysis = true
+      const dispatchSpy = jest.spyOn(agentDispatcher, 'dispatch').mockResolvedValue(undefined)
+
+      try {
+        await conversationService.stopConversation(conversation._id.toString(), registeredUser)
+        expect(dispatchSpy).not.toHaveBeenCalled()
+      } finally {
+        config.disablePostEventAnalysis = original
+      }
+    })
   })
 
   describe('startConversation() auto-stop scheduling', () => {

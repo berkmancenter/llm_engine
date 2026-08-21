@@ -169,7 +169,9 @@ export async function doStopConversation(conversation) {
     await updateTranscriptStatus(doc, 'stopped')
     const owner = await User.findById(conversation.owner)
 
-    if (owner) {
+    if (owner && config.disablePostEventAnalysis) {
+      logger.debug(`Post-event analysis disabled — skipping stop-time summary for conversation ${doc._id}`)
+    } else if (owner) {
       const conversationDoc = await Conversation.findOne({ _id: conversation._id })
         .populate('channels')
         .populate({ path: 'messages', match: { channels: { $in: ['transcript', 'chat'] } } })
@@ -228,10 +230,14 @@ export async function doStopConversation(conversation) {
      where it can retry patiently off this request path. */
   const topicId = doc.topic?._id?.toString() ?? doc.topic?.toString()
   const topicIsPrivate = doc.topic?.private ?? true
-  await agentDispatcher.dispatch(
-    { type: 'conversationStopped', conversationId: doc._id.toString(), topicId },
-    { type: 'conversation', id: doc._id.toString(), topicId, topicIsPrivate }
-  )
+  if (config.disablePostEventAnalysis) {
+    logger.debug(`Post-event analysis disabled — skipping conversationStopped dispatch for ${doc._id}`)
+  } else {
+    await agentDispatcher.dispatch(
+      { type: 'conversationStopped', conversationId: doc._id.toString(), topicId },
+      { type: 'conversation', id: doc._id.toString(), topicId, topicIsPrivate }
+    )
+  }
 
   /* Cost tracking must not depend on Number Cruncher being provisioned (a separate
      Slack bot + admin conversation) — it's core functionality for every conversation,

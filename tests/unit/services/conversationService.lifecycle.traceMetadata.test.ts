@@ -43,6 +43,7 @@ const { publicTopic } = await import('../../fixtures/conversation.fixture.js')
 const { insertTopics } = await import('../../fixtures/topic.fixture.js')
 const { Conversation } = await import('../../../src/models/index.js')
 const { doStopConversation } = await import('../../../src/services/conversation.service/lifecycle.js')
+const { default: config } = await import('../../../src/config/config.js')
 
 setupIntTest()
 
@@ -101,5 +102,32 @@ describe('doStopConversation LangSmith trace metadata', () => {
 
     expect(mockGetChatPromptResponse).not.toHaveBeenCalled()
     expect(mockTraceable).not.toHaveBeenCalled()
+  })
+
+  it('skips the stop-time summary when post-event analysis is disabled', async () => {
+    const original = config.disablePostEventAnalysis
+    config.disablePostEventAnalysis = true
+
+    try {
+      const conversation = new Conversation({
+        name: 'Disabled Post-Event Analysis Test',
+        owner: registeredUser._id,
+        topic: publicTopic._id,
+        active: true,
+        agents: [],
+        adapters: [],
+        messages: [],
+        channels: [],
+        transcript: { status: 'active' }
+      })
+      await conversation.save()
+
+      await doStopConversation(conversation)
+
+      expect(mockGetChatPromptResponse).not.toHaveBeenCalled()
+      expect(mockTraceable).not.toHaveBeenCalled()
+    } finally {
+      config.disablePostEventAnalysis = original
+    }
   })
 })
