@@ -561,7 +561,7 @@ async function getRAGAugmentedResponse(
  *   `StringOutputParser` on the last AI message (string path).
  * - **Librarian** (`librarianAgent.ts`): passes a Zod `responseSchema` — structured parse after the agent
  *   completes (Semantic Scholar tools + structured recommendations).
- * - **Event Historian** (`eventHistorian.ts`): tools + `responseSchema` undefined — same string path as
+ * - **Community Assistant** (`communityAssistant.ts`): tools + `responseSchema` undefined — same string path as
  *   Event Assistant.
  *
  * Bedrock: elsewhere in this file, notes on mixing native structured output with heterogeneous tool types;

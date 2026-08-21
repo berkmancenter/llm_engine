@@ -36,7 +36,7 @@ const AGENT_TYPE_LABELS: Record<string, string> = {
   engagementAgent: 'an engagement prompter',
   jargonFilterAgent: 'a jargon filter',
   librarian: 'a resource librarian',
-  eventHistorian: 'an event historian',
+  communityAssistant: 'a community assistant',
   eventSetup: 'an event-setup assistant',
   numberCruncher: 'a number cruncher',
   backChannelMetrics: 'a backchannel metrics tracker',
@@ -74,10 +74,10 @@ export async function resolveActiveAgentTypeLabels(conversation): Promise<string
   return labelActiveAgentTypes(agentDocs.map((agent) => agent.agentType))
 }
 
-/* Whether an Event Historian agent is active on this conversation, so a deferred interpretive
+/* Whether a Community Assistant is active on this conversation, so a deferred interpretive
    question can point to it by name only when it genuinely exists here rather than referencing a
    capability that is not installed. Same populated-or-not idiom as resolveActiveAgentTypeLabels. */
-export async function hasHistorianAgent(conversation): Promise<boolean> {
+export async function hasCommunityAssistantAgent(conversation): Promise<boolean> {
   const agentRefs = conversation.agents ?? []
   if (agentRefs.length === 0) return false
 
@@ -86,7 +86,7 @@ export async function hasHistorianAgent(conversation): Promise<boolean> {
     ? agentRefs
     : await (await agentModel()).find({ _id: { $in: agentRefs } }).select('agentType')
 
-  return agentDocs.some((agent) => agent.agentType === 'eventHistorian')
+  return agentDocs.some((agent) => agent.agentType === 'communityAssistant')
 }
 
 /**
