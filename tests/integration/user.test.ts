@@ -6,8 +6,13 @@ import bcrypt from 'bcryptjs'
 import app from '../../src/app.js'
 import setupIntTest from '../utils/setupIntTest.js'
 import { User } from '../../src/models/index.js'
-import { insertUsers, registeredUser, userOne } from '../fixtures/user.fixture.js'
-import { registeredUserAccessToken, userOneAccessToken } from '../fixtures/token.fixture.js'
+import { insertUsers, registeredUser, userOne, admin, participant } from '../fixtures/user.fixture.js'
+import {
+  registeredUserAccessToken,
+  userOneAccessToken,
+  adminAccessToken,
+  participantAccessToken
+} from '../fixtures/token.fixture.js'
 import { insertMessages, messageOne } from '../fixtures/message.fixture.js'
 import userService from '../../src/services/user.service.js'
 import config from '../../src/config/config.js'
@@ -29,6 +34,70 @@ jest.setTimeout(10000)
 setupIntTest()
 
 describe('User routes', () => {
+  describe('PUT v1/users/user/:targetUserId/role', () => {
+    const promote = (targetId, token, role = 'admin') =>
+      request(app).put(`/v1/users/user/${targetId}/role`).set('Authorization', `Bearer ${token}`).send({ role })
+
+    test('should return 200 and promote a participant to admin when an admin asks', async () => {
+      await insertUsers([admin, participant])
+
+      const res = await promote(participant._id, adminAccessToken).expect(httpStatus.OK)
+
+      expect(res.body.role).toBe('admin')
+      const updated = await User.findById(participant._id)
+      expect(updated!.role).toBe('admin')
+    })
+
+    test('should return 200 and demote an admin back to participant', async () => {
+      await insertUsers([admin, userOne])
+
+      await promote(userOne._id, adminAccessToken, 'participant').expect(httpStatus.OK)
+
+      const updated = await User.findById(userOne._id)
+      expect(updated!.role).toBe('participant')
+    })
+
+    // Acting on your own account must not substitute for holding manageUsers.
+    test('should return 403 when a participant promotes themselves', async () => {
+      await insertUsers([participant])
+
+      await promote(participant._id, participantAccessToken).expect(httpStatus.FORBIDDEN)
+
+      const unchanged = await User.findById(participant._id)
+      expect(unchanged!.role).toBe('participant')
+    })
+
+    test('should return 403 when a participant promotes someone else', async () => {
+      await insertUsers([participant, userOne])
+
+      await promote(userOne._id, participantAccessToken).expect(httpStatus.FORBIDDEN)
+    })
+
+    test('should return 400 for a role that does not exist', async () => {
+      await insertUsers([admin, participant])
+
+      await promote(participant._id, adminAccessToken, 'superuser').expect(httpStatus.BAD_REQUEST)
+
+      const unchanged = await User.findById(participant._id)
+      expect(unchanged!.role).toBe('participant')
+    })
+
+    test('should return 404 when the target user does not exist', async () => {
+      await insertUsers([admin])
+
+      await promote(new mongoose.Types.ObjectId(), adminAccessToken).expect(httpStatus.NOT_FOUND)
+    })
+
+    test('should return 401 without an auth token', async () => {
+      await insertUsers([participant])
+
+      await request(app)
+        .put(`/v1/users/user/${participant._id}/role`)
+        .send({ role: 'admin' })
+        .expect(httpStatus.UNAUTHORIZED)
+    })
+  })
+
   describe('GET v1/users/user/:userId', () => {
     test('should return 200 with user body', async () => {
       await insertUsers([registeredUser])

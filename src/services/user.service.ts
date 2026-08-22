@@ -197,6 +197,22 @@ const deletePseudonym = async (pseudonymId, requestUser) => {
   await user!.save()
 }
 /**
+ * Set a user's role. Deliberately narrower than updateUserById, which assigns whatever the
+ * caller sends: role is the one field that grants privileges, so it gets its own path.
+ * @param {ObjectId} userId
+ * @param {String} role - must be one of the roles in config/roles
+ * @returns {Promise<User>}
+ */
+const updateUserRole = async (userId, role) => {
+  const user = await User.findById(userId)
+  if (!user) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'User not found')
+  }
+  user.role = role
+  await user.save()
+  return user
+}
+/**
  * Query for users
  * @param {Object} filter - Mongo filter
  * @param {Object} options - Query options
@@ -415,6 +431,7 @@ const userService = {
   queryUsers,
   getUserById,
   updateUserById,
+  updateUserRole,
   deleteUserById,
   getUserByUsernamePassword,
   getUserByUsername,
