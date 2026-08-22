@@ -3,6 +3,36 @@ import socketIO from './socketIO.js'
 import logger from '../config/logger.js'
 import { getRoomIds } from './utils.js'
 
+/**
+ * Strip credentials out of a conversation before it goes into a topic room.
+ * Joining a topic room takes no authorization, so this payload reaches anyone holding a
+ * topic id and has to match what findByIdFull hands a non-owner: no channel passcodes, no
+ * agent config beyond the bot name, no adapter config.
+ * @param conversation - a Conversation document or an already-plain object
+ * @returns {Object} a plain object safe to emit
+ */
+function redactConversationForBroadcast(conversation) {
+  const { channels, agents, adapters, ...rest } =
+    typeof conversation.toJSON === 'function' ? conversation.toJSON() : conversation
+
+  return {
+    ...rest,
+    ...(channels && {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      channels: channels.map(({ passcode, ...channel }) => channel)
+    }),
+    ...(agents && {
+      agents: agents.map(({ agentConfig, ...agent }) => {
+        // botName is display copy the client needs to label the chat, so it survives the strip.
+        const botName = agentConfig?.botName
+        return typeof botName === 'string' && botName !== '' ? { ...agent, agentConfig: { botName } } : agent
+      })
+    }),
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    ...(adapters && { adapters: adapters.map(({ config, ...adapter }) => adapter) })
+  }
+}
+
 class WebsocketGateway {
   public _worker: Worker | null
 
@@ -76,12 +106,16 @@ class WebsocketGateway {
   async broadcastNewConversation(conversation) {
     // A topicless draft (e.g. from an unmatched inbound invite) has no topic room to broadcast into.
     if (!conversation.topic) return
-    await this.broadcast(conversation.topic._id.toString(), 'conversation:new', conversation)
+    await this.broadcast(conversation.topic._id.toString(), 'conversation:new', redactConversationForBroadcast(conversation))
   }
 
   async broadcastConversationUpdate(conversation) {
     if (!conversation.topic) return
-    await this.broadcast(conversation.topic._id.toString(), 'conversation:update', conversation)
+    await this.broadcast(
+      conversation.topic._id.toString(),
+      'conversation:update',
+      redactConversationForBroadcast(conversation)
+    )
   }
 
   async broadcastConversationAlmostEnding(conversation) {
