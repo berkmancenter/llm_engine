@@ -13,7 +13,7 @@ const userOne: any = {
   username: faker.name.findName(),
   email: faker.internet.email().toLowerCase(),
   password,
-  role: 'user',
+  role: 'admin',
   isEmailVerified: false
 }
 
@@ -22,7 +22,7 @@ const userTwo = {
   username: faker.name.findName(),
   email: faker.internet.email().toLowerCase(),
   password,
-  role: 'user',
+  role: 'admin',
   isEmailVerified: false
 }
 
@@ -32,7 +32,7 @@ const registeredUser: any = {
   username: faker.name.findName(),
   email: faker.internet.email().toLowerCase(),
   password,
-  role: 'user',
+  role: 'admin',
   isEmailVerified: false,
   pseudonyms: [
     {
@@ -55,9 +55,21 @@ const admin: any = {
   isEmailVerified: false
 }
 
+/* A guest account as registration creates one: participant role, no organizer rights.
+   Use this rather than userOne when asserting what a participant cannot reach. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const participant: any = {
+  _id: new mongoose.Types.ObjectId(),
+  username: faker.name.findName(),
+  email: faker.internet.email().toLowerCase(),
+  password,
+  role: 'participant',
+  isEmailVerified: false
+}
+
 const insertUsers = async (users) => {
   const ret = await User.insertMany(users.map((user) => ({ ...user, password: hashedPassword })))
   return ret
 }
 
-export { userOne, userTwo, registeredUser, admin, insertUsers }
+export { userOne, userTwo, registeredUser, admin, participant, insertUsers }

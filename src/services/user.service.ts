@@ -62,9 +62,7 @@ const createUser = async (userBody) => {
         // Mark pseudonym as active
         active: true
       }
-    ],
-    // make all users an admin for now
-    role: 'admin'
+    ]
   }
 
   if (userBody.email) userProps.email = userBody.email
