@@ -249,6 +249,33 @@ describe('User routes', () => {
       expect(match).toBe(true)
     })
 
+    /* The body carries the target userId, so without an admin-only gate any participant could
+       reset an admin's password and log in as them. */
+    test('should return 403 when a participant updates another account', async () => {
+      await insertUsers([participant])
+
+      await request(app)
+        .put('/v1/users')
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send({ userId: registeredUser._id, username, password })
+        .expect(httpStatus.FORBIDDEN)
+
+      const target = await User.findById(registeredUser._id)
+      expect(target!.username).toEqual(registeredUser.username)
+      const stolen = await bcrypt.compare(password, target!.password)
+      expect(stolen).toBe(false)
+    })
+
+    test('should return 403 when a participant updates their own account', async () => {
+      await insertUsers([participant])
+
+      await request(app)
+        .put('/v1/users')
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send({ userId: participant._id, username })
+        .expect(httpStatus.FORBIDDEN)
+    })
+
     test('should return 400 if userId is not sent in request body', async () => {
       await request(app)
         .put('/v1/users')

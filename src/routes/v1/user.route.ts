@@ -153,7 +153,9 @@ router
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.put('/', auth('manageAccount'), validate(userValidation.updateUser), userController.updateUser)
+/* Admin only: the target account comes from the body, so anyone who can call this can reset
+   any other user's credentials, including an admin's, and then log in as them. */
+router.put('/', auth('manageUsers'), validate(userValidation.updateUser), userController.updateUser)
 
 /**
  * @swagger
