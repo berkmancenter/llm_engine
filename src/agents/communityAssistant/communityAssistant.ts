@@ -12,6 +12,8 @@ import config from '../../config/config.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 import { evaluateVoiceTrigger, extractVoiceQuestion } from '../helpers/voiceDirectives.js'
 import type { IMessage } from '../../types/index.types.js'
+import websocketGateway from '../../websockets/websocketGateway.js'
+import logger from '../../config/logger.js'
 
 const BASE_SYSTEM_PROMPT = `You are {botName}, a helpful AI assistant participating in a community chat. You help community members with questions, discussion, and finding information relevant to the community. You can engage with any topic or inquiry—from casual conversation to technical questions, creative tasks, analysis, debugging, writing, math, and beyond. There are no subject limits.
 
@@ -39,7 +41,8 @@ export default verify({
     enablePersonality: config.enableAgentPersonality,
     tools: ['event_history', 'bkc_archive_wiki', 'web_search'] as string[],
     topicIds: [] as string[],
-    notifications: [] as string[]
+    notifications: [] as string[],
+    streaming: undefined as boolean | undefined
   },
   llmTemplateVars: {
     user: [{ name: 'question', description: 'The user message or question' }]
@@ -75,7 +78,11 @@ export default verify({
 
     let question: string
     if (isVoice) {
-      const voiceQuestion = extractVoiceQuestion(userMessage, this.conversation.messages as IMessage[], this.agentConfig.botName)
+      const voiceQuestion = extractVoiceQuestion(
+        userMessage,
+        this.conversation.messages as IMessage[],
+        this.agentConfig.botName
+      )
       if (!voiceQuestion) return []
       question = voiceQuestion
     } else {
@@ -104,9 +111,23 @@ export default verify({
 
     const tools: StructuredToolInterface[] = await getTools(toolNames, { topicIds })
 
-    // Build message array: chat history + current question
-    // Recursion limit: each tool round-trip costs 2 graph steps; with both event-history
-    // and archive tool sets the agent may need to consult several before answering.
+    const inputChannelNames = userMessage?.channels ?? ['chat']
+
+    // Stream sentences via websocket when enabled (or when in voice mode by default) so the
+    // platform adapter can speak each one as it arrives. Recursion limit: each tool round-trip
+    // costs 2 graph steps; with both event-history and archive tool sets the agent may need to
+    // consult several before answering.
+    const shouldStream = this.agentConfig?.streaming ?? isVoice
+    const conversationId = this.conversation._id.toString()
+    const requestId = (userMessage.source?.requestId as string | undefined) ?? conversationId
+    const onChunk = shouldStream
+      ? (text: string) => {
+          websocketGateway
+            .broadcastMessageChunk(conversationId, inputChannelNames, { requestId, text, done: false })
+            .catch((err) => logger.warn(`Failed to broadcast message chunk: ${err}`))
+        }
+      : undefined
+
     const response = await getAgentStructuredResponse(
       llm,
       tools,
@@ -114,12 +135,18 @@ export default verify({
       `## Question:\n${question}`,
       undefined,
       chatHistory,
-      30
+      30,
+      onChunk ? { onChunk } : undefined
     )
 
-    const inputChannelNames = userMessage?.channels ?? ['chat']
     const responseChannels = this.conversation.channels.filter((channel) => inputChannelNames.includes(channel.name))
     const parentMessageId = userMessage.parentMessage
+
+    if (shouldStream) {
+      await websocketGateway
+        .broadcastMessageChunk(conversationId, inputChannelNames, { requestId, text: '', done: true })
+        .catch((err) => logger.warn(`Failed to broadcast final message chunk marker: ${err}`))
+    }
 
     return [
       {

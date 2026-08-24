@@ -162,6 +162,37 @@ describe('createClaudeFetchFn (Bedrock gateway transport)', () => {
     expect(calls).toBe(1)
   })
 
+  it('routes to invoke-with-response-stream when the incoming URL contains that method', async () => {
+    const fetchFn = createClaudeFetchFn(MODEL_ID, 'bedrock')
+    await fetchFn(`https://ignored.example/model/${MODEL_ID}/invoke-with-response-stream`, {
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'Hi' }], max_tokens: 50 })
+    })
+    expect(capturedUrl).toBe(`${BASE_URL}/model/${MODEL_ID}/invoke-with-response-stream`)
+  })
+
+  it('routes to /invoke for a non-streaming URL', async () => {
+    await callFetchFn()
+    expect(capturedUrl).toBe(`${BASE_URL}/model/${MODEL_ID}/invoke`)
+  })
+
+  it('passes through an event-stream response without consuming the body', async () => {
+    const mockResponse = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: { get: (h: string) => (h === 'content-type' ? 'application/vnd.amazon.eventstream' : null) }
+    }
+    globalThis.fetch = (() => Promise.resolve(mockResponse)) as unknown as typeof globalThis.fetch
+
+    const fetchFn = createClaudeFetchFn(MODEL_ID, 'bedrock')
+    const result = await fetchFn(`https://ignored.example/model/${MODEL_ID}/invoke-with-response-stream`, {
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'Hi' }], max_tokens: 50 })
+    })
+
+    // The response object should be returned as-is so BedrockChat can decode the stream.
+    expect(result).toBe(mockResponse)
+  })
+
   it('refuses an unsafe model id before calling fetch', async () => {
     const fetchFn = createClaudeFetchFn('evil/../path', 'bedrock')
     await expect(
@@ -183,6 +214,12 @@ describe('buildBedrockInvokeUrl', () => {
   it('builds the /model/{modelId}/invoke path', () => {
     expect(buildBedrockInvokeUrl(BASE, 'us.anthropic.claude-sonnet-4-6')).toBe(
       `${BASE}/model/us.anthropic.claude-sonnet-4-6/invoke`
+    )
+  })
+
+  it('builds the invoke-with-response-stream path when method is specified', () => {
+    expect(buildBedrockInvokeUrl(BASE, 'us.anthropic.claude-sonnet-4-6', 'invoke-with-response-stream')).toBe(
+      `${BASE}/model/us.anthropic.claude-sonnet-4-6/invoke-with-response-stream`
     )
   })
 
