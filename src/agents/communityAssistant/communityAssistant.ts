@@ -10,6 +10,8 @@ import { getTools, buildToolsGuidance } from '../tools/registry.js'
 import Conversation from '../../models/conversation.model.js'
 import config from '../../config/config.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
+import { evaluateVoiceTrigger, extractVoiceQuestion } from '../helpers/voiceDirectives.js'
+import type { IMessage } from '../../types/index.types.js'
 
 const BASE_SYSTEM_PROMPT = `You are {botName}, a helpful AI assistant participating in a community chat. You help community members with questions, discussion, and finding information relevant to the community. You can engage with any topic or inquiry—from casual conversation to technical questions, creative tasks, analysis, debugging, writing, math, and beyond. There are no subject limits.
 
@@ -31,7 +33,7 @@ export default verify({
   priority: 100,
   maxTokens: 4000,
   defaultTriggers: {
-    perMessage: { channels: ['chat'] }
+    perMessage: { channels: ['chat', 'transcript'] }
   },
   agentConfig: {
     enablePersonality: config.enableAgentPersonality,
@@ -48,9 +50,13 @@ export default verify({
   defaultLLMPlatform,
   defaultLLMModel,
   ragCollectionName: undefined,
-  defaultConversationHistorySettings: { count: 100, channels: ['chat'] },
+  defaultConversationHistorySettings: { count: 100, channels: ['chat', 'transcript'] },
 
   async evaluate(userMessage) {
+    const isVoice = userMessage?.channels?.includes('transcript')
+    if (isVoice) {
+      return evaluateVoiceTrigger(userMessage, this.agentConfig.botName, this.conversation.messages as IMessage[])
+    }
     const words = userMessage?.body?.trim().split(/\s+/) ?? []
     const modifiedMessage = matchBotMention(words, this.agentConfig.botName)
       ? { ...userMessage, body: normalizeBotMention(userMessage.body, this.agentConfig.botName) }
@@ -64,12 +70,21 @@ export default verify({
   },
 
   async respond(conversationHistory: ConversationHistory, userMessage) {
+    const isVoice = userMessage?.channels?.includes('transcript')
     const llm = await this.getLLM()
-    if (!(await checkBotIntent(llm, this.agentConfig.botName, userMessage))) {
-      return []
+
+    let question: string
+    if (isVoice) {
+      const voiceQuestion = extractVoiceQuestion(userMessage, this.conversation.messages as IMessage[], this.agentConfig.botName)
+      if (!voiceQuestion) return []
+      question = voiceQuestion
+    } else {
+      if (!(await checkBotIntent(llm, this.agentConfig.botName, userMessage))) {
+        return []
+      }
+      question = extractMessageText(userMessage).trim()
     }
     const chatHistory = formatMultiUserConversationHistory(conversationHistory)
-    const question = extractMessageText(userMessage).trim()
 
     const toolNames: string[] = this.agentConfig?.tools || []
     const topicIds: string[] = this.agentConfig?.topicIds || []
@@ -102,7 +117,8 @@ export default verify({
       30
     )
 
-    const responseChannels = this.conversation.channels.filter((channel) => channel.name === 'chat')
+    const inputChannelNames = userMessage?.channels ?? ['chat']
+    const responseChannels = this.conversation.channels.filter((channel) => inputChannelNames.includes(channel.name))
     const parentMessageId = userMessage.parentMessage
 
     return [
