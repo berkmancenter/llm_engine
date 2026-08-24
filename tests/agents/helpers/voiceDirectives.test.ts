@@ -1,11 +1,30 @@
 import { AgentMessageActions } from '../../../src/types/index.types.js'
-import { evaluateVoiceTrigger, extractVoiceQuestion } from '../../../src/agents/helpers/voiceDirectives.js'
+import { evaluateVoiceTrigger, extractVoiceQuestion, VOICE_OUTPUT_RULES } from '../../../src/agents/helpers/voiceDirectives.js'
 
 function msg(body: string, channels = ['transcript']) {
   return { body, bodyType: 'text', channels } as never
 }
 
 const botName = 'Berkie'
+
+describe('VOICE_OUTPUT_RULES', () => {
+  it('is a non-empty string', () => {
+    expect(typeof VOICE_OUTPUT_RULES).toBe('string')
+    expect(VOICE_OUTPUT_RULES.length).toBeGreaterThan(0)
+  })
+
+  it('contains the no-Markdown constraint', () => {
+    expect(VOICE_OUTPUT_RULES.toLowerCase()).toContain('markdown')
+  })
+
+  it('contains the no-URL constraint', () => {
+    expect(VOICE_OUTPUT_RULES.toLowerCase()).toMatch(/url|link/)
+  })
+
+  it('contains the regardless override so it wins over tool citation guidance', () => {
+    expect(VOICE_OUTPUT_RULES.toLowerCase()).toContain('regardless')
+  })
+})
 
 describe('evaluateVoiceTrigger', () => {
   it('contributes when message contains an inline hey trigger with a question', () => {

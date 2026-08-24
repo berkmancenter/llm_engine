@@ -10,7 +10,7 @@ import { getTools, buildToolsGuidance } from '../tools/registry.js'
 import Conversation from '../../models/conversation.model.js'
 import config from '../../config/config.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
-import { evaluateVoiceTrigger, extractVoiceQuestion } from '../helpers/voiceDirectives.js'
+import { evaluateVoiceTrigger, extractVoiceQuestion, VOICE_OUTPUT_RULES } from '../helpers/voiceDirectives.js'
 import type { IMessage } from '../../types/index.types.js'
 import websocketGateway from '../../websockets/websocketGateway.js'
 import logger from '../../config/logger.js'
@@ -107,7 +107,12 @@ export default verify({
       '{toolGuidance}',
       await buildToolsGuidance(toolNames, { topicIds })
     )
-    const systemPrompt = composeSystemPrompt(systemPromptBase, { personalityName })
+    const systemPrompt =
+      composeSystemPrompt(systemPromptBase, {
+        personalityName,
+        behaviorPolicy: this.conversation.behaviorPolicy,
+        channelType: 'groupChat'
+      }) + (isVoice ? VOICE_OUTPUT_RULES : '')
 
     const tools: StructuredToolInterface[] = await getTools(toolNames, { topicIds })
 
