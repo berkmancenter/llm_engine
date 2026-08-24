@@ -2,17 +2,24 @@ import agenda from './index.js'
 import JobHandlers from './handlers/index.js'
 
 const defineJob = {
-  periodicAgent: async (agentId) => {
+  /* One definition per job TYPE, not per agent. agenda only ever processes a job name that
+     some live process has define()'d (see jobs/CLAUDE.md and agent.service's boot-vs-
+     reschedule note) - naming these per-agent would mean re-establishing the definition for
+     every agent that has ever existed, on every boot, which is exactly the cost this was
+     scoped to remove. The specific agent is carried in job data (data.agentId), matched via
+     schedule.ts's unique() query, the same way conversationEvent/conversationCost/etc.
+     already identify their target from data rather than from the job name. */
+  periodicAgent: async () => {
     await agenda.start()
-    await agenda.define(`periodic - ${agentId}`, JobHandlers.periodicAgent)
+    await agenda.define('periodicAgent', JobHandlers.periodicAgent)
   },
-  cronAgent: async (agentId) => {
+  cronAgent: async () => {
     await agenda.start()
-    await agenda.define(`cron - ${agentId}`, JobHandlers.periodicAgent)
+    await agenda.define('cronAgent', JobHandlers.periodicAgent)
   },
-  agentResponse: async (agentId) => {
+  agentResponse: async () => {
     await agenda.start()
-    await agenda.define(`response - ${agentId}`, JobHandlers.agentResponse)
+    await agenda.define('agentResponse', JobHandlers.agentResponse)
   },
   autoStartConversation: async () => {
     await agenda.start()

@@ -47,7 +47,8 @@
     "chroma:load": "NODE_ENV=test node --loader ts-node/esm src/utils/chromaLoadDocs.ts",
     "commit": "cz",
     "check:number-cruncher-slack": "NODE_ENV=${NODE_ENV:-development} node --loader ts-node/esm scripts/checkNumberCruncherSlack.ts",
-    "openapi-types:generate": "openapi-typescript http://localhost:3000/v1/openapi.json --output src/types/openapi.d.ts && prettier --write src/types/openapi.d.ts"
+    "openapi-types:generate": "openapi-typescript http://localhost:3000/v1/openapi.json --output src/types/openapi.d.ts && prettier --write src/types/openapi.d.ts",
+    "migrate": "NODE_ENV=${NODE_ENV:-development} node --loader ts-node/esm scripts/migrate.ts"
   },
   "keywords": [],
   "dependencies": {
@@ -115,6 +116,7 @@
     "swagger-ui-express": "^5.0.1",
     "ts-jest": "^29.3.1",
     "uid": "^2.0.2",
+    "umzug": "^3.8.3",
     "unique-names-generator": "^4.7.1",
     "validator": "^13.12.0",
     "winston": "^3.17.0",
