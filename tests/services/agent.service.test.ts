@@ -9,7 +9,6 @@ import defaultAgentTypes from '../../src/agents/index.js'
 import schedule from '../../src/jobs/schedule.js'
 import defineJob from '../../src/jobs/define.js'
 import { defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/getModelChat.js'
-import migrateJobs from '../../src/jobs/migrateLegacyAgentJobNames.js'
 
 const mockEvaluate = jest.fn()
 const mockRespond = jest.fn()
@@ -193,25 +192,17 @@ describe('agent tests', () => {
      document ever created, because job definitions were per-agent. Now that defineJob is
      generic (see jobs/define.ts), boot only needs to walk agents it might actually need to
      (re)schedule: active agents with a periodic or cron trigger. These tests assert that
-     scoping directly, plus the migration and the unconditional once-per-boot definitions,
-     rather than re-testing schedule.ts's own behavior (covered in tests/unit/jobs/schedule
-     .test.ts). */
+     scoping directly, plus the unconditional once-per-boot definitions, rather than
+     re-testing schedule.ts's own behavior (covered in tests/unit/jobs/schedule.test.ts). */
   describe('initializeAgents', () => {
     let periodicExistsSpy
     let cronExistsSpy
     let defineCronSpy
-    let migrateSpy
 
     beforeEach(async () => {
       periodicExistsSpy = jest.spyOn(schedule, 'periodicAgentExists').mockResolvedValue(true)
       cronExistsSpy = jest.spyOn(schedule, 'cronAgentExists').mockResolvedValue(true)
       defineCronSpy = jest.spyOn(defineJob, 'cronAgent').mockResolvedValue()
-      migrateSpy = jest.spyOn(migrateJobs, 'migrateLegacyAgentJobNames').mockResolvedValue(0)
-    })
-
-    test('migrates legacy job names before doing anything else', async () => {
-      await agentService.initializeAgents()
-      expect(migrateSpy).toHaveBeenCalledTimes(1)
     })
 
     test('defines all three job types once, even with zero agents in the database', async () => {

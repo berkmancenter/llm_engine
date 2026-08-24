@@ -4,7 +4,6 @@ import agenda from '../../jobs/index.js'
 import Agent from '../../models/user.model/agent.model/index.js'
 import schedule from '../../jobs/schedule.js'
 import defineJob from '../../jobs/define.js'
-import migrateJobs from '../../jobs/migrateLegacyAgentJobNames.js'
 
 const MAX_CONCURRENCY = 20
 // initialize all agent to set up their timers as needed
@@ -109,12 +108,6 @@ async function initializeForBoot(agent) {
 async function initializeAgents() {
   // stop to clear locks
   await agenda.stop()
-
-  // One-time (per boot, effectively no-op after the first) conversion of any job document
-  // still under the old per-agent name scheme. Must happen before defineJob below: see
-  // migrateLegacyAgentJobNames.ts for why a job left under an old name is never processed
-  // again by anyone once this ships.
-  await migrateJobs.migrateLegacyAgentJobNames()
 
   /* One definition per job type, unconditionally, regardless of which agents exist. This
      used to be reachable only by walking every agent document and calling defineJob per
