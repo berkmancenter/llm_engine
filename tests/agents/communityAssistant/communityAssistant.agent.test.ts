@@ -11,7 +11,7 @@ import {
   loadAliensTranscript
 } from '../../utils/agentTestHelpers.js'
 import { Agent, Channel } from '../../../src/models/index.js'
-import { ConversationHistory } from '../../../src/types/index.types.js'
+import { AgentMessageActions, ConversationHistory } from '../../../src/types/index.types.js'
 import { newPublicTopic, insertTopics } from '../../fixtures/topic.fixture.js'
 
 jest.setTimeout(300000)
@@ -295,6 +295,74 @@ A single mom of two children with primary custody, she is passionate about findi
       expect(responses[0].message).toBeDefined()
       // Jessica's transcript explicitly challenges the 40-hour full-time norm
       expect(responses[0].message.toLowerCase()).toMatch(/40 hours|fulltime|full.time|framework|hundred years/)
+    })
+  })
+
+  describe('voice mode (transcript channel)', () => {
+    let voiceAgent
+    let voiceConversation
+
+    beforeEach(async () => {
+      voiceConversation = await createConversation({ name: 'Voice Community Assistant Test' }, user1, topic)
+      voiceAgent = new Agent({
+        agentType: 'communityAssistant',
+        conversation: voiceConversation,
+        llmPlatform: testConfig.llmPlatform,
+        llmModel: testConfig.llmModel,
+        agentConfig: { botName: BOT_NAME }
+      })
+      const channels = await Channel.create([{ name: 'chat' }, { name: 'transcript' }])
+      voiceConversation.channels.push(...channels)
+      await voiceAgent.save()
+      voiceConversation.agents.push(voiceAgent)
+      await voiceConversation.save()
+      await voiceAgent.start()
+    })
+
+    it('evaluate: returns CONTRIBUTE for a transcript message with wake phrase and question', async () => {
+      const msg = await createMessage(`hey ${BOT_NAME} what time is it?`, user1, voiceConversation, ['transcript'])
+      const result = await defaultAgentTypes.communityAssistant.evaluate.call(voiceAgent, msg)
+      expect(result.action).toBe(AgentMessageActions.CONTRIBUTE)
+    })
+
+    it('evaluate: returns OK (not CONTRIBUTE) for a transcript message without wake phrase', async () => {
+      const msg = await createMessage('just a regular utterance', user1, voiceConversation, ['transcript'])
+      const result = await defaultAgentTypes.communityAssistant.evaluate.call(voiceAgent, msg)
+      expect(result.action).toBe(AgentMessageActions.OK)
+    })
+
+    it('evaluate: returns OK for bare wake phrase (waiting for follow-up)', async () => {
+      const msg = await createMessage(`hey ${BOT_NAME}`, user1, voiceConversation, ['transcript'])
+      const result = await defaultAgentTypes.communityAssistant.evaluate.call(voiceAgent, msg)
+      expect(result.action).toBe(AgentMessageActions.OK)
+    })
+
+    it('respond: returns empty when transcript message has no wake phrase', async () => {
+      const msg = await createMessage('just talking amongst ourselves', user1, voiceConversation, ['transcript'])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(voiceAgent, buildHistory([]), msg)
+      expect(responses).toHaveLength(0)
+    })
+
+    it('respond: answers a voice question and outputs to the transcript channel', async () => {
+      const msg = await createMessage(`hey ${BOT_NAME} what is the capital of France?`, user1, voiceConversation, [
+        'transcript'
+      ])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(voiceAgent, buildHistory([]), msg)
+
+      expect(responses).toHaveLength(1)
+      expect(responses[0].message).toBeDefined()
+      expect(responses[0].message.toLowerCase()).toContain('paris')
+      expect(responses[0].channels.map((c) => c.name)).toContain('transcript')
+      expect(responses[0].channels.map((c) => c.name)).not.toContain('chat')
+    })
+
+    it('respond: chat messages still output to the chat channel', async () => {
+      const msg = await createMessage(`@${BOT_NAME} what is the capital of Germany?`, user1, voiceConversation, ['chat'])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(voiceAgent, buildHistory([]), msg)
+
+      expect(responses).toHaveLength(1)
+      expect(responses[0].channels.map((c) => c.name)).toContain('chat')
+      expect(responses[0].channels.map((c) => c.name)).not.toContain('transcript')
     })
   })
 
