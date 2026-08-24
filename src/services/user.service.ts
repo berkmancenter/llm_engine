@@ -197,8 +197,8 @@ const deletePseudonym = async (pseudonymId, requestUser) => {
   await user!.save()
 }
 /**
- * Set a user's role. Deliberately narrower than updateUserById, which assigns whatever the
- * caller sends: role is the one field that grants privileges, so it gets its own path.
+ * Set a user's role. Kept separate from updateUserById, which assigns whatever the caller
+ * sends, because role is the one field that grants privileges.
  * @param {ObjectId} userId
  * @param {String} role - must be one of the roles in config/roles
  * @returns {Promise<User>}

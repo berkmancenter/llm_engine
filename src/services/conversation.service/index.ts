@@ -686,8 +686,7 @@ const findByIdFull = async (id, user) => {
       if (!isOwnerOrAdmin) {
         if (agents) {
           agents = agents.map(({ agentConfig, ...rest }) => {
-            /* botName is display copy every participant client needs to label the chat, so it
-               is the one agentConfig key that survives. */
+            // Clients need the bot's name to label the chat, so it is the one key that survives.
             const botName = agentConfig?.botName
             return typeof botName === 'string' && botName !== '' ? { ...rest, agentConfig: { botName } } : rest
             // eslint-disable-next-line @typescript-eslint/no-explicit-any

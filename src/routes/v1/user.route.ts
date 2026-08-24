@@ -153,8 +153,7 @@ router
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-/* Admin only: the target account comes from the body, so anyone who can call this can reset
-   any other user's credentials, including an admin's, and then log in as them. */
+// Admin only: the target account comes from the body, so any caller could reset anyone's credentials.
 router.put('/', auth('manageUsers'), validate(userValidation.updateUser), userController.updateUser)
 
 /**

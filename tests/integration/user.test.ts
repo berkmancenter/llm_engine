@@ -249,8 +249,7 @@ describe('User routes', () => {
       expect(match).toBe(true)
     })
 
-    /* The body carries the target userId, so without an admin-only gate any participant could
-       reset an admin's password and log in as them. */
+    // The body carries the target userId, so without an admin gate this resets anyone's password.
     test('should return 403 when a participant updates another account', async () => {
       await insertUsers([participant])
 

@@ -448,8 +448,7 @@ describe('Auth middleware', () => {
     expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: httpStatus.FORBIDDEN, message: 'Forbidden' }))
   })
 
-  /* Acting on your own account is not a substitute for holding the right: the rights a role
-     grants are the only thing that opens a route, or any :userId route becomes self-service. */
+  // Without this, any :userId route becomes self-service for the account named in the URL.
   test('should call next with forbidden error if user does not have required rights even when userId in params is their own', async () => {
     await insertUsers([participant])
     const req = httpMocks.createRequest({

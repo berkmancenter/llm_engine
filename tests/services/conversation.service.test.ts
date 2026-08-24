@@ -1624,8 +1624,8 @@ describe('Conversation service methods', () => {
       expect(result!.topic.toString()).toBe(topicTwo._id.toString())
     })
 
-    /* Covered here rather than through the route: `updateConversation` is now an admin-only
-       right, and admins skip the ownership check, so no HTTP caller can reach this branch. */
+    /* Covered here rather than through the route: updateConversation is admin-only and admins
+       skip the ownership check, so no HTTP caller reaches this branch. */
     test('should reject an update from someone who owns neither the conversation nor the topic', async () => {
       const stranger = { _id: new mongoose.Types.ObjectId(), role: 'participant' }
 
@@ -2289,8 +2289,7 @@ describe('Conversation service methods', () => {
       })
     })
 
-    /* Participants need the event's bot name to label the chat, and it lives inside
-       agentConfig, so it survives the strip while the rest of the config does not. */
+    // The bot's name lives inside agentConfig, so it survives the strip and the rest does not.
     test('should keep only botName in agentConfig for a non-owner', async () => {
       const conv = await conversationService.createConversationFromType(
         {
