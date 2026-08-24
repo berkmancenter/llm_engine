@@ -17,10 +17,8 @@ const userOne: any = {
   isEmailVerified: false
 }
 
-/* A second organizer, not an ordinary person: the routes it exercises (resource upload, poll
-   authoring, transcripts) all require admin, and the ownership checks behind them are only
-   reachable by an account that clears the rights gate first. Use `participant` below when
-   asserting what someone without organizer rights cannot do. */
+/* A second organizer, not an ordinary person: the ownership checks it exercises sit behind
+   admin-only rights. Use `participant` below to assert what a non-organizer cannot do. */
 const userTwo = {
   _id: new mongoose.Types.ObjectId(),
   username: faker.name.findName(),
@@ -59,8 +57,7 @@ const admin: any = {
   isEmailVerified: false
 }
 
-/* A guest account as registration creates one: participant role, no organizer rights.
-   Use this rather than userOne when asserting what a participant cannot reach. */
+// An account as registration creates one, for asserting what a participant cannot reach.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const participant: any = {
   _id: new mongoose.Types.ObjectId(),

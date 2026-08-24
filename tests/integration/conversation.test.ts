@@ -308,8 +308,7 @@ describe('Conversation routes', () => {
       await asParticipant(request(app).get('/v1/conversations/active')).send().expect(httpStatus.FORBIDDEN)
     })
 
-    /* Owning and following are both admin-only, so this endpoint could only ever hand a
-       participant an empty list. It is denied outright rather than granted and useless. */
+    // Owning and following are both admin-only, so this could only ever return an empty list.
     test('should return 403 when a participant lists their own conversations', async () => {
       await asParticipant(request(app).get('/v1/conversations/userConversations')).send().expect(httpStatus.FORBIDDEN)
     })
@@ -2513,8 +2512,8 @@ describe('Conversation routes', () => {
         .expect(httpStatus.UNAUTHORIZED)
     })
 
-    /* The owner-or-topic-owner check itself is covered in conversation.service.test.ts: only
-       admins hold updateConversation, and they bypass that check, so no HTTP caller reaches it. */
+    /* Admins bypass the owner check and only admins hold updateConversation, so no HTTP caller
+       reaches it. conversation.service.test.ts covers that branch directly. */
     test('should return 403 when a participant is not conversation owner or topic owner', async () => {
       await request(app)
         .put('/v1/conversations')

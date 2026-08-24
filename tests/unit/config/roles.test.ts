@@ -1,7 +1,6 @@
 import { roles, roleRights } from '../../../src/config/roles.js'
 
-/* Asserted exactly rather than by sampling: this list is the security contract for every
-   guest account, so widening it has to fail a test and force a deliberate decision. */
+// Asserted exactly, not sampled, so that widening the role has to fail a test.
 const PARTICIPANT_RIGHTS = [
   'createMessage',
   'getConversation',
@@ -41,9 +40,7 @@ const ENUMERATION_RIGHTS = [
   'topicConversations',
   'allTopics',
   'userTopics',
-  /* userConversations returns conversations you own or follow. A participant can do neither,
-     since createConversation and followConversation are both admin-only, so granting it would
-     only ever return an empty list. */
+  // Owning and following are both admin-only, so this could only ever return an empty list.
   'userConversations'
 ]
 
