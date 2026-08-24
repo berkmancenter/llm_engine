@@ -13,6 +13,7 @@ import {
 import { Agent, Channel } from '../../../src/models/index.js'
 import { AgentMessageActions, ConversationHistory } from '../../../src/types/index.types.js'
 import { newPublicTopic, insertTopics } from '../../fixtures/topic.fixture.js'
+import websocketGateway from '../../../src/websockets/websocketGateway.js'
 
 jest.setTimeout(300000)
 
@@ -363,6 +364,94 @@ A single mom of two children with primary custody, she is passionate about findi
       expect(responses).toHaveLength(1)
       expect(responses[0].channels.map((c) => c.name)).toContain('chat')
       expect(responses[0].channels.map((c) => c.name)).not.toContain('transcript')
+    })
+
+    it('respond: streams sentence-level message:chunk events on the transcript channel', async () => {
+      const broadcastedChunks: Array<{ text: string; done: boolean; channels: string[] }> = []
+      const spy = jest
+        .spyOn(websocketGateway, 'broadcastMessageChunk')
+        .mockImplementation(async (_convId, channels, payload) => {
+          broadcastedChunks.push({ text: payload.text, done: payload.done, channels })
+        })
+
+      const msg = await createMessage(`hey ${BOT_NAME} what is the capital of France?`, user1, voiceConversation, [
+        'transcript'
+      ])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(voiceAgent, buildHistory([]), msg)
+      spy.mockRestore()
+
+      const sentenceChunks = broadcastedChunks.filter((c) => !c.done)
+      const doneMarkers = broadcastedChunks.filter((c) => c.done)
+
+      // At least one sentence should have been streamed before the final marker
+      expect(sentenceChunks.length).toBeGreaterThan(0)
+      sentenceChunks.forEach((c) => expect(c.channels).toContain('transcript'))
+
+      // Exactly one done marker at the end, with empty text
+      expect(doneMarkers).toHaveLength(1)
+      expect(doneMarkers[0].text).toBe('')
+      expect(doneMarkers[0].channels).toContain('transcript')
+
+      // The assembled streamed text should answer the question
+      const assembled = sentenceChunks.map((c) => c.text).join(' ')
+      expect(assembled.toLowerCase()).toContain('paris')
+
+      // The full response is also returned for persistence
+      expect(responses).toHaveLength(1)
+      expect(responses[0].message.toLowerCase()).toContain('paris')
+    })
+  })
+
+  describe('streaming configuration', () => {
+    async function createStreamingAgent(streaming: boolean | undefined) {
+      const conv = await createConversation({ name: `Streaming Config Test (${streaming})` }, user1, topic)
+      const testAgent = new Agent({
+        agentType: 'communityAssistant',
+        conversation: conv,
+        llmPlatform: testConfig.llmPlatform,
+        llmModel: testConfig.llmModel,
+        agentConfig: { botName: BOT_NAME, streaming }
+      })
+      const channels = await Channel.create([{ name: 'chat' }])
+      conv.channels.push(...channels)
+      await testAgent.save()
+      conv.agents.push(testAgent)
+      await conv.save()
+      await testAgent.start()
+      return { conv, testAgent }
+    }
+
+    it('broadcasts message:chunk events on the chat channel when streaming: true is configured', async () => {
+      const { conv, testAgent } = await createStreamingAgent(true)
+      const broadcastedChunks: Array<{ text: string; done: boolean; channels: string[] }> = []
+      const spy = jest
+        .spyOn(websocketGateway, 'broadcastMessageChunk')
+        .mockImplementation(async (_convId, channels, payload) => {
+          broadcastedChunks.push({ text: payload.text, done: payload.done, channels })
+        })
+
+      const msg = await createMessage(`@${BOT_NAME} what is the capital of Japan?`, user1, conv, ['chat'])
+      await defaultAgentTypes.communityAssistant.respond.call(testAgent, buildHistory([]), msg)
+      spy.mockRestore()
+
+      const sentenceChunks = broadcastedChunks.filter((c) => !c.done)
+      const doneMarkers = broadcastedChunks.filter((c) => c.done)
+
+      expect(sentenceChunks.length).toBeGreaterThan(0)
+      sentenceChunks.forEach((c) => expect(c.channels).toContain('chat'))
+      expect(doneMarkers).toHaveLength(1)
+      expect(doneMarkers[0].channels).toContain('chat')
+    })
+
+    it('does not broadcast message:chunk events for chat input when streaming is not configured', async () => {
+      const { conv, testAgent } = await createStreamingAgent(undefined)
+      const spy = jest.spyOn(websocketGateway, 'broadcastMessageChunk').mockImplementation(async () => {})
+
+      const msg = await createMessage(`@${BOT_NAME} what is the capital of Japan?`, user1, conv, ['chat'])
+      await defaultAgentTypes.communityAssistant.respond.call(testAgent, buildHistory([]), msg)
+      spy.mockRestore()
+
+      expect(spy).not.toHaveBeenCalled()
     })
   })
 

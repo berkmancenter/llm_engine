@@ -92,6 +92,19 @@ class WebsocketGateway {
     await this.broadcast(conversationId, 'resources:updated', { resources: resources.map((r) => r.toJSON()) })
   }
 
+  /**
+   * Broadcasts one incremental sentence of a still-generating message so a
+   * client can start displaying before the full response finishes. Ephemeral — never
+   * persisted as a Message. `done: true` marks the final chunk for a given requestId.
+   */
+  async broadcastMessageChunk(
+    conversationId: string,
+    channels: string[],
+    payload: { requestId: string; text: string; done: boolean }
+  ) {
+    await this.broadcast(conversationId, 'message:chunk', payload, channels)
+  }
+
   async broadcastTranscriptStatusChange(conversation, status) {
     await this.broadcast(
       conversation._id.toString(),

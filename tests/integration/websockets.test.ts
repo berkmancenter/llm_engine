@@ -6,6 +6,60 @@ import { insertUsers, userOne, userTwo } from '../fixtures/user.fixture.js'
 import { userOneAccessToken } from '../fixtures/token.fixture.js'
 import { insertTopics } from '../fixtures/topic.fixture.js'
 import { conversationOne, conversationTwo, insertConversations, publicTopic } from '../fixtures/conversation.fixture.js'
+import websocketGateway from '../../src/websockets/websocketGateway.js'
+
+describe('WebsocketGateway.broadcastMessageChunk', () => {
+  const conversationId = conversationOne._id.toString()
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it('broadcasts on the message:chunk event with the supplied channels', async () => {
+    const spy = jest.spyOn(websocketGateway, 'broadcast').mockResolvedValue(undefined)
+
+    await websocketGateway.broadcastMessageChunk(conversationId, ['transcript'], {
+      requestId: 'req-1',
+      text: 'Hello.',
+      done: false
+    })
+
+    expect(spy).toHaveBeenCalledWith(conversationId, 'message:chunk', { requestId: 'req-1', text: 'Hello.', done: false }, [
+      'transcript'
+    ])
+  })
+
+  it('broadcasts the done marker with empty text and done: true', async () => {
+    const spy = jest.spyOn(websocketGateway, 'broadcast').mockResolvedValue(undefined)
+
+    await websocketGateway.broadcastMessageChunk(conversationId, ['transcript'], {
+      requestId: 'req-1',
+      text: '',
+      done: true
+    })
+
+    expect(spy).toHaveBeenCalledWith(conversationId, 'message:chunk', { requestId: 'req-1', text: '', done: true }, [
+      'transcript'
+    ])
+  })
+
+  it('passes chat channel when broadcasting to chat', async () => {
+    const spy = jest.spyOn(websocketGateway, 'broadcast').mockResolvedValue(undefined)
+
+    await websocketGateway.broadcastMessageChunk(conversationId, ['chat'], {
+      requestId: 'req-2',
+      text: 'Chat chunk.',
+      done: false
+    })
+
+    expect(spy).toHaveBeenCalledWith(
+      conversationId,
+      'message:chunk',
+      { requestId: 'req-2', text: 'Chat chunk.', done: false },
+      ['chat']
+    )
+  })
+})
 
 /**
  * Verifies that the websocket handles the renaming from "thread" to "conversation". It does not test edge cases or proper error handling.
