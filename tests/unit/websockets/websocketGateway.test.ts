@@ -2,9 +2,8 @@ import { jest } from '@jest/globals'
 import mongoose from 'mongoose'
 import websocketGateway from '../../../src/websockets/websocketGateway.js'
 
-/* The topic room has no authorization on join, so anything broadcast into it is readable by
-   anyone holding a topic id. These assertions mirror the redaction findByIdFull applies to
-   non-owners. */
+/* Joining a topic room takes no authorization, so these mirror the redaction findByIdFull
+   applies to non-owners. */
 describe('websocketGateway conversation broadcasts', () => {
   const secrets = {
     _id: 'conv-1',
@@ -60,8 +59,7 @@ describe('websocketGateway conversation broadcasts', () => {
       expect(payload.adapters[0]).not.toHaveProperty('config')
     })
 
-    /* updateConversation loads the conversation with `.populate('topic')` only, so these three
-       paths arrive as ObjectIds. Destructuring one replaces the id with its internal buffer. */
+    // updateConversation populates only the topic, so these three paths arrive as ObjectIds.
     test('should leave unpopulated ObjectId references intact', async () => {
       const channelId = new mongoose.Types.ObjectId()
       const agentId = new mongoose.Types.ObjectId()
