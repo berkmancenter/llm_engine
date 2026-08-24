@@ -1,4 +1,5 @@
 import { jest } from '@jest/globals'
+import mongoose from 'mongoose'
 import websocketGateway from '../../../src/websockets/websocketGateway.js'
 
 /* The topic room has no authorization on join, so anything broadcast into it is readable by
@@ -57,6 +58,21 @@ describe('websocketGateway conversation broadcasts', () => {
       expect(payload.channels[0]).not.toHaveProperty('passcode')
       expect(payload.agents[0].agentConfig).not.toHaveProperty('apiKey')
       expect(payload.adapters[0]).not.toHaveProperty('config')
+    })
+
+    /* updateConversation loads the conversation with `.populate('topic')` only, so these three
+       paths arrive as ObjectIds. Destructuring one replaces the id with its internal buffer. */
+    test('should leave unpopulated ObjectId references intact', async () => {
+      const channelId = new mongoose.Types.ObjectId()
+      const agentId = new mongoose.Types.ObjectId()
+      const adapterId = new mongoose.Types.ObjectId()
+
+      await broadcastConversation({ ...secrets, channels: [channelId], agents: [agentId], adapters: [adapterId] })
+
+      const payload = payloadOf()
+      expect(JSON.parse(JSON.stringify(payload.channels))).toEqual([channelId.toString()])
+      expect(JSON.parse(JSON.stringify(payload.agents))).toEqual([agentId.toString()])
+      expect(JSON.parse(JSON.stringify(payload.adapters))).toEqual([adapterId.toString()])
     })
 
     test('should not broadcast a conversation that has no topic', async () => {

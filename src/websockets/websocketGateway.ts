@@ -3,6 +3,13 @@ import socketIO from './socketIO.js'
 import logger from '../config/logger.js'
 import { getRoomIds } from './utils.js'
 
+/* A conversation loaded without .populate() carries ObjectId refs rather than subdocuments, and
+   destructuring one of those replaces the id with its internal buffer. Only rewrite entries that
+   already came back as plain objects. */
+const isSubdocument = (value) => value !== null && typeof value === 'object' && value.constructor === Object
+
+const redactEach = (entries, redact) => entries.map((entry) => (isSubdocument(entry) ? redact(entry) : entry))
+
 /**
  * Strip credentials out of a conversation before it goes into a topic room.
  * Joining a topic room takes no authorization, so this payload reaches anyone holding a
@@ -19,17 +26,17 @@ function redactConversationForBroadcast(conversation) {
     ...rest,
     ...(channels && {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      channels: channels.map(({ passcode, ...channel }) => channel)
+      channels: redactEach(channels, ({ passcode, ...channel }) => channel)
     }),
     ...(agents && {
-      agents: agents.map(({ agentConfig, ...agent }) => {
+      agents: redactEach(agents, ({ agentConfig, ...agent }) => {
         // botName is display copy the client needs to label the chat, so it survives the strip.
         const botName = agentConfig?.botName
         return typeof botName === 'string' && botName !== '' ? { ...agent, agentConfig: { botName } } : agent
       })
     }),
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    ...(adapters && { adapters: adapters.map(({ config, ...adapter }) => adapter) })
+    ...(adapters && { adapters: redactEach(adapters, ({ config, ...adapter }) => adapter) })
   }
 }
 
