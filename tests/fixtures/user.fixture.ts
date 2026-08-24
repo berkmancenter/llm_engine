@@ -17,6 +17,10 @@ const userOne: any = {
   isEmailVerified: false
 }
 
+/* A second organizer, not an ordinary person: the routes it exercises (resource upload, poll
+   authoring, transcripts) all require admin, and the ownership checks behind them are only
+   reachable by an account that clears the rights gate first. Use `participant` below when
+   asserting what someone without organizer rights cannot do. */
 const userTwo = {
   _id: new mongoose.Types.ObjectId(),
   username: faker.name.findName(),

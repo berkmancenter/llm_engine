@@ -8,7 +8,6 @@
 const participantRights = [
   'createMessage',
   'getConversation',
-  'userConversations',
   'vote',
   'respondPoll',
   'inspectPoll',
@@ -28,6 +27,9 @@ const adminOnlyRights = [
   'patchConversationAgent',
   'joinConversation',
   'followConversation',
+  /* Reads back conversations you own or follow. Both of those need admin rights, so a
+     participant holding this would only ever get an empty list. */
+  'userConversations',
   'publicConversations',
   'activeConversations',
   'topicConversations',

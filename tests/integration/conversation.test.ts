@@ -308,6 +308,12 @@ describe('Conversation routes', () => {
       await asParticipant(request(app).get('/v1/conversations/active')).send().expect(httpStatus.FORBIDDEN)
     })
 
+    /* Owning and following are both admin-only, so this endpoint could only ever hand a
+       participant an empty list. It is denied outright rather than granted and useless. */
+    test('should return 403 when a participant lists their own conversations', async () => {
+      await asParticipant(request(app).get('/v1/conversations/userConversations')).send().expect(httpStatus.FORBIDDEN)
+    })
+
     test('should return 403 when a participant lists conversations for a topic', async () => {
       await asParticipant(request(app).get(`/v1/conversations/topic/${publicTopic._id}`))
         .send()

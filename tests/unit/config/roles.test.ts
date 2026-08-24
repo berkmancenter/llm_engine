@@ -5,7 +5,6 @@ import { roles, roleRights } from '../../../src/config/roles.js'
 const PARTICIPANT_RIGHTS = [
   'createMessage',
   'getConversation',
-  'userConversations',
   'vote',
   'respondPoll',
   'inspectPoll',
@@ -36,7 +35,17 @@ const ADMINISTRATION_RIGHTS = [
   'getTranscript'
 ]
 
-const ENUMERATION_RIGHTS = ['publicConversations', 'activeConversations', 'topicConversations', 'allTopics', 'userTopics']
+const ENUMERATION_RIGHTS = [
+  'publicConversations',
+  'activeConversations',
+  'topicConversations',
+  'allTopics',
+  'userTopics',
+  /* userConversations returns conversations you own or follow. A participant can do neither,
+     since createConversation and followConversation are both admin-only, so granting it would
+     only ever return an empty list. */
+  'userConversations'
+]
 
 describe('roles config', () => {
   describe('participant role', () => {
