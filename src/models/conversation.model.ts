@@ -109,6 +109,12 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
       type: Boolean,
       default: true
     },
+    /* Set only at creation (see createConversation); update never touches it, so this can't
+       flip on or off mid-conversation — see IConversation.useRealNames. */
+    useRealNames: {
+      type: Boolean,
+      default: false
+    },
     owner: {
       type: mongoose.SchemaTypes.ObjectId,
       ref: 'BaseUser',

@@ -266,7 +266,12 @@ describe('Message service methods', () => {
     })
 
     const createRoom = async (owner) => {
-      const conversationData = { ...conversationOne, conversationType: 'communityRoom', owner: owner._id }
+      const conversationData = {
+        ...conversationOne,
+        conversationType: 'communityRoom',
+        useRealNames: true,
+        owner: owner._id
+      }
       delete conversationData._id
       return Conversation.create(conversationData)
     }

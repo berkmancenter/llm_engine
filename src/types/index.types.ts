@@ -345,6 +345,11 @@ export interface ConversationType {
   channels?: ChannelConfig[]
   enableDMs?: string[]
   adapters?: Record<string, AdapterConfig>
+  /* Default for a conversation of this type's own useRealNames flag (see IConversation),
+     applied at creation only — see conversation.service/index.ts's createConversation. A
+     caller can still override it explicitly in the create body; this is just the type's
+     fallback when they don't. */
+  useRealNames?: boolean
 }
 
 export interface Profile {
@@ -494,6 +499,12 @@ export interface IConversation {
   draft?: boolean
   locked?: boolean
   enableAgents?: boolean
+  /* Whether a poster's real-name pseudonym entry (rather than their active anonymous
+     pseudonym) gets stamped on their messages here — see resolveMessageName in
+     message.service.ts. Set only at creation, from the create body or else the
+     conversation type's own useRealNames default (see ConversationType); update always
+     ignores it, so an owner can never flip anonymity on or off mid-conversation. */
+  useRealNames?: boolean
   owner: IUser
   topic: ITopic
   // How this conversation was created, when not the standard event-creation form. Deliberately

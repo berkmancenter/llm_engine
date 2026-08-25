@@ -8,7 +8,6 @@ import websocketGateway from '../websockets/websocketGateway.js'
 import { IAgent, IMessage, AgentMessageActions } from '../types/index.types.js'
 import authChannels from '../utils/authChannels.js'
 import channelService from './channel.service.js'
-import communityRoom from '../conversations/communityRoom.js'
 
 /**
  * Resolve the pseudonym to stamp on a message `user` posts into `conversation`.
@@ -18,12 +17,13 @@ import communityRoom from '../conversations/communityRoom.js'
  * agents (newMessageHandler) — and all three route through here so they can never
  * disagree about which identity applies.
  *
- * The community room resolves membership through a real-name pseudonym entry
- * scoped to the conversation (isRealName: true, `conversations` includes this
- * conversation's id — see userService.createUser), not through the account's
- * active pseudonym. Getting into the room requires registration, so a missing
- * entry means the caller never registered rather than a reason to fall back to an
- * anonymous pseudonym — this throws instead of guessing.
+ * A conversation with useRealNames set (see IConversation.useRealNames — e.g. the
+ * community room, see communityRoom.ts) resolves membership through a real-name
+ * pseudonym entry scoped to the conversation (isRealName: true, `conversations`
+ * includes this conversation's id — see userService.createUser), not through the
+ * account's active pseudonym. Getting into such a conversation requires registration,
+ * so a missing entry means the caller never registered rather than a reason to fall
+ * back to an anonymous pseudonym — this throws instead of guessing.
  *
  * Every other conversation resolves to the account's active pseudonym, re-selected
  * here with an explicit `!isRealName` filter rather than trusting the bare
@@ -33,13 +33,13 @@ import communityRoom from '../conversations/communityRoom.js'
  *
  * `user` here is also, in practice, an Agent posting a response (see
  * agentResponseToMessageData / the agent job handlers) — an agent has its own
- * pseudonym (its bot name) but is never a registered room member, so the room's
- * real-name lookup only applies to an actual human poster. `agentType` is an
- * Agent-only field (required on every Agent document, absent on every User), so
- * it's what distinguishes the two here.
+ * pseudonym (its bot name) but is never a registered room member, so the real-name
+ * lookup only applies to an actual human poster. `agentType` is an Agent-only field
+ * (required on every Agent document, absent on every User), so it's what
+ * distinguishes the two here.
  */
 export const resolveMessageName = (user, conversation) => {
-  if (!user.agentType && conversation.conversationType === communityRoom.name) {
+  if (!user.agentType && conversation.useRealNames) {
     const conversationId = conversation._id.toString()
     const realName = user.pseudonyms.find((p) => p.isRealName && p.conversations.includes(conversationId))
     if (!realName) {
@@ -60,7 +60,8 @@ export const resolveMessageName = (user, conversation) => {
  * Note for real-name pseudonym entries (isRealName: true, see IPseudonym): they are
  * excluded from the conversation-pin lookup below on purpose, so they never affect
  * who can post here — see the inline comment at pseudoForConversation. The lookup
- * itself is skipped entirely for the community room — see the inline comment below.
+ * itself is skipped entirely for a useRealNames conversation — see the inline comment
+ * below.
  * @param {Object} messageBody
  * @param {User} user
  * @returns {Promise<Conversation>}
@@ -84,11 +85,11 @@ const fetchConversation = async (messageBody, user) => {
   if (conversation.locked) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'This conversation is locked and cannot receive messages.')
   }
-  // The room resolves identity through a real-name entry pre-seeded with this
-  // conversation at registration (see userService.createUser), not through this
-  // pin — running it on the room path would reject the room's very first post
-  // before that name resolution ever gets a chance to run.
-  if (conversation.conversationType !== communityRoom.name) {
+  // A useRealNames conversation resolves identity through a real-name entry pre-seeded
+  // with this conversation at registration (see userService.createUser), not through
+  // this pin — running it there would reject the conversation's very first post before
+  // that name resolution ever gets a chance to run.
+  if (!conversation.useRealNames) {
     const activePseudo = resolveMessageName(user, conversation)
     // Real-name entries are excluded here deliberately: they can carry a conversation
     // in their own `conversations` scoping (see userService.createUser), but that's
