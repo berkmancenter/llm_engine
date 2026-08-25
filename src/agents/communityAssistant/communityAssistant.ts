@@ -10,6 +10,10 @@ import { getTools, buildToolsGuidance } from '../tools/registry.js'
 import Conversation from '../../models/conversation.model.js'
 import config from '../../config/config.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
+import { evaluateVoiceTrigger, extractVoiceQuestion, VOICE_OUTPUT_RULES } from '../helpers/voiceDirectives.js'
+import type { IMessage } from '../../types/index.types.js'
+import websocketGateway from '../../websockets/websocketGateway.js'
+import logger from '../../config/logger.js'
 
 const BASE_SYSTEM_PROMPT = `You are {botName}, a helpful AI assistant participating in a community chat. You help community members with questions, discussion, and finding information relevant to the community. You can engage with any topic or inquiry—from casual conversation to technical questions, creative tasks, analysis, debugging, writing, math, and beyond. There are no subject limits.
 
@@ -19,7 +23,6 @@ const BASE_SYSTEM_PROMPT = `You are {botName}, a helpful AI assistant participat
 - For factual questions, be accurate and acknowledge uncertainty when it exists.
 - For creative or open-ended tasks, engage fully and offer your perspective.
 - Match response depth to the question—short questions don't always need long answers.
-- You are talking in a shared channel, so keep context of the group conversation in mind.
 - The message you are being asked to respond to is labeled **## Question:**
 
 {toolGuidance}Search efficiently: one or two tool calls usually suffice, and never re-run near-identical queries against the same source. For questions answerable from conversation history alone, respond directly without calling any tools.`
@@ -31,13 +34,14 @@ export default verify({
   priority: 100,
   maxTokens: 4000,
   defaultTriggers: {
-    perMessage: { channels: ['chat'] }
+    perMessage: { directMessages: true, channels: ['chat', 'transcript'] }
   },
   agentConfig: {
     enablePersonality: config.enableAgentPersonality,
     tools: ['event_history', 'bkc_archive_wiki', 'web_search'] as string[],
     topicIds: [] as string[],
-    notifications: [] as string[]
+    notifications: [] as string[],
+    streaming: undefined as boolean | undefined
   },
   llmTemplateVars: {
     user: [{ name: 'question', description: 'The user message or question' }]
@@ -48,9 +52,13 @@ export default verify({
   defaultLLMPlatform,
   defaultLLMModel,
   ragCollectionName: undefined,
-  defaultConversationHistorySettings: { count: 100, channels: ['chat'] },
+  defaultConversationHistorySettings: { count: 100, directMessages: true, channels: ['chat', 'transcript'] },
 
   async evaluate(userMessage) {
+    const isVoice = userMessage?.channels?.includes('transcript')
+    if (isVoice) {
+      return evaluateVoiceTrigger(userMessage, this.agentConfig.botName, this.conversation.messages as IMessage[])
+    }
     const words = userMessage?.body?.trim().split(/\s+/) ?? []
     const modifiedMessage = matchBotMention(words, this.agentConfig.botName)
       ? { ...userMessage, body: normalizeBotMention(userMessage.body, this.agentConfig.botName) }
@@ -64,12 +72,30 @@ export default verify({
   },
 
   async respond(conversationHistory: ConversationHistory, userMessage) {
+    const isVoice = userMessage?.channels?.includes('transcript')
+    const isDM = this.conversation.channels.some(
+      (channel) => channel.direct && userMessage?.channels?.includes(channel.name)
+    )
     const llm = await this.getLLM()
-    if (!(await checkBotIntent(llm, this.agentConfig.botName, userMessage))) {
-      return []
+
+    let question: string
+    if (isVoice) {
+      const voiceQuestion = extractVoiceQuestion(
+        userMessage,
+        this.conversation.messages as IMessage[],
+        this.agentConfig.botName
+      )
+      if (!voiceQuestion) return []
+      question = voiceQuestion
+    } else if (isDM) {
+      question = extractMessageText(userMessage).trim()
+    } else {
+      if (!(await checkBotIntent(llm, this.agentConfig.botName, userMessage))) {
+        return []
+      }
+      question = extractMessageText(userMessage).trim()
     }
     const chatHistory = formatMultiUserConversationHistory(conversationHistory)
-    const question = extractMessageText(userMessage).trim()
 
     const toolNames: string[] = this.agentConfig?.tools || []
     const topicIds: string[] = this.agentConfig?.topicIds || []
@@ -85,13 +111,32 @@ export default verify({
       '{toolGuidance}',
       await buildToolsGuidance(toolNames, { topicIds })
     )
-    const systemPrompt = composeSystemPrompt(systemPromptBase, { personalityName })
+    const systemPrompt =
+      composeSystemPrompt(systemPromptBase, {
+        personalityName,
+        behaviorPolicy: this.conversation.behaviorPolicy,
+        channelType: isDM ? 'dm' : 'groupChat'
+      }) + (isVoice ? VOICE_OUTPUT_RULES : '')
 
     const tools: StructuredToolInterface[] = await getTools(toolNames, { topicIds })
 
-    // Build message array: chat history + current question
-    // Recursion limit: each tool round-trip costs 2 graph steps; with both event-history
-    // and archive tool sets the agent may need to consult several before answering.
+    const inputChannelNames = userMessage?.channels ?? ['chat']
+
+    // Stream sentences via websocket when enabled (or when in voice mode by default) so the
+    // platform adapter can speak each one as it arrives. Recursion limit: each tool round-trip
+    // costs 2 graph steps; with both event-history and archive tool sets the agent may need to
+    // consult several before answering.
+    const shouldStream = this.agentConfig?.streaming ?? isVoice
+    const conversationId = this.conversation._id.toString()
+    const requestId = (userMessage.source?.requestId as string | undefined) ?? conversationId
+    const onChunk = shouldStream
+      ? (text: string) => {
+          websocketGateway
+            .broadcastMessageChunk(conversationId, inputChannelNames, { requestId, text, done: false })
+            .catch((err) => logger.warn(`Failed to broadcast message chunk: ${err}`))
+        }
+      : undefined
+
     const response = await getAgentStructuredResponse(
       llm,
       tools,
@@ -99,11 +144,18 @@ export default verify({
       `## Question:\n${question}`,
       undefined,
       chatHistory,
-      30
+      30,
+      onChunk ? { onChunk } : undefined
     )
 
-    const responseChannels = this.conversation.channels.filter((channel) => channel.name === 'chat')
+    const responseChannels = this.conversation.channels.filter((channel) => inputChannelNames.includes(channel.name))
     const parentMessageId = userMessage.parentMessage
+
+    if (shouldStream) {
+      await websocketGateway
+        .broadcastMessageChunk(conversationId, inputChannelNames, { requestId, text: '', done: true })
+        .catch((err) => logger.warn(`Failed to broadcast final message chunk marker: ${err}`))
+    }
 
     return [
       {

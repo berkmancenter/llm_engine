@@ -11,8 +11,9 @@ import {
   loadAliensTranscript
 } from '../../utils/agentTestHelpers.js'
 import { Agent, Channel } from '../../../src/models/index.js'
-import { ConversationHistory } from '../../../src/types/index.types.js'
+import { AgentMessageActions, ConversationHistory } from '../../../src/types/index.types.js'
 import { newPublicTopic, insertTopics } from '../../fixtures/topic.fixture.js'
+import websocketGateway from '../../../src/websockets/websocketGateway.js'
 
 jest.setTimeout(300000)
 
@@ -298,6 +299,162 @@ A single mom of two children with primary custody, she is passionate about findi
     })
   })
 
+  describe('voice mode (transcript channel)', () => {
+    let voiceAgent
+    let voiceConversation
+
+    beforeEach(async () => {
+      voiceConversation = await createConversation({ name: 'Voice Community Assistant Test' }, user1, topic)
+      voiceAgent = new Agent({
+        agentType: 'communityAssistant',
+        conversation: voiceConversation,
+        llmPlatform: testConfig.llmPlatform,
+        llmModel: testConfig.llmModel,
+        agentConfig: { botName: BOT_NAME }
+      })
+      const channels = await Channel.create([{ name: 'chat' }, { name: 'transcript' }])
+      voiceConversation.channels.push(...channels)
+      await voiceAgent.save()
+      voiceConversation.agents.push(voiceAgent)
+      await voiceConversation.save()
+      await voiceAgent.start()
+    })
+
+    it('evaluate: returns CONTRIBUTE for a transcript message with wake phrase and question', async () => {
+      const msg = await createMessage(`hey ${BOT_NAME} what time is it?`, user1, voiceConversation, ['transcript'])
+      const result = await defaultAgentTypes.communityAssistant.evaluate.call(voiceAgent, msg)
+      expect(result.action).toBe(AgentMessageActions.CONTRIBUTE)
+    })
+
+    it('evaluate: returns OK (not CONTRIBUTE) for a transcript message without wake phrase', async () => {
+      const msg = await createMessage('just a regular utterance', user1, voiceConversation, ['transcript'])
+      const result = await defaultAgentTypes.communityAssistant.evaluate.call(voiceAgent, msg)
+      expect(result.action).toBe(AgentMessageActions.OK)
+    })
+
+    it('evaluate: returns OK for bare wake phrase (waiting for follow-up)', async () => {
+      const msg = await createMessage(`hey ${BOT_NAME}`, user1, voiceConversation, ['transcript'])
+      const result = await defaultAgentTypes.communityAssistant.evaluate.call(voiceAgent, msg)
+      expect(result.action).toBe(AgentMessageActions.OK)
+    })
+
+    it('respond: returns empty when transcript message has no wake phrase', async () => {
+      const msg = await createMessage('just talking amongst ourselves', user1, voiceConversation, ['transcript'])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(voiceAgent, buildHistory([]), msg)
+      expect(responses).toHaveLength(0)
+    })
+
+    it('respond: answers a voice question and outputs to the transcript channel', async () => {
+      const msg = await createMessage(`hey ${BOT_NAME} what is the capital of France?`, user1, voiceConversation, [
+        'transcript'
+      ])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(voiceAgent, buildHistory([]), msg)
+
+      expect(responses).toHaveLength(1)
+      expect(responses[0].message).toBeDefined()
+      expect(responses[0].message.toLowerCase()).toContain('paris')
+      expect(responses[0].channels.map((c) => c.name)).toContain('transcript')
+      expect(responses[0].channels.map((c) => c.name)).not.toContain('chat')
+    })
+
+    it('respond: chat messages still output to the chat channel', async () => {
+      const msg = await createMessage(`@${BOT_NAME} what is the capital of Germany?`, user1, voiceConversation, ['chat'])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(voiceAgent, buildHistory([]), msg)
+
+      expect(responses).toHaveLength(1)
+      expect(responses[0].channels.map((c) => c.name)).toContain('chat')
+      expect(responses[0].channels.map((c) => c.name)).not.toContain('transcript')
+    })
+
+    it('respond: streams sentence-level message:chunk events on the transcript channel', async () => {
+      const broadcastedChunks: Array<{ text: string; done: boolean; channels: string[] }> = []
+      const spy = jest
+        .spyOn(websocketGateway, 'broadcastMessageChunk')
+        .mockImplementation(async (_convId, channels, payload) => {
+          broadcastedChunks.push({ text: payload.text, done: payload.done, channels })
+        })
+
+      const msg = await createMessage(`hey ${BOT_NAME} what is the capital of France?`, user1, voiceConversation, [
+        'transcript'
+      ])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(voiceAgent, buildHistory([]), msg)
+      spy.mockRestore()
+
+      const sentenceChunks = broadcastedChunks.filter((c) => !c.done)
+      const doneMarkers = broadcastedChunks.filter((c) => c.done)
+
+      // At least one sentence should have been streamed before the final marker
+      expect(sentenceChunks.length).toBeGreaterThan(0)
+      sentenceChunks.forEach((c) => expect(c.channels).toContain('transcript'))
+
+      // Exactly one done marker at the end, with empty text
+      expect(doneMarkers).toHaveLength(1)
+      expect(doneMarkers[0].text).toBe('')
+      expect(doneMarkers[0].channels).toContain('transcript')
+
+      // The assembled streamed text should answer the question
+      const assembled = sentenceChunks.map((c) => c.text).join(' ')
+      expect(assembled.toLowerCase()).toContain('paris')
+
+      // The full response is also returned for persistence
+      expect(responses).toHaveLength(1)
+      expect(responses[0].message.toLowerCase()).toContain('paris')
+    })
+  })
+
+  describe('streaming configuration', () => {
+    async function createStreamingAgent(streaming: boolean | undefined) {
+      const conv = await createConversation({ name: `Streaming Config Test (${streaming})` }, user1, topic)
+      const testAgent = new Agent({
+        agentType: 'communityAssistant',
+        conversation: conv,
+        llmPlatform: testConfig.llmPlatform,
+        llmModel: testConfig.llmModel,
+        agentConfig: { botName: BOT_NAME, streaming }
+      })
+      const channels = await Channel.create([{ name: 'chat' }])
+      conv.channels.push(...channels)
+      await testAgent.save()
+      conv.agents.push(testAgent)
+      await conv.save()
+      await testAgent.start()
+      return { conv, testAgent }
+    }
+
+    it('broadcasts message:chunk events on the chat channel when streaming: true is configured', async () => {
+      const { conv, testAgent } = await createStreamingAgent(true)
+      const broadcastedChunks: Array<{ text: string; done: boolean; channels: string[] }> = []
+      const spy = jest
+        .spyOn(websocketGateway, 'broadcastMessageChunk')
+        .mockImplementation(async (_convId, channels, payload) => {
+          broadcastedChunks.push({ text: payload.text, done: payload.done, channels })
+        })
+
+      const msg = await createMessage(`@${BOT_NAME} what is the capital of Japan?`, user1, conv, ['chat'])
+      await defaultAgentTypes.communityAssistant.respond.call(testAgent, buildHistory([]), msg)
+      spy.mockRestore()
+
+      const sentenceChunks = broadcastedChunks.filter((c) => !c.done)
+      const doneMarkers = broadcastedChunks.filter((c) => c.done)
+
+      expect(sentenceChunks.length).toBeGreaterThan(0)
+      sentenceChunks.forEach((c) => expect(c.channels).toContain('chat'))
+      expect(doneMarkers).toHaveLength(1)
+      expect(doneMarkers[0].channels).toContain('chat')
+    })
+
+    it('does not broadcast message:chunk events for chat input when streaming is not configured', async () => {
+      const { conv, testAgent } = await createStreamingAgent(undefined)
+      const spy = jest.spyOn(websocketGateway, 'broadcastMessageChunk').mockImplementation(async () => {})
+
+      const msg = await createMessage(`@${BOT_NAME} what is the capital of Japan?`, user1, conv, ['chat'])
+      await defaultAgentTypes.communityAssistant.respond.call(testAgent, buildHistory([]), msg)
+      spy.mockRestore()
+
+      expect(spy).not.toHaveBeenCalled()
+    })
+  })
+
   describe('tool configuration', () => {
     async function createAgentWithTools(tools: string[]) {
       const conv = await createConversation({ name: `Tool Config Test (${tools.join(',')})` }, user1, topic)
@@ -411,6 +568,67 @@ A single mom of two children with primary custody, she is passionate about findi
 
       expect(responses[0].channels).toHaveLength(1)
       expect(responses[0].channels[0].name).toBe('chat')
+    })
+  })
+
+  describe('DM support', () => {
+    let dmAgent
+    let dmConversation
+    let dmChannel
+
+    beforeEach(async () => {
+      dmConversation = await createConversation({ name: 'DM Community Assistant Test' }, user1, topic)
+      dmAgent = new Agent({
+        agentType: 'communityAssistant',
+        conversation: dmConversation,
+        llmPlatform: testConfig.llmPlatform,
+        llmModel: testConfig.llmModel,
+        agentConfig: { botName: BOT_NAME }
+      })
+      const [chatChannel, direct] = await Channel.create([
+        { name: 'chat' },
+        { name: `dm-${user1._id}-${dmAgent._id}`, direct: true, participants: [user1._id, dmAgent._id] }
+      ])
+      dmChannel = direct
+      dmConversation.channels.push(chatChannel, dmChannel)
+      await dmAgent.save()
+      dmConversation.agents.push(dmAgent)
+      await dmConversation.save()
+      await dmAgent.start()
+    })
+
+    it('responds to a DM message without requiring an @mention', async () => {
+      const msg = await createMessage('what is the capital of Spain?', user1, dmConversation, [dmChannel.name])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(dmAgent, buildHistory([]), msg)
+
+      expect(responses).toHaveLength(1)
+      expect(responses[0].message).toBeDefined()
+      expect(responses[0].message.toLowerCase()).toContain('madrid')
+    })
+
+    it('responds to casual DM conversation that would not trigger bot intent in a public channel', async () => {
+      const msg = await createMessage('hey, how are you doing today?', user1, dmConversation, [dmChannel.name])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(dmAgent, buildHistory([]), msg)
+
+      expect(responses).toHaveLength(1)
+      expect(responses[0].message).toBeDefined()
+    })
+
+    it('directs the DM response back to the DM channel', async () => {
+      const msg = await createMessage('what is 2 + 2?', user1, dmConversation, [dmChannel.name])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(dmAgent, buildHistory([]), msg)
+
+      expect(responses).toHaveLength(1)
+      const responseChannelNames = responses[0].channels.map((c) => c.name)
+      expect(responseChannelNames).toContain(dmChannel.name)
+      expect(responseChannelNames).not.toContain('chat')
+    })
+
+    it('does not respond to casual chat-channel conversation not directed at the bot', async () => {
+      const msg = await createMessage('I had a great time at the last event', user1, dmConversation, ['chat'])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(dmAgent, buildHistory([]), msg)
+
+      expect(responses).toHaveLength(0)
     })
   })
 

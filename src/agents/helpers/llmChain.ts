@@ -582,6 +582,113 @@ async function getRAGAugmentedResponse(
  *
 
  */
+/** Extracts plain text from a streamed chat model chunk's content (string or content-block array). */
+function extractChunkText(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) {
+    return content.map((c) => (typeof c?.text === 'string' ? c.text : '')).join('')
+  }
+  return ''
+}
+
+/**
+ * Splits accumulated streamed text into complete sentences, returning the trailing
+ * partial sentence (not yet terminated) as the remainder to keep accumulating.
+ *
+ * Uses a lazy match up to a terminator-followed-by-whitespace-or-end rather than
+ * prohibiting the sentence body from containing any .!? — the latter cannot span
+ * an embedded non-terminal period (e.g. "cyber.harvard.edu") and produces repeated
+ * garbled fragments when responses contain Markdown links with dotted domains.
+ */
+function extractCompleteSentences(text: string): { sentences: string[]; remainder: string } {
+  const pattern = /.*?[.!?](?=\s|$)/gs
+  const sentences: string[] = []
+  let lastEnd = 0
+  for (;;) {
+    const match = pattern.exec(text)
+    if (match === null) break
+    const trimmed = match[0].trim()
+    if (trimmed) sentences.push(trimmed)
+    lastEnd = pattern.lastIndex
+    if (match[0].length === 0) pattern.lastIndex += 1
+  }
+  return { sentences, remainder: text.slice(lastEnd) }
+}
+
+/**
+ * Runs the agent via streamEvents() instead of invoke(), calling onChunk for each
+ * complete sentence of the answer as soon as it is safe to speak — so a voice client
+ * can start speaking before the full response finishes.
+ *
+ * Two phases split on whether a tool has been called yet:
+ * - Before any tool call: buffers each turn's text by run_id and only speaks it once
+ *   on_chat_model_end confirms no tool was called (narration attached to a real tool
+ *   call is discarded, not spoken — confirmed live with Claude on Bedrock).
+ * - After the first tool call: speaks sentences immediately as they stream, since the
+ *   model is generating from research already in hand and does not interleave narration.
+ *
+ * Returns the same LangGraph final state agent.invoke() would have returned.
+ */
+async function streamAgentAndReportChunks(agent, messages, recursionLimit: number, onChunk: (text: string) => void) {
+  const stream = agent.streamEvents({ messages }, { version: 'v2', recursionLimit })
+  const pendingByRun = new Map<string, string>()
+  let toolCalledOnce = false
+  let liveBuffer = ''
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let finalState: any = null
+
+  for await (const event of stream) {
+    if (event.event === 'on_tool_start') {
+      toolCalledOnce = true
+      pendingByRun.delete(event.run_id)
+      liveBuffer = ''
+      continue
+    }
+    if (event.event === 'on_chat_model_stream') {
+      const chunk = event.data?.chunk
+      const toolCallChunks = chunk?.tool_call_chunks
+      if (Array.isArray(toolCallChunks) && toolCallChunks.length > 0) continue
+
+      const textPiece = extractChunkText(chunk?.content)
+      if (!textPiece) continue
+
+      if (toolCalledOnce) {
+        liveBuffer += textPiece
+        const { sentences, remainder } = extractCompleteSentences(liveBuffer)
+        liveBuffer = remainder
+        for (const sentence of sentences) onChunk(sentence)
+      } else {
+        pendingByRun.set(event.run_id, (pendingByRun.get(event.run_id) || '') + textPiece)
+      }
+      continue
+    }
+    if (event.event === 'on_chat_model_end' && !toolCalledOnce) {
+      const buffered = pendingByRun.get(event.run_id)
+      pendingByRun.delete(event.run_id)
+      if (!buffered) continue
+      const toolCalls = event.data?.output?.tool_calls
+      const calledTool = Array.isArray(toolCalls) && toolCalls.length > 0
+      if (calledTool) continue
+      const { sentences, remainder } = extractCompleteSentences(buffered)
+      for (const sentence of sentences) onChunk(sentence)
+      const trailing = remainder.trim()
+      if (trailing) onChunk(trailing)
+      continue
+    }
+    if (event.event === 'on_chain_end' && event.name === 'LangGraph') {
+      finalState = event.data?.output
+    }
+  }
+
+  const trailing = liveBuffer.trim()
+  if (trailing) onChunk(trailing)
+
+  if (!finalState) {
+    throw new Error('Streaming agent run ended without a final LangGraph state')
+  }
+  return finalState
+}
+
 async function getAgentStructuredResponse(
   llm,
   tools,
@@ -590,7 +697,7 @@ async function getAgentStructuredResponse(
   responseSchema?,
   chatHistory?,
   recursionLimit = 20,
-  options?: { returnToolTrace?: boolean }
+  options?: { returnToolTrace?: boolean; onChunk?: (text: string) => void }
 ) {
   // Add format instructions to system prompt if schema is provided
   let finalSystemPrompt = systemPrompt
@@ -618,12 +725,9 @@ ${parser.getFormatInstructions()}`
     { role: 'user', content: userMessage }
   ]
 
-  const agentResult = await agent.invoke(
-    {
-      messages
-    },
-    { recursionLimit }
-  )
+  const agentResult = options?.onChunk
+    ? await streamAgentAndReportChunks(agent, messages, recursionLimit, options.onChunk)
+    : await agent.invoke({ messages }, { recursionLimit })
 
   const wantTrace = options?.returnToolTrace === true && responseSchema == null
   const toolTrace = wantTrace ? extractToolCallTraceFromAgentResult(agentResult) : undefined
@@ -645,5 +749,7 @@ export {
   pingLLM,
   getStructuredResponseChain,
   getAgentStructuredResponse,
-  extractToolCallTraceFromAgentResult
+  extractToolCallTraceFromAgentResult,
+  extractCompleteSentences,
+  streamAgentAndReportChunks
 }

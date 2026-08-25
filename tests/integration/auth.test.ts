@@ -13,8 +13,8 @@ import setupIntTest from '../utils/setupIntTest.js'
 import { User, Token } from '../../src/models/index.js'
 import { roleRights } from '../../src/config/roles.js'
 import tokenTypes from '../../src/config/tokens.js'
-import { userOne, admin, insertUsers, registeredUser } from '../fixtures/user.fixture.js'
-import { userOneAccessToken, adminAccessToken } from '../fixtures/token.fixture.js'
+import { userOne, admin, participant, insertUsers, registeredUser } from '../fixtures/user.fixture.js'
+import { userOneAccessToken, adminAccessToken, participantAccessToken } from '../fixtures/token.fixture.js'
 
 setupIntTest()
 
@@ -35,7 +35,7 @@ describe('Auth routes', () => {
       const res = await request(app).post('/v1/auth/register').send(newUser).expect(httpStatus.CREATED)
 
       expect(res.body.user).not.toHaveProperty('password')
-      expect(res.body.user.role).toEqual('admin')
+      expect(res.body.user.role).toEqual('participant')
       expect(res.body.user.pseudonyms).toHaveLength(1)
       expect(res.body.user.pseudonyms[0].active).toBe(true)
 
@@ -90,7 +90,7 @@ describe('Auth routes', () => {
       const res = await request(app).post('/v1/auth/login').send(loginCredentials).expect(httpStatus.OK)
 
       expect(res.body.user).not.toHaveProperty('password')
-      expect(res.body.user.role).toEqual('user')
+      expect(res.body.user.role).toEqual('admin')
       expect(res.body.user.pseudonyms).toHaveLength(1)
       expect(res.body.user.pseudonyms[0].active).toBe(true)
 
@@ -448,15 +448,59 @@ describe('Auth middleware', () => {
     expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: httpStatus.FORBIDDEN, message: 'Forbidden' }))
   })
 
-  test('should call next with no errors if user does not have required rights but userId is in params', async () => {
-    await insertUsers([userOne])
+  // Without this, any :userId route becomes self-service for the account named in the URL.
+  test('should call next with forbidden error if user does not have required rights even when userId in params is their own', async () => {
+    await insertUsers([participant])
     const req = httpMocks.createRequest({
-      headers: { Authorization: `Bearer ${userOneAccessToken}` },
-      params: { userId: userOne._id.toHexString() }
+      headers: { Authorization: `Bearer ${participantAccessToken}` },
+      params: { userId: participant._id.toHexString() }
     })
     const next = jest.fn()
 
-    await auth('anyRight')(req, httpMocks.createResponse(), next)
+    await auth('manageUsers')(req, httpMocks.createResponse(), next)
+
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: httpStatus.FORBIDDEN, message: 'Forbidden' }))
+  })
+
+  test('should call next with no errors when a participant reads their own account', async () => {
+    await insertUsers([participant])
+    const req = httpMocks.createRequest({
+      headers: { Authorization: `Bearer ${participantAccessToken}` },
+      params: { userId: participant._id.toHexString() }
+    })
+    const next = jest.fn()
+
+    await auth('getUser')(req, httpMocks.createResponse(), next)
+
+    expect(next).toHaveBeenCalledWith()
+  })
+
+  test('should call next with forbidden error if a participant requests an administration right', async () => {
+    await insertUsers([participant])
+    const req = httpMocks.createRequest({ headers: { Authorization: `Bearer ${participantAccessToken}` } })
+    const next = jest.fn()
+
+    await auth('deleteConversation')(req, httpMocks.createResponse(), next)
+
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: httpStatus.FORBIDDEN, message: 'Forbidden' }))
+  })
+
+  test('should call next with forbidden error if a participant requests a user management right', async () => {
+    await insertUsers([participant])
+    const req = httpMocks.createRequest({ headers: { Authorization: `Bearer ${participantAccessToken}` } })
+    const next = jest.fn()
+
+    await auth('getUsers')(req, httpMocks.createResponse(), next)
+
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: httpStatus.FORBIDDEN, message: 'Forbidden' }))
+  })
+
+  test('should call next with no errors if a participant posts a message', async () => {
+    await insertUsers([participant])
+    const req = httpMocks.createRequest({ headers: { Authorization: `Bearer ${participantAccessToken}` } })
+    const next = jest.fn()
+
+    await auth('createMessage')(req, httpMocks.createResponse(), next)
 
     expect(next).toHaveBeenCalledWith()
   })

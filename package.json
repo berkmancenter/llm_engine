@@ -53,6 +53,7 @@
   "keywords": [],
   "dependencies": {
     "@aws-sdk/client-bedrock": "^3.883.0",
+    "@google-cloud/monitoring": "^6.0.0",
     "@google/generative-ai": "^0.24.1",
     "@langchain/community": "^1.0.0",
     "@langchain/core": "^1.0.0",
@@ -87,6 +88,7 @@
     "express-mongo-sanitize": "^2.2.0",
     "express-rate-limit": "^7.5.0",
     "fuzzball": "^2.2.2",
+    "gcp-metadata": "^9.0.3",
     "googleapis": "^144.0.0",
     "handlebars": "^4.7.9",
     "helmet": "^8.0.0",

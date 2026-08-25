@@ -4,8 +4,8 @@ import mongoose from 'mongoose'
 import fs from 'fs'
 import setupIntTest from '../utils/setupIntTest.js'
 import app from '../../src/app.js'
-import { insertUsers, userOne, userTwo } from '../fixtures/user.fixture.js'
-import { userOneAccessToken, userTwoAccessToken } from '../fixtures/token.fixture.js'
+import { insertUsers, userOne, userTwo, participant } from '../fixtures/user.fixture.js'
+import { userOneAccessToken, userTwoAccessToken, participantAccessToken } from '../fixtures/token.fixture.js'
 import { insertTopics } from '../fixtures/topic.fixture.js'
 import schedule from '../../src/jobs/schedule.js'
 import { Conversation, Agent, Channel, Follower, Message } from '../../src/models/index.js'
@@ -236,7 +236,7 @@ describe('Conversation routes', () => {
     setConversationTypes(testConversationTypes)
   })
   beforeEach(async () => {
-    await insertUsers([userOne, userTwo])
+    await insertUsers([userOne, userTwo, participant])
     await insertTopics([publicTopic, privateTopic])
     await insertMessages([messageOne, messageTwo, messageThree, messageFour, invisibleMessage])
     conversationOne.messages = [messageOne]
@@ -265,6 +265,65 @@ describe('Conversation routes', () => {
   })
   afterEach(async () => {
     jest.clearAllMocks()
+  })
+
+  describe('participant role restrictions', () => {
+    const asParticipant = (req) => req.set('Authorization', `Bearer ${participantAccessToken}`)
+
+    test('should return 403 when a participant creates a conversation', async () => {
+      await asParticipant(request(app).post('/v1/conversations'))
+        .send({ name: 'Participant conversation', topicId: publicTopic._id.toString() })
+        .expect(httpStatus.FORBIDDEN)
+    })
+
+    test('should return 403 when a participant deletes a conversation', async () => {
+      await asParticipant(request(app).delete(`/v1/conversations/${conversationOne._id}`))
+        .send()
+        .expect(httpStatus.FORBIDDEN)
+    })
+
+    test('should return 403 when a participant starts a conversation', async () => {
+      await asParticipant(request(app).post(`/v1/conversations/${agentConversation._id}/start`))
+        .send()
+        .expect(httpStatus.FORBIDDEN)
+    })
+
+    test('should return 403 when a participant stops a conversation', async () => {
+      await asParticipant(request(app).post(`/v1/conversations/${agentConversation._id}/stop`))
+        .send()
+        .expect(httpStatus.FORBIDDEN)
+    })
+
+    test('should return 403 when a participant updates a conversation', async () => {
+      await asParticipant(request(app).put('/v1/conversations'))
+        .send({ id: conversationOne._id.toString(), name: 'Renamed by a participant' })
+        .expect(httpStatus.FORBIDDEN)
+    })
+
+    test('should return 403 when a participant lists every conversation', async () => {
+      await asParticipant(request(app).get('/v1/conversations')).send().expect(httpStatus.FORBIDDEN)
+    })
+
+    test('should return 403 when a participant lists active conversations', async () => {
+      await asParticipant(request(app).get('/v1/conversations/active')).send().expect(httpStatus.FORBIDDEN)
+    })
+
+    // Owning and following are both admin-only, so this could only ever return an empty list.
+    test('should return 403 when a participant lists their own conversations', async () => {
+      await asParticipant(request(app).get('/v1/conversations/userConversations')).send().expect(httpStatus.FORBIDDEN)
+    })
+
+    test('should return 403 when a participant lists conversations for a topic', async () => {
+      await asParticipant(request(app).get(`/v1/conversations/topic/${publicTopic._id}`))
+        .send()
+        .expect(httpStatus.FORBIDDEN)
+    })
+
+    test('should return 200 when a participant reads a single conversation', async () => {
+      await asParticipant(request(app).get(`/v1/conversations/${conversationOne._id}`))
+        .send()
+        .expect(httpStatus.OK)
+    })
   })
 
   describe('GET /v1/conversations/', () => {
@@ -415,7 +474,7 @@ describe('Conversation routes', () => {
 
       const resp = await request(app)
         .get(`/v1/conversations/${conversationWithChannels._id.toString()}`)
-        .set('Authorization', `Bearer ${userTwoAccessToken}`)
+        .set('Authorization', `Bearer ${participantAccessToken}`)
         .expect(httpStatus.OK)
 
       expect(resp.body.channels).toHaveLength(3)
@@ -2453,11 +2512,12 @@ describe('Conversation routes', () => {
         .expect(httpStatus.UNAUTHORIZED)
     })
 
-    test('should return 403 when user is not conversation owner or topic owner', async () => {
-      // userTwo tries to update conversationOne (owned by userOne, topic owned by userOne)
+    /* Admins bypass the owner check and only admins hold updateConversation, so no HTTP caller
+       reaches it. conversation.service.test.ts covers that branch directly. */
+    test('should return 403 when a participant is not conversation owner or topic owner', async () => {
       await request(app)
         .put('/v1/conversations')
-        .set('Authorization', `Bearer ${userTwoAccessToken}`)
+        .set('Authorization', `Bearer ${participantAccessToken}`)
         .send({ name: 'Unauthorized Update', id: conversationOne._id })
         .expect(httpStatus.FORBIDDEN)
 

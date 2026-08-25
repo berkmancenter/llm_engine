@@ -42,7 +42,7 @@ const userSchema = new mongoose.Schema<IUser, UserModel>(
     role: {
       type: String,
       enum: roles,
-      default: 'user',
+      default: 'participant',
       index: true
     },
     goodReputation: {

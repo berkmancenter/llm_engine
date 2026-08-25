@@ -66,7 +66,8 @@ const communityRoom: ConversationType = {
       ]
     }
   ],
-  channels: [{ name: 'chat' }]
+  enableDMs: ['agents'],
+  channels: [{ name: 'chat', passcode: null }]
 }
 
 export default communityRoom

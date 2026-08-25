@@ -101,4 +101,28 @@ describe('conversationEvent handler', () => {
 
     await expect(handlers.conversationEvent(makeJob())).resolves.not.toThrow()
   })
+
+  /* Simulates a from-scratch retry after a mid-job kill, or a duplicate dispatch of the same
+     event (e.g. autoStopConversation retried before its `active` flip was persisted). Without
+     the claimResponseTrigger guard, this would call onConversationEvent (a real LLM call) and
+     post a second recap message for the same event. */
+  test('does not call onConversationEvent a second time for the same event', async () => {
+    const onConversationEventSpy = jest.spyOn(Agent.prototype, 'onConversationEvent').mockResolvedValue([])
+
+    await handlers.conversationEvent(makeJob())
+    await handlers.conversationEvent(makeJob())
+
+    expect(onConversationEventSpy).toHaveBeenCalledTimes(1)
+  })
+
+  test('still calls onConversationEvent for a different event type on the same conversation', async () => {
+    const onConversationEventSpy = jest.spyOn(Agent.prototype, 'onConversationEvent').mockResolvedValue([])
+
+    await handlers.conversationEvent(makeJob({ event: { type: 'conversationStopped', conversationId: conversation._id.toString() } }))
+    await handlers.conversationEvent(
+      makeJob({ event: { type: 'somethingElseEntirely', conversationId: conversation._id.toString() } })
+    )
+
+    expect(onConversationEventSpy).toHaveBeenCalledTimes(2)
+  })
 })

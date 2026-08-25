@@ -162,7 +162,10 @@ const createMessage = async (messageBody, user, conversation) => {
     message.visible = !!messageBody.visible
   }
   conversation.messages.push(message.toObject())
-  message.count = conversation.messages.reduce((count, msg) => count + (msg.visible ? 1 : 0), 0)
+  // Count documents the same way the agent save path does (saveMessage.ts), not the in-memory
+  // array: the array here is only filtered on visible, not on parentMessage, so it double-counts
+  // replies that messageCount() correctly excludes.
+  message.count = await conversation.messageCount()
   message.pause = messageBody.pause
   return message
 }
