@@ -57,6 +57,21 @@ const SUMMARIZATION_PROMPT =
   'Target 150 words total across all fields.'
 
 const summarizePdf = async (conversationId: string, resourceId: string, filePath: string, citation: string) => {
+  /* Guard against a from-scratch retry after a mid-flight kill (autoscaler scale-down,
+     rolling deploy): the final write below is a plain overwrite, so re-running is never
+     incorrect, but without this check every retry burns a full duplicate LLM call before
+     overwriting the same field. */
+  const existing = await Conversation.findOne(
+    { _id: conversationId, 'resources._id': new mongoose.Types.ObjectId(resourceId) },
+    { 'resources.$': 1 }
+  )
+    .lean()
+    .exec()
+  if (existing?.resources?.[0]?.summary) {
+    logger.info(`resource.service: resource ${resourceId} already summarized, skipping`)
+    return
+  }
+
   const loader = new PDFLoader(filePath)
   const docs = await loader.load()
   let content = docs.map((d) => d.pageContent).join('\n')

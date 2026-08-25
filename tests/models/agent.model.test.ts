@@ -2736,4 +2736,44 @@ describe('agent tests', () => {
       expect(priorities(agent)).toBeUndefined()
     })
   })
+
+  /* claimResponseTrigger backs the agentResponse/conversationEvent idempotency guards: it's
+     what a from-scratch retry after a mid-job kill checks before redoing an LLM call and
+     posting a duplicate message. See jobs/handlers/agent.ts and
+     jobs/handlers/conversationEvent.ts. */
+  describe('claimResponseTrigger', () => {
+    test('claims an unclaimed trigger and persists it', async () => {
+      const agent = new Agent({ agentType: 'perMessage', conversation })
+      await agent.save()
+
+      const claimed = await agent.claimResponseTrigger('message:abc')
+
+      expect(claimed).toBe(true)
+      expect(agent.lastResponseTriggerId).toBe('message:abc')
+      const dbAgent = await Agent.findById(agent._id)
+      expect(dbAgent!.lastResponseTriggerId).toBe('message:abc')
+    })
+
+    test('returns false and does not re-claim the same trigger a second time', async () => {
+      const agent = new Agent({ agentType: 'perMessage', conversation })
+      await agent.save()
+      await agent.claimResponseTrigger('message:abc')
+
+      const claimedAgain = await agent.claimResponseTrigger('message:abc')
+
+      expect(claimedAgain).toBe(false)
+    })
+
+    test('claims a new trigger after a previous trigger was already claimed', async () => {
+      const agent = new Agent({ agentType: 'perMessage', conversation })
+      await agent.save()
+      await agent.claimResponseTrigger('message:abc')
+
+      const claimed = await agent.claimResponseTrigger('message:def')
+
+      expect(claimed).toBe(true)
+      const dbAgent = await Agent.findById(agent._id)
+      expect(dbAgent!.lastResponseTriggerId).toBe('message:def')
+    })
+  })
 })

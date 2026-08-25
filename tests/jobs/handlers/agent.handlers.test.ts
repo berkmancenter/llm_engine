@@ -120,6 +120,50 @@ describe('agent job handlers', () => {
       ).resolves.not.toThrow()
     })
 
+    /* Simulates a from-scratch retry after a mid-job kill: agenda would re-invoke this exact
+       handler with the same job data once the original attempt's lock expires. Without the
+       claimResponseTrigger guard, this would call respond() (a real LLM call) and post a
+       second message for the same triggering message. */
+    test('should not call respond a second time for the same triggering message', async () => {
+      const mockResponse = { visible: true, message: 'Hello from agent', messageType: 'text', channels: [] }
+      const respondSpy = jest.spyOn(Agent.prototype, 'respond').mockResolvedValue([mockResponse])
+      const newMessageSpy = jest.spyOn(messageService, 'newMessageHandler').mockResolvedValue([])
+      const message = { _id: new mongoose.Types.ObjectId() }
+
+      await agentHandlers.agentResponse({ attrs: { data: { agentId: agent._id, message } } })
+      await agentHandlers.agentResponse({ attrs: { data: { agentId: agent._id, message } } })
+
+      expect(respondSpy).toHaveBeenCalledTimes(1)
+      expect(newMessageSpy).toHaveBeenCalledTimes(1)
+    })
+
+    test('should still respond to a different triggering message from the same agent', async () => {
+      const mockResponse = { visible: true, message: 'Hello from agent', messageType: 'text', channels: [] }
+      const respondSpy = jest.spyOn(Agent.prototype, 'respond').mockResolvedValue([mockResponse])
+      jest.spyOn(messageService, 'newMessageHandler').mockResolvedValue([])
+
+      await agentHandlers.agentResponse({
+        attrs: { data: { agentId: agent._id, message: { _id: new mongoose.Types.ObjectId() } } }
+      })
+      await agentHandlers.agentResponse({
+        attrs: { data: { agentId: agent._id, message: { _id: new mongoose.Types.ObjectId() } } }
+      })
+
+      expect(respondSpy).toHaveBeenCalledTimes(2)
+    })
+
+    /* The triggerless call site (agentService.startAgent, for manual-trigger agents at
+       conversation start) has no message id, so it claims a synthetic per-conversation key
+       instead — this must be just as retry-safe. */
+    test('should not call respond a second time for the triggerless conversation-start case', async () => {
+      const respondSpy = jest.spyOn(Agent.prototype, 'respond').mockResolvedValue([])
+
+      await agentHandlers.agentResponse({ attrs: { data: { agentId: agent._id } } })
+      await agentHandlers.agentResponse({ attrs: { data: { agentId: agent._id } } })
+
+      expect(respondSpy).toHaveBeenCalledTimes(1)
+    })
+
     test('populates only the conversation ref, not a duplicate messages/channels lookup', async () => {
       jest.spyOn(Agent.prototype, 'respond').mockResolvedValue([])
       const populateSpy = jest.spyOn(Agent.prototype, 'populate')
@@ -174,6 +218,74 @@ describe('agent job handlers', () => {
 
       expect(respondSpy).not.toHaveBeenCalled()
       expect(newMessageSpy).not.toHaveBeenCalled()
+    })
+
+    /* Proactive periodic agents have no natural per-tick trigger id (see agent.ts), so a
+       from-scratch retry after a mid-job kill is instead caught by debouncing against the
+       agent's own most recent message. */
+    describe('proactive debounce', () => {
+      // Mongoose's timestamps plugin resets createdAt to now on every write, including a
+      // plain updateOne — so backdating an existing message has to bypass Mongoose entirely
+      // via the native collection, rather than save() then update().
+      const postOwnMessage = async (createdAt: Date = new Date()) => {
+        await Message.collection.insertOne({
+          _id: new mongoose.Types.ObjectId(),
+          body: 'Just posted',
+          bodyType: 'text',
+          conversation: conversation._id,
+          owner: agent._id,
+          pseudonymId: agent.pseudonyms[0]._id,
+          pseudonym: agent.pseudonyms[0].pseudonym,
+          createdAt,
+          updatedAt: createdAt
+        })
+      }
+
+      test('should not call respond again if the agent posted very recently', async () => {
+        agent.triggers = { periodic: { proactive: true, timerPeriod: 300 } }
+        await agent.save()
+        jest.spyOn(Agent.prototype, 'evaluate').mockResolvedValue({ action: 2 })
+        const respondSpy = jest.spyOn(Agent.prototype, 'respond').mockResolvedValue([])
+        await postOwnMessage()
+
+        await agentHandlers.periodicAgent({ attrs: { data: { agentId: agent._id } } })
+
+        expect(respondSpy).not.toHaveBeenCalled()
+      })
+
+      test('should call respond when the agent has no recent own message', async () => {
+        agent.triggers = { periodic: { proactive: true, timerPeriod: 300 } }
+        await agent.save()
+        jest.spyOn(Agent.prototype, 'evaluate').mockResolvedValue({ action: 2 })
+        const respondSpy = jest.spyOn(Agent.prototype, 'respond').mockResolvedValue([])
+
+        await agentHandlers.periodicAgent({ attrs: { data: { agentId: agent._id } } })
+
+        expect(respondSpy).toHaveBeenCalledTimes(1)
+      })
+
+      test('should call respond once the debounce window has passed', async () => {
+        agent.triggers = { periodic: { proactive: true, timerPeriod: 300 } }
+        await agent.save()
+        jest.spyOn(Agent.prototype, 'evaluate').mockResolvedValue({ action: 2 })
+        const respondSpy = jest.spyOn(Agent.prototype, 'respond').mockResolvedValue([])
+        await postOwnMessage(new Date(Date.now() - 60_000))
+
+        await agentHandlers.periodicAgent({ attrs: { data: { agentId: agent._id } } })
+
+        expect(respondSpy).toHaveBeenCalledTimes(1)
+      })
+
+      test('non-proactive periodic agents respond immediately even with a very recent message', async () => {
+        // agent (from the outer beforeEach) has no triggers set, so it is not proactive.
+        jest.spyOn(Agent.prototype, 'evaluate').mockResolvedValue({ action: 2 })
+        const respondSpy = jest.spyOn(Agent.prototype, 'respond').mockResolvedValue([])
+        await postOwnMessage()
+
+        await agentHandlers.periodicAgent({ attrs: { data: { agentId: agent._id } } })
+
+        expect(respondSpy).toHaveBeenCalledTimes(1)
+      })
     })
 
     test('populates only the conversation ref, not a duplicate messages/channels lookup', async () => {
