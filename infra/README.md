@@ -9,11 +9,15 @@ Node + Caddy + MongoDB + ChromaDB together.
 infra/
 └── modules/
     ├── network/          # VPC, subnet, firewall rules, Cloud NAT
-    ├── atlas-cluster/     # MongoDB Atlas cluster/user/peering/backup (mongodbatlas provider)
-    ├── chroma-vm/         # standalone ChromaDB VM — deliberately not autoscaled
+    ├── atlas-cluster/     # MongoDB Atlas cluster/user/peering/backup (mongodbatlas provider) (*)
+    ├── chroma-vm/         # standalone ChromaDB VM — deliberately not autoscaled (*)
     ├── webserver-mig/     # instance template, MIG, autoscaler, HTTPS load balancer
     └── monitoring/        # dashboards, alert policies, billing budget
 ```
+
+(\*) Landing in a follow-up PR (data-tier modules) alongside this one — not yet in the
+repo. The list above is the target architecture all of these modules are being reviewed
+against, not a snapshot of what's merged at any single point in that rollout.
 
 These are **modules, not a deployment** — there's no `environments/` directory here on
 purpose. A real deployment (real project ID, domain, `terraform.tfvars`, and the
