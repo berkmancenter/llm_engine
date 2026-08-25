@@ -98,6 +98,26 @@ resource "google_compute_firewall" "lb_to_web_server" {
   }
 }
 
+# --- Firewall: GCP health checks + LB proxy -> archive-wiki-vm ---
+# Same shape as lb_to_web_server above, for the standalone VM the
+# archive-wiki-vm module creates: it's a direct LB backend (via a zonal
+# GCE_VM_IP_PORT NEG, not a MIG), so it needs the same health-check/proxy
+# source ranges allowed in, just on its own port and tag.
+
+resource "google_compute_firewall" "lb_to_archive_wiki_vm" {
+  project       = var.project_id
+  name          = "${var.network_name}-lb-to-archive-wiki-vm"
+  network       = google_compute_network.vpc.id
+  direction     = "INGRESS"
+  priority      = 1000
+  source_ranges = distinct(concat(var.health_check_source_ranges, var.lb_proxy_source_ranges))
+  target_tags   = ["archive-wiki-vm"]
+  allow {
+    protocol = "tcp"
+    ports    = [tostring(var.archive_wiki_vm_port)]
+  }
+}
+
 # --- Firewall: web server -> Chroma VM, internal only, Chroma's port only ---
 
 resource "google_compute_firewall" "web_server_to_chroma" {

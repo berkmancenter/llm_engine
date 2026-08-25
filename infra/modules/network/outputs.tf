@@ -28,6 +28,11 @@ output "chroma_vm_tag" {
   value       = "chroma-vm"
 }
 
+output "archive_wiki_vm_tag" {
+  description = "Network tag the archive-wiki-vm instance must carry for the firewall rules above to apply."
+  value       = "archive-wiki-vm"
+}
+
 output "iap_ssh_tag" {
   description = "Network tag to add to any instance that should be reachable via IAP SSH tunneling."
   value       = "iap-ssh"

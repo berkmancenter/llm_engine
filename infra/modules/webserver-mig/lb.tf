@@ -83,6 +83,27 @@ resource "google_compute_url_map" "web_server" {
       service = google_compute_backend_service.api.id
     }
   }
+
+  # One host_rule + single-service path_matcher per extra_host_backends
+  # entry — the whole domain goes to that one backend, no path splitting
+  # (unlike "main" above, which is this app's own /v1*//socket.io* split).
+  # path_matcher names must be unique on one url_map, hence the index
+  # suffix; nothing reads these names besides the host_rule right below it.
+  dynamic "host_rule" {
+    for_each = var.extra_host_backends
+    content {
+      hosts        = host_rule.value.domains
+      path_matcher = "extra-${host_rule.key}"
+    }
+  }
+
+  dynamic "path_matcher" {
+    for_each = var.extra_host_backends
+    content {
+      name            = "extra-${path_matcher.key}"
+      default_service = path_matcher.value.backend_service_id
+    }
+  }
 }
 
 # --- Frontend proxy (optional) ---
@@ -154,7 +175,11 @@ locals {
   # Order carries no meaning to GCP here: managed.domains is a SAN set, and
   # Google picks the certificate's CN itself rather than honoring the first
   # entry. So sorting costs nothing semantically.
-  ssl_cert_domains = sort(distinct(concat([var.domain], var.additional_domains)))
+  ssl_cert_domains = sort(distinct(concat(
+    [var.domain],
+    var.additional_domains,
+    flatten(var.extra_host_backends[*].domains)
+  )))
 }
 
 resource "google_compute_managed_ssl_certificate" "web_server" {
