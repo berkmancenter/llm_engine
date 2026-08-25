@@ -16,6 +16,27 @@ const envVarsSchema = Joi.object()
     WEBSOCKET_MAX_PARALLELISM: Joi.number().default(availableParallelism()).description('Max parallelism for websocket use'),
     MONGODB_URL: Joi.string().required().description('Mongo DB url'),
     MONGODB_DEBUG: Joi.boolean().description('Enable mongoose debugging'),
+    MONGODB_MAX_POOL_SIZE: Joi.number()
+      .default(10)
+      .description(
+        'Max sockets per Mongoose connection. The driver defaults to 100, which is far more than one process needs — ' +
+          'and this process count multiplies fast: each websocket cluster worker (see WEBSOCKET_MAX_PARALLELISM) opens ' +
+          'its own independent connection, so at the default 100 a single n2d-standard-2 instance (1 primary + 2 ' +
+          'workers) could open up to 300 sockets, before any horizontal scaling. Keep this deliberately small.'
+      ),
+    MONGODB_MIN_POOL_SIZE: Joi.number()
+      .default(0)
+      .description(
+        'Sockets Mongoose keeps warm per connection even when idle. 0 (the driver default) is fine unless cold-start latency matters more than idle connection count.'
+      ),
+    ENABLE_GCP_CONNECTION_METRICS: Joi.boolean()
+      .default(false)
+      .description(
+        'Publish a custom.googleapis.com/app/concurrent_connections Cloud Monitoring metric — the primary signal ' +
+          "infra/modules/webserver-mig/autoscaler.tf's autoscaler is built around. Opt-in and off by default: only " +
+          'meaningful when actually running on GCE, and even there this is only worth turning on once you intend for ' +
+          'the autoscaler to use it.'
+      ),
     ENABLE_DEVELOPMENT_AGENTS: Joi.boolean().default(false).description('Enable development agent support'),
     ENABLE_DEVELOPMENT_ADAPTERS: Joi.boolean().default(false).description('Enable development adapter support'),
     ENABLE_PUBLIC_CHANNEL_CREATION: Joi.boolean().default(false).description('Enable channel creation'),
@@ -179,7 +200,10 @@ const config = {
   mongoose: {
     url: envVars.MONGODB_URL + (envVars.NODE_ENV === 'test' ? '-test' : ''),
     debug: envVars.MONGODB_DEBUG,
-    options: {}
+    options: {
+      maxPoolSize: envVars.MONGODB_MAX_POOL_SIZE,
+      minPoolSize: envVars.MONGODB_MIN_POOL_SIZE
+    }
   },
   ragDocumentsPath: envVars.RAG_DOCUMENTS_PATH,
   chroma: {
@@ -212,6 +236,7 @@ const config = {
     authTokenSecret: envVars.AUTH_TOKEN_SECRET
   },
   maxMessageLength: envVars.MAX_MESSAGE_LENGTH,
+  enableGcpConnectionMetrics: envVars.ENABLE_GCP_CONNECTION_METRICS,
   enableDevelopmentAgents: envVars.ENABLE_DEVELOPMENT_AGENTS,
   enableDevelopmentAdapters: envVars.ENABLE_DEVELOPMENT_ADAPTERS,
   enablePublicChannelCreation: envVars.ENABLE_PUBLIC_CHANNEL_CREATION,

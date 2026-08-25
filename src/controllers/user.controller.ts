@@ -15,6 +15,10 @@ const updateUser = catchAsync(async (req, res) => {
   user.goodReputation = await userService.goodReputation(user)
   res.status(httpStatus.OK).send(user)
 })
+const updateUserRole = catchAsync(async (req, res) => {
+  const user = await userService.updateUserRole(req.params.targetUserId, req.body.role)
+  res.status(httpStatus.OK).send(user)
+})
 const getUser = catchAsync(async (req, res) => {
   if (req.params.userId !== req.user.id) {
     throw new ApiError(httpStatus.UNAUTHORIZED, 'User can only request their own details')
@@ -112,6 +116,7 @@ const updatePreferences = catchAsync(async (req, res) => {
 export {
   createUser,
   updateUser,
+  updateUserRole,
   getUser,
   addPseudonym,
   activatePseudonym,

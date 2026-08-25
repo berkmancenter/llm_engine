@@ -75,9 +75,7 @@ export const webSearchTool = tool(
   async ({ query, maxResults, includeDomains, excludeDomains }) => {
     const results = await searchWeb({ query, maxResults, includeDomains, excludeDomains })
     if (results.length === 0) return 'No results found.'
-    return results
-      .map((r, i) => `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.content}`)
-      .join('\n\n')
+    return results.map((r, i) => `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.content}`).join('\n\n')
   },
   {
     name: 'web_search',
@@ -100,10 +98,15 @@ export const webSearchTool = tool(
         .array(z.string())
         .optional()
         .describe('Optional list of domains to restrict search to, e.g. ["arxiv.org", "nature.com"].'),
-      excludeDomains: z
-        .array(z.string())
-        .optional()
-        .describe('Optional list of domains to exclude from search results.')
+      excludeDomains: z.array(z.string()).optional().describe('Optional list of domains to exclude from search results.')
     })
   }
 )
+
+/**
+ * System prompt guidance for web_search. Frames it as a last resort after other tools.
+ */
+export function buildWebSearchPrompt(): string {
+  return `**Web search:**
+Use \`web_search\` only for general knowledge or current events that the other available tools cannot answer. Try those first. Cite sources inline — never state a fact from search results without attribution. Don't suggest the user check an external site without having searched it yourself first.`
+}

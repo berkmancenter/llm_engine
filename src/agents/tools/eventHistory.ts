@@ -3,6 +3,7 @@ import { z } from 'zod'
 import mongoose from 'mongoose'
 import { IncludeEnum } from 'chromadb'
 import Conversation from '../../models/conversation.model.js'
+import Topic from '../../models/topic.model.js'
 import rag, { TRANSCRIPT_COLLECTION_PREFIX } from '../helpers/rag.js'
 import { TOPIC_TRANSCRIPT_COLLECTION_PREFIX } from '../helpers/transcript.js'
 import logger from '../../config/logger.js'
@@ -11,6 +12,21 @@ export interface TopicRef {
   id: string
   name: string
   description?: string
+}
+
+/**
+ * Load TopicRef objects from the database.
+ * If topicIds is non-empty, fetches only those topics.
+ * Otherwise fetches all public, non-deleted topics.
+ */
+async function loadTopics(topicIds: string[]): Promise<TopicRef[]> {
+  const docs =
+    topicIds.length > 0
+      ? await Topic.find({ _id: { $in: topicIds } })
+          .select('_id name description')
+          .lean()
+      : await Topic.find({ private: false, isDeleted: false }).select('_id name description').lean()
+  return docs.map((t) => ({ id: t._id.toString(), name: t.name, description: t.description }))
 }
 
 export interface EventHistoryToolOptions {
@@ -43,18 +59,39 @@ async function getIndexedConversationIds(topicIds: string[]): Promise<Set<string
 
 /**
  * Returns the system prompt block describing the event history tools.
- * Pass hasActiveConversation=true when there is a current event being excluded from results
- * (eventAssistant context) — surfaces "past events" framing and notes the current event is excluded.
+ *
+ * When hasActiveConversation=true (eventAssistant context): returns just the tool list with
+ * past-event framing, for use inside buildSeriesHistoryRules which provides its own wrapper.
+ *
+ * When hasActiveConversation=false (communityAssistant): returns a complete guidance section
+ * including intro, tool list, available series (loaded from DB via topicIds), and workflow notes.
+ * Pass topicIds to scope to specific series; omit or pass [] to include all public topics.
  */
-export function buildEventHistoryToolsPrompt(hasActiveConversation = false): string {
+export async function buildEventHistoryToolsPrompt(hasActiveConversation = false, topicIds?: string[]): Promise<string> {
   if (hasActiveConversation) {
     return `- \`get_event_list\`: list past events by name/date in this series, sorted most-recent-first; the current event is already excluded
 - \`search_topic_transcripts\`: semantic search across all past event transcripts; results are prefixed with \`[Past Event: name]\`
 - \`search_conversation_transcript\`: deep search within one specific past event's transcript after identifying it via the above tools`
   }
-  return `- \`get_event_list\`: list events by name/date across all series, with optional date or series filter
+
+  const topics = topicIds !== undefined ? await loadTopics(topicIds) : []
+  const toolList = `- \`get_event_list\`: list events by name/date across all series, with optional date or series filter
 - \`search_topic_transcripts\`: semantic search across all event transcripts; results are prefixed with the event name they came from
 - \`search_conversation_transcript\`: deep search within a specific event's transcript after identifying it via the above tools`
+
+  const topicSection =
+    topics.length > 0
+      ? `\n\n**Available event series:**\n${topics
+          .map((t) => `- "${t.name}" (id: ${t.id})${t.description ? `: ${t.description}` : ''}`)
+          .join('\n')}`
+      : ''
+
+  return `**Event history tools:**
+You have access to tools for searching past event transcripts. Use them when a question touches on past events, speakers, or topics discussed.
+
+${toolList}${topicSection}
+
+When searching, prefer \`search_topic_transcripts\` for broad questions; use \`search_conversation_transcript\` to retrieve specific quotes once you know which event to drill into. Search across all series unless the question clearly refers to a specific one.`
 }
 
 export default function createEventHistoryTools(topics: TopicRef[], options: EventHistoryToolOptions = {}) {

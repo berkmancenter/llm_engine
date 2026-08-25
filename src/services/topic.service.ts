@@ -298,9 +298,14 @@ const emailUsersToArchive = async () => {
     const emailAddress = topic.archiveEmail ? topic.archiveEmail : owner!.email
     if (emailAddress) {
       const archiveToken = await tokenService.generateArchiveTopicToken(owner)
-      await emailService.sendArchiveTopicEmail(emailAddress, topic, archiveToken)
+      /* Flip and persist the flag before sending, not after. If this job is torn down
+         mid-flight and retried from scratch, the query above (isArchiveNotified: false)
+         would otherwise match this topic again and send a duplicate archive-warning
+         email. Claiming first means a kill between the save and the send just drops
+         one notification instead of duplicating it. */
       topic.isArchiveNotified = true
       await topic.save()
+      await emailService.sendArchiveTopicEmail(emailAddress, topic, archiveToken)
       returnTopics.push(topic)
     }
     return true

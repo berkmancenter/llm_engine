@@ -48,11 +48,13 @@
     "commit": "cz",
     "check:number-cruncher-slack": "NODE_ENV=${NODE_ENV:-development} node --loader ts-node/esm scripts/checkNumberCruncherSlack.ts",
     "openapi:spec:generate": "yarn build && node dist/scripts/generateOpenApiSpec.js",
-    "openapi-types:generate": "openapi-typescript http://localhost:3000/v1/openapi.json --output src/types/openapi.d.ts && prettier --write src/types/openapi.d.ts"
+    "openapi-types:generate": "openapi-typescript http://localhost:3000/v1/openapi.json --output src/types/openapi.d.ts && prettier --write src/types/openapi.d.ts",
+    "migrate": "NODE_ENV=${NODE_ENV:-development} node --loader ts-node/esm scripts/migrate.ts"
   },
   "keywords": [],
   "dependencies": {
     "@aws-sdk/client-bedrock": "^3.883.0",
+    "@google-cloud/monitoring": "^6.0.0",
     "@google/generative-ai": "^0.24.1",
     "@langchain/community": "^1.0.0",
     "@langchain/core": "^1.0.0",
@@ -87,6 +89,7 @@
     "express-mongo-sanitize": "^2.2.0",
     "express-rate-limit": "^7.5.0",
     "fuzzball": "^2.2.2",
+    "gcp-metadata": "^9.0.3",
     "googleapis": "^144.0.0",
     "handlebars": "^4.7.9",
     "helmet": "^8.0.0",
@@ -116,6 +119,7 @@
     "swagger-ui-express": "^5.0.1",
     "ts-jest": "^29.3.1",
     "uid": "^2.0.2",
+    "umzug": "^3.8.3",
     "unique-names-generator": "^4.7.1",
     "validator": "^13.12.0",
     "winston": "^3.17.0",

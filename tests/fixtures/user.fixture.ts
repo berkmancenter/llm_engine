@@ -13,16 +13,18 @@ const userOne: any = {
   username: faker.name.findName(),
   email: faker.internet.email().toLowerCase(),
   password,
-  role: 'user',
+  role: 'admin',
   isEmailVerified: false
 }
 
+/* A second organizer, not an ordinary person: the ownership checks it exercises sit behind
+   admin-only rights. Use `participant` below to assert what a non-organizer cannot do. */
 const userTwo = {
   _id: new mongoose.Types.ObjectId(),
   username: faker.name.findName(),
   email: faker.internet.email().toLowerCase(),
   password,
-  role: 'user',
+  role: 'admin',
   isEmailVerified: false
 }
 
@@ -32,7 +34,7 @@ const registeredUser: any = {
   username: faker.name.findName(),
   email: faker.internet.email().toLowerCase(),
   password,
-  role: 'user',
+  role: 'admin',
   isEmailVerified: false,
   pseudonyms: [
     {
@@ -55,9 +57,20 @@ const admin: any = {
   isEmailVerified: false
 }
 
+// An account as registration creates one, for asserting what a participant cannot reach.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const participant: any = {
+  _id: new mongoose.Types.ObjectId(),
+  username: faker.name.findName(),
+  email: faker.internet.email().toLowerCase(),
+  password,
+  role: 'participant',
+  isEmailVerified: false
+}
+
 const insertUsers = async (users) => {
   const ret = await User.insertMany(users.map((user) => ({ ...user, password: hashedPassword })))
   return ret
 }
 
-export { userOne, userTwo, registeredUser, admin, insertUsers }
+export { userOne, userTwo, registeredUser, admin, participant, insertUsers }

@@ -1,11 +1,15 @@
 import mongoose from 'mongoose'
-import { Conversation, Message } from '../../../src/models/index.js'
+import { Conversation, Message, Agent } from '../../../src/models/index.js'
 import { publicTopic, conversationOne } from '../../fixtures/conversation.fixture.js'
 import { insertTopics } from '../../fixtures/topic.fixture.js'
 import { insertUsers, userOne } from '../../fixtures/user.fixture.js'
 import JobHandlers from '../../../src/jobs/handlers/index.js'
 import setupIntTest from '../../utils/setupIntTest.js'
 import websocketGateway from '../../../src/websockets/websocketGateway.js'
+import agentService from '../../../src/services/agent.service/index.js'
+import { setAgentTypes } from '../../../src/models/user.model/agent.model/index.js'
+import defaultAgentTypes from '../../../src/agents/index.js'
+import { defaultLLMPlatform, defaultLLMModel } from '../../../src/agents/helpers/getModelChat.js'
 
 setupIntTest()
 
@@ -115,6 +119,71 @@ describe('conversation handler tests', () => {
     test('does not throw if conversation not found', async () => {
       const fakeId = '000000000000000000000000'
       await expect(JobHandlers.autoStopConversation({ attrs: { data: { conversationId: fakeId } } })).resolves.not.toThrow()
+    })
+  })
+
+  /* If an instance is torn down mid-flight (autoscaler scale-down, rolling deploy) and this
+     job is retried from scratch, the retry's `if (conversation.active) skip` guard only
+     prevents a double-run if `active` was persisted before the agent/adapter side effects —
+     these confirm that ordering by forcing a mid-flight failure and checking what already
+     made it to the DB. */
+  describe('doStartConversation / doStopConversation persist active before side effects', () => {
+    const testAgentType = {
+      respond: jest.fn(),
+      evaluate: jest.fn(),
+      start: jest.fn(),
+      stop: jest.fn(),
+      name: 'Test Agent',
+      description: 'A test agent',
+      maxTokens: 2000,
+      defaultTriggers: { perMessage: {} },
+      priority: 10,
+      llmTemplateVars: {},
+      defaultLLMTemplates: {},
+      defaultLLMPlatform,
+      defaultLLMModel
+    }
+
+    beforeAll(() => {
+      setAgentTypes({ testAgent: testAgentType })
+    })
+
+    afterAll(() => {
+      setAgentTypes(defaultAgentTypes)
+    })
+
+    test('active is already true in the DB even if starting an agent throws mid-flight', async () => {
+      const agent = new Agent({ agentType: 'testAgent', conversation: conversation._id })
+      await agent.save()
+      conversation.agents.push(agent)
+      await conversation.save()
+      jest.spyOn(agentService, 'startAgent').mockRejectedValue(new Error('boom'))
+
+      await expect(
+        JobHandlers.autoStartConversation({ attrs: { data: { conversationId: conversation._id } } })
+      ).resolves.not.toThrow()
+
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.active).toBe(true)
+      expect(updated!.startTime).toBeDefined()
+    })
+
+    test('active is already false in the DB even if stopping an agent throws mid-flight', async () => {
+      const agent = new Agent({ agentType: 'testAgent', conversation: conversation._id })
+      await agent.save()
+      conversation.agents.push(agent)
+      conversation.active = true
+      conversation.startTime = new Date()
+      await conversation.save()
+      jest.spyOn(agentService, 'stopAgent').mockRejectedValue(new Error('boom'))
+
+      await expect(
+        JobHandlers.autoStopConversation({ attrs: { data: { conversationId: conversation._id } } })
+      ).resolves.not.toThrow()
+
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.active).toBe(false)
+      expect(updated!.endTime).toBeDefined()
     })
   })
 

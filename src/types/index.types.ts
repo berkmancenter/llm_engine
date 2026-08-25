@@ -1463,6 +1463,9 @@ export interface IAgent {
   llmPlatformOptions?: ILlmPlatformOptions
   llmModel: string
   lastActiveMessageCount?: number
+  /* Idempotency key for the last agentResponse/conversationEvent job this agent completed a
+     response for — see agent.model/index.ts for the guard that uses it. */
+  lastResponseTriggerId?: string
   agentEvaluation?: AgentEvaluation
   llmModelOptions?: { [key: string]: unknown }
   llmTemplateVars?: { [key: string]: { name: string; description: string }[] }
