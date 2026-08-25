@@ -23,7 +23,6 @@ const BASE_SYSTEM_PROMPT = `You are {botName}, a helpful AI assistant participat
 - For factual questions, be accurate and acknowledge uncertainty when it exists.
 - For creative or open-ended tasks, engage fully and offer your perspective.
 - Match response depth to the question—short questions don't always need long answers.
-- You are talking in a shared channel, so keep context of the group conversation in mind.
 - The message you are being asked to respond to is labeled **## Question:**
 
 {toolGuidance}Search efficiently: one or two tool calls usually suffice, and never re-run near-identical queries against the same source. For questions answerable from conversation history alone, respond directly without calling any tools.`
@@ -35,7 +34,7 @@ export default verify({
   priority: 100,
   maxTokens: 4000,
   defaultTriggers: {
-    perMessage: { channels: ['chat', 'transcript'] }
+    perMessage: { directMessages: true, channels: ['chat', 'transcript'] }
   },
   agentConfig: {
     enablePersonality: config.enableAgentPersonality,
@@ -53,7 +52,7 @@ export default verify({
   defaultLLMPlatform,
   defaultLLMModel,
   ragCollectionName: undefined,
-  defaultConversationHistorySettings: { count: 100, channels: ['chat', 'transcript'] },
+  defaultConversationHistorySettings: { count: 100, directMessages: true, channels: ['chat', 'transcript'] },
 
   async evaluate(userMessage) {
     const isVoice = userMessage?.channels?.includes('transcript')
@@ -74,6 +73,9 @@ export default verify({
 
   async respond(conversationHistory: ConversationHistory, userMessage) {
     const isVoice = userMessage?.channels?.includes('transcript')
+    const isDM = this.conversation.channels.some(
+      (channel) => channel.direct && userMessage?.channels?.includes(channel.name)
+    )
     const llm = await this.getLLM()
 
     let question: string
@@ -85,6 +87,8 @@ export default verify({
       )
       if (!voiceQuestion) return []
       question = voiceQuestion
+    } else if (isDM) {
+      question = extractMessageText(userMessage).trim()
     } else {
       if (!(await checkBotIntent(llm, this.agentConfig.botName, userMessage))) {
         return []
@@ -111,7 +115,7 @@ export default verify({
       composeSystemPrompt(systemPromptBase, {
         personalityName,
         behaviorPolicy: this.conversation.behaviorPolicy,
-        channelType: 'groupChat'
+        channelType: isDM ? 'dm' : 'groupChat'
       }) + (isVoice ? VOICE_OUTPUT_RULES : '')
 
     const tools: StructuredToolInterface[] = await getTools(toolNames, { topicIds })
