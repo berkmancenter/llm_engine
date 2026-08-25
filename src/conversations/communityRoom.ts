@@ -63,7 +63,7 @@ const communityRoom: ConversationType = {
       ]
     }
   ],
-  channels: [{ name: 'chat' }]
+  channels: [{ name: 'chat', passcode: null }]
 }
 
 export default communityRoom
