@@ -97,6 +97,18 @@ const conversationWithChannels: any = {
   }
 }
 
+const conversationCommunityRoom: any = {
+  _id: new mongoose.Types.ObjectId(),
+  name: 'Community Room',
+  owner: userOne._id,
+  topic: publicTopic._id,
+  conversationType: 'communityRoom',
+  messages: [],
+  transcript: {
+    status: 'stopped'
+  }
+}
+
 const insertConversations = async (conversations) => Conversation.insertMany(conversations)
 
 const insertChannels = async (channels) => Channel.insertMany(channels)
@@ -111,5 +123,6 @@ export {
   publicTopic,
   privateTopic,
   conversationAgentsEnabled,
-  conversationWithChannels
+  conversationWithChannels,
+  conversationCommunityRoom
 }

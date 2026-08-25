@@ -176,6 +176,23 @@ export interface IFollower {
   topic: mongoose.Types.ObjectId
 }
 
+// A room's roster of invited members, imported from a CSV (see member.service.ts). One
+// record per conversation + email; the record exists before the person's account does,
+// so userAccount stays unset until they first sign in.
+export interface IRoomMember {
+  conversation: mongoose.Types.ObjectId
+  email: string
+  name: string
+  bio?: string
+  interests?: string
+  inviteState: 'pending' | 'invited'
+  alreadyAnnounced: boolean
+  status: 'active' | 'removed'
+  userAccount?: mongoose.Types.ObjectId
+  createdAt?: Date
+  updatedAt?: Date
+}
+
 export const ChannelZodSchema = z.object({
   name: z.string(),
   passcode: z.string().nullable(),
