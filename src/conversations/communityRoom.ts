@@ -63,6 +63,7 @@ const communityRoom: ConversationType = {
       ]
     }
   ],
+  enableDMs: ['agents'],
   channels: [{ name: 'chat', passcode: null }]
 }
 

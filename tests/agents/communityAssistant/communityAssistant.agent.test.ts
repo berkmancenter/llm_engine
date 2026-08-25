@@ -571,6 +571,67 @@ A single mom of two children with primary custody, she is passionate about findi
     })
   })
 
+  describe('DM support', () => {
+    let dmAgent
+    let dmConversation
+    let dmChannel
+
+    beforeEach(async () => {
+      dmConversation = await createConversation({ name: 'DM Community Assistant Test' }, user1, topic)
+      dmAgent = new Agent({
+        agentType: 'communityAssistant',
+        conversation: dmConversation,
+        llmPlatform: testConfig.llmPlatform,
+        llmModel: testConfig.llmModel,
+        agentConfig: { botName: BOT_NAME }
+      })
+      const [chatChannel, direct] = await Channel.create([
+        { name: 'chat' },
+        { name: `dm-${user1._id}-${dmAgent._id}`, direct: true, participants: [user1._id, dmAgent._id] }
+      ])
+      dmChannel = direct
+      dmConversation.channels.push(chatChannel, dmChannel)
+      await dmAgent.save()
+      dmConversation.agents.push(dmAgent)
+      await dmConversation.save()
+      await dmAgent.start()
+    })
+
+    it('responds to a DM message without requiring an @mention', async () => {
+      const msg = await createMessage('what is the capital of Spain?', user1, dmConversation, [dmChannel.name])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(dmAgent, buildHistory([]), msg)
+
+      expect(responses).toHaveLength(1)
+      expect(responses[0].message).toBeDefined()
+      expect(responses[0].message.toLowerCase()).toContain('madrid')
+    })
+
+    it('responds to casual DM conversation that would not trigger bot intent in a public channel', async () => {
+      const msg = await createMessage('hey, how are you doing today?', user1, dmConversation, [dmChannel.name])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(dmAgent, buildHistory([]), msg)
+
+      expect(responses).toHaveLength(1)
+      expect(responses[0].message).toBeDefined()
+    })
+
+    it('directs the DM response back to the DM channel', async () => {
+      const msg = await createMessage('what is 2 + 2?', user1, dmConversation, [dmChannel.name])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(dmAgent, buildHistory([]), msg)
+
+      expect(responses).toHaveLength(1)
+      const responseChannelNames = responses[0].channels.map((c) => c.name)
+      expect(responseChannelNames).toContain(dmChannel.name)
+      expect(responseChannelNames).not.toContain('chat')
+    })
+
+    it('does not respond to casual chat-channel conversation not directed at the bot', async () => {
+      const msg = await createMessage('I had a great time at the last event', user1, dmConversation, ['chat'])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(dmAgent, buildHistory([]), msg)
+
+      expect(responses).toHaveLength(0)
+    })
+  })
+
   describe('uses all public topics when topicIds is not configured', () => {
     let eventTopic
     let partTimeConv
