@@ -28,7 +28,7 @@ resource "google_compute_backend_service" "websocket" {
   port_name                       = "ws-port"
   load_balancing_scheme           = "EXTERNAL_MANAGED"
   timeout_sec                     = 3600 # long-lived websocket connections
-  health_checks                   = [google_compute_health_check.web_server.id]
+  health_checks                   = [google_compute_health_check.web_server_ws.id]
   connection_draining_timeout_sec = var.connection_draining_timeout_sec
 
   # Socket.IO's handshake is several plain HTTP requests (polling transport

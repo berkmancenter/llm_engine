@@ -126,7 +126,14 @@ resource "google_compute_instance_template" "web_server" {
   }
 }
 
-# --- Health check (shared: both named ports are served by the same process) ---
+# --- Health checks ---
+#
+# Two separate checks, not one shared between the api and websocket backend
+# services below: api-port and ws-port are the same process, but a hung or
+# crashed websocket listener with the API still answering would otherwise
+# never be detected - the api backend's checks would keep passing and the
+# ws backend would keep getting routed traffic with no alarm. Each backend
+# service (lb.tf) references only the check for its own port.
 
 resource "google_compute_health_check" "web_server" {
   project             = var.project_id
@@ -139,6 +146,27 @@ resource "google_compute_health_check" "web_server" {
   http_health_check {
     port         = var.api_port
     request_path = "/v1/health"
+  }
+}
+
+resource "google_compute_health_check" "web_server_ws" {
+  project             = var.project_id
+  name                = "llm-engine-web-server-ws-health"
+  check_interval_sec  = 10
+  timeout_sec         = 5
+  healthy_threshold   = 2
+  unhealthy_threshold = 3
+
+  # TCP, not an HTTP GET on the socket.io path: Engine.IO 400s a bare GET
+  # without its own transport/EIO query params (verified against this
+  # app's actual socket.io server - a plain GET is not, in fact, a 200),
+  # and matching that protocol here would coincidentally couple this check
+  # to whatever Engine.IO protocol version socket.io happens to speak. A
+  # TCP connect only confirms something is listening on ws_port, not that
+  # the app answers on it - lighter than a full protocol handshake, but
+  # already the failure mode this check exists for (the listener died).
+  tcp_health_check {
+    port = var.ws_port
   }
 }
 
