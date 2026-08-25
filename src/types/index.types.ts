@@ -55,6 +55,15 @@ export interface IPseudonym {
   isDeleted: boolean
   conversations: string[]
   funFact?: string
+  /* Marks this entry as a member's real name rather than a pseudonym. A real-name
+     entry can never be activated or deleted (see userService.activatePseudonym /
+     deletePseudonym) and is exempt from the 5-pseudonym cap. Immutable once set —
+     see pseudonymSchema. */
+  isRealName?: boolean
+  /* Trimmed/whitespace-collapsed/lower-cased copy of `pseudonym`, set only on
+     real-name entries, used to scope uniqueness per conversation without letting
+     incidental case/whitespace differences create duplicate-looking roster rows. */
+  normalizedPseudonym?: string
 }
 
 export interface IBaseUser {

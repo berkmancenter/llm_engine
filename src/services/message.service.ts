@@ -11,6 +11,10 @@ import channelService from './channel.service.js'
 
 /**
  * Check if we can create a message and fetch conversation
+ *
+ * Note for real-name pseudonym entries (isRealName: true, see IPseudonym): they are
+ * excluded from the conversation-pin lookup below on purpose, so they never affect
+ * who can post here — see the inline comment at pseudoForConversation.
  * @param {Object} messageBody
  * @param {User} user
  * @returns {Promise<Conversation>}
@@ -35,7 +39,14 @@ const fetchConversation = async (messageBody, user) => {
     throw new ApiError(httpStatus.BAD_REQUEST, 'This conversation is locked and cannot receive messages.')
   }
   const activePseudo = user.activePseudonym
-  const pseudoForConversation = user.pseudonyms.find((x) => x.conversations.includes(conversation._id))
+  // Real-name entries are excluded here deliberately: they can carry a conversation
+  // in their own `conversations` scoping (see userService.createUser), but that's
+  // for identity display, not authorship — a real name can never be active (see
+  // userService.activatePseudonym), so if this lookup matched one, the member could
+  // never post in that conversation with any pseudonym at all, ever (activation is
+  // permanently refused for real names, so nothing could later satisfy the match
+  // below).
+  const pseudoForConversation = user.pseudonyms.find((x) => !x.isRealName && x.conversations.includes(conversation._id))
   if (pseudoForConversation && activePseudo._id.toString() !== pseudoForConversation._id.toString()) {
     logger.error(`CANNOT POST - CONVERSATION: ${pseudoForConversation._id}, ACTIVE: ${activePseudo._id}`)
     throw new ApiError(httpStatus.BAD_REQUEST, 'You cannot post in this conversation with your active pseudonym.')

@@ -84,6 +84,17 @@ userSchema.plugin(paginate)
 userSchema.virtual('activePseudonym').get(function () {
   return this.pseudonyms.find((x) => x.active)
 })
+/* Defense in depth for the real-name guarantee: activatePseudonym/deletePseudonym in
+   user.service.ts are the normal path, but this makes the invariant unbypassable by
+   any other code (migrations, admin tooling, a future feature) that sets
+   `active = true` directly and saves. */
+userSchema.pre('save', function (next) {
+  if (this.pseudonyms.some((p) => p.isRealName && p.active)) {
+    next(new Error('A real-name pseudonym entry cannot be active.'))
+    return
+  }
+  next()
+})
 /**
  * @typedef User
  */

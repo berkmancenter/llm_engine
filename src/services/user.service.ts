@@ -4,13 +4,14 @@ import crypto from 'crypto'
 import { uniqueNamesGenerator } from 'unique-names-generator'
 import bcrypt from 'bcryptjs'
 import { uid } from 'uid'
-import { User, Message } from '../models/index.js'
+import { User, Message, RealNameAudit, RealNameRegistry } from '../models/index.js'
 import ApiError from '../utils/ApiError.js'
 import { pseudonymAdjectives, pseudonymNouns } from '../config/pseudonym-dictionaries.js'
 import logger from '../config/logger.js'
 import config from '../config/config.js'
 import { getModelChat, coreLLMPlatform, coreLLMModel } from '../agents/helpers/getModelChat.js'
 import { getChatPromptResponse } from '../agents/helpers/llmChain.js'
+import authChannels from '../utils/authChannels.js'
 
 const funFactSystemTemplate = `You create short, fun facts about pseudonyms. The pseudonym is in the form "adjective noun". Create a 1 sentence fun fact that is factual about the noun, but can be playful about the adjective part. Makes sure your answers are safe for work.
 Output only the fun fact sentence itself — no headings, labels, pseudonym names, or additional commentary.`
@@ -42,9 +43,88 @@ const hashPassword = async (password) => {
   const hash = await bcrypt.hash(password, saltRounds)
   return hash
 }
+const newToken = () => {
+  const currentDate = new Date().valueOf().toString()
+  const random = Math.random().toString()
+  const result = crypto
+    .createHash('sha256')
+    .update(currentDate + random)
+    .digest('hex')
+  const data = JSON.stringify({
+    token: result
+  })
+  const algorithm = 'aes256'
+  const key = tokenKey.repeat(32).substring(0, 32)
+  const iv = tokenKey.repeat(16).substring(0, 16)
+  const cipher = crypto.createCipheriv(algorithm, key, iv)
+  const encrypted = cipher.update(data, 'utf8', 'hex') + cipher.final('hex')
+  return encrypted
+}
+
+// Trim/collapse-whitespace/lower-case a real name for comparison and storage in
+// normalizedPseudonym, so "Jane Doe" and "jane  doe" are recognized as the same
+// person instead of coexisting as two roster rows for one conversation.
+const normalizeRealName = (name: string): string => name.trim().replace(/\s+/g, ' ').toLowerCase()
+
+const DUPLICATE_KEY_ERROR_CODE = 11000
+
+// Atomically reserves (conversationId, name) in RealNameRegistry — the insert IS the
+// uniqueness check, enforced by that collection's compound unique index, not a
+// separate check-then-write. Returns the reservation on success, or null if that
+// name is already taken in this conversation. Scoped per conversation, deliberately
+// — the same real name is fine in two different rooms; it's only a conflict within
+// the same one.
+const reserveRealName = async (name: string, conversationId: string) => {
+  try {
+    return await RealNameRegistry.create({ conversationId, normalizedPseudonym: normalizeRealName(name) })
+  } catch (err) {
+    if (err.code === DUPLICATE_KEY_ERROR_CODE) return null
+    throw err
+  }
+}
+
+// Audit trail for real-name entries — id/action only, never the name text itself
+// (see ApiError messages and log lines throughout this file: none of them echo a
+// real name back). Best-effort: a failure to record shouldn't block the request.
+// userId is undefined for a rejection that happens before an account exists yet
+// (a failed passcode or uniqueness check during registration).
+const recordRealNameAudit = async (userId, conversationId, action): Promise<void> => {
+  try {
+    await RealNameAudit.create({ userId, conversationId, action })
+  } catch (err) {
+    logger.warn(`Failed to record real-name audit entry (action: ${action}): ${err.message}`)
+  }
+}
+
+// Verifies the caller actually has access to every conversation a real name is
+// being scoped to, via the same channel-passcode mechanism that already gates
+// posting into a channel (authChannels) — never trust a bare client-supplied
+// conversation id. Throws a generic ApiError (no specifics about which
+// conversation/channel failed) on the first failure.
+const verifyRealNameConversationAccess = async (conversations): Promise<void> => {
+  for (const { conversationId, channelName, passcode } of conversations) {
+    try {
+      await authChannels([{ name: channelName, passcode }], conversationId)
+    } catch {
+      await recordRealNameAudit(undefined, conversationId, 'passcode_rejected')
+      throw new ApiError(httpStatus.FORBIDDEN, 'Could not verify access to one or more conversations.')
+    }
+  }
+}
 
 /**
  * Create a user
+ *
+ * When `userBody.realName` is present, also creates a real-name pseudonym entry
+ * (isRealName: true) scoped to `userBody.conversations`, guarded end to end:
+ * access to each conversation is proved via its channel passcode
+ * (verifyRealNameConversationAccess/authChannels) before anything is written, the
+ * name is reserved per-conversation through RealNameRegistry's unique index (atomic,
+ * race-free — see reserveRealName), the entry is always created `active: false` and
+ * is never handed to generatePseudonymFunFact (real names never reach the LLM), and
+ * every rejection/creation is recorded via recordRealNameAudit (id/action only,
+ * never the name text). See activatePseudonym/deletePseudonym for the matching
+ * can-never-activate/can-never-delete guarantees once the entry exists.
  * @param {Object} userBody
  * @returns {Promise<User>}
  */
@@ -74,11 +154,53 @@ const createUser = async (userBody) => {
     }
   }
 
+  let realNameConversations
+  let reservations
+  if (userBody.realName) {
+    realNameConversations = userBody.conversations
+    await verifyRealNameConversationAccess(realNameConversations)
+
+    // Reserve the name in every target conversation before creating anything else.
+    // Each reservation is one atomic insert against RealNameRegistry's compound
+    // unique index — if any conversation's name is already taken, roll back the
+    // reservations this attempt already made and reject the whole registration.
+    reservations = []
+    for (const { conversationId } of realNameConversations) {
+      const reservation = await reserveRealName(userBody.realName, conversationId)
+      if (!reservation) {
+        await RealNameRegistry.deleteMany({ _id: { $in: reservations.map((r) => r._id) } })
+        await recordRealNameAudit(undefined, conversationId, 'uniqueness_rejected')
+        throw new ApiError(httpStatus.CONFLICT, 'That name is already registered for one of these conversations.')
+      }
+      reservations.push(reservation)
+    }
+
+    userProps.pseudonyms.push({
+      token: newToken(),
+      pseudonym: userBody.realName,
+      normalizedPseudonym: normalizeRealName(userBody.realName),
+      // Never active — a real name can never be the pseudonym stamped on a message.
+      active: false,
+      isRealName: true,
+      conversations: realNameConversations.map(({ conversationId }) => conversationId)
+    })
+  }
+
   const user = await User.create(userProps)
+  // Fun facts are a pseudonym-flavor feature and must never send a real name to an
+  // LLM — only ever generated for pseudonyms[0], the always-present ordinary entry.
   const funFact = await generatePseudonymFunFact(user.pseudonyms[0].pseudonym)
   if (funFact) {
     user.pseudonyms[0].funFact = funFact
     await user.save()
+  }
+  if (reservations?.length) {
+    // Attach the now-known userId to the reservations made above, and audit the
+    // successful creation (id/action only — never the name text, see recordRealNameAudit).
+    await RealNameRegistry.updateMany({ _id: { $in: reservations.map((r) => r._id) } }, { userId: user._id })
+    await Promise.all(
+      realNameConversations.map(({ conversationId }) => recordRealNameAudit(user._id, conversationId, 'created'))
+    )
   }
   return user
 }
@@ -125,14 +247,22 @@ const updateUser = async (userBody) => {
 }
 /**
  * Add a pseudonym to an existing a user
+ *
+ * Ordinary pseudonyms only — a real name can only ever be created at registration
+ * (see createUser), never through this endpoint, so requestBody is copied field by
+ * field rather than spread, and the pseudonym cap below excludes any isRealName
+ * entries the account may already have.
  * @param {Object} requestBody
  * @param {Object} user
  * @returns {Promise<User>}
  */
 const addPseudonym = async (requestBody, requestUser) => {
-  const newPseudonym = { ...requestBody, active: true }
+  // Whitelisted explicitly, never a spread of requestBody — this endpoint only ever
+  // creates ordinary pseudonyms; a real name is only ever created at registration
+  // (see createUser), and isRealName/conversations must never be reachable here.
+  const newPseudonym = { pseudonym: requestBody.pseudonym, token: requestBody.token, active: true }
   const user = await User.findById(requestUser.id)
-  const psuedos = user!.pseudonyms.filter((p) => !p.isDeleted)
+  const psuedos = user!.pseudonyms.filter((p) => !p.isDeleted && !p.isRealName)
   if (psuedos.length >= 5) {
     throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'You have reached your pseudonym limit. Delete one to add another.')
   }
@@ -151,23 +281,36 @@ const addPseudonym = async (requestBody, requestUser) => {
 }
 /**
  * Update a pseudonym
+ *
+ * A real-name entry (isRealName: true) can never be activated — see IPseudonym.
+ * This is the guard that keeps a real name from ever becoming the pseudonym
+ * message.service.ts stamps on a message; userSchema's pre('save') hook
+ * (user.model.ts) backs it up in case some other code path ever sets
+ * `active = true` directly.
  * @param {Object} requestBody
  * @param {Object} user
  * @returns {Promise<User>}
  */
 const activatePseudonym = async (requestBody, requestUser) => {
   const user = await User.findById(requestUser.id)
-  let match = false
-  user!.pseudonyms.forEach((p) => {
-    p.active = false
-    if (p.token === requestBody.token) {
-      p.active = true
-      match = true
-    }
-  })
-  if (!match) {
+  // Look up the target and bail before mutating anything — the old implementation
+  // flipped every pseudonym's `active` as it went, including the target, so a
+  // rejected activation would still have deactivated the user's current pseudonym
+  // as a side effect.
+  const target = user!.pseudonyms.find((p) => p.token === requestBody.token)
+  if (!target) {
     throw new ApiError(httpStatus.NOT_FOUND, 'Pseudonym not found')
   }
+  if (target.isRealName) {
+    await Promise.all(
+      target.conversations.map((conversationId) => recordRealNameAudit(user!.id, conversationId, 'activate_rejected'))
+    )
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Real names cannot be activated.')
+  }
+  user!.pseudonyms.forEach((p) => {
+    p.active = false
+  })
+  target.active = true
   await user!.save()
   const activatedPseudo = user!.pseudonyms.find((p) => p.token === requestBody.token)
   if (activatedPseudo && !activatedPseudo.funFact) {
@@ -181,16 +324,33 @@ const activatePseudonym = async (requestBody, requestUser) => {
 }
 /**
  * Delete a pseudonym
+ *
+ * A real-name entry (isRealName: true) can never be deleted, soft or hard — a room
+ * looks a member's real name up by conversation id through this same entry (see
+ * message.service.ts's fetchConversation, and any future member-roster/display
+ * feature), so deleting it would orphan that lookup.
  * @param {Object} requestBody
  * @param {Object} user
  * @returns {Promise<void>}
  */
 const deletePseudonym = async (pseudonymId, requestUser) => {
+  const user = await User.findById(requestUser.id)
+  const pseudo = user!.pseudonyms.id(pseudonymId)
+  if (!pseudo) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'Pseudonym not found')
+  }
+  if (pseudo.isRealName) {
+    // The room resolves through this entry (fetchConversation excludes real names
+    // from its posting-gate lookup, but a member-facing roster/display feature is
+    // expected to key off it) — deleting it would orphan that lookup.
+    await Promise.all(
+      pseudo.conversations.map((conversationId) => recordRealNameAudit(user!.id, conversationId, 'delete_rejected'))
+    )
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Real name entries cannot be deleted.')
+  }
   // Check if pseudonym is used on any messages. If it is, then
   // soft delete it. If not, hard delete, since if can be used again.
-  const user = await User.findById(requestUser.id)
   const messages = await Message.find({ pseudonymId })
-  const pseudo = user!.pseudonyms.id(pseudonymId)
   if (messages.length > 0) {
     pseudo!.isDeleted = true
   } else {
@@ -265,23 +425,6 @@ const deleteUserById = async (userId) => {
   }
   await user.deleteOne()
   return user
-}
-const newToken = () => {
-  const currentDate = new Date().valueOf().toString()
-  const random = Math.random().toString()
-  const result = crypto
-    .createHash('sha256')
-    .update(currentDate + random)
-    .digest('hex')
-  const data = JSON.stringify({
-    token: result
-  })
-  const algorithm = 'aes256'
-  const key = tokenKey.repeat(32).substring(0, 32)
-  const iv = tokenKey.repeat(16).substring(0, 16)
-  const cipher = crypto.createCipheriv(algorithm, key, iv)
-  const encrypted = cipher.update(data, 'utf8', 'hex') + cipher.final('hex')
-  return encrypted
 }
 const newPseudonym = async (recursionIndex) => {
   // Get number of all possible pseudonym combinations (currently 163,564)
