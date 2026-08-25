@@ -82,6 +82,33 @@ describe('User routes', () => {
       expect(unchanged!.role).toBe('participant')
     })
 
+    test('should return 400 for serviceAccount, which is provisioned from SYSTEM_USERS instead', async () => {
+      await insertUsers([admin, participant])
+
+      await promote(participant._id, adminAccessToken, 'serviceAccount').expect(httpStatus.BAD_REQUEST)
+
+      const unchanged = await User.findById(participant._id)
+      expect(unchanged!.role).toBe('participant')
+    })
+
+    /* Role is not carried in the JWT, so passport re-reads the account on every request and a
+       demotion takes effect on the next call rather than at token expiry. */
+    test('should stop honoring a token issued before its holder was demoted', async () => {
+      await insertUsers([admin, userOne])
+
+      await request(app)
+        .get('/v1/conversations/userConversations')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .expect(httpStatus.OK)
+
+      await promote(userOne._id, adminAccessToken, 'participant').expect(httpStatus.OK)
+
+      await request(app)
+        .get('/v1/conversations/userConversations')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .expect(httpStatus.FORBIDDEN)
+    })
+
     test('should return 404 when the target user does not exist', async () => {
       await insertUsers([admin])
 
@@ -273,6 +300,20 @@ describe('User routes', () => {
         .set('Authorization', `Bearer ${participantAccessToken}`)
         .send({ userId: participant._id, username })
         .expect(httpStatus.FORBIDDEN)
+    })
+
+    // Role has its own admin-only endpoint; this one must never become a second way to set it.
+    test('should return 400 when an admin sends a role in the body', async () => {
+      await insertUsers([participant])
+
+      await request(app)
+        .put('/v1/users')
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({ userId: participant._id, username, role: 'admin' })
+        .expect(httpStatus.BAD_REQUEST)
+
+      const unchanged = await User.findById(participant._id)
+      expect(unchanged!.role).toBe('participant')
     })
 
     test('should return 400 if userId is not sent in request body', async () => {
