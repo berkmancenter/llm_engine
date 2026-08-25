@@ -204,6 +204,28 @@ variable "additional_domains" {
   default     = []
 }
 
+variable "extra_host_backends" {
+  description = <<-EOT
+    Extra hostname(s) to front through this same LB/static IP/managed cert,
+    each routed entirely to its own backend service — for an unrelated
+    small service sharing this LB rather than another domain for this app
+    (that's additional_domains, above). Each host gets its own host_rule
+    and a path_matcher with no path_rules of its own (default_service only),
+    so the whole domain goes to that one backend regardless of path — unlike
+    additional_domains, which shares this app's /v1/* and /socket.io/*
+    splits. Built for archive-wiki-vm (see manual-setup-checklist.md item 5):
+    pass its backend_service output here rather than giving it a second LB
+    IP and a second managed cert. Every domain across every entry (plus
+    var.domain and var.additional_domains) lands on the one shared cert —
+    still within Google's 100-domain-per-cert limit at this scale.
+  EOT
+  type = list(object({
+    domains            = list(string)
+    backend_service_id = string
+  }))
+  default = []
+}
+
 variable "frontend_origin" {
   description = <<-EOT
     Hostname (no scheme, no path — e.g. "my-app.vercel.app") of an

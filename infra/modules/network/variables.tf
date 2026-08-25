@@ -39,6 +39,12 @@ variable "chroma_port" {
   default     = 8000
 }
 
+variable "archive_wiki_vm_port" {
+  description = "TCP port the archive-wiki-vm module's API listens on inside the VM."
+  type        = number
+  default     = 4000
+}
+
 variable "enable_mongo_vm_firewall" {
   description = <<-EOT
     Whether to open the firewall from the web server tier to a standalone
