@@ -128,11 +128,14 @@ source "googlecompute" "web_server_release" {
   use_iap          = true
   tags             = ["iap-ssh"]
 
-  # Reuses webserver-mig's own service account rather than creating a new
-  # one - it already has exactly the Artifact Registry read permission
-  # this build needs (see main.tf's web_server_artifact_reader binding),
-  # so no new IAM surface for this build.
-  service_account_email = "llm-engine-web-server@${var.project_id}.iam.gserviceaccount.com"
+  # A dedicated account, not webserver-mig's own web_server one - this
+  # build VM runs third-party code (apt/gcloud install, the docker pull
+  # itself), and web_server also holds secretmanager.secretAccessor on
+  # both prod secrets. This account has only the Artifact Registry read
+  # permission the build needs (see main.tf's web_image_builder_artifact_
+  # reader binding) - if the build VM is ever compromised, it can't read
+  # prod secrets.
+  service_account_email = "llm-engine-web-image-builder@${var.project_id}.iam.gserviceaccount.com"
   scopes                = ["https://www.googleapis.com/auth/cloud-platform"]
 }
 

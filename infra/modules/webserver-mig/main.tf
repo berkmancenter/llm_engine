@@ -39,6 +39,28 @@ resource "google_project_iam_member" "web_server_log_writer" {
   member  = "serviceAccount:${google_service_account.web_server.email}"
 }
 
+# --- Service account the Packer release build runs as ---
+#
+# Deliberately NOT web_server above: that account also holds
+# secretmanager.secretAccessor on both prod secrets (app env + Mongo URL,
+# see the two bindings below main.tf's instance template). The release
+# build's build VM runs third-party code (apt/gcloud install, the docker
+# pull itself) under whatever identity is attached to it, so it should
+# only be able to do what the build actually needs - read the app image -
+# not read production secrets too. See web-server-release.pkr.hcl's
+# service_account_email.
+resource "google_service_account" "web_image_builder" {
+  project      = var.project_id
+  account_id   = "llm-engine-web-image-builder"
+  display_name = "llm_engine web-server image builder (Packer)"
+}
+
+resource "google_project_iam_member" "web_image_builder_artifact_reader" {
+  project = var.project_id
+  role    = "roles/artifactregistry.reader"
+  member  = "serviceAccount:${google_service_account.web_image_builder.email}"
+}
+
 # Secret must already exist (see manual-setup-checklist.md item 7) — this
 # grants access by name without Terraform owning the secret's value.
 resource "google_secret_manager_secret_iam_member" "web_server_app_env_access" {
