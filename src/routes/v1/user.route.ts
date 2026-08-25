@@ -72,7 +72,7 @@ router.route('/user/:userId').get(auth('getUser'), userController.getUser)
  *             properties:
  *               role:
  *                 type: string
- *                 enum: [participant, admin, serviceAccount]
+ *                 enum: [participant, admin]
  *                 example: admin
  *     responses:
  *       200:

@@ -197,8 +197,8 @@ const deletePseudonym = async (pseudonymId, requestUser) => {
   await user!.save()
 }
 /**
- * Set a user's role. Kept separate from updateUserById, which assigns whatever the caller
- * sends, because role is the one field that grants privileges.
+ * Set a user's role. Separate from the general user update so that granting privileges is
+ * always a deliberate call rather than a field that rides along with a profile change.
  * @param {ObjectId} userId
  * @param {String} role - must be one of the roles in config/roles
  * @returns {Promise<User>}
@@ -246,27 +246,6 @@ const getUserByUsernamePassword = async (username, password) => {
   return null
 }
 
-/**
- * Update user by id
- * @param {ObjectId} userId
- * @param {Object} updateBody
- * @returns {Promise<User>}
- */
-const updateUserById = async (userId, updateBody) => {
-  const user = await getUserById(userId)
-  if (!user) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'User not found')
-  }
-  if (typeof updateBody.dataExportOptOut !== 'undefined') {
-    // Only allow setting dataExportOptOut if the feature is enabled
-    if (config.enableExportOptOut) {
-      user.dataExportOptOut = updateBody.dataExportOptOut
-    }
-  }
-  Object.assign(user, updateBody)
-  await user.save()
-  return user
-}
 /**
  * Delete user by id
  * @param {ObjectId} userId
@@ -430,7 +409,6 @@ const userService = {
   updateUser,
   queryUsers,
   getUserById,
-  updateUserById,
   updateUserRole,
   deleteUserById,
   getUserByUsernamePassword,

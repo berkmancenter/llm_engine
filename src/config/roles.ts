@@ -61,4 +61,9 @@ const allRoles = {
 const roles = Object.keys(allRoles)
 const roleRights = new Map(Object.entries(allRoles))
 
-export { roles, roleRights }
+/* The roles an admin may assign to a person. serviceAccount is left out because it holds no
+   right the chat needs, so setting it on a person locks them out of every screen. System
+   accounts get it from SYSTEM_USERS at startup instead. */
+const assignableRoles = ['participant', 'admin']
+
+export { roles, roleRights, assignableRoles }

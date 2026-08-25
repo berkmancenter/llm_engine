@@ -1,6 +1,6 @@
 import Joi from 'joi'
 import { password, objectId } from './custom.validation.js'
-import { roles } from '../config/roles.js'
+import { assignableRoles } from '../config/roles.js'
 
 const createUser = {
   body: Joi.object().keys({
@@ -30,7 +30,7 @@ const updateUserRole = {
   }),
   body: Joi.object().keys({
     role: Joi.string()
-      .valid(...roles)
+      .valid(...assignableRoles)
       .required()
   })
 }
