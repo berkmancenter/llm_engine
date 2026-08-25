@@ -3,6 +3,40 @@ import socketIO from './socketIO.js'
 import logger from '../config/logger.js'
 import { getRoomIds } from './utils.js'
 
+const isSubdocument = (value) => value !== null && typeof value === 'object' && value.constructor === Object
+
+/* An unpopulated path holds ObjectIds, and destructuring one replaces the id with its internal
+   buffer, so leave anything that is not already a plain object alone. */
+const redactEach = (entries, redact) => entries.map((entry) => (isSubdocument(entry) ? redact(entry) : entry))
+
+/**
+ * Strip credentials out of a conversation before it goes into a topic room. Joining a topic room
+ * takes no authorization, so this has to match what findByIdFull hands a non-owner.
+ * @param conversation - a Conversation document or an already-plain object
+ * @returns {Object} a plain object safe to emit
+ */
+function redactConversationForBroadcast(conversation) {
+  const { channels, agents, adapters, ...rest } =
+    typeof conversation.toJSON === 'function' ? conversation.toJSON() : conversation
+
+  return {
+    ...rest,
+    ...(channels && {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      channels: redactEach(channels, ({ passcode, ...channel }) => channel)
+    }),
+    ...(agents && {
+      agents: redactEach(agents, ({ agentConfig, ...agent }) => {
+        // Clients need the bot's name to label the chat, so it is the one key that survives.
+        const botName = agentConfig?.botName
+        return typeof botName === 'string' && botName !== '' ? { ...agent, agentConfig: { botName } } : agent
+      })
+    }),
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    ...(adapters && { adapters: redactEach(adapters, ({ config, ...adapter }) => adapter) })
+  }
+}
+
 class WebsocketGateway {
   public _worker: Worker | null
 
@@ -76,12 +110,16 @@ class WebsocketGateway {
   async broadcastNewConversation(conversation) {
     // A topicless draft (e.g. from an unmatched inbound invite) has no topic room to broadcast into.
     if (!conversation.topic) return
-    await this.broadcast(conversation.topic._id.toString(), 'conversation:new', conversation)
+    await this.broadcast(conversation.topic._id.toString(), 'conversation:new', redactConversationForBroadcast(conversation))
   }
 
   async broadcastConversationUpdate(conversation) {
     if (!conversation.topic) return
-    await this.broadcast(conversation.topic._id.toString(), 'conversation:update', conversation)
+    await this.broadcast(
+      conversation.topic._id.toString(),
+      'conversation:update',
+      redactConversationForBroadcast(conversation)
+    )
   }
 
   async broadcastConversationAlmostEnding(conversation) {

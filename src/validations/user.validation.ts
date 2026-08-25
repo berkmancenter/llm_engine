@@ -1,5 +1,6 @@
 import Joi from 'joi'
 import { password, objectId } from './custom.validation.js'
+import { assignableRoles } from '../config/roles.js'
 
 const createUser = {
   body: Joi.object().keys({
@@ -21,6 +22,16 @@ const addPseudonym = {
   body: Joi.object().keys({
     pseudonym: Joi.string().required(),
     token: Joi.string().required()
+  })
+}
+const updateUserRole = {
+  params: Joi.object().keys({
+    targetUserId: Joi.string().custom(objectId).required()
+  }),
+  body: Joi.object().keys({
+    role: Joi.string()
+      .valid(...assignableRoles)
+      .required()
   })
 }
 const getUsers = {
@@ -62,6 +73,7 @@ const updatePreferences = {
 const userValidation = {
   createUser,
   updateUser,
+  updateUserRole,
   getUsers,
   getUser,
   deleteUser,
