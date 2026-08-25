@@ -37,12 +37,16 @@ describe('gcpConnectionMetrics', () => {
     expect(mockCreateTimeSeries).not.toHaveBeenCalled()
   })
 
-  it('does nothing when enabled but the GCE metadata server is unreachable', async () => {
+  it('does nothing when enabled but the GCE metadata server is unreachable, and never retries', async () => {
     const { report, mockIsAvailable, mockCreateTimeSeries } = makeReporter()
     mockIsAvailable.mockResolvedValue(false)
     await report(5)
+    await report(6)
 
     expect(mockCreateTimeSeries).not.toHaveBeenCalled()
+    // Genuinely not on GCE is a permanent verdict — the breaker latches
+    // and later calls short-circuit before even checking isAvailable again.
+    expect(mockIsAvailable).toHaveBeenCalledTimes(1)
   })
 
   it('publishes a gce_instance time series with the given count when enabled and on GCE', async () => {
@@ -60,7 +64,7 @@ describe('gcpConnectionMetrics', () => {
     expect(arg.timeSeries[0].points[0].value).toEqual({ int64Value: 7 })
   })
 
-  it('swallows a publish failure, logs once, and stops trying on later calls', async () => {
+  it('swallows a transient publish failure, logs it, and retries on the next call', async () => {
     const { report, mockCreateTimeSeries, mockIsAvailable, mockLoggerWarn } = makeReporter()
     mockCreateTimeSeries.mockRejectedValueOnce(new Error('boom'))
 
@@ -68,9 +72,10 @@ describe('gcpConnectionMetrics', () => {
     expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
 
     await report(2)
-    // Neither call should re-run after the first failure trips this reporter's breaker.
-    expect(mockIsAvailable).toHaveBeenCalledTimes(1)
-    expect(mockCreateTimeSeries).toHaveBeenCalledTimes(1)
+    // A transient API/network error (unlike genuinely being off GCE) isn't
+    // permanent, so it must not trip the breaker — the next call retries.
+    expect(mockIsAvailable).toHaveBeenCalledTimes(2)
+    expect(mockCreateTimeSeries).toHaveBeenCalledTimes(2)
   })
 
   it('gives each reporter instance its own independent state', async () => {

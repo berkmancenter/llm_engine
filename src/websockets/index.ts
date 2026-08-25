@@ -9,6 +9,7 @@ import registerConversationHandlers from './handlers/conversationHandlers.js'
 import gateway from './websocketGateway.js'
 import { getRoomIds } from './utils.js'
 import reportConcurrentConnections from '../utils/gcpConnectionMetrics.js'
+import createConnectionAggregator from './connectionAggregator.js'
 
 // How often each worker reports its own connection count up to the primary,
 // and how often the primary aggregates those and reports the instance
@@ -62,15 +63,15 @@ if (cluster.isPrimary) {
     // entirely (no IPC listener, no timer) unless opted into via
     // ENABLE_GCP_CONNECTION_METRICS, not just left to no-op downstream.
     if (config.enableGcpConnectionMetrics) {
-      const connectionCountsByWorkerId = new Map<number, number>()
+      const aggregator = createConnectionAggregator()
       cluster.on('message', (fromWorker, message: { type?: string; count?: number }) => {
-        if (message?.type === 'connectionCount') {
-          connectionCountsByWorkerId.set(fromWorker.id, message.count ?? 0)
-        }
+        aggregator.onMessage(fromWorker.id, message)
+      })
+      cluster.on('exit', (deadWorker) => {
+        aggregator.onExit(deadWorker.id)
       })
       setInterval(() => {
-        const total = [...connectionCountsByWorkerId.values()].reduce((sum, count) => sum + count, 0)
-        reportConcurrentConnections(total)
+        reportConcurrentConnections(aggregator.getTotal())
       }, CONNECTION_METRIC_PUBLISH_INTERVAL_MS)
     }
   }

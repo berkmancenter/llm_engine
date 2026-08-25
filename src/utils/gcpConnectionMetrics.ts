@@ -12,9 +12,12 @@ import logger from '../config/logger.js'
 // Opt-in via ENABLE_GCP_CONNECTION_METRICS (default false) — see
 // config.ts's description for why this isn't auto-detected/on by default.
 // Once enabled, this also no-ops outside GCE (local dev, tests, CI): the
-// GCE metadata server isn't reachable there, so the first call fails fast,
-// gets logged once, and every call after that short-circuits without
-// retrying.
+// GCE metadata server isn't reachable there, so the first call fails fast
+// and every call after that short-circuits without retrying — that
+// verdict can't change for the life of the process. A transient failure
+// once we're past that check (a Monitoring API 429, a metadata-server
+// timeout) is not the same thing and does not latch; it's logged and
+// retried on the next scheduled call.
 
 const METRIC_TYPE = 'custom.googleapis.com/app/concurrent_connections'
 
@@ -62,6 +65,8 @@ export function createConnectionReporter(deps: ConnectionReporterDeps) {
     if (!deps.enabled || disabled) return
     try {
       if (!(await deps.gcpMetadata.isAvailable())) {
+        // Genuinely not running on GCE (local dev, tests, CI) — this
+        // can't change for the life of the process, so stop asking.
         disabled = true
         return
       }
@@ -83,8 +88,12 @@ export function createConnectionReporter(deps: ConnectionReporterDeps) {
         ]
       })
     } catch (error) {
-      disabled = true
-      deps.logger.warn(`Disabling concurrent_connections reporting after a failure (expected outside GCE): ${error.message}`)
+      // Not the "we're not on GCE" case above — a real API/network error.
+      // Don't latch `disabled` here: this runs on a fixed interval (see
+      // websockets/index.ts), so the next call is the retry, and one bad
+      // request shouldn't silently blind the autoscaler for the rest of
+      // the process's life.
+      deps.logger.warn(`Failed to publish concurrent_connections metric, will retry: ${error.message}`)
     }
   }
 }
