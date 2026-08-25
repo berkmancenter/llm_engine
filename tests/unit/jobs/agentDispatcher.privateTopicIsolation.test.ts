@@ -44,7 +44,7 @@ describe('agentDispatcher does not route private-topic events to allPublicTopics
     return agent
   }
 
-  it.each(['vibesAnalyst', 'eventHistorian'])(
+  it.each(['vibesAnalyst', 'communityAssistant'])(
     'does not notify %s when a PRIVATE topic conversation stops',
     async (agentType) => {
       await createAgent(agentType)
@@ -58,7 +58,7 @@ describe('agentDispatcher does not route private-topic events to allPublicTopics
     }
   )
 
-  it.each(['vibesAnalyst', 'eventHistorian'])(
+  it.each(['vibesAnalyst', 'communityAssistant'])(
     'still notifies %s when a PUBLIC topic conversation stops',
     async (agentType) => {
       const agent = await createAgent(agentType)

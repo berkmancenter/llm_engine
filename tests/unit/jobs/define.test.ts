@@ -12,12 +12,12 @@ const LLM_JOB_LOCK_LIFETIME = 15 * 60 * 1000 // 15 minutes, see jobs/define.ts
    jobs with no such call were deliberately left at the default. */
 describe('job definitions set lockLifetime based on whether the job calls an LLM/embeddings API', () => {
   test('periodicAgent, agentResponse, and batchTranscript get the extended lockLifetime', async () => {
-    await defineJob.periodicAgent('agent-1')
-    await defineJob.agentResponse('agent-1')
+    await defineJob.periodicAgent()
+    await defineJob.agentResponse()
     await defineJob.batchTranscript('conversation-1')
 
-    expect(agenda._definitions['periodic - agent-1'].lockLifetime).toBe(LLM_JOB_LOCK_LIFETIME)
-    expect(agenda._definitions['response - agent-1'].lockLifetime).toBe(LLM_JOB_LOCK_LIFETIME)
+    expect(agenda._definitions.periodicAgent.lockLifetime).toBe(LLM_JOB_LOCK_LIFETIME)
+    expect(agenda._definitions.agentResponse.lockLifetime).toBe(LLM_JOB_LOCK_LIFETIME)
     expect(agenda._definitions['batchTranscript - conversation-1'].lockLifetime).toBe(LLM_JOB_LOCK_LIFETIME)
   })
 

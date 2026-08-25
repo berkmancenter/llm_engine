@@ -463,7 +463,7 @@ describe('POST /v1/webhooks/email', () => {
           username: 'jane',
           email: 'jane@example.com',
           password: 'password1',
-          role: 'user',
+          role: 'participant',
           isEmailVerified: false
         }
       ])
@@ -513,7 +513,7 @@ describe('POST /v1/webhooks/email', () => {
           username: 'jane',
           email: 'jane@example.com',
           password: 'password1',
-          role: 'user',
+          role: 'participant',
           isEmailVerified: false
         }
       ])
@@ -566,7 +566,7 @@ describe('POST /v1/webhooks/email', () => {
           username: 'jane',
           email: 'jane@example.com',
           password: 'password1',
-          role: 'user',
+          role: 'participant',
           isEmailVerified: false
         }
       ])
@@ -594,7 +594,7 @@ describe('POST /v1/webhooks/email', () => {
           username: 'jane',
           email: 'jane@example.com',
           password: 'password1',
-          role: 'user',
+          role: 'participant',
           isEmailVerified: false
         }
       ])

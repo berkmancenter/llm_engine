@@ -31,13 +31,13 @@ export const EVENT_ASSISTANT_TOOL_USER_MANDATE = `**Tool policy (mandatory):** U
  * enabled. Tells the model it can reach the transcripts of *other past events* in the same series
  * and which tool does what. Exported as a builder so unit tests can lock the wording without an LLM.
  */
-export function buildSeriesHistoryRules(seriesName: string, today: string): string {
+export async function buildSeriesHistoryRules(seriesName: string, today: string): Promise<string> {
   return `**Event series history tools:**
 This event is part of the "${seriesName}" series. You can search the transcripts of **other past events in this series** to answer questions that reference earlier sessions, recurring speakers, or topics covered before.
 
 Today's date is ${today}.
 
-${buildEventHistoryToolsPrompt(true /* hasActiveConversation */)}
+${await buildEventHistoryToolsPrompt(true /* hasActiveConversation */)}
 
 **Workflow for "what was the previous session about?" or similar:**
 Call \`search_topic_transcripts\` directly. Use the user's question as your query — do NOT use generic phrases like "main topics discussed". Do NOT call \`get_event_list\` first for content questions — it only lists events, it does not retrieve what was discussed.
@@ -74,14 +74,17 @@ export const EVENT_ASSISTANT_SERIES_HISTORY_USER_CARVEOUT = `**Series-history ex
 
 `
 
-export function buildEventAssistantToolSystemPrompt(
+export async function buildEventAssistantToolSystemPrompt(
   systemTemplate: string,
   topic: string,
   contextString: string,
   options: EventAssistantToolPromptOptions = {}
 ) {
   const { hasWebSearch = true, series, today = new Date().toISOString().slice(0, 10) } = options
-  const ruleBlocks = [hasWebSearch ? EVENT_ASSISTANT_TOOL_USAGE_RULES : '', series ? buildSeriesHistoryRules(series.name, today) : '']
+  const ruleBlocks = [
+    hasWebSearch ? EVENT_ASSISTANT_TOOL_USAGE_RULES : '',
+    series ? await buildSeriesHistoryRules(series.name, today) : ''
+  ]
     .filter(Boolean)
     .join('\n\n')
 

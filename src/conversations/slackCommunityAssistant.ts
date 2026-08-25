@@ -2,11 +2,11 @@ import { supportedModels } from '../agents/helpers/getModelChat.js'
 import { ConversationType, Direction } from '../types/index.types.js'
 import config from '../config/config.js'
 
-const eventHistorian: ConversationType = {
-  name: 'eventHistorian',
-  label: 'Event Historian',
+const slackCommunityAssistant: ConversationType = {
+  name: 'slackCommunityAssistant',
+  label: 'Community Assistant',
   description:
-    'An AI assistant specialized in answering questions about past events and their transcripts accessible via a shared Slack channel',
+    'A configurable AI assistant that helps community members with questions and discussion, with access to community-specific tools such as event history and archive search, accessible via a shared Slack channel',
   platforms: [{ name: 'slack', label: 'Slack' }],
   properties: [
     {
@@ -69,10 +69,26 @@ const eventHistorian: ConversationType = {
       validationKeys: ['llmModel', 'llmPlatform']
     },
     {
+      name: 'notifications',
+      label: 'Notifications',
+      description: 'Notification types the assistant will post. Available: event_ended. Defaults to event_ended.',
+      required: false,
+      type: 'object',
+      default: ['event_ended']
+    },
+    {
+      name: 'tools',
+      label: 'Enabled Tools',
+      description:
+        'Tool names the assistant can use. Available: web_search, event_history, bkc_archive_wiki. Defaults to all.',
+      required: false,
+      type: 'object'
+    },
+    {
       name: 'topicIds',
       label: 'Event Series IDs',
       description:
-        'IDs of topic series the assistant can search for past event history. Leave empty to search all public topics.',
+        'IDs of topic series the assistant can search (used when event_history tool is enabled). Leave empty to search all public topics.',
       required: false,
       type: 'object'
     }
@@ -80,16 +96,18 @@ const eventHistorian: ConversationType = {
   // internal
   agents: [
     {
-      name: 'eventHistorian',
+      name: 'communityAssistant',
       properties: [
         { $ref: 'llmModel.llmModel' },
         { $ref: 'llmModel.llmPlatform' },
         { $ref: 'botName', as: 'agentConfig.botName' },
+        { $ref: 'notifications', as: 'agentConfig.notifications' },
+        { $ref: 'tools', as: 'agentConfig.tools' },
         { $ref: 'topicIds', as: 'agentConfig.topicIds' }
       ]
     }
   ],
-  channels: [{ name: 'historian' }],
+  channels: [{ name: 'chat' }],
   adapters: {
     slack: {
       type: 'slack',
@@ -104,7 +122,7 @@ const eventHistorian: ConversationType = {
       },
       chatChannels: [
         {
-          name: 'historian',
+          name: 'chat',
           direction: Direction.BOTH
         }
       ]
@@ -112,4 +130,4 @@ const eventHistorian: ConversationType = {
   }
 }
 
-export default eventHistorian
+export default slackCommunityAssistant

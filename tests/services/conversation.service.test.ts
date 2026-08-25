@@ -1624,6 +1624,19 @@ describe('Conversation service methods', () => {
       expect(result!.topic.toString()).toBe(topicTwo._id.toString())
     })
 
+    /* Covered here rather than through the route: updateConversation is admin-only and admins
+       skip the ownership check, so no HTTP caller reaches this branch. */
+    test('should reject an update from someone who owns neither the conversation nor the topic', async () => {
+      const stranger = { _id: new mongoose.Types.ObjectId(), role: 'participant' }
+
+      await expect(
+        conversationService.updateConversation({ id: conversation._id.toString(), name: 'Renamed by a stranger' }, stranger)
+      ).rejects.toMatchObject({ statusCode: httpStatus.FORBIDDEN })
+
+      const unchanged = await Conversation.findById(conversation._id)
+      expect(unchanged!.name).toBe('Original Name')
+    })
+
     test('should reject an update referencing a non-existent topic', async () => {
       await expect(
         conversationService.updateConversation(
@@ -1763,7 +1776,7 @@ describe('Conversation service methods', () => {
     })
 
     test('should reject updates from users who do not own the event', async () => {
-      const otherUser = { _id: new mongoose.Types.ObjectId(), role: 'user' }
+      const otherUser = { _id: new mongoose.Types.ObjectId(), role: 'participant' }
       await expect(
         conversationService.updateConversation({ id: conversation._id.toString(), name: 'Hacked' }, otherUser)
       ).rejects.toMatchObject({ statusCode: httpStatus.FORBIDDEN })
@@ -2183,7 +2196,7 @@ describe('Conversation service methods', () => {
     test('should hide channel passcode from non-owner user', async () => {
       const nonOwner = {
         _id: new mongoose.Types.ObjectId(),
-        role: 'user'
+        role: 'participant'
       }
 
       const result = await conversationService.findByIdFull(conversation._id.toString(), nonOwner)
@@ -2267,13 +2280,35 @@ describe('Conversation service methods', () => {
       }
       const conv = await conversationService.createConversationFromType(params, registeredUser)
 
-      const nonOwner = { _id: new mongoose.Types.ObjectId(), role: 'user' }
+      const nonOwner = { _id: new mongoose.Types.ObjectId(), role: 'participant' }
       const result = await conversationService.findByIdFull(conv._id.toString(), nonOwner)
 
       expect(result.agents).toBeDefined()
       result.agents.forEach((agent) => {
-        expect(agent).not.toHaveProperty('agentConfig')
+        expect(agent.agentConfig?.recommendationsPerInterval).toBeUndefined()
       })
+    })
+
+    // The bot's name lives inside agentConfig, so it survives the strip and the rest does not.
+    test('should keep only botName in agentConfig for a non-owner', async () => {
+      const conv = await conversationService.createConversationFromType(
+        {
+          type: 'eventAssistant',
+          name: 'Bot Name Test',
+          platforms: ['zoom'],
+          topicId: topicOne._id.toString(),
+          scheduledTime: new Date(Date.now() + 7200000),
+          properties: { zoomMeetingUrl: 'https://zoom.us/j/botnametest', botName: 'CustomBot' },
+          features: [{ name: 'librarian', config: { recommendationsPerInterval: 3 } }]
+        },
+        registeredUser
+      )
+
+      const nonOwner = { _id: new mongoose.Types.ObjectId(), role: 'participant' }
+      const result = await conversationService.findByIdFull(conv._id.toString(), nonOwner)
+
+      const assistant = result.agents.find((a) => a.agentType === 'eventAssistant')
+      expect(assistant?.agentConfig).toEqual({ botName: 'CustomBot' })
     })
 
     test('should include agentConfig on agents for conversation owner', async () => {
@@ -2323,7 +2358,7 @@ describe('Conversation service methods', () => {
       })
       await Conversation.updateOne({ _id: conversation._id }, { $push: { adapters: slack._id } })
 
-      const nonOwner = { _id: new mongoose.Types.ObjectId(), role: 'user' }
+      const nonOwner = { _id: new mongoose.Types.ObjectId(), role: 'participant' }
       const result = await conversationService.findByIdFull(conversation._id.toString(), nonOwner)
 
       result.adapters.forEach((adapter) => {

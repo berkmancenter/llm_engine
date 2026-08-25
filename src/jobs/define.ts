@@ -11,14 +11,21 @@ import JobHandlers from './handlers/index.js'
 const LLM_JOB_LOCK_LIFETIME = 15 * 60 * 1000 // 15 minutes
 
 const defineJob = {
-  periodicAgent: async (agentId) => {
-    await agenda.define(`periodic - ${agentId}`, { lockLifetime: LLM_JOB_LOCK_LIFETIME }, JobHandlers.periodicAgent)
+  /* One definition per job TYPE, not per agent. agenda only ever processes a job name that
+     some live process has define()'d (see jobs/CLAUDE.md and agent.service's boot-vs-
+     reschedule note) - naming these per-agent would mean re-establishing the definition for
+     every agent that has ever existed, on every boot, which is exactly the cost this was
+     scoped to remove. The specific agent is carried in job data (data.agentId), matched via
+     schedule.ts's unique() query, the same way conversationEvent/conversationCost/etc.
+     already identify their target from data rather than from the job name. */
+  periodicAgent: async () => {
+    await agenda.define('periodicAgent', { lockLifetime: LLM_JOB_LOCK_LIFETIME }, JobHandlers.periodicAgent)
   },
-  cronAgent: async (agentId) => {
-    await agenda.define(`cron - ${agentId}`, JobHandlers.periodicAgent)
+  cronAgent: async () => {
+    await agenda.define('cronAgent', JobHandlers.periodicAgent)
   },
-  agentResponse: async (agentId) => {
-    await agenda.define(`response - ${agentId}`, { lockLifetime: LLM_JOB_LOCK_LIFETIME }, JobHandlers.agentResponse)
+  agentResponse: async () => {
+    await agenda.define('agentResponse', { lockLifetime: LLM_JOB_LOCK_LIFETIME }, JobHandlers.agentResponse)
   },
   autoStartConversation: async () => {
     await agenda.define('autoStart', JobHandlers.autoStartConversation)

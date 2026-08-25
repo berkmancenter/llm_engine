@@ -32,10 +32,9 @@ const agentResponse = async (job) => {
       return
     }
 
-    await agent.populate({
-      path: 'conversation',
-      populate: [{ path: 'messages' }, { path: 'channels' }]
-    })
+    // respond() populates conversation.messages/channels itself on every call, so only the
+    // conversation ref needs loading here.
+    await agent.populate('conversation')
 
     logger.debug(`agentResponse handler ${agent._id} - ${agent.conversation._id!.toString()}`)
 
@@ -68,10 +67,9 @@ const periodicAgent = async (job) => {
     return
   }
 
-  await agent.populate({
-    path: 'conversation',
-    populate: [{ path: 'messages' }, { path: 'channels' }]
-  })
+  // evaluate() and respond() each populate conversation.messages/channels themselves on every
+  // call, so only the conversation ref needs loading here.
+  await agent.populate('conversation')
   logger.debug(`periodicAgent handler ${agent._id} - ${agent.conversation._id!.toString()}`)
 
   const agentEvaluation = await agent.evaluate()

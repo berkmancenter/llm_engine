@@ -7,7 +7,7 @@ import moderatorNotifier from './moderatorNotifier/moderatorNotifier.js'
 import jargonFilterAgent from './jargonFilter/jargonFilter.js'
 import librarian from './librarian/librarianAgent.js'
 import chatbot from './chatbot/chatbot.js'
-import eventHistorian from './eventHistorian/eventHistorian.js'
+import communityAssistant from './communityAssistant/communityAssistant.js'
 import eventSetup from './eventSetup/eventSetup.js'
 import vibesAnalyst from './vibesAnalyst/index.js'
 import numberCruncher from './numberCruncher/agent.js'
@@ -51,7 +51,7 @@ const agentTypes = {
   jargonFilterAgent,
   voiceAssistant,
   librarian,
-  eventHistorian,
+  communityAssistant,
   eventSetup,
   vibesAnalyst,
   numberCruncher,

@@ -163,6 +163,16 @@ describe('agent job handlers', () => {
 
       expect(respondSpy).toHaveBeenCalledTimes(1)
     })
+
+    test('populates only the conversation ref, not a duplicate messages/channels lookup', async () => {
+      jest.spyOn(Agent.prototype, 'respond').mockResolvedValue([])
+      const populateSpy = jest.spyOn(Agent.prototype, 'populate')
+
+      await agentHandlers.agentResponse({ attrs: { data: { agentId: agent._id, message: {} } } })
+
+      expect(populateSpy).toHaveBeenCalledTimes(1)
+      expect(populateSpy).toHaveBeenCalledWith('conversation')
+    })
   })
 
   describe('periodicAgent', () => {
@@ -276,6 +286,49 @@ describe('agent job handlers', () => {
 
         expect(respondSpy).toHaveBeenCalledTimes(1)
       })
+    })
+
+    test('populates only the conversation ref, not a duplicate messages/channels lookup', async () => {
+      jest.spyOn(Agent.prototype, 'evaluate').mockResolvedValue({ action: 0 })
+      const populateSpy = jest.spyOn(Agent.prototype, 'populate')
+
+      await agentHandlers.periodicAgent({ attrs: { data: { agentId: agent._id } } })
+
+      expect(populateSpy).toHaveBeenCalledTimes(1)
+      expect(populateSpy).toHaveBeenCalledWith('conversation')
+    })
+
+    test('feeds respond() the same conversation history a direct query would return', async () => {
+      // Real evaluate()/respond() run here (not mocked at the prototype level), so this exercises
+      // the actual populate the handler now relies on instead of doing itself.
+      const seededMessage = await Message.create({
+        body: 'Hello from a participant',
+        bodyType: 'text',
+        conversation: conversation._id,
+        owner: registeredUser._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        channels: []
+      })
+
+      testAgentTypes.periodic.evaluate.mockResolvedValueOnce({
+        userMessage: undefined,
+        action: 2, // AgentMessageActions.CONTRIBUTE
+        userContributionVisible: true,
+        suggestion: undefined
+      })
+      let capturedHistory
+      testAgentTypes.periodic.respond.mockImplementationOnce((history) => {
+        capturedHistory = history
+        return []
+      })
+
+      await agentHandlers.periodicAgent({ attrs: { data: { agentId: agent._id } } })
+
+      expect(capturedHistory).toBeDefined()
+      expect(capturedHistory.messages).toHaveLength(1)
+      expect(capturedHistory.messages[0]._id.toString()).toBe(seededMessage._id.toString())
+      expect(capturedHistory.messages[0].body).toBe('Hello from a participant')
     })
   })
 })
