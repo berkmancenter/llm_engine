@@ -9,11 +9,15 @@ Node + Caddy + MongoDB + ChromaDB together.
 infra/
 └── modules/
     ├── network/          # VPC, subnet, firewall rules, Cloud NAT
-    ├── atlas-cluster/     # MongoDB Atlas cluster/user/peering/backup (mongodbatlas provider)
-    ├── chroma-vm/         # standalone ChromaDB VM — deliberately not autoscaled
+    ├── atlas-cluster/     # MongoDB Atlas cluster/user/peering/backup (mongodbatlas provider) (*)
+    ├── chroma-vm/         # standalone ChromaDB VM — deliberately not autoscaled (*)
     ├── webserver-mig/     # instance template, MIG, autoscaler, HTTPS load balancer
     └── monitoring/        # dashboards, alert policies, billing budget
 ```
+
+(\*) Landing in a follow-up PR (data-tier modules) alongside this one — not yet in the
+repo. The list above is the target architecture all of these modules are being reviewed
+against, not a snapshot of what's merged at any single point in that rollout.
 
 These are **modules, not a deployment** — there's no `environments/` directory here on
 purpose. A real deployment (real project ID, domain, `terraform.tfvars`, and the
@@ -25,6 +29,14 @@ environment-specific and belongs in your own private ops repo, not a public one 
 
 - **No Caddy anywhere** — TLS termination and path-based routing both happen at the
   load balancer (`webserver-mig`'s `lb.tf`), not on the instances.
+- **`webserver-mig`'s `frontend_origin`** (optional, default `""`) lets the LB proxy
+  its fallback route (anything not `/v1/*` or `/socket.io/*`) to an external frontend
+  origin — e.g. a Vercel deployment — so the frontend and this backend share one
+  domain. Implemented as a global "internet NEG" backend with the outbound `Host`
+  header rewritten to `frontend_origin`, since host-based routers like Vercel need
+  that to pick the right deployment. Same three-way split (`/v1/*` -> api,
+  `/socket.io/*` -> websocket, fallback -> frontend) as the old single-box
+  Caddyfile's `handle` blocks, just moved to the LB.
 - **Chroma is a fixed singleton, not autoscaled** — it holds an in-process index and
   only temporary/rebuildable data, so a MIG's multi-instance, replace-on-deploy model
   is the wrong shape for it. It gets its own persistent disk instead.
