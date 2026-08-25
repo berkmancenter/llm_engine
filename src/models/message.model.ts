@@ -155,6 +155,15 @@ messageSchema.plugin(paginate)
 // index timestamps
 messageSchema.index({ createdAt: 1 })
 messageSchema.index({ updatedAt: 1 })
+// conversation + visible + createdAt: conversationMessages()'s top-level-message fetch
+// and the visible-message count path.
+messageSchema.index({ conversation: 1, visible: 1, createdAt: 1 })
+// conversation + createdAt: duplicateConversationMessages() and other conversation-scoped,
+// time-ordered scans.
+messageSchema.index({ conversation: 1, createdAt: 1 })
+// parentMessage + createdAt: getMessageReplies() and conversationMessages()'s reply-count
+// aggregate ($match on parentMessage), which had no index to use at all.
+messageSchema.index({ parentMessage: 1, createdAt: 1 })
 /**
  * @typedef User
  */
