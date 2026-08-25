@@ -22,6 +22,21 @@ if ! command -v docker >/dev/null 2>&1; then
   systemctl enable --now docker
 fi
 
+# On a baked image (packer/web-server-base.pkr.hcl) the block above is
+# skipped entirely - Docker's already installed - but that block was also
+# what started the daemon. systemd starts it on boot too, just not
+# necessarily before this line runs, so without this wait the `docker
+# pull`/`docker run` below can hit the daemon mid-startup and abort the
+# whole boot.
+for i in $(seq 1 30); do
+  docker info >/dev/null 2>&1 && break
+  sleep 1
+done
+docker info >/dev/null 2>&1 || {
+  echo "docker daemon did not come up after 30s" >&2
+  exit 1
+}
+
 # debian-cloud/debian-12's base image does not ship the gcloud CLI —
 # install it (needed below for Artifact Registry auth + Secret Manager).
 if ! command -v gcloud >/dev/null 2>&1; then
