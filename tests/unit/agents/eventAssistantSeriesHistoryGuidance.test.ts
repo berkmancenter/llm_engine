@@ -9,28 +9,28 @@ describe('series history guidance', () => {
   describe('buildSeriesHistoryRules', () => {
     const TODAY = '2026-01-15'
 
-    test('names the series and the three event_history tools', () => {
-      const rules = buildSeriesHistoryRules('AI Ethics Salon', TODAY)
+    test('names the series and the three event_history tools', async () => {
+      const rules = await buildSeriesHistoryRules('AI Ethics Salon', TODAY)
       expect(rules).toContain('AI Ethics Salon')
       expect(rules).toMatch(/get_event_list/)
       expect(rules).toMatch(/search_topic_transcripts/)
       expect(rules).toMatch(/search_conversation_transcript/)
     })
 
-    test('scopes the search to OTHER past events, not the current one', () => {
-      const rules = buildSeriesHistoryRules('Weekly Standup', TODAY)
+    test('scopes the search to OTHER past events, not the current one', async () => {
+      const rules = await buildSeriesHistoryRules('Weekly Standup', TODAY)
       expect(rules).toMatch(/other past events|other events/i)
       expect(rules).toMatch(/current event.*transcript.*in your Context/i)
     })
 
-    test('routes series questions to these tools rather than web_search', () => {
-      const rules = buildSeriesHistoryRules('Weekly Standup', TODAY)
+    test('routes series questions to these tools rather than web_search', async () => {
+      const rules = await buildSeriesHistoryRules('Weekly Standup', TODAY)
       expect(rules).toMatch(/not.*on the public web/i)
       expect(rules).toMatch(/web_search.{0,20}cannot find/i)
     })
 
-    test('includes today date and ordinal/calendar reference guidance', () => {
-      const rules = buildSeriesHistoryRules('Weekly Standup', TODAY)
+    test('includes today date and ordinal/calendar reference guidance', async () => {
+      const rules = await buildSeriesHistoryRules('Weekly Standup', TODAY)
       expect(rules).toContain(TODAY)
       expect(rules).toMatch(/sessions ago|ordinal/i)
       expect(rules).toMatch(/last week|calendar/i)
@@ -51,8 +51,8 @@ describe('series history guidance', () => {
     const topic = 'Test topic'
     const ctx = 'CONTEXT_CHUNKS'
 
-    test('includes series history rules when a series is provided', () => {
-      const full = buildEventAssistantToolSystemPrompt(base, topic, ctx, {
+    test('includes series history rules when a series is provided', async () => {
+      const full = await buildEventAssistantToolSystemPrompt(base, topic, ctx, {
         hasWebSearch: false,
         series: { name: 'My Series' }
       })
@@ -60,16 +60,16 @@ describe('series history guidance', () => {
       expect(full).toMatch(/search_topic_transcripts/)
     })
 
-    test('omits web-search rules when hasWebSearch is false', () => {
-      const full = buildEventAssistantToolSystemPrompt(base, topic, ctx, {
+    test('omits web-search rules when hasWebSearch is false', async () => {
+      const full = await buildEventAssistantToolSystemPrompt(base, topic, ctx, {
         hasWebSearch: false,
         series: { name: 'My Series' }
       })
       expect(full).not.toContain(EVENT_ASSISTANT_TOOL_USAGE_RULES)
     })
 
-    test('includes both rule blocks when web search and series are both active', () => {
-      const full = buildEventAssistantToolSystemPrompt(base, topic, ctx, {
+    test('includes both rule blocks when web search and series are both active', async () => {
+      const full = await buildEventAssistantToolSystemPrompt(base, topic, ctx, {
         hasWebSearch: true,
         series: { name: 'My Series' }
       })
@@ -80,8 +80,8 @@ describe('series history guidance', () => {
       expect(full.indexOf('My Series')).toBeLessThan(full.indexOf(ctx))
     })
 
-    test('omits series rules when no series is provided (web-search-only path unchanged)', () => {
-      const full = buildEventAssistantToolSystemPrompt(base, topic, ctx, { hasWebSearch: true })
+    test('omits series rules when no series is provided (web-search-only path unchanged)', async () => {
+      const full = await buildEventAssistantToolSystemPrompt(base, topic, ctx, { hasWebSearch: true })
       expect(full).toContain(EVENT_ASSISTANT_TOOL_USAGE_RULES)
       expect(full).not.toMatch(/Event series history tools/)
     })

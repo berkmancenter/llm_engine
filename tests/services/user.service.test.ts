@@ -18,14 +18,13 @@ const createVote = () => ({
 
 describe('User service methods', () => {
   describe('createUser()', () => {
-    test('should create a user with hashed password and pseudonym with admin role', async () => {
+    test('should create a user with hashed password and pseudonym with participant role', async () => {
       const userBody = {
         username: 'testuser',
         password: 'password123',
         token: 'sometoken',
         pseudonym: 'Bold Aardvark',
-        email: 'test@example.com',
-        role: 'admin'
+        email: 'test@example.com'
       }
 
       const user = await userService.createUser(userBody)
@@ -38,7 +37,18 @@ describe('User service methods', () => {
       expect(user.pseudonyms[0].token).toBe(userBody.token)
       expect(user.pseudonyms[0].pseudonym).toBe(userBody.pseudonym)
       expect(user.pseudonyms[0].active).toBe(true)
-      expect(user.role).toBe('admin')
+      expect(user.role).toBe('participant')
+    })
+
+    test('should ignore a role supplied by the caller', async () => {
+      const user = await userService.createUser({
+        username: 'testuser4',
+        token: 'sometoken4',
+        pseudonym: 'Daring Dingo',
+        role: 'admin'
+      })
+
+      expect(user.role).toBe('participant')
     })
 
     test('should generate and store a fun fact for the initial pseudonym', async () => {
@@ -71,7 +81,7 @@ describe('User service methods', () => {
       expect(user).toBeDefined()
       expect(user.username).toBe(userBody.username)
       expect(user.email).toBeUndefined()
-      expect(user.role).toBe('admin')
+      expect(user.role).toBe('participant')
     })
 
     test('should create a user without password if not provided', async () => {
@@ -86,7 +96,7 @@ describe('User service methods', () => {
       expect(user).toBeDefined()
       expect(user.username).toBe(userBody.username)
       expect(user.password).toBeUndefined()
-      expect(user.role).toBe('admin')
+      expect(user.role).toBe('participant')
     })
   })
 

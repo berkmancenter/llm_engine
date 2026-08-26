@@ -70,7 +70,7 @@ async function createUser(pseudonym) {
     username: faker.name.findName(),
     email: faker.internet.email().toLowerCase(),
     password: 'password1',
-    role: 'user',
+    role: 'participant',
     isEmailVerified: false,
     pseudonyms: [
       {
@@ -213,6 +213,56 @@ describe('Message service methods', () => {
       expect(answerMessage).toBeDefined()
       expect(answerMessage!.answersPrompt).toBeDefined()
       expect(answerMessage!.answersPrompt!.toString()).toBe(promptMessage._id.toString())
+    })
+  })
+  describe('createMessage()', () => {
+    test('counts documents (excluding replies), not the in-memory messages array', async () => {
+      const user = await createUser('Count Tester')
+
+      const conversationData = {
+        ...conversationOne,
+        owner: user._id
+      }
+      delete conversationData._id
+      const conversation = await Conversation.create(conversationData)
+
+      const topLevelMessage = await Message.create({
+        body: 'A top-level message',
+        bodyType: 'text',
+        conversation: conversation._id,
+        owner: user._id,
+        pseudonym: user.pseudonyms[0].pseudonym,
+        pseudonymId: user.pseudonyms[0]._id,
+        channels: []
+      })
+      // A reply: visible, but should not count toward the top-level message count.
+      await Message.create({
+        body: 'A reply',
+        bodyType: 'text',
+        conversation: conversation._id,
+        owner: user._id,
+        pseudonym: user.pseudonyms[0].pseudonym,
+        pseudonymId: user.pseudonyms[0]._id,
+        channels: [],
+        parentMessage: topLevelMessage._id
+      })
+
+      // Mirror fetchConversation()'s populate: filtered on visible only, not on parentMessage,
+      // so the in-memory array includes the reply.
+      await conversation.populate({ path: 'messages', match: { visible: true } })
+      expect(conversation.messages).toHaveLength(2)
+
+      const result = await messageService.createMessage({ body: 'A new top-level message' }, user, conversation)
+
+      const expectedCount = await Message.countDocuments({
+        visible: true,
+        parentMessage: null,
+        conversation: conversation._id
+      })
+      // The reply is excluded, so this is 2 (the original top-level message plus the new one),
+      // not 3 (which the raw array length would give).
+      expect(expectedCount).toBe(2)
+      expect(result.count).toBe(expectedCount)
     })
   })
   beforeAll(async () => {

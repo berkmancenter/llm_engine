@@ -236,7 +236,7 @@ const newUser = (email: string) => ({
   username: email.split('@')[0],
   email,
   password: 'password1',
-  role: 'user',
+  role: 'participant',
   isEmailVerified: false
 })
 

@@ -46,6 +46,56 @@ router.route('/user/:userId').get(auth('getUser'), userController.getUser)
 
 /**
  * @swagger
+ * /users/user/{targetUserId}/role:
+ *   put:
+ *     summary: Set a user's role
+ *     description: Promote or demote a user. Admin only.
+ *     tags: [User]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: targetUserId
+ *         required: true
+ *         description: The ID of the user whose role is changing
+ *         schema:
+ *           type: string
+ *           example: "5ebac534954b54139806c112"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - role
+ *             properties:
+ *               role:
+ *                 type: string
+ *                 enum: [participant, admin]
+ *                 example: admin
+ *     responses:
+ *       200:
+ *         description: The updated user
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/User'
+ *       400:
+ *         description: Role is missing or not one of the supported roles
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ */
+router
+  .route('/user/:targetUserId/role')
+  .put(auth('manageUsers'), validate(userValidation.updateUserRole), userController.updateUserRole)
+
+/**
+ * @swagger
  * /users:
  *   put:
  *     summary: Update user information
@@ -103,7 +153,8 @@ router.route('/user/:userId').get(auth('getUser'), userController.getUser)
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.put('/', auth('manageAccount'), validate(userValidation.updateUser), userController.updateUser)
+// Admin only: the target account comes from the body, so any caller could reset anyone's credentials.
+router.put('/', auth('manageUsers'), validate(userValidation.updateUser), userController.updateUser)
 
 /**
  * @swagger

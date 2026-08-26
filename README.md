@@ -10,6 +10,11 @@ LLM Engine is an extensible service for deploying and developing assistive inter
 
 To install and try out LLM Engine please see our [installation guide](https://berkmancenter.github.io/llm_engine/installing/).
 
+## Deploying
+
+For running LLM Engine in production, including a reference Terraform setup for split
+infrastructure on GCP, see our [deployment guide](https://berkmancenter.github.io/llm_engine/deploying/).
+
 ## License
 
 LLM Engine is [AGPL 3.0 licensed](./LICENSE).

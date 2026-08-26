@@ -51,6 +51,7 @@ export interface AgentMethods {
   onConversationEvent(evt: ConversationEvent): Promise<Array<AgentResponse<unknown>>>
   pingLLM(): Promise<void>
   getLLM(): Promise<unknown>
+  claimResponseTrigger(triggerId: string): Promise<boolean>
 }
 
 export type AgentDocument = HydratedDocument<IAgent, AgentMethods>
@@ -93,6 +94,14 @@ const agentSchema = new mongoose.Schema<IAgent, AgentModel>(
       type: Number,
       required: true,
       default: 0
+    },
+    /* Set (and persisted) before agentResponse/conversationEvent make their LLM call and
+       post a message — not after — so that if this instance is torn down mid-job and the
+       job is retried from scratch by another instance, the retry sees its trigger already
+       claimed and skips instead of posting a duplicate response. See jobs/handlers/agent.ts
+       and jobs/handlers/conversationEvent.ts. */
+    lastResponseTriggerId: {
+      type: String
     },
     // optional flexible config object to store additional data needed for some agent types
     agentConfig: {
@@ -248,6 +257,20 @@ agentSchema.method('stop', async function () {
 
 agentSchema.method('getLLM', async function () {
   return getModelChat(this.llmPlatform, this.llmModel, this.llmModelOptions, this.llmPlatformOptions)
+})
+
+/* Atomically claims a trigger (a message id, or a synthetic key like an event type +
+   conversation id) as "responded to". Returns false if it was already claimed, meaning
+   the caller should skip responding. This is what makes agentResponse/conversationEvent
+   safe to retry from scratch after a mid-job kill: the claim is persisted before the LLM
+   call is made, not after, so a retry sees its trigger already claimed. The `$ne` guard
+   also makes concurrent callers race-safe, not just sequential retries. */
+agentSchema.method('claimResponseTrigger', async function (triggerId: string) {
+  const result = await mongoose
+    .model('Agent')
+    .updateOne({ _id: this._id, lastResponseTriggerId: { $ne: triggerId } }, { $set: { lastResponseTriggerId: triggerId } })
+  this.lastResponseTriggerId = triggerId
+  return result.modifiedCount > 0
 })
 
 // this method is the same for periodic invocation or for evaluating a new message from a user

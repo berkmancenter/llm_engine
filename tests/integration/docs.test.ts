@@ -29,5 +29,17 @@ describe('OpenAPI route', () => {
       expect(typeof res.body.openapi).toBe('string')
       expect(typeof res.body.info).toBe('object')
     })
+
+    // A spec assembled from missing sources is empty but structurally valid, so the
+    // assertions above still pass while every consumer that generates types from this
+    // endpoint silently ends up with `never`. Assert it actually describes the API.
+    // See src/docs/openapiSpec.ts.
+    test('describes the API — paths and component schemas are populated', async () => {
+      const res = await request(app).get('/v1/openapi.json').expect(httpStatus.OK)
+
+      expect(Object.keys(res.body.paths ?? {}).length).toBeGreaterThan(0)
+      expect(Object.keys(res.body.components?.schemas ?? {}).length).toBeGreaterThan(0)
+      expect(res.body.components.schemas).toHaveProperty('Message')
+    })
   })
 })

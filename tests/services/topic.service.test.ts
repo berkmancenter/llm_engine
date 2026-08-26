@@ -438,6 +438,25 @@ describe('Topic service methods', () => {
       expect(ret).toHaveLength(0)
     })
 
+    /* If this job is torn down mid-flight and retried from scratch, the retry's
+       `isArchiveNotified: false` query would otherwise match this topic again and send a
+       duplicate archive-warning email. Flipping and persisting the flag before the send
+       (rather than after) means a failure here drops one notification instead of
+       duplicating it — this confirms the flag is already committed even when the send
+       itself fails. */
+    test('should mark isArchiveNotified before sending, so a failed send is not retried into a duplicate', async () => {
+      jest.spyOn(emailService.transport, 'sendMail').mockResolvedValue()
+      jest.spyOn(emailService, 'sendArchiveTopicEmail').mockRejectedValue(new Error('SMTP down'))
+
+      publicTopic.createdAt = oldDate
+      await insertTopics([publicTopic])
+
+      await expect(topicService.emailUsersToArchive()).rejects.toThrow('SMTP down')
+
+      const dbPublicTopic = await Topic.findById(publicTopic._id)
+      expect(dbPublicTopic!.isArchiveNotified).toBe(true)
+    })
+
     test('should not send email if topic is deleted or archived', async () => {
       publicTopic.createdAt = oldDate
       privateTopic.createdAt = oldDate

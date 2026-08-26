@@ -12,6 +12,14 @@ const conversationEvent = async (job) => {
       return
     }
     logger.debug(`conversationEvent handler ${agent._id} - event type: ${event.type}`)
+
+    // Each event type fires at most once per conversation, so that pair is a stable trigger key.
+    const triggerId = `event:${event.type}:${event.conversationId}`
+    if (!(await agent.claimResponseTrigger(triggerId))) {
+      logger.debug(`conversationEvent handler ${agent._id} - trigger ${triggerId} already handled, skipping`)
+      return
+    }
+
     const responses = await agent.onConversationEvent(event)
     for (const response of responses) {
       const parsed = AgentResponseZodSchema.safeParse(response)
