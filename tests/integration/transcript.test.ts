@@ -3,10 +3,10 @@ import httpStatus from 'http-status'
 import mongoose from 'mongoose'
 import setupIntTest from '../utils/setupIntTest.js'
 import app from '../../src/app.js'
-import { insertUsers, userOne, userTwo, registeredUser } from '../fixtures/user.fixture.js'
-import { userOneAccessToken } from '../fixtures/token.fixture.js'
+import { insertUsers, userOne, userTwo, registeredUser, participant } from '../fixtures/user.fixture.js'
+import { userOneAccessToken, participantAccessToken } from '../fixtures/token.fixture.js'
 import { insertTopics } from '../fixtures/topic.fixture.js'
-import { Conversation, Agent, Message } from '../../src/models/index.js'
+import { Conversation, Agent, Channel, Message } from '../../src/models/index.js'
 import { setAgentTypes } from '../../src/models/user.model/agent.model/index.js'
 import defaultAgentTypes from '../../src/agents/index.js'
 import { publicTopic, privateTopic } from '../fixtures/conversation.fixture.js'
@@ -50,7 +50,7 @@ describe('Transcript routes', () => {
   })
 
   beforeEach(async () => {
-    await insertUsers([userOne, userTwo, registeredUser])
+    await insertUsers([userOne, userTwo, registeredUser, participant])
     await insertTopics([publicTopic, privateTopic])
     broadcastTranscriptStatusChangeSpy = jest.spyOn(websocketGateway, 'broadcastTranscriptStatusChange').mockResolvedValue()
   })
@@ -1464,6 +1464,181 @@ describe('Transcript routes', () => {
       // Should be able to resume a stopped transcript
       await request(app)
         .post(`/v1/transcript/${conversation._id}/resume`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.NO_CONTENT)
+    })
+  })
+  /* A moderator reaches an event through a link carrying the moderator channel's passcode and
+     nothing else: the throwaway account it creates is an ordinary participant. These cover the
+     passcode route into the four controls, alongside the admin route the tests above use. */
+  describe('transcript controls with a moderator passcode', () => {
+    const MODERATOR_PASSCODE = 'mod_PASSCODE_1'
+    const TRANSCRIPT_PASSCODE = 'transcript_PASSCODE_1'
+
+    /* Builds an event shaped like the ones moderators are sent to: a moderator channel whose
+       passcode only they receive, and a transcript channel whose passcode rides along in every
+       participant's link too. */
+    const createEventWithChannels = async (overrides = {}) => {
+      const moderatorChannel = await new Channel({ name: 'moderator', passcode: MODERATOR_PASSCODE }).save()
+      const transcriptChannel = await new Channel({ name: 'transcript', passcode: TRANSCRIPT_PASSCODE }).save()
+      const conversation = new Conversation({
+        name: 'Moderator Passcode Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        active: true,
+        channels: [moderatorChannel._id, transcriptChannel._id],
+        transcript: { status: 'active' },
+        ...overrides
+      })
+      await conversation.save()
+      return conversation
+    }
+
+    test('pauses when the request carries the moderator passcode', async () => {
+      const conversation = await createEventWithChannels()
+
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/pause`)
+        .query({ channel: `moderator,${MODERATOR_PASSCODE}` })
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send()
+        .expect(httpStatus.NO_CONTENT)
+    })
+
+    test('resumes an active event when the request carries the moderator passcode', async () => {
+      const conversation = await createEventWithChannels({ transcript: { status: 'paused' } })
+
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/resume`)
+        .query({ channel: `moderator,${MODERATOR_PASSCODE}` })
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send()
+        .expect(httpStatus.NO_CONTENT)
+    })
+
+    test('downloads the transcript when the request carries the moderator passcode', async () => {
+      const conversation = await createEventWithChannels()
+      const message = new Message({
+        conversation: conversation._id,
+        body: 'Recorded line',
+        channels: ['transcript'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: new Date()
+      })
+      await message.save()
+
+      const res = await request(app)
+        .get(`/v1/transcript/${conversation._id}`)
+        .query({ channel: `moderator,${MODERATOR_PASSCODE}` })
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .set('Accept', 'text/plain')
+        .expect(httpStatus.OK)
+
+      expect(res.text).toContain('Recorded line')
+    })
+
+    test('deletes the transcript when the request carries the moderator passcode', async () => {
+      const conversation = await createEventWithChannels({ transcript: { status: 'paused' } })
+
+      await request(app)
+        .delete(`/v1/transcript/${conversation._id}`)
+        .query({ channel: `moderator,${MODERATOR_PASSCODE}` })
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send()
+        .expect(httpStatus.NO_CONTENT)
+    })
+
+    // Every participant's link carries this one, so it must not unlock the controls.
+    test('refuses the transcript passcode in place of the moderator one', async () => {
+      const conversation = await createEventWithChannels()
+
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/pause`)
+        .query({ channel: `transcript,${TRANSCRIPT_PASSCODE}` })
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send()
+        .expect(httpStatus.FORBIDDEN)
+    })
+
+    test('refuses a wrong moderator passcode', async () => {
+      const conversation = await createEventWithChannels()
+
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/pause`)
+        .query({ channel: 'moderator,not-the-passcode' })
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send()
+        .expect(httpStatus.FORBIDDEN)
+    })
+
+    test('refuses a request with no passcode at all', async () => {
+      const conversation = await createEventWithChannels()
+
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/pause`)
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send()
+        .expect(httpStatus.FORBIDDEN)
+    })
+
+    test('refuses every control, not just pause, without the moderator passcode', async () => {
+      const conversation = await createEventWithChannels({ transcript: { status: 'paused' } })
+
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/resume`)
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send()
+        .expect(httpStatus.FORBIDDEN)
+
+      await request(app)
+        .get(`/v1/transcript/${conversation._id}`)
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .set('Accept', 'text/plain')
+        .expect(httpStatus.FORBIDDEN)
+
+      await request(app)
+        .delete(`/v1/transcript/${conversation._id}`)
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send()
+        .expect(httpStatus.FORBIDDEN)
+    })
+
+    /* An event with moderator support switched off has no passcode to check, so the controls
+       fall back to admins only. The refusal should say that rather than blame the passcode
+       the caller sent, which would send them hunting for a link that cannot exist. */
+    test('says only an administrator can control it, rather than reporting a bad passcode', async () => {
+      const conversation = new Conversation({
+        name: 'No Moderator Channel',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        active: true,
+        transcript: { status: 'active' }
+      })
+      await conversation.save()
+
+      const res = await request(app)
+        .post(`/v1/transcript/${conversation._id}/pause`)
+        .query({ channel: `moderator,${MODERATOR_PASSCODE}` })
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send()
+        .expect(httpStatus.FORBIDDEN)
+
+      expect(res.body.message).toMatch(/only an administrator/i)
+      expect(res.body.message).not.toMatch(/incorrect/i)
+    })
+
+    test('still lets an admin work with no passcode at all', async () => {
+      const conversation = await createEventWithChannels()
+
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/pause`)
         .set('Authorization', `Bearer ${userOneAccessToken}`)
         .send()
         .expect(httpStatus.NO_CONTENT)

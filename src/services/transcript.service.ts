@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import httpStatus from 'http-status'
 import mongoose from 'mongoose'
 import { Conversation } from '../models/index.js'
@@ -8,15 +7,61 @@ import transcript from '../agents/helpers/transcript.js'
 import adapterService from './adapter.service.js'
 import conversationService from './conversation.service/index.js'
 import { formatTranscript } from '../agents/helpers/llmInputFormatters.js'
+import { roleRights } from '../config/roles.js'
+import { MODERATOR_CHANNEL } from '../conversations/eventAssistant.js'
+import { ChannelCredential } from '../types/index.types.js'
 
-const deleteTranscript = async (conversationId, user) => {
+/*
+ * Guards one of the four transcript controls: download, pause, resume, delete.
+ *
+ * There are two ways in. An organizer's role already holds the matching right
+ * (`pauseTranscript` and friends), so they pass with nothing on the request. That is how an
+ * organizer reaches these controls at all. Everyone else has to present the moderator
+ * channel's passcode, because a moderator reaches the event through a link carrying that
+ * passcode and the throwaway account it creates is an ordinary participant.
+ *
+ * It has to be the moderator channel and no other. A participant's own link carries the
+ * transcript channel's passcode, so accepting that one would hand the recording controls to
+ * everyone who was invited to the meeting.
+ *
+ * @param {object} conversation Conversation document, not a plain object: the passcode
+ *   branch populates its channels.
+ * @param {object} user The authenticated caller.
+ * @param {string} right The transcript right this control maps to in the roles config.
+ * @param {ChannelCredential[]} channels Channel credentials read off the request's query string.
+ */
+const authorizeTranscriptControl = async (conversation, user, right: string, channels: ChannelCredential[] = []) => {
+  if (roleRights.get(user?.role)?.includes(right)) return
+
+  /* No moderator channel, or one deliberately configured without a passcode, leaves nothing
+     to check against, so the controls fall back to admins only. Say that plainly: a caller
+     who reads this as a rejected passcode will keep retrying a link that cannot ever work. */
+  await conversation.populate('channels')
+  const moderatorChannel = conversation.channels?.find((channel) => channel.name === MODERATOR_CHANNEL)
+  if (!moderatorChannel?.passcode) {
+    throw new ApiError(
+      httpStatus.FORBIDDEN,
+      'This conversation has no moderator passcode, so only an administrator can control its transcript'
+    )
+  }
+
+  const presented = channels.find((channel) => channel.name === MODERATOR_CHANNEL)
+  if (!presented || presented.passcode !== moderatorChannel.passcode) {
+    throw new ApiError(httpStatus.FORBIDDEN, `Incorrect or missing passcode for channel: ${MODERATOR_CHANNEL}`)
+  }
+}
+
+const deleteTranscript = async (conversationId, user, channels: ChannelCredential[] = []) => {
   const conversation = await Conversation.findOne({ _id: conversationId })
     .populate(['topic', 'agents'])
-    .select('name owner topic agents transcript')
+    .select('name owner topic agents channels transcript')
     .exec()
   if (!conversation) {
     throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${conversationId} not found`)
   }
+
+  await authorizeTranscriptControl(conversation, user, 'deleteTranscript', channels)
+
   if (!conversation.transcript) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'No transcript configured for this conversation')
   }
@@ -38,11 +83,13 @@ const deleteTranscript = async (conversationId, user) => {
   }
 }
 
-const pauseTranscript = async (conversationId, user) => {
+const pauseTranscript = async (conversationId, user, channels: ChannelCredential[] = []) => {
   const conversation = await Conversation.findOne({ _id: conversationId }).populate(['topic', 'adapters'])
   if (!conversation) {
     throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${conversationId} not found`)
   }
+
+  await authorizeTranscriptControl(conversation, user, 'pauseTranscript', channels)
 
   if (!conversation.transcript) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'No transcript configured for this conversation')
@@ -55,11 +102,13 @@ const pauseTranscript = async (conversationId, user) => {
   }
 }
 
-const resumeTranscript = async (conversationId, user) => {
+const resumeTranscript = async (conversationId, user, channels: ChannelCredential[] = []) => {
   const conversation = await Conversation.findOne({ _id: conversationId }).populate(['topic', 'adapters'])
   if (!conversation) {
     throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${conversationId} not found`)
   }
+
+  await authorizeTranscriptControl(conversation, user, 'resumeTranscript', channels)
 
   if (!conversation.transcript) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'No transcript configured for this conversation')
@@ -81,7 +130,7 @@ const resumeTranscript = async (conversationId, user) => {
   }
 }
 
-const getPlainTextTranscript = async (conversationId, timezone = 'UTC') => {
+const getPlainTextTranscript = async (conversationId, user, channels: ChannelCredential[] = [], timezone = 'UTC') => {
   let conversation = conversationId
   if (typeof conversationId === 'string' || conversationId instanceof mongoose.Types.ObjectId) {
     conversation = await Conversation.findOne({ _id: conversationId })
@@ -90,6 +139,8 @@ const getPlainTextTranscript = async (conversationId, timezone = 'UTC') => {
   if (!conversation) {
     throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${conversationId} not found`)
   }
+
+  await authorizeTranscriptControl(conversation, user, 'getTranscript', channels)
 
   await conversation.populate('messages')
   const transcriptMessages = conversation.messages
