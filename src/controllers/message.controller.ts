@@ -1,5 +1,6 @@
 import httpStatus from 'http-status'
 import catchAsync from '../utils/catchAsync.js'
+import parseChannelParams from '../utils/channelParams.js'
 import { messageService } from '../services/index.js'
 
 const createMessage = catchAsync(async (req, res) => {
@@ -7,13 +8,7 @@ const createMessage = catchAsync(async (req, res) => {
   res.status(httpStatus.CREATED).send(sentMessages)
 })
 const conversationMessages = catchAsync(async (req, res) => {
-  // zero, one or more channel,code pairs
-  const channels =
-    req.query.channel &&
-    (Array.isArray(req.query.channel) ? req.query.channel : [req.query.channel]).map((c) => {
-      const parts = c.split(',').map((p) => p.trim())
-      return { name: parts[0], passcode: parts[1] }
-    })
+  const channels = parseChannelParams(req.query.channel)
   const messages = await messageService.conversationMessages(req.params.conversationId, channels, req.user)
   res.status(httpStatus.OK).send(messages)
 })
