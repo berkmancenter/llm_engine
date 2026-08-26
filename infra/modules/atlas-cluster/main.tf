@@ -86,6 +86,17 @@ resource "google_compute_network_peering" "atlas" {
   peer_network = "https://www.googleapis.com/compute/v1/projects/${mongodbatlas_network_peering.gcp.atlas_gcp_project_id}/global/networks/${mongodbatlas_network_peering.gcp.atlas_vpc_name}"
 }
 
+# Atlas enforces its project IP access list independently of the peering
+# connection above — a peered VPC's traffic still gets refused unless its
+# CIDR is also listed here. See
+# https://www.mongodb.com/docs/atlas/security-vpc-peering/ ("You must add
+# the peered VPC's CIDR block to the project's IP access list").
+resource "mongodbatlas_project_ip_access_list" "gcp_peered_vpc" {
+  project_id = var.atlas_project_id
+  cidr_block = var.gcp_vpc_cidr_block
+  comment    = "GCP VPC peered via mongodbatlas_network_peering.gcp"
+}
+
 # --- Backup policy ---
 
 resource "mongodbatlas_cloud_backup_schedule" "this" {

@@ -53,7 +53,14 @@ variable "mongo_port" {
 }
 
 variable "data_disk_type" {
-  description = "pd-balanced is the budget-tier choice; use pd-ssd if write latency matters more than cost."
+  description = <<-EOT
+    pd-balanced is the budget-tier choice; use pd-ssd if write latency
+    matters more than cost. Changing this on an existing deployment forces
+    Terraform to destroy and recreate the disk (GCP has no in-place disk
+    type change) — main.tf's prevent_destroy blocks that apply outright, so
+    a real type change needs a manual snapshot-and-restore onto a new disk
+    of the new type, not a plain `terraform apply`.
+  EOT
   type        = string
   default     = "pd-balanced"
 }

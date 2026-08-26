@@ -14,7 +14,19 @@ mkdir -p "$MOUNT_POINT"
 if ! blkid "$DATA_DEVICE" >/dev/null 2>&1; then
   mkfs.ext4 -m 0 -F -E lazy_itable_init=0,lazy_journal_init=0,discard "$DATA_DEVICE"
 fi
-mount -o discard,defaults "$DATA_DEVICE" "$MOUNT_POINT"
+# fstab (with nofail, so a missing/broken disk doesn't hang boot) makes the
+# mount survive a reboot; mountpoint -q makes this script itself idempotent
+# across re-runs on an already-mounted disk — without it, a second run
+# (e.g. after `gcloud compute instances reset`, see main.tf) dies on
+# "already mounted" and every command after it never runs, which for the
+# docker run below means chroma restarts against an empty directory on the
+# boot disk instead of failing loudly.
+if ! grep -q "^$DATA_DEVICE " /etc/fstab; then
+  echo "$DATA_DEVICE $MOUNT_POINT ext4 discard,defaults,nofail 0 2" >>/etc/fstab
+fi
+if ! mountpoint -q "$MOUNT_POINT"; then
+  mount "$MOUNT_POINT"
+fi
 chmod 777 "$MOUNT_POINT" # container runs as a non-root user internally
 
 if ! command -v docker >/dev/null 2>&1; then

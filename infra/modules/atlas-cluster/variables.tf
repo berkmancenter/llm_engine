@@ -10,7 +10,7 @@ variable "atlas_project_id" {
     peering, backups); it never creates a mongodbatlas_project itself, to
     avoid conflicting with what the Marketplace activation already set up.
   EOT
-  type = string
+  type        = string
 }
 
 variable "cluster_name" {
@@ -33,8 +33,8 @@ variable "atlas_region_name" {
     https://www.mongodb.com/docs/atlas/reference/google-gcp/ if you ever
     change gcp_region.
   EOT
-  type    = string
-  default = "CENTRAL_US"
+  type        = string
+  default     = "CENTRAL_US"
 }
 
 variable "instance_size" {
@@ -55,8 +55,8 @@ variable "compute_max_instance_size" {
     budget assumptions") — i.e. this is the tier the budget alert (module
     B5) needs to be sized to actually cover.
   EOT
-  type    = string
-  default = "M20"
+  type        = string
+  default     = "M20"
 }
 
 variable "node_count" {
@@ -90,8 +90,8 @@ variable "atlas_cidr_block" {
     which adds a GCP-region-format detail worth avoiding rather than
     guessing at.
   EOT
-  type    = string
-  default = "10.8.0.0/18"
+  type        = string
+  default     = "10.8.0.0/18"
 }
 
 variable "gcp_network_name" {
@@ -101,6 +101,17 @@ variable "gcp_network_name" {
 
 variable "gcp_network_self_link" {
   description = "Self link of the GCP VPC network (network module output)."
+  type        = string
+}
+
+variable "gcp_vpc_cidr_block" {
+  description = <<-EOT
+    CIDR block of the GCP VPC/subnet being peered above (network module's
+    subnet_cidr output, in llm_engine-infra) — added to Atlas's project IP
+    access list, which it enforces independently of the peering connection
+    itself. Without this, the peering applies cleanly but every connection
+    from the VPC is refused.
+  EOT
   type        = string
 }
 

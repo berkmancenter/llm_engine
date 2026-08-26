@@ -16,6 +16,13 @@ resource "google_compute_disk" "chroma_data" {
   type    = "pd-ssd"
   size    = var.data_disk_size_gb
   labels  = merge(var.labels, { component = "chroma" })
+
+  # Rebuildable in principle (see the module comment above), but a rebuild
+  # costs real time and LLM-provider spend — protect it from an accidental
+  # `terraform destroy`/replace the same way mongo-vm's disk of record is.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # Dedicated service account for the Ops Agent (CPU/memory/disk metrics —

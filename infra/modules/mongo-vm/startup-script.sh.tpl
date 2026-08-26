@@ -23,7 +23,19 @@ mkdir -p "$MOUNT_POINT"
 if ! blkid "$DATA_DEVICE" >/dev/null 2>&1; then
   mkfs.ext4 -m 0 -F -E lazy_itable_init=0,lazy_journal_init=0,discard "$DATA_DEVICE"
 fi
-mount -o discard,defaults "$DATA_DEVICE" "$MOUNT_POINT"
+# fstab (with nofail, so a missing/broken disk doesn't hang boot) makes the
+# mount survive a reboot; mountpoint -q makes this script itself idempotent
+# across re-runs on an already-mounted disk — without it, a second run
+# (e.g. after `gcloud compute instances reset`, see main.tf) dies on
+# "already mounted" and every command after it never runs, which for the
+# docker run below means mongod restarts against an empty directory on the
+# boot disk instead of failing loudly.
+if ! grep -q "^$DATA_DEVICE " /etc/fstab; then
+  echo "$DATA_DEVICE $MOUNT_POINT ext4 discard,defaults,nofail 0 2" >>/etc/fstab
+fi
+if ! mountpoint -q "$MOUNT_POINT"; then
+  mount "$MOUNT_POINT"
+fi
 mkdir -p "$DB_DIR" "$BACKUP_DIR" "$INITDB_DIR"
 chown 999:999 "$DB_DIR" "$BACKUP_DIR" # the mongo image runs as uid 999 internally
 
@@ -38,6 +50,32 @@ if ! command -v crontab >/dev/null 2>&1; then
   apt-get install -y cron
   systemctl enable --now cron
 fi
+
+# jq: only used to pull the two fields we need (access_token, then
+# payload.data) out of the metadata-server/Secret Manager JSON responses
+# below, without pulling in a heavier dependency.
+if ! command -v jq >/dev/null 2>&1; then
+  apt-get update
+  apt-get install -y jq
+fi
+
+# Fetches one Secret Manager secret's latest version, authenticated as this
+# VM's own service account via the metadata server — never a value Terraform
+# rendered into this script's text (which instance metadata is: readable by
+# anyone with compute viewer access, and by any process on the VM). Requires
+# the caller to already hold roles/secretmanager.secretAccessor on the
+# secret (see main.tf's google_secret_manager_secret_iam_member grants).
+fetch_secret() {
+  secret_id="$1"
+  token="$(curl -sf -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" | jq -r .access_token)"
+  curl -sf -H "Authorization: Bearer $token" \
+    "https://secretmanager.googleapis.com/v1/projects/${gcp_project_id}/secrets/$secret_id/versions/latest:access" \
+    | jq -r .payload.data | base64 -d
+}
+
+ROOT_PASSWORD="$(fetch_secret "${root_password_secret_id}")"
+APP_DB_PASSWORD="$(fetch_secret "${app_db_password_secret_id}")"
 
 # Ops Agent: ships this VM's CPU/memory/disk metrics (monitoring module's
 # mongo-vm dashboard/alerts) and forwards journald/syslog — including the
@@ -64,7 +102,7 @@ fi
 cat > "$INITDB_DIR/init-app-user.js" <<EOF
 db.getSiblingDB("${app_database_name}").createUser({
   user: "${app_db_username}",
-  pwd: "${app_db_password}",
+  pwd: "$APP_DB_PASSWORD",
   roles: [{ role: "readWrite", db: "${app_database_name}" }]
 });
 EOF
@@ -84,7 +122,7 @@ docker run -d \
   -v "$BACKUP_DIR:/backup" \
   -v "$INITDB_DIR:/docker-entrypoint-initdb.d" \
   -e MONGO_INITDB_ROOT_USERNAME=${root_username} \
-  -e MONGO_INITDB_ROOT_PASSWORD='${root_password}' \
+  -e MONGO_INITDB_ROOT_PASSWORD="$ROOT_PASSWORD" \
   "${mongo_image}" $MONGOD_ARGS
 
 # --- Daily mongodump, via cron, straight to the same disk the snapshot
@@ -109,9 +147,20 @@ BACKUP_DIR="/mnt/mongo-data/backups"
 # failing command below, including mongodump itself.
 trap 'logger -t llm-engine-mongo-backup "MONGO_BACKUP_FAIL ts=$TS"' ERR
 
+# Fetched fresh on every run rather than persisted anywhere on disk — same
+# fetch_secret approach as the boot script above (metadata-server token,
+# then the Secret Manager REST API), just duplicated here since this file
+# runs standalone under cron, in a process with none of that script's
+# shell state.
+token="$(curl -sf -H "Metadata-Flavor: Google" \
+  "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" | jq -r .access_token)"
+APP_DB_PASSWORD="$(curl -sf -H "Authorization: Bearer $token" \
+  "https://secretmanager.googleapis.com/v1/projects/${gcp_project_id}/secrets/${app_db_password_secret_id}/versions/latest:access" \
+  | jq -r .payload.data | base64 -d)"
+
 docker exec mongo mongodump \
   --host 127.0.0.1 --port 27017 \
-  --username '${app_db_username}' --password '${app_db_password}' \
+  --username '${app_db_username}' --password "$APP_DB_PASSWORD" \
   --authenticationDatabase '${app_database_name}' \
   --db '${app_database_name}' \
   --archive="/backup/mongodump-$TS.gz" --gzip
@@ -123,7 +172,11 @@ find "$BACKUP_DIR" -maxdepth 1 -name 'mongodump-*.gz' -mtime +${backup_retention
 
 logger -t llm-engine-mongo-backup "MONGO_BACKUP_OK ts=$TS"
 BACKUP_EOF
-chmod +x /opt/mongo-backup.sh
+# 700, not the more common 755: this script's text itself is no longer
+# secret (see above), but keep it non-readable by other local users as
+# defense in depth anyway — belt-and-suspenders alongside fetching the
+# password fresh each run instead of embedding it.
+chmod 700 /opt/mongo-backup.sh
 
 cat > /etc/cron.d/mongo-backup <<EOF
 0 ${backup_hour_utc} * * * root /opt/mongo-backup.sh >> /var/log/mongo-backup.log 2>&1

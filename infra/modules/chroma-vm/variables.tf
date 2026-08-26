@@ -63,8 +63,8 @@ variable "boot_disk_size_gb" {
     disk above, so this just needs room for the OS + Docker + the Chroma
     container image, not app data.
   EOT
-  type    = number
-  default = 20
+  type        = number
+  default     = 20
 }
 
 variable "boot_disk_image" {
