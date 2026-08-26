@@ -91,7 +91,10 @@ const createConversation = {
     resources: Joi.array().items(resourceSchema),
     // Opt the event into analytics sources by name, each with that source's ref
     // (e.g. { matomo: 'dimension7' }). Stored opaquely; each adapter interprets its own ref.
-    analyticsRefs: Joi.object().pattern(Joi.string(), Joi.string())
+    analyticsRefs: Joi.object().pattern(Joi.string(), Joi.string()),
+    // Create-time only — deliberately absent from updateConversation's schema below so a
+    // client can never PATCH it once set (see IConversation.useRealNames).
+    useRealNames: Joi.boolean()
   })
 }
 const agentAllowedProperties = {

@@ -164,6 +164,13 @@ const createConversation = async (conversationBody, user, { allowDraft = false }
     throw new ApiError(httpStatus.BAD_REQUEST, 'topic id must be passed in request body')
   }
 
+  /* useRealNames is create-time only (see IConversation.useRealNames): an explicit value in
+     the body wins, otherwise it falls back to the conversation type's own default (e.g.
+     communityRoom.ts), otherwise false. updateConversation never reads this field at all, so
+     it can't change after creation. */
+  const conversationType = conversationBody.conversationType ? getConversationType(conversationBody.conversationType) : null
+  const useRealNames = conversationBody.useRealNames ?? conversationType?.useRealNames ?? false
+
   if (conversationBody.scheduledTime && new Date(conversationBody.scheduledTime) <= new Date()) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'scheduledTime must be in the future')
   }
@@ -192,6 +199,7 @@ const createConversation = async (conversationBody, user, { allowDraft = false }
     ...(topic && { topic }),
     ...(Object.keys(allowedSource).length > 0 && { source: allowedSource }),
     enableAgents: !!conversationBody.agentTypes?.length,
+    useRealNames,
     ...(conversationBody.enableDMs !== undefined && { enableDMs: conversationBody.enableDMs }),
     ...(conversationBody.conversationType !== undefined && { conversationType: conversationBody.conversationType }),
     ...(conversationBody.platforms !== undefined && { platforms: conversationBody.platforms }),
@@ -343,6 +351,11 @@ const updateConversation = async (conversationBody, user) => {
     // draft is server-computed (see recompute below); never let the client set it directly.
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     draft: _incomingDraft,
+    // useRealNames is create-time only (see IConversation.useRealNames); it's also absent
+    // from updateConversation's Joi schema, so a client PATCH never even reaches here with
+    // it, but this is dropped too as a second line of defense against non-HTTP callers.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    useRealNames: _incomingUseRealNames,
     ...restBody
   } = conversationBody
 

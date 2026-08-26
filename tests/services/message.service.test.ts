@@ -253,6 +253,237 @@ describe('Message service methods', () => {
       expect(activePseudo.conversations).toContain(conversation._id.toString())
     })
   })
+
+  describe('resolveMessageName() — room vs. event identity', () => {
+    const realNameEntry = (conversationId) => ({
+      _id: new mongoose.Types.ObjectId(),
+      token: 'real-name-token',
+      pseudonym: 'Jane Doe',
+      normalizedPseudonym: 'jane doe',
+      active: false,
+      isRealName: true,
+      conversations: [conversationId.toString()]
+    })
+
+    const createRoom = async (owner) => {
+      const conversationData = {
+        ...conversationOne,
+        conversationType: 'communityRoom',
+        useRealNames: true,
+        owner: owner._id
+      }
+      delete conversationData._id
+      return Conversation.create(conversationData)
+    }
+
+    const createEvent = async (owner) => {
+      const conversationData = { ...conversationOne, owner: owner._id }
+      delete conversationData._id
+      return Conversation.create(conversationData)
+    }
+
+    test('resolves the room to the real-name entry scoped to that conversation', async () => {
+      const user = await createUser('Bold Aardvark')
+      const room = await createRoom(user)
+      user.pseudonyms.push(realNameEntry(room._id))
+      await user.save()
+
+      const resolved = messageService.resolveMessageName(user, room)
+      expect(resolved.pseudonym).toBe('Jane Doe')
+      expect(resolved.isRealName).toBe(true)
+    })
+
+    test('throws a permission error for the room when no real-name entry is registered', async () => {
+      const user = await createUser('Bold Aardvark')
+      const room = await createRoom(user)
+
+      expect(() => messageService.resolveMessageName(user, room)).toThrow('You are not registered for this room.')
+    })
+
+    test('resolves a normal event to the active pseudonym, filtering out real names', async () => {
+      const user = await createUser('Bold Aardvark')
+      const event = await createEvent(user)
+      // A real-name entry scoped to a *different* conversation must never leak into
+      // an event's name resolution even though it sits in the same pseudonyms array.
+      user.pseudonyms.push(realNameEntry(new mongoose.Types.ObjectId()))
+      await user.save()
+
+      const resolved = messageService.resolveMessageName(user, event)
+      expect(resolved.pseudonym).toBe('Bold Aardvark')
+      expect(resolved.isRealName).toBeFalsy()
+    })
+
+    // Regression test: the community assistant agent lives inside the room (see
+    // conversations/communityRoom.ts), so it posts through this same resolution
+    // path. An agent is never a registered room member — it has no real-name entry
+    // — so it must resolve to its own configured pseudonym rather than hitting the
+    // room's real-name lookup and being rejected as an unregistered member.
+    describe('agent posting in the room', () => {
+      beforeAll(() => {
+        setAgentTypes(testAgentTypes)
+      })
+
+      afterAll(() => {
+        setAgentTypes(defaultAgentTypes)
+      })
+
+      test('resolves an agent posting in the room to its own pseudonym, not a real-name lookup', async () => {
+        const owner = await createUser('Room Owner')
+        const room = await createRoom(owner)
+        const agent = await Agent.create({
+          _id: new mongoose.Types.ObjectId(),
+          conversation: room,
+          agentType: 'perMessage',
+          pseudonyms: [
+            {
+              _id: new mongoose.Types.ObjectId(),
+              token: 'agent-token',
+              pseudonym: 'Community Bot',
+              active: 'true'
+            }
+          ]
+        })
+
+        const resolved = messageService.resolveMessageName(agent, room)
+        expect(resolved.pseudonym).toBe('Community Bot')
+      })
+
+      test('lets an agent post into the room end to end with no real-name entry on file', async () => {
+        const owner = await createUser('Room Owner')
+        const room = await createRoom(owner)
+        const agent = await Agent.create({
+          _id: new mongoose.Types.ObjectId(),
+          conversation: room,
+          agentType: 'perMessage',
+          pseudonyms: [
+            {
+              _id: new mongoose.Types.ObjectId(),
+              token: 'agent-token',
+              pseudonym: 'Community Bot',
+              active: 'true'
+            }
+          ]
+        })
+
+        const [message] = await messageService.newMessageHandler(
+          { conversation: room._id, body: 'welcome!', bodyType: 'text', channels: [], fromAgent: true },
+          agent
+        )
+        expect(message.pseudonym).toBe('Community Bot')
+      })
+    })
+
+    // Regression test for the two-identities fix: one account, active in an event
+    // under a pseudonym and registered for the room under a real name, must be able
+    // to post in either without breaking the other, and the real-name entry must
+    // never become active. Both orders are asserted since each catches a different
+    // regression: room-first catches a real name becoming the account's active name
+    // (failure A), event-first catches a fresh real-name registration deactivating
+    // the pseudonym already posting in the event (failure B).
+    describe('two identities on one account, never logging out', () => {
+      const postInto = async (conversation, user, body) =>
+        messageService.newMessageHandler({ conversation: conversation._id, body, bodyType: 'text', channels: [] }, user)
+
+      test('room-first: posting in the room does not disturb the event pseudonym', async () => {
+        const user = await createUser('Bold Aardvark')
+        const room = await createRoom(user)
+        const event = await createEvent(user)
+        user.pseudonyms.push(realNameEntry(room._id))
+        await user.save()
+
+        const [roomMessage] = await postInto(room, user, 'hello room')
+        expect(roomMessage.pseudonym).toBe('Jane Doe')
+
+        let refreshed = await User.findById(user._id)
+        expect(refreshed!.pseudonyms.find((p) => p.active)!.pseudonym).toBe('Bold Aardvark')
+        expect(refreshed!.pseudonyms.find((p) => p.isRealName)!.active).toBe(false)
+
+        const [eventMessage] = await postInto(event, refreshed, 'hello event')
+        expect(eventMessage.pseudonym).toBe('Bold Aardvark')
+
+        refreshed = await User.findById(user._id)
+        expect(refreshed!.pseudonyms.find((p) => p.active)!.pseudonym).toBe('Bold Aardvark')
+        expect(refreshed!.pseudonyms.find((p) => p.isRealName)!.active).toBe(false)
+      })
+
+      test('event-first: registering the real name does not disturb the event pseudonym', async () => {
+        const user = await createUser('Bold Aardvark')
+        const room = await createRoom(user)
+        const event = await createEvent(user)
+
+        const [eventMessage] = await postInto(event, user, 'hello event')
+        expect(eventMessage.pseudonym).toBe('Bold Aardvark')
+
+        let refreshed = await User.findById(user._id)
+        refreshed!.pseudonyms.push(realNameEntry(room._id))
+        await refreshed!.save()
+
+        const [roomMessage] = await postInto(room, refreshed!, 'hello room')
+        expect(roomMessage.pseudonym).toBe('Jane Doe')
+
+        refreshed = await User.findById(user._id)
+        expect(refreshed!.pseudonyms.find((p) => p.active)!.pseudonym).toBe('Bold Aardvark')
+        expect(refreshed!.pseudonyms.find((p) => p.isRealName)!.active).toBe(false)
+
+        // Posting in the event a second time still works — registering for the room
+        // never locked the event's first-post pin to the wrong identity.
+        const [secondEventMessage] = await postInto(event, refreshed, 'still here')
+        expect(secondEventMessage.pseudonym).toBe('Bold Aardvark')
+      })
+
+      // Regression test for the failure mode the ticket calls out by name: "missing
+      // the third [stamping point] means the agent sees the wrong name while the
+      // saved message looks correct." Comparing resolveMessageName's return value to
+      // itself can't catch that (it's the same deterministic call twice) — this
+      // inspects the actual object handed to agent.evaluate() via a real,
+      // agent-evaluated post into the room.
+      test('an agent evaluating a room message sees the real name, not the active pseudonym', async () => {
+        const user = await createUser('Bold Aardvark')
+        const room = await createRoom(user)
+        user.pseudonyms.push(realNameEntry(room._id))
+        await user.save()
+
+        setAgentTypes(testAgentTypes)
+        try {
+          const mockAgent = new Agent({ agentType: 'perMessage', conversation: room, active: true })
+          await mockAgent.save()
+          room.enableAgents = true
+          room.agents = [mockAgent]
+          await room.save()
+
+          mockEvaluate.mockResolvedValue({
+            action: AgentMessageActions.OK,
+            userMessage: undefined,
+            userContributionVisible: true,
+            suggestion: undefined
+          })
+
+          const [roomMessage] = await postInto(room, user, 'hello room')
+
+          expect(roomMessage.pseudonym).toBe('Jane Doe')
+          expect(mockEvaluate).toHaveBeenCalledTimes(1)
+          const evaluatedMessage = mockEvaluate.mock.calls[0][0]
+          expect(evaluatedMessage.pseudonym).toBe('Jane Doe')
+        } finally {
+          setAgentTypes(defaultAgentTypes)
+        }
+      })
+    })
+
+    test('rejects an unregistered human posting into the room end to end, and persists nothing', async () => {
+      const user = await createUser('Bold Aardvark')
+      const room = await createRoom(user)
+      const countBefore = await Message.countDocuments({ conversation: room._id })
+
+      await expect(
+        messageService.newMessageHandler({ conversation: room._id, body: 'hi', bodyType: 'text', channels: [] }, user)
+      ).rejects.toThrow('You are not registered for this room.')
+
+      const countAfter = await Message.countDocuments({ conversation: room._id })
+      expect(countAfter).toBe(countBefore)
+    })
+  })
+
   describe('createMessage()', () => {
     test('counts documents (excluding replies), not the in-memory messages array', async () => {
       const user = await createUser('Count Tester')

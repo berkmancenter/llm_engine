@@ -1113,6 +1113,42 @@ describe('Conversation service methods', () => {
     })
   })
 
+  describe('createConversation() useRealNames default', () => {
+    beforeEach(async () => {
+      await insertUsers([registeredUser])
+      await insertTopics([topicOne])
+    })
+
+    test('defaults to false when no conversation type is set', async () => {
+      const conversation = await conversationService.createConversation(
+        { name: 'Plain Conversation', topicId: topicOne._id.toString() },
+        registeredUser
+      )
+      expect(conversation.useRealNames).toBe(false)
+    })
+
+    test('defaults to true for a conversation type that declares useRealNames (communityRoom)', async () => {
+      const conversation = await conversationService.createConversation(
+        { name: 'Community Room', topicId: topicOne._id.toString(), conversationType: 'communityRoom' },
+        registeredUser
+      )
+      expect(conversation.useRealNames).toBe(true)
+    })
+
+    test('an explicit useRealNames in the create body overrides the type default', async () => {
+      const conversation = await conversationService.createConversation(
+        {
+          name: 'Community Room Opt-out',
+          topicId: topicOne._id.toString(),
+          conversationType: 'communityRoom',
+          useRealNames: false
+        },
+        registeredUser
+      )
+      expect(conversation.useRealNames).toBe(false)
+    })
+  })
+
   describe('generateConversationReport()', () => {
     let periodicConversation
     let perMessageConversation
@@ -2047,6 +2083,15 @@ describe('Conversation service methods', () => {
         // scheduledEndTime is still unset, so the conversation must remain Draft
         // regardless of what the client sent.
         expect(result!.draft).toBe(true)
+      })
+
+      test('a client-supplied useRealNames field in the update body is ignored', async () => {
+        expect(conversation.useRealNames).toBe(false)
+        const result = await conversationService.updateConversation(
+          { id: conversation._id.toString(), useRealNames: true, name: 'Still Pseudonymous' },
+          registeredUser
+        )
+        expect(result!.useRealNames).toBe(false)
       })
 
       test('filling in the last missing required field flips draft from true to false', async () => {
