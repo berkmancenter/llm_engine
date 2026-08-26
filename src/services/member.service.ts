@@ -3,7 +3,7 @@ import httpStatus from 'http-status'
 import logger from '../config/logger.js'
 import ApiError from '../utils/ApiError.js'
 import Conversation from '../models/conversation.model.js'
-import RoomMember from '../models/roomMember.model.js'
+import ConversationMembership from '../models/conversationMembership.model.js'
 import { matchHeaders, CanonicalField } from '../utils/csvHeaderMatcher.js'
 import { sanitizeSingleLineText, sanitizeMultiLineText, sanitizeEmail, SanitizedField } from '../utils/csvRowSanitize.js'
 
@@ -160,21 +160,21 @@ const importMembersFromCsv = async (conversationId: string, buffer: Buffer, acti
         upsert: true
       }
     }))
-    const result = await RoomMember.bulkWrite(operations, { ordered: false })
+    const result = await ConversationMembership.bulkWrite(operations, { ordered: false })
 
     const upsertedIndexes = new Set(Object.keys(result.upsertedIds ?? {}).map(Number))
     const newEmails = rows.filter((_, i) => upsertedIndexes.has(i)).map((r) => r.email)
     const updatedEmails = rows.filter((_, i) => !upsertedIndexes.has(i)).map((r) => r.email)
 
     if (newEmails.length) {
-      const docs = await RoomMember.find({ conversation: conversationId, email: { $in: newEmails } })
+      const docs = await ConversationMembership.find({ conversation: conversationId, email: { $in: newEmails } })
         .select('_id email')
         .lean()
         .exec()
       newMembers = docs.map((d) => ({ id: d._id.toString(), email: d.email }))
     }
     if (updatedEmails.length) {
-      const docs = await RoomMember.find({ conversation: conversationId, email: { $in: updatedEmails } })
+      const docs = await ConversationMembership.find({ conversation: conversationId, email: { $in: updatedEmails } })
         .select('_id email')
         .lean()
         .exec()

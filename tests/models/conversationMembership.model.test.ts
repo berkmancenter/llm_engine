@@ -1,19 +1,19 @@
 import mongoose from 'mongoose'
-import { RoomMember } from '../../src/models/index.js'
+import { ConversationMembership } from '../../src/models/index.js'
 import setupIntTest from '../utils/setupIntTest.js'
 import { conversationCommunityRoom } from '../fixtures/conversation.fixture.js'
 
 setupIntTest()
 
-describe('RoomMember model', () => {
+describe('ConversationMembership model', () => {
   beforeAll(async () => {
     // setupIntTest() only wipes documents (deleteMany); indexes are not built automatically
     // in tests, so build them explicitly before asserting the unique index is enforced.
-    await RoomMember.syncIndexes()
+    await ConversationMembership.syncIndexes()
   })
 
   it('has a unique conversation + email index', async () => {
-    const indexes = await RoomMember.collection.indexes()
+    const indexes = await ConversationMembership.collection.indexes()
     expect(indexes).toEqual(
       expect.arrayContaining([expect.objectContaining({ key: { conversation: 1, email: 1 }, unique: true })])
     )
@@ -25,18 +25,18 @@ describe('RoomMember model', () => {
       email: 'ada.lovelace@example.com',
       name: 'Ada Lovelace'
     }
-    await RoomMember.create(member)
-    await expect(RoomMember.create(member)).rejects.toThrow()
+    await ConversationMembership.create(member)
+    await expect(ConversationMembership.create(member)).rejects.toThrow()
   })
 
   it('allows the same email in two different conversations', async () => {
-    await RoomMember.create({
+    await ConversationMembership.create({
       conversation: conversationCommunityRoom._id,
       email: 'grace.hopper@example.com',
       name: 'Grace Hopper'
     })
     await expect(
-      RoomMember.create({
+      ConversationMembership.create({
         conversation: new mongoose.Types.ObjectId(),
         email: 'grace.hopper@example.com',
         name: 'Grace Hopper'
@@ -45,7 +45,7 @@ describe('RoomMember model', () => {
   })
 
   it('defaults inviteState, alreadyAnnounced, and status', async () => {
-    const member = await RoomMember.create({
+    const member = await ConversationMembership.create({
       conversation: conversationCommunityRoom._id,
       email: 'alan.turing@example.com',
       name: 'Alan Turing'

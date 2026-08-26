@@ -5,7 +5,7 @@ import httpStatus from 'http-status'
 import mongoose from 'mongoose'
 import setupIntTest from '../utils/setupIntTest.js'
 import app from '../../src/app.js'
-import { RoomMember } from '../../src/models/index.js'
+import { ConversationMembership } from '../../src/models/index.js'
 import { memberImportLimiter } from '../../src/middlewares/rateLimiter.js'
 import { insertUsers, admin, participant } from '../fixtures/user.fixture.js'
 import { adminAccessToken, participantAccessToken } from '../fixtures/token.fixture.js'
@@ -23,7 +23,7 @@ describe('POST /v1/members/:conversationId/import', () => {
   beforeEach(async () => {
     await insertUsers([admin, participant])
     await insertConversations([conversationCommunityRoom, conversationOne])
-    await RoomMember.syncIndexes()
+    await ConversationMembership.syncIndexes()
     // The limiter is a process-lifetime singleton shared across every test in this file;
     // reset it so one test's calls never trip another's. Only resetKey(key) is exposed
     // (no resetAll), and the exact key a supertest request resolves to as req.ip varies
@@ -101,7 +101,7 @@ describe('POST /v1/members/:conversationId/import', () => {
 
     expect(res.body).toMatchObject({ added: 5, updated: 0, skipped: 0, failed: 0, errors: [] })
     expect(res.body.newMembers).toHaveLength(5)
-    expect(await RoomMember.countDocuments({ conversation: conversationCommunityRoom._id })).toBe(5)
+    expect(await ConversationMembership.countDocuments({ conversation: conversationCommunityRoom._id })).toBe(5)
   })
 
   test('maps a real-world file with varied header casing/spacing/wording', async () => {
@@ -112,7 +112,7 @@ describe('POST /v1/members/:conversationId/import', () => {
       .expect(httpStatus.OK)
 
     expect(res.body).toMatchObject({ added: 5, failed: 0 })
-    const ada = await RoomMember.findOne({
+    const ada = await ConversationMembership.findOne({
       conversation: conversationCommunityRoom._id,
       email: 'ada.lovelace@example.com'
     }).lean()
@@ -130,7 +130,7 @@ describe('POST /v1/members/:conversationId/import', () => {
     expect(res.body.errors).toEqual([{ row: 6, column: 'email', message: 'must be a valid email address' }])
     expect(JSON.stringify(res.body)).not.toContain('not-an-email')
 
-    const bob = await RoomMember.findOne({
+    const bob = await ConversationMembership.findOne({
       conversation: conversationCommunityRoom._id,
       email: 'bob.sanitized@example.com'
     }).lean()
@@ -144,7 +144,7 @@ describe('POST /v1/members/:conversationId/import', () => {
       .attach('file', CLEAN_CSV, 'members.csv')
       .expect(httpStatus.OK)
 
-    await RoomMember.updateOne(
+    await ConversationMembership.updateOne(
       { conversation: conversationCommunityRoom._id, email: 'ada.lovelace@example.com' },
       { $set: { inviteState: 'invited' } }
     )
@@ -156,9 +156,9 @@ describe('POST /v1/members/:conversationId/import', () => {
       .expect(httpStatus.OK)
 
     expect(res.body).toMatchObject({ added: 0, updated: 5 })
-    expect(await RoomMember.countDocuments({ conversation: conversationCommunityRoom._id })).toBe(5)
+    expect(await ConversationMembership.countDocuments({ conversation: conversationCommunityRoom._id })).toBe(5)
 
-    const ada = await RoomMember.findOne({
+    const ada = await ConversationMembership.findOne({
       conversation: conversationCommunityRoom._id,
       email: 'ada.lovelace@example.com'
     }).lean()
@@ -174,7 +174,7 @@ describe('POST /v1/members/:conversationId/import', () => {
       .attach('file', oversized, 'members.csv')
 
     expect(res.status).toBeGreaterThanOrEqual(400)
-    expect(await RoomMember.countDocuments({ conversation: conversationCommunityRoom._id })).toBe(0)
+    expect(await ConversationMembership.countDocuments({ conversation: conversationCommunityRoom._id })).toBe(0)
   })
 
   test('rate limits the endpoint, active even outside production', async () => {

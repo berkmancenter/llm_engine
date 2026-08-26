@@ -4,7 +4,7 @@ import httpStatus from 'http-status'
 import mongoose from 'mongoose'
 import setupIntTest from '../utils/setupIntTest.js'
 import memberService from '../../src/services/member.service.js'
-import { RoomMember } from '../../src/models/index.js'
+import { ConversationMembership } from '../../src/models/index.js'
 import { insertConversations, conversationCommunityRoom, conversationOne } from '../fixtures/conversation.fixture.js'
 import { insertUsers, admin } from '../fixtures/user.fixture.js'
 
@@ -24,8 +24,8 @@ const ALL_EMAILS = [
 describe('memberService.importMembersFromCsv', () => {
   beforeEach(async () => {
     await insertUsers([admin])
-    await insertConversations([conversationCommunityRoom, conversationOne])
-    await RoomMember.syncIndexes()
+    await insertConversations([conversationCommunityRoom])
+    await ConversationMembership.syncIndexes()
   })
 
   test('imports a clean file, creating one record per row', async () => {
@@ -36,7 +36,7 @@ describe('memberService.importMembersFromCsv', () => {
     )
     expect(result).toMatchObject({ added: 5, updated: 0, skipped: 0, failed: 0, errors: [] })
 
-    const stored = await RoomMember.find({ conversation: conversationCommunityRoom._id }).lean()
+    const stored = await ConversationMembership.find({ conversation: conversationCommunityRoom._id }).lean()
     expect(stored.map((m) => m.email).sort()).toEqual(ALL_EMAILS)
   })
 
@@ -48,7 +48,7 @@ describe('memberService.importMembersFromCsv', () => {
     )
     expect(result).toMatchObject({ added: 5, failed: 0 })
 
-    const ada = await RoomMember.findOne({
+    const ada = await ConversationMembership.findOne({
       conversation: conversationCommunityRoom._id,
       email: 'ada.lovelace@example.com'
     }).lean()
@@ -72,20 +72,20 @@ describe('memberService.importMembersFromCsv', () => {
       expect(result.errors).toEqual([{ row: 6, column: 'email', message: 'must be a valid email address' }])
       expect(JSON.stringify(result.errors)).not.toContain('not-an-email')
 
-      const ada = await RoomMember.findOne({
+      const ada = await ConversationMembership.findOne({
         conversation: conversationCommunityRoom._id,
         email: 'ada.lovelace@example.com'
       }).lean()
       // the later of the two duplicate rows wins
       expect(ada?.bio).toBe('Mathematician and writer.')
 
-      const bob = await RoomMember.findOne({
+      const bob = await ConversationMembership.findOne({
         conversation: conversationCommunityRoom._id,
         email: 'bob.sanitized@example.com'
       }).lean()
       expect(bob?.name).toBe('Bob Sanitized') // embedded control character stripped
 
-      const injected = await RoomMember.findOne({
+      const injected = await ConversationMembership.findOne({
         conversation: conversationCommunityRoom._id,
         email: 'formula.name@example.com'
       }).lean()
@@ -97,7 +97,7 @@ describe('memberService.importMembersFromCsv', () => {
   test('re-importing updates existing records instead of duplicating, and never resets inviteState/status', async () => {
     await memberService.importMembersFromCsv(conversationCommunityRoom._id.toString(), readCsv('members-clean.csv'), admin)
     // simulate a later invite/moderation step having advanced this member's state
-    await RoomMember.updateOne(
+    await ConversationMembership.updateOne(
       { conversation: conversationCommunityRoom._id, email: 'ada.lovelace@example.com' },
       { $set: { inviteState: 'invited', status: 'removed' } }
     )
@@ -108,9 +108,9 @@ describe('memberService.importMembersFromCsv', () => {
       admin
     )
     expect(result).toMatchObject({ added: 0, updated: 5 })
-    expect(await RoomMember.countDocuments({ conversation: conversationCommunityRoom._id })).toBe(5)
+    expect(await ConversationMembership.countDocuments({ conversation: conversationCommunityRoom._id })).toBe(5)
 
-    const ada = await RoomMember.findOne({
+    const ada = await ConversationMembership.findOne({
       conversation: conversationCommunityRoom._id,
       email: 'ada.lovelace@example.com'
     }).lean()
@@ -121,7 +121,7 @@ describe('memberService.importMembersFromCsv', () => {
 
   test('a member missing from a later import is left in place, not removed', async () => {
     await memberService.importMembersFromCsv(conversationCommunityRoom._id.toString(), readCsv('members-clean.csv'), admin)
-    await RoomMember.create({
+    await ConversationMembership.create({
       conversation: conversationCommunityRoom._id,
       email: 'manual.add@example.com',
       name: 'Manually Added'
@@ -129,7 +129,7 @@ describe('memberService.importMembersFromCsv', () => {
 
     await memberService.importMembersFromCsv(conversationCommunityRoom._id.toString(), readCsv('members-clean.csv'), admin)
 
-    const manual = await RoomMember.findOne({
+    const manual = await ConversationMembership.findOne({
       conversation: conversationCommunityRoom._id,
       email: 'manual.add@example.com'
     }).lean()
@@ -156,7 +156,7 @@ describe('memberService.importMembersFromCsv', () => {
       admin
     )
     expect(result).toMatchObject({ added: 2, failed: 0 })
-    const ada = await RoomMember.findOne({
+    const ada = await ConversationMembership.findOne({
       conversation: conversationCommunityRoom._id,
       email: 'ada.lovelace@example.com'
     }).lean()
@@ -170,7 +170,7 @@ describe('memberService.importMembersFromCsv', () => {
       admin
     )
     expect(result).toMatchObject({ added: 2, failed: 0 })
-    const ada = await RoomMember.findOne({
+    const ada = await ConversationMembership.findOne({
       conversation: conversationCommunityRoom._id,
       email: 'ada.lovelace@example.com'
     }).lean()
@@ -188,7 +188,7 @@ describe('memberService.importMembersFromCsv', () => {
     await expect(
       memberService.importMembersFromCsv(conversationCommunityRoom._id.toString(), invalidUtf8, admin)
     ).rejects.toMatchObject({ statusCode: httpStatus.BAD_REQUEST })
-    expect(await RoomMember.countDocuments({ conversation: conversationCommunityRoom._id })).toBe(0)
+    expect(await ConversationMembership.countDocuments({ conversation: conversationCommunityRoom._id })).toBe(0)
   })
 
   test('imports a genuinely UTF-8 accented name correctly', async () => {
@@ -198,7 +198,7 @@ describe('memberService.importMembersFromCsv', () => {
     )
     const result = await memberService.importMembersFromCsv(conversationCommunityRoom._id.toString(), csv, admin)
     expect(result).toMatchObject({ added: 1, failed: 0 })
-    const jose = await RoomMember.findOne({
+    const jose = await ConversationMembership.findOne({
       conversation: conversationCommunityRoom._id,
       email: 'jose.garcia@example.com'
     }).lean()
@@ -222,14 +222,14 @@ describe('memberService.importMembersFromCsv', () => {
       expect(result.failed).toBe(1)
       expect(result.errors).toEqual([{ row: 2, column: '(row)', message: 'row has more columns than the header row' }])
 
-      const grace = await RoomMember.findOne({
+      const grace = await ConversationMembership.findOne({
         conversation: conversationCommunityRoom._id,
         email: 'grace.hopper@example.com'
       }).lean()
       expect(grace?.name).toBe('Grace Hopper')
       expect(grace?.bio).toBe('')
 
-      const ada = await RoomMember.findOne({
+      const ada = await ConversationMembership.findOne({
         conversation: conversationCommunityRoom._id,
         email: 'ada.lovelace@example.com'
       }).lean()

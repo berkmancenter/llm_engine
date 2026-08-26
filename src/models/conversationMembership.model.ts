@@ -1,8 +1,8 @@
 import mongoose from 'mongoose'
 import { toJSON, paginate } from './plugins/index.js'
-import { IRoomMember } from '../types/index.types.js'
+import { IConversationMembership } from '../types/index.types.js'
 
-const schema = new mongoose.Schema<IRoomMember>(
+const schema = new mongoose.Schema<IConversationMembership>(
   {
     conversation: {
       type: mongoose.SchemaTypes.ObjectId,
@@ -42,7 +42,7 @@ const schema = new mongoose.Schema<IRoomMember>(
       type: Boolean,
       default: false
     },
-    // Set by future member-management action(s), never by import. A member missing from
+    // Set by future membership-management action(s), never by import. A membership missing from
     // a later import file is left in place, not marked removed.
     status: {
       type: String,
@@ -70,5 +70,5 @@ schema.index({ conversation: 1, email: 1 }, { unique: true })
 schema.plugin(toJSON)
 schema.plugin(paginate)
 
-const RoomMember = mongoose.model('RoomMember', schema)
-export default RoomMember
+const ConversationMembership = mongoose.model('ConversationMembership', schema)
+export default ConversationMembership
