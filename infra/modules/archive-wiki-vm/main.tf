@@ -148,9 +148,16 @@ resource "google_compute_network_endpoint_group" "archive_wiki" {
 
 resource "google_compute_network_endpoint" "archive_wiki" {
   network_endpoint_group = google_compute_network_endpoint_group.archive_wiki.id
-  instance               = google_compute_instance.archive_wiki.name
-  ip_address             = google_compute_instance.archive_wiki.network_interface[0].network_ip
-  port                   = var.archive_api_port
+  # Not inferred from network_endpoint_group above despite the two sharing
+  # the same NEG id — the provider errors "zone: required field is not
+  # set" at plan time without this explicit, discovered wiring
+  # archive-wiki-vm into infra/environments/prod for the first time
+  # (llm_engine-infra's manual-setup-checklist.md item 5) in a project with
+  # no provider-level default zone.
+  zone       = var.zone
+  instance   = google_compute_instance.archive_wiki.name
+  ip_address = google_compute_instance.archive_wiki.network_interface[0].network_ip
+  port       = var.archive_api_port
 }
 
 resource "google_compute_health_check" "archive_wiki" {
