@@ -8,7 +8,7 @@ import { toJSON, paginate } from './plugins/index.js'
 const realNameAuditSchema = new mongoose.Schema(
   {
     // Absent for a rejection that happens before an account exists yet (a failed
-    // passcode or uniqueness check during registration).
+    // membership or uniqueness check during registration).
     userId: {
       type: mongoose.SchemaTypes.ObjectId,
       ref: 'BaseUser',
@@ -22,7 +22,7 @@ const realNameAuditSchema = new mongoose.Schema(
     },
     action: {
       type: String,
-      enum: ['created', 'activate_rejected', 'delete_rejected', 'passcode_rejected', 'uniqueness_rejected'],
+      enum: ['created', 'activate_rejected', 'delete_rejected', 'membership_rejected', 'uniqueness_rejected'],
       required: true,
       index: true
     }

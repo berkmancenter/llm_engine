@@ -2,3 +2,7 @@
 * text eol=lf
 *.js text
 *.pdf binary
+
+# CSV import test fixtures: exact bytes (CRLF endings, a raw control character, no BOM)
+# are the point of these files — don't let line-ending normalization rewrite them.
+tests/fixtures/csv/*.csv -text

@@ -1,0 +1,6 @@
+First Name,Last Name,Email,Bio,Interests
+Ada,Lovelace,ADA.LOVELACE@EXAMPLE.COM ,Mathematician.,Mathematics
+Ada,Lovelace, ada.lovelace@example.com,Mathematician and writer.,Computing
+Bob,Sanitized,bob.sanitized@example.com,Clean bio.,Testing
+=SUM(A1:A9),Injection,formula.name@example.com,Bio here.,Testing
+Carol,BadEmail,not-an-email,Bio,Testing

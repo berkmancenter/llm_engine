@@ -7,6 +7,7 @@ import topicsRoute from './topics.route.js'
 import conversationsRoute from './conversations.route.js'
 import transcriptRoute from './transcript.route.js'
 import resourcesRoute from './resources.route.js'
+import membersRoute from './members.route.js'
 import configRoute from './config.route.js'
 import pollsRoute from './polls.route/index.js'
 import webhooksRoute from './webhooks.route.js'
@@ -45,6 +46,10 @@ const defaultRoutes = [
   {
     path: '/resources',
     route: resourcesRoute
+  },
+  {
+    path: '/members',
+    route: membersRoute
   },
   {
     path: '/polls',

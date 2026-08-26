@@ -59,6 +59,10 @@ export const resolveMessageName = (user, conversation) => {
  *
  * Note for real-name pseudonym entries (isRealName: true, see IPseudonym): they are
  * excluded from the conversation-pin lookup below on purpose, so they never affect
+ * who can post here — see the inline comment at pseudoForConversation.
+ *
+ * Note for real-name pseudonym entries (isRealName: true, see IPseudonym): they are
+ * excluded from the conversation-pin lookup below on purpose, so they never affect
  * who can post here — see the inline comment at pseudoForConversation. The lookup
  * itself is skipped entirely for a useRealNames conversation — see the inline comment
  * below.

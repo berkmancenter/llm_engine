@@ -40,3 +40,17 @@ CLAUDE.local.md
 .claudeignore
 # local cache and state
 .mcp.json
+
+# Terraform (infra/) — .terraform.lock.hcl IS committed on purpose, don't add it here
+**/.terraform/
+*.tfplan
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# mkdocs local build output (docs/mkdocs.yml site_dir)
+docs/output
+
+# Generated at image build time by scripts/generateOpenApiSpec.ts (see src/docs/openapiSpec.ts)
+openapi.json
