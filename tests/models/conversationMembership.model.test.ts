@@ -44,14 +44,14 @@ describe('ConversationMembership model', () => {
     ).resolves.toBeDefined()
   })
 
-  it('defaults inviteState, alreadyAnnounced, and status', async () => {
+  it('defaults inviteState, joined, and status', async () => {
     const member = await ConversationMembership.create({
       conversation: conversationCommunityRoom._id,
       email: 'alan.turing@example.com',
       name: 'Alan Turing'
     })
     expect(member.inviteState).toBe('pending')
-    expect(member.alreadyAnnounced).toBe(false)
+    expect(member.joined).toBe(false)
     expect(member.status).toBe('active')
     expect(member.userAccount).toBeUndefined()
   })

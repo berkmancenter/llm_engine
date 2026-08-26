@@ -186,7 +186,7 @@ export interface IConversationMembership {
   bio?: string
   interests?: string
   inviteState: 'pending' | 'invited'
-  alreadyAnnounced: boolean
+  joined: boolean
   status: 'active' | 'removed'
   userAccount?: mongoose.Types.ObjectId
   createdAt?: Date

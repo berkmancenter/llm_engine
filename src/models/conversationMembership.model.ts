@@ -38,7 +38,7 @@ const schema = new mongoose.Schema<IConversationMembership>(
       enum: ['pending', 'invited'],
       default: 'pending'
     },
-    alreadyAnnounced: {
+    joined: {
       type: Boolean,
       default: false
     },

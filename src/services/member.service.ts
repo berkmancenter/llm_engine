@@ -154,8 +154,8 @@ const importMembersFromCsv = async (conversationId: string, buffer: Buffer, acti
         update: {
           $set: { conversation: conversationId, email: row.email, name: row.name, bio: row.bio, interests: row.interests },
           // Only applied when inserting: re-import must never re-invite, revive a removed
-          // status, or touch alreadyAnnounced/userAccount on an existing record.
-          $setOnInsert: { inviteState: 'pending', alreadyAnnounced: false, status: 'active' }
+          // status, or touch joined/userAccount on an existing record.
+          $setOnInsert: { inviteState: 'pending', joined: false, status: 'active' }
         },
         upsert: true
       }
