@@ -48,7 +48,8 @@ const adminOnlyRights = [
   'managePseudonym',
   'ping',
   'getUsers',
-  'manageUsers'
+  'manageUsers',
+  'manageMembers'
 ]
 
 const allRoles = {
