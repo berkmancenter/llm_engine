@@ -245,6 +245,67 @@ variable "frontend_origin" {
   default     = ""
 }
 
+variable "legacy_origin" {
+  description = <<-EOT
+    External IP address of a legacy box to front through this same LB,
+    static IP, and managed cert — built for asml-nextspace's old
+    single-box deployment during its data-tier migration (see
+    llm_engine-infra's docs/autoscaling-completion-checklist.md, Phase 0).
+    Unlike frontend_origin (an internal fallback route only) or
+    extra_host_backends (its own separate domain/routing), this backend is
+    meant to stand in for var.domain/var.additional_domains' entire "main"
+    path_matcher when var.legacy_active is true — see that variable for
+    why this is all-or-nothing across every host on "main".
+
+    Protocol is HTTPS: the legacy box terminates its own TLS (Caddy) and
+    keeps doing so — this LB's managed cert covers the client-facing leg
+    only; the LB re-encrypts to whatever cert the legacy box itself
+    presents.
+
+    Leave "" (the default) to skip this entirely — no legacy backend/NEG
+    gets created.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "legacy_host_header" {
+  description = <<-EOT
+    Host header to rewrite to on requests forwarded to var.legacy_origin —
+    needed so the legacy box's own Caddy vhost match keeps working
+    regardless of which domain the client actually requested (var.domain,
+    additional_domains, or none yet if legacy_origin is reachable directly
+    by IP before any domain points at this LB). Ignored if legacy_origin
+    is "".
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "legacy_active" {
+  description = <<-EOT
+    When true (and var.legacy_origin is set), routes ALL of var.domain's
+    and var.additional_domains' traffic — the URL map's top-level
+    default_service AND "main" path_matcher's /v1/* and /socket.io/* path
+    rules — to the legacy backend instead of this app's own
+    api/websocket/frontend split. This is an all-or-nothing switch across
+    every host currently in var.domain/var.additional_domains, not scoped
+    to any one of them — flipping it true affects every domain already on
+    "main", not just whichever one you actually intend to pass through.
+    Confirm what's actually on "main" (var.domain plus
+    var.additional_domains) before flipping this — it is easy to assume
+    it only affects a not-yet-added domain when it actually reroutes
+    whatever's live there today too.
+
+    Defaults false: today's normal split-routing behavior applies
+    unchanged, and this whole mechanism is a no-op even with
+    legacy_origin set — the backend/NEG still gets created (so it's
+    immediately switchable), it's just not in the routing path yet.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "labels" {
   type    = map(string)
   default = {}

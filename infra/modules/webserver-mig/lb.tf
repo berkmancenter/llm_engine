@@ -57,12 +57,29 @@ locals {
   default_backend_service_id = (
     var.frontend_origin != "" ? google_compute_backend_service.frontend[0].id : google_compute_backend_service.api.id
   )
+
+  # legacy_active overrides EVERYTHING on "main" — its default_service and
+  # both explicit path_rules — with the legacy backend, when set. See
+  # var.legacy_active's own description for why this is all-or-nothing
+  # across every host on "main", not scoped to one domain. Gated on
+  # legacy_origin != "" too, defensively, so this can never reference
+  # backend_service.legacy[0] when that resource doesn't exist (count = 0).
+  legacy_routing_active = var.legacy_active && var.legacy_origin != ""
+  main_default_service_id = (
+    local.legacy_routing_active ? google_compute_backend_service.legacy[0].id : local.default_backend_service_id
+  )
+  main_websocket_service_id = (
+    local.legacy_routing_active ? google_compute_backend_service.legacy[0].id : google_compute_backend_service.websocket.id
+  )
+  main_api_service_id = (
+    local.legacy_routing_active ? google_compute_backend_service.legacy[0].id : google_compute_backend_service.api.id
+  )
 }
 
 resource "google_compute_url_map" "web_server" {
   project         = var.project_id
   name            = "llm-engine-url-map"
-  default_service = local.default_backend_service_id
+  default_service = local.main_default_service_id
 
   host_rule {
     hosts        = concat([var.domain], var.additional_domains)
@@ -71,16 +88,16 @@ resource "google_compute_url_map" "web_server" {
 
   path_matcher {
     name            = "main"
-    default_service = local.default_backend_service_id
+    default_service = local.main_default_service_id
 
     path_rule {
       paths   = ["/socket.io/*"]
-      service = google_compute_backend_service.websocket.id
+      service = local.main_websocket_service_id
     }
 
     path_rule {
       paths   = ["/v1/*"]
-      service = google_compute_backend_service.api.id
+      service = local.main_api_service_id
     }
   }
 
@@ -150,6 +167,50 @@ resource "google_compute_backend_service" "frontend" {
 
   backend {
     group = google_compute_global_network_endpoint_group.frontend[0].id
+  }
+}
+
+# --- Legacy box passthrough (optional) ---
+#
+# Fronts an existing, independently-TLS-terminating legacy deployment
+# through this same LB/static IP, entirely bypassing this app's own
+# api/websocket/frontend split when var.legacy_active is true — see that
+# variable and local.legacy_routing_active above. Modeled on the frontend
+# proxy above (global Internet NEG, no VPC networking or health checks —
+# GCP doesn't support health checks on internet NEGs, the backend is
+# treated as always up), except INTERNET_IP_PORT (a bare IP, not a
+# hostname) since var.legacy_origin is an IP address, not an FQDN.
+#
+# Deliberately NOT wired into local.ssl_cert_domains below — this backend
+# carries no domain of its own onto the managed cert. It only ever serves
+# whatever's already in var.domain/var.additional_domains (via
+# legacy_active), so it needs no separate SAN.
+resource "google_compute_global_network_endpoint_group" "legacy" {
+  count                 = var.legacy_origin != "" ? 1 : 0
+  project               = var.project_id
+  name                  = "llm-engine-legacy-neg"
+  network_endpoint_type = "INTERNET_IP_PORT"
+  default_port          = 443
+}
+
+resource "google_compute_global_network_endpoint" "legacy" {
+  count                         = var.legacy_origin != "" ? 1 : 0
+  global_network_endpoint_group = google_compute_global_network_endpoint_group.legacy[0].id
+  ip_address                    = var.legacy_origin
+  port                          = 443
+}
+
+resource "google_compute_backend_service" "legacy" {
+  count                  = var.legacy_origin != "" ? 1 : 0
+  project                = var.project_id
+  name                   = "llm-engine-legacy-backend"
+  protocol               = "HTTPS"
+  load_balancing_scheme  = "EXTERNAL_MANAGED"
+  timeout_sec            = 30
+  custom_request_headers = var.legacy_host_header != "" ? ["Host: ${var.legacy_host_header}"] : []
+
+  backend {
+    group = google_compute_global_network_endpoint_group.legacy[0].id
   }
 }
 
