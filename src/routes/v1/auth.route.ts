@@ -80,6 +80,17 @@ router.route('/newPseudonym').get(authController.newPseudonym)
  *                 format: email
  *                 description: User email address
  *                 example: "fake@example.com"
+ *               dataExportOptOut:
+ *                 type: boolean
+ *                 description: Opt out of data export (defaults to false)
+ *               conversationId:
+ *                 type: string
+ *                 description: >
+ *                   Optional. When provided along with email, looks up the
+ *                   ConversationMembership record for this email + conversation and
+ *                   creates a real-name pseudonym scoped to it. The name comes from
+ *                   the membership record — the caller does not supply it.
+ *                 example: "64a1b2c3d4e5f6a7b8c9d0e1"
  *     responses:
  *       201:
  *         description: User successfully registered

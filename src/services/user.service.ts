@@ -4,14 +4,13 @@ import crypto from 'crypto'
 import { uniqueNamesGenerator } from 'unique-names-generator'
 import bcrypt from 'bcryptjs'
 import { uid } from 'uid'
-import { User, Message, RealNameAudit, RealNameRegistry } from '../models/index.js'
+import { User, Message, RealNameAudit, RealNameRegistry, ConversationMembership } from '../models/index.js'
 import ApiError from '../utils/ApiError.js'
 import { pseudonymAdjectives, pseudonymNouns } from '../config/pseudonym-dictionaries.js'
 import logger from '../config/logger.js'
 import config from '../config/config.js'
 import { getModelChat, coreLLMPlatform, coreLLMModel } from '../agents/helpers/getModelChat.js'
 import { getChatPromptResponse } from '../agents/helpers/llmChain.js'
-import authChannels from '../utils/authChannels.js'
 
 const funFactSystemTemplate = `You create short, fun facts about pseudonyms. The pseudonym is in the form "adjective noun". Create a 1 sentence fun fact that is factual about the noun, but can be playful about the adjective part. Makes sure your answers are safe for work.
 Output only the fun fact sentence itself — no headings, labels, pseudonym names, or additional commentary.`
@@ -87,7 +86,7 @@ const reserveRealName = async (name: string, conversationId: string) => {
 // (see ApiError messages and log lines throughout this file: none of them echo a
 // real name back). Best-effort: a failure to record shouldn't block the request.
 // userId is undefined for a rejection that happens before an account exists yet
-// (a failed passcode or uniqueness check during registration).
+// (a failed membership or uniqueness check during registration).
 const recordRealNameAudit = async (userId, conversationId, action): Promise<void> => {
   try {
     await RealNameAudit.create({ userId, conversationId, action })
@@ -96,29 +95,24 @@ const recordRealNameAudit = async (userId, conversationId, action): Promise<void
   }
 }
 
-// Verifies the caller actually has access to every conversation a real name is
-// being scoped to, via the same channel-passcode mechanism that already gates
-// posting into a channel (authChannels) — never trust a bare client-supplied
-// conversation id. Throws a generic ApiError (no specifics about which
-// conversation/channel failed) on the first failure.
-const verifyRealNameConversationAccess = async (conversations): Promise<void> => {
-  for (const { conversationId, channelName, passcode } of conversations) {
-    try {
-      await authChannels([{ name: channelName, passcode }], conversationId)
-    } catch {
-      await recordRealNameAudit(undefined, conversationId, 'passcode_rejected')
-      throw new ApiError(httpStatus.FORBIDDEN, 'Could not verify access to one or more conversations.')
-    }
+// Looks up the membership record for this email + conversation, returning the real name
+// the admin registered for them. Throws 403 if no record exists (not on the roster).
+const getMembershipRealName = async (conversationId: string, email: string): Promise<string> => {
+  const membership = await ConversationMembership.findOne({ conversation: conversationId, email }).lean()
+  if (!membership) {
+    await recordRealNameAudit(undefined, conversationId, 'membership_rejected')
+    throw new ApiError(httpStatus.FORBIDDEN, 'Could not verify access to one or more conversations.')
   }
+  return membership.name
 }
 
 /**
  * Create a user
  *
- * When `userBody.realName` is present, also creates a real-name pseudonym entry
- * (isRealName: true) scoped to `userBody.conversations`, guarded end to end:
- * access to each conversation is proved via its channel passcode
- * (verifyRealNameConversationAccess/authChannels) before anything is written, the
+ * When `userBody.conversationId` is present, looks up the ConversationMembership record
+ * for this email + conversation, creates a real-name pseudonym entry (isRealName: true)
+ * scoped to that conversation, guarded end to end: access is proved by membership record
+ * (getMembershipRealName) before anything is written, the
  * name is reserved per-conversation through RealNameRegistry's unique index (atomic,
  * race-free — see reserveRealName), the entry is always created `active: false` and
  * is never handed to generatePseudonymFunFact (real names never reach the LLM), and
@@ -152,35 +146,26 @@ const createUser = async (userBody) => {
     }
   }
 
-  let realNameConversations
-  let reservations
-  if (userBody.realName) {
-    realNameConversations = userBody.conversations
-    await verifyRealNameConversationAccess(realNameConversations)
+  let realNameConversationId: string | undefined
+  let reservation
+  if (userBody.conversationId) {
+    realNameConversationId = userBody.conversationId as string
+    const realName = await getMembershipRealName(realNameConversationId, userProps.email!)
 
-    // Reserve the name in every target conversation before creating anything else.
-    // Each reservation is one atomic insert against RealNameRegistry's compound
-    // unique index — if any conversation's name is already taken, roll back the
-    // reservations this attempt already made and reject the whole registration.
-    reservations = []
-    for (const { conversationId } of realNameConversations) {
-      const reservation = await reserveRealName(userBody.realName, conversationId)
-      if (!reservation) {
-        await RealNameRegistry.deleteMany({ _id: { $in: reservations.map((r) => r._id) } })
-        await recordRealNameAudit(undefined, conversationId, 'uniqueness_rejected')
-        throw new ApiError(httpStatus.CONFLICT, 'That name is already registered for one of these conversations.')
-      }
-      reservations.push(reservation)
+    reservation = await reserveRealName(realName, realNameConversationId)
+    if (!reservation) {
+      await recordRealNameAudit(undefined, realNameConversationId, 'uniqueness_rejected')
+      throw new ApiError(httpStatus.CONFLICT, 'That name is already registered for this conversation.')
     }
 
     userProps.pseudonyms.push({
       token: newToken(),
-      pseudonym: userBody.realName,
-      normalizedPseudonym: normalizeRealName(userBody.realName),
+      pseudonym: realName,
+      normalizedPseudonym: normalizeRealName(realName),
       // Never active — a real name can never be the pseudonym stamped on a message.
       active: false,
       isRealName: true,
-      conversations: realNameConversations.map(({ conversationId }) => conversationId)
+      conversations: [realNameConversationId]
     })
   }
 
@@ -192,13 +177,11 @@ const createUser = async (userBody) => {
     user.pseudonyms[0].funFact = funFact
     await user.save()
   }
-  if (reservations?.length) {
-    // Attach the now-known userId to the reservations made above, and audit the
-    // successful creation (id/action only — never the name text, see recordRealNameAudit).
-    await RealNameRegistry.updateMany({ _id: { $in: reservations.map((r) => r._id) } }, { userId: user._id })
-    await Promise.all(
-      realNameConversations.map(({ conversationId }) => recordRealNameAudit(user._id, conversationId, 'created'))
-    )
+  if (reservation && realNameConversationId) {
+    // Attach the now-known userId to the reservation and audit the successful creation
+    // (id/action only — never the name text, see recordRealNameAudit).
+    await RealNameRegistry.updateOne({ _id: reservation._id }, { userId: user._id })
+    await recordRealNameAudit(user._id, realNameConversationId, 'created')
   }
   return user
 }

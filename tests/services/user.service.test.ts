@@ -6,7 +6,14 @@ import { insertUsers, registeredUser } from '../fixtures/user.fixture.js'
 import { insertMessages, messageOne } from '../fixtures/message.fixture.js'
 import { newPublicTopic, insertTopics } from '../fixtures/topic.fixture.js'
 import userService from '../../src/services/user.service.js'
-import { User, Channel, Conversation, RealNameAudit, RealNameRegistry } from '../../src/models/index.js'
+import {
+  User,
+  Channel,
+  Conversation,
+  RealNameAudit,
+  RealNameRegistry,
+  ConversationMembership
+} from '../../src/models/index.js'
 import ApiError from '../../src/utils/ApiError.js'
 import config from '../../src/config/config.js'
 
@@ -19,12 +26,12 @@ const createVote = () => ({
   owner: new mongoose.Types.ObjectId()
 })
 
-// A conversation with one channel gated by `passcode` — real-name registration must
-// prove access to it (userService.createUser -> authChannels) before creating an entry.
-const createConversationWithChannel = async (passcode = 'letmein', channelName = 'general') => {
+// A conversation with a membership record for `email` — real-name registration
+// checks the roster (userService.createUser -> ConversationMembership) before creating an entry.
+const createConversationWithMembership = async (email: string) => {
   const topic = newPublicTopic()
   await insertTopics([topic])
-  const channel = await Channel.create({ name: channelName, passcode })
+  const channel = await Channel.create({ name: 'general' })
   const conversation = await Conversation.create({
     name: `conv-${new mongoose.Types.ObjectId()}`,
     slug: `conv-${new mongoose.Types.ObjectId()}`,
@@ -34,14 +41,9 @@ const createConversationWithChannel = async (passcode = 'letmein', channelName =
     messages: [],
     transcript: { status: 'stopped' }
   })
-  return { conversation, channel }
+  await ConversationMembership.create({ conversation: conversation._id, email, name: 'Test Member' })
+  return conversation
 }
-
-const realNameConversationInput = (conversation, channel, passcode = 'letmein') => ({
-  conversationId: conversation._id.toString(),
-  channelName: channel.name,
-  passcode
-})
 
 describe('User service methods', () => {
   describe('createUser()', () => {
@@ -134,13 +136,14 @@ describe('User service methods', () => {
       })
 
       test('creates a real-name entry scoped to the conversation, inactive, uncounted, with no fun fact', async () => {
-        const { conversation, channel } = await createConversationWithChannel()
+        const email = 'jane.doe@example.com'
+        const conversation = await createConversationWithMembership(email)
         const userBody = {
           username: 'realnametest1',
           token: 'tok-ordinary',
           pseudonym: 'Bold Aardvark',
-          realName: 'Jane Doe',
-          conversations: [realNameConversationInput(conversation, channel)]
+          email,
+          conversationId: conversation._id.toString()
         }
 
         const user = await userService.createUser(userBody)
@@ -148,8 +151,8 @@ describe('User service methods', () => {
         expect(user.pseudonyms).toHaveLength(2)
         const realNameEntry = user.pseudonyms.find((p) => p.isRealName)
         expect(realNameEntry).toBeDefined()
-        expect(realNameEntry!.pseudonym).toBe('Jane Doe')
-        expect(realNameEntry!.normalizedPseudonym).toBe('jane doe')
+        expect(realNameEntry!.pseudonym).toBe('Test Member')
+        expect(realNameEntry!.normalizedPseudonym).toBe('test member')
         expect(realNameEntry!.active).toBe(false)
         expect(realNameEntry!.funFact).toBeUndefined()
         expect(realNameEntry!.conversations).toEqual([conversation._id.toString()])
@@ -161,42 +164,48 @@ describe('User service methods', () => {
         expect(audit!.conversationId.toString()).toBe(conversation._id.toString())
       })
 
-      test('rejects registration with the wrong channel passcode, and creates nothing', async () => {
-        const { conversation, channel } = await createConversationWithChannel('correct-code')
+      test('rejects registration when the email is not on the conversation membership roster', async () => {
+        const conversation = await createConversationWithMembership('someone.else@example.com')
         const userBody = {
           username: 'realnametest2',
           token: 'tok-ordinary2',
           pseudonym: 'Brave Beaver',
-          realName: 'John Smith',
-          conversations: [realNameConversationInput(conversation, channel, 'wrong-code')]
+          email: 'not.on.roster@example.com',
+          conversationId: conversation._id.toString()
         }
 
         await expect(userService.createUser(userBody)).rejects.toMatchObject({ statusCode: httpStatus.FORBIDDEN })
         expect(await User.findOne({ username: 'realnametest2' })).toBeNull()
         expect(await RealNameRegistry.findOne({ conversationId: conversation._id })).toBeNull()
-        expect(await RealNameAudit.findOne({ action: 'passcode_rejected', conversationId: conversation._id })).not.toBeNull()
+        expect(
+          await RealNameAudit.findOne({ action: 'membership_rejected', conversationId: conversation._id })
+        ).not.toBeNull()
       })
 
       test('rejects a second real name in the same conversation, but allows it in a different one', async () => {
-        const { conversation: convoA, channel: channelA } = await createConversationWithChannel()
-        const { conversation: convoB, channel: channelB } = await createConversationWithChannel()
+        const emailA = 'alex.a@example.com'
+        const emailB = 'alex.b@example.com'
+        const convoA = await createConversationWithMembership(emailA)
+        const convoB = await createConversationWithMembership(emailB)
+        // Add emailB to convoA with the same name so uniqueness (not membership) is what rejects
+        await ConversationMembership.create({ conversation: convoA._id, email: emailB, name: 'Test Member' })
 
         await userService.createUser({
           username: 'realnametest3a',
           token: 'tok-a',
           pseudonym: 'Calm Cobra',
-          realName: 'Alex Rivera',
-          conversations: [realNameConversationInput(convoA, channelA)]
+          email: emailA,
+          conversationId: convoA._id.toString()
         })
 
-        // same name, same conversation -> rejected
+        // same name (from membership), same conversation -> rejected on uniqueness
         await expect(
           userService.createUser({
             username: 'realnametest3b',
             token: 'tok-b',
             pseudonym: 'Daring Duck',
-            realName: 'alex   rivera', // different case/whitespace, same normalized name
-            conversations: [realNameConversationInput(convoA, channelA)]
+            email: emailB,
+            conversationId: convoA._id.toString()
           })
         ).rejects.toMatchObject({ statusCode: httpStatus.CONFLICT })
         expect(await User.findOne({ username: 'realnametest3b' })).toBeNull()
@@ -206,20 +215,21 @@ describe('User service methods', () => {
           username: 'realnametest3c',
           token: 'tok-c',
           pseudonym: 'Eager Emu',
-          realName: 'Alex Rivera',
-          conversations: [realNameConversationInput(convoB, channelB)]
+          email: emailB,
+          conversationId: convoB._id.toString()
         })
         expect(userC.pseudonyms.find((p) => p.isRealName)).toBeDefined()
       })
 
       test('never calls the LLM fun-fact helper for a real-name entry', async () => {
-        const { conversation, channel } = await createConversationWithChannel()
+        const email = 'sam.lee@example.com'
+        const conversation = await createConversationWithMembership(email)
         const user = await userService.createUser({
           username: 'realnametest4',
           token: 'tok-ordinary4',
           pseudonym: 'Gentle Giraffe',
-          realName: 'Sam Lee',
-          conversations: [realNameConversationInput(conversation, channel)]
+          email,
+          conversationId: conversation._id.toString()
         })
         const realNameEntry = user.pseudonyms.find((p) => p.isRealName)
         // If generatePseudonymFunFact had been called for the real name, this would
