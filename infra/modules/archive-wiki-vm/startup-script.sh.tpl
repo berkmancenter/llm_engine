@@ -48,6 +48,12 @@ chown -R $APP_USER:$APP_USER "$SSH_DIR"
 GIT_SSH_COMMAND="ssh -i $DEPLOY_KEY_PATH -o UserKnownHostsFile=$SSH_DIR/known_hosts"
 
 if [ ! -d "$REPO_DIR/.git" ]; then
+  # /srv isn't writable by a non-root user, so the clone below (run as
+  # $APP_USER) can't create $REPO_DIR itself — same pattern as mongo-vm's
+  # DB_DIR/BACKUP_DIR chown before it drops to uid 999.
+  mkdir -p "$REPO_DIR"
+  chown $APP_USER:$APP_USER "$REPO_DIR"
+
   sudo -u $APP_USER env GIT_SSH_COMMAND="$GIT_SSH_COMMAND" \
     git clone git@github.com:berkmancenter/bkc-archive-wiki.git "$REPO_DIR"
   # core.sshCommand persists this repo's SSH identity, so the refresh
