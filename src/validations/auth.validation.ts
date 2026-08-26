@@ -1,5 +1,5 @@
 import Joi from 'joi'
-import { password } from './custom.validation.js'
+import { password, objectId } from './custom.validation.js'
 
 const register = {
   body: Joi.object().keys({
@@ -8,7 +8,11 @@ const register = {
     pseudonym: Joi.string().required(),
     token: Joi.string().required(),
     email: Joi.string(),
-    dataExportOptOut: Joi.boolean()
+    dataExportOptOut: Joi.boolean(),
+    // Optional. When present, looks up the ConversationMembership record for this
+    // email + conversation and creates a real-name pseudonym scoped to it. Requires
+    // email. Intended as a temporary testing affordance until the invite flow lands.
+    conversationId: Joi.string().custom(objectId)
   })
 }
 const login = {

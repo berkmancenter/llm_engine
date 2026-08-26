@@ -214,6 +214,44 @@ describe('Message service methods', () => {
       expect(answerMessage!.answersPrompt).toBeDefined()
       expect(answerMessage!.answersPrompt!.toString()).toBe(promptMessage._id.toString())
     })
+
+    // Regression test for the real-name feature: a real-name pseudonym entry can
+    // scope `conversations` to a room (see userService.createUser) the same way an
+    // ordinary pseudonym does, but it must never be picked up by this posting-gate
+    // lookup — otherwise a member with a real name on file for this room could never
+    // post here again with any (ordinary, active) pseudonym at all, since a real
+    // name can never be activated (see userService.activatePseudonym).
+    test('lets a user with a real-name entry scoped to this conversation still post with their active pseudonym', async () => {
+      const user = await createUser('Bold Aardvark')
+
+      const conversationData = {
+        ...conversationOne,
+        owner: user._id
+      }
+      delete conversationData._id
+      const conversation = await Conversation.create(conversationData)
+
+      user.pseudonyms.push({
+        _id: new mongoose.Types.ObjectId(),
+        token: 'real-name-token',
+        pseudonym: 'Jane Doe',
+        normalizedPseudonym: 'jane doe',
+        active: false,
+        isRealName: true,
+        conversations: [conversation._id.toString()]
+      })
+      await user.save()
+
+      const messageBody = { conversation: conversation._id }
+      const result = await messageService.fetchConversation(messageBody, user)
+
+      expect(result).toBeDefined()
+      expect(result._id.toString()).toBe(conversation._id.toString())
+      // the ordinary (active) pseudonym should now be pinned to this conversation too
+      const updatedUser = await User.findById(user._id)
+      const activePseudo = updatedUser!.pseudonyms.find((p) => p.active)!
+      expect(activePseudo.conversations).toContain(conversation._id.toString())
+    })
   })
   describe('createMessage()', () => {
     test('counts documents (excluding replies), not the in-memory messages array', async () => {
