@@ -7,10 +7,6 @@ import ConversationMembership from '../models/conversationMembership.model.js'
 import { matchHeaders, CanonicalField } from '../utils/csvHeaderMatcher.js'
 import { sanitizeSingleLineText, sanitizeMultiLineText, sanitizeEmail, SanitizedField } from '../utils/csvRowSanitize.js'
 
-// Conversation types eligible for a member-roster import. A code-level allow list, not an
-// env var: extend this when another room type needs the same capability.
-const ELIGIBLE_CONVERSATION_TYPES = ['communityRoom']
-
 // Defense-in-depth against a memory-only large-file scenario the multer byte-size cap alone
 // wouldn't catch (e.g. a file that's small on disk but expands to many rows).
 const MAX_ROWS = 2000
@@ -36,12 +32,9 @@ const sanitizeCell = (field: CanonicalField, raw: unknown): SanitizedField => {
 }
 
 const importMembersFromCsv = async (conversationId: string, buffer: Buffer, actingUser) => {
-  const conversation = await Conversation.findById(conversationId).select('conversationType').lean().exec()
+  const conversation = await Conversation.findById(conversationId).exec()
   if (!conversation) {
     throw new ApiError(httpStatus.NOT_FOUND, 'Conversation not found')
-  }
-  if (!ELIGIBLE_CONVERSATION_TYPES.includes(conversation.conversationType ?? '')) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'This conversation type does not support member import')
   }
 
   // Excel on Windows commonly exports CSV in the system's legacy codepage (e.g.

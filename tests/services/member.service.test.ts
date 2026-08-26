@@ -5,7 +5,7 @@ import mongoose from 'mongoose'
 import setupIntTest from '../utils/setupIntTest.js'
 import memberService from '../../src/services/member.service.js'
 import { ConversationMembership } from '../../src/models/index.js'
-import { insertConversations, conversationCommunityRoom, conversationOne } from '../fixtures/conversation.fixture.js'
+import { insertConversations, conversationCommunityRoom } from '../fixtures/conversation.fixture.js'
 import { insertUsers, admin } from '../fixtures/user.fixture.js'
 
 setupIntTest()
@@ -135,12 +135,6 @@ describe('memberService.importMembersFromCsv', () => {
     }).lean()
     expect(manual).not.toBeNull()
     expect(manual?.status).toBe('active')
-  })
-
-  test('rejects a conversation type that is not eligible for member import', async () => {
-    await expect(
-      memberService.importMembersFromCsv(conversationOne._id.toString(), readCsv('members-clean.csv'), admin)
-    ).rejects.toMatchObject({ statusCode: httpStatus.BAD_REQUEST })
   })
 
   test('rejects a conversation that does not exist', async () => {

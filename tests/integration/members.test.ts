@@ -63,14 +63,6 @@ describe('POST /v1/members/:conversationId/import', () => {
       .expect(httpStatus.NOT_FOUND)
   })
 
-  test('returns 400 for a conversation type not eligible for member import', async () => {
-    await request(app)
-      .post(importUrl(conversationOne._id))
-      .set('Authorization', `Bearer ${adminAccessToken}`)
-      .attach('file', CLEAN_CSV, 'members.csv')
-      .expect(httpStatus.BAD_REQUEST)
-  })
-
   test('returns 400 for a file that is not valid UTF-8', async () => {
     // "Jos\xe9" (Windows-1252/Latin-1) is invalid UTF-8: 0xe9 alone has no lead byte.
     const invalidUtf8 = Buffer.concat([
