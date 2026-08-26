@@ -58,20 +58,23 @@ locals {
     var.frontend_origin != "" ? google_compute_backend_service.frontend[0].id : google_compute_backend_service.api.id
   )
 
-  # legacy_active overrides EVERYTHING on "main" — its default_service and
-  # both explicit path_rules — with the legacy backend, when set. See
-  # var.legacy_active's own description for why this is all-or-nothing
-  # across every host on "main", not scoped to one domain. Gated on
-  # legacy_origin != "" too, defensively, so this can never reference
-  # backend_service.legacy[0] when that resource doesn't exist (count = 0).
-  legacy_routing_active = var.legacy_active && var.legacy_origin != ""
-  main_default_service_id = (
+  # Gated on legacy_origin != "" too, defensively, so this can never
+  # reference backend_service.legacy[0] when that resource doesn't exist
+  # (count = 0).
+  legacy_routing_active = var.legacy_active && var.legacy_origin != "" && var.legacy_domain != ""
+
+  # var.legacy_domain's own default_service/path rules — the same
+  # api/websocket/frontend split "main" uses when legacy_routing_active is
+  # false, or entirely the legacy backend when true. Deliberately separate
+  # locals from "main"'s below — see var.legacy_domain's own description
+  # for why "main" must never reference these.
+  legacy_domain_default_service_id = (
     local.legacy_routing_active ? google_compute_backend_service.legacy[0].id : local.default_backend_service_id
   )
-  main_websocket_service_id = (
+  legacy_domain_websocket_service_id = (
     local.legacy_routing_active ? google_compute_backend_service.legacy[0].id : google_compute_backend_service.websocket.id
   )
-  main_api_service_id = (
+  legacy_domain_api_service_id = (
     local.legacy_routing_active ? google_compute_backend_service.legacy[0].id : google_compute_backend_service.api.id
   )
 }
@@ -79,7 +82,7 @@ locals {
 resource "google_compute_url_map" "web_server" {
   project         = var.project_id
   name            = "llm-engine-url-map"
-  default_service = local.main_default_service_id
+  default_service = local.default_backend_service_id
 
   host_rule {
     hosts        = concat([var.domain], var.additional_domains)
@@ -88,16 +91,47 @@ resource "google_compute_url_map" "web_server" {
 
   path_matcher {
     name            = "main"
-    default_service = local.main_default_service_id
+    default_service = local.default_backend_service_id
 
     path_rule {
       paths   = ["/socket.io/*"]
-      service = local.main_websocket_service_id
+      service = google_compute_backend_service.websocket.id
     }
 
     path_rule {
       paths   = ["/v1/*"]
-      service = local.main_api_service_id
+      service = google_compute_backend_service.api.id
+    }
+  }
+
+  # var.legacy_domain's own host_rule + path_matcher — same api/websocket
+  # split shape as "main" above, but entirely independent of it: this
+  # domain is never part of concat([var.domain], var.additional_domains),
+  # and "main"'s own default_service/path rules above never reference
+  # anything legacy-related. See var.legacy_domain's description for why.
+  dynamic "host_rule" {
+    for_each = var.legacy_domain != "" ? [var.legacy_domain] : []
+    content {
+      hosts        = [host_rule.value]
+      path_matcher = "legacy-domain"
+    }
+  }
+
+  dynamic "path_matcher" {
+    for_each = var.legacy_domain != "" ? [var.legacy_domain] : []
+    content {
+      name            = "legacy-domain"
+      default_service = local.legacy_domain_default_service_id
+
+      path_rule {
+        paths   = ["/socket.io/*"]
+        service = local.legacy_domain_websocket_service_id
+      }
+
+      path_rule {
+        paths   = ["/v1/*"]
+        service = local.legacy_domain_api_service_id
+      }
     }
   }
 
@@ -174,17 +208,13 @@ resource "google_compute_backend_service" "frontend" {
 #
 # Fronts an existing, independently-TLS-terminating legacy deployment
 # through this same LB/static IP, entirely bypassing this app's own
-# api/websocket/frontend split when var.legacy_active is true — see that
-# variable and local.legacy_routing_active above. Modeled on the frontend
-# proxy above (global Internet NEG, no VPC networking or health checks —
-# GCP doesn't support health checks on internet NEGs, the backend is
-# treated as always up), except INTERNET_IP_PORT (a bare IP, not a
-# hostname) since var.legacy_origin is an IP address, not an FQDN.
-#
-# Deliberately NOT wired into local.ssl_cert_domains below — this backend
-# carries no domain of its own onto the managed cert. It only ever serves
-# whatever's already in var.domain/var.additional_domains (via
-# legacy_active), so it needs no separate SAN.
+# api/websocket/frontend split for var.legacy_domain specifically when
+# var.legacy_active is true — see that variable, var.legacy_domain, and
+# local.legacy_routing_active above. Modeled on the frontend proxy above
+# (global Internet NEG, no VPC networking or health checks — GCP doesn't
+# support health checks on internet NEGs, the backend is treated as
+# always up), except INTERNET_IP_PORT (a bare IP, not a hostname) since
+# var.legacy_origin is an IP address, not an FQDN.
 resource "google_compute_global_network_endpoint_group" "legacy" {
   count                 = var.legacy_origin != "" ? 1 : 0
   project               = var.project_id
@@ -207,7 +237,7 @@ resource "google_compute_backend_service" "legacy" {
   protocol               = "HTTPS"
   load_balancing_scheme  = "EXTERNAL_MANAGED"
   timeout_sec            = 30
-  custom_request_headers = var.legacy_host_header != "" ? ["Host: ${var.legacy_host_header}"] : []
+  custom_request_headers = var.legacy_domain != "" ? ["Host: ${var.legacy_domain}"] : []
 
   backend {
     group = google_compute_global_network_endpoint_group.legacy[0].id
@@ -239,7 +269,8 @@ locals {
   ssl_cert_domains = sort(distinct(concat(
     [var.domain],
     var.additional_domains,
-    flatten(var.extra_host_backends[*].domains)
+    flatten(var.extra_host_backends[*].domains),
+    var.legacy_domain != "" ? [var.legacy_domain] : []
   )))
 }
 

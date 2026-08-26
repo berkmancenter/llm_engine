@@ -251,11 +251,6 @@ variable "legacy_origin" {
     static IP, and managed cert — built for asml-nextspace's old
     single-box deployment during its data-tier migration (see
     llm_engine-infra's docs/autoscaling-completion-checklist.md, Phase 0).
-    Unlike frontend_origin (an internal fallback route only) or
-    extra_host_backends (its own separate domain/routing), this backend is
-    meant to stand in for var.domain/var.additional_domains' entire "main"
-    path_matcher when var.legacy_active is true — see that variable for
-    why this is all-or-nothing across every host on "main".
 
     Protocol is HTTPS: the legacy box terminates its own TLS (Caddy) and
     keeps doing so — this LB's managed cert covers the client-facing leg
@@ -269,14 +264,32 @@ variable "legacy_origin" {
   default     = ""
 }
 
-variable "legacy_host_header" {
+variable "legacy_domain" {
   description = <<-EOT
-    Host header to rewrite to on requests forwarded to var.legacy_origin —
-    needed so the legacy box's own Caddy vhost match keeps working
-    regardless of which domain the client actually requested (var.domain,
-    additional_domains, or none yet if legacy_origin is reachable directly
-    by IP before any domain points at this LB). Ignored if legacy_origin
-    is "".
+    The one domain var.legacy_active's toggle applies to — deliberately
+    kept entirely separate from var.domain/var.additional_domains ("main"
+    path_matcher) so flipping legacy_active can never affect those (an
+    earlier version of this mechanism didn't separate them, and flipping
+    legacy_active would have rerouted whatever was already live on "main"
+    — e.g. a preview domain — right along with the intended legacy
+    domain; see git history if curious). Gets its own host_rule +
+    path_matcher: routed entirely to the legacy backend when
+    var.legacy_active is true, or to this app's own normal
+    api/websocket/frontend split (the same split "main" uses) when false
+    — so this domain can eventually rejoin normal routing without ever
+    having been entangled with var.domain's own traffic.
+
+    Also used as the Host header rewritten on requests forwarded to
+    var.legacy_origin, so the legacy box's own Caddy vhost match keeps
+    working — this domain and that header should always be the same
+    value, so there's no separate variable for it.
+
+    Included on the managed cert (see local.ssl_cert_domains) whenever
+    set, same as var.domain/additional_domains — so this still needs the
+    domain's DNS to actually resolve here before real traffic for it can
+    reach this LB at all, same caution as var.domain. Leave "" (the
+    default) to skip entirely — no separate host_rule/path_matcher gets
+    created, and legacy_active has nothing to apply to.
   EOT
   type        = string
   default     = ""
@@ -284,23 +297,18 @@ variable "legacy_host_header" {
 
 variable "legacy_active" {
   description = <<-EOT
-    When true (and var.legacy_origin is set), routes ALL of var.domain's
-    and var.additional_domains' traffic — the URL map's top-level
-    default_service AND "main" path_matcher's /v1/* and /socket.io/* path
-    rules — to the legacy backend instead of this app's own
-    api/websocket/frontend split. This is an all-or-nothing switch across
-    every host currently in var.domain/var.additional_domains, not scoped
-    to any one of them — flipping it true affects every domain already on
-    "main", not just whichever one you actually intend to pass through.
-    Confirm what's actually on "main" (var.domain plus
-    var.additional_domains) before flipping this — it is easy to assume
-    it only affects a not-yet-added domain when it actually reroutes
-    whatever's live there today too.
+    When true (and both var.legacy_origin and var.legacy_domain are set),
+    routes var.legacy_domain's traffic — its own host_rule's
+    default_service and path rules, entirely separate from "main" — to
+    the legacy backend instead of this app's own api/websocket/frontend
+    split. Scoped to exactly var.legacy_domain; never touches
+    var.domain/var.additional_domains ("main"), regardless of what's on
+    either list.
 
-    Defaults false: today's normal split-routing behavior applies
-    unchanged, and this whole mechanism is a no-op even with
-    legacy_origin set — the backend/NEG still gets created (so it's
-    immediately switchable), it's just not in the routing path yet.
+    Defaults false: var.legacy_domain (if set) gets this app's own normal
+    split-routing behavior, same as "main" would. The backend/NEG still
+    gets created whenever legacy_origin is set even with this false, so
+    it's immediately switchable — it's just not in the routing path yet.
   EOT
   type        = bool
   default     = false
