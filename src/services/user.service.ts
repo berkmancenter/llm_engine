@@ -71,7 +71,7 @@ const DUPLICATE_KEY_ERROR_CODE = 11000
 // uniqueness check, enforced by that collection's compound unique index, not a
 // separate check-then-write. Returns the reservation on success, or null if that
 // name is already taken in this conversation. Scoped per conversation, deliberately
-// — the same real name is fine in two different rooms; it's only a conflict within
+// — the same real name is fine in two different conversations; it's only a conflict within
 // the same one.
 const reserveRealName = async (name: string, conversationId: string) => {
   try {
@@ -554,7 +554,7 @@ export const resolveDisplayName = (user, conversation) => {
     const conversationId = conversation._id.toString()
     const realName = user.pseudonyms.find((p) => p.isRealName && p.conversations.includes(conversationId))
     if (!realName) {
-      throw new ApiError(httpStatus.FORBIDDEN, 'You are not registered for this room.')
+      throw new ApiError(httpStatus.FORBIDDEN, 'You are not registered for this conversation')
     }
     return realName
   }

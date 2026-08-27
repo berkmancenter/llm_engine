@@ -646,7 +646,7 @@ describe('User service methods', () => {
       const user = await createNamedUser('Bold Aardvark')
       const room = await createRoom(user)
 
-      expect(() => resolveDisplayName(user, room)).toThrow('You are not registered for this room.')
+      expect(() => resolveDisplayName(user, room)).toThrow('You are not registered for this conversation')
     })
 
     test('resolves a normal event to the active pseudonym, filtering out real names', async () => {
@@ -826,7 +826,7 @@ describe('User service methods', () => {
 
       await expect(
         messageService.newMessageHandler({ conversation: room._id, body: 'hi', bodyType: 'text', channels: [] }, user)
-      ).rejects.toThrow('You are not registered for this room.')
+      ).rejects.toThrow('You are not registered for this conversation')
 
       const countAfter = await Message.countDocuments({ conversation: room._id })
       expect(countAfter).toBe(countBefore)
