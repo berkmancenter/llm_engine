@@ -31,9 +31,11 @@ const communityRoom: ConversationType = {
     {
       name: 'notifications',
       label: 'Notifications',
-      description: 'Notification types the assistant will post. Available: event_ended. Defaults to none.',
+      description:
+        'Notification types the assistant will post. Available: event_ended, participant_joined. Defaults to participant_joined.',
       required: false,
-      type: 'object'
+      type: 'object',
+      default: ['participant_joined']
     },
     {
       name: 'tools',
