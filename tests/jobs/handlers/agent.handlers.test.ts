@@ -4,6 +4,7 @@ import { publicTopic, conversationAgentsEnabled } from '../../fixtures/conversat
 import { insertTopics } from '../../fixtures/topic.fixture.js'
 import { insertUsers, registeredUser } from '../../fixtures/user.fixture.js'
 import agentHandlers from '../../../src/jobs/handlers/agent.js'
+import schedule from '../../../src/jobs/schedule.js'
 import { setAgentTypes } from '../../../src/models/user.model/agent.model/index.js'
 import { defaultLLMPlatform, defaultLLMModel } from '../../../src/agents/helpers/getModelChat.js'
 import messageService from '../../../src/services/message.service.js'
@@ -179,6 +180,35 @@ describe('agent job handlers', () => {
     test('should not throw if agent not found', async () => {
       const fakeId = new mongoose.Types.ObjectId()
       await expect(agentHandlers.periodicAgent({ attrs: { data: { agentId: fakeId } } })).resolves.not.toThrow()
+    })
+
+    /* An orphaned schedule (the Agent doc is gone but its recurring agenda job wasn't
+       cancelled) would otherwise fire this handler on every tick forever, spamming "Could
+       not find agent" logs. It must self-heal by cancelling its own schedule. */
+    test('cancels the orphaned schedule when agent not found', async () => {
+      const fakeId = new mongoose.Types.ObjectId()
+      const cancelPeriodicSpy = jest.spyOn(schedule, 'cancelPeriodicAgent')
+      const cancelCronSpy = jest.spyOn(schedule, 'cancelCronAgent')
+
+      await agentHandlers.periodicAgent({ attrs: { name: 'periodicAgent', data: { agentId: fakeId } } })
+
+      expect(cancelPeriodicSpy).toHaveBeenCalledWith(fakeId)
+      expect(cancelCronSpy).toHaveBeenCalledWith(fakeId)
+    })
+
+    /* Agent.evaluate() returns undefined for an inactive agent, which used to throw reading
+       `.action` off it and re-fire on the next tick unchanged. An inactive agent means the
+       schedule outlived the agent being stopped, so it must self-heal the same way. */
+    test('cancels the schedule and does not throw for an inactive agent', async () => {
+      agent.active = false
+      await agent.save()
+      const cancelPeriodicSpy = jest.spyOn(schedule, 'cancelPeriodicAgent')
+
+      await expect(
+        agentHandlers.periodicAgent({ attrs: { name: 'periodicAgent', data: { agentId: agent._id } } })
+      ).resolves.not.toThrow()
+
+      expect(cancelPeriodicSpy).toHaveBeenCalledWith(agent._id)
     })
 
     test('should call newMessageHandler when agent evaluates to CONTRIBUTE', async () => {

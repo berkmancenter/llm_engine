@@ -3,6 +3,7 @@ import Agent from '../../models/user.model/agent.model/index.js'
 import Message from '../../models/message.model.js'
 import messageService, { agentResponseToMessageData } from '../../services/message.service.js'
 import resourceService from '../../services/resource.service.js'
+import schedule from '../schedule.js'
 import { AgentMessageActions, AgentResponseZodSchema } from '../../types/index.types.js'
 
 /* Proactive periodic agents have no natural per-tick trigger id to claim (agenda reuses one
@@ -62,8 +63,19 @@ const periodicAgent = async (job) => {
   const { agentId } = job.attrs.data
   logger.debug(`Agenda activation ${agentId}`)
   const agent = await Agent.findOne({ _id: agentId }).exec()
-  if (!agent) {
-    logger.warn(`Could not find agent ${agentId}`)
+  /* Both cases below mean this recurring schedule has outlived the agent it was created for
+     (deleted, or stopped) — normally schedulePeriodicAgent's/stopAgent's cancel calls remove
+     it at that point, but if that cancel was ever missed (a partial failure mid-cleanup, a
+     doc deleted without going through the service), the schedule keeps firing this handler
+     on every tick forever. `agent.evaluate()` itself returns undefined for an inactive agent
+     (see Agent.evaluate's `if (!this.active) return`), which would otherwise throw reading
+     `.action` off it below. Since a job document is shared by every recurrence, cancelling it
+     here self-heals any already-orphaned schedule instead of repeating the failure forever;
+     cancelling both names is harmless when the other doesn't match. */
+  if (!agent || !agent.active) {
+    logger.warn(`${agent ? 'Found inactive' : 'Could not find'} agent ${agentId}; cancelling orphaned ${job.attrs.name} schedule`)
+    await schedule.cancelPeriodicAgent(agentId)
+    await schedule.cancelCronAgent(agentId)
     return
   }
 

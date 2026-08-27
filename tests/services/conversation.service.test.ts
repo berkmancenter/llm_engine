@@ -1462,6 +1462,46 @@ describe('Conversation service methods', () => {
         config.disablePostEventAnalysis = original
       }
     })
+
+    /* Regression coverage for the orphaned-schedule bug: one agent's stop() throwing must
+       not abort cleanup for the rest of conversation.agents, or their periodic/cron
+       schedules never get cancelled - they'd keep firing against an inactive/deleted agent
+       forever (see src/jobs/handlers/agent.ts's periodicAgent self-heal for the other half
+       of this fix). */
+    test('still stops and cancels the schedule for later agents when an earlier agent fails to stop', async () => {
+      const failingAgent = new Agent({
+        agentType: 'proactiveGroupAgent',
+        conversation: conversation._id,
+        active: true
+      })
+      const survivingAgent = new Agent({
+        agentType: 'jargonFilterAgent',
+        conversation: conversation._id,
+        active: true
+      })
+      await failingAgent.save()
+      await survivingAgent.save()
+      conversation.agents.push(failingAgent, survivingAgent)
+      await conversation.save()
+
+      mockStop.mockRejectedValueOnce(new Error('agent type stop failed'))
+      const cancelSpy = jest.spyOn(schedule, 'cancelPeriodicAgent').mockResolvedValue()
+      const dispatchSpy = jest.spyOn(agentDispatcher, 'dispatch').mockResolvedValue(undefined)
+
+      await expect(conversationService.stopConversation(conversation._id.toString(), registeredUser)).resolves.not.toThrow()
+
+      // failingAgent's own agent.stop() throws before agentService.stopAgent ever reaches
+      // cancelPeriodicAgent for it - that residual gap is exactly what the periodicAgent
+      // handler's self-heal (src/jobs/handlers/agent.ts) exists to catch. The regression this
+      // test guards is narrower: that failure must not stop survivingAgent from being
+      // cleanly stopped and cancelled right after it.
+      expect(cancelSpy).toHaveBeenCalledWith(survivingAgent._id)
+      const updatedSurvivor = await Agent.findById(survivingAgent._id)
+      expect(updatedSurvivor!.active).toBe(false)
+      const updatedFailing = await Agent.findById(failingAgent._id)
+      expect(updatedFailing!.active).toBe(false)
+      expect(dispatchSpy).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('startConversation() auto-stop scheduling', () => {
