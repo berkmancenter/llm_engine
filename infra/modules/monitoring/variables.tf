@@ -84,6 +84,18 @@ variable "mongo_instance_name" {
   default = null
 }
 
+variable "archive_wiki_instance_name" {
+  description = <<-EOT
+    gce_instance name for archive-wiki-vm's CPU/memory/disk dashboard widgets
+    and alerts. Null (the default) when this deployment doesn't run
+    archive-wiki-vm at all — it's an optional add-on, not part of every
+    llm_engine deployment, unlike Chroma/Mongo. Same null-means-omit pattern
+    as mongo_instance_name.
+  EOT
+  type        = string
+  default     = null
+}
+
 variable "domain" {
   description = "Public domain the uptime check hits — same value passed to webserver-mig's domain variable."
   type        = string

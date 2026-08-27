@@ -153,6 +153,105 @@ locals {
       }
     }
   ]
+
+  # Archive-wiki-vm widgets only make sense when this deployment actually
+  # runs that module — it's an optional add-on (see
+  # archive_wiki_instance_name's description), unlike Chroma/Mongo which
+  # every llm_engine deployment has one of. Same null-means-omit pattern.
+  # Its Ops Agent install (archive-wiki-vm/startup-script.sh.tpl) and
+  # logging.logWriter/monitoring.metricWriter grants (archive-wiki-vm/main.tf)
+  # already match Chroma's/Mongo's, so these widgets/alerts are a direct
+  # copy of that shape, not new plumbing. One difference: archive-wiki-vm
+  # has only a boot disk (no separate data disk), so "disk utilization"
+  # here is the boot disk, same filter shape as Chroma/Mongo use (no device
+  # filter — agent.googleapis.com/disk/percent_used aggregates whatever
+  # disks the instance actually has).
+  dashboard_widgets_archive_wiki = var.archive_wiki_instance_name == null ? [] : [
+    {
+      title = "Archive Wiki VM — CPU utilization"
+      xyChart = {
+        dataSets = [{
+          timeSeriesQuery = {
+            timeSeriesFilter = {
+              filter      = "resource.type=\"gce_instance\" AND resource.label.\"instance_id\"!=\"\" AND metadata.system_labels.\"name\"=\"${var.archive_wiki_instance_name}\" AND metric.type=\"compute.googleapis.com/instance/cpu/utilization\""
+              aggregation = { alignmentPeriod = "60s", perSeriesAligner = "ALIGN_MEAN" }
+            }
+          }
+        }]
+      }
+    },
+    {
+      title = "Archive Wiki VM — memory utilization (ops agent)"
+      xyChart = {
+        dataSets = [{
+          timeSeriesQuery = {
+            timeSeriesFilter = {
+              filter      = "resource.type=\"gce_instance\" AND metadata.system_labels.\"name\"=\"${var.archive_wiki_instance_name}\" AND metric.type=\"agent.googleapis.com/memory/percent_used\""
+              aggregation = { alignmentPeriod = "60s", perSeriesAligner = "ALIGN_MEAN" }
+            }
+          }
+        }]
+      }
+    },
+    {
+      title = "Archive Wiki VM — disk utilization (ops agent)"
+      xyChart = {
+        dataSets = [{
+          timeSeriesQuery = {
+            timeSeriesFilter = {
+              filter      = "resource.type=\"gce_instance\" AND metadata.system_labels.\"name\"=\"${var.archive_wiki_instance_name}\" AND metric.type=\"agent.googleapis.com/disk/percent_used\" AND metric.label.\"state\"=\"used\""
+              aggregation = { alignmentPeriod = "60s", perSeriesAligner = "ALIGN_MEAN" }
+            }
+          }
+        }]
+      }
+    }
+  ]
+
+  # Charts the existing uptime check (google_monitoring_uptime_check_config.site,
+  # below) that site_unreachable already alerts on — that alert firing was
+  # the only place this signal showed up before; there was no way to see the
+  # pass-rate trend leading up to a page, or confirm recovery, without
+  # leaving this dashboard for the Uptime Checks page. ALIGN_FRACTION_TRUE
+  # turns the underlying boolean check_passed metric into a 0-1 pass rate
+  # per bucket — the standard aligner Cloud Monitoring's own uptime-check
+  # charts use for this metric.
+  dashboard_widgets_uptime = [
+    {
+      title = "Site uptime check — pass rate"
+      xyChart = {
+        dataSets = [{
+          timeSeriesQuery = {
+            timeSeriesFilter = {
+              filter      = "resource.type=\"uptime_url\" AND metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" AND metric.label.\"check_id\"=\"${google_monitoring_uptime_check_config.site.uptime_check_id}\""
+              aggregation = { alignmentPeriod = "60s", perSeriesAligner = "ALIGN_FRACTION_TRUE" }
+            }
+          }
+        }]
+      }
+    }
+  ]
+
+  # "Deploy status" stand-in: there is no metric anywhere for "which image
+  # tag is currently live" or "time since the last deploy" — that would need
+  # the app itself to emit a custom metric/label, which is out of scope here
+  # (an app-code change, not an infra one). What already exists, for free,
+  # is that every gcplogs-docker-driver log entry carries the running
+  # container's image tag in jsonPayload.container.imageName (see
+  # llm_engine-infra's docs/operations.md for the exact JSON shape) — so a
+  # live log stream of the most recent entries lets an admin read the
+  # current tag straight off the newest line, without a dedicated metric.
+  # Not a real "last deploy" timestamp, but the closest live signal without
+  # an app-code change.
+  dashboard_widgets_deploy_status = [
+    {
+      title = "Web server — recent container log stream (image tag visible per entry)"
+      logsPanel = {
+        filter        = "resource.type=\"gce_instance\" AND logName=\"projects/${var.project_id}/logs/gcplogs-docker-driver\""
+        resourceNames = ["projects/${var.project_id}"]
+      }
+    }
+  ]
 }
 
 resource "google_monitoring_dashboard" "overview" {
@@ -160,7 +259,13 @@ resource "google_monitoring_dashboard" "overview" {
   dashboard_json = jsonencode({
     displayName = "llm_engine — split infra overview"
     gridLayout = {
-      widgets = concat(local.dashboard_widgets_base, local.dashboard_widgets_mongo)
+      widgets = concat(
+        local.dashboard_widgets_base,
+        local.dashboard_widgets_mongo,
+        local.dashboard_widgets_archive_wiki,
+        local.dashboard_widgets_uptime,
+        local.dashboard_widgets_deploy_status,
+      )
     }
   })
 }
@@ -289,6 +394,54 @@ resource "google_monitoring_alert_policy" "mongo_disk_pressure" {
     display_name = "Data disk utilization > 85% for 5m"
     condition_threshold {
       filter          = "resource.type=\"gce_instance\" AND metadata.system_labels.\"name\"=\"${var.mongo_instance_name}\" AND metric.type=\"agent.googleapis.com/disk/percent_used\" AND metric.label.\"state\"=\"used\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 85
+      duration        = "300s"
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_MEAN"
+      }
+    }
+  }
+  notification_channels = var.notification_channels
+}
+
+# --- Alert: Archive Wiki VM memory pressure (parity with Chroma's/Mongo's) ---
+# count-gated: archive_wiki_instance_name is null when this deployment
+# doesn't run archive-wiki-vm at all — see its description.
+
+resource "google_monitoring_alert_policy" "archive_wiki_memory_pressure" {
+  count        = var.archive_wiki_instance_name == null ? 0 : 1
+  project      = var.project_id
+  display_name = "llm-engine: Archive Wiki VM memory pressure"
+  combiner     = "OR"
+  conditions {
+    display_name = "Memory utilization > 85% for 5m"
+    condition_threshold {
+      filter          = "resource.type=\"gce_instance\" AND metadata.system_labels.\"name\"=\"${var.archive_wiki_instance_name}\" AND metric.type=\"agent.googleapis.com/memory/percent_used\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 85
+      duration        = "300s"
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_MEAN"
+      }
+    }
+  }
+  notification_channels = var.notification_channels
+}
+
+# --- Alert: Archive Wiki VM disk pressure ---
+
+resource "google_monitoring_alert_policy" "archive_wiki_disk_pressure" {
+  count        = var.archive_wiki_instance_name == null ? 0 : 1
+  project      = var.project_id
+  display_name = "llm-engine: Archive Wiki VM disk pressure"
+  combiner     = "OR"
+  conditions {
+    display_name = "Disk utilization > 85% for 5m"
+    condition_threshold {
+      filter          = "resource.type=\"gce_instance\" AND metadata.system_labels.\"name\"=\"${var.archive_wiki_instance_name}\" AND metric.type=\"agent.googleapis.com/disk/percent_used\" AND metric.label.\"state\"=\"used\""
       comparison      = "COMPARISON_GT"
       threshold_value = 85
       duration        = "300s"
