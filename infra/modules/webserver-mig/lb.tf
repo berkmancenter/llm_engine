@@ -194,6 +194,40 @@ resource "google_compute_url_map" "web_server" {
     }
   }
 
+  # var.legacy_fallback_canary_domain — TEMPORARY, 2026-08-27, see that
+  # variable's own comment. Deliberately does NOT read
+  # var.legacy_fallback_active or local.legacy_fallback_*_service_id: this
+  # always points straight at the legacy_fallback_api/websocket backends
+  # when set, regardless of that toggle, so it can verify those backends
+  # are reachable independently of ever flipping the real switch. Cannot
+  # affect var.legacy_fallback_domain's routing above under any input —
+  # separate variable, separate path_matcher name.
+  dynamic "host_rule" {
+    for_each = var.legacy_fallback_canary_domain != "" && var.legacy_fallback_origin != "" ? [var.legacy_fallback_canary_domain] : []
+    content {
+      hosts        = [host_rule.value]
+      path_matcher = "legacy-fallback-canary"
+    }
+  }
+
+  dynamic "path_matcher" {
+    for_each = var.legacy_fallback_canary_domain != "" && var.legacy_fallback_origin != "" ? [var.legacy_fallback_canary_domain] : []
+    content {
+      name            = "legacy-fallback-canary"
+      default_service = local.default_backend_service_id
+
+      path_rule {
+        paths   = ["/socket.io/*"]
+        service = google_compute_backend_service.legacy_fallback_websocket[0].id
+      }
+
+      path_rule {
+        paths   = ["/v1/*"]
+        service = google_compute_backend_service.legacy_fallback_api[0].id
+      }
+    }
+  }
+
   # One host_rule + single-service path_matcher per extra_host_backends
   # entry — the whole domain goes to that one backend, no path splitting
   # (unlike "main" above, which is this app's own /v1*//socket.io* split).

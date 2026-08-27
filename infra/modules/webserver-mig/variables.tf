@@ -389,6 +389,31 @@ variable "legacy_fallback_active" {
   default     = false
 }
 
+variable "legacy_fallback_canary_domain" {
+  description = <<-EOT
+    TEMPORARY, 2026-08-27: throwaway test hostname for verifying the
+    legacy_fallback_api/websocket backend services are actually reachable
+    (right firewall, right ports) before ever trusting
+    var.legacy_fallback_active against the real domain. Gets its own
+    host_rule + path_matcher, entirely independent of
+    var.legacy_fallback_domain — always routes straight to the
+    legacy_fallback_api/websocket backends when set, with no dependency
+    on var.legacy_fallback_active at all, and can never affect
+    var.legacy_fallback_domain's own routing under any combination of
+    inputs (different variable, different path_matcher name). Deliberately
+    left off var.legacy_fallback_domain's real domain and off the managed
+    cert's SAN set (local.ssl_cert_domains) — this is meant to be reached
+    with `curl -k --resolve`, not real DNS/TLS, specifically to avoid the
+    ~60min cert-replace cost of adding a new SAN for a one-off test.
+
+    Leave "" (the default) to skip entirely — remove this variable and
+    its lb.tf block once the test is done; it has no reason to exist
+    beyond that one verification.
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "labels" {
   type    = map(string)
   default = {}
