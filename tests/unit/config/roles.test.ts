@@ -4,6 +4,7 @@ import { roles, roleRights } from '../../../src/config/roles.js'
 const PARTICIPANT_RIGHTS = [
   'createMessage',
   'getConversation',
+  'joinConversation',
   'vote',
   'respondPoll',
   'inspectPoll',
