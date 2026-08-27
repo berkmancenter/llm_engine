@@ -1,0 +1,60 @@
+name: Trigger prod deploy
+
+# Dispatches llm_engine-infra's deploy_prod_gcp.yml on every push to main --
+# see llm_engine-infra's docs/autoscaling-completion-checklist.md, Phase 6,
+# and docs/cicd.md's "Why manual-dispatch only, for now" (now largely
+# resolved by this workflow existing). A same-repo `on: push` in
+# deploy_prod_gcp.yml itself cannot do this directly -- that workflow lives
+# in a different repo (llm_engine-infra) than the one being pushed to
+# (llm_engine), so the dispatch has to be called explicitly across repos.
+#
+# Deliberately does NOT gate on ci.yml's result for this exact commit: main
+# isn't branch-protected in this repo (confirmed 2026-08-27 --
+# `gh api repos/.../branches/main/protection` 404s), and all three merge
+# styles are enabled, so a squash-merged commit lands on main with a SHA
+# ci.yml never actually tested against (only the PR branch's own SHA was).
+# There's no single reliable "did CI pass for this exact commit" check to
+# gate on given that. deploy_prod_gcp.yml's own build/smoke-test/guard
+# stages are the real safety net for a bad commit, not this trigger --
+# see that workflow and docs/applying-changes.md.
+#
+# Only the app-image ref moves automatically here. The Terraform module
+# ref (local.llm_engine_ref in llm_engine-infra's
+# infra/environments/prod/main.tf) stays a manual, reviewed bump -- see
+# that file's own comment on why it's pinned to a commit rather than
+# tracking a branch. Infra-module changes still go through a bump PR in
+# llm_engine-infra, same as always.
+#
+# Billing budget note (2026-08-27): the cost backstop this repo's checklist
+# originally wanted applied before enabling this is still blocked on an
+# IT-side IAM grant -- enabled anyway, as an accepted, explicit risk. This
+# doesn't mean unscoped cost exposure: max_replicas=1 is a hard ceiling on
+# the autoscaler independent of deploy frequency (see webserver-mig's
+# region_instance_group_manager), the rolling-update surge is capped at 1
+# extra instance and self-resolves back to 1, and deploy_prod_gcp.yml's own
+# `concurrency: deploy-prod-gcp` means only one deploy run executes at a
+# time -- rapid pushes queue/cancel rather than stacking up parallel
+# rollouts. What's actually missing without the budget is an automated
+# *alert* if spend grows some other way (real inference usage, or
+# max_replicas being raised later) -- not a runaway-instance-count risk
+# from this trigger itself.
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch deploy_prod_gcp.yml on llm_engine-infra
+        env:
+          # Fine-grained PAT scoped to actions:write on llm_engine-infra
+          # only -- not a broad classic PAT, and not this repo's own
+          # GITHUB_TOKEN (which can't reach across repos anyway). See
+          # docs/autoscaling-completion-checklist.md's Phase 6 for why.
+          GH_TOKEN: ${{ secrets.INFRA_DEPLOY_DISPATCH_TOKEN }}
+        run: |
+          gh workflow run deploy_prod_gcp.yml \
+            --repo berkmancenter/llm_engine-infra \
+            -f llm_engine_ref="${{ github.sha }}"
