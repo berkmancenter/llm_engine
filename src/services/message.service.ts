@@ -8,51 +8,7 @@ import websocketGateway from '../websockets/websocketGateway.js'
 import { IAgent, IMessage, AgentMessageActions } from '../types/index.types.js'
 import authChannels from '../utils/authChannels.js'
 import channelService from './channel.service.js'
-
-/**
- * Resolve the pseudonym to stamp on a message `user` posts into `conversation`.
- *
- * There are three places a name gets stamped on a message — the first-post lock
- * below, message creation (createMessage), and the copy of the message handed to
- * agents (newMessageHandler) — and all three route through here so they can never
- * disagree about which identity applies.
- *
- * A conversation with useRealNames set (see IConversation.useRealNames — e.g. the
- * community room, see communityRoom.ts) resolves membership through a real-name
- * pseudonym entry scoped to the conversation (isRealName: true, `conversations`
- * includes this conversation's id — see userService.createUser), not through the
- * account's active pseudonym. Getting into such a conversation requires registration,
- * so a missing entry means the caller never registered rather than a reason to fall
- * back to an anonymous pseudonym — this throws instead of guessing.
- *
- * Every other conversation resolves to the account's active pseudonym, re-selected
- * here with an explicit `!isRealName` filter rather than trusting the bare
- * `activePseudonym` virtual — so a real name could never be stamped on an event
- * message even if one somehow became active (see the pre('save') guard in
- * user.model.ts, which exists for exactly that "somehow").
- *
- * `user` here is also, in practice, an Agent posting a response (see
- * agentResponseToMessageData / the agent job handlers) — an agent has its own
- * pseudonym (its bot name) but is never a registered room member, so the real-name
- * lookup only applies to an actual human poster. `agentType` is an Agent-only field
- * (required on every Agent document, absent on every User), so it's what
- * distinguishes the two here.
- */
-export const resolveMessageName = (user, conversation) => {
-  if (!user.agentType && conversation.useRealNames) {
-    const conversationId = conversation._id.toString()
-    const realName = user.pseudonyms.find((p) => p.isRealName && p.conversations.includes(conversationId))
-    if (!realName) {
-      throw new ApiError(httpStatus.FORBIDDEN, 'You are not registered for this room.')
-    }
-    return realName
-  }
-  const activeName = user.pseudonyms.find((p) => p.active && !p.isRealName)
-  if (!activeName) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'No active pseudonym found for this user.')
-  }
-  return activeName
-}
+import { resolveDisplayName } from './user.service.js'
 
 /**
  * Check if we can create a message and fetch conversation
@@ -94,7 +50,7 @@ const fetchConversation = async (messageBody, user) => {
   // this pin — running it there would reject the conversation's very first post before
   // that name resolution ever gets a chance to run.
   if (!conversation.useRealNames) {
-    const activePseudo = resolveMessageName(user, conversation)
+    const activePseudo = resolveDisplayName(user, conversation)
     // Real-name entries are excluded here deliberately: they can carry a conversation
     // in their own `conversations` scoping (see userService.createUser), but that's
     // for identity display, not authorship — a real name can never be active (see
@@ -129,7 +85,7 @@ const fetchConversation = async (messageBody, user) => {
  * @returns {Promise<Message>}
  */
 const createMessage = async (messageBody, user, conversation) => {
-  const activePseudo = resolveMessageName(user, conversation)
+  const activePseudo = resolveDisplayName(user, conversation)
   if (!messageBody.body) throw new ApiError(httpStatus.BAD_REQUEST, 'Message body is required')
 
   // handle optional channel(s) selection
@@ -369,7 +325,7 @@ const newMessageHandler = async (message, user, request = null) => {
 
   let modifiedMessage = {
     ...message,
-    pseudonym: resolveMessageName(user, conversation).pseudonym,
+    pseudonym: resolveDisplayName(user, conversation).pseudonym,
     channels: message.channels?.map((c) => c.name),
     owner: user._id
   }
@@ -506,7 +462,6 @@ const messageService = {
   duplicateConversationMessages,
   agentResponseToMessageData,
   newMessageHandler,
-  getMessageReplies,
-  resolveMessageName
+  getMessageReplies
 }
 export default messageService

@@ -532,6 +532,39 @@ const ensureSystemUsers = async (): Promise<void> => {
   }
 }
 
+/**
+ * Resolve which pseudonym represents `user` in `conversation`.
+ *
+ * A conversation with useRealNames set resolves membership through a real-name
+ * pseudonym entry scoped to the conversation (isRealName: true, `conversations`
+ * includes this conversation's id — see createUser), not through the account's
+ * active pseudonym. A missing entry means the caller never registered — this throws
+ * instead of falling back to an anonymous pseudonym.
+ *
+ * Every other conversation resolves to the account's active pseudonym, with an
+ * explicit `!isRealName` filter so a real name could never be stamped even if one
+ * somehow became active (see the pre('save') guard in user.model.ts).
+ *
+ * `user` may also be an Agent — agents have their own pseudonym (bot name) but are
+ * never registered room members, so the real-name lookup only applies to human
+ * posters. `agentType` is Agent-only (required on Agent documents, absent on User).
+ */
+export const resolveDisplayName = (user, conversation) => {
+  if (!user.agentType && conversation.useRealNames) {
+    const conversationId = conversation._id.toString()
+    const realName = user.pseudonyms.find((p) => p.isRealName && p.conversations.includes(conversationId))
+    if (!realName) {
+      throw new ApiError(httpStatus.FORBIDDEN, 'You are not registered for this room.')
+    }
+    return realName
+  }
+  const activeName = user.pseudonyms.find((p) => p.active && !p.isRealName)
+  if (!activeName) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'No active pseudonym found for this user.')
+  }
+  return activeName
+}
+
 const userService = {
   createUser,
   updateUser,

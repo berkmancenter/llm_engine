@@ -9,7 +9,7 @@ const communityRoom: ConversationType = {
     'A configurable AI assistant that helps community members with questions and discussion, with access to community-specific tools such as event history and archive search',
   platforms: [{ name: 'nextspace', label: 'Nextspace' }],
   // Members register under their real name to get in, so messages here are stamped with
-  // that real name by default — see IConversation.useRealNames / resolveMessageName.
+  // that real name by default — see IConversation.useRealNames / resolveDisplayName.
   useRealNames: true,
   properties: [
     {
