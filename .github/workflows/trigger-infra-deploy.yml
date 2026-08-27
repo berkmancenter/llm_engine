@@ -25,6 +25,20 @@ name: Trigger prod deploy
 # tracking a branch. Infra-module changes still go through a bump PR in
 # llm_engine-infra, same as always.
 #
+# paths-ignore below (2026-08-27): a push that only touches infra/**,
+# docs/**, or a root-level doc file has no app-image impact at all -- there
+# is nothing for deploy_prod_gcp.yml to actually ship, just a full
+# rebuild+redeploy (~15-27 min, see llm_engine-infra's docs/cicd.md "Typical
+# run time") that reships the byte-identical image already live. Before
+# this, the only way to avoid that for a Terraform-only change was pushing
+# it to a side branch instead of main and pinning llm_engine_ref there
+# directly (see llm_engine-infra's docs/incident-history.md for a real case)
+# -- a workaround for exactly this gap, not a design choice worth keeping
+# once the actual gap has a fix. A denylist (paths-ignore), not an allowlist
+# (paths): the safe failure mode is "deploy when unsure", so a new top-level
+# app directory added later still triggers a deploy by default instead of
+# silently going unnoticed the way an allowlist could.
+#
 # Billing budget note (2026-08-27): the cost backstop this repo's checklist
 # originally wanted applied before enabling this is still blocked on an
 # IT-side IAM grant -- enabled anyway, as an accepted, explicit risk. This
@@ -42,6 +56,11 @@ name: Trigger prod deploy
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'infra/**'
+      - 'docs/**'
+      - '*.md'
+      - 'LICENSE'
 
 jobs:
   dispatch:

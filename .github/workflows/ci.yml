@@ -3,6 +3,16 @@ name: CI
 on:
   pull_request:
     branches: [main]
+    # A PR touching only infra/**/docs/**/root docs has nothing this job
+    # actually exercises (yarn build/lint/test, all app-code paths) — see
+    # terraform-ci.yml for the check that actually runs for those instead.
+    # Same denylist, same reasoning, as trigger-infra-deploy.yml's
+    # paths-ignore (2026-08-27).
+    paths-ignore:
+      - 'infra/**'
+      - 'docs/**'
+      - '*.md'
+      - 'LICENSE'
   workflow_dispatch:
     inputs:
       llmPlatform:
