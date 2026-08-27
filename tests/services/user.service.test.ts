@@ -41,7 +41,13 @@ const createConversationWithMembership = async (email: string) => {
     messages: [],
     transcript: { status: 'stopped' }
   })
-  await ConversationMembership.create({ conversation: conversation._id, email, name: 'Test Member' })
+  await ConversationMembership.create({
+    conversation: conversation._id,
+    email,
+    name: 'Test Member',
+    bio: 'A test member bio',
+    interests: 'testing, quality assurance'
+  })
   return conversation
 }
 
@@ -158,6 +164,9 @@ describe('User service methods', () => {
         expect(realNameEntry!.conversations).toEqual([conversation._id.toString()])
         // the ordinary pseudonym createUser always creates remains the active one
         expect(user.pseudonyms.find((p) => p.active)!.pseudonym).toBe('Bold Aardvark')
+        // bio and interests copied from membership record
+        expect(user.bio).toBe('A test member bio')
+        expect(user.interests).toBe('testing, quality assurance')
 
         const audit = await RealNameAudit.findOne({ userId: user._id, action: 'created' })
         expect(audit).not.toBeNull()

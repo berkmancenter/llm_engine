@@ -86,6 +86,8 @@ export interface IUser {
   dataExportOptOut?: boolean
   pseudonyms: mongoose.Types.DocumentArray<IPseudonym>
   preferences?: IUserPreferences
+  bio?: string
+  interests?: string
 }
 
 export interface ITopic {

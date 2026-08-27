@@ -95,15 +95,14 @@ const recordRealNameAudit = async (userId, conversationId, action): Promise<void
   }
 }
 
-// Looks up the membership record for this email + conversation, returning the real name
-// the admin registered for them. Throws 403 if no record exists (not on the roster).
-const getMembershipRealName = async (conversationId: string, email: string): Promise<string> => {
+// Looks up the membership record for this email + conversation. Throws 403 if no record exists.
+const getMembership = async (conversationId: string, email: string) => {
   const membership = await ConversationMembership.findOne({ conversation: conversationId, email }).lean()
   if (!membership) {
     await recordRealNameAudit(undefined, conversationId, 'membership_rejected')
     throw new ApiError(httpStatus.FORBIDDEN, 'Could not verify access to one or more conversations.')
   }
-  return membership.name
+  return membership
 }
 
 /**
@@ -150,7 +149,10 @@ const createUser = async (userBody) => {
   let reservation
   if (userBody.conversationId) {
     realNameConversationId = userBody.conversationId as string
-    const realName = await getMembershipRealName(realNameConversationId, userProps.email!)
+    const membership = await getMembership(realNameConversationId, userProps.email!)
+    const { name: realName, bio, interests } = membership
+    if (bio) userProps.bio = bio
+    if (interests) userProps.interests = interests
 
     reservation = await reserveRealName(realName, realNameConversationId)
     if (!reservation) {
