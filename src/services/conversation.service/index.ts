@@ -172,6 +172,7 @@ const createConversation = async (conversationBody, user, { allowDraft = false }
      it can't change after creation. */
   const conversationType = conversationBody.conversationType ? getConversationType(conversationBody.conversationType) : null
   const useRealNames = conversationBody.useRealNames ?? conversationType?.useRealNames ?? false
+  const enforceMembership = conversationBody.enforceMembership ?? conversationType?.enforceMembership ?? false
 
   if (conversationBody.scheduledTime && new Date(conversationBody.scheduledTime) <= new Date()) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'scheduledTime must be in the future')
@@ -202,6 +203,7 @@ const createConversation = async (conversationBody, user, { allowDraft = false }
     ...(Object.keys(allowedSource).length > 0 && { source: allowedSource }),
     enableAgents: !!conversationBody.agentTypes?.length,
     useRealNames,
+    enforceMembership,
     ...(conversationBody.enableDMs !== undefined && { enableDMs: conversationBody.enableDMs }),
     ...(conversationBody.conversationType !== undefined && { conversationType: conversationBody.conversationType }),
     ...(conversationBody.platforms !== undefined && { platforms: conversationBody.platforms }),
@@ -353,11 +355,11 @@ const updateConversation = async (conversationBody, user) => {
     // draft is server-computed (see recompute below); never let the client set it directly.
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     draft: _incomingDraft,
-    // useRealNames is create-time only (see IConversation.useRealNames); it's also absent
-    // from updateConversation's Joi schema, so a client PATCH never even reaches here with
-    // it, but this is dropped too as a second line of defense against non-HTTP callers.
+    // useRealNames and enforceMembership are create-time only; update never touches them.
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     useRealNames: _incomingUseRealNames,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    enforceMembership: _incomingEnforcesMembership,
     ...restBody
   } = conversationBody
 
