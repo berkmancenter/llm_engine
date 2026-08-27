@@ -1488,7 +1488,16 @@ export interface ConversationStoppedEvent {
   topicId?: string
 }
 
-export type ConversationEvent = ConversationStoppedEvent
+export interface ParticipantJoinedEvent {
+  type: 'participantJoined'
+  conversationId: string
+  userId: string
+  name: string
+  bio?: string
+  interests?: string
+}
+
+export type ConversationEvent = ConversationStoppedEvent | ParticipantJoinedEvent
 
 export interface IAgent {
   _id?: mongoose.Types.ObjectId

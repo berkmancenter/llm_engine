@@ -14,7 +14,8 @@ const userOne: any = {
   email: faker.internet.email().toLowerCase(),
   password,
   role: 'admin',
-  isEmailVerified: false
+  isEmailVerified: false,
+  pseudonyms: [{ pseudonym: 'Bold Aardvark', token: faker.datatype.uuid(), active: true }]
 }
 
 /* A second organizer, not an ordinary person: the ownership checks it exercises sit behind
@@ -25,7 +26,8 @@ const userTwo = {
   email: faker.internet.email().toLowerCase(),
   password,
   role: 'admin',
-  isEmailVerified: false
+  isEmailVerified: false,
+  pseudonyms: [{ pseudonym: 'Clever Cormorant', token: faker.datatype.uuid(), active: true }]
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
