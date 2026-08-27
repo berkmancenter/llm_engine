@@ -876,6 +876,12 @@ const joinConversation = async (conversationOrId, user) => {
     const topicId = conversation.topic?._id?.toString() ?? conversation.topic?.toString()
     const topicIsPrivate = conversation.topic?.private ?? true
     const name = resolveDisplayName(user, conversation).pseudonym
+    if (user.email) {
+      await ConversationMembership.updateOne(
+        { conversation: conversation._id, email: user.email },
+        { $set: { joined: true } }
+      )
+    }
     await agentDispatcher.dispatch(
       { type: 'participantJoined', conversationId, userId: user._id.toString(), name, bio: user.bio, interests: user.interests },
       { type: 'conversation', id: conversationId, topicId, topicIsPrivate }

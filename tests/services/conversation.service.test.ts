@@ -5,7 +5,7 @@ import { insertUsers, registeredUser } from '../fixtures/user.fixture.js'
 import { insertTopics, newPublicTopic, newPrivateTopic } from '../fixtures/topic.fixture.js'
 import conversationService from '../../src/services/conversation.service/index.js'
 import { Feature } from '../../src/types/index.types.js'
-import { Agent, Adapter, Conversation, Topic, Channel } from '../../src/models/index.js'
+import { Agent, Adapter, Conversation, Topic, Channel, ConversationMembership } from '../../src/models/index.js'
 import { setConversationTypes, resetConversationTypes, getAllConversationTypes } from '../../src/conversations/index.js'
 import ApiError from '../../src/utils/ApiError.js'
 import websocketGateway from '../../src/websockets/websocketGateway.js'
@@ -2534,6 +2534,32 @@ describe('Conversation service methods', () => {
         expect.objectContaining({ type: 'conversation', id: joinConversation._id.toString() })
       )
       dispatchSpy.mockRestore()
+    })
+
+    it('sets joined on the ConversationMembership record when one exists', async () => {
+      const { User } = await import('../../src/models/index.js')
+      const user = await User.findById(registeredUser._id)
+      await ConversationMembership.create({
+        conversation: joinConversation._id,
+        email: registeredUser.email,
+        name: 'Test Member'
+      })
+
+      await conversationService.joinConversation(joinConversation._id.toString(), user)
+
+      const membership = await ConversationMembership.findOne({
+        conversation: joinConversation._id,
+        email: registeredUser.email
+      })
+      expect(membership!.joined).toBe(true)
+    })
+
+    it('does not blow up when no ConversationMembership record exists for the user', async () => {
+      const { User } = await import('../../src/models/index.js')
+      const user = await User.findById(registeredUser._id)
+      // No membership record — updateOne is a no-op and should not throw
+
+      await expect(conversationService.joinConversation(joinConversation._id.toString(), user)).resolves.not.toThrow()
     })
 
     it('does not dispatch participantJoined on a second join when DM channel already exists', async () => {
