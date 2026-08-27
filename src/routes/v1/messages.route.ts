@@ -202,6 +202,6 @@ router.route('/:messageId/vote').post(auth('vote'), messageController.vote)
  *       404:
  *         $ref: '#/components/responses/NotFound'
  */
-router.route('/:messageId/replies').get(messageController.messageReplies)
+router.route('/:messageId/replies').get(auth('getConversation'), messageController.messageReplies)
 
 export default router
