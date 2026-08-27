@@ -77,6 +77,24 @@ locals {
   legacy_domains_api_service_id = (
     local.legacy_routing_active ? google_compute_backend_service.legacy[0].id : google_compute_backend_service.api.id
   )
+
+  # var.legacy_fallback_domain's own mechanism — entirely separate from
+  # legacy_domains/legacy_active above (different backend, different
+  # domain, different toggle). See var.legacy_fallback_domain's own
+  # description for why: that one proxies HTTPS to the legacy box's
+  # Caddy (port 443), which turned out structurally broken (no way to
+  # send a bare-IP NEG a custom TLS SNI, and Caddy has no fallback cert
+  # for an unmatched one). This one bypasses Caddy/TLS entirely and talks
+  # plain HTTP straight to the app's own ports instead.
+  legacy_fallback_routing_active = (
+    var.legacy_fallback_active && var.legacy_fallback_origin != "" && var.legacy_fallback_domain != ""
+  )
+  legacy_fallback_websocket_service_id = (
+    local.legacy_fallback_routing_active ? google_compute_backend_service.legacy_fallback_websocket[0].id : google_compute_backend_service.websocket.id
+  )
+  legacy_fallback_api_service_id = (
+    local.legacy_fallback_routing_active ? google_compute_backend_service.legacy_fallback_api[0].id : google_compute_backend_service.api.id
+  )
 }
 
 resource "google_compute_url_map" "web_server" {
@@ -139,6 +157,39 @@ resource "google_compute_url_map" "web_server" {
       path_rule {
         paths   = ["/v1/*"]
         service = local.legacy_domains_api_service_id
+      }
+    }
+  }
+
+  # var.legacy_fallback_domain's own host_rule + path_matcher — same
+  # api/websocket split shape as "main"/legacy-domains above, but its
+  # default_service (the fallback route — neither /v1/* nor /socket.io/*)
+  # always goes to the same frontend/Vercel backend regardless of the
+  # toggle, unlike the two path_rules. See var.legacy_fallback_active's
+  # own description for why: the frontend never needs reverting, only
+  # the API/websocket paths do.
+  dynamic "host_rule" {
+    for_each = var.legacy_fallback_domain != "" ? [var.legacy_fallback_domain] : []
+    content {
+      hosts        = [host_rule.value]
+      path_matcher = "legacy-fallback"
+    }
+  }
+
+  dynamic "path_matcher" {
+    for_each = var.legacy_fallback_domain != "" ? [var.legacy_fallback_domain] : []
+    content {
+      name            = "legacy-fallback"
+      default_service = local.default_backend_service_id
+
+      path_rule {
+        paths   = ["/socket.io/*"]
+        service = local.legacy_fallback_websocket_service_id
+      }
+
+      path_rule {
+        paths   = ["/v1/*"]
+        service = local.legacy_fallback_api_service_id
       }
     }
   }
@@ -259,6 +310,76 @@ resource "google_compute_backend_service" "legacy" {
   }
 }
 
+# --- Legacy fallback (optional), bypassing Caddy entirely ---
+#
+# Talks plain HTTP straight to the legacy box's own app ports (3000 for
+# the API, 5555 for websockets — the same ports its own Caddy reverse-
+# proxies to internally) instead of HTTPS to Caddy on port 443. No TLS on
+# this leg at all, so there's no SNI/cert story to get right, unlike the
+# "legacy" backend above. See var.legacy_fallback_domain's own comment
+# for the full reasoning and how this differs from that mechanism.
+#
+# Two backends, not one, because the legacy box's Caddy itself splits
+# /v1/* -> :3000 and /socket.io/* -> :5555 to two different processes/
+# ports — bypassing Caddy means this LB has to do that same split itself
+# instead of relying on Caddy to do it internally.
+resource "google_compute_global_network_endpoint_group" "legacy_fallback_api" {
+  count                 = var.legacy_fallback_origin != "" ? 1 : 0
+  project               = var.project_id
+  name                  = "llm-engine-legacy-fallback-api-neg"
+  network_endpoint_type = "INTERNET_IP_PORT"
+  default_port          = 3000
+}
+
+resource "google_compute_global_network_endpoint" "legacy_fallback_api" {
+  count                         = var.legacy_fallback_origin != "" ? 1 : 0
+  global_network_endpoint_group = google_compute_global_network_endpoint_group.legacy_fallback_api[0].id
+  ip_address                    = var.legacy_fallback_origin
+  port                          = 3000
+}
+
+resource "google_compute_backend_service" "legacy_fallback_api" {
+  count                 = var.legacy_fallback_origin != "" ? 1 : 0
+  project               = var.project_id
+  name                  = "llm-engine-legacy-fallback-api-backend"
+  protocol              = "HTTP"
+  load_balancing_scheme = "EXTERNAL_MANAGED"
+  timeout_sec           = 30
+
+  backend {
+    group = google_compute_global_network_endpoint_group.legacy_fallback_api[0].id
+  }
+}
+
+resource "google_compute_global_network_endpoint_group" "legacy_fallback_websocket" {
+  count                 = var.legacy_fallback_origin != "" ? 1 : 0
+  project               = var.project_id
+  name                  = "llm-engine-legacy-fallback-ws-neg"
+  network_endpoint_type = "INTERNET_IP_PORT"
+  default_port          = 5555
+}
+
+resource "google_compute_global_network_endpoint" "legacy_fallback_websocket" {
+  count                         = var.legacy_fallback_origin != "" ? 1 : 0
+  global_network_endpoint_group = google_compute_global_network_endpoint_group.legacy_fallback_websocket[0].id
+  ip_address                    = var.legacy_fallback_origin
+  port                          = 5555
+}
+
+resource "google_compute_backend_service" "legacy_fallback_websocket" {
+  count                           = var.legacy_fallback_origin != "" ? 1 : 0
+  project                         = var.project_id
+  name                            = "llm-engine-legacy-fallback-ws-backend"
+  protocol                        = "HTTP"
+  load_balancing_scheme           = "EXTERNAL_MANAGED"
+  timeout_sec                     = 3600 # long-lived websocket connections, matching the real websocket backend above
+  connection_draining_timeout_sec = var.connection_draining_timeout_sec
+
+  backend {
+    group = google_compute_global_network_endpoint_group.legacy_fallback_websocket[0].id
+  }
+}
+
 locals {
   # google_compute_managed_ssl_certificate has no name_prefix argument
   # (confirmed against the actual provider schema — unlike, say, the
@@ -285,7 +406,8 @@ locals {
     [var.domain],
     var.additional_domains,
     flatten(var.extra_host_backends[*].domains),
-    var.legacy_domains
+    var.legacy_domains,
+    var.legacy_fallback_domain != "" ? [var.legacy_fallback_domain] : []
   )))
 }
 
