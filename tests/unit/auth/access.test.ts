@@ -114,6 +114,35 @@ describe('access', () => {
       })
     })
 
+    describe('ownConversation grant', () => {
+      test('passes for a conversation scope matching the agent conversation', () => {
+        const agent = makeAgent({ capabilities: { read: [{ type: 'ownConversation' }], write: [] } })
+        const conversationId = agent.conversation._id.toString()
+        expect(() => access.assertCanRead(agent, { type: 'conversation', id: conversationId })).not.toThrow()
+      })
+
+      test('throws for a conversation scope with a different id', () => {
+        const agent = makeAgent({ capabilities: { read: [{ type: 'ownConversation' }], write: [] } })
+        const otherId = new mongoose.Types.ObjectId().toString()
+        expect(() => access.assertCanRead(agent, { type: 'conversation', id: otherId })).toThrow(AccessDeniedError)
+      })
+
+      test('throws for a topic scope', () => {
+        const agent = makeAgent({ capabilities: { read: [{ type: 'ownConversation' }], write: [] } })
+        expect(() => access.assertCanRead(agent, { type: 'topic', id: 'topic-1' })).toThrow(AccessDeniedError)
+      })
+
+      test('passes for private topic conversation when combined with allPublicTopics', () => {
+        const agent = makeAgent({
+          capabilities: { read: [{ type: 'ownConversation' }, { type: 'allPublicTopics' }], write: [] }
+        })
+        const conversationId = agent.conversation._id.toString()
+        expect(() =>
+          access.assertCanRead(agent, { type: 'conversation', id: conversationId, topicIsPrivate: true })
+        ).not.toThrow()
+      })
+    })
+
     test('agent with multiple grants passes when any match', () => {
       const agent = makeAgent({
         capabilities: {

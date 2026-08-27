@@ -6,7 +6,7 @@ export default function (agentConfig: Record<string, unknown>): AgentCapabilitie
     ? topicIds.map((id) => ({ type: 'topic' as const, id }))
     : [{ type: 'allPublicTopics' as const }]
   return {
-    read,
+    read: [...read, { type: 'ownConversation' as const }],
     write: [{ type: 'ownConversation' as const }]
   }
 }
