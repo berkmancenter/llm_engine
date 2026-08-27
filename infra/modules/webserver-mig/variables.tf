@@ -320,6 +320,75 @@ variable "legacy_active" {
   default     = false
 }
 
+variable "legacy_fallback_domain" {
+  description = <<-EOT
+    The one domain var.legacy_fallback_active's toggle applies to — built
+    for nextspace.asml.berkmancenter.org specifically (see
+    llm_engine-infra's docs/autoscaling-completion-checklist.md, Phase 0),
+    kept as its own single-domain mechanism rather than folded into
+    var.legacy_domains/var.legacy_active above: that mechanism proxies
+    HTTPS straight to the legacy box's port 443 (Caddy), which turned out
+    to be structurally broken (Caddy is strict SNI-based virtual hosting
+    with no fallback certificate, and GCP's Internet NEG has no way to
+    send a bare-IP backend a custom TLS SNI — confirmed live, 2026-08-27,
+    as a reproducible 502). This mechanism instead bypasses Caddy
+    entirely and talks plain HTTP straight to the app's own ports (see
+    var.legacy_fallback_origin, and the backend services in lb.tf) — no
+    TLS/SNI involved on that leg at all, so the same problem can't recur.
+    That only works for a single specific app (its own dedicated
+    ports), which is why this is a single domain, not a list like
+    var.legacy_domains.
+
+    Gets its own host_rule + path_matcher, entirely independent of "main"
+    — this domain currently shares "main" with var.domain (the preview
+    domain) via var.additional_domains, and an earlier version of the
+    unrelated var.legacy_active mechanism taught the lesson that a shared
+    toggle risks affecting domains you didn't intend to touch (see that
+    variable's own history). This one only ever affects
+    var.legacy_fallback_domain.
+
+    Included on the managed cert whenever set, same as var.domain/
+    additional_domains — so its DNS needs to already resolve here before
+    this can be populated, same caution as always. Leave "" (the
+    default) to skip entirely.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "legacy_fallback_origin" {
+  description = <<-EOT
+    External IP of the legacy box's app itself (not its Caddy/443
+    listener) — see var.legacy_fallback_domain for the full mechanism
+    and why this bypasses Caddy/TLS entirely rather than routing through
+    it. Leave "" (the default) to skip entirely — no backend/NEG gets
+    created.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "legacy_fallback_active" {
+  description = <<-EOT
+    When true (and both var.legacy_fallback_origin is set and
+    var.legacy_fallback_domain is non-empty), routes
+    var.legacy_fallback_domain's /v1/* and /socket.io/* traffic to the
+    legacy app directly (plain HTTP, its own ports — see lb.tf) instead
+    of this app's own api/websocket backends. The fallback route (neither
+    path) always goes to the same frontend/Vercel backend regardless —
+    that half never needs reverting, and isn't affected by this toggle
+    either way.
+
+    Defaults false: var.legacy_fallback_domain (if set) gets this app's
+    own normal split-routing behavior. The backend/NEGs still get created
+    whenever legacy_fallback_origin is set even with this false, so
+    they're immediately switchable and testable without a second apply —
+    same reasoning as var.legacy_active.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "labels" {
   type    = map(string)
   default = {}
