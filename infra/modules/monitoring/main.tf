@@ -665,7 +665,7 @@ resource "google_monitoring_alert_policy" "backend_5xx_rate_frontend" {
     }
   }
   documentation {
-    content = <<-EOT
+    content   = <<-EOT
       This is the **frontend proxy backend** (Vercel), not our app's API or websocket
       backends. It fires on requests that fell through the URL map's path routing
       (`matched_url_path_rule = UNMATCHED` - i.e. not `/v1/*` or `/socket.io/*`) and got
@@ -705,7 +705,7 @@ resource "google_monitoring_alert_policy" "backend_5xx_rate_backend" {
     }
   }
   documentation {
-    content = <<-EOT
+    content   = <<-EOT
       This is our own **API or websocket backend** (`llm-engine-api-backend` /
       `llm-engine-ws-backend`), not the Vercel frontend proxy - a real app-tier error
       rate.
