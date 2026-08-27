@@ -1,0 +1,60 @@
+name: Terraform CI
+
+# Runs only when infra/** actually changed — the counterpart to ci.yml's
+# paths-ignore skipping the (irrelevant) app build/test job for the same
+# PRs. Before this, a Terraform-only PR either burned ~15-75 minutes on
+# yarn install/build/lint/test/audit that couldn't have caught a Terraform
+# mistake, or (once ci.yml's own paths-ignore landed alongside this) got no
+# CI signal at all. Neither is right for a module with no app-code
+# dependency at all.
+#
+# No GCP credentials here on purpose: `terraform validate` only checks the
+# config against provider schemas (variable types, required arguments,
+# resource attribute names) — it never calls the GCP API, so it needs no
+# auth and can't accidentally touch real state. It's also the thing that
+# would actually catch a llm_engine_ref bump silently dropping a variable a
+# caller still passes (see llm_engine-infra's docs/incident-history.md) --
+# not a substitute for reading the plan yourself once this repo is wired to
+# a real environment, but real signal on a bare module change with none of
+# the cost or blast radius `plan`/`apply` would carry.
+#
+# Loops over every infra/modules/*/ directory individually rather than
+# validating from environments/prod (which doesn't exist in this repo --
+# that's llm_engine-infra's job) — each module has to stand on its own here.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'infra/**'
+      - '.github/workflows/terraform-ci.yml'
+
+jobs:
+  fmt-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: terraform fmt -check (whole infra/ tree)
+        run: terraform fmt -check -recursive infra/
+
+      - name: terraform validate (each module independently)
+        run: |
+          status=0
+          for dir in infra/modules/*/; do
+            name="$(basename "$dir")"
+            echo "::group::validate $name"
+            (
+              cd "$dir"
+              terraform init -backend=false -input=false >/dev/null
+              terraform validate
+            ) || { echo "::error::terraform validate failed for $name"; status=1; }
+            echo "::endgroup::"
+          done
+          exit $status
