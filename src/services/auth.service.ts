@@ -66,7 +66,7 @@ const sendPasswordReset = async (email) => {
       logger.error(`Error occurred sending password reset email: ${err.message}`)
       return
     }
-    logger.info(`Password reset email sent successfully to ${user.email}. Response: ${info.response}`)
+    logger.info(`Password reset email sent for user ${user._id} (Postmark message ${info.MessageID})`)
   })
 }
 /**
