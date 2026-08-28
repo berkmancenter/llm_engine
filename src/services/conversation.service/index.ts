@@ -28,6 +28,7 @@ import {
 } from './lifecycle.js'
 import agentDispatcher from '../../jobs/agentDispatcher.js'
 import { resolveDisplayName } from '../user.service.js'
+import assertMembership from '../../utils/assertMembership.js'
 import resourceService from '../resource.service.js'
 
 export { updateTranscriptStatus }
@@ -848,12 +849,13 @@ const joinConversation = async (conversationOrId, user) => {
   if (typeof conversationOrId === 'string' || conversationOrId instanceof mongoose.Types.ObjectId) {
     conversation = await Conversation.findOne({ _id: conversationOrId })
       .select(returnFields)
-      .select('enableDMs agents channels topic useRealNames')
+      .select('enableDMs agents channels topic useRealNames enforceMembership')
 
     if (!conversation) {
       throw new ApiError(httpStatus.NOT_FOUND, `Conversation with ID ${conversationOrId} not found`)
     }
   }
+  await assertMembership(user, conversation)
   if (!conversation.enableDMs.includes('agents')) {
     return conversation
   }
@@ -885,7 +887,14 @@ const joinConversation = async (conversationOrId, user) => {
       )
     }
     await agentDispatcher.dispatch(
-      { type: 'participantJoined', conversationId, userId: user._id.toString(), name, bio: user.bio, interests: user.interests },
+      {
+        type: 'participantJoined',
+        conversationId,
+        userId: user._id.toString(),
+        name,
+        bio: user.bio,
+        interests: user.interests
+      },
       { type: 'conversation', id: conversationId, topicId, topicIsPrivate }
     )
   }
