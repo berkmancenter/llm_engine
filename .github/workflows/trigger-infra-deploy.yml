@@ -74,6 +74,16 @@ jobs:
           # docs/autoscaling-completion-checklist.md's Phase 6 for why.
           GH_TOKEN: ${{ secrets.INFRA_DEPLOY_DISPATCH_TOKEN }}
         run: |
+          # --ref is required here, not cosmetic: without it, `gh workflow
+          # run` first does a GraphQL lookup of llm_engine-infra's
+          # repository.defaultBranchRef to pick a branch, which needs
+          # contents:read -- a scope this PAT deliberately doesn't have
+          # (see above). That lookup 401s before the dispatch call is even
+          # made. Passing --ref explicitly skips the lookup entirely, so
+          # the PAT's actions:write-only scope stays sufficient. Keep this
+          # in sync with llm_engine-infra's default branch if it ever
+          # changes.
           gh workflow run deploy_prod_gcp.yml \
             --repo berkmancenter/llm_engine-infra \
+            --ref main \
             -f llm_engine_ref="${{ github.sha }}"
