@@ -1,7 +1,20 @@
 import logger from '../../config/logger.js'
 import Agent from '../../models/user.model/agent.model/index.js'
 import messageService, { agentResponseToMessageData } from '../../services/message.service.js'
-import { AgentResponseZodSchema } from '../../types/index.types.js'
+import { AgentResponseZodSchema, ConversationEvent } from '../../types/index.types.js'
+
+const conversationEventTriggerId = (event: ConversationEvent) => {
+  switch (event.type) {
+    case 'participantJoined':
+      return `event:participantJoined:${event.conversationId}:${event.userId}`
+    case 'conversationStopped':
+      return `event:conversationStopped:${event.conversationId}`
+    default: {
+      const _exhaustive: never = event
+      throw new Error(`Unhandled event type: ${(_exhaustive as ConversationEvent).type}`)
+    }
+  }
+}
 
 const conversationEvent = async (job) => {
   const { agentId, event } = job.attrs.data
@@ -13,8 +26,7 @@ const conversationEvent = async (job) => {
     }
     logger.debug(`conversationEvent handler ${agent._id} - event type: ${event.type}`)
 
-    // Each event type fires at most once per conversation, so that pair is a stable trigger key.
-    const triggerId = `event:${event.type}:${event.conversationId}`
+    const triggerId = conversationEventTriggerId(event)
     if (!(await agent.claimResponseTrigger(triggerId))) {
       logger.debug(`conversationEvent handler ${agent._id} - trigger ${triggerId} already handled, skipping`)
       return
