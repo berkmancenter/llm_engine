@@ -4,7 +4,7 @@ import crypto from 'crypto'
 import { uniqueNamesGenerator } from 'unique-names-generator'
 import bcrypt from 'bcryptjs'
 import { uid } from 'uid'
-import { User, Message, RealNameAudit, RealNameRegistry, ConversationMembership } from '../models/index.js'
+import { User, Message, RealNameAudit, RealNameRegistry, ConversationMembership, Conversation } from '../models/index.js'
 import ApiError from '../utils/ApiError.js'
 import { pseudonymAdjectives, pseudonymNouns } from '../config/pseudonym-dictionaries.js'
 import logger from '../config/logger.js'
@@ -108,16 +108,17 @@ const getMembership = async (conversationId: string, email: string) => {
 /**
  * Create a user
  *
- * When `userBody.conversationId` is present, looks up the ConversationMembership record
- * for this email + conversation, creates a real-name pseudonym entry (isRealName: true)
- * scoped to that conversation, guarded end to end: access is proved by membership record
- * (getMembershipRealName) before anything is written, the
- * name is reserved per-conversation through RealNameRegistry's unique index (atomic,
- * race-free — see reserveRealName), the entry is always created `active: false` and
- * is never handed to generatePseudonymFunFact (real names never reach the LLM), and
- * every rejection/creation is recorded via recordRealNameAudit (id/action only,
- * never the name text). See activatePseudonym/deletePseudonym for the matching
- * can-never-activate/can-never-delete guarantees once the entry exists.
+ * `userBody.conversationId` is a temporary affordance for registering directly into a
+ * specific conversation (e.g. one that enforces membership). When present it verifies the
+ * caller has a ConversationMembership record for their email and links the new account to
+ * it. If the conversation also uses real names, it additionally reserves a real-name
+ * pseudonym entry (isRealName: true) scoped to that conversation: access is proved by the
+ * membership record before anything is written, the name is reserved through
+ * RealNameRegistry's unique index (atomic, race-free — see reserveRealName), the entry is
+ * always created `active: false` and is never handed to generatePseudonymFunFact (real
+ * names never reach the LLM), and every rejection/creation is recorded via
+ * recordRealNameAudit (id/action only, never the name text). See
+ * activatePseudonym/deletePseudonym for the can-never-activate/can-never-delete guarantees.
  * @param {Object} userBody
  * @returns {Promise<User>}
  */
@@ -145,30 +146,33 @@ const createUser = async (userBody) => {
     }
   }
 
-  let realNameConversationId: string | undefined
+  // TODO: replace with a dedicated registration path for membership-gated conversations.
   let reservation
-  if (userBody.conversationId) {
-    realNameConversationId = userBody.conversationId as string
-    const membership = await getMembership(realNameConversationId, userProps.email!)
+  const conversationId = userBody.conversationId as string | undefined
+  if (conversationId) {
+    const conversation = await Conversation.findById(conversationId).select('useRealNames').lean()
+    const membership = await getMembership(conversationId, userProps.email!)
     const { name: realName, bio, interests } = membership
     if (bio) userProps.bio = bio
     if (interests) userProps.interests = interests
 
-    reservation = await reserveRealName(realName, realNameConversationId)
-    if (!reservation) {
-      await recordRealNameAudit(undefined, realNameConversationId, 'uniqueness_rejected')
-      throw new ApiError(httpStatus.CONFLICT, 'That name is already registered for this conversation.')
-    }
+    if (conversation?.useRealNames) {
+      reservation = await reserveRealName(realName, conversationId)
+      if (!reservation) {
+        await recordRealNameAudit(undefined, conversationId, 'uniqueness_rejected')
+        throw new ApiError(httpStatus.CONFLICT, 'That name is already registered for this conversation.')
+      }
 
-    userProps.pseudonyms.push({
-      token: newToken(),
-      pseudonym: realName,
-      normalizedPseudonym: normalizeRealName(realName),
-      // Never active — a real name can never be the pseudonym stamped on a message.
-      active: false,
-      isRealName: true,
-      conversations: [realNameConversationId]
-    })
+      userProps.pseudonyms.push({
+        token: newToken(),
+        pseudonym: realName,
+        normalizedPseudonym: normalizeRealName(realName),
+        // Never active — a real name can never be the pseudonym stamped on a message.
+        active: false,
+        isRealName: true,
+        conversations: [conversationId]
+      })
+    }
   }
 
   const user = await User.create(userProps)
@@ -179,11 +183,20 @@ const createUser = async (userBody) => {
     user.pseudonyms[0].funFact = funFact
     await user.save()
   }
-  if (reservation && realNameConversationId) {
-    // Attach the now-known userId to the reservation and audit the successful creation
-    // (id/action only — never the name text, see recordRealNameAudit).
-    await RealNameRegistry.updateOne({ _id: reservation._id }, { userId: user._id })
-    await recordRealNameAudit(user._id, realNameConversationId, 'created')
+  // TODO: replace with a dedicated registration path for membership-gated conversations.
+  if (conversationId) {
+    if (reservation) {
+      // Attach the now-known userId to the reservation and audit the successful creation
+      // (id/action only — never the name text, see recordRealNameAudit).
+      await RealNameRegistry.updateOne({ _id: reservation._id }, { userId: user._id })
+      await recordRealNameAudit(user._id, conversationId, 'created')
+    }
+    // Link the account to the membership record so assertMembership can find it by userAccount.
+    // Independent of real names — membership enforcement only needs userAccount.
+    await ConversationMembership.updateOne(
+      { conversation: conversationId, email: userProps.email },
+      { $set: { userAccount: user._id } }
+    )
   }
   return user
 }
