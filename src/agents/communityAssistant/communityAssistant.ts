@@ -227,8 +227,8 @@ export default verify({
       return [
         {
           visible: true,
-          message,
-          messageType: 'text' as const,
+          message: { type: 'memberIntro', text: message, content: { name: evt.name, bio: evt.bio, interests: evt.interests } },
+          messageType: 'json' as const,
           channels: responseChannels
         }
       ]
