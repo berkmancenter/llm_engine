@@ -164,7 +164,16 @@ export async function doStopConversation(conversation) {
   for (const agent of doc.agents) {
     // needed so agent has all conversation info for activation
     agent.conversation = doc
-    await agentService.stopAgent(agent)
+    try {
+      await agentService.stopAgent(agent)
+    } catch (err) {
+      // One agent's stop failing (e.g. a transient cancel-schedule write) must not abort
+      // cleanup for the rest of doc.agents — doc.active is already persisted false above,
+      // so a caller that only re-stops on `conversation.active` (deleteConversation included)
+      // would never retry a skipped agent, leaving its periodic/cron schedule orphaned to
+      // fire against a since-deleted or inactive agent forever.
+      logger.error(`Failed to stop agent ${agent._id} for conversation ${doc._id}`, err)
+    }
   }
   await schedule.cancelBatchTranscript(doc._id)
   await schedule.cancelAutoStopConversation(doc._id)
