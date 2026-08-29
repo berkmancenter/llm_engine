@@ -38,6 +38,26 @@ resource "google_compute_resource_policy" "snapshot" {
       storage_locations = [var.region]
     }
   }
+
+  # This is the only thing standing between the disk it covers and having
+  # no future backups at all — protect it from an accidental
+  # `terraform destroy`/replace the same way mongo-vm/chroma-vm's data
+  # disks already protect themselves (see those modules' own
+  # prevent_destroy). Deleting the resource doesn't touch snapshots already
+  # taken (they're independent GCP objects, not tracked in state at all —
+  # this module never creates a google_compute_snapshot), but it silently
+  # stops the next one, forever, with nothing in a `terraform plan` output
+  # calling that out as different from any other resource replacement.
+  #
+  # Most of this resource's fields (region, name, the whole
+  # snapshot_schedule_policy block) are ForceNew, so even a deliberate
+  # schedule/retention change hits this lifecycle block — that's
+  # intentional, matching mongo_data/chroma_data's own tradeoff. Temporarily
+  # remove this block, apply, then restore it, rather than routing around
+  # it any other way.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "google_compute_disk_resource_policy_attachment" "snapshot" {
@@ -45,4 +65,14 @@ resource "google_compute_disk_resource_policy_attachment" "snapshot" {
   zone    = var.zone
   disk    = var.disk_name
   name    = google_compute_resource_policy.snapshot.name
+
+  # Without this, detaching the policy from the disk (destroying just this
+  # resource, leaving google_compute_resource_policy.snapshot's own
+  # prevent_destroy untouched) achieves exactly the same outcome as
+  # deleting the policy itself: this disk stops getting scheduled
+  # snapshots. Protecting only the policy resource and not this attachment
+  # would leave that loophole wide open.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
