@@ -49,12 +49,17 @@ resource "google_compute_resource_policy" "snapshot" {
   # stops the next one, forever, with nothing in a `terraform plan` output
   # calling that out as different from any other resource replacement.
   #
-  # Most of this resource's fields (region, name, the whole
-  # snapshot_schedule_policy block) are ForceNew, so even a deliberate
-  # schedule/retention change hits this lifecycle block — that's
-  # intentional, matching mongo_data/chroma_data's own tradeoff. Temporarily
-  # remove this block, apply, then restore it, rather than routing around
-  # it any other way.
+  # Cost of this lifecycle block is small: verified against the provider
+  # (terraform plan against a hand-built state) that name and everything
+  # under snapshot_schedule_policy — schedule, retention_policy,
+  # snapshot_properties — update in place via the API's patch, so a
+  # schedule/retention edit never hits this block at all. Only region or
+  # project force a replace (both part of the resource's identity/location,
+  # not something a schedule/retention change ever touches) — that's the
+  # one case where this block gets in the way, and it's rare enough
+  # (moving the disk to a different region/project entirely) that
+  # temporarily removing the block, applying, then restoring it is the
+  # right answer rather than routing around it any other way.
   lifecycle {
     prevent_destroy = true
   }
