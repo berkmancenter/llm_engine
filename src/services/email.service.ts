@@ -1,6 +1,8 @@
 import postmark from 'postmark'
+import httpStatus from 'http-status'
 import config from '../config/config.js'
 import logger from '../config/logger.js'
+import ApiError from '../utils/ApiError.js'
 import eventUrls from './eventUrls.service.js'
 import SuppressedRecipientError from '../utils/SuppressedRecipientError.js'
 import EmailSendError from '../utils/EmailSendError.js'
@@ -286,6 +288,71 @@ We received your email, but ${reasonLine} Please send it again with a Zoom meeti
   await sendEmailAsync(to, subject, text, html, 'on-demand-event-failed')
 }
 
+/* CSV sanitization strips control characters but deliberately leaves markup-looking text
+   alone (a bio may legitimately mention "<div>"), so anything CSV-sourced must be escaped
+   at the point it enters an HTML body. */
+const escapeHtml = (value: string) =>
+  value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+
+/**
+ * Build the member-invite message for one recipient. Pure builder, separated from the
+ * transport so the copy stays reviewable and testable while the batch send itself waits
+ * on outbound email moving to Postmark's API.
+ *
+ * The token rides in the query string, never the URL fragment: Proofpoint-style link
+ * rewriters encode the whole URL including any fragment, so the fragment's one benefit is
+ * void for exactly this audience while its costs (hard JS dependency, no server-side
+ * error rendering) remain.
+ * @param {string} name
+ * @param {string} roomName
+ * @param {string} token
+ * @returns {{subject: string, text: string, html: string}}
+ */
+const buildMemberInviteEmail = (name: string, roomName: string, token: string) => {
+  const inviteUrl = `${config.appHost}${config.invitePath}?token=${token}`
+  const expiryDays = config.jwt.inviteExpirationDays
+  const subject = `You're invited to join ${roomName}`
+  const text = `Hello ${name},
+You've been invited to join ${roomName}. To accept, open this link, choose a password, and you'll land right in the room: ${inviteUrl}
+This link is just for you, so please don't forward it. It expires in ${expiryDays} days; if it has expired, reply to this email and we'll send a fresh one.`
+  const html = `<p>Hello ${escapeHtml(name)},</p>
+<p>You've been invited to join ${escapeHtml(
+    roomName
+  )}. To accept, <a href="${inviteUrl}">open this link</a>, choose a password, and you'll land right in the room.</p>
+<p>If the link doesn't open, copy and paste this address into your browser: ${inviteUrl}</p>
+<p>This link is just for you, so please don't forward it. It expires in ${expiryDays} days; if it has expired, reply to this email and we'll send a fresh one.</p>`
+  return { subject, text, html }
+}
+
+/**
+ * Send invite emails in bulk with per-recipient results.
+ *
+ * NOT IMPLEMENTED until outbound email migrates from SMTP to Postmark's API: invites go
+ * to up to ~200 people per import and a bounced invite is someone who believes they were
+ * invited and has no way in, so this send needs Postmark's batch endpoint and its
+ * per-recipient results rather than a loop over the SMTP transport.
+ *
+ * Contract for that implementation:
+ * - accepts `invites`: Array<{ membershipId, to, name, roomName, token }>
+ * - builds each message with buildMemberInviteEmail
+ * - sends via Postmark's batch API with `MessageStream: 'outbound'`, link and open
+ *   tracking OFF (tracking rewrites the token URL through Postmark, stacking a second
+ *   rewrite on top of Proofpoint's), and a `Tag` of 'member-invite'
+ * - resolves to Array<{ membershipId, success: boolean, error?: string }>, one entry per
+ *   input, never throwing for an individual recipient failure
+ * @param {Array<{membershipId: string, to: string, name: string, roomName: string, token: string}>} invites
+ * @returns {Promise<Array<{membershipId: string, success: boolean, error?: string}>>}
+ */
+const sendMemberInviteBatch = async (
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  invites: Array<{ membershipId: string; to: string; name: string; roomName: string; token: string }>
+): Promise<Array<{ membershipId: string; success: boolean; error?: string }>> => {
+  throw new ApiError(
+    httpStatus.NOT_IMPLEMENTED,
+    'Sending invite emails requires outbound email to move to the Postmark batch API'
+  )
+}
+
 const emailService = {
   client,
   sendEmail,
@@ -297,6 +364,8 @@ const emailService = {
   sendEventCreatedEmail,
   sendEventCreationFailedEmail,
   sendOnDemandEventEmail,
-  sendOnDemandEventFailedEmail
+  sendOnDemandEventFailedEmail,
+  buildMemberInviteEmail,
+  sendMemberInviteBatch
 }
 export default emailService

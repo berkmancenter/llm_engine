@@ -497,4 +497,55 @@ describe('email.service', () => {
       expect(msg.HtmlBody).not.toMatch(/at \w+\.\w+ \(/)
     })
   })
+
+  describe('buildMemberInviteEmail', () => {
+    const token = 'abc.def.ghi'
+
+    it('links to the invite path with the token in the query string, in both text and html', () => {
+      const msg = emailService.buildMemberInviteEmail('Jane Doe', 'Community Room', token)
+
+      const expectedUrl = `${config.appHost}${config.invitePath}?token=${token}`
+      expect(msg.subject).toEqual(expect.any(String))
+      expect(msg.text).toContain(expectedUrl)
+      expect(msg.html).toContain(expectedUrl)
+      expect(msg.text).not.toContain(`#token=`)
+      expect(msg.html).not.toContain(`#token=`)
+    })
+
+    it('greets the person by name and names the room', () => {
+      const msg = emailService.buildMemberInviteEmail('Jane Doe', 'Community Room', token)
+
+      expect(msg.text).toContain('Jane Doe')
+      expect(msg.html).toContain('Jane Doe')
+      expect(msg.text).toContain('Community Room')
+      expect(msg.subject).toContain('Community Room')
+    })
+
+    it('HTML-escapes names and room names so a CSV value cannot inject markup', () => {
+      const msg = emailService.buildMemberInviteEmail('<b>Jane</b> & "Doe"', 'Room <script>', token)
+
+      expect(msg.html).not.toContain('<b>Jane</b>')
+      expect(msg.html).not.toContain('<script>')
+      expect(msg.html).toContain('&lt;b&gt;Jane&lt;/b&gt;')
+      // The plain-text body needs no escaping and keeps the value as-is.
+      expect(msg.text).toContain('<b>Jane</b> & "Doe"')
+    })
+
+    it('tells the person the link is personal and how long it lasts', () => {
+      const msg = emailService.buildMemberInviteEmail('Jane Doe', 'Community Room', token)
+
+      expect(msg.text).toContain(`${config.jwt.inviteExpirationDays} days`)
+      expect(msg.text).toMatch(/link is (just )?for you|personal|do not forward|don't forward/i)
+    })
+  })
+
+  describe('sendMemberInviteBatch', () => {
+    it('is blocked until the Postmark API migration lands, and says so', async () => {
+      await expect(
+        emailService.sendMemberInviteBatch([
+          { membershipId: 'm1', to: 'jane.doe@example.com', name: 'Jane Doe', roomName: 'Community Room', token: 'abc' }
+        ])
+      ).rejects.toMatchObject({ statusCode: 501 })
+    })
+  })
 })
