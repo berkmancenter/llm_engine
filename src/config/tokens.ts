@@ -4,7 +4,8 @@ const tokenTypes = {
   RESET_PASSWORD: 'resetPassword',
   VERIFY_EMAIL: 'verifyEmail',
   ARCHIVE_TOPIC: 'archiveTopic',
-  HANDOFF: 'handoff'
+  HANDOFF: 'handoff',
+  MEMBER_INVITE: 'memberInvite'
 }
 
 export default tokenTypes
