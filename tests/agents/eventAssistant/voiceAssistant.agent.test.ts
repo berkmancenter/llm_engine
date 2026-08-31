@@ -9,6 +9,7 @@ import {
   createConversation
 } from '../../utils/agentTestHelpers.js'
 import { Agent, Channel, Message } from '../../../src/models/index.js'
+import websocketGateway from '../../../src/websockets/websocketGateway.js'
 
 import { QuestionClassification } from '../../../src/agents/eventAssistant/eventQuestionHandler.js'
 
@@ -127,7 +128,97 @@ describe('voice assistant CI tests', () => {
     },
     testTimeout
   )
+})
 
+describe('voice assistant voice output mode', () => {
+  let agent
+  let conversation
+  let topic
+  let user1
+
+  const startTime = new Date(Date.now() - 15 * 60 * 1000)
+
+  beforeEach(async () => {
+    user1 = await createUser('Boring Badger')
+    topic = await createPublicTopic()
+    conversation = await createVoiceAssistantConversation(
+      {
+        name: 'Why your company should consider part-time work',
+        description: `"No one wants to work anymore." Entrepreneur Jessica Drain believes otherwise.`,
+        presenters: [{ name: 'Jessica Drain', bio: 'A career marketer and graphic designer.' }],
+        moderators: [{ name: 'Joe Moderator', bio: 'An experienced event moderator.' }]
+      },
+      user1,
+      topic,
+      startTime,
+      testConfig.llmPlatform,
+      testConfig.llmModel
+    )
+    const [testAgent] = conversation.agents
+    agent = testAgent
+    agent.agentConfig.voiceOutput = true
+    await loadPartTimeWorkTranscript(conversation, true)
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it(
+    'streams chunks via broadcastMessageChunk and sends a done marker',
+    async () => {
+      const broadcastSpy = jest.spyOn(websocketGateway, 'broadcastMessageChunk').mockResolvedValue()
+      const msg = await createMessage(`hey ${agent.agentConfig.botName} what is this talk about?`, user1, conversation, [
+        'transcript'
+      ])
+      agent.conversationHistorySettings = {
+        endTime: new Date(startTime.getTime() + 313 * 1000),
+        count: 10,
+        channels: ['transcript']
+      }
+
+      const responses = await defaultAgentTypes.voiceAssistant.respond.call(agent, { messages: [] }, msg)
+
+      expect(responses).toHaveLength(1)
+      expect(responses[0].message.text).toBeDefined()
+
+      const { calls } = broadcastSpy.mock
+      expect(calls.length).toBeGreaterThan(1)
+
+      // All chunk calls should target the chat channel
+      calls.forEach((call) => expect(call[1]).toEqual(['chat']))
+
+      // Last call should be the done marker
+      const lastCall = calls[calls.length - 1]
+      expect(lastCall[2]).toMatchObject({ text: '', done: true })
+
+      // All other calls should be non-done chunks
+      calls.slice(0, -1).forEach((call) => expect(call[2].done).toBe(false))
+    },
+    testTimeout
+  )
+
+  it(
+    'still returns the final message with voice metadata when voiceOutput is enabled',
+    async () => {
+      jest.spyOn(websocketGateway, 'broadcastMessageChunk').mockResolvedValue()
+      const msg = await createMessage(`hey ${agent.agentConfig.botName} what is part-time work?`, user1, conversation, [
+        'transcript'
+      ])
+      agent.conversationHistorySettings = {
+        endTime: new Date(startTime.getTime() + 313 * 1000),
+        count: 10,
+        channels: ['transcript']
+      }
+
+      const responses = await defaultAgentTypes.voiceAssistant.respond.call(agent, { messages: [] }, msg)
+
+      expect(responses[0].message.source).toBe('voice')
+      expect(responses[0].message.sourceMessage).toBeDefined()
+      expect(responses[0].channels[0].name).toBe('chat')
+    },
+    testTimeout
+  )
 })
 
 describe('voiceAssistant parseOutput', () => {

@@ -5,6 +5,7 @@ import { eventAssistantLLMTemplates, eventAssistantLlmTemplateVars, answerQuesti
 import logger from '../../config/logger.js'
 import getDefaultEventAssistantToolNames from './eventAssistantDefaultTools.js'
 import { extractVoiceQuestion, evaluateVoiceTrigger } from '../helpers/voiceDirectives.js'
+import websocketGateway from '../../websockets/websocketGateway.js'
 
 export default verify({
   name: 'Voice Assistant',
@@ -16,7 +17,8 @@ export default verify({
     perMessage: { channels: ['transcript'] }
   },
   agentConfig: {
-    tools: getDefaultEventAssistantToolNames()
+    tools: getDefaultEventAssistantToolNames(),
+    voiceOutput: false
   },
   llmTemplateVars: eventAssistantLlmTemplateVars,
   defaultLLMTemplates: eventAssistantLLMTemplates,
@@ -53,10 +55,33 @@ export default verify({
     if (!questionText) return []
 
     logger.debug(`Voice assistant answering question: "${questionText}"`)
-    // answerQuestion expects chat/DM history; transcript is handled internally via RAG
     const questionMessage = { ...userMessage, body: questionText }
-    const responses = await answerQuestion.call(this, questionMessage, { messages: [] })
 
+    const voiceOutput = Boolean(this.agentConfig.voiceOutput)
+    const conversationId = this.conversation._id.toString()
+    const requestId = (userMessage.source?.requestId as string | undefined) ?? userMessage._id?.toString() ?? conversationId
+    const onChunk = voiceOutput
+      ? (text: string) => {
+          websocketGateway
+            .broadcastMessageChunk(conversationId, [chatChannel.name], { requestId, text, done: false })
+            .catch((err) => logger.warn(`Voice assistant: failed to broadcast chunk: ${err}`))
+        }
+      : undefined
+
+    // answerQuestion expects chat/DM history; transcript is handled internally via RAG
+    const responses = await answerQuestion.call(this, questionMessage, { messages: [] }, { voiceOutput, onChunk })
+
+    if (voiceOutput) {
+      await websocketGateway
+        .broadcastMessageChunk(conversationId, [chatChannel.name], { requestId, text: '', done: true })
+        .catch((err) => logger.warn(`Voice assistant: failed to broadcast done marker: ${err}`))
+    }
+
+    // Always post the full answer to the chat channel, even in voiceOutput mode. The spoken
+    // audio (streamed above via chunks) is ephemeral — the chat message is the durable record
+    // of what the bot said. There is no way to coordinate with the output-media server to delay
+    // this until audio finishes playing, so the text may appear in chat while the bot is still
+    // speaking; for typical short voice answers this overlap is brief.
     return responses.map((r) => ({
       ...r,
       channels: [chatChannel],

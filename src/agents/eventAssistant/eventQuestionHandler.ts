@@ -1,4 +1,5 @@
 import { getChatPromptResponse, getAgentStructuredResponse } from '../helpers/llmChain.js'
+
 import { formatMultiUserConversationHistory, formatSingleUserConversationHistory } from '../helpers/llmInputFormatters.js'
 import transcript from '../helpers/transcript.js'
 import rag from '../helpers/rag.js'
@@ -17,6 +18,7 @@ import {
   EVENT_ASSISTANT_TOOL_USER_MANDATE,
   EVENT_ASSISTANT_SERIES_HISTORY_USER_CARVEOUT
 } from './buildEventAssistantToolSystemPrompt.js'
+import { VOICE_OUTPUT_RULES } from '../helpers/voiceDirectives.js' // used in no-tools path below
 
 export enum QuestionClassification {
   ON_TOPIC_ANSWER = 'ON_TOPIC_ANSWER',
@@ -549,14 +551,14 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
     channelType,
     personalityName
   })
-
   let llmResponse: string
   if (tools.length > 0) {
     logger.debug(`Responding with tools enabled: [${toolNames.join(', ')}], systemTemplate: ${templateType}`)
     const llm = await this.getLLM()
     const toolSystemPrompt = await buildEventAssistantToolSystemPrompt(systemTemplate, topic, contextString, {
       hasWebSearch,
-      series: series ? { name: series.name } : undefined
+      series: series ? { name: series.name } : undefined,
+      voiceOutput: options?.voiceOutput
     })
     // The user mandate forces a web_search every uncertain turn — only relevant when web_search is
     // active. When series-history tools are also present, add a carve-out so the absolute web mandate
@@ -577,7 +579,7 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
       undefined,
       chatHistory,
       agentRecursionLimit,
-      { returnToolTrace: true }
+      { returnToolTrace: true, ...(options?.onChunk && { onChunk: options.onChunk }) }
     )) as { text: string; toolTrace: { invoked: boolean; calls: Array<{ name: string; args: unknown }> } }
     llmResponse = agentBundle.text
     const toolCalls = agentBundle.toolTrace.calls.length
@@ -601,7 +603,8 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
         : `eventAssistant.toolTrace ${tracePayload}`
     )
   } else {
-    llmResponse = await getResponse.call(this, question, contextString, chatHistory, topic, systemTemplate)
+    const noToolsSystemTemplate = options?.voiceOutput ? systemTemplate + VOICE_OUTPUT_RULES : systemTemplate
+    llmResponse = await getResponse.call(this, question, contextString, chatHistory, topic, noToolsSystemTemplate)
   }
 
   let responseMessage = llmResponse
