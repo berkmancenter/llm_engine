@@ -12,8 +12,6 @@ import websocketGateway from '../../../src/websockets/websocketGateway.js'
 import schedule from '../../../src/jobs/schedule.js'
 import Conversation from '../../../src/models/conversation.model.js'
 
-jest.setTimeout(10000)
-
 const BASE_API = '/v1/polls'
 
 const CHOICE1_TEXT = 'Choice 1'
