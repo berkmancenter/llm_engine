@@ -859,7 +859,7 @@ const joinConversation = async (conversationOrId, user) => {
   if (!conversation.enableDMs.includes('agents')) {
     return conversation
   }
-  await conversation.populate(['channels', 'agents'])
+  await conversation.populate(['channels', 'agents', { path: 'topic', select: 'private' }])
 
   let firstJoin = false
   for (const agent of conversation.agents) {
@@ -872,14 +872,13 @@ const joinConversation = async (conversationOrId, user) => {
         passcode: null
       })
       firstJoin = true
-      firstJoin = true
     }
   }
 
   if (firstJoin) {
     const conversationId = conversation._id.toString()
     const topicId = conversation.topic?._id?.toString() ?? conversation.topic?.toString()
-    const topicIsPrivate = conversation.topic?.private ?? true
+    const topicIsPrivate = (conversation.topic as TopicDocument | null)?.private ?? true
     const name = resolveDisplayName(user, conversation).pseudonym
     if (user.email) {
       await ConversationMembership.updateOne(
