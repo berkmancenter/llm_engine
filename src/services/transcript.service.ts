@@ -12,6 +12,17 @@ import { roleRights } from '../config/roles.js'
 import { MODERATOR_CHANNEL } from '../conversations/eventAssistant.js'
 import { ChannelCredential } from '../types/index.types.js'
 
+/* One wording for every refusal a caller without the right can trigger: wrong passcode, no
+   passcode, an event with no moderator channel, and an id that matches no conversation. The
+   route only asks for `getConversation`, which every participant holds, so a message that
+   varied by case would let any signed-in account probe for conversation ids and for how an
+   event is configured. It still names what the caller needs, which is all a real moderator
+   with a stale link can act on anyway. */
+const TRANSCRIPT_REFUSAL =
+  "You need this conversation's moderator passcode, or an administrator account, to control its transcript"
+
+const holdsTranscriptRight = (user, right: string) => !!roleRights.get(user?.role)?.includes(right)
+
 /*
  * Guards one of the four transcript controls: download, pause, resume, delete.
  *
@@ -32,25 +43,23 @@ import { ChannelCredential } from '../types/index.types.js'
  * @param {ChannelCredential[]} channels Channel credentials read off the request's query string.
  */
 const authorizeTranscriptControl = async (conversation, user, right: string, channels: ChannelCredential[] = []) => {
-  if (roleRights.get(user?.role)?.includes(right)) return
+  if (holdsTranscriptRight(user, right)) return
 
-  /* No moderator channel, or one deliberately configured without a passcode, leaves nothing
-     to check against, so the controls fall back to admins only. Say that plainly: a caller
-     who reads this as a rejected passcode will keep retrying a link that cannot ever work. */
   await conversation.populate('channels')
   const moderatorChannel = conversation.channels?.find((channel) => channel.name === MODERATOR_CHANNEL)
-  if (!moderatorChannel?.passcode) {
-    throw new ApiError(
-      httpStatus.FORBIDDEN,
-      'This conversation has no moderator passcode, so only an administrator can control its transcript'
-    )
-  }
-
   const presented = channels.find((channel) => channel.name === MODERATOR_CHANNEL)
-  if (!presented || presented.passcode !== moderatorChannel.passcode) {
-    throw new ApiError(httpStatus.FORBIDDEN, `Incorrect or missing passcode for channel: ${MODERATOR_CHANNEL}`)
+  if (!moderatorChannel?.passcode || presented?.passcode !== moderatorChannel.passcode) {
+    throw new ApiError(httpStatus.FORBIDDEN, TRANSCRIPT_REFUSAL)
   }
 }
+
+/* An id that matches nothing looks the same as a conversation the caller may not touch, so
+   probing cannot confirm a conversation exists. A caller who already holds the right is
+   allowed to know, and still gets the 404. */
+const missingConversationError = (conversationId, user, right: string) =>
+  holdsTranscriptRight(user, right)
+    ? new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${conversationId} not found`)
+    : new ApiError(httpStatus.FORBIDDEN, TRANSCRIPT_REFUSAL)
 
 const deleteTranscript = async (conversationId, user, channels: ChannelCredential[] = []) => {
   const conversation = await Conversation.findOne({ _id: conversationId })
@@ -58,7 +67,7 @@ const deleteTranscript = async (conversationId, user, channels: ChannelCredentia
     .select('name owner topic agents channels transcript')
     .exec()
   if (!conversation) {
-    throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${conversationId} not found`)
+    throw missingConversationError(conversationId, user, 'deleteTranscript')
   }
 
   await authorizeTranscriptControl(conversation, user, 'deleteTranscript', channels)
@@ -87,7 +96,7 @@ const deleteTranscript = async (conversationId, user, channels: ChannelCredentia
 const pauseTranscript = async (conversationId, user, channels: ChannelCredential[] = []) => {
   const conversation = await Conversation.findOne({ _id: conversationId }).populate(['topic', 'adapters'])
   if (!conversation) {
-    throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${conversationId} not found`)
+    throw missingConversationError(conversationId, user, 'pauseTranscript')
   }
 
   await authorizeTranscriptControl(conversation, user, 'pauseTranscript', channels)
@@ -106,7 +115,7 @@ const pauseTranscript = async (conversationId, user, channels: ChannelCredential
 const resumeTranscript = async (conversationId, user, channels: ChannelCredential[] = []) => {
   const conversation = await Conversation.findOne({ _id: conversationId }).populate(['topic', 'adapters'])
   if (!conversation) {
-    throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${conversationId} not found`)
+    throw missingConversationError(conversationId, user, 'resumeTranscript')
   }
 
   await authorizeTranscriptControl(conversation, user, 'resumeTranscript', channels)
@@ -142,7 +151,7 @@ const getPlainTextTranscript = async (conversationId, user, channels: ChannelCre
   }
 
   if (!conversation) {
-    throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${conversationId} not found`)
+    throw missingConversationError(conversationId, user, 'getTranscript')
   }
 
   await authorizeTranscriptControl(conversation, user, 'getTranscript', channels)

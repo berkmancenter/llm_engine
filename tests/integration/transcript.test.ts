@@ -1618,11 +1618,32 @@ describe('Transcript routes', () => {
         .expect(httpStatus.FORBIDDEN)
     })
 
-    /* An event with moderator support switched off has no passcode to check, so the controls
-       fall back to admins only. The refusal should say that rather than blame the passcode
-       the caller sent, which would send them hunting for a link that cannot exist. */
-    test('says only an administrator can control it, rather than reporting a bad passcode', async () => {
-      const conversation = new Conversation({
+    /* Every control loads the conversation before it can check the passcode, so a caller who
+       fails the check must not learn from the response whether that conversation exists. An
+       admin still gets the honest 404, because an admin is allowed to know. */
+    test('refuses a conversation id that does not exist rather than confirming it is missing', async () => {
+      const missingId = new mongoose.Types.ObjectId()
+
+      await request(app)
+        .post(`/v1/transcript/${missingId}/pause`)
+        .query({ channel: `moderator,${MODERATOR_PASSCODE}` })
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send()
+        .expect(httpStatus.FORBIDDEN)
+
+      await request(app)
+        .post(`/v1/transcript/${missingId}/pause`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.NOT_FOUND)
+    })
+
+    /* The refusal has to read identically in every case a caller without the right can reach.
+       A message that changed with the conversation's setup, or with whether it exists at all,
+       would let any signed-in participant probe both. */
+    test('gives one refusal for a wrong passcode, an event with no moderator channel, and a missing conversation', async () => {
+      const withModeratorChannel = await createEventWithChannels()
+      const withoutModeratorChannel = new Conversation({
         name: 'No Moderator Channel',
         owner: userOne._id,
         topic: publicTopic._id,
@@ -1631,17 +1652,26 @@ describe('Transcript routes', () => {
         active: true,
         transcript: { status: 'active' }
       })
-      await conversation.save()
+      await withoutModeratorChannel.save()
 
-      const res = await request(app)
-        .post(`/v1/transcript/${conversation._id}/pause`)
-        .query({ channel: `moderator,${MODERATOR_PASSCODE}` })
-        .set('Authorization', `Bearer ${participantAccessToken}`)
-        .send()
-        .expect(httpStatus.FORBIDDEN)
+      const refuse = async (conversationId, passcode) => {
+        const res = await request(app)
+          .post(`/v1/transcript/${conversationId}/pause`)
+          .query({ channel: `moderator,${passcode}` })
+          .set('Authorization', `Bearer ${participantAccessToken}`)
+          .send()
+          .expect(httpStatus.FORBIDDEN)
+        return res.body.message
+      }
 
-      expect(res.body.message).toMatch(/only an administrator/i)
-      expect(res.body.message).not.toMatch(/incorrect/i)
+      const messages = [
+        await refuse(withModeratorChannel._id, 'not-the-passcode'),
+        await refuse(withoutModeratorChannel._id, MODERATOR_PASSCODE),
+        await refuse(new mongoose.Types.ObjectId(), MODERATOR_PASSCODE)
+      ]
+
+      expect(new Set(messages).size).toBe(1)
+      expect(messages[0]).toMatch(/moderator passcode/i)
     })
 
     test('still lets an admin work with no passcode at all', async () => {

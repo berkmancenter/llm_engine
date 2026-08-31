@@ -62,7 +62,11 @@ const router = express.Router()
  *       406:
  *         description: Requested format not supported
  *       403:
- *         description: Caller holds no transcript right and presented no valid moderator passcode
+ *         description: >
+ *           Caller holds no transcript right and presented no valid moderator passcode. Also
+ *           returned in place of a 404 for an unknown conversation id, so that a caller who
+ *           cannot reach the transcript cannot use these operations to test whether a
+ *           conversation exists.
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
@@ -98,7 +102,11 @@ router.route('/:conversationId').get(auth('getConversation'), transcriptControll
  *       404:
  *         $ref: '#/components/responses/NotFound'
  *       403:
- *         description: Caller holds no transcript right and presented no valid moderator passcode
+ *         description: >
+ *           Caller holds no transcript right and presented no valid moderator passcode. Also
+ *           returned in place of a 404 for an unknown conversation id, so that a caller who
+ *           cannot reach the transcript cannot use these operations to test whether a
+ *           conversation exists.
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
@@ -138,7 +146,11 @@ router.route('/:conversationId').delete(auth('getConversation'), transcriptContr
  *       404:
  *         $ref: '#/components/responses/NotFound'
  *       403:
- *         description: Caller holds no transcript right and presented no valid moderator passcode
+ *         description: >
+ *           Caller holds no transcript right and presented no valid moderator passcode. Also
+ *           returned in place of a 404 for an unknown conversation id, so that a caller who
+ *           cannot reach the transcript cannot use these operations to test whether a
+ *           conversation exists.
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
@@ -178,7 +190,11 @@ router.route('/:conversationId/pause').post(auth('getConversation'), transcriptC
  *       404:
  *         $ref: '#/components/responses/NotFound'
  *       403:
- *         description: Caller holds no transcript right and presented no valid moderator passcode
+ *         description: >
+ *           Caller holds no transcript right and presented no valid moderator passcode. Also
+ *           returned in place of a 404 for an unknown conversation id, so that a caller who
+ *           cannot reach the transcript cannot use these operations to test whether a
+ *           conversation exists.
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
