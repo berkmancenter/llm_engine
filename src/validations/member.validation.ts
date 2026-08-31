@@ -7,5 +7,17 @@ const importMembers = {
   })
 }
 
-const memberValidation = { importMembers }
+const sendInvites = {
+  params: Joi.object().keys({
+    conversationId: Joi.string().custom(objectId).required()
+  })
+}
+
+const resendInvite = {
+  params: Joi.object().keys({
+    membershipId: Joi.string().custom(objectId).required()
+  })
+}
+
+const memberValidation = { importMembers, sendInvites, resendInvite }
 export default memberValidation
