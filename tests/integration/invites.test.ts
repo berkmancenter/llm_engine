@@ -194,16 +194,24 @@ describe('invite endpoints', () => {
       expect(failed!.inviteError).toBeFalsy()
     })
 
-    test('returns 501 while the Postmark migration is outstanding, leaving members pending', async () => {
+    test('calls sendMemberInviteBatch with the correct shape and marks members invited', async () => {
       const membership = await insertMembership()
+      const spy = mockBatch()
 
       await request(app)
         .post(sendUrl(conversationCommunityRoom._id))
         .set('Authorization', `Bearer ${adminAccessToken}`)
-        .expect(httpStatus.NOT_IMPLEMENTED)
+        .expect(httpStatus.OK)
+
+      expect(spy).toHaveBeenCalledTimes(1)
+      const invites = spy.mock.calls[0][0] as InvitePayload[]
+      expect(invites).toHaveLength(1)
+      expect(invites[0].membershipId).toBe(membership._id.toString())
+      expect(invites[0].to).toBe(membership.email)
+      expect(typeof invites[0].token).toBe('string')
 
       const stored = await ConversationMembership.findById(membership._id).lean()
-      expect(stored!.inviteState).toBe('pending')
+      expect(stored!.inviteState).toBe('invited')
     })
   })
 

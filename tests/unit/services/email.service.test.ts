@@ -540,12 +540,58 @@ describe('email.service', () => {
   })
 
   describe('sendMemberInviteBatch', () => {
-    it('is blocked until the Postmark API migration lands, and says so', async () => {
-      await expect(
-        emailService.sendMemberInviteBatch([
-          { membershipId: 'm1', to: 'jane.doe@example.com', name: 'Jane Doe', roomName: 'Community Room', token: 'abc' }
-        ])
-      ).rejects.toMatchObject({ statusCode: 501 })
+    let batchSpy
+
+    beforeEach(() => {
+      batchSpy = jest
+        .spyOn(emailService.client, 'sendEmailBatch')
+        .mockResolvedValue([{ ErrorCode: 0, Message: 'OK' }] as never)
+    })
+
+    afterEach(() => {
+      batchSpy.mockRestore()
+    })
+
+    it('sends via the Postmark batch API with tracking off and the member-invite tag', async () => {
+      await emailService.sendMemberInviteBatch([
+        { membershipId: 'm1', to: 'jane@example.com', name: 'Jane Doe', roomName: 'Community Room', token: 'tok' }
+      ])
+
+      expect(batchSpy).toHaveBeenCalledTimes(1)
+      const [messages] = batchSpy.mock.calls[0]
+      expect(messages).toHaveLength(1)
+      expect(messages[0].To).toBe('jane@example.com')
+      expect(messages[0].Tag).toBe('member-invite')
+      expect(messages[0].TrackOpens).toBe(false)
+      expect(messages[0].TrackLinks).toBe('None')
+      expect(messages[0].MessageStream).toBe('outbound')
+    })
+
+    it('returns success:true for ErrorCode 0 and success:false with error for non-zero', async () => {
+      batchSpy.mockResolvedValue([
+        { ErrorCode: 0, Message: 'OK' },
+        { ErrorCode: 406, Message: 'Inactive recipient' }
+      ] as never)
+
+      const results = await emailService.sendMemberInviteBatch([
+        { membershipId: 'm1', to: 'ok@example.com', name: 'Alice', roomName: 'Room', token: 't1' },
+        { membershipId: 'm2', to: 'bad@example.com', name: 'Bob', roomName: 'Room', token: 't2' }
+      ])
+
+      expect(results[0]).toEqual({ membershipId: 'm1', success: true })
+      expect(results[1]).toEqual({ membershipId: 'm2', success: false, error: 'Inactive recipient' })
+    })
+
+    it('places the token in the query string of the invite URL, not the fragment', async () => {
+      await emailService.sendMemberInviteBatch([
+        { membershipId: 'm1', to: 'jane@example.com', name: 'Jane', roomName: 'Room', token: 'mytoken' }
+      ])
+
+      const [messages] = batchSpy.mock.calls[0]
+      expect(messages[0].TextBody).toContain('?token=mytoken')
+      expect(messages[0].TextBody).not.toContain('#')
+      expect(messages[0].HtmlBody).toContain('?token=mytoken')
+      expect(messages[0].HtmlBody).not.toContain('#token=')
     })
   })
 })
