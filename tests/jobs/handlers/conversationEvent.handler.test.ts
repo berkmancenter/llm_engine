@@ -61,7 +61,9 @@ describe('conversationEvent handler', () => {
   test('does not throw when agent is not found', async () => {
     const fakeId = new mongoose.Types.ObjectId()
     await expect(
-      handlers.conversationEvent({ attrs: { data: { agentId: fakeId.toString(), event: { type: 'conversationStopped', conversationId: 'conv-1' } } } })
+      handlers.conversationEvent({
+        attrs: { data: { agentId: fakeId.toString(), event: { type: 'conversationStopped', conversationId: 'conv-1' } } }
+      })
     ).resolves.not.toThrow()
   })
 
@@ -118,9 +120,27 @@ describe('conversationEvent handler', () => {
   test('still calls onConversationEvent for a different event type on the same conversation', async () => {
     const onConversationEventSpy = jest.spyOn(Agent.prototype, 'onConversationEvent').mockResolvedValue([])
 
-    await handlers.conversationEvent(makeJob({ event: { type: 'conversationStopped', conversationId: conversation._id.toString() } }))
     await handlers.conversationEvent(
-      makeJob({ event: { type: 'somethingElseEntirely', conversationId: conversation._id.toString() } })
+      makeJob({ event: { type: 'conversationStopped', conversationId: conversation._id.toString() } })
+    )
+    await handlers.conversationEvent(
+      makeJob({
+        event: { type: 'participantJoined', conversationId: conversation._id.toString(), userId: 'user-1', name: 'Alice' }
+      })
+    )
+
+    expect(onConversationEventSpy).toHaveBeenCalledTimes(2)
+  })
+
+  test('calls onConversationEvent for each distinct participant joining the same conversation', async () => {
+    const onConversationEventSpy = jest.spyOn(Agent.prototype, 'onConversationEvent').mockResolvedValue([])
+    const convId = conversation._id.toString()
+
+    await handlers.conversationEvent(
+      makeJob({ event: { type: 'participantJoined', conversationId: convId, userId: 'user-1', name: 'Alice' } })
+    )
+    await handlers.conversationEvent(
+      makeJob({ event: { type: 'participantJoined', conversationId: convId, userId: 'user-2', name: 'Bob' } })
     )
 
     expect(onConversationEventSpy).toHaveBeenCalledTimes(2)

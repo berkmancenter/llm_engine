@@ -86,6 +86,8 @@ export interface IUser {
   dataExportOptOut?: boolean
   pseudonyms: mongoose.Types.DocumentArray<IPseudonym>
   preferences?: IUserPreferences
+  bio?: string
+  interests?: string
 }
 
 export interface ITopic {
@@ -517,7 +519,7 @@ export interface IConversation {
   locked?: boolean
   enableAgents?: boolean
   /* Whether a poster's real-name pseudonym entry (rather than their active anonymous
-     pseudonym) gets stamped on their messages here — see resolveMessageName in
+     pseudonym) gets stamped on their messages here — see resolveDisplayName in
      message.service.ts. Set only at creation, from the create body or else the
      conversation type's own useRealNames default (see ConversationType); update always
      ignores it, so an owner can never flip anonymity on or off mid-conversation. */
@@ -1472,7 +1474,7 @@ export interface EmbeddingsModelDetails {
 export type ReadScope =
   | { type: 'topic'; id: string; topicIsPrivate?: boolean }
   | { type: 'conversation'; id: string; topicId?: string; topicIsPrivate?: boolean }
-export type ReadGrant = ReadScope | { type: 'allPublicTopics' } | { type: 'allTopics' }
+export type ReadGrant = ReadScope | { type: 'allPublicTopics' } | { type: 'allTopics' } | { type: 'ownConversation' }
 export type WriteScope = { type: 'conversation'; id: string }
 export type WriteGrant = { type: 'ownConversation' }
 
@@ -1486,7 +1488,16 @@ export interface ConversationStoppedEvent {
   topicId?: string
 }
 
-export type ConversationEvent = ConversationStoppedEvent
+export interface ParticipantJoinedEvent {
+  type: 'participantJoined'
+  conversationId: string
+  userId: string
+  name: string
+  bio?: string
+  interests?: string
+}
+
+export type ConversationEvent = ConversationStoppedEvent | ParticipantJoinedEvent
 
 export interface IAgent {
   _id?: mongoose.Types.ObjectId

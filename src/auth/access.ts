@@ -18,6 +18,8 @@ function assertCanRead(caller: IBaseUser, scope: ReadScope) {
   const allowed = grants.some((g) => {
     if (g.type === 'allTopics') return true
     if (g.type === 'allPublicTopics') return scope.topicIsPrivate !== true
+    if (g.type === 'ownConversation')
+      return scope.type === 'conversation' && caller.conversation?._id?.toString() === scope.id
     if (g.type === scope.type) return g.id === scope.id
     if (g.type === 'topic' && scope.type === 'conversation' && scope.topicId !== undefined) return g.id === scope.topicId
     return false

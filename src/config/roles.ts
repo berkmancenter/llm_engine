@@ -4,6 +4,7 @@
 const participantRights = [
   'createMessage',
   'getConversation',
+  'joinConversation',
   'vote',
   'respondPoll',
   'inspectPoll',
@@ -19,7 +20,6 @@ const adminOnlyRights = [
   'startConversation',
   'stopConversation',
   'patchConversationAgent',
-  'joinConversation',
   'followConversation',
   // Reads conversations you own or follow, both of which need admin rights to do in the first place.
   'userConversations',

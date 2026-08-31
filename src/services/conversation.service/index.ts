@@ -1,6 +1,6 @@
 import mongoose from 'mongoose'
 import httpStatus from 'http-status'
-import { Conversation, Topic, Follower, Message, Channel, Agent } from '../../models/index.js'
+import { Conversation, Topic, Follower, Message, Channel, Agent, ConversationMembership } from '../../models/index.js'
 import updateDocument from '../../utils/updateDocument.js'
 import ApiError from '../../utils/ApiError.js'
 import websocketGateway from '../../websockets/websocketGateway.js'
@@ -26,6 +26,8 @@ import {
   isConversationDraft,
   satisfiesTypeProperties
 } from './lifecycle.js'
+import agentDispatcher from '../../jobs/agentDispatcher.js'
+import { resolveDisplayName } from '../user.service.js'
 import resourceService from '../resource.service.js'
 
 export { updateTranscriptStatus }
@@ -844,7 +846,7 @@ const joinConversation = async (conversationOrId, user) => {
   if (typeof conversationOrId === 'string' || conversationOrId instanceof mongoose.Types.ObjectId) {
     conversation = await Conversation.findOne({ _id: conversationOrId })
       .select(returnFields)
-      .select('enableDMs agents channels')
+      .select('enableDMs agents channels topic useRealNames')
 
     if (!conversation) {
       throw new ApiError(httpStatus.NOT_FOUND, `Conversation with ID ${conversationOrId} not found`)
@@ -855,6 +857,7 @@ const joinConversation = async (conversationOrId, user) => {
   }
   await conversation.populate(['channels', 'agents'])
 
+  let firstJoin = false
   for (const agent of conversation.agents) {
     const directChannelName = `direct-${user._id}-${agent._id}`
     if (!conversation.channels?.find((channel) => channel.name === directChannelName)) {
@@ -864,8 +867,27 @@ const joinConversation = async (conversationOrId, user) => {
         participants: [user, agent],
         passcode: null
       })
+      firstJoin = true
     }
   }
+
+  if (firstJoin) {
+    const conversationId = conversation._id.toString()
+    const topicId = conversation.topic?._id?.toString() ?? conversation.topic?.toString()
+    const topicIsPrivate = conversation.topic?.private ?? true
+    const name = resolveDisplayName(user, conversation).pseudonym
+    if (user.email) {
+      await ConversationMembership.updateOne(
+        { conversation: conversation._id, email: user.email },
+        { $set: { joined: true } }
+      )
+    }
+    await agentDispatcher.dispatch(
+      { type: 'participantJoined', conversationId, userId: user._id.toString(), name, bio: user.bio, interests: user.interests },
+      { type: 'conversation', id: conversationId, topicId, topicIsPrivate }
+    )
+  }
+
   return conversation
 }
 

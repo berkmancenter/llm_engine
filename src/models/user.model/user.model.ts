@@ -72,6 +72,14 @@ const userSchema = new mongoose.Schema<IUser, UserModel>(
       },
       default: () => ({}),
       _id: false
+    },
+    bio: {
+      type: String,
+      trim: true
+    },
+    interests: {
+      type: String,
+      trim: true
     }
   },
   {
