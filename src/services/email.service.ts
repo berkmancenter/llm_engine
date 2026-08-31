@@ -1,8 +1,6 @@
 import postmark from 'postmark'
-import httpStatus from 'http-status'
 import config from '../config/config.js'
 import logger from '../config/logger.js'
-import ApiError from '../utils/ApiError.js'
 import eventUrls from './eventUrls.service.js'
 import SuppressedRecipientError from '../utils/SuppressedRecipientError.js'
 import EmailSendError from '../utils/EmailSendError.js'
@@ -299,10 +297,13 @@ const escapeHtml = (value: string) =>
  * transport so the copy stays reviewable and testable while the batch send itself waits
  * on outbound email moving to Postmark's API.
  *
- * The token rides in the query string, never the URL fragment: Proofpoint-style link
- * rewriters encode the whole URL including any fragment, so the fragment's one benefit is
- * void for exactly this audience while its costs (hard JS dependency, no server-side
- * error rendering) remain.
+ * The token rides in the query string, never the URL fragment. Enterprise email security
+ * gateways (e.g. Proofpoint) rewrite every link in an incoming message to route it through
+ * a scanning proxy before the recipient's browser ever sees it. Because those rewriters
+ * encode the whole URL — including any fragment — putting the token in the fragment buys
+ * nothing while its costs remain (hard JS dependency, no server-side error rendering).
+ * Additionally, the GET validate endpoint does not consume the token, so a scanner that
+ * pre-fetches the link to check it cannot use the token on the recipient's behalf.
  * @param {string} name
  * @param {string} roomName
  * @param {string} token
@@ -325,32 +326,39 @@ This link is just for you, so please don't forward it. It expires in ${expiryDay
 }
 
 /**
- * Send invite emails in bulk with per-recipient results.
+ * Send invite emails in bulk with per-recipient results via Postmark's batch API.
  *
- * NOT IMPLEMENTED until outbound email migrates from SMTP to Postmark's API: invites go
- * to up to ~200 people per import and a bounced invite is someone who believes they were
- * invited and has no way in, so this send needs Postmark's batch endpoint and its
- * per-recipient results rather than a loop over the SMTP transport.
- *
- * Contract for that implementation:
- * - accepts `invites`: Array<{ membershipId, to, name, roomName, token }>
- * - builds each message with buildMemberInviteEmail
- * - sends via Postmark's batch API with `MessageStream: 'outbound'`, link and open
- *   tracking OFF (tracking rewrites the token URL through Postmark, stacking a second
- *   rewrite on top of Proofpoint's), and a `Tag` of 'member-invite'
- * - resolves to Array<{ membershipId, success: boolean, error?: string }>, one entry per
- *   input, never throwing for an individual recipient failure
+ * Tracking is off: Postmark link tracking rewrites the token URL through its own redirector,
+ * which stacks on top of any enterprise gateway rewrite the recipient's mail system applies.
+ * Two layers of rewriting increase the chance of breakage with no benefit for a one-time link.
  * @param {Array<{membershipId: string, to: string, name: string, roomName: string, token: string}>} invites
  * @returns {Promise<Array<{membershipId: string, success: boolean, error?: string}>>}
  */
 const sendMemberInviteBatch = async (
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   invites: Array<{ membershipId: string; to: string; name: string; roomName: string; token: string }>
 ): Promise<Array<{ membershipId: string; success: boolean; error?: string }>> => {
-  throw new ApiError(
-    httpStatus.NOT_IMPLEMENTED,
-    'Sending invite emails requires outbound email to move to the Postmark batch API'
-  )
+  const messages: postmark.Message[] = invites.map(({ to, name, roomName, token }) => {
+    const { subject, text, html } = buildMemberInviteEmail(name, roomName, token)
+    return {
+      From: config.email.from,
+      To: to,
+      Subject: subject,
+      TextBody: text,
+      HtmlBody: html,
+      MessageStream: 'outbound',
+      TrackOpens: false,
+      TrackLinks: postmark.Models.LinkTrackingOptions.None,
+      Tag: 'member-invite'
+    }
+  })
+
+  const results = await client.sendEmailBatch(messages)
+
+  return invites.map(({ membershipId }, i) => ({
+    membershipId,
+    success: results[i].ErrorCode === 0,
+    ...(results[i].ErrorCode !== 0 ? { error: results[i].Message } : {})
+  }))
 }
 
 const emailService = {
