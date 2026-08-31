@@ -130,13 +130,15 @@ export default verify({
     // When answering a DM or voice message, the agent framework narrows conversationHistory
     // to just that channel. Fetch the shared chat separately so the assistant knows what the
     // community has been discussing (passed in the user prompt, not as LangChain message history).
-    let sharedChatContext = 'No shared chat messages yet.'
+    let sharedChatContext = ''
     if (isDM || isVoice) {
       const sharedChat = getConversationHistory(this.conversation.messages, { count: 100, channels: ['chat'] })
-      if (sharedChat.messages.length > 0) {
-        const formatted = formatMultiUserConversationHistory(sharedChat)
-        sharedChatContext = formatted.map((m) => (m.role === 'assistant' ? `Assistant: ${m.content}` : m.content)).join('\n')
-      }
+      sharedChatContext =
+        sharedChat.messages.length > 0
+          ? formatMultiUserConversationHistory(sharedChat)
+              .map((m) => (m.role === 'assistant' ? `Assistant: ${m.content}` : m.content))
+              .join('\n')
+          : 'No shared chat messages yet.'
     }
 
     const tools: StructuredToolInterface[] = await getTools(toolNames, { topicIds })
