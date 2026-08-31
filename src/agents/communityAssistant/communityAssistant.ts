@@ -128,7 +128,7 @@ export default verify({
     // consult several before answering.
     const shouldStream = this.agentConfig?.streaming ?? isVoice
     const conversationId = this.conversation._id.toString()
-    const requestId = (userMessage.source?.requestId as string | undefined) ?? conversationId
+    const requestId = (userMessage.source?.requestId as string | undefined) ?? userMessage._id?.toString() ?? conversationId
     const onChunk = shouldStream
       ? (text: string) => {
           websocketGateway
