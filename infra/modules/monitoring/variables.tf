@@ -48,8 +48,8 @@ variable "notification_channels" {
     id here — left as an input rather than owned by this module since who
     gets paged is a team decision, not an infra shape decision.
   EOT
-  type    = list(string)
-  default = []
+  type        = list(string)
+  default     = []
 }
 
 variable "mig_name" {
@@ -65,8 +65,8 @@ variable "frontend_backend_service_name" {
     case, so only the backend policy is created (and its filter has nothing to
     exclude, since every https_lb_rule 5xx is a backend one).
   EOT
-  type    = string
-  default = null
+  type        = string
+  default     = null
 }
 
 variable "chroma_instance_name" {
@@ -80,8 +80,20 @@ variable "mongo_instance_name" {
     to monitor this way (Atlas has its own native alerting; see the
     open-item comment at the top of main.tf).
   EOT
-  type    = string
-  default = null
+  type        = string
+  default     = null
+}
+
+variable "archive_wiki_instance_name" {
+  description = <<-EOT
+    gce_instance name for archive-wiki-vm's CPU/memory/disk dashboard widgets
+    and alerts. Null (the default) when this deployment doesn't run
+    archive-wiki-vm at all — it's an optional add-on, not part of every
+    llm_engine deployment, unlike Chroma/Mongo. Same null-means-omit pattern
+    as mongo_instance_name.
+  EOT
+  type        = string
+  default     = null
 }
 
 variable "domain" {

@@ -38,6 +38,31 @@ resource "google_compute_resource_policy" "snapshot" {
       storage_locations = [var.region]
     }
   }
+
+  # This is the only thing standing between the disk it covers and having
+  # no future backups at all — protect it from an accidental
+  # `terraform destroy`/replace the same way mongo-vm/chroma-vm's data
+  # disks already protect themselves (see those modules' own
+  # prevent_destroy). Deleting the resource doesn't touch snapshots already
+  # taken (they're independent GCP objects, not tracked in state at all —
+  # this module never creates a google_compute_snapshot), but it silently
+  # stops the next one, forever, with nothing in a `terraform plan` output
+  # calling that out as different from any other resource replacement.
+  #
+  # Cost of this lifecycle block is small: verified against the provider
+  # (terraform plan against a hand-built state) that name and everything
+  # under snapshot_schedule_policy — schedule, retention_policy,
+  # snapshot_properties — update in place via the API's patch, so a
+  # schedule/retention edit never hits this block at all. Only region or
+  # project force a replace (both part of the resource's identity/location,
+  # not something a schedule/retention change ever touches) — that's the
+  # one case where this block gets in the way, and it's rare enough
+  # (moving the disk to a different region/project entirely) that
+  # temporarily removing the block, applying, then restoring it is the
+  # right answer rather than routing around it any other way.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "google_compute_disk_resource_policy_attachment" "snapshot" {
@@ -45,4 +70,14 @@ resource "google_compute_disk_resource_policy_attachment" "snapshot" {
   zone    = var.zone
   disk    = var.disk_name
   name    = google_compute_resource_policy.snapshot.name
+
+  # Without this, detaching the policy from the disk (destroying just this
+  # resource, leaving google_compute_resource_policy.snapshot's own
+  # prevent_destroy untouched) achieves exactly the same outcome as
+  # deleting the policy itself: this disk stops getting scheduled
+  # snapshots. Protecting only the policy resource and not this attachment
+  # would leave that loophole wide open.
+  lifecycle {
+    prevent_destroy = true
+  }
 }

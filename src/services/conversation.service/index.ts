@@ -872,6 +872,7 @@ const joinConversation = async (conversationOrId, user) => {
         passcode: null
       })
       firstJoin = true
+      firstJoin = true
     }
   }
 

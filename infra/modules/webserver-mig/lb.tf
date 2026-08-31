@@ -58,28 +58,49 @@ locals {
     var.frontend_origin != "" ? google_compute_backend_service.frontend[0].id : google_compute_backend_service.api.id
   )
 
-  # legacy_active overrides EVERYTHING on "main" — its default_service and
-  # both explicit path_rules — with the legacy backend, when set. See
-  # var.legacy_active's own description for why this is all-or-nothing
-  # across every host on "main", not scoped to one domain. Gated on
-  # legacy_origin != "" too, defensively, so this can never reference
-  # backend_service.legacy[0] when that resource doesn't exist (count = 0).
-  legacy_routing_active = var.legacy_active && var.legacy_origin != ""
-  main_default_service_id = (
+  # Gated on legacy_origin != "" too, defensively, so this can never
+  # reference backend_service.legacy[0] when that resource doesn't exist
+  # (count = 0).
+  legacy_routing_active = var.legacy_active && var.legacy_origin != "" && length(var.legacy_domains) > 0
+
+  # var.legacy_domains' own default_service/path rules — the same
+  # api/websocket/frontend split "main" uses when legacy_routing_active is
+  # false, or entirely the legacy backend when true. Deliberately separate
+  # locals from "main"'s below — see var.legacy_domains' own description
+  # for why "main" must never reference these.
+  legacy_domains_default_service_id = (
     local.legacy_routing_active ? google_compute_backend_service.legacy[0].id : local.default_backend_service_id
   )
-  main_websocket_service_id = (
+  legacy_domains_websocket_service_id = (
     local.legacy_routing_active ? google_compute_backend_service.legacy[0].id : google_compute_backend_service.websocket.id
   )
-  main_api_service_id = (
+  legacy_domains_api_service_id = (
     local.legacy_routing_active ? google_compute_backend_service.legacy[0].id : google_compute_backend_service.api.id
+  )
+
+  # var.legacy_fallback_domain's own mechanism — entirely separate from
+  # legacy_domains/legacy_active above (different backend, different
+  # domain, different toggle). See var.legacy_fallback_domain's own
+  # description for why: that one proxies HTTPS to the legacy box's
+  # Caddy (port 443), which turned out structurally broken (no way to
+  # send a bare-IP NEG a custom TLS SNI, and Caddy has no fallback cert
+  # for an unmatched one). This one bypasses Caddy/TLS entirely and talks
+  # plain HTTP straight to the app's own ports instead.
+  legacy_fallback_routing_active = (
+    var.legacy_fallback_active && var.legacy_fallback_origin != "" && var.legacy_fallback_domain != ""
+  )
+  legacy_fallback_websocket_service_id = (
+    local.legacy_fallback_routing_active ? google_compute_backend_service.legacy_fallback_websocket[0].id : google_compute_backend_service.websocket.id
+  )
+  legacy_fallback_api_service_id = (
+    local.legacy_fallback_routing_active ? google_compute_backend_service.legacy_fallback_api[0].id : google_compute_backend_service.api.id
   )
 }
 
 resource "google_compute_url_map" "web_server" {
   project         = var.project_id
   name            = "llm-engine-url-map"
-  default_service = local.main_default_service_id
+  default_service = local.default_backend_service_id
 
   host_rule {
     hosts        = concat([var.domain], var.additional_domains)
@@ -88,16 +109,88 @@ resource "google_compute_url_map" "web_server" {
 
   path_matcher {
     name            = "main"
-    default_service = local.main_default_service_id
+    default_service = local.default_backend_service_id
 
     path_rule {
       paths   = ["/socket.io/*"]
-      service = local.main_websocket_service_id
+      service = google_compute_backend_service.websocket.id
     }
 
     path_rule {
       paths   = ["/v1/*"]
-      service = local.main_api_service_id
+      service = google_compute_backend_service.api.id
+    }
+  }
+
+  # var.legacy_domains' own host_rule + path_matcher — same api/websocket
+  # split shape as "main" above, but entirely independent of it: none of
+  # these domains are ever part of concat([var.domain],
+  # var.additional_domains), and "main"'s own default_service/path rules
+  # above never reference anything legacy-related. See var.legacy_domains'
+  # description for why. All of var.legacy_domains share this one
+  # host_rule/path_matcher (and so one shared legacy_active toggle) rather
+  # than getting one each, the way extra_host_backends' entries do below —
+  # built for a set of domains that should all cut over together, not
+  # independently.
+  #
+  # for_each is a 0-or-1 sentinel ([1] or []), not one iteration per
+  # domain — var.legacy_domains is read directly inside content below.
+  dynamic "host_rule" {
+    for_each = length(var.legacy_domains) > 0 ? [1] : []
+    content {
+      hosts        = var.legacy_domains
+      path_matcher = "legacy-domains"
+    }
+  }
+
+  dynamic "path_matcher" {
+    for_each = length(var.legacy_domains) > 0 ? [1] : []
+    content {
+      name            = "legacy-domains"
+      default_service = local.legacy_domains_default_service_id
+
+      path_rule {
+        paths   = ["/socket.io/*"]
+        service = local.legacy_domains_websocket_service_id
+      }
+
+      path_rule {
+        paths   = ["/v1/*"]
+        service = local.legacy_domains_api_service_id
+      }
+    }
+  }
+
+  # var.legacy_fallback_domain's own host_rule + path_matcher — same
+  # api/websocket split shape as "main"/legacy-domains above, but its
+  # default_service (the fallback route — neither /v1/* nor /socket.io/*)
+  # always goes to the same frontend/Vercel backend regardless of the
+  # toggle, unlike the two path_rules. See var.legacy_fallback_active's
+  # own description for why: the frontend never needs reverting, only
+  # the API/websocket paths do.
+  dynamic "host_rule" {
+    for_each = var.legacy_fallback_domain != "" ? [var.legacy_fallback_domain] : []
+    content {
+      hosts        = [host_rule.value]
+      path_matcher = "legacy-fallback"
+    }
+  }
+
+  dynamic "path_matcher" {
+    for_each = var.legacy_fallback_domain != "" ? [var.legacy_fallback_domain] : []
+    content {
+      name            = "legacy-fallback"
+      default_service = local.default_backend_service_id
+
+      path_rule {
+        paths   = ["/socket.io/*"]
+        service = local.legacy_fallback_websocket_service_id
+      }
+
+      path_rule {
+        paths   = ["/v1/*"]
+        service = local.legacy_fallback_api_service_id
+      }
     }
   }
 
@@ -174,17 +267,21 @@ resource "google_compute_backend_service" "frontend" {
 #
 # Fronts an existing, independently-TLS-terminating legacy deployment
 # through this same LB/static IP, entirely bypassing this app's own
-# api/websocket/frontend split when var.legacy_active is true — see that
-# variable and local.legacy_routing_active above. Modeled on the frontend
-# proxy above (global Internet NEG, no VPC networking or health checks —
-# GCP doesn't support health checks on internet NEGs, the backend is
-# treated as always up), except INTERNET_IP_PORT (a bare IP, not a
-# hostname) since var.legacy_origin is an IP address, not an FQDN.
+# api/websocket/frontend split for var.legacy_domains specifically when
+# var.legacy_active is true — see that variable, var.legacy_domains, and
+# local.legacy_routing_active above. Modeled on the frontend proxy above
+# (global Internet NEG, no VPC networking or health checks — GCP doesn't
+# support health checks on internet NEGs, the backend is treated as
+# always up), except INTERNET_IP_PORT (a bare IP, not a hostname) since
+# var.legacy_origin is an IP address, not an FQDN.
 #
-# Deliberately NOT wired into local.ssl_cert_domains below — this backend
-# carries no domain of its own onto the managed cert. It only ever serves
-# whatever's already in var.domain/var.additional_domains (via
-# legacy_active), so it needs no separate SAN.
+# No custom_request_headers Host rewrite, unlike the frontend backend
+# above — deliberately: var.legacy_domains can hold several different
+# domains sharing this one backend (each with its own vhost on the legacy
+# box), so there's no single fixed value to rewrite to that would be
+# correct for all of them. Left unset, GCP's LB passes the client's
+# original Host header straight through unmodified, which is exactly what
+# each domain's own vhost match on the legacy box needs to see.
 resource "google_compute_global_network_endpoint_group" "legacy" {
   count                 = var.legacy_origin != "" ? 1 : 0
   project               = var.project_id
@@ -201,16 +298,85 @@ resource "google_compute_global_network_endpoint" "legacy" {
 }
 
 resource "google_compute_backend_service" "legacy" {
-  count                  = var.legacy_origin != "" ? 1 : 0
-  project                = var.project_id
-  name                   = "llm-engine-legacy-backend"
-  protocol               = "HTTPS"
-  load_balancing_scheme  = "EXTERNAL_MANAGED"
-  timeout_sec            = 30
-  custom_request_headers = var.legacy_host_header != "" ? ["Host: ${var.legacy_host_header}"] : []
+  count                 = var.legacy_origin != "" ? 1 : 0
+  project               = var.project_id
+  name                  = "llm-engine-legacy-backend"
+  protocol              = "HTTPS"
+  load_balancing_scheme = "EXTERNAL_MANAGED"
+  timeout_sec           = 30
 
   backend {
     group = google_compute_global_network_endpoint_group.legacy[0].id
+  }
+}
+
+# --- Legacy fallback (optional), bypassing Caddy entirely ---
+#
+# Talks plain HTTP straight to the legacy box's own app ports (3000 for
+# the API, 5555 for websockets — the same ports its own Caddy reverse-
+# proxies to internally) instead of HTTPS to Caddy on port 443. No TLS on
+# this leg at all, so there's no SNI/cert story to get right, unlike the
+# "legacy" backend above. See var.legacy_fallback_domain's own comment
+# for the full reasoning and how this differs from that mechanism.
+#
+# Two backends, not one, because the legacy box's Caddy itself splits
+# /v1/* -> :3000 and /socket.io/* -> :5555 to two different processes/
+# ports — bypassing Caddy means this LB has to do that same split itself
+# instead of relying on Caddy to do it internally.
+resource "google_compute_global_network_endpoint_group" "legacy_fallback_api" {
+  count                 = var.legacy_fallback_origin != "" ? 1 : 0
+  project               = var.project_id
+  name                  = "llm-engine-legacy-fallback-api-neg"
+  network_endpoint_type = "INTERNET_IP_PORT"
+  default_port          = 3000
+}
+
+resource "google_compute_global_network_endpoint" "legacy_fallback_api" {
+  count                         = var.legacy_fallback_origin != "" ? 1 : 0
+  global_network_endpoint_group = google_compute_global_network_endpoint_group.legacy_fallback_api[0].id
+  ip_address                    = var.legacy_fallback_origin
+  port                          = 3000
+}
+
+resource "google_compute_backend_service" "legacy_fallback_api" {
+  count                 = var.legacy_fallback_origin != "" ? 1 : 0
+  project               = var.project_id
+  name                  = "llm-engine-legacy-fallback-api-backend"
+  protocol              = "HTTP"
+  load_balancing_scheme = "EXTERNAL_MANAGED"
+  timeout_sec           = 30
+
+  backend {
+    group = google_compute_global_network_endpoint_group.legacy_fallback_api[0].id
+  }
+}
+
+resource "google_compute_global_network_endpoint_group" "legacy_fallback_websocket" {
+  count                 = var.legacy_fallback_origin != "" ? 1 : 0
+  project               = var.project_id
+  name                  = "llm-engine-legacy-fallback-ws-neg"
+  network_endpoint_type = "INTERNET_IP_PORT"
+  default_port          = 5555
+}
+
+resource "google_compute_global_network_endpoint" "legacy_fallback_websocket" {
+  count                         = var.legacy_fallback_origin != "" ? 1 : 0
+  global_network_endpoint_group = google_compute_global_network_endpoint_group.legacy_fallback_websocket[0].id
+  ip_address                    = var.legacy_fallback_origin
+  port                          = 5555
+}
+
+resource "google_compute_backend_service" "legacy_fallback_websocket" {
+  count                           = var.legacy_fallback_origin != "" ? 1 : 0
+  project                         = var.project_id
+  name                            = "llm-engine-legacy-fallback-ws-backend"
+  protocol                        = "HTTP"
+  load_balancing_scheme           = "EXTERNAL_MANAGED"
+  timeout_sec                     = 3600 # long-lived websocket connections, matching the real websocket backend above
+  connection_draining_timeout_sec = var.connection_draining_timeout_sec
+
+  backend {
+    group = google_compute_global_network_endpoint_group.legacy_fallback_websocket[0].id
   }
 }
 
@@ -239,7 +405,9 @@ locals {
   ssl_cert_domains = sort(distinct(concat(
     [var.domain],
     var.additional_domains,
-    flatten(var.extra_host_backends[*].domains)
+    flatten(var.extra_host_backends[*].domains),
+    var.legacy_domains,
+    var.legacy_fallback_domain != "" ? [var.legacy_fallback_domain] : []
   )))
 }
 
