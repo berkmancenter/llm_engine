@@ -3,6 +3,7 @@ import {
   EVENT_ASSISTANT_TOOL_USAGE_RULES,
   EVENT_ASSISTANT_TOOL_USER_MANDATE
 } from '../../../src/agents/eventAssistant/buildEventAssistantToolSystemPrompt.js'
+import { VOICE_OUTPUT_RULES } from '../../../src/agents/helpers/voiceDirectives.js'
 import { buildLLMTemplates } from '../../../src/agents/eventAssistant/eventQuestionHandler.js'
 import { webSearchTool } from '../../../src/agents/tools/webSearch.js'
 
@@ -50,6 +51,22 @@ describe('event assistant tool system prompt', () => {
     expect(toolRulesPos).toBeGreaterThan(-1)
     expect(contextPos).toBeGreaterThan(-1)
     expect(toolRulesPos).toBeLessThan(contextPos)
+  })
+
+  test('buildEventAssistantToolSystemPrompt places voice output rules after tool rules but before context', async () => {
+    const ctx = 'TRANSCRIPT_SNIPPET_ONLY_HERE'
+    const full = await buildEventAssistantToolSystemPrompt('BASE', 'topic', ctx, { voiceOutput: true })
+    const toolRulesPos = full.indexOf(EVENT_ASSISTANT_TOOL_USAGE_RULES)
+    const voiceRulesPos = full.indexOf(VOICE_OUTPUT_RULES)
+    const contextPos = full.indexOf(ctx)
+    expect(voiceRulesPos).toBeGreaterThan(-1)
+    expect(toolRulesPos).toBeLessThan(voiceRulesPos)
+    expect(voiceRulesPos).toBeLessThan(contextPos)
+  })
+
+  test('buildEventAssistantToolSystemPrompt omits voice output rules when voiceOutput is not set', async () => {
+    const full = await buildEventAssistantToolSystemPrompt('BASE', 'topic', 'ctx')
+    expect(full).not.toContain(VOICE_OUTPUT_RULES)
   })
 
   test('buildEventAssistantToolSystemPrompt omits web-search rules when hasWebSearch is false', async () => {
