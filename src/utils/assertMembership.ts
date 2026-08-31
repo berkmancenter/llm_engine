@@ -4,6 +4,7 @@ import { Conversation, ConversationMembership } from '../models/index.js'
 import ApiError from './ApiError.js'
 
 export default async function assertMembership(user, conversationOrId) {
+  if (!user) throw new ApiError(httpStatus.UNAUTHORIZED, 'Authentication required.')
   if (user.role === 'admin') return
 
   let enforceMembership: boolean | undefined
