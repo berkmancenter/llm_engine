@@ -17,9 +17,11 @@ Output only the fun fact sentence itself — no headings, labels, pseudonym name
 
 const funFactUserTemplate = 'Create a fun fact about the pseudonym: {pseudonym}'
 
-// Skip fun fact generation when truly random pseudonyms are enabled — those aren't human-readable.
+/* Skipped for truly random pseudonyms, which aren't human-readable, and under NODE_ENV=test,
+   where this is a live LLM call on a path (registration, pseudonym creation) that most of the
+   suite crosses. The few tests that assert a fun fact turn it back on around their own call. */
 const generatePseudonymFunFact = async (pseudonym: string) => {
-  if (config.trulyRandomPseudonyms === 'true') {
+  if (config.trulyRandomPseudonyms === 'true' || config.env === 'test') {
     return null
   }
   try {
