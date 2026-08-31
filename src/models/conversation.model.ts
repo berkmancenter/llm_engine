@@ -115,6 +115,13 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
       type: Boolean,
       default: false
     },
+    /* When true, only users with a ConversationMembership record for this conversation may
+       read messages, post, or join. Set only at creation from the body or the conversation
+       type's default (see ConversationType.enforceMembership); update never touches it. */
+    enforceMembership: {
+      type: Boolean,
+      default: false
+    },
     owner: {
       type: mongoose.SchemaTypes.ObjectId,
       ref: 'BaseUser',

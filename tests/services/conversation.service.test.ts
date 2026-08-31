@@ -21,7 +21,6 @@ import transcript from '../../src/agents/helpers/transcript.js'
 import agentDispatcher from '../../src/jobs/agentDispatcher.js'
 import analyticsSources from '../../src/services/analyticsSources/index.js'
 
-jest.setTimeout(10000)
 jest.mock('agenda')
 setupIntTest()
 const topicOne = newPublicTopic()
@@ -2582,6 +2581,7 @@ describe('Conversation service methods', () => {
       await ConversationMembership.create({
         conversation: joinConversation._id,
         email: registeredUser.email,
+        userAccount: registeredUser._id,
         name: 'Test Member'
       })
 

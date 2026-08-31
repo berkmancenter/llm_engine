@@ -24,7 +24,7 @@ const vote = catchAsync(async (req, res) => {
 
 const messageReplies = catchAsync(async (req, res) => {
   // const userId = req.user ? req.user.id : null
-  const replies = await messageService.getMessageReplies(req.params.messageId)
+  const replies = await messageService.getMessageReplies(req.params.messageId, req.user)
   res.status(httpStatus.OK).send(replies)
 })
 
