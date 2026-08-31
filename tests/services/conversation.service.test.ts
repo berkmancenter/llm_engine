@@ -21,7 +21,6 @@ import transcript from '../../src/agents/helpers/transcript.js'
 import agentDispatcher from '../../src/jobs/agentDispatcher.js'
 import analyticsSources from '../../src/services/analyticsSources/index.js'
 
-jest.setTimeout(10000)
 jest.mock('agenda')
 setupIntTest()
 const topicOne = newPublicTopic()
