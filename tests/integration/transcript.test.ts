@@ -1400,9 +1400,6 @@ describe('Transcript routes', () => {
     })
 
     test('should start conversation and return 204 when resuming transcript for an inactive conversation', async () => {
-      const conversationService = await import('../../src/services/conversation.service/index.js')
-      const startConversationSpy = jest.spyOn(conversationService.default, 'startConversation').mockResolvedValue({})
-
       const conversation = new Conversation({
         name: 'Inactive Conversation Resume Test',
         owner: userOne._id,
@@ -1410,6 +1407,7 @@ describe('Transcript routes', () => {
         agents: [],
         messages: [],
         active: false,
+        draft: false,
         transcript: { status: 'paused' }
       })
       await conversation.save()
@@ -1420,13 +1418,8 @@ describe('Transcript routes', () => {
         .send()
         .expect(httpStatus.NO_CONTENT)
 
-      // Verify startConversation was called to activate the inactive conversation
-      expect(startConversationSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ _id: conversation._id }),
-        expect.anything()
-      )
-
-      startConversationSpy.mockRestore()
+      const restarted = await Conversation.findById(conversation._id)
+      expect(restarted?.active).toBe(true)
     })
 
     test('should successfully resume an already active transcript', async () => {
@@ -1517,6 +1510,23 @@ describe('Transcript routes', () => {
         .set('Authorization', `Bearer ${participantAccessToken}`)
         .send()
         .expect(httpStatus.NO_CONTENT)
+    })
+
+    /* Resuming an event that already stopped has to restart the event itself, which is the
+       one path where a second, owner-only check used to reject the moderator after the
+       passcode had already let them through. */
+    test('restarts a stopped event when the request carries the moderator passcode', async () => {
+      const conversation = await createEventWithChannels({ active: false, draft: false, transcript: { status: 'stopped' } })
+
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/resume`)
+        .query({ channel: `moderator,${MODERATOR_PASSCODE}` })
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send()
+        .expect(httpStatus.NO_CONTENT)
+
+      const restarted = await Conversation.findById(conversation._id)
+      expect(restarted?.active).toBe(true)
     })
 
     test('downloads the transcript when the request carries the moderator passcode', async () => {

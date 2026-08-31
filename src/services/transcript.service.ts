@@ -6,6 +6,7 @@ import logger from '../config/logger.js'
 import transcript from '../agents/helpers/transcript.js'
 import adapterService from './adapter.service.js'
 import conversationService from './conversation.service/index.js'
+import { doStartConversation } from './conversation.service/lifecycle.js'
 import { formatTranscript } from '../agents/helpers/llmInputFormatters.js'
 import { roleRights } from '../config/roles.js'
 import { MODERATOR_CHANNEL } from '../conversations/eventAssistant.js'
@@ -117,10 +118,14 @@ const resumeTranscript = async (conversationId, user, channels: ChannelCredentia
   logger.debug(`Resume transcript recording for conversation: ${conversation._id}`)
 
   // If conversation is not active, start it first
-  // startConversation already handles adapter.start() which deploys the bot
+  // Starting the conversation already handles adapter.start() which deploys the bot
   if (!conversation.active) {
-    await conversationService.startConversation(conversation, user)
-    // Don't call resumeRecording - the bot was just deployed by startConversation
+    /* Deliberately not conversationService.startConversation: that one re-checks ownership,
+       which would reject a moderator whose passcode already cleared the check above. This is
+       the same unguarded start the scheduled auto-start uses, and it needs `agents` populated. */
+    await conversation.populate('agents')
+    await doStartConversation(conversation)
+    // Don't call resumeRecording - the bot was just deployed by the start above
   } else {
     // Conversation is active, resume recording on all adapters
     // This will redeploy the bot if needed (e.g., if it left the call)
