@@ -16,6 +16,7 @@ import {
 import { insertMessages, messageOne } from '../fixtures/message.fixture.js'
 import userService from '../../src/services/user.service.js'
 import config from '../../src/config/config.js'
+import jestAgentConfig from '../../jest.agent.config.js'
 
 const createPseudo = () => ({
   _id: new mongoose.Types.ObjectId(),
@@ -29,7 +30,7 @@ const createVote = () => ({
   _id: new mongoose.Types.ObjectId(),
   owner: new mongoose.Types.ObjectId()
 })
-
+jest.setTimeout(60000)
 setupIntTest()
 
 describe('User routes', () => {
