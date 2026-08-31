@@ -311,7 +311,7 @@ const handleFeedbackMessage = async (message, user, conversation) => {
  * @returns {Promise<[Message]>}
  */
 const newMessageHandler = async (message, user, request = null) => {
-  if (user.__t !== 'Agent') {
+  if (!user.agentType) {
     await assertMembership(user, message.conversation)
   }
 
