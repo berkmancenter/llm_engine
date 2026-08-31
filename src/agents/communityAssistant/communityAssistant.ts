@@ -257,7 +257,7 @@ export default verify({
     // costs 2 graph steps; with both event-history and archive tool sets the agent may need to
     // consult several before answering.
     const shouldStream = this.agentConfig?.streaming ?? isVoice
-    const requestId = (userMessage.source?.requestId as string | undefined) ?? conversationId
+    const requestId = (userMessage.source?.requestId as string | undefined) ?? userMessage._id?.toString() ?? conversationId
     const onChunk = shouldStream
       ? (text: string) => {
           websocketGateway
