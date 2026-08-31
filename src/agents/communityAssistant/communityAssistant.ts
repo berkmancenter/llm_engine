@@ -3,6 +3,7 @@ import { getAgentStructuredResponse, getChatPromptResponse } from '../helpers/ll
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
 import { formatMultiUserConversationHistory } from '../helpers/llmInputFormatters.js'
+import getConversationHistory from '../helpers/getConversationHistory.js'
 import { composeSystemPrompt } from '../helpers/promptComposer.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
@@ -126,6 +127,18 @@ export default verify({
         channelType: isDM ? 'dm' : 'groupChat'
       }) + (isVoice ? VOICE_OUTPUT_RULES : '')
 
+    // When answering a DM or voice message, the agent framework narrows conversationHistory
+    // to just that channel. Fetch the shared chat separately so the assistant knows what the
+    // community has been discussing (passed in the user prompt, not as LangChain message history).
+    let sharedChatContext = 'No shared chat messages yet.'
+    if (isDM || isVoice) {
+      const sharedChat = getConversationHistory(this.conversation.messages, { count: 100, channels: ['chat'] })
+      if (sharedChat.messages.length > 0) {
+        const formatted = formatMultiUserConversationHistory(sharedChat)
+        sharedChatContext = formatted.map((m) => (m.role === 'assistant' ? `Assistant: ${m.content}` : m.content)).join('\n')
+      }
+    }
+
     const tools: StructuredToolInterface[] = await getTools(toolNames, { topicIds })
 
     const inputChannelNames = userMessage?.channels ?? ['chat']
@@ -145,11 +158,15 @@ export default verify({
         }
       : undefined
 
+    const userPrompt = sharedChatContext
+      ? `## Shared Chat History:\n${sharedChatContext}\n\n## Question:\n${question}`
+      : `## Question:\n${question}`
+
     const response = await getAgentStructuredResponse(
       llm,
       tools,
       systemPrompt,
-      `## Question:\n${question}`,
+      userPrompt,
       undefined,
       chatHistory,
       30,
@@ -227,7 +244,11 @@ export default verify({
       return [
         {
           visible: true,
-          message: { type: 'memberIntro', text: message, content: { name: evt.name, bio: evt.bio, interests: evt.interests } },
+          message: {
+            type: 'memberIntro',
+            text: message,
+            content: { name: evt.name, bio: evt.bio, interests: evt.interests }
+          },
           messageType: 'json' as const,
           channels: responseChannels
         }
