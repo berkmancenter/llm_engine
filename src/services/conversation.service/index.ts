@@ -856,22 +856,32 @@ const joinConversation = async (conversationOrId, user) => {
     }
   }
   await assertMembership(user, conversation)
-  if (!conversation.enableDMs.includes('agents')) {
-    return conversation
-  }
-  await conversation.populate(['channels', 'agents', { path: 'topic', select: 'private' }])
 
-  let firstJoin = false
-  for (const agent of conversation.agents) {
-    const directChannelName = `direct-${user._id}-${agent._id}`
-    if (!conversation.channels?.find((channel) => channel.name === directChannelName)) {
-      await channelService.createChannel(conversation, {
-        name: directChannelName,
-        direct: true,
-        participants: [user, agent],
-        passcode: null
-      })
-      firstJoin = true
+  // Primary signal: atomically mark membership as joined on first visit.
+  // Returns the pre-update doc when a record existed and wasn't yet joined; null otherwise.
+  const prevMembership = await ConversationMembership.findOneAndUpdate(
+    { conversation: conversation._id, userAccount: user._id, joined: { $ne: true } },
+    { $set: { joined: true } }
+  )
+  let firstJoin = prevMembership !== null
+
+  await conversation.populate({ path: 'topic', select: 'private' })
+
+  if (conversation.enableDMs.includes('agents')) {
+    await conversation.populate(['channels', 'agents'])
+
+    for (const agent of conversation.agents) {
+      const directChannelName = `direct-${user._id}-${agent._id}`
+      if (!conversation.channels?.find((channel) => channel.name === directChannelName)) {
+        await channelService.createChannel(conversation, {
+          name: directChannelName,
+          direct: true,
+          participants: [user, agent],
+          passcode: null
+        })
+        // Fallback for conversations without membership records: new DM channel = first join.
+        if (!prevMembership) firstJoin = true
+      }
     }
   }
 
@@ -880,12 +890,6 @@ const joinConversation = async (conversationOrId, user) => {
     const topicId = conversation.topic?._id?.toString() ?? conversation.topic?.toString()
     const topicIsPrivate = (conversation.topic as TopicDocument | null)?.private ?? true
     const name = resolveDisplayName(user, conversation).pseudonym
-    if (user.email) {
-      await ConversationMembership.updateOne(
-        { conversation: conversation._id, email: user.email },
-        { $set: { joined: true } }
-      )
-    }
     await agentDispatcher.dispatch(
       {
         type: 'participantJoined',
