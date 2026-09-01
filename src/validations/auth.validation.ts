@@ -43,12 +43,27 @@ const resetPassword = {
   })
 }
 
+const getInvite = {
+  query: Joi.object().keys({
+    token: Joi.string().required()
+  })
+}
+
+const consumeInvite = {
+  body: Joi.object().keys({
+    token: Joi.string().required(),
+    nonce: Joi.string().required()
+  })
+}
+
 const authValidation = {
   register,
   login,
   logout,
   refreshTokens,
   sendPasswordReset,
-  resetPassword
+  resetPassword,
+  getInvite,
+  consumeInvite
 }
 export default authValidation

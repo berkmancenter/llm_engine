@@ -63,6 +63,11 @@ const envVarsSchema = Joi.object()
     HANDOFF_TOKEN_EXPIRATION_MINUTES: Joi.number()
       .default(60)
       .description('minutes after which a Slack-to-Nextspace event-setup handoff token expires'),
+    INVITE_TOKEN_EXPIRATION_DAYS: Joi.number()
+      .default(14)
+      .description(
+        'days after which a member invite link expires; generous because it is first contact to a cold mailbox, with admin resend as the safety net'
+      ),
     AUTH_TOKEN_SECRET: Joi.string().description('secret used to encrypt generated passwords'),
     POSTMARK_SERVER_TOKEN: Joi.string().description(
       'Server API token for outgoing email via Postmark; POSTMARK_API_TEST validates requests without sending'
@@ -84,6 +89,11 @@ const envVarsSchema = Joi.object()
     EVENT_MODERATOR_PATH: Joi.string()
       .default('/moderator/')
       .description("Path on APP_HOST for a moderator's view of an event; override for a frontend that routes differently"),
+    INVITE_PATH: Joi.string()
+      .default('/invite')
+      .description(
+        'Path on APP_HOST for the member-invite set-password screen; the token rides in the query string, never the fragment, so it survives corporate link rewriters'
+      ),
     TRULY_RANDOM_PSEUDONYMS: Joi.string()
       .default('false')
       .description('true/false if pseudonyms are made truly random with UID'),
@@ -215,7 +225,8 @@ const config = {
     refreshExpirationDays: envVars.JWT_REFRESH_EXPIRATION_DAYS,
     resetPasswordExpirationMinutes: envVars.JWT_RESET_PASSWORD_EXPIRATION_MINUTES,
     verifyEmailExpirationMinutes: undefined,
-    handoffExpirationMinutes: envVars.HANDOFF_TOKEN_EXPIRATION_MINUTES
+    handoffExpirationMinutes: envVars.HANDOFF_TOKEN_EXPIRATION_MINUTES,
+    inviteExpirationDays: envVars.INVITE_TOKEN_EXPIRATION_DAYS
   },
   email: {
     postmarkServerToken: envVars.POSTMARK_SERVER_TOKEN,
@@ -311,6 +322,7 @@ const config = {
     participant: envVars.EVENT_PARTICIPANT_PATH,
     moderator: envVars.EVENT_MODERATOR_PATH
   },
+  invitePath: envVars.INVITE_PATH,
   trulyRandomPseudonyms: envVars.TRULY_RANDOM_PSEUDONYMS,
   DAYS_FOR_GOOD_REPUTATION: envVars.DAYS_FOR_GOOD_REPUTATION,
   conversationBotName: envVars.CONVERSATION_BOT_NAME,
