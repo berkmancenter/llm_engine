@@ -8,7 +8,8 @@ import {
   createPublicTopic,
   createMessage,
   loadPartTimeWorkTranscript,
-  loadAliensTranscript
+  loadAliensTranscript,
+  prepareMessagesForAgent
 } from '../../utils/agentTestHelpers.js'
 import { Agent, Channel } from '../../../src/models/index.js'
 import { AgentMessageActions, ConversationHistory } from '../../../src/types/index.types.js'
@@ -716,6 +717,82 @@ A single mom of two children with primary custody, she is passionate about findi
       const responses = await defaultAgentTypes.communityAssistant.respond.call(dmAgent, buildHistory([]), msg)
 
       expect(responses).toHaveLength(0)
+    })
+  })
+
+  describe('shared chat history context (DM and voice)', () => {
+    let ctxConversation
+    let ctxAgent
+    let ctxDmChannel
+
+    beforeEach(async () => {
+      ctxConversation = await createConversation({ name: 'Shared Chat Context Test' }, user1, topic)
+      ctxAgent = new Agent({
+        agentType: 'communityAssistant',
+        conversation: ctxConversation,
+        llmPlatform: testConfig.llmPlatform,
+        llmModel: testConfig.llmModel,
+        agentConfig: { botName: BOT_NAME, tools: [], streaming: false }
+      })
+      const [chatChannel, dmChannel, transcriptChannel] = await Channel.create([
+        { name: 'chat' },
+        { name: `dm-${user1._id}-${ctxAgent._id}`, direct: true, participants: [user1._id, ctxAgent._id] },
+        { name: 'transcript' }
+      ])
+      ctxDmChannel = dmChannel
+      ctxConversation.channels.push(chatChannel, dmChannel, transcriptChannel)
+      await ctxAgent.save()
+      ctxConversation.agents.push(ctxAgent)
+      await ctxConversation.save()
+      await ctxAgent.start()
+    })
+
+    it('uses shared chat history as context when answering a DM', async () => {
+      const t = Date.now()
+      const chatMessages = [
+        await createMessage(
+          'Just confirmed with the venue — our next meetup is in the Cerulean Room on the 17th floor.',
+          user2,
+          ctxConversation,
+          ['chat'],
+          new Date(t - 5000)
+        ),
+        await createMessage('Thanks for the update!', user3, ctxConversation, ['chat'], new Date(t - 4000))
+      ]
+      await prepareMessagesForAgent(chatMessages, ctxConversation, ctxAgent)
+
+      const msg = await createMessage('where is our next meetup?', user1, ctxConversation, [ctxDmChannel.name])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(ctxAgent, buildHistory([]), msg)
+
+      expect(responses).toHaveLength(1)
+      console.log('DM with chat context:', responses[0].message)
+      expect(responses[0].message.toLowerCase()).toMatch(/cerulean|17th/)
+    })
+
+    it('uses shared chat history as context when answering a voice question', async () => {
+      const t = Date.now()
+      const chatMessages = [
+        await createMessage(
+          'Quick reminder: the passcode for the breakout session is Indigo42.',
+          user1,
+          ctxConversation,
+          ['chat'],
+          new Date(t - 6000)
+        )
+      ]
+      await prepareMessagesForAgent(chatMessages, ctxConversation, ctxAgent)
+
+      const msg = await createMessage(
+        `hey ${BOT_NAME} what is the passcode for the breakout session?`,
+        user1,
+        ctxConversation,
+        ['transcript']
+      )
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(ctxAgent, buildHistory([]), msg)
+
+      expect(responses).toHaveLength(1)
+      console.log('Voice with chat context:', responses[0].message)
+      expect(responses[0].message.toLowerCase()).toMatch(/indigo42|indigo 42/)
     })
   })
 
