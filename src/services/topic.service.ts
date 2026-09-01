@@ -320,7 +320,7 @@ const archiveTopic = async (token, topicId) => {
   }
   topic.archived = true
   await topic.save()
-  await Token.deleteOne({ token })
+  await Token.deleteOne({ token: tokenService.hashToken(token) })
 }
 /**
  * Follow or unfollow a topic

@@ -1,8 +1,13 @@
 import jwt from 'jsonwebtoken'
 import moment from 'moment'
+import { createHash } from 'node:crypto'
 import config from '../config/config.js'
 import { Token } from '../models/index.js'
 import tokenTypes from '../config/tokens.js'
+
+/* Tokens are stored as their SHA-256 digest so a database read does not hand an
+   attacker a live credential. Every lookup must hash the raw token first. */
+const hashToken = (token: string) => createHash('sha256').update(token).digest('hex')
 /**
  * Generate token
  * @param {ObjectId} userId
@@ -31,7 +36,7 @@ const generateToken = (userId, expires, type, secret = config.jwt.secret) => {
  */
 const saveToken = async (token, userId, expires, type, blacklisted = false) => {
   const tokenDoc = await Token.create({
-    token,
+    token: hashToken(token),
     user: userId,
     expires: expires.toDate(),
     type,
@@ -47,7 +52,7 @@ const saveToken = async (token, userId, expires, type, blacklisted = false) => {
  */
 const verifyToken = async (token, type) => {
   const payload = jwt.verify(token, config.jwt.secret)
-  const tokenDoc = await Token.findOne({ token, type, user: payload.sub, blacklisted: false })
+  const tokenDoc = await Token.findOne({ token: hashToken(token), type, user: payload.sub, blacklisted: false })
   if (!tokenDoc) {
     throw new Error('Token not found')
   }
@@ -116,6 +121,7 @@ const tokenService = {
   generateAuthTokens,
   generateVerifyEmailToken,
   generateArchiveTopicToken,
-  generatePasswordResetToken
+  generatePasswordResetToken,
+  hashToken
 }
 export default tokenService
