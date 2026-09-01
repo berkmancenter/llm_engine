@@ -4,7 +4,7 @@ import httpStatus from 'http-status'
 import mongoose from 'mongoose'
 import setupIntTest from '../utils/setupIntTest.js'
 import app from '../../src/app.js'
-import { ConversationMembership, MemberInvite } from '../../src/models/index.js'
+import { ConversationMembership, MemberInvite, User } from '../../src/models/index.js'
 import emailService from '../../src/services/email.service.js'
 import inviteService from '../../src/services/invite.service.js'
 import { inviteSendLimiter, inviteConsumeLimiter } from '../../src/middlewares/rateLimiter.js'
@@ -350,35 +350,104 @@ describe('invite endpoints', () => {
   })
 
   describe('POST /v1/auth/invite/consume (public consume)', () => {
+    const password = 'Invite1234'
     const getNonce = async (token: string) => {
       const res = await request(app).get('/v1/auth/invite').query({ token }).expect(httpStatus.OK)
       return res.body.nonce as string
     }
 
-    test('consumes with token plus nonce, and a second submit fails', async () => {
+    test('consumes with token, nonce, and password; provisions account; returns auth tokens', async () => {
       const membership = await insertMembership()
       const { token } = await inviteService.mintInvite(membership)
       const nonce = await getNonce(token)
 
-      const res = await request(app).post('/v1/auth/invite/consume').send({ token, nonce }).expect(httpStatus.OK)
+      const res = await request(app).post('/v1/auth/invite/consume').send({ token, nonce, password }).expect(httpStatus.OK)
       expect(res.headers['cache-control']).toContain('no-store')
+      expect(res.body.tokens).toMatchObject({
+        access: { token: expect.any(String), expires: expect.anything() },
+        refresh: { token: expect.any(String), expires: expect.anything() }
+      })
+      expect(res.body.conversationId).toBe(conversationCommunityRoom._id.toString())
 
       const invite = await MemberInvite.findOne({ membership: membership._id }).lean()
       expect(invite!.consumedAt).toBeTruthy()
 
-      await request(app).post('/v1/auth/invite/consume').send({ token, nonce }).expect(httpStatus.UNAUTHORIZED)
+      await request(app).post('/v1/auth/invite/consume').send({ token, nonce, password }).expect(httpStatus.UNAUTHORIZED)
     })
 
-    test('a skimmed token alone cannot consume: nonce is required', async () => {
+    test('a skimmed token alone cannot consume: nonce and password are required', async () => {
       const membership = await insertMembership()
       const { token } = await inviteService.mintInvite(membership)
       await getNonce(token)
 
-      await request(app).post('/v1/auth/invite/consume').send({ token }).expect(httpStatus.BAD_REQUEST)
-      await request(app).post('/v1/auth/invite/consume').send({ token, nonce: 'wrong' }).expect(httpStatus.UNAUTHORIZED)
+      await request(app).post('/v1/auth/invite/consume').send({ token, password }).expect(httpStatus.BAD_REQUEST)
+      await request(app).post('/v1/auth/invite/consume').send({ token, nonce: 'wrong' }).expect(httpStatus.BAD_REQUEST)
+      await request(app)
+        .post('/v1/auth/invite/consume')
+        .send({ token, nonce: 'wrong', password })
+        .expect(httpStatus.UNAUTHORIZED)
 
       const invite = await MemberInvite.findOne({ membership: membership._id }).lean()
       expect(invite!.consumedAt).toBeFalsy()
+    })
+
+    test('rejects an injected role or real-name flag rather than honoring it', async () => {
+      const membership = await insertMembership()
+      const { token } = await inviteService.mintInvite(membership)
+      const nonce = await getNonce(token)
+
+      await request(app)
+        .post('/v1/auth/invite/consume')
+        .send({ token, nonce, password, role: 'admin' })
+        .expect(httpStatus.BAD_REQUEST)
+      await request(app)
+        .post('/v1/auth/invite/consume')
+        .send({ token, nonce, password, isRealName: true })
+        .expect(httpStatus.BAD_REQUEST)
+      await request(app)
+        .post('/v1/auth/invite/consume')
+        .send({ token, nonce, password, conversations: ['000000000000000000000000'] })
+        .expect(httpStatus.BAD_REQUEST)
+
+      // Neither attempt should have burned the invite or created an account.
+      const invite = await MemberInvite.findOne({ membership: membership._id }).lean()
+      expect(invite!.consumedAt).toBeFalsy()
+      expect(await User.findOne({ email: membership.email })).toBeNull()
+
+      // The invite is still good for a legitimate follow-up request.
+      await request(app).post('/v1/auth/invite/consume').send({ token, nonce, password }).expect(httpStatus.OK)
+      const user = await User.findOne({ email: membership.email })
+      expect(user!.role).toBe('participant')
+    })
+
+    test('rejects a password that fails the strength check, and does not burn the invite', async () => {
+      const membership = await insertMembership()
+      const { token } = await inviteService.mintInvite(membership)
+      const nonce = await getNonce(token)
+
+      await request(app)
+        .post('/v1/auth/invite/consume')
+        .send({ token, nonce, password: 'short1' })
+        .expect(httpStatus.BAD_REQUEST)
+
+      const invite = await MemberInvite.findOne({ membership: membership._id }).lean()
+      expect(invite!.consumedAt).toBeFalsy()
+    })
+
+    test('invited guest can log in again with email and password after first entry', async () => {
+      const membership = await insertMembership()
+      const { token } = await inviteService.mintInvite(membership)
+      const nonce = await getNonce(token)
+      await request(app).post('/v1/auth/invite/consume').send({ token, nonce, password }).expect(httpStatus.OK)
+
+      const loginRes = await request(app)
+        .post('/v1/auth/login')
+        .send({ username: membership.email, password })
+        .expect(httpStatus.OK)
+      expect(loginRes.body.tokens).toMatchObject({
+        access: { token: expect.any(String) },
+        refresh: { token: expect.any(String) }
+      })
     })
   })
 })

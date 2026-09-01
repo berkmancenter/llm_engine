@@ -28,10 +28,8 @@ const getInvite = catchAsync(async (req, res) => {
 
 const consumeInvite = catchAsync(async (req, res) => {
   setInviteScreenHeaders(res)
-  await inviteService.consumeInvite(req.body.token, req.body.nonce)
-  /* Account provisioning and session issuance land in the set-password PR, which ships in
-     the same release as this one. Until it merges, consuming only burns the token. */
-  res.status(httpStatus.OK).send({ consumed: true })
+  const result = await inviteService.consumeInvite(req.body.token, req.body.nonce, req.body.password)
+  res.status(httpStatus.OK).send(result)
 })
 
 export { sendInvites, resendInvite, getInvite, consumeInvite }
