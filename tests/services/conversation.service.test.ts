@@ -2581,6 +2581,7 @@ describe('Conversation service methods', () => {
       await ConversationMembership.create({
         conversation: joinConversation._id,
         email: registeredUser.email,
+        userAccount: registeredUser._id,
         name: 'Test Member'
       })
 

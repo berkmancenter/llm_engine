@@ -28,6 +28,7 @@ import {
 } from './lifecycle.js'
 import agentDispatcher from '../../jobs/agentDispatcher.js'
 import { resolveDisplayName } from '../user.service.js'
+import assertMembership from '../../utils/assertMembership.js'
 import resourceService from '../resource.service.js'
 
 export { updateTranscriptStatus }
@@ -172,6 +173,7 @@ const createConversation = async (conversationBody, user, { allowDraft = false }
      it can't change after creation. */
   const conversationType = conversationBody.conversationType ? getConversationType(conversationBody.conversationType) : null
   const useRealNames = conversationBody.useRealNames ?? conversationType?.useRealNames ?? false
+  const enforceMembership = conversationBody.enforceMembership ?? conversationType?.enforceMembership ?? false
 
   if (conversationBody.scheduledTime && new Date(conversationBody.scheduledTime) <= new Date()) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'scheduledTime must be in the future')
@@ -202,6 +204,7 @@ const createConversation = async (conversationBody, user, { allowDraft = false }
     ...(Object.keys(allowedSource).length > 0 && { source: allowedSource }),
     enableAgents: !!conversationBody.agentTypes?.length,
     useRealNames,
+    enforceMembership,
     ...(conversationBody.enableDMs !== undefined && { enableDMs: conversationBody.enableDMs }),
     ...(conversationBody.conversationType !== undefined && { conversationType: conversationBody.conversationType }),
     ...(conversationBody.platforms !== undefined && { platforms: conversationBody.platforms }),
@@ -353,11 +356,11 @@ const updateConversation = async (conversationBody, user) => {
     // draft is server-computed (see recompute below); never let the client set it directly.
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     draft: _incomingDraft,
-    // useRealNames is create-time only (see IConversation.useRealNames); it's also absent
-    // from updateConversation's Joi schema, so a client PATCH never even reaches here with
-    // it, but this is dropped too as a second line of defense against non-HTTP callers.
+    // useRealNames and enforceMembership are create-time only; update never touches them.
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     useRealNames: _incomingUseRealNames,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    enforceMembership: _incomingEnforcesMembership,
     ...restBody
   } = conversationBody
 
@@ -846,44 +849,56 @@ const joinConversation = async (conversationOrId, user) => {
   if (typeof conversationOrId === 'string' || conversationOrId instanceof mongoose.Types.ObjectId) {
     conversation = await Conversation.findOne({ _id: conversationOrId })
       .select(returnFields)
-      .select('enableDMs agents channels topic useRealNames')
+      .select('enableDMs agents channels topic useRealNames enforceMembership')
 
     if (!conversation) {
       throw new ApiError(httpStatus.NOT_FOUND, `Conversation with ID ${conversationOrId} not found`)
     }
   }
-  if (!conversation.enableDMs.includes('agents')) {
-    return conversation
-  }
-  await conversation.populate(['channels', 'agents'])
+  await assertMembership(user, conversation)
 
-  let firstJoin = false
-  for (const agent of conversation.agents) {
-    const directChannelName = `direct-${user._id}-${agent._id}`
-    if (!conversation.channels?.find((channel) => channel.name === directChannelName)) {
-      await channelService.createChannel(conversation, {
-        name: directChannelName,
-        direct: true,
-        participants: [user, agent],
-        passcode: null
-      })
-      firstJoin = true
+  // Primary signal: atomically mark membership as joined on first visit.
+  // Returns the pre-update doc when a record existed and wasn't yet joined; null otherwise.
+  const prevMembership = await ConversationMembership.findOneAndUpdate(
+    { conversation: conversation._id, userAccount: user._id, joined: { $ne: true } },
+    { $set: { joined: true } }
+  )
+  let firstJoin = prevMembership !== null
+
+  await conversation.populate({ path: 'topic', select: 'private' })
+
+  if (conversation.enableDMs.includes('agents')) {
+    await conversation.populate(['channels', 'agents'])
+
+    for (const agent of conversation.agents) {
+      const directChannelName = `direct-${user._id}-${agent._id}`
+      if (!conversation.channels?.find((channel) => channel.name === directChannelName)) {
+        await channelService.createChannel(conversation, {
+          name: directChannelName,
+          direct: true,
+          participants: [user, agent],
+          passcode: null
+        })
+        // Fallback for conversations without membership records: new DM channel = first join.
+        if (!prevMembership) firstJoin = true
+      }
     }
   }
 
   if (firstJoin) {
     const conversationId = conversation._id.toString()
     const topicId = conversation.topic?._id?.toString() ?? conversation.topic?.toString()
-    const topicIsPrivate = conversation.topic?.private ?? true
+    const topicIsPrivate = (conversation.topic as TopicDocument | null)?.private ?? true
     const name = resolveDisplayName(user, conversation).pseudonym
-    if (user.email) {
-      await ConversationMembership.updateOne(
-        { conversation: conversation._id, email: user.email },
-        { $set: { joined: true } }
-      )
-    }
     await agentDispatcher.dispatch(
-      { type: 'participantJoined', conversationId, userId: user._id.toString(), name, bio: user.bio, interests: user.interests },
+      {
+        type: 'participantJoined',
+        conversationId,
+        userId: user._id.toString(),
+        name,
+        bio: user.bio,
+        interests: user.interests
+      },
       { type: 'conversation', id: conversationId, topicId, topicIsPrivate }
     )
   }
