@@ -4,6 +4,15 @@ import auth from '../../middlewares/auth.js'
 
 const router = express.Router()
 
+/*
+ * All four controls gate on `getConversation`, a right every participant holds, and leave the
+ * real decision to transcriptService. Moderators are ordinary participants whose access comes
+ * from the moderator channel's passcode in their link, so a role check at the door would turn
+ * every one of them away. The `getTranscript`, `deleteTranscript`, `pauseTranscript` and
+ * `resumeTranscript` rights belong to admins alone, and the service reads holding one as
+ * "may do this without presenting a passcode".
+ */
+
 /**
  * @swagger
  * tags:
@@ -27,6 +36,14 @@ const router = express.Router()
  *         description: ID of the conversation to get transcript from
  *         schema:
  *           type: string
+ *       - in: query
+ *         name: channel
+ *         required: false
+ *         description: >
+ *           Channel credential as `<name>,<passcode>`. Callers without the admin transcript
+ *           rights must present the conversation's moderator channel, e.g. `moderator,ab12cd34`.
+ *         schema:
+ *           type: string
  *       - in: header
  *         name: Accept
  *         schema:
@@ -44,10 +61,16 @@ const router = express.Router()
  *         $ref: '#/components/responses/NotFound'
  *       406:
  *         description: Requested format not supported
+ *       403:
+ *         description: >
+ *           Caller holds no transcript right and presented no valid moderator passcode. Also
+ *           returned in place of a 404 for an unknown conversation id, so that a caller who
+ *           cannot reach the transcript cannot use these operations to test whether a
+ *           conversation exists.
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-router.route('/:conversationId').get(auth('getTranscript'), transcriptController.getTranscript)
+router.route('/:conversationId').get(auth('getConversation'), transcriptController.getTranscript)
 
 /**
  * @swagger
@@ -65,17 +88,29 @@ router.route('/:conversationId').get(auth('getTranscript'), transcriptController
  *         description: ID of the conversation with transcript to delete
  *         schema:
  *           type: string
+ *       - in: query
+ *         name: channel
+ *         required: false
+ *         description: >
+ *           Channel credential as `<name>,<passcode>`. Callers without the admin transcript
+ *           rights must present the conversation's moderator channel, e.g. `moderator,ab12cd34`.
+ *         schema:
+ *           type: string
  *     responses:
  *       200:
  *         description: Conversation transcript deleted successfully
  *       404:
  *         $ref: '#/components/responses/NotFound'
  *       403:
- *         description: Only conversation or topic owner can delete
+ *         description: >
+ *           Caller holds no transcript right and presented no valid moderator passcode. Also
+ *           returned in place of a 404 for an unknown conversation id, so that a caller who
+ *           cannot reach the transcript cannot use these operations to test whether a
+ *           conversation exists.
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-router.route('/:conversationId').delete(auth('deleteTranscript'), transcriptController.deleteTranscript)
+router.route('/:conversationId').delete(auth('getConversation'), transcriptController.deleteTranscript)
 
 /**
  * @swagger
@@ -93,6 +128,14 @@ router.route('/:conversationId').delete(auth('deleteTranscript'), transcriptCont
  *         description: ID of the conversation to pause
  *         schema:
  *           type: string
+ *       - in: query
+ *         name: channel
+ *         required: false
+ *         description: >
+ *           Channel credential as `<name>,<passcode>`. Callers without the admin transcript
+ *           rights must present the conversation's moderator channel, e.g. `moderator,ab12cd34`.
+ *         schema:
+ *           type: string
  *     responses:
  *       200:
  *         description: Recording paused successfully
@@ -103,11 +146,15 @@ router.route('/:conversationId').delete(auth('deleteTranscript'), transcriptCont
  *       404:
  *         $ref: '#/components/responses/NotFound'
  *       403:
- *         description: Only conversation or topic owner can pause transcript
+ *         description: >
+ *           Caller holds no transcript right and presented no valid moderator passcode. Also
+ *           returned in place of a 404 for an unknown conversation id, so that a caller who
+ *           cannot reach the transcript cannot use these operations to test whether a
+ *           conversation exists.
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-router.route('/:conversationId/pause').post(auth('pauseTranscript'), transcriptController.pauseTranscript)
+router.route('/:conversationId/pause').post(auth('getConversation'), transcriptController.pauseTranscript)
 
 /**
  * @swagger
@@ -125,6 +172,14 @@ router.route('/:conversationId/pause').post(auth('pauseTranscript'), transcriptC
  *         description: ID of the conversation with transcript to resume
  *         schema:
  *           type: string
+ *       - in: query
+ *         name: channel
+ *         required: false
+ *         description: >
+ *           Channel credential as `<name>,<passcode>`. Callers without the admin transcript
+ *           rights must present the conversation's moderator channel, e.g. `moderator,ab12cd34`.
+ *         schema:
+ *           type: string
  *     responses:
  *       200:
  *         description: Transcript resumed successfully
@@ -135,10 +190,14 @@ router.route('/:conversationId/pause').post(auth('pauseTranscript'), transcriptC
  *       404:
  *         $ref: '#/components/responses/NotFound'
  *       403:
- *         description: Only conversation or topic owner can resume transcript
+ *         description: >
+ *           Caller holds no transcript right and presented no valid moderator passcode. Also
+ *           returned in place of a 404 for an unknown conversation id, so that a caller who
+ *           cannot reach the transcript cannot use these operations to test whether a
+ *           conversation exists.
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-router.route('/:conversationId/resume').post(auth('resumeTranscript'), transcriptController.resumeTranscript)
+router.route('/:conversationId/resume').post(auth('getConversation'), transcriptController.resumeTranscript)
 
 export default router

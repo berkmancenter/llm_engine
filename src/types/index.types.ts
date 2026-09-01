@@ -225,6 +225,13 @@ export interface IChannel {
   participants?: IBaseUser[]
 }
 
+/* One `channel=<name>,<passcode>` pair off a request's query string. The passcode is optional
+   because a channel configured without one is opened by name alone. */
+export interface ChannelCredential {
+  name: string
+  passcode?: string
+}
+
 export interface AdapterChannelConfig {
   direct?: boolean
   agent?: mongoose.Types.ObjectId | string

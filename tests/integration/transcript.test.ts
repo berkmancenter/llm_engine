@@ -3,10 +3,10 @@ import httpStatus from 'http-status'
 import mongoose from 'mongoose'
 import setupIntTest from '../utils/setupIntTest.js'
 import app from '../../src/app.js'
-import { insertUsers, userOne, userTwo, registeredUser } from '../fixtures/user.fixture.js'
-import { userOneAccessToken } from '../fixtures/token.fixture.js'
+import { insertUsers, userOne, userTwo, registeredUser, participant } from '../fixtures/user.fixture.js'
+import { userOneAccessToken, participantAccessToken } from '../fixtures/token.fixture.js'
 import { insertTopics } from '../fixtures/topic.fixture.js'
-import { Conversation, Agent, Message } from '../../src/models/index.js'
+import { Conversation, Agent, Channel, Message } from '../../src/models/index.js'
 import { setAgentTypes } from '../../src/models/user.model/agent.model/index.js'
 import defaultAgentTypes from '../../src/agents/index.js'
 import { publicTopic, privateTopic } from '../fixtures/conversation.fixture.js'
@@ -50,7 +50,7 @@ describe('Transcript routes', () => {
   })
 
   beforeEach(async () => {
-    await insertUsers([userOne, userTwo, registeredUser])
+    await insertUsers([userOne, userTwo, registeredUser, participant])
     await insertTopics([publicTopic, privateTopic])
     broadcastTranscriptStatusChangeSpy = jest.spyOn(websocketGateway, 'broadcastTranscriptStatusChange').mockResolvedValue()
   })
@@ -1400,9 +1400,6 @@ describe('Transcript routes', () => {
     })
 
     test('should start conversation and return 204 when resuming transcript for an inactive conversation', async () => {
-      const conversationService = await import('../../src/services/conversation.service/index.js')
-      const startConversationSpy = jest.spyOn(conversationService.default, 'startConversation').mockResolvedValue({})
-
       const conversation = new Conversation({
         name: 'Inactive Conversation Resume Test',
         owner: userOne._id,
@@ -1410,6 +1407,7 @@ describe('Transcript routes', () => {
         agents: [],
         messages: [],
         active: false,
+        draft: false,
         transcript: { status: 'paused' }
       })
       await conversation.save()
@@ -1420,13 +1418,8 @@ describe('Transcript routes', () => {
         .send()
         .expect(httpStatus.NO_CONTENT)
 
-      // Verify startConversation was called to activate the inactive conversation
-      expect(startConversationSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ _id: conversation._id }),
-        expect.anything()
-      )
-
-      startConversationSpy.mockRestore()
+      const restarted = await Conversation.findById(conversation._id)
+      expect(restarted?.active).toBe(true)
     })
 
     test('should successfully resume an already active transcript', async () => {
@@ -1464,6 +1457,228 @@ describe('Transcript routes', () => {
       // Should be able to resume a stopped transcript
       await request(app)
         .post(`/v1/transcript/${conversation._id}/resume`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.NO_CONTENT)
+    })
+  })
+  /* A moderator reaches an event through a link carrying the moderator channel's passcode and
+     nothing else: the throwaway account it creates is an ordinary participant. These cover the
+     passcode route into the four controls, alongside the admin route the tests above use. */
+  describe('transcript controls with a moderator passcode', () => {
+    const MODERATOR_PASSCODE = 'mod_PASSCODE_1'
+    const TRANSCRIPT_PASSCODE = 'transcript_PASSCODE_1'
+
+    /* Builds an event shaped like the ones moderators are sent to: a moderator channel whose
+       passcode only they receive, and a transcript channel whose passcode rides along in every
+       participant's link too. */
+    const createEventWithChannels = async (overrides = {}) => {
+      const moderatorChannel = await new Channel({ name: 'moderator', passcode: MODERATOR_PASSCODE }).save()
+      const transcriptChannel = await new Channel({ name: 'transcript', passcode: TRANSCRIPT_PASSCODE }).save()
+      const conversation = new Conversation({
+        name: 'Moderator Passcode Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        active: true,
+        channels: [moderatorChannel._id, transcriptChannel._id],
+        transcript: { status: 'active' },
+        ...overrides
+      })
+      await conversation.save()
+      return conversation
+    }
+
+    test('pauses when the request carries the moderator passcode', async () => {
+      const conversation = await createEventWithChannels()
+
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/pause`)
+        .query({ channel: `moderator,${MODERATOR_PASSCODE}` })
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send()
+        .expect(httpStatus.NO_CONTENT)
+    })
+
+    test('resumes an active event when the request carries the moderator passcode', async () => {
+      const conversation = await createEventWithChannels({ transcript: { status: 'paused' } })
+
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/resume`)
+        .query({ channel: `moderator,${MODERATOR_PASSCODE}` })
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send()
+        .expect(httpStatus.NO_CONTENT)
+    })
+
+    /* Resuming an event that already stopped has to restart the event itself, which is the
+       one path where a second, owner-only check used to reject the moderator after the
+       passcode had already let them through. */
+    test('restarts a stopped event when the request carries the moderator passcode', async () => {
+      const conversation = await createEventWithChannels({ active: false, draft: false, transcript: { status: 'stopped' } })
+
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/resume`)
+        .query({ channel: `moderator,${MODERATOR_PASSCODE}` })
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send()
+        .expect(httpStatus.NO_CONTENT)
+
+      const restarted = await Conversation.findById(conversation._id)
+      expect(restarted?.active).toBe(true)
+    })
+
+    test('downloads the transcript when the request carries the moderator passcode', async () => {
+      const conversation = await createEventWithChannels()
+      const message = new Message({
+        conversation: conversation._id,
+        body: 'Recorded line',
+        channels: ['transcript'],
+        owner: registeredUser._id,
+        pseudonymId: registeredUser.pseudonyms[0]._id,
+        pseudonym: registeredUser.pseudonyms[0].pseudonym,
+        createdAt: new Date()
+      })
+      await message.save()
+
+      const res = await request(app)
+        .get(`/v1/transcript/${conversation._id}`)
+        .query({ channel: `moderator,${MODERATOR_PASSCODE}` })
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .set('Accept', 'text/plain')
+        .expect(httpStatus.OK)
+
+      expect(res.text).toContain('Recorded line')
+    })
+
+    test('deletes the transcript when the request carries the moderator passcode', async () => {
+      const conversation = await createEventWithChannels({ transcript: { status: 'paused' } })
+
+      await request(app)
+        .delete(`/v1/transcript/${conversation._id}`)
+        .query({ channel: `moderator,${MODERATOR_PASSCODE}` })
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send()
+        .expect(httpStatus.NO_CONTENT)
+    })
+
+    // Every participant's link carries this one, so it must not unlock the controls.
+    test('refuses the transcript passcode in place of the moderator one', async () => {
+      const conversation = await createEventWithChannels()
+
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/pause`)
+        .query({ channel: `transcript,${TRANSCRIPT_PASSCODE}` })
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send()
+        .expect(httpStatus.FORBIDDEN)
+    })
+
+    test('refuses a wrong moderator passcode', async () => {
+      const conversation = await createEventWithChannels()
+
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/pause`)
+        .query({ channel: 'moderator,not-the-passcode' })
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send()
+        .expect(httpStatus.FORBIDDEN)
+    })
+
+    test('refuses a request with no passcode at all', async () => {
+      const conversation = await createEventWithChannels()
+
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/pause`)
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send()
+        .expect(httpStatus.FORBIDDEN)
+    })
+
+    test('refuses every control, not just pause, without the moderator passcode', async () => {
+      const conversation = await createEventWithChannels({ transcript: { status: 'paused' } })
+
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/resume`)
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send()
+        .expect(httpStatus.FORBIDDEN)
+
+      await request(app)
+        .get(`/v1/transcript/${conversation._id}`)
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .set('Accept', 'text/plain')
+        .expect(httpStatus.FORBIDDEN)
+
+      await request(app)
+        .delete(`/v1/transcript/${conversation._id}`)
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send()
+        .expect(httpStatus.FORBIDDEN)
+    })
+
+    /* Every control loads the conversation before it can check the passcode, so a caller who
+       fails the check must not learn from the response whether that conversation exists. An
+       admin still gets the honest 404, because an admin is allowed to know. */
+    test('refuses a conversation id that does not exist rather than confirming it is missing', async () => {
+      const missingId = new mongoose.Types.ObjectId()
+
+      await request(app)
+        .post(`/v1/transcript/${missingId}/pause`)
+        .query({ channel: `moderator,${MODERATOR_PASSCODE}` })
+        .set('Authorization', `Bearer ${participantAccessToken}`)
+        .send()
+        .expect(httpStatus.FORBIDDEN)
+
+      await request(app)
+        .post(`/v1/transcript/${missingId}/pause`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.NOT_FOUND)
+    })
+
+    /* The refusal has to read identically in every case a caller without the right can reach.
+       A message that changed with the conversation's setup, or with whether it exists at all,
+       would let any signed-in participant probe both. */
+    test('gives one refusal for a wrong passcode, an event with no moderator channel, and a missing conversation', async () => {
+      const withModeratorChannel = await createEventWithChannels()
+      const withoutModeratorChannel = new Conversation({
+        name: 'No Moderator Channel',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        agents: [],
+        messages: [],
+        active: true,
+        transcript: { status: 'active' }
+      })
+      await withoutModeratorChannel.save()
+
+      const refuse = async (conversationId, passcode) => {
+        const res = await request(app)
+          .post(`/v1/transcript/${conversationId}/pause`)
+          .query({ channel: `moderator,${passcode}` })
+          .set('Authorization', `Bearer ${participantAccessToken}`)
+          .send()
+          .expect(httpStatus.FORBIDDEN)
+        return res.body.message
+      }
+
+      const messages = [
+        await refuse(withModeratorChannel._id, 'not-the-passcode'),
+        await refuse(withoutModeratorChannel._id, MODERATOR_PASSCODE),
+        await refuse(new mongoose.Types.ObjectId(), MODERATOR_PASSCODE)
+      ]
+
+      expect(new Set(messages).size).toBe(1)
+      expect(messages[0]).toMatch(/moderator passcode/i)
+    })
+
+    test('still lets an admin work with no passcode at all', async () => {
+      const conversation = await createEventWithChannels()
+
+      await request(app)
+        .post(`/v1/transcript/${conversation._id}/pause`)
         .set('Authorization', `Bearer ${userOneAccessToken}`)
         .send()
         .expect(httpStatus.NO_CONTENT)

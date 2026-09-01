@@ -10,11 +10,24 @@ import agentService from '../../../src/services/agent.service/index.js'
 import { setAgentTypes } from '../../../src/models/user.model/agent.model/index.js'
 import defaultAgentTypes from '../../../src/agents/index.js'
 import { defaultLLMPlatform, defaultLLMModel } from '../../../src/agents/helpers/getModelChat.js'
+import config from '../../../src/config/config.js'
 
 setupIntTest()
 
 describe('conversation handler tests', () => {
   let conversation
+  const originalDisablePostEventAnalysis = config.disablePostEventAnalysis
+
+  /* Stopping a conversation summarizes it with a live call to the core LLM and dispatches
+     conversationStopped to the agents. Neither is what these handler tests cover, and the
+     network round trip regularly outruns Jest's 5s per-test limit. */
+  beforeAll(() => {
+    config.disablePostEventAnalysis = true
+  })
+
+  afterAll(() => {
+    config.disablePostEventAnalysis = originalDisablePostEventAnalysis
+  })
 
   beforeEach(async () => {
     await insertUsers([userOne])

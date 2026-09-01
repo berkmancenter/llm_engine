@@ -94,6 +94,18 @@ const createConversationWithMembership = async (email: string, useRealNames = fa
   return conversation
 }
 
+/* Pseudonym fun facts are off under NODE_ENV=test, so the tests that assert one gets written
+   have to opt back into the live LLM call. */
+const withFunFactsOn = async (run: () => Promise<void>) => {
+  const original = config.env
+  config.env = 'development'
+  try {
+    await run()
+  } finally {
+    config.env = original
+  }
+}
+
 describe('User service methods', () => {
   describe('createUser()', () => {
     test('should create a user with hashed password and pseudonym with participant role', async () => {
@@ -130,9 +142,18 @@ describe('User service methods', () => {
     })
 
     test('should generate and store a fun fact for the initial pseudonym', async () => {
-      const user = await userService.createUser({ username: 'u1', token: 't1', pseudonym: 'Bold Aardvark' })
-      console.log('createUser fun fact:', user.pseudonyms[0].funFact)
-      expect(user.pseudonyms[0].funFact).toBeDefined()
+      await withFunFactsOn(async () => {
+        const user = await userService.createUser({ username: 'u1', token: 't1', pseudonym: 'Bold Aardvark' })
+        console.log('createUser fun fact:', user.pseudonyms[0].funFact)
+        expect(user.pseudonyms[0].funFact).toBeDefined()
+      })
+    })
+
+    /* Writing the fun fact calls a real LLM, and registration and pseudonym creation sit on the
+       path of almost every test in the suite. Left on, it adds ten seconds or more to each one. */
+    test('should skip fun fact generation under the test environment', async () => {
+      const user = await userService.createUser({ username: 'u3', token: 't3', pseudonym: 'Clever Coyote' })
+      expect(user.pseudonyms[0].funFact).toBeUndefined()
     })
 
     test('should skip fun fact generation when trulyRandomPseudonyms is enabled', async () => {
@@ -274,21 +295,22 @@ describe('User service methods', () => {
       })
 
       test('never calls the LLM fun-fact helper for a real-name entry', async () => {
-        const email = 'sam.lee@example.com'
-        const conversation = await createConversationWithMembership(email, true)
-        const user = await userService.createUser({
-          username: 'realnametest4',
-          token: 'tok-ordinary4',
-          pseudonym: 'Gentle Giraffe',
-          email,
-          conversationId: conversation._id.toString()
+        await withFunFactsOn(async () => {
+          const email = 'sam.lee@example.com'
+          const conversation = await createConversationWithMembership(email, true)
+          const user = await userService.createUser({
+            username: 'realnametest4',
+            token: 'tok-ordinary4',
+            pseudonym: 'Gentle Giraffe',
+            email,
+            conversationId: conversation._id.toString()
+          })
+          // The ordinary pseudonym getting one is the control: it proves the helper ran at
+          // all, so the real-name entry's empty funFact is the code path being skipped
+          // rather than the whole call being off.
+          expect(user.pseudonyms.find((p) => !p.isRealName)!.funFact).toBeDefined()
+          expect(user.pseudonyms.find((p) => p.isRealName)!.funFact).toBeUndefined()
         })
-        const realNameEntry = user.pseudonyms.find((p) => p.isRealName)
-        // If generatePseudonymFunFact had been called for the real name, this would
-        // eventually be populated (fun facts are only ever missing on failure, which
-        // is not the scenario here) — it must stay unset because the code path is
-        // never reached for isRealName entries.
-        expect(realNameEntry!.funFact).toBeUndefined()
       })
     })
 
@@ -349,16 +371,18 @@ describe('User service methods', () => {
 
   describe('addPseudonym()', () => {
     test('should generate and store a fun fact for the added pseudonym', async () => {
-      const user = await User.create({
-        username: 'addtest',
-        pseudonyms: [{ token: 'tok1', pseudonym: 'Calm Cobra', active: true }],
-        role: 'admin'
+      await withFunFactsOn(async () => {
+        const user = await User.create({
+          username: 'addtest',
+          pseudonyms: [{ token: 'tok1', pseudonym: 'Calm Cobra', active: true }],
+          role: 'admin'
+        })
+        await userService.addPseudonym({ token: 'tok2', pseudonym: 'Brave Beaver' }, { id: user._id })
+        const updated = await User.findById(user._id)
+        const added = updated!.pseudonyms.find((p) => p.pseudonym === 'Brave Beaver')
+        console.log('addPseudonym fun fact:', added!.funFact)
+        expect(added!.funFact).toBeDefined()
       })
-      await userService.addPseudonym({ token: 'tok2', pseudonym: 'Brave Beaver' }, { id: user._id })
-      const updated = await User.findById(user._id)
-      const added = updated!.pseudonyms.find((p) => p.pseudonym === 'Brave Beaver')
-      console.log('addPseudonym fun fact:', added!.funFact)
-      expect(added!.funFact).toBeDefined()
     })
 
     test('never creates an isRealName entry, even if the request body tries to set one', async () => {
@@ -422,19 +446,21 @@ describe('User service methods', () => {
 
   describe('activatePseudonym()', () => {
     test('should generate a fun fact when activating a pseudonym that does not have one', async () => {
-      const user = await User.create({
-        username: 'activatetest',
-        pseudonyms: [
-          { token: 'tok1', pseudonym: 'Calm Cobra', active: true },
-          { token: 'tok2', pseudonym: 'Brave Beaver', active: false }
-        ],
-        role: 'admin'
+      await withFunFactsOn(async () => {
+        const user = await User.create({
+          username: 'activatetest',
+          pseudonyms: [
+            { token: 'tok1', pseudonym: 'Calm Cobra', active: true },
+            { token: 'tok2', pseudonym: 'Brave Beaver', active: false }
+          ],
+          role: 'admin'
+        })
+        await userService.activatePseudonym({ token: 'tok2' }, { id: user._id })
+        const updated = await User.findById(user._id)
+        const activated = updated!.pseudonyms.find((p) => p.token === 'tok2')
+        console.log('activatePseudonym fun fact:', activated!.funFact)
+        expect(activated!.funFact).toBeDefined()
       })
-      await userService.activatePseudonym({ token: 'tok2' }, { id: user._id })
-      const updated = await User.findById(user._id)
-      const activated = updated!.pseudonyms.find((p) => p.token === 'tok2')
-      console.log('activatePseudonym fun fact:', activated!.funFact)
-      expect(activated!.funFact).toBeDefined()
     })
 
     test('should not regenerate a fun fact when activating a pseudonym that already has one', async () => {
