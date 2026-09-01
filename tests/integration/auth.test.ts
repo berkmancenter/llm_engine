@@ -9,6 +9,7 @@ import config from '../../src/config/config.js'
 import auth from '../../src/middlewares/auth.js'
 import { tokenService, emailService, userService } from '../../src/services/index.js'
 import ApiError from '../../src/utils/ApiError.js'
+import logger from '../../src/config/logger.js'
 import setupIntTest from '../utils/setupIntTest.js'
 import { User, Token } from '../../src/models/index.js'
 import { roleRights } from '../../src/config/roles.js'
@@ -230,7 +231,11 @@ describe('Auth routes', () => {
 
   describe('POST /v1/auth/forgotPassword', () => {
     beforeEach(() => {
-      jest.spyOn(emailService.transport, 'sendMail').mockResolvedValue()
+      jest.spyOn(emailService.client, 'sendEmail').mockResolvedValue({ ErrorCode: 0, Message: 'OK' } as never)
+    })
+
+    afterEach(() => {
+      jest.restoreAllMocks()
     })
 
     test('should return 204 and send reset password email to the user', async () => {
@@ -243,6 +248,25 @@ describe('Auth routes', () => {
       const resetPasswordToken = sendResetPasswordEmailSpy.mock.calls[0][1]
       const dbResetPasswordTokenDoc = await Token.findOne({ token: resetPasswordToken, user: userOne._id })
       expect(dbResetPasswordTokenDoc).toBeDefined()
+    })
+
+    /* The success log is the one place a recipient address can reach the logs on a send that
+       worked, so it names the user id and the Postmark message id instead. The user id says who
+       asked, the message id is what you search on in Postmark's Activity view. */
+    test('logs the user id and Postmark message id, not the recipient address', async () => {
+      await insertUsers([userOne])
+      const messageId = 'e21c1e3c-9f4f-4c6b-8f0e-8b0a1f1b2c3d'
+      const loggerInfoSpy = jest.spyOn(logger, 'info').mockImplementation(() => logger)
+      jest
+        .spyOn(emailService, 'sendPasswordResetEmail')
+        .mockImplementation((to, token, callback) => callback(null, { MessageID: messageId }))
+
+      await request(app).post('/v1/auth/forgotPassword').send({ email: userOne.email }).expect(httpStatus.NO_CONTENT)
+
+      const logged = JSON.stringify(loggerInfoSpy.mock.calls)
+      expect(logged).toContain(messageId)
+      expect(logged).toContain(userOne._id.toString())
+      expect(logged).not.toContain(userOne.email)
     })
 
     test('should return 400 if email is missing', async () => {

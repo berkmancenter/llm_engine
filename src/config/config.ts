@@ -64,10 +64,9 @@ const envVarsSchema = Joi.object()
       .default(60)
       .description('minutes after which a Slack-to-Nextspace event-setup handoff token expires'),
     AUTH_TOKEN_SECRET: Joi.string().description('secret used to encrypt generated passwords'),
-    SMTP_HOST: Joi.string().description('server that will send the emails'),
-    SMTP_PORT: Joi.number().description('port to connect to the email server'),
-    SMTP_USERNAME: Joi.string().description('username for email server'),
-    SMTP_PASSWORD: Joi.string().description('password for email server'),
+    POSTMARK_SERVER_TOKEN: Joi.string().description(
+      'Server API token for outgoing email via Postmark; POSTMARK_API_TEST validates requests without sending'
+    ),
     POSTMARK_WEBHOOK_AUTH_USER: Joi.string().description(
       'Username set on the inbound email webhook Basic Auth; the handler checks it to confirm a request came from the configured provider'
     ),
@@ -219,17 +218,7 @@ const config = {
     handoffExpirationMinutes: envVars.HANDOFF_TOKEN_EXPIRATION_MINUTES
   },
   email: {
-    smtp: {
-      host: envVars.SMTP_HOST,
-      port: envVars.SMTP_PORT,
-      auth: {
-        user: envVars.SMTP_USERNAME,
-        pass: envVars.SMTP_PASSWORD
-      },
-      tls: {
-        rejectUnauthorized: false
-      }
-    },
+    postmarkServerToken: envVars.POSTMARK_SERVER_TOKEN,
     from: envVars.EMAIL_FROM
   },
   auth: {

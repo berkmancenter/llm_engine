@@ -272,7 +272,7 @@ describe('emailSetup.service', () => {
   })
 
   beforeEach(() => {
-    jest.spyOn(emailService.transport, 'sendMail').mockResolvedValue(undefined as never)
+    jest.spyOn(emailService.client, 'sendEmail').mockResolvedValue({ ErrorCode: 0, Message: 'OK' } as never)
     sendSignupSpy = jest.spyOn(emailService, 'sendSignupInviteEmail').mockResolvedValue(undefined as never)
     sendEventCreatedSpy = jest.spyOn(emailService, 'sendEventCreatedEmail').mockResolvedValue(undefined as never)
     sendEventCreationFailedSpy = jest

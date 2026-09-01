@@ -310,7 +310,7 @@ describe('Topic service methods', () => {
     })
 
     test('should generate token, email user, and mark as isArchiveNotified = true', async () => {
-      jest.spyOn(emailService.transport, 'sendMail').mockResolvedValue()
+      jest.spyOn(emailService.client, 'sendEmail').mockResolvedValue({ ErrorCode: 0, Message: 'OK' } as never)
       const sendArchiveEmailSpy = jest.spyOn(emailService, 'sendArchiveTopicEmail')
 
       publicTopic.createdAt = oldDate
@@ -324,7 +324,7 @@ describe('Topic service methods', () => {
       expect(ret[0]._id).toEqual(publicTopic._id)
 
       expect(sendArchiveEmailSpy).toHaveBeenCalledWith(userOne.email, expect.any(Object), expect.any(String))
-      const token = sendArchiveEmailSpy.mock.calls[0][3]
+      const token = sendArchiveEmailSpy.mock.calls[0][2]
       const dbToken = await Token.findOne({ token })
       expect(dbToken).toBeDefined()
 
@@ -333,7 +333,7 @@ describe('Topic service methods', () => {
     })
 
     test('should not archive topic if topic has recent message activity', async () => {
-      jest.spyOn(emailService.transport, 'sendMail').mockResolvedValue()
+      jest.spyOn(emailService.client, 'sendEmail').mockResolvedValue({ ErrorCode: 0, Message: 'OK' } as never)
       jest.spyOn(emailService, 'sendArchiveTopicEmail')
 
       publicTopic.createdAt = oldDate
@@ -364,7 +364,7 @@ describe('Topic service methods', () => {
     })
 
     test('should archive topic if topic has no recent visible message activity', async () => {
-      jest.spyOn(emailService.transport, 'sendMail').mockResolvedValue()
+      jest.spyOn(emailService.client, 'sendEmail').mockResolvedValue({ ErrorCode: 0, Message: 'OK' } as never)
       const sendArchiveEmailSpy = jest.spyOn(emailService, 'sendArchiveTopicEmail')
 
       publicTopic.createdAt = oldDate
@@ -390,7 +390,7 @@ describe('Topic service methods', () => {
       expect(ret[0]._id).toEqual(publicTopic._id)
 
       expect(sendArchiveEmailSpy).toHaveBeenCalledWith(userOne.email, expect.any(Object), expect.any(String))
-      const token = sendArchiveEmailSpy.mock.calls[0][3]
+      const token = sendArchiveEmailSpy.mock.calls[0][2]
       const dbToken = await Token.findOne({ token })
       expect(dbToken).toBeDefined()
 
@@ -399,7 +399,7 @@ describe('Topic service methods', () => {
     })
 
     test('should use topic-level email if it exists', async () => {
-      jest.spyOn(emailService.transport, 'sendMail').mockResolvedValue()
+      jest.spyOn(emailService.client, 'sendEmail').mockResolvedValue({ ErrorCode: 0, Message: 'OK' } as never)
       const sendArchiveEmailSpy = jest.spyOn(emailService, 'sendArchiveTopicEmail')
 
       publicTopic.createdAt = oldDate
@@ -445,13 +445,13 @@ describe('Topic service methods', () => {
        duplicating it — this confirms the flag is already committed even when the send
        itself fails. */
     test('should mark isArchiveNotified before sending, so a failed send is not retried into a duplicate', async () => {
-      jest.spyOn(emailService.transport, 'sendMail').mockResolvedValue()
-      jest.spyOn(emailService, 'sendArchiveTopicEmail').mockRejectedValue(new Error('SMTP down'))
+      jest.spyOn(emailService.client, 'sendEmail').mockResolvedValue({ ErrorCode: 0, Message: 'OK' } as never)
+      jest.spyOn(emailService, 'sendArchiveTopicEmail').mockRejectedValue(new Error('Postmark down'))
 
       publicTopic.createdAt = oldDate
       await insertTopics([publicTopic])
 
-      await expect(topicService.emailUsersToArchive()).rejects.toThrow('SMTP down')
+      await expect(topicService.emailUsersToArchive()).rejects.toThrow('Postmark down')
 
       const dbPublicTopic = await Topic.findById(publicTopic._id)
       expect(dbPublicTopic!.isArchiveNotified).toBe(true)

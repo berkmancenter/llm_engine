@@ -1,37 +1,88 @@
-import nodemailer from 'nodemailer'
+import postmark from 'postmark'
 import config from '../config/config.js'
 import logger from '../config/logger.js'
 import eventUrls from './eventUrls.service.js'
+import SuppressedRecipientError from '../utils/SuppressedRecipientError.js'
+import EmailSendError from '../utils/EmailSendError.js'
 
-const transport = nodemailer.createTransport(config.email.smtp)
+// POSTMARK_API_TEST makes Postmark validate each request without sending, so the test
+// suite exercises the real client with no token configured. Outside tests a missing
+// token must not fall back to it: sends would look successful and deliver nothing.
+const serverToken = config.email.postmarkServerToken ?? (config.env === 'test' ? 'POSTMARK_API_TEST' : undefined)
 /* istanbul ignore next */
-if (config.env !== 'test') {
-  transport
-    .verify()
-    .then(() => logger.info('Connected to email server'))
-    .catch(() => logger.warn('Unable to connect to email server. Make sure you have configured the SMTP options in .env'))
+if (config.env !== 'test' && !serverToken) {
+  logger.warn('POSTMARK_SERVER_TOKEN is not set. Outgoing email will fail until it is configured in .env')
 }
+const client = new postmark.ServerClient(serverToken ?? 'POSTMARK_API_TEST')
+
 /**
  * Send an email
  * @param {string} to
  * @param {string} subject
  * @param {string} text
+ * @param {string} html
+ * @param {string} [tag] - Postmark tag naming the message type, for per-type delivery stats
  * @returns {Promise}
+ * @throws {SuppressedRecipientError} when the address is on Postmark's suppression list
  */
-const sendEmailAsync = async (to, subject, text, html) => {
-  const msg = { from: config.email.from, to, subject, text, html }
-  await transport.sendMail(msg)
+const sendEmailAsync = async (to, subject, text, html, tag?: string) => {
+  if (!serverToken) {
+    throw new Error('Outgoing email is not configured: POSTMARK_SERVER_TOKEN is missing')
+  }
+  const msg: postmark.Message = {
+    From: config.email.from,
+    To: to,
+    Subject: subject,
+    TextBody: text,
+    HtmlBody: html,
+    MessageStream: 'outbound',
+    // Tracking stays off on every message: link tracking rewrites each URL through
+    // Postmark's redirector, and several messages carry passcodes or tokens in their
+    // URLs. Nothing consumes the tracking data; the Tag covers delivery searchability.
+    TrackOpens: false,
+    TrackLinks: postmark.Models.LinkTrackingOptions.None,
+    Tag: tag
+  }
+  try {
+    return await client.sendEmail(msg)
+  } catch (error) {
+    if (error instanceof postmark.Errors.InactiveRecipientsError) {
+      // No address in the log; recipient addresses stay out of app logs. To find who was
+      // suppressed and why, open the Postmark server's outbound message stream: Activity
+      // shows the blocked send, and the Suppressions tab lists the address with its
+      // reason (hard bounce, spam complaint, or manual) and a reactivation control.
+      logger.error(
+        `Postmark suppression list blocked a send (tag: ${
+          tag ?? 'none'
+        }); the recipient gets nothing until the suppression is cleared`
+      )
+      throw new SuppressedRecipientError(to)
+    }
+    if (error instanceof postmark.Errors.PostmarkError) {
+      // Codes only, same reasoning as EmailSendError: Postmark's raw message can echo
+      // the address. Look the failure up in Postmark's Activity view by these codes.
+      logger.error(
+        `Postmark send failed (tag: ${tag ?? 'none'}): ${error.name}, code ${error.code}, status ${error.statusCode}`
+      )
+      throw new EmailSendError(to, error)
+    }
+    throw error
+  }
 }
 /**
- * Send an email
+ * Send an email, reporting the outcome through a node-style callback
  * @param {string} to
  * @param {string} subject
  * @param {string} text
- * @returns {Promise}
+ * @param {string} html
+ * @param {Function} [callback] - (error, result)
+ * @param {string} [tag] - Postmark tag naming the message type, for per-type delivery stats
  */
-const sendEmail = (to, subject, text, html, callback) => {
-  const msg = { from: config.email.from, to, subject, text, html }
-  transport.sendMail(msg, callback)
+const sendEmail = (to, subject, text, html, callback, tag?: string) => {
+  sendEmailAsync(to, subject, text, html, tag).then(
+    (result) => callback?.(null, result),
+    (error) => callback?.(error)
+  )
 }
 /**
  * Send password reset email asynchronously
@@ -48,7 +99,7 @@ const sendPasswordResetEmailAsync = async (to, token) => {
   const html = `<p>Dear user,</p>
   <p>To reset your password, please <a href="${resetPasswordUrl}">click here</a>.</p>
   <p>If you did not request any password resets, please ignore this email.</p>`
-  await sendEmailAsync(to, subject, text, html)
+  await sendEmailAsync(to, subject, text, html, 'password-reset')
 }
 /**
  * Send password reset email synchronously
@@ -65,7 +116,7 @@ const sendPasswordResetEmail = (to, token, callback) => {
   const html = `<p>Dear user,</p>
   <p>To reset your password, please <a href="${resetPasswordUrl}">click here</a>.</p>
   <p>If you did not request any password resets, please ignore this email.</p>`
-  sendEmail(to, subject, text, html, callback)
+  sendEmail(to, subject, text, html, callback, 'password-reset')
 }
 /**
  * Send verification email
@@ -99,7 +150,7 @@ To prevent archival and keep your channel on Conversations, please copy and past
   const html = `<p>Dear user,</p>
 <p>Your channel "${topic.name}" is now 90 days old, and will be archived and removed from Conversations in 7 days.</p>
 <p>To prevent archival and keep your channel on Conversations, please <a href="${archivalUrl}">click here</a>.</p>`
-  await sendEmailAsync(to, subject, text, html)
+  await sendEmailAsync(to, subject, text, html, 'archive-topic')
 }
 
 /**
@@ -118,7 +169,7 @@ To finish setting up your event, sign up here and then send your email again: ${
   const html = `<p>Hello,</p>
 <p>We received your email, but there's no account for this email address yet.</p>
 <p>To finish setting up your event, <a href="${signupUrl}">sign up here</a> and then send your email again.</p>`
-  await sendEmailAsync(to, subject, text, html)
+  await sendEmailAsync(to, subject, text, html, 'signup-invite')
 }
 
 /**
@@ -144,7 +195,7 @@ That page is also where you can edit any other details and find the moderator an
     const html = `<p>Hello,</p>
 <p>We turned your calendar invite into an event, but it still needs <strong>${missingList}</strong> before it can run. Please <a href="${eventUrl}">add that here</a>.</p>
 <p>That page is also where you can edit any other details and find the moderator and participant links to share.</p>`
-    await sendEmailAsync(to, subject, text, html)
+    await sendEmailAsync(to, subject, text, html, 'event-created')
     return
   }
 
@@ -155,7 +206,7 @@ That page is also where you can edit any details and find the moderator and part
   const html = `<p>Hello,</p>
 <p>We turned your calendar invite into an event. Please <a href="${eventUrl}">confirm the event details are correct</a>.</p>
 <p>That page is also where you can edit any details and find the moderator and participant links to share.</p>`
-  await sendEmailAsync(to, subject, text, html)
+  await sendEmailAsync(to, subject, text, html, 'event-created')
 }
 
 /**
@@ -176,7 +227,7 @@ const sendEventCreationFailedEmail = async (to, referenceId?: string) => {
 We received your calendar invite, but ran into a problem creating your event. Please try again, or reach out to support if this keeps happening.${referenceLine}`
   const html = `<p>Hello,</p>
 <p>We received your calendar invite, but ran into a problem creating your event. Please try again, or reach out to support if this keeps happening.</p>${referenceHtml}`
-  await sendEmailAsync(to, subject, text, html)
+  await sendEmailAsync(to, subject, text, html, 'event-creation-failed')
 }
 
 /**
@@ -211,7 +262,7 @@ Edit the event, or find these links again: ${urls.eventPageUrl}`
 ${moderatorHtml}
 <p>Participant link (share with anyone joining): <a href="${urls.participantUrl}">${urls.participantUrl}</a></p>
 <p>Edit the event, or find these links again: <a href="${urls.eventPageUrl}">${urls.eventPageUrl}</a></p>`
-  await sendEmailAsync(to, subject, text, html)
+  await sendEmailAsync(to, subject, text, html, 'on-demand-event')
 }
 
 /**
@@ -232,11 +283,11 @@ const sendOnDemandEventFailedEmail = async (to, reason: 'noZoomLink' | 'invalidZ
 We received your email, but ${reasonLine} Please send it again with a Zoom meeting link included.`
   const html = `<p>Hello,</p>
 <p>We received your email, but ${reasonLine} Please send it again with a Zoom meeting link included.</p>`
-  await sendEmailAsync(to, subject, text, html)
+  await sendEmailAsync(to, subject, text, html, 'on-demand-event-failed')
 }
 
 const emailService = {
-  transport,
+  client,
   sendEmail,
   sendEmailAsync,
   sendPasswordResetEmail,

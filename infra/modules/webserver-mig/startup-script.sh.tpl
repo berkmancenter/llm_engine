@@ -5,7 +5,7 @@ set -euo pipefail
 # runtime config comes from two Secret Manager secrets merged into one env
 # file before `docker run`:
 #   - "${app_env_secret_id}": dotenv blob (JWT secret, LLM provider API
-#     keys, SMTP creds, etc — see .env.example for the full set). App
+#     keys, Postmark token, etc — see .env.example for the full set). App
 #     config, not something Terraform should own or that should live in
 #     this repo — create/update it yourself:
 #       gcloud secrets create ${app_env_secret_id} --data-file=prod.env
