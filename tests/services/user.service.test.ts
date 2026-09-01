@@ -197,175 +197,178 @@ describe('User service methods', () => {
       expect(user.password).toBeUndefined()
       expect(user.role).toBe('participant')
     })
+  })
 
-    describe('real names', () => {
-      beforeAll(async () => {
-        // Uniqueness relies on RealNameRegistry's compound unique index, which is
-        // not built automatically by setupIntTest()'s per-test deleteMany wipe.
-        await RealNameRegistry.syncIndexes()
+  describe('provisionInvitedMember()', () => {
+    const password = 'Invite1234'
+
+    beforeAll(async () => {
+      // Uniqueness relies on RealNameRegistry's compound unique index, which is
+      // not built automatically by setupIntTest()'s per-test deleteMany wipe.
+      await RealNameRegistry.syncIndexes()
+    })
+
+    const getMembership = (conversation, email: string) =>
+      ConversationMembership.findOne({ conversation: conversation._id, email })
+
+    test('creates a new account using email as username with bio and interests from membership', async () => {
+      const email = 'jane.doe@example.com'
+      const conversation = await createConversationWithMembership(email)
+      const membership = await getMembership(conversation, email)
+
+      const user = await userService.provisionInvitedMember(membership, password, conversation)
+
+      expect(user.username).toBe(email)
+      expect(user.email).toBe(email)
+      expect(user.bio).toBe('A test member bio')
+      expect(user.interests).toBe('testing, quality assurance')
+      expect(user.role).toBe('participant')
+    })
+
+    test('new account always gets participant role regardless of caller intent', async () => {
+      const email = 'role.test@example.com'
+      const conversation = await createConversationWithMembership(email)
+      const membership = await getMembership(conversation, email)
+
+      const user = await userService.provisionInvitedMember(membership, password, conversation)
+
+      expect(user.role).toBe('participant')
+    })
+
+    test('uses an existing account by email rather than creating a duplicate', async () => {
+      const email = 'existing@example.com'
+      const conversation = await createConversationWithMembership(email)
+      const membership = await getMembership(conversation, email)
+
+      // Pre-create account
+      const existing = await User.create({
+        username: email,
+        email,
+        password: 'oldpassword1',
+        pseudonyms: [{ token: 'tok1', pseudonym: 'Calm Cobra', active: true }]
       })
 
-      test('creates a real-name entry scoped to the conversation, inactive, uncounted, with no fun fact', async () => {
-        const email = 'jane.doe@example.com'
-        const conversation = await createConversationWithMembership(email, true)
-        const userBody = {
-          username: 'realnametest1',
-          token: 'tok-ordinary',
-          pseudonym: 'Bold Aardvark',
-          email,
-          conversationId: conversation._id.toString()
-        }
+      const user = await userService.provisionInvitedMember(membership, password, conversation)
 
-        const user = await userService.createUser(userBody)
+      expect(user._id.toString()).toBe(existing._id.toString())
+      expect(await User.countDocuments({ email })).toBe(1)
+    })
 
-        expect(user.pseudonyms).toHaveLength(2)
-        const realNameEntry = user.pseudonyms.find((p) => p.isRealName)
-        expect(realNameEntry).toBeDefined()
-        expect(realNameEntry!.pseudonym).toBe('Test Member')
-        expect(realNameEntry!.normalizedPseudonym).toBe('test member')
-        expect(realNameEntry!.active).toBe(false)
-        expect(realNameEntry!.funFact).toBeUndefined()
-        expect(realNameEntry!.conversations).toEqual([conversation._id.toString()])
-        // the ordinary pseudonym createUser always creates remains the active one
-        expect(user.pseudonyms.find((p) => p.active)!.pseudonym).toBe('Bold Aardvark')
-        // bio and interests copied from membership record
-        expect(user.bio).toBe('A test member bio')
-        expect(user.interests).toBe('testing, quality assurance')
+    test('leaves an existing active pseudonym untouched on an existing account', async () => {
+      const email = 'active.pseudo@example.com'
+      const conversation = await createConversationWithMembership(email, true)
+      const membership = await getMembership(conversation, email)
 
-        const audit = await RealNameAudit.findOne({ userId: user._id, action: 'created' })
-        expect(audit).not.toBeNull()
-        expect(audit!.conversationId.toString()).toBe(conversation._id.toString())
+      await User.create({
+        username: email,
+        email,
+        password: 'oldpassword1',
+        pseudonyms: [{ token: 'tok1', pseudonym: 'Calm Cobra', active: true }]
       })
 
-      test('rejects registration when the email is not on the conversation membership roster', async () => {
-        const conversation = await createConversationWithMembership('someone.else@example.com', true)
-        const userBody = {
-          username: 'realnametest2',
-          token: 'tok-ordinary2',
-          pseudonym: 'Brave Beaver',
-          email: 'not.on.roster@example.com',
-          conversationId: conversation._id.toString()
-        }
+      const user = await userService.provisionInvitedMember(membership, password, conversation)
 
-        await expect(userService.createUser(userBody)).rejects.toMatchObject({ statusCode: httpStatus.FORBIDDEN })
-        expect(await User.findOne({ username: 'realnametest2' })).toBeNull()
-        expect(await RealNameRegistry.findOne({ conversationId: conversation._id })).toBeNull()
-        expect(
-          await RealNameAudit.findOne({ action: 'membership_rejected', conversationId: conversation._id })
-        ).not.toBeNull()
-      })
+      const active = user.pseudonyms.find((p) => p.active)
+      expect(active!.pseudonym).toBe('Calm Cobra')
+    })
 
-      test('rejects a second real name in the same conversation, but allows it in a different one', async () => {
-        const emailA = 'alex.a@example.com'
-        const emailB = 'alex.b@example.com'
-        const convoA = await createConversationWithMembership(emailA, true)
-        const convoB = await createConversationWithMembership(emailB, true)
-        // Add emailB to convoA with the same name so uniqueness (not membership) is what rejects
-        await ConversationMembership.create({ conversation: convoA._id, email: emailB, name: 'Test Member' })
+    test('creates a real-name entry inactive and pre-seeded with the conversation when useRealNames is true', async () => {
+      const email = 'realname.new@example.com'
+      const conversation = await createConversationWithMembership(email, true)
+      const membership = await getMembership(conversation, email)
 
-        await userService.createUser({
-          username: 'realnametest3a',
-          token: 'tok-a',
-          pseudonym: 'Calm Cobra',
-          email: emailA,
-          conversationId: convoA._id.toString()
-        })
+      const user = await userService.provisionInvitedMember(membership, password, conversation)
 
-        // same name (from membership), same conversation -> rejected on uniqueness
-        await expect(
-          userService.createUser({
-            username: 'realnametest3b',
-            token: 'tok-b',
-            pseudonym: 'Daring Duck',
-            email: emailB,
-            conversationId: convoA._id.toString()
-          })
-        ).rejects.toMatchObject({ statusCode: httpStatus.CONFLICT })
-        expect(await User.findOne({ username: 'realnametest3b' })).toBeNull()
+      const realNameEntry = user.pseudonyms.find((p) => p.isRealName)
+      expect(realNameEntry).toBeDefined()
+      expect(realNameEntry!.pseudonym).toBe('Test Member')
+      expect(realNameEntry!.normalizedPseudonym).toBe('test member')
+      expect(realNameEntry!.active).toBe(false)
+      expect(realNameEntry!.funFact).toBeUndefined()
+      expect(realNameEntry!.conversations).toEqual([conversation._id.toString()])
 
-        // same name, different conversation -> allowed
-        const userC = await userService.createUser({
-          username: 'realnametest3c',
-          token: 'tok-c',
-          pseudonym: 'Eager Emu',
-          email: emailB,
-          conversationId: convoB._id.toString()
-        })
-        expect(userC.pseudonyms.find((p) => p.isRealName)).toBeDefined()
-      })
+      const audit = await RealNameAudit.findOne({ userId: user._id, action: 'created' })
+      expect(audit).not.toBeNull()
+      expect(audit!.conversationId.toString()).toBe(conversation._id.toString())
+    })
 
-      test('never calls the LLM fun-fact helper for a real-name entry', async () => {
-        await withFunFactsOn(async () => {
-          const email = 'sam.lee@example.com'
-          const conversation = await createConversationWithMembership(email, true)
-          const user = await userService.createUser({
-            username: 'realnametest4',
-            token: 'tok-ordinary4',
-            pseudonym: 'Gentle Giraffe',
-            email,
-            conversationId: conversation._id.toString()
-          })
-          // The ordinary pseudonym getting one is the control: it proves the helper ran at
-          // all, so the real-name entry's empty funFact is the code path being skipped
-          // rather than the whole call being off.
-          expect(user.pseudonyms.find((p) => !p.isRealName)!.funFact).toBeDefined()
-          expect(user.pseudonyms.find((p) => p.isRealName)!.funFact).toBeUndefined()
-        })
+    test('does not create a real-name entry when useRealNames is false', async () => {
+      const email = 'norealname@example.com'
+      const conversation = await createConversationWithMembership(email, false)
+      const membership = await getMembership(conversation, email)
+
+      const user = await userService.provisionInvitedMember(membership, password, conversation)
+
+      expect(user.pseudonyms.find((p) => p.isRealName)).toBeUndefined()
+    })
+
+    test('second room with the same real name appends to the existing entry rather than creating a second', async () => {
+      const email = 'two.rooms@example.com'
+      const convoA = await createConversationWithMembership(email, true)
+      const convoB = await createConversationWithMembership(email, true)
+      const membershipA = await getMembership(convoA, email)
+      const membershipB = await getMembership(convoB, email)
+
+      await userService.provisionInvitedMember(membershipA, password, convoA)
+      const user = await userService.provisionInvitedMember(membershipB, password, convoB)
+
+      const realNameEntries = user.pseudonyms.filter((p) => p.isRealName)
+      expect(realNameEntries).toHaveLength(1)
+      expect(realNameEntries[0].conversations.sort()).toEqual([convoA._id.toString(), convoB._id.toString()].sort())
+    })
+
+    test('rejects a name clash in the same conversation (two different people with the same real name)', async () => {
+      const emailA = 'clash.a@example.com'
+      const emailB = 'clash.b@example.com'
+      const conversation = await createConversationWithMembership(emailA, true)
+      // Add emailB to the same conversation with the same name
+      await ConversationMembership.create({ conversation: conversation._id, email: emailB, name: 'Test Member' })
+      const membershipA = await getMembership(conversation, emailA)
+      const membershipB = await getMembership(conversation, emailB)
+
+      await userService.provisionInvitedMember(membershipA, password, conversation)
+      await expect(userService.provisionInvitedMember(membershipB, password, conversation)).rejects.toMatchObject({
+        statusCode: httpStatus.CONFLICT
       })
     })
 
-    describe('membership userAccount linking', () => {
-      test('sets userAccount on the membership record when useRealNames is false', async () => {
-        const email = 'member.norealname@example.com'
-        const conversation = await createConversationWithMembership(email)
-
-        const user = await userService.createUser({
-          username: 'membertest1',
-          token: 'tok-m1',
-          pseudonym: 'Calm Cobra',
-          email,
-          conversationId: conversation._id.toString()
-        })
-
-        const membership = await ConversationMembership.findOne({ conversation: conversation._id, email })
-        expect(membership!.userAccount!.toString()).toBe(user._id.toString())
-        // no real-name pseudonym created
-        expect(user.pseudonyms).toHaveLength(1)
-      })
-
-      test('sets userAccount on the membership record when useRealNames is true', async () => {
-        const email = 'member.realname@example.com'
+    test('never calls the LLM fun-fact helper for a real-name entry', async () => {
+      await withFunFactsOn(async () => {
+        const email = 'sam.lee@example.com'
         const conversation = await createConversationWithMembership(email, true)
+        const membership = await getMembership(conversation, email)
 
-        const user = await userService.createUser({
-          username: 'membertest2',
-          token: 'tok-m2',
-          pseudonym: 'Bold Aardvark',
-          email,
-          conversationId: conversation._id.toString()
-        })
+        const user = await userService.provisionInvitedMember(membership, password, conversation)
 
-        const membership = await ConversationMembership.findOne({ conversation: conversation._id, email })
-        expect(membership!.userAccount!.toString()).toBe(user._id.toString())
-        // real-name pseudonym is also created
-        expect(user.pseudonyms).toHaveLength(2)
-        expect(user.pseudonyms.find((p) => p.isRealName)).toBeDefined()
+        // The ordinary pseudonym getting a fun fact proves the helper ran; the real-name
+        // entry's empty funFact is the code path being skipped.
+        expect(user.pseudonyms.find((p) => !p.isRealName)!.funFact).toBeDefined()
+        expect(user.pseudonyms.find((p) => p.isRealName)!.funFact).toBeUndefined()
       })
+    })
 
-      test('does not set userAccount when no conversationId is provided', async () => {
-        const email = 'member.noid@example.com'
-        const conversation = await createConversationWithMembership(email)
+    test('links userAccount on the membership record when useRealNames is false', async () => {
+      const email = 'link.norealname@example.com'
+      const conversation = await createConversationWithMembership(email)
+      const membership = await getMembership(conversation, email)
 
-        await userService.createUser({
-          username: 'membertest3',
-          token: 'tok-m3',
-          pseudonym: 'Daring Duck',
-          email
-        })
+      const user = await userService.provisionInvitedMember(membership, password, conversation)
 
-        const membership = await ConversationMembership.findOne({ conversation: conversation._id, email })
-        expect(membership!.userAccount).toBeUndefined()
-      })
+      const updated = await ConversationMembership.findById(membership!._id)
+      expect(updated!.userAccount!.toString()).toBe(user._id.toString())
+      expect(user.pseudonyms.filter((p) => p.isRealName)).toHaveLength(0)
+    })
+
+    test('links userAccount on the membership record when useRealNames is true', async () => {
+      const email = 'link.realname@example.com'
+      const conversation = await createConversationWithMembership(email, true)
+      const membership = await getMembership(conversation, email)
+
+      const user = await userService.provisionInvitedMember(membership, password, conversation)
+
+      const updated = await ConversationMembership.findById(membership!._id)
+      expect(updated!.userAccount!.toString()).toBe(user._id.toString())
+      expect(user.pseudonyms.filter((p) => p.isRealName)).toHaveLength(1)
     })
   })
 

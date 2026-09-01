@@ -4,7 +4,7 @@ import crypto from 'crypto'
 import { uniqueNamesGenerator } from 'unique-names-generator'
 import bcrypt from 'bcryptjs'
 import { uid } from 'uid'
-import { User, Message, RealNameAudit, RealNameRegistry, ConversationMembership, Conversation } from '../models/index.js'
+import { User, Message, RealNameAudit, RealNameRegistry, ConversationMembership } from '../models/index.js'
 import ApiError from '../utils/ApiError.js'
 import { pseudonymAdjectives, pseudonymNouns } from '../config/pseudonym-dictionaries.js'
 import logger from '../config/logger.js'
@@ -97,30 +97,8 @@ const recordRealNameAudit = async (userId, conversationId, action): Promise<void
   }
 }
 
-// Looks up the membership record for this email + conversation. Throws 403 if no record exists.
-const getMembership = async (conversationId: string, email: string) => {
-  const membership = await ConversationMembership.findOne({ conversation: conversationId, email }).lean()
-  if (!membership) {
-    await recordRealNameAudit(undefined, conversationId, 'membership_rejected')
-    throw new ApiError(httpStatus.FORBIDDEN, 'Could not verify access to one or more conversations.')
-  }
-  return membership
-}
-
 /**
  * Create a user
- *
- * `userBody.conversationId` is a temporary affordance for registering directly into a
- * specific conversation (e.g. one that enforces membership). When present it verifies the
- * caller has a ConversationMembership record for their email and links the new account to
- * it. If the conversation also uses real names, it additionally reserves a real-name
- * pseudonym entry (isRealName: true) scoped to that conversation: access is proved by the
- * membership record before anything is written, the name is reserved through
- * RealNameRegistry's unique index (atomic, race-free — see reserveRealName), the entry is
- * always created `active: false` and is never handed to generatePseudonymFunFact (real
- * names never reach the LLM), and every rejection/creation is recorded via
- * recordRealNameAudit (id/action only, never the name text). See
- * activatePseudonym/deletePseudonym for the can-never-activate/can-never-delete guarantees.
  * @param {Object} userBody
  * @returns {Promise<User>}
  */
@@ -135,7 +113,6 @@ const createUser = async (userBody) => {
       {
         token: userBody.token,
         pseudonym: userBody.pseudonym,
-        // Mark pseudonym as active
         active: true
       }
     ]
@@ -148,35 +125,6 @@ const createUser = async (userBody) => {
     }
   }
 
-  // TODO: replace with a dedicated registration path for membership-gated conversations.
-  let reservation
-  const conversationId = userBody.conversationId as string | undefined
-  if (conversationId) {
-    const conversation = await Conversation.findById(conversationId).select('useRealNames').lean()
-    const membership = await getMembership(conversationId, userProps.email!)
-    const { name: realName, bio, interests } = membership
-    if (bio) userProps.bio = bio
-    if (interests) userProps.interests = interests
-
-    if (conversation?.useRealNames) {
-      reservation = await reserveRealName(realName, conversationId)
-      if (!reservation) {
-        await recordRealNameAudit(undefined, conversationId, 'uniqueness_rejected')
-        throw new ApiError(httpStatus.CONFLICT, 'That name is already registered for this conversation.')
-      }
-
-      userProps.pseudonyms.push({
-        token: newToken(),
-        pseudonym: realName,
-        normalizedPseudonym: normalizeRealName(realName),
-        // Never active — a real name can never be the pseudonym stamped on a message.
-        active: false,
-        isRealName: true,
-        conversations: [conversationId]
-      })
-    }
-  }
-
   const user = await User.create(userProps)
   // Fun facts are a pseudonym-flavor feature and must never send a real name to an
   // LLM — only ever generated for pseudonyms[0], the always-present ordinary entry.
@@ -184,21 +132,6 @@ const createUser = async (userBody) => {
   if (funFact) {
     user.pseudonyms[0].funFact = funFact
     await user.save()
-  }
-  // TODO: replace with a dedicated registration path for membership-gated conversations.
-  if (conversationId) {
-    if (reservation) {
-      // Attach the now-known userId to the reservation and audit the successful creation
-      // (id/action only — never the name text, see recordRealNameAudit).
-      await RealNameRegistry.updateOne({ _id: reservation._id }, { userId: user._id })
-      await recordRealNameAudit(user._id, conversationId, 'created')
-    }
-    // Link the account to the membership record so assertMembership can find it by userAccount.
-    // Independent of real names — membership enforcement only needs userAccount.
-    await ConversationMembership.updateOne(
-      { conversation: conversationId, email: userProps.email },
-      { $set: { userAccount: user._id } }
-    )
   }
   return user
 }
@@ -580,8 +513,95 @@ export const resolveDisplayName = (user, conversation) => {
   return activeName
 }
 
+/**
+ * Provision an invited member's account on first password set.
+ *
+ * Finds an existing account by email or creates a fresh one, then writes the
+ * real-name identity directly onto the account's pseudonym list — never through
+ * the normal add-a-name call, which would deactivate an existing posting name.
+ * The real-name entry is inactive, flagged as a real name, and pre-seeded with
+ * the conversation. A second call for the same person in a different room appends
+ * to the existing real-name entry's conversation list rather than creating a second.
+ * Finally links the account to the membership record so assertMembership can find
+ * it by userAccount.
+ *
+ * Fields written are explicit — no request-body spread, so role, isRealName, and
+ * conversations are not reachable from the HTTP layer.
+ */
+const provisionInvitedMember = async (membership, password: string, conversation) => {
+  const conversationId = membership.conversation.toString()
+
+  let user = await getUserByEmail(membership.email)
+
+  if (!user) {
+    const pseudonym = await newPseudonym(0)
+    user = await User.create({
+      username: membership.email,
+      email: membership.email,
+      password: await hashPassword(password),
+      ...(membership.bio ? { bio: membership.bio } : {}),
+      ...(membership.interests ? { interests: membership.interests } : {}),
+      pseudonyms: [{ token: newToken(), pseudonym, active: true }]
+      // role omitted: schema default 'participant' applies, caller cannot inject one
+    })
+    const funFact = await generatePseudonymFunFact(user.pseudonyms[0].pseudonym)
+    if (funFact) {
+      user.pseudonyms[0].funFact = funFact
+      await user.save()
+    }
+  }
+
+  if (conversation?.useRealNames) {
+    const normalizedName = normalizeRealName(membership.name)
+
+    /* A second room registration for the same person appends to the existing entry
+       rather than creating a duplicate. Match on normalized name so case/whitespace
+       variants of the same real name don't produce two entries. */
+    const existingEntry = user.pseudonyms.find((p) => p.isRealName && p.normalizedPseudonym === normalizedName)
+
+    if (existingEntry) {
+      if (!existingEntry.conversations.includes(conversationId)) {
+        existingEntry.conversations.push(conversationId)
+        await user.save()
+      }
+    } else {
+      /* The insert IS the uniqueness check (see reserveRealName) — no separate
+         check-then-write, so two concurrent first-logins for the same name in the
+         same room resolve to exactly one winner. */
+      const reservation = await reserveRealName(membership.name, conversationId)
+      if (!reservation) {
+        await recordRealNameAudit(user._id, conversationId, 'uniqueness_rejected')
+        throw new ApiError(httpStatus.CONFLICT, 'That name is already registered for this conversation.')
+      }
+
+      /* Push directly onto the array — never through addPseudonym, which deactivates
+         every other name and would lock the person out of events they are already
+         posting in under a pseudonym. */
+      user.pseudonyms.push({
+        token: newToken(),
+        pseudonym: membership.name,
+        normalizedPseudonym: normalizedName,
+        active: false,
+        isRealName: true,
+        conversations: [conversationId]
+      })
+      await user.save()
+
+      await RealNameRegistry.updateOne({ _id: reservation._id }, { userId: user._id })
+      await recordRealNameAudit(user._id, conversationId, 'created')
+    }
+  }
+
+  /* Link the account to the membership record so assertMembership can find it by
+     userAccount. Independent of real names — membership enforcement only needs this. */
+  await ConversationMembership.updateOne({ _id: membership._id }, { $set: { userAccount: user._id } })
+
+  return user
+}
+
 const userService = {
   createUser,
+  provisionInvitedMember,
   updateUser,
   queryUsers,
   getUserById,

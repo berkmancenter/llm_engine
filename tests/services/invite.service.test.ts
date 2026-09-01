@@ -170,25 +170,32 @@ describe('invite service', () => {
       const oldNonce = await inviteService.issueNonce(invite._id)
       await inviteService.issueNonce(invite._id)
 
-      await expect(inviteService.consumeInvite(token, oldNonce)).rejects.toMatchObject({
+      await expect(inviteService.consumeInvite(token, oldNonce, 'Invite1234')).rejects.toMatchObject({
         statusCode: httpStatus.UNAUTHORIZED
       })
     })
   })
 
   describe('consumeInvite', () => {
-    test('consumes with a valid token and nonce, exactly once', async () => {
+    const password = 'Invite1234'
+
+    test('consumes with token and nonce, creates account, returns auth tokens, exactly once', async () => {
       const membership = await insertMembership()
       const { token, invite } = await inviteService.mintInvite(membership)
       const nonce = await inviteService.issueNonce(invite._id)
 
-      const result = await inviteService.consumeInvite(token, nonce)
+      const result = await inviteService.consumeInvite(token, nonce, password)
       expect(result.membership._id.toString()).toBe(membership._id.toString())
+      expect(result.tokens).toMatchObject({
+        access: { token: expect.any(String), expires: expect.anything() },
+        refresh: { token: expect.any(String), expires: expect.anything() }
+      })
+      expect(result.conversationId).toBe(membership.conversation.toString())
 
       const stored = await MemberInvite.findById(invite._id).lean()
       expect(stored!.consumedAt).toBeTruthy()
 
-      await expect(inviteService.consumeInvite(token, nonce)).rejects.toMatchObject({
+      await expect(inviteService.consumeInvite(token, nonce, password)).rejects.toMatchObject({
         statusCode: httpStatus.UNAUTHORIZED
       })
     })
@@ -197,7 +204,7 @@ describe('invite service', () => {
       const membership = await insertMembership()
       const { token, invite } = await inviteService.mintInvite(membership)
       const nonce = await inviteService.issueNonce(invite._id)
-      await inviteService.consumeInvite(token, nonce)
+      await inviteService.consumeInvite(token, nonce, password)
 
       await expect(inviteService.validateInvite(token)).rejects.toMatchObject({
         statusCode: httpStatus.UNAUTHORIZED
@@ -209,10 +216,10 @@ describe('invite service', () => {
       const { token, invite } = await inviteService.mintInvite(membership)
       await inviteService.issueNonce(invite._id)
 
-      await expect(inviteService.consumeInvite(token, 'not-the-nonce')).rejects.toMatchObject({
+      await expect(inviteService.consumeInvite(token, 'not-the-nonce', password)).rejects.toMatchObject({
         statusCode: httpStatus.UNAUTHORIZED
       })
-      await expect(inviteService.consumeInvite(token, '')).rejects.toMatchObject({
+      await expect(inviteService.consumeInvite(token, '', password)).rejects.toMatchObject({
         statusCode: httpStatus.UNAUTHORIZED
       })
 
@@ -225,7 +232,7 @@ describe('invite service', () => {
       const membership = await insertMembership()
       const { token } = await inviteService.mintInvite(membership)
 
-      await expect(inviteService.consumeInvite(token, 'anything')).rejects.toMatchObject({
+      await expect(inviteService.consumeInvite(token, 'anything', password)).rejects.toMatchObject({
         statusCode: httpStatus.UNAUTHORIZED
       })
     })
@@ -236,7 +243,7 @@ describe('invite service', () => {
       const nonce = await inviteService.issueNonce(invite._id)
       await MemberInvite.updateOne({ _id: invite._id }, { nonceExpiresAt: moment().subtract(1, 'minute').toDate() })
 
-      await expect(inviteService.consumeInvite(token, nonce)).rejects.toMatchObject({
+      await expect(inviteService.consumeInvite(token, nonce, password)).rejects.toMatchObject({
         statusCode: httpStatus.UNAUTHORIZED
       })
     })
@@ -251,7 +258,7 @@ describe('invite service', () => {
       const nonceB = await inviteService.issueNonce(inviteB.invite._id)
 
       // Token A with B's nonce must not consume either record.
-      await expect(inviteService.consumeInvite(inviteA.token, nonceB)).rejects.toMatchObject({
+      await expect(inviteService.consumeInvite(inviteA.token, nonceB, 'Invite1234')).rejects.toMatchObject({
         statusCode: httpStatus.UNAUTHORIZED
       })
       const storedA = await MemberInvite.findById(inviteA.invite._id).lean()

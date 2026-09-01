@@ -28,11 +28,8 @@ const getInvite = catchAsync(async (req, res) => {
 
 const consumeInvite = catchAsync(async (req, res) => {
   setInviteScreenHeaders(res)
-  await inviteService.consumeInvite(req.body.token, req.body.nonce)
-  /* Account provisioning and session issuance follow in the set-password work. Consuming
-     without them is safe to ship first because no invite email can go out until the
-     Postmark batch send exists, so no real token can be stranded. */
-  res.status(httpStatus.OK).send({ consumed: true })
+  const result = await inviteService.consumeInvite(req.body.token, req.body.nonce, req.body.password)
+  res.status(httpStatus.OK).send(result)
 })
 
 export { sendInvites, resendInvite, getInvite, consumeInvite }

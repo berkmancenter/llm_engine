@@ -10,6 +10,8 @@ import MemberInvite from '../models/memberInvite.model.js'
 import ConversationMembership from '../models/conversationMembership.model.js'
 import Conversation from '../models/conversation.model.js'
 import emailService from './email.service.js'
+import userService from './user.service.js'
+import tokenService from './token.service.js'
 
 /* One deliberately vague message for every failure mode: a more specific error
    ("expired" vs "already used" vs "no such invite") would tell an attacker probing
@@ -110,11 +112,15 @@ const issueNonce = async (inviteId) => {
 }
 
 /**
- * Burn the invite: called from the set-password POST and nowhere else. The single atomic
- * claim (filtering on unconsumed + matching live nonce, setting consumedAt) is what makes
- * two concurrent submits resolve to exactly one winner.
+ * Burn the invite and provision the account: called from the set-password POST and nowhere
+ * else. The single atomic claim (filtering on unconsumed + matching live nonce, setting
+ * consumedAt) is what makes two concurrent submits resolve to exactly one winner.
+ *
+ * After the token is consumed, provisions the account (find-or-create by email) and writes
+ * the real-name identity if the conversation uses real names. Issues auth tokens so the
+ * caller lands in the room without a separate login step.
  */
-const consumeInvite = async (token: string, nonce: string) => {
+const consumeInvite = async (token: string, nonce: string, password: string) => {
   const { invite, membership } = await validateInvite(token)
   if (!nonce) {
     throw invalidInviteError()
@@ -135,7 +141,11 @@ const consumeInvite = async (token: string, nonce: string) => {
     throw invalidInviteError()
   }
 
-  return { invite: claimed, membership }
+  const conversation = await Conversation.findById(membership.conversation).exec()
+  const user = await userService.provisionInvitedMember(membership, password, conversation)
+  const tokens = await tokenService.generateAuthTokens(user)
+
+  return { invite: claimed, membership, tokens, conversationId: membership.conversation.toString() }
 }
 
 /**
