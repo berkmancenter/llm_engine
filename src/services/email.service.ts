@@ -314,12 +314,12 @@ const buildMemberInviteEmail = (name: string, roomName: string, token: string) =
   const expiryDays = config.jwt.inviteExpirationDays
   const subject = `You're invited to join ${roomName}`
   const text = `Hello ${name},
-You've been invited to join ${roomName}. To accept, open this link, choose a password, and you'll land right in the room: ${inviteUrl}
+You've been invited to join ${roomName}. Open this link and choose a password to get started: ${inviteUrl}
 This link is just for you, so please don't forward it. It expires in ${expiryDays} days; if it has expired, reply to this email and we'll send a fresh one.`
   const html = `<p>Hello ${escapeHtml(name)},</p>
 <p>You've been invited to join ${escapeHtml(
     roomName
-  )}. To accept, <a href="${inviteUrl}">open this link</a>, choose a password, and you'll land right in the room.</p>
+  )}. <a href="${inviteUrl}">Open this link</a> and choose a password to get started.</p>
 <p>If the link doesn't open, copy and paste this address into your browser: ${inviteUrl}</p>
 <p>This link is just for you, so please don't forward it. It expires in ${expiryDays} days; if it has expired, reply to this email and we'll send a fresh one.</p>`
   return { subject, text, html }
