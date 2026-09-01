@@ -22,6 +22,13 @@ const communityRoom: ConversationType = {
       default: config.conversationBotName
     },
     {
+      name: 'communityName',
+      label: 'Community Name',
+      description: 'The display name for the community',
+      required: false,
+      type: 'string'
+    },
+    {
       name: 'llmModel',
       label: 'Model that your agents will use',
       required: false,
