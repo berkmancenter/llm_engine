@@ -376,6 +376,7 @@ export interface ConversationType {
      caller can still override it explicitly in the create body; this is just the type's
      fallback when they don't. */
   useRealNames?: boolean
+  enforceMembership?: boolean
 }
 
 export interface Profile {
@@ -531,6 +532,7 @@ export interface IConversation {
      conversation type's own useRealNames default (see ConversationType); update always
      ignores it, so an owner can never flip anonymity on or off mid-conversation. */
   useRealNames?: boolean
+  enforceMembership?: boolean
   owner: IUser
   topic: ITopic
   // How this conversation was created, when not the standard event-creation form. Deliberately

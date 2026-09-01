@@ -1128,7 +1128,7 @@ describe('Message service methods', () => {
     })
 
     test('should get all replies for a message without query', async () => {
-      const replies = await messageService.getMessageReplies(parentMessage._id)
+      const replies = await messageService.getMessageReplies(parentMessage._id, user1)
 
       expect(replies).toBeDefined()
       expect(replies).toHaveLength(3)
@@ -1146,7 +1146,9 @@ describe('Message service methods', () => {
 
     test('should filter replies using messageQuery parameter', async () => {
       // Get only replies with a specific source
-      const filteredReplies = await messageService.getMessageReplies(parentMessage._id, { 'source.type': 'test-source' })
+      const filteredReplies = await messageService.getMessageReplies(parentMessage._id, user1, {
+        'source.type': 'test-source'
+      })
 
       expect(filteredReplies).toBeDefined()
       expect(filteredReplies).toHaveLength(1)
@@ -1154,7 +1156,7 @@ describe('Message service methods', () => {
       expect(filteredReplies[0].source).toEqual({ type: 'test-source' })
 
       // Get only replies from a specific user
-      const userReplies = await messageService.getMessageReplies(parentMessage._id, { owner: user1._id })
+      const userReplies = await messageService.getMessageReplies(parentMessage._id, user1, { owner: user1._id })
 
       expect(userReplies).toBeDefined()
       expect(userReplies).toHaveLength(1)
@@ -1174,7 +1176,7 @@ describe('Message service methods', () => {
         channels: ['participant']
       })
 
-      const replies = await messageService.getMessageReplies(messageWithoutReplies._id)
+      const replies = await messageService.getMessageReplies(messageWithoutReplies._id, user1)
 
       expect(replies).toBeDefined()
       expect(Array.isArray(replies)).toBe(true)
@@ -1200,7 +1202,7 @@ describe('Message service methods', () => {
       })
 
       // Get replies to the parent message
-      const parentReplies = await messageService.getMessageReplies(parentMessage._id)
+      const parentReplies = await messageService.getMessageReplies(parentMessage._id, user1)
 
       // Should still have only 3 direct replies
       expect(parentReplies).toHaveLength(3)
@@ -1210,7 +1212,7 @@ describe('Message service methods', () => {
       expect(nestedReplyInResults).toBe(false)
 
       // But we should be able to get it when querying for replies to the first reply
-      const nestedReplies = await messageService.getMessageReplies(firstReply?._id)
+      const nestedReplies = await messageService.getMessageReplies(firstReply?._id, user1)
       expect(nestedReplies).toHaveLength(1)
       expect(nestedReplies[0].body).toBe('Nested reply to first reply')
     })

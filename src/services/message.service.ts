@@ -7,6 +7,7 @@ import ApiError from '../utils/ApiError.js'
 import websocketGateway from '../websockets/websocketGateway.js'
 import { IAgent, IMessage, AgentMessageActions } from '../types/index.types.js'
 import authChannels from '../utils/authChannels.js'
+import assertMembership from '../utils/assertMembership.js'
 import channelService from './channel.service.js'
 import { resolveDisplayName } from './user.service.js'
 
@@ -131,6 +132,7 @@ const createMessage = async (messageBody, user, conversation) => {
 }
 
 const conversationMessages = async (id, channels, user) => {
+  await assertMembership(user, id)
   if (channels?.length) {
     // check channel passcodes first, if any
     await authChannels(channels, id, user)
@@ -210,6 +212,7 @@ const vote = async (messageId, direction, status, requestUser) => {
   if (!message) {
     throw new ApiError(httpStatus.BAD_REQUEST, `Message with ID ${messageId} not found`)
   }
+  await assertMembership(user, message.conversation)
   if (message.owner?.toString() === user!._id.toString()) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Users cannot vote for their own messages.')
   }
@@ -308,6 +311,10 @@ const handleFeedbackMessage = async (message, user, conversation) => {
  * @returns {Promise<[Message]>}
  */
 const newMessageHandler = async (message, user, request = null) => {
+  if (!user.agentType) {
+    await assertMembership(user, message.conversation)
+  }
+
   // Check if this is a feedback message
   const isFeedback =
     (message.bodyType === 'text' && message.body?.toLowerCase().startsWith('/feedback')) ||
@@ -386,11 +393,11 @@ const newMessageHandler = async (message, user, request = null) => {
   return messages
 }
 
-const getMessageReplies = async (messageId, messageQuery = {}) => {
-  // Get the parent message to find the conversation
-  // const parentMessage = await Message.findById(messageId).exec()
-  // const conversation = await Conversation.findById(parentMessage?.conversation).populate('topic').exec()
-  // const isChannelOwner = userId && conversation?.topic && conversation.topic.owner.toString() === userId.toString()
+const getMessageReplies = async (messageId, user, messageQuery = {}) => {
+  const parentMessage = await Message.findById(messageId).select('conversation').lean()
+  if (parentMessage) {
+    await assertMembership(user, parentMessage.conversation)
+  }
 
   const replies = await Message.find({
     ...messageQuery,

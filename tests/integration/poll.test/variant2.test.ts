@@ -16,9 +16,6 @@ import config from '../../../src/config/config.js'
 import websocketGateway from '../../../src/websockets/websocketGateway.js'
 import schedule from '../../../src/jobs/schedule.js'
 
-// allow more time
-jest.setTimeout(10000)
-
 const BASE_API = '/v1/polls'
 
 const CHOICE1_TEXT = 'Choice 1'

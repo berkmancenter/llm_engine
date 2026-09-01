@@ -13,7 +13,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 *
  * @swagger
  * tags:
  *   name: Members
- *   description: Room member roster management
+ *   description: Conversation member roster management
  */
 
 /**
