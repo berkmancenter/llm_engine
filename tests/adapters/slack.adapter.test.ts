@@ -933,5 +933,23 @@ describe('slack adapter tests', () => {
       await makeSlackAdapter(conv1, { channel: 'C_A' }, [{ direct: true, direction: Direction.BOTH }])
       await expect(makeSlackAdapter(conv2, { channel: 'C_B' })).resolves.toBeDefined()
     })
+
+    it('does not allow a keyed DM adapter to coexist with an unkeyed DM adapter in the same workspace', async () => {
+      const conv1 = await makeConversation()
+      const conv2 = await makeConversation()
+      await makeSlackAdapter(conv1, { channel: 'C_A' }, [{ direct: true, direction: Direction.BOTH }])
+      await expect(
+        makeSlackAdapter(conv2, { channel: 'C_B', appKey: 'myapp' }, [{ direct: true, direction: Direction.BOTH }])
+      ).resolves.toBeDefined()
+    })
+
+    it('does not allow an unkeyed DM adapter to coexist with another unkeyed DM adapter in the same workspace', async () => {
+      const conv1 = await makeConversation()
+      const conv2 = await makeConversation()
+      await makeSlackAdapter(conv1, { channel: 'C_A' }, [{ direct: true, direction: Direction.BOTH }])
+      await expect(
+        makeSlackAdapter(conv2, { channel: 'C_B' }, [{ direct: true, direction: Direction.BOTH }])
+      ).rejects.toThrow('Another Slack adapter for this workspace')
+    })
   })
 })

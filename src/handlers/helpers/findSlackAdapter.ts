@@ -63,7 +63,8 @@ export default async function findSlackAdapter({
         type: 'slack',
         'config.appKey': appKey,
         'config.workspace': slackWorkspaceId,
-        dmChannels: { $exists: true, $not: { $size: 0 } }
+        dmChannels: { $exists: true, $not: { $size: 0 } },
+        active: true
       })
     }
     const channel = event?.channel
@@ -78,7 +79,8 @@ export default async function findSlackAdapter({
       type: 'slack',
       'config.appKey': appKey,
       'config.workspace': slackWorkspaceId,
-      'config.channel': channel
+      'config.channel': channel,
+      active: true
     })
   }
 

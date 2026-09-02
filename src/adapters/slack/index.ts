@@ -150,13 +150,15 @@ export default {
       logger.info(`Resolved Slack botUserId: ${this.config.botUserId}`)
     }
     if (this.dmChannels?.length > 0) {
+      // config.appKey scopes the conflict check to the same app bucket. When no appKey is set,
+      // explicitly exclude keyed adapters so a keyed and unkeyed app can each have DM routing.
       const query: Record<string, unknown> = {
         type: 'slack',
         'config.workspace': this.config.workspace,
+        'config.appKey': this.config.appKey ?? { $exists: false },
         dmChannels: { $exists: true, $not: { $size: 0 } },
         _id: { $ne: this._id }
       }
-      if (this.config.appKey) query['config.appKey'] = this.config.appKey
       // Dynamic import breaks the circular dependency:
       // adapter.model → defaultAdapterTypes → slack/index → adapter.model.
       // Ideally this cross-adapter uniqueness check would live in adapter.service.ts
