@@ -1,5 +1,5 @@
 import { supportedModels } from '../agents/helpers/getModelChat.js'
-import { ConversationType, Direction } from '../types/index.types.js'
+import { AdapterChannelConfig, ConversationType, Direction } from '../types/index.types.js'
 import config from '../config/config.js'
 
 const slackCommunityAssistant: ConversationType = {
@@ -48,7 +48,7 @@ const slackCommunityAssistant: ConversationType = {
       name: 'slackAppKey',
       label: 'Slack App Key in Webhook',
       description:
-        'The app key for the Slack app, used as last part ofwebhook URL to route incoming messages to the appropriate adapter.',
+        'The app key for the Slack app, used as last part of the webhook URL to route incoming messages to the appropriate adapter.',
       required: false,
       type: 'string'
     },
@@ -91,6 +91,15 @@ const slackCommunityAssistant: ConversationType = {
         'IDs of topic series the assistant can search (used when event_history tool is enabled). Leave empty to search all public topics.',
       required: false,
       type: 'object'
+    },
+    {
+      name: 'agentDMs',
+      label: 'Enable Agent DMs',
+      description:
+        'Allow users to DM the community assistant directly. Only one conversation per workspace (or per app key, if set) can have this enabled.',
+      required: false,
+      type: 'boolean',
+      default: false
     }
   ],
   // internal
@@ -107,6 +116,7 @@ const slackCommunityAssistant: ConversationType = {
       ]
     }
   ],
+  enableDMs: ['agents'],
   channels: [{ name: 'chat' }],
   adapters: {
     slack: {
@@ -125,7 +135,12 @@ const slackCommunityAssistant: ConversationType = {
           name: 'chat',
           direction: Direction.BOTH
         }
-      ]
+      ],
+      // Handlebars conditional: resolves to the dmChannels array when agentDMs is true,
+      // empty string when false. removeEmptyValues strips the empty string so the adapter
+      // is created without dmChannels, bypassing the per-workspace uniqueness constraint.
+      dmChannels:
+        '{{#if properties.agentDMs}}[{"direct":true,"agent":"communityAssistant","direction":"both"}]{{/if}}' as unknown as AdapterChannelConfig[]
     }
   }
 }
