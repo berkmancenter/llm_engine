@@ -9,6 +9,7 @@ type SlackEvent = {
 }
 
 type SlackPayload = {
+  team_id?: string
   event?: SlackEvent
 }
 
@@ -46,9 +47,10 @@ export default async function findSlackAdapter({
   appKey?: string
   payload: SlackPayload
 }): Promise<AdapterDocument | null> {
-  // Slack's API still calls workspaces "teams", so `event.team` is the workspace ID.
   const event = payload?.event
-  const slackWorkspaceId = event?.team
+  // team_id on the outer payload is more reliable than event.team — it is present on all
+  // event callback payloads including message subtypes that omit team from the event object.
+  const slackWorkspaceId = payload?.team_id ?? event?.team
   if (appKey) {
     const channel = event?.channel_type === 'im' ? 'direct' : event?.channel
     if (!slackWorkspaceId || !channel) {
@@ -66,20 +68,20 @@ export default async function findSlackAdapter({
     })
   }
 
-  if (!event?.team) return null
+  if (!slackWorkspaceId) return null
 
   // Only route to the active adapter. Failed/old conversations can leave inactive
   // adapter docs for the same channel+workspace; without this filter findOne may
   // return a stale inactive one (insertion order) and the message is silently dropped.
-  if (event.channel_type === 'im') {
-    return Adapter.findOne({ type: 'slack', 'config.channel': 'direct', 'config.workspace': event.team, active: true })
+  if (event?.channel_type === 'im') {
+    return Adapter.findOne({ type: 'slack', 'config.channel': 'direct', 'config.workspace': slackWorkspaceId, active: true })
   }
 
-  if (!event.channel) return null
+  if (!event?.channel) return null
   return Adapter.findOne({
     type: 'slack',
     'config.channel': event.channel,
-    'config.workspace': event.team,
+    'config.workspace': slackWorkspaceId,
     active: true
   })
 }

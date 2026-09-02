@@ -111,6 +111,24 @@ it('falls back to workspace+channel when no appKey is provided', async () => {
     expect(found).toBeNull()
   })
 
+  it('resolves workspace from outer team_id when event.team is absent (e.g. subtype events)', async () => {
+    const adapter = await makeAdapter({ channel: 'C123', workspace: 'T1' })
+
+    const found = await findSlackAdapter({
+      payload: { team_id: 'T1', event: { type: 'message', channel: 'C123' } }
+    })
+    expect(found?._id.toString()).toBe(adapter._id.toString())
+  })
+
+  it('prefers outer team_id over event.team when both are present', async () => {
+    const adapter = await makeAdapter({ channel: 'C123', workspace: 'T1' })
+
+    const found = await findSlackAdapter({
+      payload: { team_id: 'T1', event: { type: 'message', channel: 'C123', team: 'T_WRONG' } }
+    })
+    expect(found?._id.toString()).toBe(adapter._id.toString())
+  })
+
   it('returns null when there is no event on the payload', async () => {
     const found = await findSlackAdapter({ payload: {} })
     expect(found).toBeNull()
