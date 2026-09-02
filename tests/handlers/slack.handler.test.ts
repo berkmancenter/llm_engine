@@ -451,15 +451,15 @@ describe('POST /v1/webhooks/slack', () => {
   describe('Per-bot URL routing (:appKey)', () => {
     test('routes a request at /v1/webhooks/slack/:appKey to the matching bot', async () => {
       const mongoose = await import('mongoose')
-      // A second bot in the same workspace, with a channel the incoming payload doesn't mention.
-      // That makes the bot identifier in the URL the only way to resolve this bot; falling back
-      // to workspace+channel wouldn't match.
+      // A second bot in the same workspace on a different channel. Both the appKey in the URL
+      // and the channel in the payload are required to find this adapter — the appKey alone is
+      // not sufficient because the same appKey can serve multiple channels simultaneously.
       const secondConvo = new Conversation({ ...conversationAgentsEnabled, _id: new mongoose.Types.ObjectId() })
       await secondConvo.save()
       const secondBot = await Adapter.create({
         type: 'slack',
         config: {
-          channel: 'C_NEVER_IN_PAYLOAD',
+          channel: 'C_SECOND_BOT',
           workspace: 'T_SHARED_WORKSPACE',
           appKey: 'second-bot',
           signingSecret: 'second-bot-secret',
@@ -471,7 +471,7 @@ describe('POST /v1/webhooks/slack', () => {
       })
 
       const payload = {
-        event: { type: 'message', text: 'hi', channel: 'C_OTHER', team: 'T_SHARED_WORKSPACE' }
+        event: { type: 'message', text: 'hi', channel: 'C_SECOND_BOT', team: 'T_SHARED_WORKSPACE' }
       }
       const timestamp = Math.floor(Date.now() / 1000).toString()
       const signature = generateSlackSignature(timestamp, JSON.stringify(payload), 'second-bot-secret')

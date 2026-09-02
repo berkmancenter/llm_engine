@@ -867,4 +867,89 @@ describe('slack adapter tests', () => {
       })
     })
   })
+
+  describe('validateBeforeUpdate — DM uniqueness', () => {
+    async function makeConversation() {
+      const conv = new Conversation({
+        name: faker.lorem.words(3),
+        owner: user1._id,
+        topic: publicTopic._id,
+        enableAgents: true,
+        enableDMs: ['agents'],
+        agents: [],
+        messages: []
+      })
+      await conv.save()
+      return conv
+    }
+
+    async function makeSlackAdapter(conv, config: Record<string, unknown> = {}, dmChannels?) {
+      return Adapter.create({
+        type: 'slack',
+        conversation: conv,
+        config: { channel: 'C_TEST', botToken: 'xoxb-test', workspace: 'T_TEST', botUserId: 'U_BOT', ...config },
+        ...(dmChannels && { dmChannels }),
+        active: true
+      })
+    }
+
+    it('throws when a second adapter in the same workspace also has dmChannels (no appKeys)', async () => {
+      const conv1 = await makeConversation()
+      const conv2 = await makeConversation()
+      await makeSlackAdapter(conv1, { channel: 'C_A' }, [{ direct: true, direction: Direction.BOTH }])
+      await expect(
+        makeSlackAdapter(conv2, { channel: 'C_B' }, [{ direct: true, direction: Direction.BOTH }])
+      ).rejects.toThrow('Another Slack adapter for this workspace')
+    })
+
+    it('throws when a second adapter with the same appKey+workspace also has dmChannels', async () => {
+      const conv1 = await makeConversation()
+      const conv2 = await makeConversation()
+      await makeSlackAdapter(conv1, { channel: 'C_A', appKey: 'myapp' }, [{ direct: true, direction: Direction.BOTH }])
+      await expect(
+        makeSlackAdapter(conv2, { channel: 'C_B', appKey: 'myapp' }, [{ direct: true, direction: Direction.BOTH }])
+      ).rejects.toThrow('Another Slack adapter for this workspace/appKey')
+    })
+
+    it('allows a second DM adapter in the same workspace when it has a different appKey', async () => {
+      const conv1 = await makeConversation()
+      const conv2 = await makeConversation()
+      await makeSlackAdapter(conv1, { channel: 'C_A', appKey: 'app1' }, [{ direct: true, direction: Direction.BOTH }])
+      await expect(
+        makeSlackAdapter(conv2, { channel: 'C_B', appKey: 'app2' }, [{ direct: true, direction: Direction.BOTH }])
+      ).resolves.toBeDefined()
+    })
+
+    it('allows saving the same adapter again without self-conflicting', async () => {
+      const conv = await makeConversation()
+      const a = await makeSlackAdapter(conv, { channel: 'C_A' }, [{ direct: true, direction: Direction.BOTH }])
+      a.config.botName = 'Updated Name'
+      await expect(a.save()).resolves.toBeDefined()
+    })
+
+    it('allows an adapter without dmChannels to coexist with a DM adapter in the same workspace', async () => {
+      const conv1 = await makeConversation()
+      const conv2 = await makeConversation()
+      await makeSlackAdapter(conv1, { channel: 'C_A' }, [{ direct: true, direction: Direction.BOTH }])
+      await expect(makeSlackAdapter(conv2, { channel: 'C_B' })).resolves.toBeDefined()
+    })
+
+    it('does not allow a keyed DM adapter to coexist with an unkeyed DM adapter in the same workspace', async () => {
+      const conv1 = await makeConversation()
+      const conv2 = await makeConversation()
+      await makeSlackAdapter(conv1, { channel: 'C_A' }, [{ direct: true, direction: Direction.BOTH }])
+      await expect(
+        makeSlackAdapter(conv2, { channel: 'C_B', appKey: 'myapp' }, [{ direct: true, direction: Direction.BOTH }])
+      ).resolves.toBeDefined()
+    })
+
+    it('does not allow an unkeyed DM adapter to coexist with another unkeyed DM adapter in the same workspace', async () => {
+      const conv1 = await makeConversation()
+      const conv2 = await makeConversation()
+      await makeSlackAdapter(conv1, { channel: 'C_A' }, [{ direct: true, direction: Direction.BOTH }])
+      await expect(
+        makeSlackAdapter(conv2, { channel: 'C_B' }, [{ direct: true, direction: Direction.BOTH }])
+      ).rejects.toThrow('Another Slack adapter for this workspace')
+    })
+  })
 })

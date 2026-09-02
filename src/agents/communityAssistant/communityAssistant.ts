@@ -160,8 +160,11 @@ export default verify({
         }
       : undefined
 
+    const dmContextNote = isDM && sharedChatContext
+      ? 'Note: the prior conversation is your private DM thread with this user. The group channel content is below.\n\n'
+      : ''
     const userPrompt = sharedChatContext
-      ? `## Shared Chat History:\n${sharedChatContext}\n\n## Question:\n${question}`
+      ? `${dmContextNote}## Shared Chat History:\n${sharedChatContext}\n\n## Question:\n${question}`
       : `## Question:\n${question}`
 
     const response = await getAgentStructuredResponse(
