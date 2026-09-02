@@ -638,6 +638,9 @@
 <h4 id="configure-the-app-for-event-listening">Configure the app for event listening</h4>
 <p>Follow Step 4 <code>Configuring the app for event listening.</code> Set the request URL to the following address of your running LLM Engine server:
 <code>https://[base URL]/v1/webhooks/slack</code></p>
+<p>If you are running multiple Slack apps or need per-app signature verification, use the app-key variant instead and set a matching <code>appKey</code> in each adapter's config:
+<code>https://[base URL]/v1/webhooks/slack/[appKey]</code></p>
+<p>The app-key path also allows the same Slack app to serve multiple conversations across different channels — each conversation's adapter gets the same <code>appKey</code> but a different <code>channel</code> value, and LLM Engine routes by <code>appKey + workspace + channel</code>.</p>
 <p>Subscribe to the following bot events</p>
 <ul>
 <li>message.channels</li>
@@ -831,16 +834,23 @@
 <span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"description":"AI ethics roundtable next Thursday at 3pm ET, online via Zoom"}'</span>
 </code></pre></div>
 <h3 id="direct-messages">Direct messages</h3>
-<p>If you wish to support DMs between users and agents, you must configure a separate Conversation for all DMs. <strong>You can only have one such Conversation active at a time.</strong> Private communication between a user and the Slack app happens on a dedicated channel (different for each user). Therefore, you must use the keyword 'direct' for channel name, to signal that the conversation should process all direct messages.</p>
-<p>Example conversation body:</p>
-<div class="highlight"><pre><span></span><code>{
-    "name": "A chat",
-    "topicId": "{{defaultTopic}}",
-    "enableDMs": ['agents'],
-    "agentTypes": [agents],
-    "adapters": [ {"type": "slack", "config" : {"channel": "direct", "workspace: "T123494",  "botToken":"[token]", "botName": "Berkie"},
-        "dmChannels": [{ "direct": true, "agent": "playfulPerMessage", "direction": "both"}]}]
-}
+<p>To support DMs between users and an agent, add <code>dmChannels</code> to the same adapter that handles group chat — no separate Conversation is needed. Set <code>enableDMs: ["agents"]</code> on the Conversation so the engine accepts inbound DMs.</p>
+<p>LLM Engine routes DMs by finding the adapter for the workspace that has <code>dmChannels</code> configured. Because DM channel IDs are per-user and change with each conversation, you do not specify a channel ID for DMs. Only one adapter per workspace (or per <code>appKey</code> + workspace, if you use the app-key webhook path) may have <code>dmChannels</code> — LLM Engine enforces this at save time.</p>
+<p>Example conversation body with both group chat and DMs on the same adapter:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"A chat"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"topicId"</span><span class="p">:</span><span class="w"> </span><span class="s2">"{{defaultTopic}}"</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">"enableDMs"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"agents"</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"agentTypes"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"playfulPerMessage"</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">"adapters"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"slack"</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">"config"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"channel"</span><span class="p">:</span><span class="w"> </span><span class="s2">"C123456"</span><span class="p">,</span><span class="w"> </span><span class="nt">"workspace"</span><span class="p">:</span><span class="w"> </span><span class="s2">"T123494"</span><span class="p">,</span><span class="w"> </span><span class="nt">"botToken"</span><span class="p">:</span><span class="w"> </span><span class="s2">"[token]"</span><span class="p">,</span><span class="w"> </span><span class="nt">"botName"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Berkie"</span><span class="w"> </span><span class="p">},</span>
+<span class="w">      </span><span class="nt">"chatChannels"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"chat"</span><span class="p">,</span><span class="w"> </span><span class="nt">"direction"</span><span class="p">:</span><span class="w"> </span><span class="s2">"both"</span><span class="w"> </span><span class="p">}],</span>
+<span class="w">      </span><span class="nt">"dmChannels"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nt">"direct"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="nt">"agent"</span><span class="p">:</span><span class="w"> </span><span class="s2">"playfulPerMessage"</span><span class="p">,</span><span class="w"> </span><span class="nt">"direction"</span><span class="p">:</span><span class="w"> </span><span class="s2">"both"</span><span class="w"> </span><span class="p">}]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
 </code></pre></div>
 
 
