@@ -769,6 +769,57 @@ A single mom of two children with primary custody, she is passionate about findi
       expect(responses[0].message.toLowerCase()).toMatch(/cerulean|17th/)
     })
 
+    it('answers "what is going on in the group chat" from chat history, not DM history', async () => {
+      const t = Date.now()
+
+      // Group chat: distinctive topic unique to the shared channel
+      const chatMessages = [
+        await createMessage(
+          'Big news — the city just approved our permit for the rooftop garden project!',
+          user2,
+          ctxConversation,
+          ['chat'],
+          new Date(t - 8000)
+        ),
+        await createMessage(
+          'Amazing, we have been waiting months for that.',
+          user3,
+          ctxConversation,
+          ['chat'],
+          new Date(t - 7000)
+        )
+      ]
+      await prepareMessagesForAgent(chatMessages, ctxConversation, ctxAgent)
+
+      // DM history: completely unrelated topic
+      const dmHistory = buildHistory([
+        await createMessage(
+          'I keep thinking about whether pineapple belongs on pizza.',
+          user1,
+          ctxConversation,
+          [ctxDmChannel.name],
+          new Date(t - 5000)
+        ),
+        await createMessage(
+          'Strong opinions on both sides!',
+          user1,
+          ctxConversation,
+          [ctxDmChannel.name],
+          new Date(t - 4000)
+        )
+      ])
+
+      const msg = await createMessage("What's going on in the group chat?", user1, ctxConversation, [ctxDmChannel.name])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(ctxAgent, dmHistory, msg)
+
+      expect(responses).toHaveLength(1)
+      console.log('Group chat question from DM:', responses[0].message)
+      // Should reference the group chat topic
+      expect(responses[0].message.toLowerCase()).toMatch(/rooftop|garden|permit/)
+      // Should not describe the DM conversation as group chat activity
+      expect(responses[0].message.toLowerCase()).not.toMatch(/pineapple|pizza/)
+    })
+
     it('uses shared chat history as context when answering a voice question', async () => {
       const t = Date.now()
       const chatMessages = [
