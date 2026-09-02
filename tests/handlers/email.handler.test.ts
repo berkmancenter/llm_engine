@@ -204,13 +204,20 @@ const buildIcs = (
     organizer?: string | null
   } = {}
 ): string => {
+  const defaultStart = new Date(Date.now() + 2 * 60 * 60 * 1000)
+  const defaultEnd = new Date(Date.now() + 3 * 60 * 60 * 1000)
+  const toIcsUtc = (d: Date) =>
+    d
+      .toISOString()
+      .replace(/[-:]/g, '')
+      .replace(/\.\d{3}/, '')
   const {
     uid = '040000008200E00074C5B7101A82E00800000000ABCDEF01',
     summary = 'Quarterly Strategy Roundtable',
     description = 'Join on Zoom: https://acme.example.com/j/9876543210',
     location = 'https://acme.example.com/j/9876543210',
-    dtstart = '20260901T170000Z',
-    dtend = '20260901T180000Z',
+    dtstart = toIcsUtc(defaultStart),
+    dtend = toIcsUtc(defaultEnd),
     organizer = 'CN=Jane Organizer:mailto:jane@example.com'
   } = fields
 
@@ -333,18 +340,20 @@ describe('POST /v1/webhooks/email', () => {
       await request(app)
         .post('/v1/webhooks/email')
         .auth(webhookUser, webhookSecret)
-        .send(buildInboundEmailPayload(buildIcs()))
+        .send(buildInboundEmailPayload(buildIcs({ dtstart: '20270601T170000Z', dtend: '20270601T180000Z' })))
         .expect(httpStatus.OK)
 
       const logged = infoSpy.mock.calls.map(([message]) => String(message)).join('\n')
-      expect(logged).toContain('2026-09-01T17:00:00.000Z')
-      expect(logged).toContain('2026-09-01T18:00:00.000Z')
+      expect(logged).toContain('2027-06-01T17:00:00.000Z')
+      expect(logged).toContain('2027-06-01T18:00:00.000Z')
     })
   })
 
   describe('parseInviteFromPayload', () => {
     test('extracts the calendar fields from the base64-encoded .ics attachment', () => {
-      const invite = parseInviteFromPayload(buildInboundEmailPayload(buildIcs()))
+      const invite = parseInviteFromPayload(
+        buildInboundEmailPayload(buildIcs({ dtstart: '20270601T170000Z', dtend: '20270601T180000Z' }))
+      )
 
       expect(invite).not.toBeNull()
       expect(invite?.uid).toBe('040000008200E00074C5B7101A82E00800000000ABCDEF01')
@@ -352,8 +361,8 @@ describe('POST /v1/webhooks/email', () => {
       expect(invite?.description).toBe('Join on Zoom: https://acme.example.com/j/9876543210')
       expect(invite?.location).toBe('https://acme.example.com/j/9876543210')
       expect(invite?.organizer).toBe('jane@example.com')
-      expect(invite?.startDate?.toISOString()).toBe('2026-09-01T17:00:00.000Z')
-      expect(invite?.endDate?.toISOString()).toBe('2026-09-01T18:00:00.000Z')
+      expect(invite?.startDate?.toISOString()).toBe('2027-06-01T17:00:00.000Z')
+      expect(invite?.endDate?.toISOString()).toBe('2027-06-01T18:00:00.000Z')
     })
 
     test('resolves a TZID-based DTSTART/DTEND through the embedded VTIMEZONE', () => {
