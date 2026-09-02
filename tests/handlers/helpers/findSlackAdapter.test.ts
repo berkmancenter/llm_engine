@@ -27,15 +27,35 @@ describe('findSlackAdapter', () => {
     await insertTopics([publicTopic])
   })
 
-  it('resolves by appKey when provided and a match exists', async () => {
+  it('resolves by appKey+workspace+channel when provided and a match exists', async () => {
     await makeAdapter({ channel: 'C_OTHER', workspace: 'T1', appKey: 'berkie' })
     const va = await makeAdapter({ channel: 'C_VA', workspace: 'T1', appKey: 'va' })
 
-    const found = await findSlackAdapter({ appKey: 'va', payload: { event: {} } })
+    const found = await findSlackAdapter({
+      appKey: 'va',
+      payload: { event: { type: 'message', channel: 'C_VA', team: 'T1' } }
+    })
     expect(found?._id.toString()).toBe(va._id.toString())
   })
 
-  it('falls back to workspace+channel when no appKey is provided', async () => {
+  it('routes the same app to different conversations by channel when appKey is present', async () => {
+    const channelA = await makeAdapter({ channel: 'C_A', workspace: 'T1', appKey: 'myapp' })
+    const channelB = await makeAdapter({ channel: 'C_B', workspace: 'T1', appKey: 'myapp' })
+
+    const foundA = await findSlackAdapter({
+      appKey: 'myapp',
+      payload: { event: { type: 'message', channel: 'C_A', team: 'T1' } }
+    })
+    const foundB = await findSlackAdapter({
+      appKey: 'myapp',
+      payload: { event: { type: 'message', channel: 'C_B', team: 'T1' } }
+    })
+
+    expect(foundA?._id.toString()).toBe(channelA._id.toString())
+    expect(foundB?._id.toString()).toBe(channelB._id.toString())
+  })
+
+it('falls back to workspace+channel when no appKey is provided', async () => {
     const berkie = await makeAdapter({ channel: 'C123', workspace: 'T1' })
 
     const found = await findSlackAdapter({
@@ -55,9 +75,6 @@ describe('findSlackAdapter', () => {
   })
 
   it('returns null when the appKey matches but the event came from a different workspace', async () => {
-    // A bot lives in one workspace. If a payload claims a different one, refuse it even though
-    // the appKey lookup hit a row. The signature check would normally catch a forged payload,
-    // but rejecting on shape keeps a leaked URL from being probed with payloads from elsewhere.
     await makeAdapter({ channel: 'C_VA', workspace: 'W_VA', appKey: 'va' })
 
     const found = await findSlackAdapter({
@@ -67,14 +84,24 @@ describe('findSlackAdapter', () => {
     expect(found).toBeNull()
   })
 
-  it('falls back to workspace+channel when appKey is provided but not found', async () => {
-    const berkie = await makeAdapter({ channel: 'C123', workspace: 'T1' })
+  it('returns null when appKey is provided but no matching row exists', async () => {
+    await makeAdapter({ channel: 'C123', workspace: 'T1' })
 
     const found = await findSlackAdapter({
       appKey: 'nonexistent',
       payload: { event: { type: 'message', channel: 'C123', team: 'T1' } }
     })
-    expect(found?._id.toString()).toBe(berkie._id.toString())
+    expect(found).toBeNull()
+  })
+
+  it('returns null when appKey is provided but workspace or channel is missing from the payload', async () => {
+    await makeAdapter({ channel: 'C123', workspace: 'T1', appKey: 'myapp' })
+
+    const found = await findSlackAdapter({
+      appKey: 'myapp',
+      payload: { event: { team: 'T1' } }
+    })
+    expect(found).toBeNull()
   })
 
   it('returns null when nothing matches', async () => {
