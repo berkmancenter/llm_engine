@@ -149,6 +149,28 @@ export default {
       this.config.botUserId = authResult.user_id
       logger.info(`Resolved Slack botUserId: ${this.config.botUserId}`)
     }
+    if (this.dmChannels?.length > 0) {
+      const query: Record<string, unknown> = {
+        type: 'slack',
+        'config.workspace': this.config.workspace,
+        dmChannels: { $exists: true, $not: { $size: 0 } },
+        _id: { $ne: this._id }
+      }
+      if (this.config.appKey) query['config.appKey'] = this.config.appKey
+      // Dynamic import breaks the circular dependency:
+      // adapter.model → defaultAdapterTypes → slack/index → adapter.model.
+      // Ideally this cross-adapter uniqueness check would live in adapter.service.ts
+      // rather than here, with the adapter type declaring the constraint declaratively
+      // (e.g. a dmUniqueKeys() hook) and the service executing the DB query. That would
+      // keep adapter types free of model imports entirely.
+      const { default: Adapter } = await import('../../models/adapter.model.js')
+      const conflict = await Adapter.findOne(query)
+      if (conflict) {
+        throw new Error(
+          `Another Slack adapter for this workspace${this.config.appKey ? `/appKey` : ''} already handles DMs. Only one adapter per app can have dmChannels.`
+        )
+      }
+    }
   },
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async participantJoined(participant) {

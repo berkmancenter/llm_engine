@@ -8,7 +8,8 @@ import findSlackAdapter from '../../../src/handlers/helpers/findSlackAdapter.js'
 
 setupIntTest()
 
-const makeAdapter = async (config: Record<string, unknown>) => {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const makeAdapter = async ({ dmChannels, ...config }: Record<string, any>) => {
   // A fresh _id per call: the shared fixture pins one, which collides when reused.
   const conversation = new Conversation({ ...conversationAgentsEnabled, _id: new mongoose.Types.ObjectId() })
   await conversation.save()
@@ -17,6 +18,7 @@ const makeAdapter = async (config: Record<string, unknown>) => {
   return Adapter.create({
     type: 'slack',
     config: { botToken: 'xoxb-test', botUserId: 'U_TEST', ...config },
+    ...(dmChannels && { dmChannels }),
     conversation: conversation._id,
     active: true
   })
@@ -66,12 +68,33 @@ it('falls back to workspace+channel when no appKey is provided', async () => {
 
   it('resolves the workspace DM adapter when the event is an im', async () => {
     await makeAdapter({ channel: 'C123', workspace: 'T1' })
-    const dm = await makeAdapter({ channel: 'direct', workspace: 'T1' })
+    const dm = await makeAdapter({ channel: 'C123', workspace: 'T1', dmChannels: [{ direct: true, direction: 'both' }] })
 
     const found = await findSlackAdapter({
-      payload: { event: { type: 'message', channel_type: 'im', channel: 'D123', team: 'T1' } }
+      payload: { event: { type: 'message', channel_type: 'im', channel: 'D_USER123', team: 'T1' } }
     })
     expect(found?._id.toString()).toBe(dm._id.toString())
+  })
+
+  it('resolves DM adapter by appKey+workspace when appKey is present', async () => {
+    await makeAdapter({ channel: 'C_A', workspace: 'T1', appKey: 'app1' })
+    const dm = await makeAdapter({ channel: 'C_A', workspace: 'T1', appKey: 'app1', dmChannels: [{ direct: true, direction: 'both' }] })
+    await makeAdapter({ channel: 'C_B', workspace: 'T1', appKey: 'app2', dmChannels: [{ direct: true, direction: 'both' }] })
+
+    const found = await findSlackAdapter({
+      appKey: 'app1',
+      payload: { event: { type: 'message', channel_type: 'im', channel: 'D_USER123', team: 'T1' } }
+    })
+    expect(found?._id.toString()).toBe(dm._id.toString())
+  })
+
+  it('returns null for a DM when no adapter has dmChannels for the workspace', async () => {
+    await makeAdapter({ channel: 'C123', workspace: 'T1' })
+
+    const found = await findSlackAdapter({
+      payload: { event: { type: 'message', channel_type: 'im', channel: 'D_USER123', team: 'T1' } }
+    })
+    expect(found).toBeNull()
   })
 
   it('returns null when the appKey matches but the event came from a different workspace', async () => {

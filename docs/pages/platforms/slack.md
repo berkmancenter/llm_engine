@@ -33,6 +33,11 @@ NOTE: you must invite the app to a channel in order for agents to participate
 Follow Step 4 `Configuring the app for event listening.` Set the request URL to the following address of your running LLM Engine server:
 `https://[base URL]/v1/webhooks/slack`
 
+If you are running multiple Slack apps or need per-app signature verification, use the app-key variant instead and set a matching `appKey` in each adapter's config:
+`https://[base URL]/v1/webhooks/slack/[appKey]`
+
+The app-key path also allows the same Slack app to serve multiple conversations across different channels — each conversation's adapter gets the same `appKey` but a different `channel` value, and LLM Engine routes by `appKey + workspace + channel`.
+
 Subscribe to the following bot events
 
 - message.channels
@@ -201,17 +206,25 @@ curl -X POST http://localhost:3000/v1/event-setup/plan \
 
 ### Direct messages
 
-If you wish to support DMs between users and agents, you must configure a separate Conversation for all DMs. **You can only have one such Conversation active at a time.** Private communication between a user and the Slack app happens on a dedicated channel (different for each user). Therefore, you must use the keyword 'direct' for channel name, to signal that the conversation should process all direct messages.
+To support DMs between users and an agent, add `dmChannels` to the same adapter that handles group chat — no separate Conversation is needed. Set `enableDMs: ["agents"]` on the Conversation so the engine accepts inbound DMs.
 
-Example conversation body:
+LLM Engine routes DMs by finding the adapter for the workspace that has `dmChannels` configured. Because DM channel IDs are per-user and change with each conversation, you do not specify a channel ID for DMs. Only one adapter per workspace (or per `appKey` + workspace, if you use the app-key webhook path) may have `dmChannels` — LLM Engine enforces this at save time.
 
-```
+Example conversation body with both group chat and DMs on the same adapter:
+
+```json
 {
-    "name": "A chat",
-    "topicId": "{{defaultTopic}}",
-    "enableDMs": ['agents'],
-    "agentTypes": [agents],
-    "adapters": [ {"type": "slack", "config" : {"channel": "direct", "workspace: "T123494",  "botToken":"[token]", "botName": "Berkie"},
-        "dmChannels": [{ "direct": true, "agent": "playfulPerMessage", "direction": "both"}]}]
+  "name": "A chat",
+  "topicId": "{{defaultTopic}}",
+  "enableDMs": ["agents"],
+  "agentTypes": ["playfulPerMessage"],
+  "adapters": [
+    {
+      "type": "slack",
+      "config": { "channel": "C123456", "workspace": "T123494", "botToken": "[token]", "botName": "Berkie" },
+      "chatChannels": [{ "name": "chat", "direction": "both" }],
+      "dmChannels": [{ "direct": true, "agent": "playfulPerMessage", "direction": "both" }]
+    }
+  ]
 }
 ```
