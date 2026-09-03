@@ -15,4 +15,19 @@ const memberImportLimiter = rateLimit({
   max: 5
 })
 
-export { authLimiter, memberImportLimiter }
+/* Guards the admin batch-send and resend endpoints in every environment. */
+const inviteSendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10
+})
+
+/* Guards the public invite validate/consume endpoints in every environment. Unlike
+   authLimiter this deliberately counts successful requests too: with
+   skipSuccessfulRequests a valid token could be replayed rapidly without ever counting
+   against the limit. */
+const inviteConsumeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20
+})
+
+export { authLimiter, memberImportLimiter, inviteSendLimiter, inviteConsumeLimiter }
