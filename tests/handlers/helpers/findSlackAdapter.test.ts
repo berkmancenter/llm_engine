@@ -197,4 +197,22 @@ describe('findSlackAdapter', () => {
     })
     expect(found).toBeNull()
   })
+
+  it('resolves by appKey alone for url_verification (no workspace in payload)', async () => {
+    const adapter = await makeAdapter({ channel: 'C123', workspace: 'T1', appKey: 'myapp' })
+
+    const found = await findSlackAdapter({
+      appKey: 'myapp',
+      payload: { type: 'url_verification' }
+    })
+    expect(found?._id.toString()).toBe(adapter._id.toString())
+  })
+
+  it('returns null for url_verification when no adapter matches the appKey', async () => {
+    const found = await findSlackAdapter({
+      appKey: 'nonexistent',
+      payload: { type: 'url_verification' }
+    })
+    expect(found).toBeNull()
+  })
 })

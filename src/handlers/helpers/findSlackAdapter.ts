@@ -10,6 +10,7 @@ type SlackEvent = {
 
 type SlackPayload = {
   team_id?: string
+  type?: string
   event?: SlackEvent
 }
 
@@ -55,6 +56,12 @@ export default async function findSlackAdapter({
   const slackWorkspaceId = payload?.team_id ?? event?.team
   if (appKey) {
     if (!slackWorkspaceId) {
+      // url_verification has no event or workspace — Slack sends it to confirm the endpoint
+      // during app setup. Fall back to appKey-only so the middleware can resolve the signing
+      // secret and respond to the challenge.
+      if (payload.type === 'url_verification') {
+        return Adapter.findOne({ type: 'slack', 'config.appKey': appKey, active: true })
+      }
       logger.warn(`Slack appKey lookup for '${appKey}' received a payload with no workspace — cannot route`)
       return null
     }
