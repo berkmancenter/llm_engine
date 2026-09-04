@@ -3,10 +3,14 @@ import ApiError from '../utils/ApiError.js'
 import config from '../config/config.js'
 import logger from '../config/logger.js'
 import validateSignature from './helpers/validateSignature.js'
-import findSlackAdapter from './helpers/findSlackAdapter.js'
+import findSlackAdapter, { findSlackAppHomeAdapter } from './helpers/findSlackAdapter.js'
 import resolveSlackSigningSecret from './helpers/resolveSlackSigningSecret.js'
 import webhookService from '../services/webhook.service.js'
 import slackInteractionHandler from './slackInteraction.js'
+import Agent from '../models/user.model/agent.model/index.js'
+import buildAppHomeData from '../agents/communityAssistant/appHomeContent.js'
+import renderAppHomePage from '../adapters/slack/blocks/communityAssistant/appHome.js'
+import { publishHomeView } from '../adapters/slack/index.js'
 
 // Slack retries webhook delivery if it doesn't get a 200 fast enough (common through ngrok).
 // event_id stays the same on retries, so we track it to skip duplicates.
@@ -21,6 +25,37 @@ function isDuplicate(eventId: string): boolean {
   if (seenEventIds.has(eventId)) return true
   seenEventIds.set(eventId, now)
   return false
+}
+
+/**
+ * Draws the App Home page for whoever just opened it.
+ *
+ * Every expected dead end (wrong tab, no bot for this workspace, no assistant on its
+ * conversation) is a quiet early return rather than an error: the person simply sees the
+ * empty tab Slack shows today. Only a genuine failure is logged.
+ */
+const publishAppHome = async (req, payload) => {
+  const { event } = payload
+  // Slack fires this for the Messages tab too, which opens far more often than the Home tab.
+  if (event.tab !== 'home') return
+
+  const slackAdapter = req.slackAdapter ?? (await findSlackAppHomeAdapter({ appKey: req.params?.appKey, payload }))
+  if (!slackAdapter) return
+
+  const agent = await Agent.findOne({
+    conversation: slackAdapter.conversation,
+    agentType: 'communityAssistant'
+  }).select('agentConfig')
+  if (!agent) return
+
+  const isDirectConversation = slackAdapter.config?.channel === 'direct'
+  const pageData = buildAppHomeData(agent.agentConfig, {
+    // A direct-message bot has no shared channel of its own to point people at.
+    channelId: isDirectConversation ? undefined : slackAdapter.config?.channel,
+    canDirectMessage: isDirectConversation
+  })
+
+  await publishHomeView(slackAdapter.config.botToken, event.user, renderAppHomePage(pageData))
 }
 
 const handleEvent = async (req, res) => {
@@ -64,6 +99,18 @@ const handleEvent = async (req, res) => {
     res.status(httpStatus.OK).send('ok')
     return
   }
+  if (event.type === 'app_home_opened') {
+    /* Slack needs a fast 200 and retries anything else, so a page that fails to draw is
+       logged and swallowed rather than turned into a failed delivery. */
+    try {
+      await publishAppHome(req, payload)
+    } catch (err) {
+      logger.error(`Failed to publish Slack App Home for user ${event.user}: ${err.message}`)
+    }
+    res.status(httpStatus.OK).send('ok')
+    return
+  }
+
   // Skip bot messages to prevent loops and skip messages with subtypes, which are not user messages (they represent events like user joining a channel, etc)
   // The middleware already resolved and validated the adapter for this workspace/channel.
   if (event.type === 'message' && !event.bot_id && !event.subtype) {
@@ -100,8 +147,15 @@ const middleware = async (req, res, next) => {
     // ID to look it up by. URL verification and button-click payloads have neither, so they fall
     // back to the global env-var secret.
     const appKey: string | undefined = req.params?.appKey
+    /* An app_home_opened payload is the one event type that names its workspace at the top
+       level instead of on the event, so it needs its own lookup. Deliberately not widened to
+       every event type: many others also lack event.team, and today they fall through to the
+       global secret and get a harmless 200. Routing those through adapter lookup would turn
+       the unresolvable ones into 401s, and Slack disables webhooks that keep failing. */
+    const isAppHome = req.body?.event?.type === 'app_home_opened'
     // Slack's API still calls workspaces "teams", so `team` is the workspace ID.
-    const slackWorkspaceId: string | undefined = req.body?.team_id ?? req.body?.event?.team
+    const slackWorkspaceId: string | undefined =
+      req.body?.team_id ?? req.body?.event?.team ?? (isAppHome ? req.body?.team_id : undefined)
     const canIdentifyAdapter = Boolean(appKey || slackWorkspaceId)
 
     if (!canIdentifyAdapter) {
@@ -113,7 +167,9 @@ const middleware = async (req, res, next) => {
       return
     }
 
-    const slackAdapter = await findSlackAdapter({ appKey, payload: req.body })
+    const slackAdapter = isAppHome
+      ? await findSlackAppHomeAdapter({ appKey, payload: req.body })
+      : await findSlackAdapter({ appKey, payload: req.body })
     if (!slackAdapter) {
       // Stay deliberately vague: don't reveal whether the adapter is missing or the signature is bad.
       throw new ApiError(httpStatus.UNAUTHORIZED, 'Invalid Slack signature')
