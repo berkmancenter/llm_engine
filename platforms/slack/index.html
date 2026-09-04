@@ -618,6 +618,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#app-home-page" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        App Home page
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -677,6 +688,7 @@
 <li>message.groups</li>
 <li>message.im (if using direct messages)</li>
 <li>member_joined_channel (required for member identity sync — triggers <code>users.info</code> lookup when a member joins a channel the bot is in)</li>
+<li>app_home_opened (if using the App Home page)</li>
 </ul>
 <h4 id="add-environment-variables">Add environment variables</h4>
 <p>Set the following environment variable in the LLM Engine <code>.env</code> file:</p>
@@ -903,6 +915,23 @@
 <span class="w">  </span><span class="p">]</span>
 <span class="p">}</span>
 </code></pre></div>
+<h3 id="app-home-page">App Home page</h3>
+<p>The App Home is the page users see when they click the app in their Slack sidebar. When a
+community assistant is running, LLM Engine draws that page from the assistant's own settings:
+a section for each enabled tool, a line for each enabled notification, and where to reach the
+bot. Nothing is published for a workspace running any other agent, since publishing replaces
+whatever the tab already shows.</p>
+<p>Slack-side setup:</p>
+<ol>
+<li>Under <code>App Home</code>, <code>Show Tabs</code>, turn on the <code>Home Tab</code> switch.</li>
+<li>Under <code>Event Subscriptions</code>, subscribe to the <code>app_home_opened</code> bot event.</li>
+</ol>
+<p>The wording lives in <code>src/agents/communityAssistant/appHomeContent.ts</code>, one entry per tool
+and per notification. A tool with no entry there is left off the page rather than shown by
+its raw name, so adding a tool to the assistant means adding its wording here too.</p>
+<p>Starter questions render as buttons only when the workspace also has a <code>direct</code> conversation
+running the community assistant, since a clicked question is always answered in the reader's
+own conversation with the bot. Without one they render as text to copy.</p>
 
 
 
