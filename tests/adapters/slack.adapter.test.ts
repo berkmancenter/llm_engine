@@ -1,7 +1,7 @@
 import faker from 'faker'
 import mongoose from 'mongoose'
 import setupIntTest from '../utils/setupIntTest.js'
-import { Conversation, Message } from '../../src/models/index.js'
+import { Conversation, Message, ConversationMembership } from '../../src/models/index.js'
 import { insertUsers } from '../fixtures/user.fixture.js'
 import { publicTopic } from '../fixtures/conversation.fixture.js'
 import { insertTopics } from '../fixtures/topic.fixture.js'
@@ -21,6 +21,10 @@ const mockWebClient = {
   },
   chat: {
     postMessage: jest.fn()
+  },
+  users: {
+    info: jest.fn(),
+    list: jest.fn()
   }
 }
 
@@ -475,7 +479,11 @@ describe('slack adapter tests', () => {
             channelId: slackEvent.channel
           },
           channels: adapter.chatChannels,
-          user: { username: `${slackEvent.team}-${slackEvent.user}`, pseudonym: slackEvent.user }
+          user: {
+            username: `${slackEvent.team}-${slackEvent.user}`,
+            pseudonym: slackEvent.user,
+            externalId: slackEvent.user
+          }
         }
       ])
     })
@@ -505,7 +513,11 @@ describe('slack adapter tests', () => {
             channelId: slackEvent.channel
           },
           channels: adapter.chatChannels,
-          user: { username: `${slackEvent.team}-${slackEvent.user}`, pseudonym: slackEvent.user }
+          user: {
+            username: `${slackEvent.team}-${slackEvent.user}`,
+            pseudonym: slackEvent.user,
+            externalId: slackEvent.user
+          }
         }
       ])
     })
@@ -677,6 +689,7 @@ describe('slack adapter tests', () => {
           user: {
             username: `${slackEvent.team}-${slackEvent.user}`,
             pseudonym: slackEvent.user,
+            externalId: slackEvent.user,
             dmConfig: { channel: 'D123456789' }
           }
         }
@@ -725,6 +738,7 @@ describe('slack adapter tests', () => {
           user: {
             username: `${slackEvent.team}-${slackEvent.user}`,
             pseudonym: slackEvent.user,
+            externalId: slackEvent.user,
             dmConfig: { channel: 'D123456789' }
           }
         }
@@ -865,6 +879,169 @@ describe('slack adapter tests', () => {
         await adapter.sendMessage(message)
         expect(findByIdAndUpdateMock).not.toHaveBeenCalled()
       })
+    })
+  })
+
+  describe('participantJoined', () => {
+    beforeEach(async () => {
+      await createConversation('participantJoined Test', ['agents'])
+      adapter.dmChannels = [{ direct: true, agent: new mongoose.Types.ObjectId(), direction: Direction.BOTH }]
+      await adapter.save()
+    })
+
+    it('returns AdapterUser with Slack user ID as pseudonym and externalId', async () => {
+      mockWebClient.users.info.mockResolvedValue({
+        ok: true,
+        user: { id: 'U123456', profile: { display_name: 'janesmith', email: 'jane@example.com' } }
+      })
+      const result = await adapter.participantJoined({ user: 'U123456', team: 'T123456789' })
+      expect(result).toMatchObject({
+        username: 'T123456789-U123456',
+        pseudonym: 'U123456',
+        externalId: 'U123456'
+      })
+    })
+
+    it('writes externalIds.slack to the matching ConversationMembership', async () => {
+      const membership = await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'jane@example.com',
+        name: 'Jane Smith'
+      })
+      mockWebClient.users.info.mockResolvedValue({
+        ok: true,
+        user: { id: 'U123456', profile: { display_name: 'janesmith', email: 'jane@example.com' } }
+      })
+      await adapter.participantJoined({ user: 'U123456', team: 'T123456789' })
+      const updated = await ConversationMembership.findById(membership._id).lean()
+      expect(updated?.externalIds?.slack).toBe('U123456')
+    })
+
+    it('returns AdapterUser without email membership write when users.info fails', async () => {
+      mockWebClient.users.info.mockResolvedValue({ ok: false })
+      const result = await adapter.participantJoined({ user: 'U123456', team: 'T123456789' })
+      expect(result).toMatchObject({
+        username: 'T123456789-U123456',
+        pseudonym: 'U123456',
+        externalId: 'U123456'
+      })
+    })
+
+    it('skips users.info when externalIds.slack already exists for this user', async () => {
+      await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'already@example.com',
+        name: 'Already Synced',
+        externalIds: { slack: 'U123456' }
+      })
+      const result = await adapter.participantJoined({ user: 'U123456', team: 'T123456789' })
+      expect(mockWebClient.users.info).not.toHaveBeenCalled()
+      expect(result).toMatchObject({
+        username: 'T123456789-U123456',
+        pseudonym: 'U123456',
+        externalId: 'U123456'
+      })
+    })
+  })
+
+  describe('start — syncSlackExternalIds', () => {
+    it('writes externalIds.slack for members whose email matches a ConversationMembership', async () => {
+      await createConversation('syncSlackExternalIds Basic Test')
+      const membership = await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'alice@example.com',
+        name: 'Alice'
+      })
+      mockWebClient.users.list.mockResolvedValue({
+        ok: true,
+        members: [{ id: 'U_ALICE', profile: { email: 'alice@example.com' }, is_bot: false, deleted: false }],
+        response_metadata: { next_cursor: '' }
+      })
+      await adapter.start()
+      const updated = await ConversationMembership.findById(membership._id).lean()
+      expect(updated?.externalIds?.slack).toBe('U_ALICE')
+    })
+
+    it('handles pagination and writes members across multiple pages', async () => {
+      await createConversation('syncSlackExternalIds Pagination Test')
+      const m1 = await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'page1@example.com',
+        name: 'Page One'
+      })
+      const m2 = await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'page2@example.com',
+        name: 'Page Two'
+      })
+      mockWebClient.users.list
+        .mockResolvedValueOnce({
+          ok: true,
+          members: [{ id: 'U_PAGE1', profile: { email: 'page1@example.com' }, is_bot: false, deleted: false }],
+          response_metadata: { next_cursor: 'cursor_page2' }
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          members: [{ id: 'U_PAGE2', profile: { email: 'page2@example.com' }, is_bot: false, deleted: false }],
+          response_metadata: { next_cursor: '' }
+        })
+      await adapter.start()
+      const updated1 = await ConversationMembership.findById(m1._id).lean()
+      const updated2 = await ConversationMembership.findById(m2._id).lean()
+      expect(updated1?.externalIds?.slack).toBe('U_PAGE1')
+      expect(updated2?.externalIds?.slack).toBe('U_PAGE2')
+    })
+
+    it('skips bots and deleted users', async () => {
+      await createConversation('syncSlackExternalIds Bots Test')
+      const botMembership = await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'bot@example.com',
+        name: 'Bot User'
+      })
+      const deletedMembership = await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'deleted@example.com',
+        name: 'Deleted User'
+      })
+      mockWebClient.users.list.mockResolvedValue({
+        ok: true,
+        members: [
+          { id: 'U_BOT', profile: { email: 'bot@example.com' }, is_bot: true, deleted: false },
+          { id: 'U_DEL', profile: { email: 'deleted@example.com' }, is_bot: false, deleted: true }
+        ],
+        response_metadata: { next_cursor: '' }
+      })
+      await adapter.start()
+      const updatedBot = await ConversationMembership.findById(botMembership._id).lean()
+      const updatedDel = await ConversationMembership.findById(deletedMembership._id).lean()
+      expect(updatedBot?.externalIds?.slack).toBeUndefined()
+      expect(updatedDel?.externalIds?.slack).toBeUndefined()
+    })
+
+    it('does not update when externalIds.slack is already correct', async () => {
+      await createConversation('syncSlackExternalIds No-op Test')
+      await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'already@example.com',
+        name: 'Already Synced',
+        externalIds: { slack: 'U_ALREADY' }
+      })
+      mockWebClient.users.list.mockResolvedValue({
+        ok: true,
+        members: [{ id: 'U_ALREADY', profile: { email: 'already@example.com' }, is_bot: false, deleted: false }],
+        response_metadata: { next_cursor: '' }
+      })
+      const bulkWriteSpy = jest.spyOn(ConversationMembership, 'bulkWrite')
+      await adapter.start()
+      expect(bulkWriteSpy).not.toHaveBeenCalled()
+    })
+
+    it('returns early without calling users.list when no memberships exist for the conversation', async () => {
+      await createConversation('syncSlackExternalIds Early Return Test')
+      // No memberships created
+      await adapter.start()
+      expect(mockWebClient.users.list).not.toHaveBeenCalled()
     })
   })
 

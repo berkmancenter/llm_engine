@@ -4,6 +4,7 @@ import logger from '../../config/logger.js'
 import slackClientPool from './client.js'
 import { AdapterMessage } from '../../types/adapter.types.js'
 import Message from '../../models/message.model.js'
+import ConversationMembership from '../../models/conversationMembership.model.js'
 import renderResponseBlocks from './blocks/index.js'
 
 function normalizeBotMention(text: string, botUserId: string, botName: string): string {
@@ -12,6 +13,68 @@ function normalizeBotMention(text: string, botUserId: string, botName: string): 
   const escapedId = botUserId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   // eslint-disable-next-line security/detect-non-literal-regexp
   return text.replace(new RegExp(`(?:&lt;|<)@${escapedId}(?:&gt;|>)`, 'g'), `@${botName}`)
+}
+
+async function syncSlackExternalIds() {
+  const conversationId = this.conversation._id
+
+  const hasMemberships = await ConversationMembership.exists({ conversation: conversationId })
+  if (!hasMemberships) {
+    logger.debug(`Slack externalIds sync: no memberships for conversation ${conversationId}, skipping`)
+    return
+  }
+
+  logger.info(`Slack externalIds sync: starting for conversation ${conversationId}`)
+  const slackWebClient = slackClientPool.getClient(this.config.botToken)
+  let cursor: string | undefined
+  let pageCount = 0
+  let totalUpdated = 0
+  do {
+    const result = await slackWebClient.users.list({ limit: 200, cursor })
+    if (!result.ok || !result.members) {
+      logger.warn(`Slack externalIds sync: users.list failed for conversation ${conversationId}`)
+      break
+    }
+    pageCount++
+
+    const emailToSlackId: Record<string, string> = {}
+    for (const member of result.members) {
+      const email = member.profile?.email
+      if (email && member.id && !member.deleted && !member.is_bot) {
+        emailToSlackId[email.toLowerCase()] = member.id
+      }
+    }
+
+    const emails = Object.keys(emailToSlackId)
+    if (emails.length > 0) {
+      const memberships = await ConversationMembership.find({
+        conversation: conversationId,
+        email: { $in: emails }
+      })
+        .select('_id email externalIds')
+        .lean()
+
+      const updates = memberships
+        .filter((m) => emailToSlackId[m.email] && m.externalIds?.slack !== emailToSlackId[m.email])
+        .map((m) => ({
+          updateOne: {
+            filter: { _id: m._id },
+            update: { $set: { 'externalIds.slack': emailToSlackId[m.email] } }
+          }
+        }))
+
+      if (updates.length > 0) {
+        await ConversationMembership.bulkWrite(updates)
+        totalUpdated += updates.length
+        logger.debug(`Slack externalIds sync: page ${pageCount} updated ${updates.length} memberships`)
+      }
+    }
+
+    cursor = result.response_metadata?.next_cursor || undefined
+  } while (cursor)
+  logger.info(
+    `Slack externalIds sync: done for conversation ${conversationId} — ${totalUpdated} memberships updated across ${pageCount} page(s)`
+  )
 }
 
 async function findThreadParent(conversationId, threadTs) {
@@ -26,7 +89,7 @@ async function receiveGroupChatMessage(event) {
        The user field is only used for auth lookup and is not saved. */
     source: { type: 'slack', id: event.ts, userId: event.user, teamId: event.team, channelId: event.channel },
     channels: this.chatChannels,
-    user: { username: `${event.team}-${event.user}`, pseudonym: event.user }
+    user: { username: `${event.team}-${event.user}`, pseudonym: event.user, externalId: event.user }
   }
   if (event.thread_ts && event.thread_ts !== event.ts) {
     const parentId = await findThreadParent(this.conversation._id, event.thread_ts)
@@ -40,7 +103,12 @@ async function receiveDirectMesssage(event) {
     message: normalizeBotMention(event.text, this.config.botUserId, this.config.botName),
     source: { type: 'slack', id: event.ts },
     channels: this.dmChannels,
-    user: { username: `${event.team}-${event.user}`, pseudonym: event.user, dmConfig: { channel: event.channel } }
+    user: {
+      username: `${event.team}-${event.user}`,
+      pseudonym: event.user,
+      externalId: event.user,
+      dmConfig: { channel: event.channel }
+    }
   }
   if (event.thread_ts && event.thread_ts !== event.ts) {
     const parentId = await findThreadParent(this.conversation._id, event.thread_ts)
@@ -129,7 +197,10 @@ export default {
   },
 
   async start() {
-    // no-op
+    // Sync workspace members to ConversationMembership.externalIds.slack so agents
+    // can @mention people by Slack user ID without per-message users.info calls.
+    // Blocks startup to guarantee the mapping is complete before any messages are processed.
+    await syncSlackExternalIds.call(this)
   },
   async stop() {
     // no-op
@@ -169,14 +240,60 @@ export default {
       const conflict = await Adapter.findOne(query)
       if (conflict) {
         throw new Error(
-          `Another Slack adapter for this workspace${this.config.appKey ? `/appKey` : ''} already handles DMs. Only one adapter per app can have dmChannels.`
+          `Another Slack adapter for this workspace${
+            this.config.appKey ? `/appKey` : ''
+          } already handles DMs. Only one adapter per app can have dmChannels.`
         )
       }
     }
   },
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async participantJoined(participant) {
-    // no-op for now. Agents do not DM participants until they receive a DM
+    const adapterUser = {
+      username: `${participant.team}-${participant.user}`,
+      pseudonym: participant.user,
+      externalId: participant.user
+    }
+
+    const hasMemberships = await ConversationMembership.exists({ conversation: this.conversation._id })
+    if (!hasMemberships) {
+      logger.debug(`participantJoined: no memberships for conversation ${this.conversation._id}, skipping users.info`)
+      return adapterUser
+    }
+
+    // If the initial sync (or a prior join) already mapped this Slack user ID to a membership
+    // record, skip the users.info API call entirely — avoids rate-limit pressure during bulk
+    // workspace invites where most members were already synced on start().
+    const alreadySynced = await ConversationMembership.exists({
+      conversation: this.conversation._id,
+      'externalIds.slack': participant.user
+    })
+    if (alreadySynced) {
+      logger.debug(`participantJoined: ${participant.user} already synced, skipping users.info`)
+      return adapterUser
+    }
+
+    logger.debug(`participantJoined: ${participant.user} not yet synced, calling users.info`)
+    const slackWebClient = slackClientPool.getClient(this.config.botToken)
+    const result = await slackWebClient.users.info({ user: participant.user })
+    if (!result.ok || !result.user) {
+      logger.warn(`participantJoined: users.info failed for ${participant.user}, proceeding without email`)
+      return adapterUser
+    }
+
+    const email = result.user.profile?.email
+    if (email) {
+      // Write the Slack user ID to the membership record so getOrCreateUser can find
+      // the right account by externalId rather than creating a Slack-keyed duplicate.
+      await ConversationMembership.updateOne(
+        { conversation: this.conversation._id, email },
+        { $set: { 'externalIds.slack': participant.user } }
+      )
+      logger.info(`participantJoined: wrote externalIds.slack for ${participant.user} (${email})`)
+    } else {
+      logger.debug(`participantJoined: ${participant.user} has no email in Slack profile, skipping membership update`)
+    }
+
+    return adapterUser
   },
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async participantLeft(participant) {

@@ -15,6 +15,8 @@ Follow Step 2 `Requesting Scopes` to request the following Bot Token Scopes:
 - chat:write
 - chat:write.public (if using in public channels)
 - channels:read
+- users:read (required for member identity sync — see [Member identity sync](#member-identity-sync) below)
+- users:read.email (required alongside `users:read` to access profile email addresses)
 
 #### Enable Direct Messaging from Messages Tab
 
@@ -43,6 +45,7 @@ Subscribe to the following bot events
 - message.channels
 - message.groups
 - message.im (if using direct messages)
+- member_joined_channel (required for member identity sync — triggers `users.info` lookup when a member joins a channel the bot is in)
 
 #### Add environment variables
 
@@ -203,6 +206,29 @@ curl -X POST http://localhost:3000/v1/event-setup/plan \
   -H "Content-Type: application/json" \
   -d '{"description":"AI ethics roundtable next Thursday at 3pm ET, online via Zoom"}'
 ```
+
+### Member identity sync
+
+When a Slack adapter starts, LLM Engine checks whether the conversation has any `ConversationMembership` records (created when you import a member list via CSV invite). If memberships exist, it paginates through the Slack workspace's user list (`users.list`) and writes each member's Slack user ID into `ConversationMembership.externalIds.slack`, matched by email address.
+
+This mapping is used in two ways:
+
+1. **Agent @mentions** — Agents that post to the Slack channel (such as the communityAssistant group intro feature) can look up a member's Slack user ID from their membership record and format it as `<@UXXXXXXXX>`, producing a real Slack highlight rather than plain text.
+
+2. **Account linking** — When a member who was pre-invited via CSV first sends a message in Slack, LLM Engine finds their membership record by Slack user ID and links it to the correct user account (matched by email, created if needed). This ensures a single identity if the same person later joins via another platform.
+
+When a `member_joined_channel` event fires, the adapter checks whether the joining user's Slack user ID is already in their membership record. If the initial sync already wrote it, the `users.info` API call is skipped entirely — this matters during bulk workspace invites where many `member_joined_channel` events arrive in quick succession and the Slack API rate limit for `users.info` is tight.
+
+#### Required OAuth scopes
+
+The sync requires two additional bot token scopes beyond the baseline:
+
+- `users:read` — allows calling `users.list` and `users.info`
+- `users:read.email` — allows reading profile email addresses from those calls
+
+Add both under _OAuth & Permissions → Bot Token Scopes_ in your Slack app configuration, then reinstall the app to your workspace so the new scopes take effect.
+
+If these scopes are missing, the adapter will start but log a `slack_webapi_platform_error` on the first sync attempt. The adapter otherwise continues normally; only the identity mapping is affected.
 
 ### Direct messages
 

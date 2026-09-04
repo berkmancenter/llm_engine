@@ -77,6 +77,13 @@ const handleEvent = async (req, res) => {
     }
     await webhookService.receiveMessage(slackAdapter, event)
   }
+
+  if (event.type === 'member_joined_channel') {
+    const slackAdapter = req.slackAdapter ?? (await findSlackAdapter({ appKey: req.params?.appKey, payload }))
+    if (slackAdapter) {
+      await webhookService.participantJoined(slackAdapter, event)
+    }
+  }
   res.status(httpStatus.OK).send('ok')
 }
 
