@@ -113,9 +113,8 @@ export default function buildAppHomeData(
   const toolNames = (agentConfig?.tools as string[]) || []
   const notificationKeys = (agentConfig?.notifications as string[]) || []
 
-  /* <#C123> is Slack's mrkdwn for a channel link; it renders as the channel's name. */
   const fill = (copy: string) =>
-    copy.replaceAll('{botName}', botName).replaceAll('{channel}', reach.channelId ? `<#${reach.channelId}>` : '')
+    copy.replaceAll('{botName}', botName).replaceAll('{channel}', reach.channelId ?? '')
 
   const reachLines: string[] = []
   if (reach.channelId) reachLines.push(fill(PAGE_COPY.reachChannel))
@@ -130,6 +129,7 @@ export default function buildAppHomeData(
     notices: buildNotices(notificationKeys).map(fill),
     reachHeading: fill(PAGE_COPY.reachHeading),
     reachLines,
+    channelId: reach.channelId,
     questionsAreClickable: Boolean(reach.canDirectMessage),
     footer: fill(PAGE_COPY.footer)
   }

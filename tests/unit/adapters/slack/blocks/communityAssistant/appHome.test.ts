@@ -24,7 +24,7 @@ function makeData(overrides: Partial<AppHomeData> = {}): AppHomeData {
     noticesHeading: 'What I post on my own',
     notices: ['When an event wraps up, I post a summary.'],
     reachHeading: 'How to reach me',
-    reachLines: ['Say my name in <#C0123456789>.', 'Or message me in the Messages tab.'],
+    reachLines: ['Say my name in C0123456789.', 'Or message me in the Messages tab.'],
     questionsAreClickable: false,
     footer: 'I can be wrong, so check anything that matters.',
     ...overrides
@@ -95,6 +95,12 @@ describe('renderAppHomePage', () => {
 
   it('drops the reach heading when there is no way to reach the assistant', () => {
     expect(textOf(renderAppHomePage(makeData({ reachLines: [] })))).not.toContain('How to reach me')
+  })
+
+  it('formats the channel ID in reach lines as a Slack mrkdwn channel link', () => {
+    const blocks = renderAppHomePage(makeData({ reachLines: ['Find me in C0123456789 to get started.'], channelId: 'C0123456789' }))
+    expect(textOf(blocks)).toContain('<#C0123456789>')
+    expect(textOf(blocks)).not.toContain(' C0123456789')
   })
 
   it('ends with the footer as small print rather than a full section', () => {

@@ -1,7 +1,6 @@
 import Adapter, { AdapterDocument } from '../../models/adapter.model.js'
 import Agent from '../../models/user.model/agent.model/index.js'
 import logger from '../../config/logger.js'
-import logger from '../../config/logger.js'
 
 type SlackEvent = {
   type?: string
@@ -11,7 +10,6 @@ type SlackEvent = {
 }
 
 type SlackPayload = {
-  team_id?: string
   type?: string
   event?: SlackEvent
   team_id?: string

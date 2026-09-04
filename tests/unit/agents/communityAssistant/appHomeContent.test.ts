@@ -81,11 +81,12 @@ describe('buildAppHomeData', () => {
     expect(data.notices).toEqual([])
   })
 
-  it('links the shared channel when the deployment has one', () => {
+  it('includes the shared channel ID in the reach lines when the deployment has one', () => {
     const data = buildAppHomeData({ botName: 'Athena', tools: [] }, { channelId: 'C0123456789' })
 
-    // Slack renders <#C0123456789> as a clickable channel name.
-    expect(data.reachLines.join(' ')).toContain('<#C0123456789>')
+    // The raw ID is passed through; platform-specific formatting (e.g. Slack's <#...>) is
+    // applied by the renderer, not here.
+    expect(data.reachLines.join(' ')).toContain('C0123456789')
   })
 
   it('offers a direct message only when the assistant accepts them', () => {

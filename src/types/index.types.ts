@@ -1415,6 +1415,9 @@ export interface AppHomeData {
   notices: string[]
   reachHeading: string
   reachLines: string[]
+  /* Raw channel ID used in reachLines as a plain token; renderers replace it with
+     whatever platform-specific link format they need (e.g. Slack's <#C123>). */
+  channelId?: string
   /* Starter questions become buttons only where a click has somewhere private to land,
      which means a direct-message conversation running this assistant. Everywhere else they
      stay as text to copy, so the page never offers a button that would fail. */

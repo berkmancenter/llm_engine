@@ -78,7 +78,11 @@ export default function renderAppHomePage(data: AppHomeData): KnownBlock[] {
   }
 
   if (data.reachLines.length > 0) {
-    blocks.push({ type: 'divider' }, section(`*${data.reachHeading}*`), section(data.reachLines.join('\n\n')))
+    // Replace the raw channel ID token with Slack's mrkdwn channel link (<#C123> renders as the channel name).
+    const reachLines = data.channelId
+      ? data.reachLines.map((line) => line.replace(data.channelId!, `<#${data.channelId}>`))
+      : data.reachLines
+    blocks.push({ type: 'divider' }, section(`*${data.reachHeading}*`), section(reachLines.join('\n\n')))
   }
 
   blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: data.footer }] })
