@@ -4,7 +4,7 @@ import Adapter from '../../../src/models/adapter.model.js'
 import Conversation from '../../../src/models/conversation.model.js'
 import { conversationAgentsEnabled, publicTopic } from '../../fixtures/conversation.fixture.js'
 import { insertTopics } from '../../fixtures/topic.fixture.js'
-import findSlackAdapter, { findSlackAppHomeAdapter } from '../../../src/handlers/helpers/findSlackAdapter.js'
+import findSlackAdapter, { findSlackAppHomeTarget } from '../../../src/handlers/helpers/findSlackAdapter.js'
 import Agent from '../../../src/models/user.model/agent.model/index.js'
 
 setupIntTest()
@@ -403,7 +403,7 @@ describe('findSlackAppHomeAdapter', () => {
    sits at the top level as team_id rather than on the event, and the bot's own user id
    arrives under authorizations. The Home tab also belongs to the whole Slack app rather
    than one channel, so several adapter rows in a workspace can match. */
-describe('findSlackAppHomeAdapter', () => {
+describe('findSlackAppHomeTarget', () => {
   beforeEach(async () => {
     await insertTopics([publicTopic])
   })
@@ -419,28 +419,28 @@ describe('findSlackAppHomeAdapter', () => {
     await makeAppHomeAdapter({ channel: 'C_OTHER', workspace: 'T1' })
     const berkie = await makeAppHomeAdapter({ channel: 'C_BERKIE', workspace: 'T1', appKey: 'berkie' })
 
-    const found = await findSlackAppHomeAdapter({ appKey: 'berkie', payload: appHomePayload() })
-    expect(found?._id.toString()).toBe(berkie._id.toString())
+    const found = await findSlackAppHomeTarget({ appKey: 'berkie', payload: appHomePayload() })
+    expect(found?.adapter._id.toString()).toBe(berkie._id.toString())
   })
 
   it('refuses an appKey match whose workspace disagrees with the payload', async () => {
     await makeAppHomeAdapter({ channel: 'C_BERKIE', workspace: 'T_OTHER', appKey: 'berkie' })
 
-    const found = await findSlackAppHomeAdapter({ appKey: 'berkie', payload: appHomePayload() })
+    const found = await findSlackAppHomeTarget({ appKey: 'berkie', payload: appHomePayload() })
     expect(found).toBeNull()
   })
 
   it('resolves by workspace and bot user id when no appKey is present', async () => {
     const berkie = await makeAppHomeAdapter({ channel: 'C_BERKIE', workspace: 'T1' })
 
-    const found = await findSlackAppHomeAdapter({ payload: appHomePayload() })
-    expect(found?._id.toString()).toBe(berkie._id.toString())
+    const found = await findSlackAppHomeTarget({ payload: appHomePayload() })
+    expect(found?.adapter._id.toString()).toBe(berkie._id.toString())
   })
 
   it('ignores an adapter in another workspace using the same bot user id', async () => {
     await makeAppHomeAdapter({ channel: 'C_BERKIE', workspace: 'T_OTHER' })
 
-    const found = await findSlackAppHomeAdapter({ payload: appHomePayload() })
+    const found = await findSlackAppHomeTarget({ payload: appHomePayload() })
     expect(found).toBeNull()
   })
 
@@ -449,14 +449,14 @@ describe('findSlackAppHomeAdapter', () => {
     stopped.active = false
     await stopped.save()
 
-    const found = await findSlackAppHomeAdapter({ payload: appHomePayload() })
+    const found = await findSlackAppHomeTarget({ payload: appHomePayload() })
     expect(found).toBeNull()
   })
 
   it('ignores a workspace whose conversation runs no community assistant', async () => {
     await makeAppHomeAdapter({ channel: 'C_SETUP', workspace: 'T1' }, 'eventSetup')
 
-    const found = await findSlackAppHomeAdapter({ payload: appHomePayload() })
+    const found = await findSlackAppHomeTarget({ payload: appHomePayload() })
     expect(found).toBeNull()
   })
 
@@ -464,26 +464,41 @@ describe('findSlackAppHomeAdapter', () => {
     await makeAppHomeAdapter({ channel: 'C_BERKIE', workspace: 'T1' })
     const dm = await makeAppHomeAdapter({ channel: 'direct', workspace: 'T1' })
 
-    const found = await findSlackAppHomeAdapter({ payload: appHomePayload() })
-    expect(found?._id.toString()).toBe(dm._id.toString())
+    const found = await findSlackAppHomeTarget({ payload: appHomePayload() })
+    expect(found?.adapter._id.toString()).toBe(dm._id.toString())
   })
 
   it('falls back to the channel conversation when the workspace has no direct one', async () => {
     await makeAppHomeAdapter({ channel: 'C_SETUP', workspace: 'T1' }, 'eventSetup')
     const berkie = await makeAppHomeAdapter({ channel: 'C_BERKIE', workspace: 'T1' })
 
-    const found = await findSlackAppHomeAdapter({ payload: appHomePayload() })
-    expect(found?._id.toString()).toBe(berkie._id.toString())
+    const found = await findSlackAppHomeTarget({ payload: appHomePayload() })
+    expect(found?.adapter._id.toString()).toBe(berkie._id.toString())
   })
 
   it('still resolves when the payload carries no bot authorization', async () => {
     const berkie = await makeAppHomeAdapter({ channel: 'C_BERKIE', workspace: 'T1' })
 
-    const found = await findSlackAppHomeAdapter({ payload: appHomePayload({ authorizations: undefined }) })
-    expect(found?._id.toString()).toBe(berkie._id.toString())
+    const found = await findSlackAppHomeTarget({ payload: appHomePayload({ authorizations: undefined }) })
+    expect(found?.adapter._id.toString()).toBe(berkie._id.toString())
+  })
+
+  it('names the shared channel alongside the direct conversation, since the page points readers at it', async () => {
+    await makeAppHomeAdapter({ channel: 'C_BERKIE', workspace: 'T1' })
+    await makeAppHomeAdapter({ channel: 'direct', workspace: 'T1' })
+
+    const found = await findSlackAppHomeTarget({ payload: appHomePayload() })
+    expect(found?.sharedChannelId).toBe('C_BERKIE')
+  })
+
+  it('names no shared channel when the assistant only runs in direct messages', async () => {
+    await makeAppHomeAdapter({ channel: 'direct', workspace: 'T1' })
+
+    const found = await findSlackAppHomeTarget({ payload: appHomePayload() })
+    expect(found?.sharedChannelId).toBeUndefined()
   })
 
   it('returns null when nothing matches', async () => {
-    expect(await findSlackAppHomeAdapter({ payload: appHomePayload({ team_id: 'T_MISSING' }) })).toBeNull()
+    expect(await findSlackAppHomeTarget({ payload: appHomePayload({ team_id: 'T_MISSING' }) })).toBeNull()
   })
 })

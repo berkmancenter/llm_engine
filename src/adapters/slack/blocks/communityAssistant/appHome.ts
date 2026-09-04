@@ -1,19 +1,44 @@
 import type { KnownBlock } from '@slack/types'
 import { AppHomeData, AppHomeFeature } from '../../../../types/index.types.js'
 
-/* Slack rejects a published view carrying more than 100 blocks. Each feature costs one
-   block, so the list is capped with room left for the surrounding page furniture. */
+/* Slack rejects a published view carrying more than 100 blocks, and a feature costs two of
+   them once its questions are buttons, so the list is capped with room left for the
+   surrounding page furniture. */
 const MAX_BLOCKS = 100
 const PAGE_FURNITURE_BLOCKS = 12
+const BLOCKS_PER_CLICKABLE_FEATURE = 2
+/* Slack rejects button text over 75 characters. The label is clipped to fit; the button's
+   value keeps the whole question, so the assistant still answers what was asked. */
+const MAX_BUTTON_TEXT = 75
 
-function featureSection(feature: AppHomeFeature): KnownBlock {
+function featureSection(feature: AppHomeFeature, questionsAreClickable: boolean): KnownBlock {
   const lines = [`*${feature.label}*`, feature.description]
-  /* Slack's mrkdwn renders "> " as an indented quote, which sets the example questions
-     apart from the description without needing a separate block per question. */
-  for (const question of feature.starterQuestions) {
-    lines.push(`> _${question}_`)
+  if (!questionsAreClickable) {
+    /* Slack's mrkdwn renders "> " as an indented quote, which sets the example questions
+       apart from the description without needing a separate block per question. */
+    for (const question of feature.starterQuestions) {
+      lines.push(`> _${question}_`)
+    }
   }
   return { type: 'section', text: { type: 'mrkdwn', text: lines.join('\n') } }
+}
+
+function clip(question: string): string {
+  return question.length <= MAX_BUTTON_TEXT ? question : `${question.slice(0, MAX_BUTTON_TEXT - 1)}…`
+}
+
+function questionButtons(feature: AppHomeFeature): KnownBlock {
+  return {
+    type: 'actions',
+    elements: feature.starterQuestions.map((question, index) => ({
+      type: 'button' as const,
+      text: { type: 'plain_text' as const, text: clip(question), emoji: true },
+      /* The click handler feeds this value back in as if the reader had typed it, so it
+         has to be the question itself rather than an identifier. */
+      value: question,
+      action_id: `app_home_starter_${feature.key}_${index}`
+    }))
+  }
 }
 
 function section(text: string): KnownBlock {
@@ -34,9 +59,13 @@ export default function renderAppHomePage(data: AppHomeData): KnownBlock[] {
   ]
 
   if (data.features.length > 0) {
+    const featureBudget = Math.floor((MAX_BLOCKS - PAGE_FURNITURE_BLOCKS) / BLOCKS_PER_CLICKABLE_FEATURE)
     blocks.push({ type: 'divider' }, section(`*${data.featuresHeading}*`))
-    for (const feature of data.features.slice(0, MAX_BLOCKS - PAGE_FURNITURE_BLOCKS)) {
-      blocks.push(featureSection(feature))
+    for (const feature of data.features.slice(0, featureBudget)) {
+      blocks.push(featureSection(feature, data.questionsAreClickable))
+      if (data.questionsAreClickable && feature.starterQuestions.length > 0) {
+        blocks.push(questionButtons(feature))
+      }
     }
   }
 

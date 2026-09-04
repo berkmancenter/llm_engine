@@ -1,3 +1,4 @@
+import type { ActionsBlock, Button as ButtonElement, KnownBlock } from '@slack/types'
 import renderAppHomePage from '../../../../../../src/adapters/slack/blocks/communityAssistant/appHome.js'
 import { AppHomeData } from '../../../../../../src/types/index.types.js'
 
@@ -24,9 +25,16 @@ function makeData(overrides: Partial<AppHomeData> = {}): AppHomeData {
     notices: ['When an event wraps up, I post a summary.'],
     reachHeading: 'How to reach me',
     reachLines: ['Say my name in <#C0123456789>.', 'Or message me in the Messages tab.'],
+    questionsAreClickable: false,
     footer: 'I can be wrong, so check anything that matters.',
     ...overrides
   }
+}
+
+function buttonsIn(blocks: KnownBlock[]) {
+  return blocks
+    .filter((block): block is ActionsBlock => block.type === 'actions')
+    .flatMap((block) => block.elements as ButtonElement[])
 }
 
 function textOf(blocks: unknown[]): string {
@@ -100,11 +108,40 @@ describe('renderAppHomePage', () => {
     )
   })
 
-  it('renders no buttons, since home tab clicks are not routed yet', () => {
-    const blocks = renderAppHomePage(makeData())
+  it('renders starter questions as plain text when a click has nowhere private to land', () => {
+    const blocks = renderAppHomePage(makeData({ questionsAreClickable: false }))
 
-    expect(blocks.some((block) => block.type === 'actions')).toBe(false)
-    expect(textOf(blocks)).not.toContain('"button"')
+    expect(buttonsIn(blocks)).toHaveLength(0)
+    expect(textOf(blocks)).toContain('What events happened recently?')
+  })
+
+  it('renders one button per starter question when clicks can be answered privately', () => {
+    const buttons = buttonsIn(renderAppHomePage(makeData({ questionsAreClickable: true })))
+
+    expect(buttons).toHaveLength(3)
+    expect(buttons.map((button) => button.value)).toEqual([
+      'What events happened recently?',
+      'What topics have past events covered?',
+      'What is the latest news on the EU AI Act?'
+    ])
+  })
+
+  it('carries the whole question as the button value, so the assistant answers what was asked', () => {
+    const longQuestion = `Who spoke about ${'decentralized identity '.repeat(6)}at the workshop?`
+    const data = makeData({ questionsAreClickable: true })
+    data.features = [{ ...data.features[0], starterQuestions: [longQuestion] }]
+
+    const [button] = buttonsIn(renderAppHomePage(data))
+
+    expect(button.value).toBe(longQuestion)
+    // Slack rejects button text over 75 characters, so the label is clipped and the value is not.
+    expect(button.text.text.length).toBeLessThanOrEqual(75)
+  })
+
+  it('stops repeating a question as text once it is a button', () => {
+    const text = textOf(renderAppHomePage(makeData({ questionsAreClickable: true })))
+
+    expect(text).not.toContain('> _What events happened recently?_')
   })
 
   it('stays under the 100 block ceiling Slack enforces on a published view', () => {
@@ -116,5 +153,7 @@ describe('renderAppHomePage', () => {
     }))
 
     expect(renderAppHomePage(makeData({ features })).length).toBeLessThanOrEqual(100)
+    // Buttons add an actions block per feature, so the cap has to hold in both modes.
+    expect(renderAppHomePage(makeData({ features, questionsAreClickable: true })).length).toBeLessThanOrEqual(100)
   })
 })

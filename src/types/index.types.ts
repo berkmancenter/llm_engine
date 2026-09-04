@@ -1415,6 +1415,10 @@ export interface AppHomeData {
   notices: string[]
   reachHeading: string
   reachLines: string[]
+  /* Starter questions become buttons only where a click has somewhere private to land,
+     which means a direct-message conversation running this assistant. Everywhere else they
+     stay as text to copy, so the page never offers a button that would fail. */
+  questionsAreClickable: boolean
   footer: string
 }
 

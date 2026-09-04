@@ -53,7 +53,33 @@ interface SlackBlockActionsPayload {
   actions: SlackBlockAction[]
   message?: { ts: string; thread_ts?: string }
   container?: { channel_id?: string }
+  view?: { private_metadata?: string }
   response_url?: string
+}
+
+// Slack DM channel IDs begin with 'D'
+const DM_CHANNEL_PREFIX = 'D'
+
+/**
+ * Works out which Slack conversation an interaction should be answered in.
+ *
+ * A click inside the App Home page carries no channel, because the page is not in one.
+ * The page writes the reader's own conversation with the bot into `private_metadata` on
+ * the way out, and only a private conversation is accepted back, so a click can never be
+ * answered in front of a whole channel.
+ */
+function resolveChannelId(payload: SlackBlockActionsPayload): string | undefined {
+  const fromClick = payload.channel?.id ?? payload.container?.channel_id
+  if (fromClick) return fromClick
+
+  const fromView = payload.view?.private_metadata
+  if (!fromView) return undefined
+
+  if (!fromView.startsWith(DM_CHANNEL_PREFIX)) {
+    logger.warn(`Slack block_actions: view named ${fromView}, which is not a private conversation, ignoring`)
+    return undefined
+  }
+  return fromView
 }
 
 /**
@@ -65,8 +91,7 @@ interface SlackBlockActionsPayload {
  */
 async function receiveInteraction(rawPayload: unknown): Promise<void> {
   const payload = rawPayload as SlackBlockActionsPayload
-  // Resolve the channel ID — payload.channel can be null in modal/Home Tab contexts
-  const resolvedChannelId = payload.channel?.id ?? payload.container?.channel_id
+  const resolvedChannelId = resolveChannelId(payload)
   if (!resolvedChannelId) {
     logger.warn(`Slack block_actions: no channel resolved for user ${payload.user.id}, ignoring`)
     return
@@ -84,8 +109,7 @@ async function receiveInteraction(rawPayload: unknown): Promise<void> {
     return
   }
 
-  // Slack DM channel IDs begin with 'D'
-  const isIM = resolvedChannelId.startsWith('D')
+  const isIM = resolvedChannelId.startsWith(DM_CHANNEL_PREFIX)
 
   const slackAdapter = await Adapter.findOne(
     isIM

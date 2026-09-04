@@ -18,38 +18,46 @@ interface FeatureCopy {
 
 const FEATURE_COPY: Record<string, FeatureCopy> = {
   event_history: {
-    label: 'Look up past events',
-    description: 'I can find what earlier events covered, when they happened, and who spoke on a subject.',
-    starterQuestions: ['What events happened recently?', 'What topics have past events covered?']
+    label: 'Past event transcripts and notes',
+    description: 'Search previous sessions to see what was discussed, when an event happened, or who spoke on a topic.',
+    starterQuestions: [
+      'Who spoke about decentralized identity at our last workshop?',
+      'When did we host the discussion on algorithmic fairness?'
+    ]
   },
   bkc_archive_wiki: {
-    label: 'Search the archive',
-    description: 'I can dig through the archive: pages on topics, people, and organizations, plus articles.',
-    starterQuestions: ["Tell me about the center's work on AI safety.", 'Who works on content moderation here?'],
+    label: 'Berkman Klein Center archive',
+    description: 'Explore curated BKC research, people profiles, newsletters, and talk transcripts.',
+    starterQuestions: [
+      'What projects has the Berkman Klein Center published on youth and media?',
+      'Who are the BKC fellows working on public interest technology?'
+    ],
     available: () => Boolean(config.bkcArchive.apiUrl)
   },
   web_search: {
-    label: 'Search the web',
-    description: 'I can check current sources and tell you where the answer came from.',
-    starterQuestions: ['What is the latest news on the EU AI Act?']
+    label: 'Live web search with sources',
+    description: 'Search the broader web for recent information, complete with cited links.',
+    starterQuestions: ['What are the latest regulatory updates on the EU AI Act?']
   }
 }
 
 const NOTICE_COPY: Record<string, string> = {
-  event_ended: 'When an event wraps up, I post a summary of what happened.',
-  participant_joined: 'When someone new joins, I introduce them to the room.'
+  event_ended: 'When a scheduled event wraps up, I post a quick recap so you can catch the main takeaways.',
+  participant_joined: 'When a newcomer joins, I share a brief greeting and orientation to help them get settled.'
 }
 
 const PAGE_COPY = {
-  headline: "Hi, I'm {botName}",
+  headline: 'Meet {botName}, your community assistant',
   intro:
-    'I help this community find things and think things through. Ask me about past events, search the archive, or talk through whatever you are working on.',
-  featuresHeading: 'What I can do',
-  noticesHeading: 'What I post on my own',
+    '{botName} is an AI assistant built to help our community find information, catch up on discussions, and navigate shared resources. It is here for all members, whether you are looking for past talk notes or exploring research topics.',
+  featuresHeading: 'What I can help you find',
+  noticesHeading: 'Automatic updates',
   reachHeading: 'How to reach me',
-  reachChannel: 'Say my name in {channel} and I will answer. I stay quiet otherwise, so the room stays yours.',
-  reachDirectMessage: 'Or send me a direct message in the Messages tab above. No need to use my name there.',
-  footer: 'I get things wrong sometimes, so check anything that matters. I read recent messages for context.'
+  reachChannel: 'To keep the room quiet, I only respond in {channel} when someone mentions @{botName} directly.',
+  reachDirectMessage:
+    'You can also message me in the Messages tab anytime without tagging my name, and I will reply to every message.',
+  footer:
+    'I do my best to provide accurate answers, but I can occasionally get facts wrong. Please verify critical information using the cited sources.'
 }
 
 interface AppHomeReach {
@@ -105,24 +113,24 @@ export default function buildAppHomeData(
   const toolNames = (agentConfig?.tools as string[]) || []
   const notificationKeys = (agentConfig?.notifications as string[]) || []
 
+  /* <#C123> is Slack's mrkdwn for a channel link; it renders as the channel's name. */
+  const fill = (copy: string) =>
+    copy.replaceAll('{botName}', botName).replaceAll('{channel}', reach.channelId ? `<#${reach.channelId}>` : '')
+
   const reachLines: string[] = []
-  if (reach.channelId) {
-    /* <#C123> is Slack's mrkdwn for a channel link; it renders as the channel's name. */
-    reachLines.push(PAGE_COPY.reachChannel.replace('{channel}', `<#${reach.channelId}>`))
-  }
-  if (reach.canDirectMessage) {
-    reachLines.push(PAGE_COPY.reachDirectMessage)
-  }
+  if (reach.channelId) reachLines.push(fill(PAGE_COPY.reachChannel))
+  if (reach.canDirectMessage) reachLines.push(fill(PAGE_COPY.reachDirectMessage))
 
   return {
-    headline: PAGE_COPY.headline.replace('{botName}', botName),
-    intro: PAGE_COPY.intro.replace('{botName}', botName),
-    featuresHeading: PAGE_COPY.featuresHeading,
+    headline: fill(PAGE_COPY.headline),
+    intro: fill(PAGE_COPY.intro),
+    featuresHeading: fill(PAGE_COPY.featuresHeading),
     features: buildFeatures(toolNames),
-    noticesHeading: PAGE_COPY.noticesHeading,
-    notices: buildNotices(notificationKeys),
-    reachHeading: PAGE_COPY.reachHeading,
+    noticesHeading: fill(PAGE_COPY.noticesHeading),
+    notices: buildNotices(notificationKeys).map(fill),
+    reachHeading: fill(PAGE_COPY.reachHeading),
     reachLines,
-    footer: PAGE_COPY.footer
+    questionsAreClickable: Boolean(reach.canDirectMessage),
+    footer: fill(PAGE_COPY.footer)
   }
 }

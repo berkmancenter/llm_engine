@@ -129,8 +129,18 @@ export default async function findSlackAdapter({
   })
 }
 
+export interface SlackAppHomeTarget {
+  /* The row whose assistant settings and bot token the page is built from. */
+  adapter: AdapterDocument
+  /* The shared channel where the same assistant also runs, when the workspace has one. The
+     page points readers at it, and the direct-message row it is usually built from carries
+     no record that the channel exists. */
+  sharedChannelId?: string
+}
+
 /**
- * Find the database row for the Slack bot whose App Home a user just opened.
+ * Find the Slack bot whose App Home a user just opened, and the channel its page should
+ * point readers at.
  *
  * Kept separate from {@link findSlackAdapter} because an `app_home_opened` payload
  * identifies itself differently: the workspace sits at the top level as `team_id`
@@ -141,29 +151,27 @@ export default async function findSlackAdapter({
  *
  * Preference order: the row named by the webhook address, then the direct-message
  * conversation, then any channel conversation. Direct messages win because that is the
- * conversation sitting in the Messages tab beside the page being drawn.
+ * conversation sitting in the Messages tab beside the page being drawn, and because a
+ * question clicked on the page can only be answered there.
  *
  * Returns null when the workspace runs no community assistant, which the caller treats
  * as "publish nothing" rather than as an error.
  */
-export async function findSlackAppHomeAdapter({
+export async function findSlackAppHomeTarget({
   appKey,
   payload
 }: {
   appKey?: string
   payload: SlackPayload
-}): Promise<AdapterDocument | null> {
+}): Promise<SlackAppHomeTarget | null> {
   const workspaceId = payload?.team_id
   if (!workspaceId) return null
 
-  if (appKey) {
-    const byAppKey = await Adapter.findOne({ type: 'slack', 'config.appKey': appKey, active: true })
-    // Same anti-probe check findSlackAdapter makes: a bot lives in one workspace, so a
-    // payload claiming another one is refused even though the address matched a row.
-    if (byAppKey) return byAppKey.config?.workspace === workspaceId ? byAppKey : null
-  }
-
   const botUserId = payload?.authorizations?.find((authorization) => authorization.is_bot)?.user_id
+  /* Every row for this workspace is fetched even when the address named one, since the page
+     needs both the assistant's own row and the shared channel it should point at, and those
+     are two different rows. A row in another workspace is never a candidate, which is the
+     same anti-probe check findSlackAdapter makes on a leaked webhook address. */
   const candidates = await Adapter.find({
     type: 'slack',
     'config.workspace': workspaceId,
@@ -185,5 +193,12 @@ export async function findSlackAppHomeAdapter({
     return null
   }
 
-  return eligible.find((candidate) => candidate.config?.channel === DIRECT_CHANNEL) ?? eligible[0]
+  const namedByAddress = appKey ? eligible.find((candidate) => candidate.config?.appKey === appKey) : undefined
+  const directMessages = eligible.find((candidate) => candidate.config?.channel === DIRECT_CHANNEL)
+  const sharedChannel = eligible.find((candidate) => candidate.config?.channel !== DIRECT_CHANNEL)
+
+  return {
+    adapter: namedByAddress ?? directMessages ?? eligible[0],
+    sharedChannelId: sharedChannel?.config?.channel as string | undefined
+  }
 }

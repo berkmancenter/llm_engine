@@ -3,7 +3,7 @@ import ApiError from '../utils/ApiError.js'
 import config from '../config/config.js'
 import logger from '../config/logger.js'
 import validateSignature from './helpers/validateSignature.js'
-import findSlackAdapter, { findSlackAppHomeAdapter } from './helpers/findSlackAdapter.js'
+import findSlackAdapter, { findSlackAppHomeTarget } from './helpers/findSlackAdapter.js'
 import resolveSlackSigningSecret from './helpers/resolveSlackSigningSecret.js'
 import webhookService from '../services/webhook.service.js'
 import slackInteractionHandler from './slackInteraction.js'
@@ -39,23 +39,23 @@ const publishAppHome = async (req, payload) => {
   // Slack fires this for the Messages tab too, which opens far more often than the Home tab.
   if (event.tab !== 'home') return
 
-  const slackAdapter = req.slackAdapter ?? (await findSlackAppHomeAdapter({ appKey: req.params?.appKey, payload }))
-  if (!slackAdapter) return
+  const target = req.slackAppHome ?? (await findSlackAppHomeTarget({ appKey: req.params?.appKey, payload }))
+  if (!target) return
+  const { adapter, sharedChannelId } = target
 
   const agent = await Agent.findOne({
-    conversation: slackAdapter.conversation,
+    conversation: adapter.conversation,
     agentType: 'communityAssistant'
   }).select('agentConfig')
   if (!agent) return
 
-  const isDirectConversation = slackAdapter.config?.channel === 'direct'
   const pageData = buildAppHomeData(agent.agentConfig, {
-    // A direct-message bot has no shared channel of its own to point people at.
-    channelId: isDirectConversation ? undefined : slackAdapter.config?.channel,
-    canDirectMessage: isDirectConversation
+    channelId: sharedChannelId,
+    canDirectMessage: adapter.config?.channel === 'direct'
   })
 
-  await publishHomeView(slackAdapter.config.botToken, event.user, renderAppHomePage(pageData))
+  // event.channel is this reader's own conversation with the bot, where clicked questions go.
+  await publishHomeView(adapter.config.botToken, event.user, renderAppHomePage(pageData), event.channel)
 }
 
 const handleEvent = async (req, res) => {
@@ -167,9 +167,8 @@ const middleware = async (req, res, next) => {
       return
     }
 
-    const slackAdapter = isAppHome
-      ? await findSlackAppHomeAdapter({ appKey, payload: req.body })
-      : await findSlackAdapter({ appKey, payload: req.body })
+    const appHomeTarget = isAppHome ? await findSlackAppHomeTarget({ appKey, payload: req.body }) : null
+    const slackAdapter = isAppHome ? appHomeTarget?.adapter : await findSlackAdapter({ appKey, payload: req.body })
     if (!slackAdapter) {
       // Stay deliberately vague: don't reveal whether the adapter is missing or the signature is bad.
       throw new ApiError(httpStatus.UNAUTHORIZED, 'Invalid Slack signature')
@@ -181,6 +180,8 @@ const middleware = async (req, res, next) => {
     }
 
     req.slackAdapter = slackAdapter
+    // Carried through so drawing the page doesn't repeat the lookup the signature check just did.
+    req.slackAppHome = appHomeTarget
     next()
   } catch (err) {
     next(err)

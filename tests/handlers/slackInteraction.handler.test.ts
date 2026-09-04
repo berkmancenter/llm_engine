@@ -109,6 +109,39 @@ describe('slackInteraction handler — receiveInteraction()', () => {
     expect(findOneSpy).toHaveBeenCalledWith(expect.objectContaining({ 'config.channel': 'C9999999999' }))
   })
 
+  /* A click on the App Home page has no channel at all: the page is not in one. The page
+     writes the reader's own conversation with the bot into private_metadata on the way out,
+     and these tests pin down that it is only ever trusted when it names a private one. */
+  it('answers an App Home click in the private conversation named by the view', async () => {
+    const payload = makePayload({
+      channel: null,
+      container: { type: 'view' },
+      view: { private_metadata: 'D1234567890' },
+      message: undefined
+    })
+    await slackInteractionHandler.receiveInteraction(payload)
+
+    expect(findOneSpy).toHaveBeenCalledWith(expect.objectContaining({ 'config.channel': 'direct' }))
+    expect(receiveMessageSpy).toHaveBeenCalledWith(
+      mockAdapter,
+      expect.objectContaining({ channel: 'D1234567890', channel_type: 'im' })
+    )
+  })
+
+  it('refuses a view naming a shared channel, rather than answering one person in front of everyone', async () => {
+    const payload = makePayload({ channel: null, view: { private_metadata: 'C1234567890' } })
+    await slackInteractionHandler.receiveInteraction(payload)
+
+    expect(receiveMessageSpy).not.toHaveBeenCalled()
+  })
+
+  it('ignores the view when the click already came from a channel', async () => {
+    const payload = makePayload({ view: { private_metadata: 'D1234567890' } })
+    await slackInteractionHandler.receiveInteraction(payload)
+
+    expect(receiveMessageSpy).toHaveBeenCalledWith(mockAdapter, expect.objectContaining({ channel: 'C1234567890' }))
+  })
+
   it('skips processing when neither payload.channel nor container.channel_id is set', async () => {
     const payload = makePayload({ channel: null })
     await slackInteractionHandler.receiveInteraction(payload)

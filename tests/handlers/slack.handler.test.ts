@@ -714,6 +714,14 @@ describe('POST /v1/webhooks/slack', () => {
       )
     })
 
+    test("leaves the reader's own conversation on the page, so a clicked question is answered privately", async () => {
+      await postAppHome(appHomePayload()).expect(httpStatus.OK)
+
+      expect(mockPublishView).toHaveBeenCalledWith(
+        expect.objectContaining({ view: expect.objectContaining({ private_metadata: 'D_HUMAN' }) })
+      )
+    })
+
     test('verifies the payload against the adapter secret, since only team_id names the workspace', async () => {
       slackAdapter.config = { ...slackAdapter.config, signingSecret: 'per-adapter-secret' }
       slackAdapter.markModified('config')
