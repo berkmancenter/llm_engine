@@ -7,7 +7,6 @@ import findSlackAdapter, { findSlackAppHomeTarget } from './helpers/findSlackAda
 import resolveSlackSigningSecret from './helpers/resolveSlackSigningSecret.js'
 import webhookService from '../services/webhook.service.js'
 import slackInteractionHandler from './slackInteraction.js'
-import Agent from '../models/user.model/agent.model/index.js'
 import buildAppHomeData from '../agents/communityAssistant/appHomeContent.js'
 import renderAppHomePage from '../adapters/slack/blocks/communityAssistant/appHome.js'
 import { publishHomeView } from '../adapters/slack/index.js'
@@ -41,17 +40,19 @@ const publishAppHome = async (req, payload) => {
 
   const target = req.slackAppHome ?? (await findSlackAppHomeTarget({ appKey: req.params?.appKey, payload }))
   if (!target) return
-  const { adapter, sharedChannelId } = target
+  const { adapter, sharedChannelId, channelAgentConfig, directAgentConfig } = target
 
-  const agent = await Agent.findOne({
-    conversation: adapter.conversation,
-    agentType: 'communityAssistant'
-  }).select('agentConfig')
-  if (!agent) return
+  /* The bot's name and the list of things it can look up come from whichever assistant the
+     reader will actually be talking to. Automatic updates have to come from the channel
+     assistant instead, since a direct-message conversation never ends and so never posts one. */
+  const settings = {
+    ...(directAgentConfig ?? channelAgentConfig),
+    notifications: channelAgentConfig?.notifications ?? []
+  }
 
-  const pageData = buildAppHomeData(agent.agentConfig, {
+  const pageData = buildAppHomeData(settings, {
     channelId: sharedChannelId,
-    canDirectMessage: adapter.config?.channel === 'direct'
+    canDirectMessage: Boolean(directAgentConfig)
   })
 
   // event.channel is this reader's own conversation with the bot, where clicked questions go.

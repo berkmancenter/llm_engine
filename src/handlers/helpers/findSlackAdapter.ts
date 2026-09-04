@@ -130,12 +130,21 @@ export default async function findSlackAdapter({
 }
 
 export interface SlackAppHomeTarget {
-  /* The row whose assistant settings and bot token the page is built from. */
+  /* The row supplying the bot token the page is published with, and the signing secret its
+     notice was checked against. Every eligible row belongs to the same Slack app, so the
+     choice between them only decides which stored secret and token get used. */
   adapter: AdapterDocument
-  /* The shared channel where the same assistant also runs, when the workspace has one. The
-     page points readers at it, and the direct-message row it is usually built from carries
-     no record that the channel exists. */
+  /* The shared channel where the assistant runs, when the workspace has one. The page points
+     readers at it, and the direct-message row carries no record that the channel exists. */
   sharedChannelId?: string
+  /* Settings of the assistant answering in that shared channel. The page's automatic-updates
+     list has to come from here: those notices are posted by the conversation that ends, and a
+     direct-message conversation never ends. */
+  channelAgentConfig?: Record<string, unknown>
+  /* Settings of the assistant answering direct messages, when the workspace runs one. Its
+     presence is also what makes starter questions clickable, since a click is answered there
+     and nowhere else. */
+  directAgentConfig?: Record<string, unknown>
 }
 
 /**
@@ -149,10 +158,10 @@ export interface SlackAppHomeTarget {
  * workspace running the bot in a channel and in direct messages produces two candidate
  * rows and the caller needs the one that can describe the assistant.
  *
- * Preference order: the row named by the webhook address, then the direct-message
- * conversation, then any channel conversation. Direct messages win because that is the
- * conversation sitting in the Messages tab beside the page being drawn, and because a
- * question clicked on the page can only be answered there.
+ * A workspace can run the assistant in a channel and in direct messages at once, and the
+ * page needs both: the channel conversation says which channel to point at and which notices
+ * get posted, and the direct one says whether a clicked question has anywhere to land. So
+ * both come back, rather than one row the caller has to guess the rest from.
  *
  * Returns null when the workspace runs no community assistant, which the caller treats
  * as "publish nothing" rather than as an error.
@@ -184,10 +193,12 @@ export async function findSlackAppHomeTarget({
   const withAssistant = await Agent.find({
     conversation: { $in: candidates.map((candidate) => candidate.conversation) },
     agentType: COMMUNITY_ASSISTANT_AGENT_TYPE
-  }).select('conversation')
-  const assistantConversationIds = new Set(withAssistant.map((agent) => agent.conversation.toString()))
+  }).select('conversation agentConfig')
+  const settingsByConversation = new Map(
+    withAssistant.map((agent) => [agent.conversation.toString(), agent.agentConfig as Record<string, unknown>])
+  )
 
-  const eligible = candidates.filter((candidate) => assistantConversationIds.has(candidate.conversation.toString()))
+  const eligible = candidates.filter((candidate) => settingsByConversation.has(candidate.conversation.toString()))
   if (eligible.length === 0) {
     logger.debug(`App Home: workspace ${workspaceId} runs no community assistant, nothing to publish`)
     return null
@@ -196,9 +207,13 @@ export async function findSlackAppHomeTarget({
   const namedByAddress = appKey ? eligible.find((candidate) => candidate.config?.appKey === appKey) : undefined
   const directMessages = eligible.find((candidate) => candidate.config?.channel === DIRECT_CHANNEL)
   const sharedChannel = eligible.find((candidate) => candidate.config?.channel !== DIRECT_CHANNEL)
+  const settingsOf = (candidate?: AdapterDocument) =>
+    candidate && settingsByConversation.get(candidate.conversation.toString())
 
   return {
     adapter: namedByAddress ?? directMessages ?? eligible[0],
-    sharedChannelId: sharedChannel?.config?.channel as string | undefined
+    sharedChannelId: sharedChannel?.config?.channel as string | undefined,
+    channelAgentConfig: settingsOf(sharedChannel),
+    directAgentConfig: settingsOf(directMessages)
   }
 }

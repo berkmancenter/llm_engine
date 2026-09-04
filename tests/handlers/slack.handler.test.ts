@@ -1,3 +1,4 @@
+import mongoose from 'mongoose'
 import httpStatus from 'http-status'
 import request from 'supertest'
 import crypto from 'crypto'
@@ -454,7 +455,6 @@ describe('POST /v1/webhooks/slack', () => {
 
   describe('Per-bot URL routing (:appKey)', () => {
     test('routes a request at /v1/webhooks/slack/:appKey to the matching bot', async () => {
-      const mongoose = await import('mongoose')
       // A second bot in the same workspace on a different channel. Both the appKey in the URL
       // and the channel in the payload are required to find this adapter — the appKey alone is
       // not sufficient because the same appKey can serve multiple channels simultaneously.
@@ -712,6 +712,53 @@ describe('POST /v1/webhooks/slack', () => {
           view: expect.objectContaining({ type: 'home', blocks: expect.any(Array) })
         })
       )
+    })
+
+    /* The bot answers direct messages from a second conversation, and only the channel one ever
+       posts an event recap. These cover the page describing the right one of the two. */
+    const addDirectConversation = async (agentConfig: Record<string, unknown> = {}) => {
+      const directConversation = new Conversation({
+        ...conversationAgentsEnabled,
+        _id: new mongoose.Types.ObjectId()
+      })
+      await directConversation.save()
+
+      const agent = new Agent({ agentType: 'communityAssistant', conversation: directConversation._id, agentConfig })
+      await agent.save()
+      directConversation.agents.push(agent)
+      await directConversation.save()
+
+      await Adapter.create({
+        type: 'slack',
+        config: { channel: 'direct', workspace: '123456', botToken: 'xoxb-test', botUserId: 'U_BOT' },
+        conversation: directConversation._id,
+        active: true
+      })
+    }
+
+    const publishedBlocks = () => JSON.stringify(mockPublishView.mock.calls[0][0].view.blocks)
+
+    test('lists the automatic updates the channel assistant posts, not the silent direct one', async () => {
+      await Agent.updateOne({ conversation: conversation._id }, { $set: { 'agentConfig.notifications': ['event_ended'] } })
+      await addDirectConversation({ notifications: [] })
+
+      await postAppHome(appHomePayload()).expect(httpStatus.OK)
+
+      expect(publishedBlocks()).toContain('When a scheduled event wraps up')
+    })
+
+    test('offers clickable questions once the workspace answers direct messages', async () => {
+      await addDirectConversation()
+
+      await postAppHome(appHomePayload()).expect(httpStatus.OK)
+
+      expect(publishedBlocks()).toContain('"type":"actions"')
+    })
+
+    test('leaves starter questions as text when nothing answers direct messages', async () => {
+      await postAppHome(appHomePayload()).expect(httpStatus.OK)
+
+      expect(publishedBlocks()).not.toContain('"type":"actions"')
     })
 
     test("leaves the reader's own conversation on the page, so a clicked question is answered privately", async () => {

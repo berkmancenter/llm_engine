@@ -51,9 +51,12 @@ const makeAppHomeAdapter = async (config: Record<string, unknown>, agentType = '
 /* Same as makeAdapter, but the conversation also runs an agent, since the App Home lookup
    picks between adapter rows by which one serves the community assistant. Only agentType is
    needed: the agent schema's pre-validate hook fills the rest from that type's defaults. */
-const makeAppHomeAdapter = async (config: Record<string, unknown>, agentType = 'communityAssistant') => {
+const makeAppHomeAdapter = async (
+  config: Record<string, unknown>,
+  { agentType = 'communityAssistant', agentConfig = {} } = {}
+) => {
   const conversation = await makeConversation()
-  const agent = new Agent({ agentType, conversation: conversation._id })
+  const agent = new Agent({ agentType, conversation: conversation._id, agentConfig })
   await agent.save()
   conversation.agents.push(agent)
   await conversation.save()
@@ -454,7 +457,7 @@ describe('findSlackAppHomeTarget', () => {
   })
 
   it('ignores a workspace whose conversation runs no community assistant', async () => {
-    await makeAppHomeAdapter({ channel: 'C_SETUP', workspace: 'T1' }, 'eventSetup')
+    await makeAppHomeAdapter({ channel: 'C_SETUP', workspace: 'T1' }, { agentType: 'eventSetup' })
 
     const found = await findSlackAppHomeTarget({ payload: appHomePayload() })
     expect(found).toBeNull()
@@ -469,7 +472,7 @@ describe('findSlackAppHomeTarget', () => {
   })
 
   it('falls back to the channel conversation when the workspace has no direct one', async () => {
-    await makeAppHomeAdapter({ channel: 'C_SETUP', workspace: 'T1' }, 'eventSetup')
+    await makeAppHomeAdapter({ channel: 'C_SETUP', workspace: 'T1' }, { agentType: 'eventSetup' })
     const assistant = await makeAppHomeAdapter({ channel: 'C_ASSISTANT', workspace: 'T1' })
 
     const found = await findSlackAppHomeTarget({ payload: appHomePayload() })
@@ -496,6 +499,29 @@ describe('findSlackAppHomeTarget', () => {
 
     const found = await findSlackAppHomeTarget({ payload: appHomePayload() })
     expect(found?.sharedChannelId).toBeUndefined()
+  })
+
+  it("reports each conversation's settings separately, since the two are configured independently", async () => {
+    await makeAppHomeAdapter(
+      { channel: 'C_ASSISTANT', workspace: 'T1' },
+      { agentConfig: { notifications: ['event_ended'] } }
+    )
+    await makeAppHomeAdapter({ channel: 'direct', workspace: 'T1' }, { agentConfig: { notifications: [] } })
+
+    const found = await findSlackAppHomeTarget({ payload: appHomePayload() })
+
+    expect(found?.channelAgentConfig?.notifications).toEqual(['event_ended'])
+    expect(found?.directAgentConfig?.notifications).toEqual([])
+  })
+
+  it('reports the direct conversation even when the webhook address names the channel row', async () => {
+    const channelRow = await makeAppHomeAdapter({ channel: 'C_ASSISTANT', workspace: 'T1', appKey: 'assistant' })
+    await makeAppHomeAdapter({ channel: 'direct', workspace: 'T1' })
+
+    const found = await findSlackAppHomeTarget({ appKey: 'assistant', payload: appHomePayload() })
+
+    expect(found?.adapter._id.toString()).toBe(channelRow._id.toString())
+    expect(found?.directAgentConfig).toBeDefined()
   })
 
   it('returns null when nothing matches', async () => {
