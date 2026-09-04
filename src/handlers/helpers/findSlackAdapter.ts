@@ -1,4 +1,5 @@
 import Adapter, { AdapterDocument } from '../../models/adapter.model.js'
+import Agent from '../../models/user.model/agent.model/index.js'
 import logger from '../../config/logger.js'
 
 type SlackEvent = {
@@ -9,10 +10,16 @@ type SlackEvent = {
 }
 
 type SlackPayload = {
-  team_id?: string
   type?: string
   event?: SlackEvent
+  team_id?: string
+  authorizations?: { is_bot?: boolean; user_id?: string }[]
 }
+
+const COMMUNITY_ASSISTANT_AGENT_TYPE = 'communityAssistant'
+/* The literal channel name marking the one Conversation that handles every direct message
+   in a workspace. See docs/pages/platforms/slack.md, "Direct messages". */
+const DIRECT_CHANNEL = 'direct'
 
 /**
  * Find the database row for the Slack bot that should receive a webhook.
@@ -118,4 +125,95 @@ export default async function findSlackAdapter({
     'config.workspace': slackWorkspaceId,
     active: true
   })
+}
+
+export interface SlackAppHomeTarget {
+  /* The row supplying the bot token the page is published with, and the signing secret its
+     notice was checked against. Every eligible row belongs to the same Slack app, so the
+     choice between them only decides which stored secret and token get used. */
+  adapter: AdapterDocument
+  /* The shared channel where the assistant runs, when the workspace has one. The page points
+     readers at it, and the direct-message row carries no record that the channel exists. */
+  sharedChannelId?: string
+  /* Settings of the assistant answering in that shared channel. The page's automatic-updates
+     list has to come from here: those notices are posted by the conversation that ends, and a
+     direct-message conversation never ends. */
+  channelAgentConfig?: Record<string, unknown>
+  /* Settings of the assistant answering direct messages, when the workspace runs one. Its
+     presence is also what makes starter questions clickable, since a click is answered there
+     and nowhere else. */
+  directAgentConfig?: Record<string, unknown>
+}
+
+/**
+ * Find the Slack bot whose App Home a user just opened, and the channel its page should
+ * point readers at.
+ *
+ * Kept separate from {@link findSlackAdapter} because an `app_home_opened` payload
+ * identifies itself differently: the workspace sits at the top level as `team_id`
+ * rather than on the event, and the bot's own user id arrives under `authorizations`.
+ * The Home tab also belongs to the whole Slack app rather than to one channel, so a
+ * workspace running the bot in a channel and in direct messages produces two candidate
+ * rows and the caller needs the one that can describe the assistant.
+ *
+ * A workspace can run the assistant in a channel and in direct messages at once, and the
+ * page needs both: the channel conversation says which channel to point at and which notices
+ * get posted, and the direct one says whether a clicked question has anywhere to land. So
+ * both come back, rather than one row the caller has to guess the rest from.
+ *
+ * Returns null when the workspace runs no community assistant, which the caller treats
+ * as "publish nothing" rather than as an error.
+ */
+export async function findSlackAppHomeTarget({
+  appKey,
+  payload
+}: {
+  appKey?: string
+  payload: SlackPayload
+}): Promise<SlackAppHomeTarget | null> {
+  const workspaceId = payload?.team_id
+  if (!workspaceId) return null
+
+  const botUserId = payload?.authorizations?.find((authorization) => authorization.is_bot)?.user_id
+  /* Every row for this workspace is fetched even when the address named one, since the page
+     needs both the assistant's own row and the shared channel it should point at, and those
+     are two different rows. A row in another workspace is never a candidate, which is the
+     same anti-probe check findSlackAdapter makes on a leaked webhook address. */
+  const candidates = await Adapter.find({
+    type: 'slack',
+    'config.workspace': workspaceId,
+    active: true,
+    // Slack can truncate authorizations, so fall back to every bot in the workspace.
+    ...(botUserId && { 'config.botUserId': botUserId })
+  })
+  if (candidates.length === 0) return null
+
+  const withAssistant = await Agent.find({
+    conversation: { $in: candidates.map((candidate) => candidate.conversation) },
+    agentType: COMMUNITY_ASSISTANT_AGENT_TYPE
+  }).select('conversation agentConfig')
+  const settingsByConversation = new Map(
+    withAssistant.map((agent) => [agent.conversation.toString(), agent.agentConfig as Record<string, unknown>])
+  )
+
+  const eligible = candidates.filter((candidate) => settingsByConversation.has(candidate.conversation.toString()))
+  if (eligible.length === 0) {
+    logger.debug(`App Home: workspace ${workspaceId} runs no community assistant, nothing to publish`)
+    return null
+  }
+
+  const namedByAddress = appKey ? eligible.find((candidate) => candidate.config?.appKey === appKey) : undefined
+  const directMessages = eligible.find(
+    (candidate) => candidate.config?.channel === DIRECT_CHANNEL || (candidate.dmChannels?.length ?? 0) > 0
+  )
+  const sharedChannel = eligible.find((candidate) => candidate.config?.channel !== DIRECT_CHANNEL)
+  const settingsOf = (candidate?: AdapterDocument) =>
+    candidate && settingsByConversation.get(candidate.conversation.toString())
+
+  return {
+    adapter: namedByAddress ?? directMessages ?? eligible[0],
+    sharedChannelId: sharedChannel?.config?.channel as string | undefined,
+    channelAgentConfig: settingsOf(sharedChannel),
+    directAgentConfig: settingsOf(directMessages)
+  }
 }

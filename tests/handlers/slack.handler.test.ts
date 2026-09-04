@@ -1,3 +1,4 @@
+import mongoose from 'mongoose'
 import httpStatus from 'http-status'
 import request from 'supertest'
 import crypto from 'crypto'
@@ -12,8 +13,12 @@ import Adapter, { setAdapterTypes } from '../../src/models/adapter.model.js'
 import webhookService from '../../src/services/webhook.service.js'
 import defaultAdapterTypes from '../../src/adapters/index.js'
 import slackInteractionHandler from '../../src/handlers/slackInteraction.js'
+import Agent from '../../src/models/user.model/agent.model/index.js'
+import slackClientPool from '../../src/adapters/slack/client.js'
 
 setupIntTest()
+
+const mockPublishView = jest.fn()
 
 let conversation
 let slackSigningSecret
@@ -450,7 +455,6 @@ describe('POST /v1/webhooks/slack', () => {
 
   describe('Per-bot URL routing (:appKey)', () => {
     test('routes a request at /v1/webhooks/slack/:appKey to the matching bot', async () => {
-      const mongoose = await import('mongoose')
       // A second bot in the same workspace on a different channel. Both the appKey in the URL
       // and the channel in the payload are required to find this adapter — the appKey alone is
       // not sufficient because the same appKey can serve multiple channels simultaneously.
@@ -657,6 +661,181 @@ describe('POST /v1/webhooks/slack', () => {
 
       expect(receiveMessageSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: slackAdapter._id }), messageEvent)
       expect(receiveInteractionSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('App Home', () => {
+    // Slack sends a fresh event_id per delivery, and the handler dedupes on it for five
+    // minutes. A counter keeps each test's payload distinct from the ones before it.
+    let deliveryCount = 0
+
+    const appHomePayload = (overrides: Record<string, unknown> = {}) => {
+      deliveryCount += 1
+      return {
+        team_id: '123456',
+        event_id: `Ev_HOME_${deliveryCount}`,
+        authorizations: [{ is_bot: true, user_id: 'U_BOT' }],
+        event: { type: 'app_home_opened', user: 'U_HUMAN', channel: 'D_HUMAN', tab: 'home' },
+        ...overrides
+      }
+    }
+
+    const postAppHome = (payload: Record<string, unknown>, secret = 'test-signing-secret') => {
+      const timestamp = Math.floor(Date.now() / 1000).toString()
+      return request(app)
+        .post('/v1/webhooks/slack')
+        .set('x-slack-signature', generateSlackSignature(timestamp, JSON.stringify(payload), secret))
+        .set('x-slack-request-timestamp', timestamp)
+        .send(payload)
+    }
+
+    beforeEach(async () => {
+      slackAdapter.config = { ...slackAdapter.config, botToken: 'xoxb-test', botUserId: 'U_BOT' }
+      slackAdapter.markModified('config')
+      await slackAdapter.save()
+
+      const agent = new Agent({ agentType: 'communityAssistant', conversation: conversation._id })
+      await agent.save()
+      conversation.agents.push(agent._id)
+      await conversation.save()
+
+      mockPublishView.mockResolvedValue({ ok: true })
+      jest.spyOn(slackClientPool, 'getClient').mockReturnValue({ views: { publish: mockPublishView } } as never)
+    })
+
+    test('draws the page for the person who opened the home tab', async () => {
+      await postAppHome(appHomePayload()).expect(httpStatus.OK)
+
+      expect(mockPublishView).toHaveBeenCalledWith(
+        expect.objectContaining({
+          user_id: 'U_HUMAN',
+          view: expect.objectContaining({ type: 'home', blocks: expect.any(Array) })
+        })
+      )
+    })
+
+    /* The bot answers direct messages from a second conversation, and only the channel one ever
+       posts an event recap. These cover the page describing the right one of the two. */
+    const addDirectConversation = async (agentConfig: Record<string, unknown> = {}) => {
+      const directConversation = new Conversation({
+        ...conversationAgentsEnabled,
+        _id: new mongoose.Types.ObjectId()
+      })
+      await directConversation.save()
+
+      const agent = new Agent({ agentType: 'communityAssistant', conversation: directConversation._id, agentConfig })
+      await agent.save()
+      directConversation.agents.push(agent)
+      await directConversation.save()
+
+      await Adapter.create({
+        type: 'slack',
+        config: { channel: 'direct', workspace: '123456', botToken: 'xoxb-test', botUserId: 'U_BOT' },
+        conversation: directConversation._id,
+        active: true
+      })
+    }
+
+    const publishedBlocks = () => JSON.stringify(mockPublishView.mock.calls[0][0].view.blocks)
+
+    test('lists the automatic updates the channel assistant posts, not the silent direct one', async () => {
+      await Agent.updateOne({ conversation: conversation._id }, { $set: { 'agentConfig.notifications': ['event_ended'] } })
+      await addDirectConversation({ notifications: [] })
+
+      await postAppHome(appHomePayload()).expect(httpStatus.OK)
+
+      expect(publishedBlocks()).toContain('When a scheduled event wraps up')
+    })
+
+    test('offers clickable questions once the workspace answers direct messages', async () => {
+      await addDirectConversation()
+
+      await postAppHome(appHomePayload()).expect(httpStatus.OK)
+
+      expect(publishedBlocks()).toContain('"type":"actions"')
+    })
+
+    test('leaves starter questions as text when nothing answers direct messages', async () => {
+      await postAppHome(appHomePayload()).expect(httpStatus.OK)
+
+      expect(publishedBlocks()).not.toContain('"type":"actions"')
+    })
+
+    test("leaves the reader's own conversation on the page, so a clicked question is answered privately", async () => {
+      await postAppHome(appHomePayload()).expect(httpStatus.OK)
+
+      expect(mockPublishView).toHaveBeenCalledWith(
+        expect.objectContaining({ view: expect.objectContaining({ private_metadata: 'D_HUMAN' }) })
+      )
+    })
+
+    test('verifies the payload against the adapter secret, since only team_id names the workspace', async () => {
+      slackAdapter.config = { ...slackAdapter.config, signingSecret: 'per-adapter-secret' }
+      slackAdapter.markModified('config')
+      await slackAdapter.save()
+
+      await postAppHome(appHomePayload(), 'per-adapter-secret').expect(httpStatus.OK)
+
+      expect(mockPublishView).toHaveBeenCalled()
+    })
+
+    test('answers 200 when the workspace runs no assistant, so Slack keeps delivering events', async () => {
+      slackAdapter.active = false
+      await slackAdapter.save()
+
+      await postAppHome(appHomePayload()).expect(httpStatus.OK)
+
+      expect(mockPublishView).not.toHaveBeenCalled()
+    })
+
+    test('rejects a home tab payload signed with the wrong secret', async () => {
+      await postAppHome(appHomePayload(), 'not-the-secret').expect(httpStatus.UNAUTHORIZED)
+
+      expect(mockPublishView).not.toHaveBeenCalled()
+    })
+
+    test('draws nothing when the person opened the messages tab instead', async () => {
+      const payload = appHomePayload()
+      payload.event = { ...(payload.event as object), tab: 'messages' } as typeof payload.event
+
+      await postAppHome(payload).expect(httpStatus.OK)
+
+      expect(mockPublishView).not.toHaveBeenCalled()
+    })
+
+    test('answers 200 when Slack refuses the publish, so Slack does not retry the delivery', async () => {
+      mockPublishView.mockResolvedValue({ ok: false, error: 'view_too_large' })
+
+      await postAppHome(appHomePayload()).expect(httpStatus.OK)
+
+      expect(mockPublishView).toHaveBeenCalled()
+    })
+
+    test('answers 200 when the Slack call throws outright', async () => {
+      mockPublishView.mockRejectedValue(new Error('network down'))
+
+      await postAppHome(appHomePayload()).expect(httpStatus.OK)
+    })
+
+    test('ignores a repeat delivery carrying an event_id it already handled', async () => {
+      const payload = appHomePayload()
+
+      await postAppHome(payload).expect(httpStatus.OK)
+      await postAppHome(payload).expect(httpStatus.OK)
+
+      expect(mockPublishView).toHaveBeenCalledTimes(1)
+    })
+
+    test('leaves ordinary message events routing through the channel lookup unchanged', async () => {
+      const payload = {
+        event_id: `Ev_MSG_${deliveryCount}`,
+        event: { type: 'message', text: 'hi', channel: 'C1234567890', team: '123456' }
+      }
+
+      await postAppHome(payload).expect(httpStatus.OK)
+
+      expect(receiveMessageSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: slackAdapter._id }), payload.event)
+      expect(mockPublishView).not.toHaveBeenCalled()
     })
   })
 })

@@ -82,6 +82,34 @@ async function findThreadParent(conversationId, threadTs) {
   return parent?._id ?? null
 }
 
+/**
+ * Replaces one person's App Home page with the given blocks.
+ *
+ * Published per viewer rather than once for everyone, which is how Slack's Home tab
+ * works: each person gets their own copy of the view.
+ *
+ * @throws when Slack refuses the publish, so the caller can log which page failed
+ */
+export async function publishHomeView(
+  botToken: string,
+  userId: string,
+  blocks: KnownBlock[],
+  privateConversationId: string
+): Promise<void> {
+  const slackWebClient = slackClientPool.getClient(botToken)
+  const result = await slackWebClient.views.publish({
+    user_id: userId,
+    /* A click on this page reaches us with no channel on it, because the page is not in one.
+       private_metadata is a note the app leaves for itself: Slack never shows it to anyone and
+       hands it straight back with the click, so the answer lands in the reader's own
+       conversation rather than in front of a channel. */
+    view: { type: 'home', blocks, private_metadata: privateConversationId }
+  })
+  if (!result.ok) {
+    throw new Error(`Slack home view failed to publish: ${result.error}`)
+  }
+}
+
 async function receiveGroupChatMessage(event) {
   const msg: AdapterMessage<string> = {
     message: normalizeBotMention(event.text, this.config.botUserId, this.config.botName),

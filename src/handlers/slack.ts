@@ -3,10 +3,14 @@ import ApiError from '../utils/ApiError.js'
 import config from '../config/config.js'
 import logger from '../config/logger.js'
 import validateSignature from './helpers/validateSignature.js'
-import findSlackAdapter from './helpers/findSlackAdapter.js'
+import Adapter from '../models/adapter.model.js'
+import findSlackAdapter, { findSlackAppHomeTarget } from './helpers/findSlackAdapter.js'
 import resolveSlackSigningSecret from './helpers/resolveSlackSigningSecret.js'
 import webhookService from '../services/webhook.service.js'
 import slackInteractionHandler from './slackInteraction.js'
+import buildAppHomeData from '../agents/communityAssistant/appHomeContent.js'
+import renderAppHomePage from '../adapters/slack/blocks/communityAssistant/appHome.js'
+import { publishHomeView } from '../adapters/slack/index.js'
 
 // Slack retries webhook delivery if it doesn't get a 200 fast enough (common through ngrok).
 // event_id stays the same on retries, so we track it to skip duplicates.
@@ -21,6 +25,39 @@ function isDuplicate(eventId: string): boolean {
   if (seenEventIds.has(eventId)) return true
   seenEventIds.set(eventId, now)
   return false
+}
+
+/**
+ * Draws the App Home page for whoever just opened it.
+ *
+ * Every expected dead end (wrong tab, no bot for this workspace, no assistant on its
+ * conversation) is a quiet early return rather than an error: the person simply sees the
+ * empty tab Slack shows today. Only a genuine failure is logged.
+ */
+const publishAppHome = async (req, payload) => {
+  const { event } = payload
+  // Slack fires this for the Messages tab too, which opens far more often than the Home tab.
+  if (event.tab !== 'home') return
+
+  const target = req.slackAppHome ?? (await findSlackAppHomeTarget({ appKey: req.params?.appKey, payload }))
+  if (!target) return
+  const { adapter, sharedChannelId, channelAgentConfig, directAgentConfig } = target
+
+  /* The bot's name and the list of things it can look up come from whichever assistant the
+     reader will actually be talking to. Automatic updates have to come from the channel
+     assistant instead, since a direct-message conversation never ends and so never posts one. */
+  const settings = {
+    ...(directAgentConfig ?? channelAgentConfig),
+    notifications: channelAgentConfig?.notifications ?? []
+  }
+
+  const pageData = buildAppHomeData(settings, {
+    channelId: sharedChannelId,
+    canDirectMessage: Boolean(directAgentConfig)
+  })
+
+  // event.channel is this reader's own conversation with the bot, where clicked questions go.
+  await publishHomeView(adapter.config.botToken, event.user, renderAppHomePage(pageData), event.channel)
 }
 
 const handleEvent = async (req, res) => {
@@ -64,6 +101,18 @@ const handleEvent = async (req, res) => {
     res.status(httpStatus.OK).send('ok')
     return
   }
+  if (event.type === 'app_home_opened') {
+    /* Slack needs a fast 200 and retries anything else, so a page that fails to draw is
+       logged and swallowed rather than turned into a failed delivery. */
+    try {
+      await publishAppHome(req, payload)
+    } catch (err) {
+      logger.error(`Failed to publish Slack App Home for user ${event.user}: ${err.message}`)
+    }
+    res.status(httpStatus.OK).send('ok')
+    return
+  }
+
   // Skip bot messages to prevent loops and skip messages with subtypes, which are not user messages (they represent events like user joining a channel, etc)
   // The middleware already resolved and validated the adapter for this workspace/channel.
   if (event.type === 'message' && !event.bot_id && !event.subtype) {
@@ -96,12 +145,33 @@ const middleware = async (req, res, next) => {
     }
 
     // To validate against a specific bot's secret, the request first has to identify the bot:
-    // either the URL carries a bot identifier, or the body has an event payload with a workspace
-    // ID to look it up by. URL verification and button-click payloads have neither, so they fall
-    // back to the global env-var secret.
+    // either the URL carries a bot identifier, or the body carries a workspace ID to look it up
+    // by. URL verification payloads have neither, so they fall back to the global env-var secret.
     const appKey: string | undefined = req.params?.appKey
-    // Slack's API still calls workspaces "teams", so `team` is the workspace ID.
-    const slackWorkspaceId: string | undefined = req.body?.team_id ?? req.body?.event?.team
+    /* An app_home_opened payload is the one event type that names its workspace at the top
+       level instead of on the event, so it needs its own lookup. Deliberately not widened to
+       every event type: many others also lack event.team, and today they fall through to the
+       global secret and get a harmless 200. Routing those through adapter lookup would turn
+       the unresolvable ones into 401s, and Slack disables webhooks that keep failing. */
+    const isAppHome = req.body?.event?.type === 'app_home_opened'
+
+    // Interaction payloads (button clicks, etc.) arrive URL-encoded with the JSON in a
+    // `payload` field. The workspace sits inside that JSON rather than at the top level,
+    // so parse it here solely to extract the team ID for adapter lookup.
+    let interactionWorkspaceId: string | undefined
+    if (typeof req.body?.payload === 'string') {
+      try {
+        const parsed = JSON.parse(req.body.payload) as Record<string, unknown>
+        interactionWorkspaceId = (parsed?.team as Record<string, unknown>)?.id as string | undefined
+      } catch {
+        logger.warn('Slack middleware: received unparseable interaction payload, cannot resolve workspace')
+      }
+    }
+
+    // Slack's API still calls workspaces "teams". team_id on the outer payload is most
+    // reliable; event.team is a fallback for older shapes; interactions carry it inside
+    // the nested payload already parsed above.
+    const slackWorkspaceId: string | undefined = req.body?.team_id ?? req.body?.event?.team ?? interactionWorkspaceId
     const canIdentifyAdapter = Boolean(appKey || slackWorkspaceId)
 
     if (!canIdentifyAdapter) {
@@ -113,8 +183,32 @@ const middleware = async (req, res, next) => {
       return
     }
 
-    const slackAdapter = await findSlackAdapter({ appKey, payload: req.body })
+    const appHomeTarget = isAppHome ? await findSlackAppHomeTarget({ appKey, payload: req.body }) : null
+    // Interaction payloads have no event channel to route by — find any adapter in the workspace.
+    // The interaction handler doesn't use req.slackAdapter; this lookup is only for the secret.
+    let slackAdapter
+    if (isAppHome) {
+      slackAdapter = appHomeTarget?.adapter
+    } else if (interactionWorkspaceId) {
+      slackAdapter = await Adapter.findOne({
+        type: 'slack',
+        'config.workspace': interactionWorkspaceId,
+        ...(appKey && { 'config.appKey': appKey }),
+        active: true
+      })
+    } else {
+      slackAdapter = await findSlackAdapter({ appKey, payload: req.body })
+    }
     if (!slackAdapter) {
+      /* An App Home notice arrives whenever anyone clicks the app in their sidebar, including
+         while the assistant is stopped, and a stopped assistant leaves no row to check the
+         signature against. Fall back to the shared secret and let the handler draw nothing:
+         answering 401 to every click would eventually make Slack stop delivering events to
+         this app altogether, taking ordinary messages down with the page. */
+      if (isAppHome && validateSignature(slackTimestamp, rawBody, slackSignature, config.slack.signingSecret)) {
+        next()
+        return
+      }
       // Stay deliberately vague: don't reveal whether the adapter is missing or the signature is bad.
       throw new ApiError(httpStatus.UNAUTHORIZED, 'Invalid Slack signature')
     }
@@ -125,6 +219,8 @@ const middleware = async (req, res, next) => {
     }
 
     req.slackAdapter = slackAdapter
+    // Carried through so drawing the page doesn't repeat the lookup the signature check just did.
+    req.slackAppHome = appHomeTarget
     next()
   } catch (err) {
     next(err)
