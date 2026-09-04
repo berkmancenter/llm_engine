@@ -1429,6 +1429,46 @@ describe('adapter service tests', () => {
       expect(users[0]._id.toString()).toBe(existingUser._id.toString())
     })
 
+    it('falls back to email lookup when membership userAccount points to a deleted user', async () => {
+      jest.spyOn(websocketGateway, 'broadcastNewMessage').mockResolvedValue()
+      await createConversation('externalId deleted userAccount fallback')
+      await setupChannel()
+
+      const deletedUser = await User.create({
+        username: 'deleted-user',
+        email: 'deleted@example.com',
+        pseudonyms: [{ token: 'tok-del', pseudonym: 'Deleted User', active: true }]
+      })
+      const survivingUser = await User.create({
+        username: 'surviving@example.com',
+        email: 'surviving@example.com',
+        pseudonyms: [{ token: 'tok-sur', pseudonym: 'Surviving User', active: true }]
+      })
+      await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'surviving@example.com',
+        name: 'Surviving User',
+        externalIds: { test: 'EXT_DEL' },
+        userAccount: deletedUser._id
+      })
+      await User.deleteOne({ _id: deletedUser._id })
+
+      mockAdapterType.receiveMessage.mockResolvedValue([
+        {
+          user: { username: 'test-EXT_DEL', pseudonym: 'EXT_DEL', externalId: 'EXT_DEL' },
+          channels: [{ name: 'participant', direct: false }],
+          message: 'Hello!',
+          source: 'test'
+        }
+      ])
+
+      await webhookService.receiveMessage(adapter, {})
+
+      const users = await User.find({ email: 'surviving@example.com' })
+      expect(users).toHaveLength(1)
+      expect(users[0]._id.toString()).toBe(survivingUser._id.toString())
+    })
+
     it('finds user by email when membership has email but no userAccount', async () => {
       jest.spyOn(websocketGateway, 'broadcastNewMessage').mockResolvedValue()
       await createConversation('externalId email fallback')

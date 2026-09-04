@@ -19,7 +19,8 @@ async function getOrCreateUser(adapter, adapterUser) {
       .lean()
     if (membership?.userAccount) {
       user = await User.findById(membership.userAccount)
-    } else if (membership?.email) {
+    }
+    if (!user && membership?.email) {
       user = await User.findOne({ email: membership.email })
       if (!user) {
         user = await User.create({
