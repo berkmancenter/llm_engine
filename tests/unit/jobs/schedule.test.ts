@@ -74,6 +74,22 @@ describe('schedule.periodicAgent / cronAgent use one job name per type, keyed by
     expect(await schedule.cronAgentExists('agent-a')).toBe(false)
     expect(await schedule.cronAgentExists('agent-b')).toBe(true)
   })
+
+  test('cronAgent stores timezone on the job when provided', async () => {
+    await schedule.cronAgent('0 9,17 * * *', { agentId: 'agent-a' }, 'America/New_York')
+
+    const jobs = await agenda.jobs({ name: 'cronAgent', 'data.agentId': 'agent-a' })
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0].attrs.repeatTimezone).toBe('America/New_York')
+  })
+
+  test('cronAgent leaves repeatTimezone null when no timezone is provided', async () => {
+    await schedule.cronAgent('0 9,17 * * *', { agentId: 'agent-a' })
+
+    const jobs = await agenda.jobs({ name: 'cronAgent', 'data.agentId': 'agent-a' })
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0].attrs.repeatTimezone).toBeNull()
+  })
 })
 
 describe('schedule.agentResponse uses a shared job name (one-off jobs, no uniqueness needed)', () => {
