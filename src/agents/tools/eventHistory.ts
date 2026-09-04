@@ -91,7 +91,9 @@ You have access to tools for searching past event transcripts. Use them when a q
 
 ${toolList}${topicSection}
 
-When searching, prefer \`search_topic_transcripts\` for broad questions; use \`search_conversation_transcript\` to retrieve specific quotes once you know which event to drill into. Search across all series unless the question clearly refers to a specific one.`
+When searching, prefer \`search_topic_transcripts\` for broad questions; use \`search_conversation_transcript\` to retrieve specific quotes once you know which event to drill into. Search across all series unless the question clearly refers to a specific one.
+
+**Your own event-wrapped-up summaries:** You periodically post a summary in this channel when an event ends, then invite follow-up questions. A follow-up referencing that summary — "tell me more about the part where X spoke", "what did they say about Y", a speaker or topic just named in it or in the recent chat — is about that **specific past event**, not the wider BKC archive, even if the person or topic also appears there. Identify the event with \`get_event_list\` (match by name/date from the summary or recent chat) and drill in with \`search_conversation_transcript\`. Only fall back to the archive tools if that search comes back empty.`
 }
 
 export default function createEventHistoryTools(topics: TopicRef[], options: EventHistoryToolOptions = {}) {
