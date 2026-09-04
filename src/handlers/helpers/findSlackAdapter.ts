@@ -1,4 +1,6 @@
 import Adapter, { AdapterDocument } from '../../models/adapter.model.js'
+import Agent from '../../models/user.model/agent.model/index.js'
+import logger from '../../config/logger.js'
 import logger from '../../config/logger.js'
 
 type SlackEvent = {
@@ -12,7 +14,14 @@ type SlackPayload = {
   team_id?: string
   type?: string
   event?: SlackEvent
+  team_id?: string
+  authorizations?: { is_bot?: boolean; user_id?: string }[]
 }
+
+const COMMUNITY_ASSISTANT_AGENT_TYPE = 'communityAssistant'
+/* The literal channel name marking the one Conversation that handles every direct message
+   in a workspace. See docs/pages/platforms/slack.md, "Direct messages". */
+const DIRECT_CHANNEL = 'direct'
 
 /**
  * Find the database row for the Slack bot that should receive a webhook.
@@ -118,4 +127,63 @@ export default async function findSlackAdapter({
     'config.workspace': slackWorkspaceId,
     active: true
   })
+}
+
+/**
+ * Find the database row for the Slack bot whose App Home a user just opened.
+ *
+ * Kept separate from {@link findSlackAdapter} because an `app_home_opened` payload
+ * identifies itself differently: the workspace sits at the top level as `team_id`
+ * rather than on the event, and the bot's own user id arrives under `authorizations`.
+ * The Home tab also belongs to the whole Slack app rather than to one channel, so a
+ * workspace running the bot in a channel and in direct messages produces two candidate
+ * rows and the caller needs the one that can describe the assistant.
+ *
+ * Preference order: the row named by the webhook address, then the direct-message
+ * conversation, then any channel conversation. Direct messages win because that is the
+ * conversation sitting in the Messages tab beside the page being drawn.
+ *
+ * Returns null when the workspace runs no community assistant, which the caller treats
+ * as "publish nothing" rather than as an error.
+ */
+export async function findSlackAppHomeAdapter({
+  appKey,
+  payload
+}: {
+  appKey?: string
+  payload: SlackPayload
+}): Promise<AdapterDocument | null> {
+  const workspaceId = payload?.team_id
+  if (!workspaceId) return null
+
+  if (appKey) {
+    const byAppKey = await Adapter.findOne({ type: 'slack', 'config.appKey': appKey, active: true })
+    // Same anti-probe check findSlackAdapter makes: a bot lives in one workspace, so a
+    // payload claiming another one is refused even though the address matched a row.
+    if (byAppKey) return byAppKey.config?.workspace === workspaceId ? byAppKey : null
+  }
+
+  const botUserId = payload?.authorizations?.find((authorization) => authorization.is_bot)?.user_id
+  const candidates = await Adapter.find({
+    type: 'slack',
+    'config.workspace': workspaceId,
+    active: true,
+    // Slack can truncate authorizations, so fall back to every bot in the workspace.
+    ...(botUserId && { 'config.botUserId': botUserId })
+  })
+  if (candidates.length === 0) return null
+
+  const withAssistant = await Agent.find({
+    conversation: { $in: candidates.map((candidate) => candidate.conversation) },
+    agentType: COMMUNITY_ASSISTANT_AGENT_TYPE
+  }).select('conversation')
+  const assistantConversationIds = new Set(withAssistant.map((agent) => agent.conversation.toString()))
+
+  const eligible = candidates.filter((candidate) => assistantConversationIds.has(candidate.conversation.toString()))
+  if (eligible.length === 0) {
+    logger.debug(`App Home: workspace ${workspaceId} runs no community assistant, nothing to publish`)
+    return null
+  }
+
+  return eligible.find((candidate) => candidate.config?.channel === DIRECT_CHANNEL) ?? eligible[0]
 }
