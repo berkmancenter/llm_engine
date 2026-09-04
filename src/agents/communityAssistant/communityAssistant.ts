@@ -160,7 +160,7 @@ export default verify({
 
   async respond(conversationHistory: ConversationHistory, userMessage) {
     if (!userMessage) {
-      return this.agentConfig?.periodicMemberIntros ? periodicMemberIntro.call(this) : []
+      return this.triggers?.cron && this.agentConfig?.periodicMemberIntros ? periodicMemberIntro.call(this) : []
     }
 
     const isVoice = userMessage?.channels?.includes('transcript')
