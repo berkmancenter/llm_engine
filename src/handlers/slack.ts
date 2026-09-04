@@ -170,6 +170,15 @@ const middleware = async (req, res, next) => {
     const appHomeTarget = isAppHome ? await findSlackAppHomeTarget({ appKey, payload: req.body }) : null
     const slackAdapter = isAppHome ? appHomeTarget?.adapter : await findSlackAdapter({ appKey, payload: req.body })
     if (!slackAdapter) {
+      /* An App Home notice arrives whenever anyone clicks the app in their sidebar, including
+         while the assistant is stopped, and a stopped assistant leaves no row to check the
+         signature against. Fall back to the shared secret and let the handler draw nothing:
+         answering 401 to every click would eventually make Slack stop delivering events to
+         this app altogether, taking ordinary messages down with the page. */
+      if (isAppHome && validateSignature(slackTimestamp, rawBody, slackSignature, config.slack.signingSecret)) {
+        next()
+        return
+      }
       // Stay deliberately vague: don't reveal whether the adapter is missing or the signature is bad.
       throw new ApiError(httpStatus.UNAUTHORIZED, 'Invalid Slack signature')
     }

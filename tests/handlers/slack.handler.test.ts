@@ -732,6 +732,15 @@ describe('POST /v1/webhooks/slack', () => {
       expect(mockPublishView).toHaveBeenCalled()
     })
 
+    test('answers 200 when the workspace runs no assistant, so Slack keeps delivering events', async () => {
+      slackAdapter.active = false
+      await slackAdapter.save()
+
+      await postAppHome(appHomePayload()).expect(httpStatus.OK)
+
+      expect(mockPublishView).not.toHaveBeenCalled()
+    })
+
     test('rejects a home tab payload signed with the wrong secret', async () => {
       await postAppHome(appHomePayload(), 'not-the-secret').expect(httpStatus.UNAUTHORIZED)
 
