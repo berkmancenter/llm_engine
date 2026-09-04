@@ -3,6 +3,7 @@ import ApiError from '../utils/ApiError.js'
 import config from '../config/config.js'
 import logger from '../config/logger.js'
 import validateSignature from './helpers/validateSignature.js'
+import Adapter from '../models/adapter.model.js'
 import findSlackAdapter, { findSlackAppHomeTarget } from './helpers/findSlackAdapter.js'
 import resolveSlackSigningSecret from './helpers/resolveSlackSigningSecret.js'
 import webhookService from '../services/webhook.service.js'
@@ -144,9 +145,8 @@ const middleware = async (req, res, next) => {
     }
 
     // To validate against a specific bot's secret, the request first has to identify the bot:
-    // either the URL carries a bot identifier, or the body has an event payload with a workspace
-    // ID to look it up by. URL verification and button-click payloads have neither, so they fall
-    // back to the global env-var secret.
+    // either the URL carries a bot identifier, or the body carries a workspace ID to look it up
+    // by. URL verification payloads have neither, so they fall back to the global env-var secret.
     const appKey: string | undefined = req.params?.appKey
     /* An app_home_opened payload is the one event type that names its workspace at the top
        level instead of on the event, so it needs its own lookup. Deliberately not widened to
@@ -154,9 +154,24 @@ const middleware = async (req, res, next) => {
        global secret and get a harmless 200. Routing those through adapter lookup would turn
        the unresolvable ones into 401s, and Slack disables webhooks that keep failing. */
     const isAppHome = req.body?.event?.type === 'app_home_opened'
-    // Slack's API still calls workspaces "teams", so `team` is the workspace ID.
-    const slackWorkspaceId: string | undefined =
-      req.body?.team_id ?? req.body?.event?.team ?? (isAppHome ? req.body?.team_id : undefined)
+
+    // Interaction payloads (button clicks, etc.) arrive URL-encoded with the JSON in a
+    // `payload` field. The workspace sits inside that JSON rather than at the top level,
+    // so parse it here solely to extract the team ID for adapter lookup.
+    let interactionWorkspaceId: string | undefined
+    if (typeof req.body?.payload === 'string') {
+      try {
+        const parsed = JSON.parse(req.body.payload) as Record<string, unknown>
+        interactionWorkspaceId = (parsed?.team as Record<string, unknown>)?.id as string | undefined
+      } catch {
+        logger.warn('Slack middleware: received unparseable interaction payload, cannot resolve workspace')
+      }
+    }
+
+    // Slack's API still calls workspaces "teams". team_id on the outer payload is most
+    // reliable; event.team is a fallback for older shapes; interactions carry it inside
+    // the nested payload already parsed above.
+    const slackWorkspaceId: string | undefined = req.body?.team_id ?? req.body?.event?.team ?? interactionWorkspaceId
     const canIdentifyAdapter = Boolean(appKey || slackWorkspaceId)
 
     if (!canIdentifyAdapter) {
@@ -169,7 +184,21 @@ const middleware = async (req, res, next) => {
     }
 
     const appHomeTarget = isAppHome ? await findSlackAppHomeTarget({ appKey, payload: req.body }) : null
-    const slackAdapter = isAppHome ? appHomeTarget?.adapter : await findSlackAdapter({ appKey, payload: req.body })
+    // Interaction payloads have no event channel to route by — find any adapter in the workspace.
+    // The interaction handler doesn't use req.slackAdapter; this lookup is only for the secret.
+    let slackAdapter
+    if (isAppHome) {
+      slackAdapter = appHomeTarget?.adapter
+    } else if (interactionWorkspaceId) {
+      slackAdapter = await Adapter.findOne({
+        type: 'slack',
+        'config.workspace': interactionWorkspaceId,
+        ...(appKey && { 'config.appKey': appKey }),
+        active: true
+      })
+    } else {
+      slackAdapter = await findSlackAdapter({ appKey, payload: req.body })
+    }
     if (!slackAdapter) {
       /* An App Home notice arrives whenever anyone clicks the app in their sidebar, including
          while the assistant is stopped, and a stopped assistant leaves no row to check the

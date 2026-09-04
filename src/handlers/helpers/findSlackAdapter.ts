@@ -203,7 +203,9 @@ export async function findSlackAppHomeTarget({
   }
 
   const namedByAddress = appKey ? eligible.find((candidate) => candidate.config?.appKey === appKey) : undefined
-  const directMessages = eligible.find((candidate) => candidate.config?.channel === DIRECT_CHANNEL)
+  const directMessages = eligible.find(
+    (candidate) => candidate.config?.channel === DIRECT_CHANNEL || (candidate.dmChannels?.length ?? 0) > 0
+  )
   const sharedChannel = eligible.find((candidate) => candidate.config?.channel !== DIRECT_CHANNEL)
   const settingsOf = (candidate?: AdapterDocument) =>
     candidate && settingsByConversation.get(candidate.conversation.toString())

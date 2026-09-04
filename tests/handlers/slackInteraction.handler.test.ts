@@ -98,7 +98,7 @@ describe('slackInteraction handler — receiveInteraction()', () => {
     const payload = makePayload({ channel: { id: 'D1234567890' } })
     await slackInteractionHandler.receiveInteraction(payload)
 
-    expect(findOneSpy).toHaveBeenCalledWith(expect.objectContaining({ 'config.channel': 'direct' }))
+    expect(findOneSpy).toHaveBeenCalledWith(expect.objectContaining({ dmChannels: { $exists: true, $not: { $size: 0 } } }))
     expect(receiveMessageSpy).toHaveBeenCalledWith(mockAdapter, expect.objectContaining({ channel_type: 'im' }))
   })
 
@@ -121,7 +121,7 @@ describe('slackInteraction handler — receiveInteraction()', () => {
     })
     await slackInteractionHandler.receiveInteraction(payload)
 
-    expect(findOneSpy).toHaveBeenCalledWith(expect.objectContaining({ 'config.channel': 'direct' }))
+    expect(findOneSpy).toHaveBeenCalledWith(expect.objectContaining({ dmChannels: { $exists: true, $not: { $size: 0 } } }))
     expect(receiveMessageSpy).toHaveBeenCalledWith(
       mockAdapter,
       expect.objectContaining({ channel: 'D1234567890', channel_type: 'im' })
