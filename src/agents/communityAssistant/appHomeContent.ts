@@ -53,7 +53,8 @@ const PAGE_COPY = {
   featuresHeading: 'What I can help you find',
   noticesHeading: 'Automatic updates',
   reachHeading: 'How to reach me',
-  reachChannel: 'To keep the room quiet, I only respond in {channel} when someone mentions @{botName} directly.',
+  reachChannel:
+    'In {channel}, mention @{botName} to get a response. {botName} will also jump in when a question seems directed at it.',
   reachDirectMessage:
     'You can also message me in the Messages tab anytime without tagging my name, and I will reply to every message.',
   footer:
@@ -113,8 +114,7 @@ export default function buildAppHomeData(
   const toolNames = (agentConfig?.tools as string[]) || []
   const notificationKeys = (agentConfig?.notifications as string[]) || []
 
-  const fill = (copy: string) =>
-    copy.replaceAll('{botName}', botName).replaceAll('{channel}', reach.channelId ?? '')
+  const fill = (copy: string) => copy.replaceAll('{botName}', botName).replaceAll('{channel}', reach.channelId ?? '')
 
   const reachLines: string[] = []
   if (reach.channelId) reachLines.push(fill(PAGE_COPY.reachChannel))
