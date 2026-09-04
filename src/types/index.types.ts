@@ -1384,6 +1384,40 @@ export interface ConversationCostData extends ConversationCostPhases {
   topicIsPrivate: boolean
 }
 
+/* One thing the assistant can do, as shown on the Slack App Home page. `key` is the
+   agentConfig.tools name it came from, kept so a feature can be traced back to the
+   setting that enabled it. Deliberately not called a capability: capabilities.ts in
+   the agent folder already means read/write permissions. */
+export interface AppHomeFeature {
+  key: string
+  label: string
+  description: string
+  starterQuestions: string[]
+}
+
+/* Render payload for the Slack App Home page. Unlike the cards above it carries no
+   responseKind, because the page is published straight to the Home tab rather than
+   sent as a chat message, so it never passes through the renderer registry in
+   blocks/index.ts.
+
+   Every string here is finished prose: the bot's name and channel link are already
+   substituted in, and the lists are already filtered to what the deployment has turned
+   on and can actually reach. That keeps all the page's wording in one file
+   (agents/communityAssistant/appHomeContent.ts) so a copy revision is a single edit,
+   and leaves the renderer as pure layout. An empty list means the renderer drops that
+   group's heading along with it. */
+export interface AppHomeData {
+  headline: string
+  intro: string
+  featuresHeading: string
+  features: AppHomeFeature[]
+  noticesHeading: string
+  notices: string[]
+  reachHeading: string
+  reachLines: string[]
+  footer: string
+}
+
 /* The persisted shape: the two phase aggregates plus which conversation they price
    and where the figures came from. `source` exists so a second cost source (e.g.
    provider billing exports) could coexist later without a schema change. */
