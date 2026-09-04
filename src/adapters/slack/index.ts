@@ -199,8 +199,13 @@ export default {
   async start() {
     // Sync workspace members to ConversationMembership.externalIds.slack so agents
     // can @mention people by Slack user ID without per-message users.info calls.
-    // Blocks startup to guarantee the mapping is complete before any messages are processed.
-    await syncSlackExternalIds.call(this)
+    // Runs best-effort: a missing users:read scope or Slack API error logs and continues
+    // rather than failing the whole adapter start.
+    try {
+      await syncSlackExternalIds.call(this)
+    } catch (err) {
+      logger.warn(`Slack externalIds sync failed for conversation ${this.conversation._id}: ${err.message}`)
+    }
   },
   async stop() {
     // no-op
