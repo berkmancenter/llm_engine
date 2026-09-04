@@ -61,6 +61,12 @@ async function periodicMemberIntro() {
     return []
   }
 
+  const responseChannels = this.conversation.channels.filter((c) => c.name === 'chat')
+  if (responseChannels.length === 0) {
+    logger.warn(`periodicMemberIntro: no chat channel for conversation ${conversationId}`)
+    return []
+  }
+
   const batch = unintroduced.slice(0, 5)
   const ids = batch.map((m) => m._id)
 
@@ -85,11 +91,12 @@ async function periodicMemberIntro() {
     personalityName = 'sarcastic-expert'
   }
   const systemPrompt = composeSystemPrompt(MEMBER_GROUP_INTRO_SYSTEM_TEMPLATE, { personalityName })
-  const message = await getChatPromptResponse(llm, systemPrompt, userPrompt, {})
-
-  const responseChannels = this.conversation.channels.filter((c) => c.name === 'chat')
-  if (responseChannels.length === 0) {
-    logger.warn(`periodicMemberIntro: no chat channel for conversation ${conversationId}`)
+  let message: string
+  try {
+    message = await getChatPromptResponse(llm, systemPrompt, userPrompt, {})
+  } catch (err) {
+    logger.error(`periodicMemberIntro: LLM call failed for conversation ${conversationId}, rolling back claims: ${err.message}`)
+    await ConversationMembership.updateMany({ _id: { $in: ids } }, { $set: { introduced: false } })
     return []
   }
 
