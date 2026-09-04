@@ -204,6 +204,7 @@ export interface IConversationMembership {
   // so incoming messages from adapters that identify users differently than by email can still
   // be routed to the right account.
   externalIds?: Record<string, string>
+  introduced?: boolean
   createdAt?: Date
   updatedAt?: Date
 }
@@ -297,7 +298,12 @@ export interface PropertyRef {
   as?: string // destination key in agent params (supports dot notation for nesting); defaults to last segment of $ref
 }
 
-export type AgentProperty = ConfigProperty | PropertyRef
+export interface LiteralProperty {
+  literal: unknown // hard-coded value written directly into agent params at conversation creation
+  as: string // destination key in agent params (supports dot notation for nesting)
+}
+
+export type AgentProperty = ConfigProperty | PropertyRef | LiteralProperty
 
 export interface ChannelConfig {
   name: string
@@ -1426,7 +1432,7 @@ export interface Triggers {
     allowMessagesFromAgents?: boolean
   }
   periodic?: { timerPeriod: number; proactive?: boolean; conversationHistorySettings?: ConversationHistorySettings }
-  cron?: { expression: string }
+  cron?: { expression: string; timezone?: string }
 }
 
 export interface GenericAgentAnswer {
