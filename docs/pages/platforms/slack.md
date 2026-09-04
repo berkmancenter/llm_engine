@@ -46,6 +46,7 @@ Subscribe to the following bot events
 - message.groups
 - message.im (if using direct messages)
 - member_joined_channel (required for member identity sync — triggers `users.info` lookup when a member joins a channel the bot is in)
+- app_home_opened (if using the App Home page)
 
 #### Add environment variables
 
@@ -254,3 +255,24 @@ Example conversation body with both group chat and DMs on the same adapter:
   ]
 }
 ```
+
+### App Home page
+
+The App Home is the page users see when they click the app in their Slack sidebar. When a
+community assistant is running, LLM Engine draws that page from the assistant's own settings:
+a section for each enabled tool, a line for each enabled notification, and where to reach the
+bot. Nothing is published for a workspace running any other agent, since publishing replaces
+whatever the tab already shows.
+
+Slack-side setup:
+
+1. Under `App Home`, `Show Tabs`, turn on the `Home Tab` switch.
+2. Under `Event Subscriptions`, subscribe to the `app_home_opened` bot event.
+
+The wording lives in `src/agents/communityAssistant/appHomeContent.ts`, one entry per tool
+and per notification. A tool with no entry there is left off the page rather than shown by
+its raw name, so adding a tool to the assistant means adding its wording here too.
+
+Starter questions render as buttons only when the workspace also has a `direct` conversation
+running the community assistant, since a clicked question is always answered in the reader's
+own conversation with the bot. Without one they render as text to copy.
