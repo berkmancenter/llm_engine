@@ -26,11 +26,11 @@ const FEATURE_COPY: Record<string, FeatureCopy> = {
     ]
   },
   bkc_archive_wiki: {
-    label: 'Berkman Klein Center archive',
-    description: 'Explore curated BKC research, people profiles, newsletters, and talk transcripts.',
+    label: 'Curated archive',
+    description: 'Explore the curated archive of research, people profiles, newsletters, and talk transcripts.',
     starterQuestions: [
-      'What projects has the Berkman Klein Center published on youth and media?',
-      'Who are the BKC fellows working on public interest technology?'
+      'What has the archive published on youth and media?',
+      'Which people in the archive work on public interest technology?'
     ],
     available: () => Boolean(config.bkcArchive.apiUrl)
   },

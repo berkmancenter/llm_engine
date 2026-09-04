@@ -4,7 +4,7 @@ import { AppHomeData } from '../../../../../../src/types/index.types.js'
 
 function makeData(overrides: Partial<AppHomeData> = {}): AppHomeData {
   return {
-    headline: "Hi, I'm Berkie",
+    headline: "Hi, I'm Athena",
     intro: 'I am an assistant for this community.',
     featuresHeading: 'What I can do',
     features: [
@@ -48,7 +48,7 @@ describe('renderAppHomePage', () => {
     expect(blocks[0]).toEqual(
       expect.objectContaining({
         type: 'header',
-        text: expect.objectContaining({ text: "Hi, I'm Berkie" })
+        text: expect.objectContaining({ text: "Hi, I'm Athena" })
       })
     )
   })
