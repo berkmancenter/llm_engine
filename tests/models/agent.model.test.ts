@@ -704,6 +704,61 @@ describe('agent tests', () => {
 
     expect(mockRespond).not.toHaveBeenCalled()
   })
+  test('should call respond for cron agent even when conversationHistorySettings yields empty history', async () => {
+    const agent = new Agent({
+      agentType: 'withParsers',
+      conversation,
+      triggers: { cron: { expression: '0 9,17 * * *' } }
+    })
+    await agent.save()
+    await agent.start()
+
+    const expectedEval = {
+      userMessage: null,
+      action: AgentMessageActions.CONTRIBUTE,
+      agentContributionVisible: true,
+      userContributionVisible: true,
+      suggestion: undefined
+    }
+
+    mockEvaluate.mockResolvedValue(expectedEval)
+    mockRespond.mockResolvedValue([])
+
+    await agent.evaluate()
+    await conversation.populate('messages')
+    await agent.respond()
+
+    // cron bypasses the "no history" early return — respond must be called
+    expect(mockRespond).toHaveBeenCalledTimes(1)
+  })
+
+  test('should not call respond for non-cron agent with conversationHistorySettings and empty history', async () => {
+    const agent = new Agent({
+      agentType: 'withParsers',
+      conversation,
+      triggers: { periodic: { timerPeriod: 300 } }
+    })
+    await agent.save()
+    await agent.start()
+
+    const expectedEval = {
+      userMessage: null,
+      action: AgentMessageActions.CONTRIBUTE,
+      agentContributionVisible: true,
+      userContributionVisible: true,
+      suggestion: undefined
+    }
+
+    mockEvaluate.mockResolvedValue(expectedEval)
+
+    await agent.evaluate()
+    await conversation.populate('messages')
+    await agent.respond()
+
+    // non-cron periodic agent with no history should still be skipped
+    expect(mockRespond).not.toHaveBeenCalled()
+  })
+
   test('should pass direct channel conversation history in respond method if directMessages specified', async () => {
     const agent = new Agent({
       agentType: 'perMessage',
