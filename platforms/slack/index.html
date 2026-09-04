@@ -580,6 +580,34 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#member-identity-sync" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Member identity sync
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Member identity sync">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#required-oauth-scopes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required OAuth scopes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#direct-messages" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -628,6 +656,8 @@
 <li>chat:write</li>
 <li>chat:write.public (if using in public channels)</li>
 <li>channels:read</li>
+<li>users:read (required for member identity sync — see <a href="#member-identity-sync">Member identity sync</a> below)</li>
+<li>users:read.email (required alongside <code>users:read</code> to access profile email addresses)</li>
 </ul>
 <h4 id="enable-direct-messaging-from-messages-tab">Enable Direct Messaging from Messages Tab</h4>
 <p>If you want to allow users to direct message the app, check the <code>Allow users to send Slash commands and messages from the messages tab</code> box under the <code>App Home</code> tab.</p>
@@ -646,6 +676,7 @@
 <li>message.channels</li>
 <li>message.groups</li>
 <li>message.im (if using direct messages)</li>
+<li>member_joined_channel (required for member identity sync — triggers <code>users.info</code> lookup when a member joins a channel the bot is in)</li>
 </ul>
 <h4 id="add-environment-variables">Add environment variables</h4>
 <p>Set the following environment variable in the LLM Engine <code>.env</code> file:</p>
@@ -833,6 +864,26 @@
 <span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"description":"AI ethics roundtable next Thursday at 3pm ET, online via Zoom"}'</span>
 </code></pre></div>
+<h3 id="member-identity-sync">Member identity sync</h3>
+<p>When a Slack adapter starts, LLM Engine checks whether the conversation has any <code>ConversationMembership</code> records (created when you import a member list via CSV invite). If memberships exist, it paginates through the Slack workspace's user list (<code>users.list</code>) and writes each member's Slack user ID into <code>ConversationMembership.externalIds.slack</code>, matched by email address.</p>
+<p>This mapping is used in two ways:</p>
+<ol>
+<li>
+<p><strong>Agent @mentions</strong> — Agents that post to the Slack channel (such as the communityAssistant group intro feature) can look up a member's Slack user ID from their membership record and format it as <code>&lt;@UXXXXXXXX&gt;</code>, producing a real Slack highlight rather than plain text.</p>
+</li>
+<li>
+<p><strong>Account linking</strong> — When a member who was pre-invited via CSV first sends a message in Slack, LLM Engine finds their membership record by Slack user ID and links it to the correct user account (matched by email, created if needed). This ensures a single identity if the same person later joins via another platform.</p>
+</li>
+</ol>
+<p>When a <code>member_joined_channel</code> event fires, the adapter checks whether the joining user's Slack user ID is already in their membership record. If the initial sync already wrote it, the <code>users.info</code> API call is skipped entirely — this matters during bulk workspace invites where many <code>member_joined_channel</code> events arrive in quick succession and the Slack API rate limit for <code>users.info</code> is tight.</p>
+<h4 id="required-oauth-scopes">Required OAuth scopes</h4>
+<p>The sync requires two additional bot token scopes beyond the baseline:</p>
+<ul>
+<li><code>users:read</code> — allows calling <code>users.list</code> and <code>users.info</code></li>
+<li><code>users:read.email</code> — allows reading profile email addresses from those calls</li>
+</ul>
+<p>Add both under <em>OAuth &amp; Permissions → Bot Token Scopes</em> in your Slack app configuration, then reinstall the app to your workspace so the new scopes take effect.</p>
+<p>If these scopes are missing, the adapter will start but log a <code>slack_webapi_platform_error</code> on the first sync attempt. The adapter otherwise continues normally; only the identity mapping is affected.</p>
 <h3 id="direct-messages">Direct messages</h3>
 <p>To support DMs between users and an agent, add <code>dmChannels</code> to the same adapter that handles group chat — no separate Conversation is needed. Set <code>enableDMs: ["agents"]</code> on the Conversation so the engine accepts inbound DMs.</p>
 <p>LLM Engine routes DMs by finding the adapter for the workspace that has <code>dmChannels</code> configured. Because DM channel IDs are per-user and change with each conversation, you do not specify a channel ID for DMs. Only one adapter per workspace (or per <code>appKey</code> + workspace, if you use the app-key webhook path) may have <code>dmChannels</code> — LLM Engine enforces this at save time.</p>
