@@ -298,12 +298,7 @@ export interface PropertyRef {
   as?: string // destination key in agent params (supports dot notation for nesting); defaults to last segment of $ref
 }
 
-export interface LiteralProperty {
-  literal: unknown // hard-coded value written directly into agent params at conversation creation
-  as: string // destination key in agent params (supports dot notation for nesting)
-}
-
-export type AgentProperty = ConfigProperty | PropertyRef | LiteralProperty
+export type AgentProperty = ConfigProperty | PropertyRef
 
 export interface ChannelConfig {
   name: string
