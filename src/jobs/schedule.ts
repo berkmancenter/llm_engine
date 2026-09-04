@@ -28,10 +28,10 @@ const schedule = {
      caller so the job-name format stays owned by this file. */
   periodicAgentExists: async (agentId) => (await agenda.jobs({ name: 'periodicAgent', 'data.agentId': agentId })).length > 0,
   cronAgentExists: async (agentId) => (await agenda.jobs({ name: 'cronAgent', 'data.agentId': agentId })).length > 0,
-  cronAgent: async (expression: string, data) => {
+  cronAgent: async (expression: string, data, timezone?: string) => {
     const job = agenda.create('cronAgent', data)
     job.unique({ 'data.agentId': data.agentId })
-    job.repeatEvery(expression, { skipImmediate: true })
+    job.repeatEvery(expression, { skipImmediate: true, ...(timezone && { timezone }) })
     await job.save()
   },
   cancelCronAgent: async (agentId) => {

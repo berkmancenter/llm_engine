@@ -67,8 +67,8 @@ async function scheduleCronAgent(agent, { reschedule = true } = {}) {
   }
   await defineJob.cronAgent()
   if (reschedule || !(await schedule.cronAgentExists(agent._id))) {
-    await schedule.cronAgent(agent.triggers.cron.expression, { agentId: agent._id })
-    logger.debug(`Set cron for ${agent.agentType} ${agent._id} "${agent.triggers.cron.expression}"`)
+    await schedule.cronAgent(agent.triggers.cron.expression, { agentId: agent._id }, agent.triggers.cron.timezone)
+    logger.debug(`Set cron for ${agent.agentType} ${agent._id} "${agent.triggers.cron.expression}"${agent.triggers.cron.timezone ? ` (${agent.triggers.cron.timezone})` : ''}`)
   } else {
     logger.debug(`Cron already scheduled for ${agent.agentType} ${agent._id}; left as-is`)
   }

@@ -4,6 +4,7 @@ import renderCuratedVibesCard from './vibesAnalyst/curatedCard.js'
 import renderBudgetAlertCard from './numberCruncher/budgetAlertCard.js'
 import renderConversationCostCard from './numberCruncher/conversationCostCard.js'
 import renderQualityReportCard from './scorekeeper/qualityReportCard.js'
+import renderMemberGroupIntroCard from './communityAssistant/memberGroupIntroCard.js'
 
 /* Maps an agent response's responseKind to the renderer that turns its neutral
    renderData into Slack Block Kit. Add an entry here when an agent introduces a
@@ -12,7 +13,8 @@ const renderers: Record<string, (renderData: unknown) => KnownBlock[]> = {
   curatedVibesSummary: (renderData) => renderCuratedVibesCard(renderData as CuratedVibesData),
   budgetAlert: (renderData) => renderBudgetAlertCard(renderData as BudgetAlertData),
   conversationCostSummary: (renderData) => renderConversationCostCard(renderData as ConversationCostData),
-  qualityReport: (renderData) => renderQualityReportCard(renderData as QualityReportData)
+  qualityReport: (renderData) => renderQualityReportCard(renderData as QualityReportData),
+  memberGroupIntro: (renderData) => renderMemberGroupIntroCard(renderData as { text: string })
 }
 
 /**

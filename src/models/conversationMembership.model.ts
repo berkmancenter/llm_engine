@@ -63,6 +63,10 @@ const schema = new mongoose.Schema<IConversationMembership>(
     externalIds: {
       type: mongoose.Schema.Types.Mixed,
       default: undefined
+    },
+    introduced: {
+      type: Boolean,
+      default: false
     }
   },
   {

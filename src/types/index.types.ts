@@ -204,6 +204,7 @@ export interface IConversationMembership {
   // so incoming messages from adapters that identify users differently than by email can still
   // be routed to the right account.
   externalIds?: Record<string, string>
+  introduced?: boolean
   createdAt?: Date
   updatedAt?: Date
 }
@@ -1426,7 +1427,7 @@ export interface Triggers {
     allowMessagesFromAgents?: boolean
   }
   periodic?: { timerPeriod: number; proactive?: boolean; conversationHistorySettings?: ConversationHistorySettings }
-  cron?: { expression: string }
+  cron?: { expression: string; timezone?: string }
 }
 
 export interface GenericAgentAnswer {
