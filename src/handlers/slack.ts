@@ -65,17 +65,14 @@ const handleEvent = async (req, res) => {
     return
   }
   // Skip bot messages to prevent loops and skip messages with subtypes, which are not user messages (they represent events like user joining a channel, etc)
+  // The middleware already resolved and validated the adapter for this workspace/channel.
   if (event.type === 'message' && !event.bot_id && !event.subtype) {
     // TODO limit same Slack channel to one active Conversation
-    // The middleware already looked up the bot when it validated the signature, so reuse it.
-    const slackAdapter = req.slackAdapter ?? (await findSlackAdapter({ appKey: req.params?.appKey, payload }))
-    if (!slackAdapter) {
-      throw new ApiError(
-        httpStatus.NOT_FOUND,
-        `Slack adapter for workspace ${event.team} and channel ${event.channel} not found`
-      )
-    }
-    await webhookService.receiveMessage(slackAdapter, event)
+    await webhookService.receiveMessage(req.slackAdapter, event)
+  }
+
+  if (event.type === 'member_joined_channel') {
+    await webhookService.participantJoined(req.slackAdapter, event)
   }
   res.status(httpStatus.OK).send('ok')
 }

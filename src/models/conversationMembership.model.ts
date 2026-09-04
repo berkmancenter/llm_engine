@@ -56,6 +56,13 @@ const schema = new mongoose.Schema<IConversationMembership>(
       ref: 'BaseUser',
       required: false,
       index: true
+    },
+    // Keyed by adapter type (e.g. 'slack', 'zoom') — stores the external platform's user ID
+    // so incoming messages from adapters that identify users differently than by email can still
+    // be routed to the right account.
+    externalIds: {
+      type: mongoose.Schema.Types.Mixed,
+      default: undefined
     }
   },
   {

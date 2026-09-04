@@ -6,6 +6,9 @@ export interface AdapterUser {
   dmConfig?: Record<string, unknown>
   isHost?: boolean
   defaultPreferences?: IUserPreferences
+  // The platform's native user ID (e.g. Slack user ID), used to look up an existing account
+  // via ConversationMembership.externalIds when the username-based lookup finds nothing.
+  externalId?: string
 }
 
 export interface AdapterMessage<T> {

@@ -1,7 +1,7 @@
 import faker from 'faker'
 import mongoose from 'mongoose'
 import setupIntTest from '../utils/setupIntTest.js'
-import { Conversation, Channel, User, Agent } from '../../src/models/index.js'
+import { Conversation, Channel, User, Agent, ConversationMembership } from '../../src/models/index.js'
 import { insertUsers } from '../fixtures/user.fixture.js'
 import { publicTopic } from '../fixtures/conversation.fixture.js'
 import { insertTopics } from '../fixtures/topic.fixture.js'
@@ -1385,6 +1385,231 @@ describe('adapter service tests', () => {
       const dmChannel = updatedAdapter!.dmChannels!.find((c) => c.direct)
       expect(dmChannel!.config?.[leavingChannelName]).toBeUndefined()
       expect(dmChannel!.config?.[stayingChannelName]).toEqual({ to: 200 })
+    })
+  })
+
+  describe('getOrCreateUser — externalId membership fallback', () => {
+    async function setupChannel() {
+      const channel = await Channel.create({ name: 'participant' })
+      conversation.channels.push(channel)
+      await conversation.save()
+    }
+
+    it('reuses existing user via membership userAccount when username lookup misses', async () => {
+      jest.spyOn(websocketGateway, 'broadcastNewMessage').mockResolvedValue()
+      await createConversation('externalId userAccount fallback')
+      await setupChannel()
+
+      const existingUser = await User.create({
+        username: 'test-EXT_123',
+        email: 'linked@example.com',
+        pseudonyms: [{ token: 'tok1', pseudonym: 'Linked User', active: true }]
+      })
+      await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'linked@example.com',
+        name: 'Linked User',
+        externalIds: { test: 'EXT_123' },
+        userAccount: existingUser._id
+      })
+
+      mockAdapterType.receiveMessage.mockResolvedValue([
+        {
+          user: { username: 'test-EXT_123', pseudonym: 'EXT_123', externalId: 'EXT_123' },
+          channels: [{ name: 'participant', direct: false }],
+          message: 'Hello!',
+          source: 'test'
+        }
+      ])
+
+      await webhookService.receiveMessage(adapter, {})
+
+      const users = await User.find({ email: 'linked@example.com' })
+      expect(users).toHaveLength(1)
+      expect(users[0]._id.toString()).toBe(existingUser._id.toString())
+    })
+
+    it('falls back to email lookup when membership userAccount points to a deleted user', async () => {
+      jest.spyOn(websocketGateway, 'broadcastNewMessage').mockResolvedValue()
+      await createConversation('externalId deleted userAccount fallback')
+      await setupChannel()
+
+      const deletedUser = await User.create({
+        username: 'deleted-user',
+        email: 'deleted@example.com',
+        pseudonyms: [{ token: 'tok-del', pseudonym: 'Deleted User', active: true }]
+      })
+      const survivingUser = await User.create({
+        username: 'surviving@example.com',
+        email: 'surviving@example.com',
+        pseudonyms: [{ token: 'tok-sur', pseudonym: 'Surviving User', active: true }]
+      })
+      await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'surviving@example.com',
+        name: 'Surviving User',
+        externalIds: { test: 'EXT_DEL' },
+        userAccount: deletedUser._id
+      })
+      await User.deleteOne({ _id: deletedUser._id })
+
+      mockAdapterType.receiveMessage.mockResolvedValue([
+        {
+          user: { username: 'test-EXT_DEL', pseudonym: 'EXT_DEL', externalId: 'EXT_DEL' },
+          channels: [{ name: 'participant', direct: false }],
+          message: 'Hello!',
+          source: 'test'
+        }
+      ])
+
+      await webhookService.receiveMessage(adapter, {})
+
+      const users = await User.find({ email: 'surviving@example.com' })
+      expect(users).toHaveLength(1)
+      expect(users[0]._id.toString()).toBe(survivingUser._id.toString())
+    })
+
+    it('finds user by email when membership has email but no userAccount', async () => {
+      jest.spyOn(websocketGateway, 'broadcastNewMessage').mockResolvedValue()
+      await createConversation('externalId email fallback')
+      await setupChannel()
+
+      await User.create({
+        username: 'member@example.com',
+        email: 'member@example.com',
+        pseudonyms: [{ token: 'tok2', pseudonym: 'Member User', active: true }]
+      })
+      await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'member@example.com',
+        name: 'Member User',
+        externalIds: { test: 'EXT_456' }
+      })
+
+      mockAdapterType.receiveMessage.mockResolvedValue([
+        {
+          user: { username: 'test-EXT_456', pseudonym: 'EXT_456', externalId: 'EXT_456' },
+          channels: [{ name: 'participant', direct: false }],
+          message: 'Hello!',
+          source: 'test'
+        }
+      ])
+
+      await webhookService.receiveMessage(adapter, {})
+
+      const users = await User.find({ email: 'member@example.com' })
+      expect(users).toHaveLength(1)
+      expect(users[0].email).toBe('member@example.com')
+    })
+
+    it('creates user with email as username when membership has email but no account exists', async () => {
+      jest.spyOn(websocketGateway, 'broadcastNewMessage').mockResolvedValue()
+      await createConversation('externalId create by email')
+      await setupChannel()
+
+      await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'newmember@example.com',
+        name: 'New Member',
+        externalIds: { test: 'EXT_789' }
+      })
+
+      mockAdapterType.receiveMessage.mockResolvedValue([
+        {
+          user: { username: 'test-EXT_789', pseudonym: 'EXT_789', externalId: 'EXT_789' },
+          channels: [{ name: 'participant', direct: false }],
+          message: 'Hello!',
+          source: 'test'
+        }
+      ])
+
+      await webhookService.receiveMessage(adapter, {})
+
+      const createdUser = await User.findOne({ username: 'newmember@example.com' })
+      expect(createdUser).toBeDefined()
+      expect(createdUser!.email).toBe('newmember@example.com')
+
+      const adapterKeyedUser = await User.findOne({ username: 'test-EXT_789' })
+      expect(adapterKeyedUser).toBeNull()
+    })
+
+    it('falls back to adapter-keyed username when no membership exists for the externalId', async () => {
+      jest.spyOn(websocketGateway, 'broadcastNewMessage').mockResolvedValue()
+      await createConversation('externalId no membership fallback')
+      await setupChannel()
+
+      mockAdapterType.receiveMessage.mockResolvedValue([
+        {
+          user: { username: 'test-UNKNOWN', pseudonym: 'UNKNOWN', externalId: 'UNKNOWN' },
+          channels: [{ name: 'participant', direct: false }],
+          message: 'Hello!',
+          source: 'test'
+        }
+      ])
+
+      await webhookService.receiveMessage(adapter, {})
+
+      const createdUser = await User.findOne({ username: 'test-UNKNOWN' })
+      expect(createdUser).toBeDefined()
+    })
+
+    it('writes userAccount back to membership when user is found or created via email', async () => {
+      jest.spyOn(websocketGateway, 'broadcastNewMessage').mockResolvedValue()
+      await createConversation('externalId userAccount writeback')
+      await setupChannel()
+
+      const membership = await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'writeback@example.com',
+        name: 'Writeback User',
+        externalIds: { test: 'EXT_WB' }
+      })
+
+      mockAdapterType.receiveMessage.mockResolvedValue([
+        {
+          user: { username: 'test-EXT_WB', pseudonym: 'EXT_WB', externalId: 'EXT_WB' },
+          channels: [{ name: 'participant', direct: false }],
+          message: 'Hello!',
+          source: 'test'
+        }
+      ])
+
+      await webhookService.receiveMessage(adapter, {})
+
+      const createdUser = await User.findOne({ email: 'writeback@example.com' })
+      expect(createdUser).toBeDefined()
+      const updatedMembership = await ConversationMembership.findById(membership._id).lean()
+      expect(updatedMembership!.userAccount!.toString()).toBe(createdUser!._id.toString())
+    })
+
+    it('sets bio and interests on User from membership when creating via email fallback', async () => {
+      jest.spyOn(websocketGateway, 'broadcastNewMessage').mockResolvedValue()
+      await createConversation('externalId bio interests')
+      await setupChannel()
+
+      await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'biouser@example.com',
+        name: 'Bio User',
+        bio: 'Loves hiking',
+        interests: 'Outdoors, photography',
+        externalIds: { test: 'EXT_BIO' }
+      })
+
+      mockAdapterType.receiveMessage.mockResolvedValue([
+        {
+          user: { username: 'test-EXT_BIO', pseudonym: 'EXT_BIO', externalId: 'EXT_BIO' },
+          channels: [{ name: 'participant', direct: false }],
+          message: 'Hello!',
+          source: 'test'
+        }
+      ])
+
+      await webhookService.receiveMessage(adapter, {})
+
+      const createdUser = await User.findOne({ email: 'biouser@example.com' })
+      expect(createdUser!.bio).toBe('Loves hiking')
+      expect(createdUser!.interests).toBe('Outdoors, photography')
     })
   })
 })

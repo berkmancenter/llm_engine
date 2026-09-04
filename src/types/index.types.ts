@@ -200,6 +200,10 @@ export interface IConversationMembership {
   joined: boolean
   status: 'active' | 'removed'
   userAccount?: mongoose.Types.ObjectId
+  // Keyed by adapter type (e.g. 'slack', 'zoom') — stores the external platform's user ID
+  // so incoming messages from adapters that identify users differently than by email can still
+  // be routed to the right account.
+  externalIds?: Record<string, string>
   createdAt?: Date
   updatedAt?: Date
 }

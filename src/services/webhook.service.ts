@@ -1,5 +1,5 @@
 import * as fuzzball from 'fuzzball'
-import { User } from '../models/index.js'
+import { User, ConversationMembership } from '../models/index.js'
 import { AdapterMessage, AdapterUser } from '../types/adapter.types.js'
 import userService from './user.service.js'
 import messageService from './message.service.js'
@@ -8,6 +8,40 @@ import logger from '../config/logger.js'
 
 async function getOrCreateUser(adapter, adapterUser) {
   let user = await User.findOne({ username: adapterUser.username })
+  if (!user && adapterUser.externalId) {
+    // Username lookup missed — check if a membership record links this external ID to a known
+    // email, which lets us find or create an account that the invite flow can later claim.
+    const membership = await ConversationMembership.findOne({
+      conversation: adapter.conversation._id,
+      [`externalIds.${adapter.type}`]: adapterUser.externalId
+    })
+      .select('email userAccount bio interests')
+      .lean()
+    if (membership?.userAccount) {
+      user = await User.findById(membership.userAccount)
+    }
+    if (!user && membership?.email) {
+      user = await User.findOne({ email: membership.email })
+      if (!user) {
+        user = await User.create({
+          username: membership.email,
+          email: membership.email,
+          pseudonyms: [
+            {
+              token: userService.newToken(),
+              pseudonym: adapterUser.pseudonym || (await userService.newPseudonym(0)),
+              active: true
+            }
+          ],
+          ...(membership.bio && { bio: membership.bio }),
+          ...(membership.interests && { interests: membership.interests })
+        })
+      }
+      // Link the account back so joinConversation can mark joined: true and
+      // provisionInvitedMember won't create a duplicate on invite consume.
+      await ConversationMembership.updateOne({ _id: membership._id }, { $set: { userAccount: user._id } })
+    }
+  }
   if (!user) {
     user = await User.create({
       username: adapterUser.username,
