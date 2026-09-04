@@ -100,6 +100,14 @@ const slackCommunityAssistant: ConversationType = {
       required: false,
       type: 'boolean',
       default: false
+    },
+    {
+      name: 'periodicMemberIntros',
+      label: 'Periodic Member Introductions',
+      description: 'Post periodic group introductions for unintroduced members. Defaults to enabled.',
+      required: false,
+      type: 'boolean',
+      default: true
     }
   ],
   // internal
@@ -112,7 +120,8 @@ const slackCommunityAssistant: ConversationType = {
         { $ref: 'botName', as: 'agentConfig.botName' },
         { $ref: 'notifications', as: 'agentConfig.notifications' },
         { $ref: 'tools', as: 'agentConfig.tools' },
-        { $ref: 'topicIds', as: 'agentConfig.topicIds' }
+        { $ref: 'topicIds', as: 'agentConfig.topicIds' },
+        { $ref: 'periodicMemberIntros', as: 'agentConfig.periodicMemberIntros' }
       ]
     }
   ],
