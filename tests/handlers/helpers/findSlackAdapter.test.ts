@@ -365,6 +365,21 @@ describe('findSlackAppHomeTarget', () => {
     expect(found?.directAgentConfig).toBeDefined()
   })
 
+  it('prefers the channel marked showOnAppHome over others when multiple channels are eligible', async () => {
+    await makeAppHomeAdapter({ channel: 'C_TEST', workspace: 'T1' })
+    await makeAppHomeAdapter({ channel: 'C_MAIN', workspace: 'T1', showOnAppHome: true })
+
+    const found = await findSlackAppHomeTarget({ payload: appHomePayload() })
+    expect(found?.sharedChannelId).toBe('C_MAIN')
+  })
+
+  it('falls back to any channel when none has showOnAppHome set', async () => {
+    await makeAppHomeAdapter({ channel: 'C_FALLBACK', workspace: 'T1' })
+
+    const found = await findSlackAppHomeTarget({ payload: appHomePayload() })
+    expect(found?.sharedChannelId).toBe('C_FALLBACK')
+  })
+
   it('returns null when nothing matches', async () => {
     expect(await findSlackAppHomeTarget({ payload: appHomePayload({ team_id: 'T_MISSING' }) })).toBeNull()
   })

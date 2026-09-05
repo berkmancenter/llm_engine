@@ -206,7 +206,10 @@ export async function findSlackAppHomeTarget({
   const directMessages = eligible.find(
     (candidate) => candidate.config?.channel === DIRECT_CHANNEL || (candidate.dmChannels?.length ?? 0) > 0
   )
-  const sharedChannel = eligible.find((candidate) => candidate.config?.channel !== DIRECT_CHANNEL)
+  // Prefer a channel explicitly marked for display; fall back to any non-DM adapter.
+  const sharedChannel =
+    eligible.find((candidate) => candidate.config?.channel !== DIRECT_CHANNEL && candidate.config?.showOnAppHome) ??
+    eligible.find((candidate) => candidate.config?.channel !== DIRECT_CHANNEL)
   const settingsOf = (candidate?: AdapterDocument) =>
     candidate && settingsByConversation.get(candidate.conversation.toString())
 
