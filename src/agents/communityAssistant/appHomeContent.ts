@@ -54,7 +54,7 @@ const PAGE_COPY = {
   noticesHeading: 'Automatic updates',
   reachHeading: 'How to reach me',
   reachChannel:
-    'In {channel}, mention @{botName} to get a response. {botName} will also jump in when a question seems directed at it.',
+    'In {channel}, mention @{botName} to get a response. I will also jump in when a question seems directed at me.',
   reachDirectMessage:
     'You can also message me in the Messages tab anytime without tagging my name, and I will reply to every message.',
   footer:
