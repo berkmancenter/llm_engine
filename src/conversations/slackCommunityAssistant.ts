@@ -108,6 +108,15 @@ const slackCommunityAssistant: ConversationType = {
       required: false,
       type: 'boolean',
       default: true
+    },
+    {
+      name: 'showOnAppHome',
+      label: 'Advertise on App Home',
+      description:
+        'Show the Slack channel on the App Home page as where members can find the assistant. Only one Slack channel per workspace should have this enabled.',
+      required: false,
+      type: 'boolean',
+      default: false
     }
   ],
   // internal
@@ -137,7 +146,8 @@ const slackCommunityAssistant: ConversationType = {
         botUserId: '{{{properties.slackBotUserId}}}', // for normalizing incoming messages
         botName: '{{{properties.botName}}}',
         signingSecret: '{{{properties.slackSigningSecret}}}',
-        appKey: '{{{properties.slackAppKey}}}'
+        appKey: '{{{properties.slackAppKey}}}',
+        showOnAppHome: '{{#if properties.showOnAppHome}}true{{/if}}'
       },
       chatChannels: [
         {
