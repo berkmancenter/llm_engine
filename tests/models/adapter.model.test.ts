@@ -7,6 +7,7 @@ import { publicTopic, conversationAgentsEnabled } from '../fixtures/conversation
 import { insertTopics } from '../fixtures/topic.fixture.js'
 import Adapter, { setAdapterTypes } from '../../src/models/adapter.model.js'
 import defaultAdapterTypes from '../../src/adapters/index.js'
+import logger from '../../src/config/logger.js'
 import { Direction } from '../../src/types/index.types.js'
 
 const mockSend = jest.fn()
@@ -173,6 +174,68 @@ describe('adapter tests', () => {
     await adapter.save()
     await adapter.sendMessage(msg1)
     expect(mockSend).not.toHaveBeenCalled()
+  })
+
+  test('should send to the remaining recipients when one recipient fails', async () => {
+    const msg1 = new Message({
+      _id: new mongoose.Types.ObjectId(),
+      body: faker.lorem.words(10),
+      conversation: conversationAgentsEnabled._id,
+      owner: registeredUser._id,
+      pseudonymId: registeredUser.pseudonyms[0]._id,
+      pseudonym: registeredUser.pseudonyms[0].pseudonym,
+      channels: ['achannel']
+    })
+    const adapter = new Adapter({
+      type: 'zoom',
+      conversation
+    })
+    adapter.chatChannels = [
+      {
+        name: 'achannel',
+        direction: Direction.OUTGOING,
+        users: 'all',
+        config: { alice: { to: 'alice' }, bob: { to: 'bob' } }
+      }
+    ]
+    await adapter.save()
+    await adapter.start()
+    mockSend.mockRejectedValueOnce(new Error('Error sending chat message to Zoom meeting: 400 - Participant not found'))
+    const loggerSpy = jest.spyOn(logger, 'error').mockImplementation()
+
+    await adapter.sendMessage(msg1)
+
+    expect(mockSend).toHaveBeenCalledTimes(2)
+    expect(mockSend).toHaveBeenNthCalledWith(2, msg1, { to: 'bob' })
+    expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to send message to alice on channel achannel'))
+    loggerSpy.mockRestore()
+  })
+
+  test('should send on later channels when an earlier channel does not accept outgoing messages', async () => {
+    const msg1 = new Message({
+      _id: new mongoose.Types.ObjectId(),
+      body: faker.lorem.words(10),
+      conversation: conversationAgentsEnabled._id,
+      owner: registeredUser._id,
+      pseudonymId: registeredUser.pseudonyms[0]._id,
+      pseudonym: registeredUser.pseudonyms[0].pseudonym,
+      channels: ['incoming', 'achannel']
+    })
+    const adapter = new Adapter({
+      type: 'slack',
+      conversation
+    })
+    adapter.chatChannels = [
+      { name: 'incoming', direction: Direction.INCOMING, config: { foo: 'incoming' } },
+      { name: 'achannel', direction: Direction.OUTGOING, config: { foo: 'bar' } }
+    ]
+    await adapter.save()
+    await adapter.start()
+
+    await adapter.sendMessage(msg1)
+
+    expect(mockSend).toHaveBeenCalledTimes(1)
+    expect(mockSend).toHaveBeenCalledWith(msg1, { foo: 'bar' })
   })
 
   test('should not call participantJoined on adapter type if inactive', async () => {
