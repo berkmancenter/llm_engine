@@ -753,6 +753,54 @@ describe('adapter service tests', () => {
       expect(dmChannel!.config![`direct-${createdUser!._id}-${agent._id}`]).toEqual({ to: 200 })
     })
 
+    it('keeps introducing the remaining agents when one fails to deliver its introduction', async () => {
+      await createConversation('Meeting with a failing introduction')
+      conversation.enableDMs = ['agents']
+
+      const failingAgent = new Agent({ agentType: 'test', conversation })
+      await failingAgent.save()
+      const remainingAgent = new Agent({ agentType: 'test', conversation })
+      await remainingAgent.save()
+      conversation.agents.push(failingAgent, remainingAgent)
+      await conversation.save()
+
+      adapter.dmChannels = [
+        { direct: true, agent: failingAgent._id, direction: Direction.BOTH, config: {} },
+        { direct: true, agent: remainingAgent._id, direction: Direction.BOTH, config: {} }
+      ]
+      await adapter.save()
+
+      // The shared test agent type has no introduce(), so give it one for this test only --
+      // otherwise the service never reaches sendMessage and this proves nothing.
+      const introduce = jest.fn().mockResolvedValue([{ message: { text: 'Hello' } }])
+      setAgentTypes({ test: { ...testAgentTypeSpecification.test, introduce } })
+
+      const sendMessage = jest
+        .fn()
+        .mockRejectedValueOnce(new Error('Error sending chat message to Zoom meeting: 400 - Participant not found'))
+        .mockResolvedValueOnce(undefined)
+      adapter.sendMessage = sendMessage
+      const loggerSpy = jest.spyOn(logger, 'error').mockImplementation()
+
+      mockAdapterType.participantJoined.mockReturnValue({
+        username: 'New Joiner',
+        dmConfig: { to: 200 }
+      })
+
+      try {
+        // The join itself must succeed -- an undeliverable introduction is not a failed webhook
+        await webhookService.participantJoined(adapter, { id: 200, name: 'New Joiner', platform: 'test' })
+      } finally {
+        setAgentTypes(testAgentTypeSpecification)
+      }
+
+      expect(introduce).toHaveBeenCalledTimes(2)
+      expect(sendMessage).toHaveBeenCalledTimes(2)
+      expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining(`Agent ${failingAgent._id} failed to introduce itself`))
+      expect(await User.findOne({ username: 'New Joiner' })).not.toBeNull()
+      loggerSpy.mockRestore()
+    })
+
     it('uses existing user when participant with same name joins', async () => {
       await createConversation('Meeting with Existing User')
       conversation.enableDMs = ['agents']
