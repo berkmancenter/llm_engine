@@ -347,7 +347,12 @@ export default {
     )
     const response = await fetch(`${config.recall.baseUrl}/${this.config.botId}/send_chat_message/`, options)
     if (response.status !== httpStatus.OK) {
-      throw new Error(`Error sending chat message to Zoom meeting: ${response.status}`)
+      // Report Recall's response body, not just the status: a 400 here does not say on its own
+      // whether the `to` recorded at join time is a participant id that has since gone stale,
+      // or chat is disabled meeting-side, or the message itself was rejected.
+      const body = (await response.text().catch(() => ''))?.trim()
+      const detail = body ? ` - ${body.slice(0, 200)}` : ''
+      throw new Error(`Error sending chat message to Zoom meeting: ${response.status}${detail}`)
     }
   },
 

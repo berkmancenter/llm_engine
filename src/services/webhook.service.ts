@@ -157,10 +157,20 @@ const participantJoined = async (adapter, participant) => {
         const channel = adapter.conversation.channels.find((c) => c.name === directChannelName)
         if (!channel) continue
         agent.conversation = adapter.conversation
-        const introMessages = await agent.introduce(channel, adapter.type)
-        for (const introMsg of introMessages) {
-          const body = introMsg.message?.text ?? introMsg.message
-          await adapter.sendMessage({ ...introMsg, body, channels: [directChannelName] })
+        // Introductions are best effort. The participant is registered and their channels
+        // exist by this point, so letting a failed introduction throw would fail the whole
+        // webhook and have the sender redeliver it -- re-running everything above and then
+        // failing on the same introduction again, indefinitely. Log which agent could not
+        // introduce itself and carry on with the rest.
+        try {
+          const introMessages = await agent.introduce(channel, adapter.type)
+          for (const introMsg of introMessages) {
+            const body = introMsg.message?.text ?? introMsg.message
+            await adapter.sendMessage({ ...introMsg, body, channels: [directChannelName] })
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+          logger.error(`Agent ${agent._id} failed to introduce itself on ${directChannelName}: ${errorMessage}`)
         }
       }
     }

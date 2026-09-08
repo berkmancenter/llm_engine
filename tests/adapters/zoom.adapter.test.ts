@@ -1930,7 +1930,30 @@ describe('zoom adapter tests', () => {
         channels: ['participant']
       }
 
-      await expect(adapter.sendMessage(message)).rejects.toThrow('Error sending chat message to Zoom meeting: 400')
+      await expect(adapter.sendMessage(message)).rejects.toThrow(
+        new Error('Error sending chat message to Zoom meeting: 400 - Bad Request')
+      )
+    })
+
+    it('reports only the status when the response body cannot be read', async () => {
+      await createConversation('Test Meeting')
+
+      adapter.chatChannels = [{ name: 'participant', direction: Direction.OUTGOING }]
+
+      const mockResponse = {
+        status: httpStatus.BAD_REQUEST,
+        text: jest.fn().mockRejectedValue(new Error('body already consumed'))
+      }
+      ;(fetch as jest.Mock).mockResolvedValue(mockResponse)
+
+      const message = {
+        body: 'Test message',
+        channels: ['participant']
+      }
+
+      await expect(adapter.sendMessage(message)).rejects.toThrow(
+        new Error('Error sending chat message to Zoom meeting: 400')
+      )
     })
 
     it('handles network errors gracefully', async () => {
