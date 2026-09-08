@@ -206,12 +206,20 @@ adapterSchema.method('sendMessage', async function (message) {
     if (channel) {
       if (!(channel.direction === Direction.OUTGOING || channel.direction === Direction.BOTH)) {
         logger.warn(`Attempt to send message on channel that does not support outgoing messages: ${channelName}`)
-        return
+        continue
       }
       logger.debug(`Sending message with channel ${channelName} through adapter ${this._id}`)
       if (channel.users) {
-        for (const dmConfig of Object.values(channel.config || {})) {
-          await adapterTypes[this.type].sendMessage.call(this, message, dmConfig)
+        for (const [recipient, dmConfig] of Object.entries(channel.config || {})) {
+          // One undeliverable recipient must not cost everyone after them their copy. Callers
+          // catch around the whole send (see message.service.ts), which is outside this loop,
+          // so without this the first failure ends the broadcast.
+          try {
+            await adapterTypes[this.type].sendMessage.call(this, message, dmConfig)
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+            logger.error(`Failed to send message to ${recipient} on channel ${channelName}: ${errorMessage}`)
+          }
         }
       } else {
         const channelConfig = channel.direct ? channel.config[channelName] : channel.config
