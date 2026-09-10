@@ -715,6 +715,60 @@ export interface DocumentArtifactPayload {
   body: string
 }
 
+/* Where a node in a concept graph came from. Every field is optional: a graph assembled
+   from a whole event has no single message to point at, while one built live from the
+   transcript can attribute nearly every node. `conversationId` is worth carrying even
+   though the artifact knows its own container, because a topic-scoped graph draws on
+   several conversations. */
+export interface GraphNodeProvenance {
+  conversationId?: string
+  messageId?: string
+  pseudonym?: string
+}
+
+/* An idea or entity in a concept graph. `id` is opaque and stable so a rename stays an
+   edit to one node rather than a delete plus a create, which is what keeps two versions of
+   the graph diffable; `label` is what the client draws. */
+export interface GraphConcept {
+  id: string
+  label: string
+  /* Id of the GraphOriginPrompt this concept came out of. */
+  origin?: string
+  provenance?: GraphNodeProvenance
+}
+
+/* A relationship between concepts, reified as its own node rather than left as an edge.
+   That is what lets one contribution join three or more concepts at once, which a plain
+   edge cannot express — and why concepts never reference each other directly. */
+export interface GraphContribution {
+  id: string
+  /* The relationship's name, and the label a client renders: 'anchors', 'co-governs'. */
+  kind: string
+  /* Ids of the GraphConcepts this relationship joins. */
+  concepts: string[]
+  /* Id of the GraphOriginPrompt this contribution came out of. */
+  origin?: string
+  provenance?: GraphNodeProvenance
+}
+
+/* The prompt or question a concept or contribution came out of: the third node kind.
+   Attached by a direct `origin` reference rather than through a contribution, since an
+   origin is attribution rather than a relationship between concepts. */
+export interface GraphOriginPrompt {
+  id: string
+  text: string
+  provenance?: GraphNodeProvenance
+}
+
+/* A concept graph artifact's payload. Every array is optional and defaults to empty, so
+   the artifact can be created when an event starts and fill in as it runs. Nothing about
+   layout is stored — position, size and colour are all derived by the client. */
+export interface ConceptGraphPayload {
+  concepts: GraphConcept[]
+  contributions: GraphContribution[]
+  originPrompts: GraphOriginPrompt[]
+}
+
 /**
  * ====================================
  *
