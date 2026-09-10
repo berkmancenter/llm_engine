@@ -2,13 +2,117 @@ import verify from '../helpers/verify.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import logger from '../../config/logger.js'
 import Conversation from '../../models/conversation.model.js'
+import ConversationCost from '../../models/conversationCost.model.js'
 import access from '../../auth/access.js'
 import conversationCostTrackingService from '../../services/conversationCostTracking.service.js'
-import type { BudgetAlertData, BudgetAlert, ConversationCostData } from '../../types/index.types.js'
+import conversationCostService from '../../services/conversationCost.service.js'
+import { fetchConversationCost, combineCostAggregates, isLangsmithCostTrackingConfigured } from './conversationCost.js'
+import type {
+  BudgetAlertData,
+  BudgetAlert,
+  ConversationCostData,
+  ConversationCostPhases,
+  ConversationCostAggregates,
+  IChannel
+} from '../../types/index.types.js'
 import { AgentMessageActions } from '../../types/index.types.js'
 
 const HELLO_MESSAGE =
-  "Number Cruncher online. I'll check your configured budget endpoints on schedule, and post an estimated LLM cost summary here when an event ends."
+  "Number Cruncher online. I'll check your configured budget endpoints on schedule, post a nightly cost " +
+  "snapshot for events still running, and post an estimated LLM cost summary here when an event ends."
+
+/* A retry after a mid-job kill (see jobs/CLAUDE.md) happens within the cronAgent job's
+   lockLifetime, far shorter than a day, so a snapshot already captured this recently is
+   certainly this same nightly tick re-running from scratch, not a legitimate new one —
+   skip it rather than post the same cost card to Slack twice. */
+const NIGHTLY_SNAPSHOT_DEBOUNCE_MS = 12 * 60 * 60 * 1000 // 12 hours
+
+/* Builds the Slack-facing response for one conversation's cost data, shared by the
+   stop-event card (onConversationEvent) and the nightly snapshot (respond()) below —
+   only how the phases/total were obtained differs between the two. */
+function buildCostSummaryResponse(
+  conversation: { name: string },
+  topicIsPrivate: boolean,
+  phases: ConversationCostPhases,
+  total: ConversationCostAggregates,
+  channels: IChannel[] | undefined
+) {
+  const renderData: ConversationCostData = {
+    ...phases,
+    total,
+    conversationName: conversation.name,
+    checkedAt: new Date().toISOString(),
+    topicIsPrivate
+  }
+
+  const displayName = topicIsPrivate ? 'a private event' : `*${conversation.name}*`
+
+  return {
+    visible: true,
+    // Fallback text for adapters that do not render the card (e.g. zoom).
+    message: `Estimated LLM cost for ${displayName}: ~$${total.estimatedCostUSD.toFixed(
+      2
+    )} (LangSmith estimate — actual provider charges may differ)${
+      total.hasUnpricedCalls ? ' — some calls could not be priced, so the actual total is higher' : ''
+    }`,
+    messageType: 'text' as const,
+    responseKind: 'conversationCostSummary' as const,
+    renderData,
+    channels
+  }
+}
+
+/* One nightly (4am ET) sweep, mirroring Scorekeeper's respond(): find every conversation
+   still active right now, take a live (non-settled — there's nothing to settle on a
+   conversation that hasn't stopped) cost read for each, and post one card per conversation
+   to Number Cruncher's own channel(s), exactly where its stop-event cost cards already go. */
+async function buildNightlySnapshotResponses(channels: IChannel[] | undefined) {
+  if (!isLangsmithCostTrackingConfigured()) return []
+
+  const activeConversations = await Conversation.find({ active: true, draft: false })
+    .select('_id name topic')
+    .populate('topic', 'private')
+    .lean()
+
+  if (activeConversations.length === 0) return []
+
+  const responses: object[] = []
+  for (const conversation of activeConversations) {
+    const conversationId = String(conversation._id)
+    const topic = conversation.topic as { private?: boolean } | undefined
+    const topicIsPrivate = topic?.private !== false
+
+    // status: 'pending' scopes this to a previous *nightly snapshot*, not a stop-event's
+    // persistCost ('complete') — a conversation can restart after stopping (startConversation
+    // has no guard against that), and its ConversationCost record would still carry the old
+    // stop's recent capturedAt. Debouncing against that would silently skip a conversation
+    // that's genuinely active again, for up to NIGHTLY_SNAPSHOT_DEBOUNCE_MS after its restart.
+    const recentSnapshot = await ConversationCost.findOne({
+      conversationId: conversation._id,
+      status: 'pending',
+      capturedAt: { $gte: new Date(Date.now() - NIGHTLY_SNAPSHOT_DEBOUNCE_MS) }
+    })
+      .select('_id')
+      .lean()
+    if (recentSnapshot) {
+      logger.debug(`numberCruncher: conversation ${conversationId} already has a recent cost snapshot, skipping`)
+      continue
+    }
+
+    const phases = await fetchConversationCost(conversationId)
+    const total = phases ? combineCostAggregates(phases.liveEvent, phases.postEvent) : null
+    if (!total || total.llmCallCount === 0) continue
+
+    try {
+      await conversationCostService.persistSnapshot(conversation, phases!, { topicIsPrivate })
+    } catch (error) {
+      logger.error(`numberCruncher: could not persist nightly cost snapshot for ${conversationId}`, error)
+    }
+
+    responses.push(buildCostSummaryResponse(conversation, topicIsPrivate, phases!, total, channels))
+  }
+  return responses
+}
 
 interface BudgetConfig {
   label: string
@@ -57,11 +161,15 @@ async function fetchBudgetAlerts(budgets: BudgetConfig[]): Promise<BudgetAlert[]
 export default verify({
   name: 'Number Cruncher',
   description:
-    'Checks LLM API budget endpoints on a schedule, and posts an estimated LLM cost summary when an event ends (public or private).',
+    'Checks LLM API budget endpoints and active-event cost snapshots nightly at 4am ET, and posts an ' +
+    'estimated LLM cost summary when an event ends (public or private).',
   priority: 100,
   maxTokens: undefined,
   defaultTriggers: {
-    cron: { expression: '0 3 * * *' }
+    // Budget-alert checks moved onto this same trigger from 3am UTC so the new nightly
+    // cost-snapshot sweep (respond(), below) can share it rather than needing a second,
+    // independently-timed cron — the framework only supports one cron trigger per agent.
+    cron: { expression: '0 4 * * *', timezone: 'America/New_York' }
   },
   llmTemplateVars: undefined,
   defaultLLMTemplates: undefined,
@@ -98,27 +206,30 @@ export default verify({
   },
 
   async respond() {
+    const responses: object[] = []
+
     const budgets: BudgetConfig[] = this.agentConfig.budgets ?? []
-    if (budgets.length === 0) return []
-
-    const alerts = await fetchBudgetAlerts(budgets)
-    if (alerts.length === 0) return []
-
-    const renderData: BudgetAlertData = {
-      alerts,
-      checkedAt: new Date().toISOString()
+    if (budgets.length > 0) {
+      const alerts = await fetchBudgetAlerts(budgets)
+      if (alerts.length > 0) {
+        const renderData: BudgetAlertData = {
+          alerts,
+          checkedAt: new Date().toISOString()
+        }
+        responses.push({
+          visible: true,
+          message: `Budget alert: ${alerts.map((a) => `${a.label} at ${Math.round(a.percentUsed)}%`).join(', ')}`,
+          messageType: 'text' as const,
+          responseKind: 'budgetAlert' as const,
+          renderData,
+          channels: this.conversation.channels
+        })
+      }
     }
 
-    return [
-      {
-        visible: true,
-        message: `Budget alert: ${alerts.map((a) => `${a.label} at ${Math.round(a.percentUsed)}%`).join(', ')}`,
-        messageType: 'text' as const,
-        responseKind: 'budgetAlert' as const,
-        renderData,
-        channels: this.conversation.channels
-      }
-    ]
+    responses.push(...(await buildNightlySnapshotResponses(this.conversation.channels)))
+
+    return responses
   },
 
   // Fires when ANY event stops, public or private (the dispatcher matches the
@@ -162,34 +273,10 @@ export default verify({
     if (!result) return []
     const { phases, total } = result
 
-    const renderData: ConversationCostData = {
-      ...phases,
-      total,
-      conversationName: conversation.name,
-      checkedAt: new Date().toISOString(),
-      topicIsPrivate
-    }
-
-    // The event name is never shown in the visible fallback text for a private
-    // event — the Slack card (conversationCostCard.ts) applies the same redaction
-    // to its header. renderData itself still carries the real name for any other
-    // consumer (e.g. a future internal report) that reads the persisted record.
-    const displayName = topicIsPrivate ? 'a private event' : `*${conversation.name}*`
-
-    return [
-      {
-        visible: true,
-        // Fallback text for adapters that do not render the card (e.g. zoom).
-        message: `Estimated LLM cost for ${displayName}: ~$${total.estimatedCostUSD.toFixed(
-          2
-        )} (LangSmith estimate — actual provider charges may differ)${
-          total.hasUnpricedCalls ? ' — some calls could not be priced, so the actual total is higher' : ''
-        }`,
-        messageType: 'text' as const,
-        responseKind: 'conversationCostSummary' as const,
-        renderData,
-        channels: this.conversation.channels
-      }
-    ]
+    // The event name is never shown in the visible fallback text for a private event —
+    // the Slack card (conversationCostCard.ts) applies the same redaction to its header.
+    // renderData itself still carries the real name for any other consumer (e.g. a
+    // future internal report) that reads the persisted record — see buildCostSummaryResponse.
+    return [buildCostSummaryResponse(conversation, topicIsPrivate, phases, total, this.conversation.channels)]
   }
 })

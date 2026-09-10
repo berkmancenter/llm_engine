@@ -71,4 +71,38 @@ async function persistCost(
   )
 }
 
-export default { createPending, persistCost }
+/* Nightly proactive check on a conversation that's still active (see Number Cruncher's
+   respond(), the 4am ET cron sweep) — a live, non-final read on today's running total.
+   Same $set-upsert shape as persistCost, but deliberately keeps status 'pending': the
+   conversation hasn't stopped, so this can never be the settled figure persistCost's
+   'complete' means. Each night's snapshot overwrites the last; no history of past
+   nightly snapshots is kept, only the most recent one.
+
+   Accepted gap: the nightly sweep only selects conversations still `active`, so this
+   should never race persistCost in practice — but if a conversation stops (persistCost
+   writes 'complete') at the exact moment its snapshot from this same tick is still in
+   flight, this can overwrite that 'complete' record back to 'pending'. Not guarded
+   against: no natural id ties a snapshot to "the sweep that started before the stop",
+   and the record still self-corrects next time anything calls persistCost. */
+async function persistSnapshot(
+  conversation: { _id: unknown; name?: string },
+  phases: ConversationCostPhases,
+  opts: { topicIsPrivate: boolean }
+) {
+  return ConversationCost.findOneAndUpdate(
+    { conversationId: conversation._id },
+    {
+      $set: {
+        name: conversation.name,
+        ...phases,
+        source: 'langsmith',
+        status: 'pending',
+        topicIsPrivate: opts.topicIsPrivate,
+        capturedAt: new Date()
+      }
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  )
+}
+
+export default { createPending, persistCost, persistSnapshot }

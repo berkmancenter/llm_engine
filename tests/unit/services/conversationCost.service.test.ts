@@ -119,4 +119,65 @@ describe('conversationCost service', () => {
       expect(doc!.topicIsPrivate).toBe(true)
     })
   })
+
+  describe('persistSnapshot', () => {
+    it('writes the latest phases but keeps status pending, since the conversation has not stopped', async () => {
+      const conversation = { _id: new mongoose.Types.ObjectId(), name: 'The Future of Work' }
+
+      await conversationCostService.persistSnapshot(conversation, phases, { topicIsPrivate: false })
+
+      const doc = await ConversationCost.findOne({ conversationId: conversation._id })
+      expect(doc!.status).toBe('pending')
+      expect(doc!.liveEvent.estimatedCostUSD).toBe(0.1)
+      expect(doc!.capturedAt).toBeInstanceOf(Date)
+    })
+
+    it('overwrites a prior snapshot on the next nightly run rather than duplicating it', async () => {
+      const conversation = { _id: new mongoose.Types.ObjectId(), name: 'The Future of Work' }
+
+      await conversationCostService.persistSnapshot(conversation, phases, { topicIsPrivate: false })
+      await conversationCostService.persistSnapshot(
+        conversation,
+        { ...phases, liveEvent: makeAggregate({ estimatedCostUSD: 5.0 }) },
+        { topicIsPrivate: false }
+      )
+
+      const docs = await ConversationCost.find({ conversationId: conversation._id })
+      expect(docs).toHaveLength(1)
+      expect(docs[0].liveEvent.estimatedCostUSD).toBe(5.0)
+      expect(docs[0].status).toBe('pending')
+    })
+
+    it('flips an already-complete record back to pending if a snapshot runs against it (an accepted race)', async () => {
+      const conversation = { _id: new mongoose.Types.ObjectId(), name: 'The Future of Work' }
+      await conversationCostService.persistCost(conversation, phases, { topicIsPrivate: false })
+
+      await conversationCostService.persistSnapshot(conversation, phases, { topicIsPrivate: false })
+
+      const doc = await ConversationCost.findOne({ conversationId: conversation._id })
+      expect(doc!.status).toBe('pending')
+    })
+
+    it('gets correctly finalized by persistCost once the event actually stops, overwriting prior nightly snapshots', async () => {
+      // The normal sequence: several nights of snapshots while the event runs long, then it
+      // finally stops and the real stop-event flow (trackConversationCost -> persistCost)
+      // must still finalize the record as 'complete' with the settled figures, not leave it
+      // stuck on whatever the last nightly snapshot wrote.
+      const conversation = { _id: new mongoose.Types.ObjectId(), name: 'The Future of Work' }
+      await conversationCostService.persistSnapshot(conversation, phases, { topicIsPrivate: false })
+      await conversationCostService.persistSnapshot(
+        conversation,
+        { ...phases, liveEvent: makeAggregate({ estimatedCostUSD: 3.0 }) },
+        { topicIsPrivate: false }
+      )
+
+      const settledPhases = { ...phases, liveEvent: makeAggregate({ estimatedCostUSD: 4.2 }) }
+      await conversationCostService.persistCost(conversation, settledPhases, { topicIsPrivate: false })
+
+      const docs = await ConversationCost.find({ conversationId: conversation._id })
+      expect(docs).toHaveLength(1)
+      expect(docs[0].status).toBe('complete')
+      expect(docs[0].liveEvent.estimatedCostUSD).toBe(4.2)
+    })
+  })
 })
