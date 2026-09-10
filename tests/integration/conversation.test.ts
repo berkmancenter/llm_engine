@@ -2021,13 +2021,20 @@ describe('Conversation routes', () => {
       expect(resp.body).toHaveLength(1)
       const conversation = resp.body[0]
 
-      // Check that all returnFields are present
+      // Check that all always-present returnFields are included
       expect(conversation).toHaveProperty('name')
       expect(conversation).toHaveProperty('slug')
       expect(conversation).toHaveProperty('locked')
       expect(conversation).toHaveProperty('owner')
       expect(conversation).toHaveProperty('createdAt')
       expect(conversation).toHaveProperty('active')
+      expect(conversation).toHaveProperty('draft')
+      expect(conversation).toHaveProperty('platforms')
+      expect(conversation).toHaveProperty('moderators')
+      expect(conversation).toHaveProperty('presenters')
+      expect(conversation).toHaveProperty('transcript')
+      expect(conversation).toHaveProperty('features')
+      expect(conversation).toHaveProperty('autoStop')
       expect(conversation).toHaveProperty('id')
       expect(conversation).not.toHaveProperty('messages')
       expect(conversation).not.toHaveProperty('_id')

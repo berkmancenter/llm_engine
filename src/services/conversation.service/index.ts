@@ -34,7 +34,7 @@ import resourceService from '../resource.service.js'
 export { updateTranscriptStatus }
 
 const returnFields =
-  'name slug locked owner createdAt active draft conversationType platforms scheduledTime scheduledEndTime startTime endTime description moderators presenters transcript properties features'
+  'name slug locked owner createdAt active draft conversationType platforms scheduledTime scheduledEndTime startTime endTime description moderators presenters transcript properties features autoStop'
 /* A Draft conversation can no longer be edited once its scheduled start time is imminent;
    past this point the owner should create a new event rather than editing this one. */
 const draftEditLockoutMs = 6 * 60 * 1000 // 6 minutes
@@ -216,6 +216,7 @@ const createConversation = async (conversationBody, user, { allowDraft = false }
     ...(conversationBody.features !== undefined && { features: conversationBody.features }),
     ...(conversationBody.goals !== undefined && { goals: conversationBody.goals }),
     ...(conversationBody.behaviorPolicy !== undefined && { behaviorPolicy: conversationBody.behaviorPolicy }),
+    ...(conversationBody.autoStop !== undefined && { autoStop: conversationBody.autoStop }),
     ...(conversationBody.resources !== undefined && { resources: conversationBody.resources }),
     agents: [],
     transcript: {

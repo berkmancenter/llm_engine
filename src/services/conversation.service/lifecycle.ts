@@ -62,6 +62,7 @@ async function scheduleTranscriptBatching(conversation) {
 }
 
 async function scheduleAutoStop(conversation) {
+  if (conversation.autoStop === false) return
   const hasTranscriptChannel = await Channel.exists({ _id: { $in: conversation.channels }, name: 'transcript' })
   if (!hasTranscriptChannel) return
   await schedule.cancelAutoStopConversation(conversation._id)

@@ -538,6 +538,7 @@ export interface IConversation {
      ignores it, so an owner can never flip anonymity on or off mid-conversation. */
   useRealNames?: boolean
   enforceMembership?: boolean
+  autoStop?: boolean
   owner: IUser
   topic: ITopic
   // How this conversation was created, when not the standard event-creation form. Deliberately

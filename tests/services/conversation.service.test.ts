@@ -1127,6 +1127,29 @@ describe('Conversation service methods', () => {
     })
   })
 
+  describe('createConversation() autoStop', () => {
+    beforeEach(async () => {
+      await insertUsers([registeredUser])
+      await insertTopics([topicOne])
+    })
+
+    test('defaults to true when not specified', async () => {
+      const conversation = await conversationService.createConversation(
+        { name: 'Plain Conversation', topicId: topicOne._id.toString() },
+        registeredUser
+      )
+      expect(conversation.autoStop).toBe(true)
+    })
+
+    test('persists autoStop: false when passed in the create body', async () => {
+      const conversation = await conversationService.createConversation(
+        { name: 'Persistent Channel', topicId: topicOne._id.toString(), autoStop: false },
+        registeredUser
+      )
+      expect(conversation.autoStop).toBe(false)
+    })
+  })
+
   describe('createConversation() useRealNames default', () => {
     beforeEach(async () => {
       await insertUsers([registeredUser])
@@ -1563,6 +1586,33 @@ describe('Conversation service methods', () => {
         adapters: [],
         messages: []
       })
+      await conversation.save()
+
+      await conversationService.startConversation(conversation._id.toString(), registeredUser)
+
+      expect(defineJobSpy).not.toHaveBeenCalled()
+      expect(scheduleSpy).not.toHaveBeenCalled()
+    })
+
+    test('does not schedule auto-stop when autoStop is false, even with a transcript channel', async () => {
+      const defineJobSpy = jest.spyOn(defineJob, 'autoStopConversation').mockResolvedValue(undefined)
+      const scheduleSpy = jest.spyOn(schedule, 'autoStopConversation').mockResolvedValue(undefined)
+
+      const conversation = new Conversation({
+        name: 'Persistent Community Channel',
+        owner: registeredUser._id,
+        topic: topicOne._id,
+        draft: false,
+        autoStop: false,
+        agents: [],
+        adapters: [],
+        messages: []
+      })
+      await conversation.save()
+
+      const channel = await Channel.create({ name: 'transcript', conversation: conversation._id })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      conversation.channels.push(channel._id as any)
       await conversation.save()
 
       await conversationService.startConversation(conversation._id.toString(), registeredUser)
@@ -2137,6 +2187,15 @@ describe('Conversation service methods', () => {
         // scheduledEndTime is still unset, so the conversation must remain Draft
         // regardless of what the client sent.
         expect(result!.draft).toBe(true)
+      })
+
+      test('autoStop can be flipped to false via update', async () => {
+        expect(conversation.autoStop).toBe(true)
+        const result = await conversationService.updateConversation(
+          { id: conversation._id.toString(), autoStop: false },
+          registeredUser
+        )
+        expect(result!.autoStop).toBe(false)
       })
 
       test('a client-supplied useRealNames field in the update body is ignored', async () => {
