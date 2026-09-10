@@ -1353,6 +1353,112 @@ components:
         refresh:
           $ref: '#/components/schemas/Token'
 
+    ArtifactVersion:
+      type: object
+      description: >-
+        One immutable revision of an artifact. Versions are append-only: an edit writes a
+        new one rather than changing an existing one, so the full history stays readable.
+      required:
+        - artifact
+        - versionNumber
+        - payload
+      properties:
+        id:
+          type: string
+        artifact:
+          type: string
+          description: Artifact ObjectId
+        versionNumber:
+          type: number
+          description: >-
+            1-based and strictly increasing per artifact. Not guaranteed contiguous: an
+            append that claims a number and then fails to write leaves it unused.
+          example: 3
+        payload:
+          type: object
+          description: >-
+            Kind-specific content, whose shape is determined by the artifact's `type`. A
+            DocumentArtifact payload is `{ body: string }`.
+          additionalProperties: true
+          example:
+            body: 'The group converged on three priorities...'
+        createdBy:
+          type: string
+          description: BaseUser ObjectId — the organizer or agent that wrote this version
+        note:
+          type: string
+          description: Free-text note on what changed, for a history view
+          example: 'Revised after the second breakout'
+        createdAt:
+          type: string
+          format: date-time
+
+    Artifact:
+      type: object
+      description: >-
+        A shared data object that emerges from one or more conversations — a document, a
+        link to an external resource, or a custom data model a client renders its own way.
+        Scoped either to a single conversation or to a whole topic. The artifact's content
+        is the payload of its `currentVersion`; every earlier version is retained and
+        readable through the versions endpoints.
+      required:
+        - scope
+        - topic
+        - title
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          description: >-
+            Which kind of artifact this is, and therefore which renderer a client should
+            use and what shape its version payload has. Serialized from the mongoose
+            discriminator key.
+          enum: [DocumentArtifact]
+          example: DocumentArtifact
+        scope:
+          type: string
+          enum: [topic, conversation]
+          description: Which container this artifact belongs to
+        topic:
+          oneOf:
+            - type: string
+              description: Topic ObjectId when not populated
+            - $ref: '#/components/schemas/Topic'
+          description: >-
+            Always set. For a conversation-scoped artifact this is the conversation's own
+            topic, so a topic listing includes the artifacts of its conversations.
+        conversation:
+          oneOf:
+            - type: string
+              description: Conversation ObjectId when not populated
+            - $ref: '#/components/schemas/Conversation'
+          description: Set only when scope is `conversation`
+        title:
+          type: string
+          example: 'Shared priorities'
+        description:
+          type: string
+        currentVersion:
+          oneOf:
+            - type: string
+              description: ArtifactVersion ObjectId when not populated
+            - $ref: '#/components/schemas/ArtifactVersion'
+          description: The newest version — populated by the fetch and list endpoints
+        currentVersionNumber:
+          type: number
+          description: The newest version's number
+          example: 3
+        createdBy:
+          type: string
+          description: BaseUser ObjectId
+        locked:
+          type: boolean
+          description: When true no further versions may be appended; the artifact stays readable
+        createdAt:
+          type: string
+          format: date-time
+
     Error:
       type: object
       properties:
