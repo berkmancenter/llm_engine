@@ -104,6 +104,11 @@ export interface ITopic {
   conversationCreationAllowed: boolean
   private: boolean
   passcode?: number
+  /* Shared secret a client must present to read this topic's artifacts. Minted lazily on
+     first artifact creation, so a topic that has never had one carries no key. Kept apart
+     from `passcode` on purpose: that one unlocks a private topic itself, and an artifact
+     link must never be able to clear it. See artifact.service.ts. */
+  artifactPasscode?: string
   archivable: boolean
   archived?: boolean
   isDeleted?: boolean
@@ -538,6 +543,9 @@ export interface IConversation {
      ignores it, so an owner can never flip anonymity on or off mid-conversation. */
   useRealNames?: boolean
   enforceMembership?: boolean
+  /* Same shared secret as ITopic.artifactPasscode, for artifacts scoped to this
+     conversation rather than its topic. Minted lazily; see artifact.service.ts. */
+  artifactPasscode?: string
   owner: IUser
   topic: ITopic
   // How this conversation was created, when not the standard event-creation form. Deliberately
@@ -611,6 +619,82 @@ export interface IPollResponse {
 
 export interface PollResponseModel extends mongoose.Model<IPollResponse> {
   replaceObjectsWithIds(pollResponse: IPollResponse): IPollResponse
+}
+
+/* Which container an artifact belongs to. Exactly one of IArtifact.topic /
+   IArtifact.conversation is set, and this says which — stored rather than inferred so a
+   query can filter on it without testing two fields for null. */
+export type ArtifactScope = 'topic' | 'conversation'
+
+/* The base of the artifact discriminator hierarchy: a shared object that emerges from one
+   or more conversations. Everything a client needs to list and label an artifact lives
+   here; everything that differs by kind lives in the version payload, so a new kind is a
+   new discriminator plus a payload validator and touches no route.
+
+   Content is deliberately absent. An artifact's content is the payload of its current
+   IArtifactVersion, because every revision is kept — see artifact.service.ts. */
+export interface IArtifact {
+  _id?: mongoose.Types.ObjectId
+  id?: string
+  /* The discriminator key mongoose stamps on save, e.g. 'DocumentArtifact'. Present on the
+     document; the toJSON transform republishes it as `type` below, which is the name the
+     API uses in both directions. */
+  __t?: string
+  /* What `__t` is called in every request and response: the create body sends it, the
+     serialized artifact carries it, and a client picks its renderer from it. */
+  type?: string
+  scope: ArtifactScope
+  /* Set when scope is 'topic'. Also set for a conversation-scoped artifact, denormalized
+     from the conversation, so "every artifact under this topic" stays one indexed query
+     rather than a lookup through conversations. */
+  topic?: ITopic | mongoose.Types.ObjectId
+  /* Set only when scope is 'conversation'. */
+  conversation?: IConversation | mongoose.Types.ObjectId
+  title: string
+  description?: string
+  /* Points at the newest version, so reading the current artifact is one populate rather
+     than a sort over the version collection. */
+  currentVersion?: IArtifactVersion | mongoose.Types.ObjectId
+  /* The newest version's number, and the allocator for the next one: appendVersion claims
+     a number by incrementing this field, which is what keeps two concurrent appends from
+     both writing the same version. 0 on an artifact whose first version has not landed
+     yet. See artifact.service.ts. */
+  currentVersionNumber?: number
+  /* Whoever asked for the artifact — an organizer through the API, or the agent that
+     produced it. Both are BaseUser documents. */
+  createdBy?: IBaseUser | mongoose.Types.ObjectId
+  /* No further versions may be appended. The artifact and its history stay readable. */
+  locked?: boolean
+  isDeleted?: boolean
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+/* One immutable revision of an artifact. Nothing updates or deletes these: an edit appends
+   a new one and repoints IArtifact.currentVersion, which is what makes the full history
+   available through the versions API. */
+export interface IArtifactVersion {
+  _id?: mongoose.Types.ObjectId
+  id?: string
+  artifact: IArtifact | mongoose.Types.ObjectId
+  /* 1-based and strictly increasing per artifact, enforced by a unique compound index.
+     Callers address a version by this rather than by id, since it is the number a client
+     shows. Not guaranteed contiguous: an append that claims a number and then fails to
+     write leaves that number unused. */
+  versionNumber: number
+  /* Kind-specific content, validated against the artifact discriminator's schema in
+     src/models/artifact.model/registry.ts before it is written. Mixed in the model because
+     each discriminator defines its own shape. */
+  payload: Record<string, unknown>
+  createdBy?: IBaseUser | mongoose.Types.ObjectId
+  /* Free-text note on what changed, for a history view. */
+  note?: string
+  createdAt?: Date
+}
+
+/* A document artifact's payload: prose the client renders. The first and simplest kind. */
+export interface DocumentArtifactPayload {
+  body: string
 }
 
 /**
