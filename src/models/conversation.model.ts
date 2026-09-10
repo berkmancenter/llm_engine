@@ -172,6 +172,10 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
     agents: [{ type: mongoose.SchemaTypes.ObjectId, ref: 'Agent' }],
     channels: [{ type: mongoose.SchemaTypes.ObjectId, ref: 'Channel' }],
     experiments: [{ type: mongoose.SchemaTypes.ObjectId, ref: 'Experiments' }],
+    autoStop: {
+      type: Boolean,
+      default: true
+    },
     properties: {
       type: mongoose.Schema.Types.Mixed,
       default: {}
