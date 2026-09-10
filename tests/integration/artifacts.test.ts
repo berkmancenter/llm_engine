@@ -7,6 +7,7 @@ import setupIntTest from '../utils/setupIntTest.js'
 import Conversation from '../../src/models/conversation.model.js'
 import ArtifactVersion from '../../src/models/artifact.model/version.js'
 import { DOCUMENT_ARTIFACT } from '../../src/models/artifact.model/documentArtifact.js'
+import { CONCEPT_GRAPH_ARTIFACT } from '../../src/models/artifact.model/conceptGraphArtifact.js'
 import websocketGateway from '../../src/websockets/websocketGateway.js'
 import { insertUsers, userOne, participant } from '../fixtures/user.fixture.js'
 import { userOneAccessToken, participantAccessToken } from '../fixtures/token.fixture.js'
@@ -263,6 +264,110 @@ describe('GET /v1/artifacts/:artifactId/versions', () => {
       .query({ artifactPasscode })
       .set('Authorization', `Bearer ${participantAccessToken}`)
       .expect(httpStatus.NOT_FOUND)
+  })
+})
+
+/* The kind that exercises the discriminator for real: a payload with structure, rather
+   than the single text field a DocumentArtifact carries. */
+describe('concept graph artifacts', () => {
+  const graphPayload = {
+    originPrompts: [{ id: 'p1', text: 'What has to be trustworthy for a credential to mean anything?' }],
+    concepts: [
+      { id: 'c-issuer', label: 'Issuer', origin: 'p1' },
+      { id: 'c-verifier', label: 'Verifier' },
+      {
+        id: 'c-trust-registry',
+        label: 'Trust Registry',
+        provenance: { messageId: '6750a665664156091cdf5a31', pseudonym: 'Bold Aardvark' }
+      }
+    ],
+    contributions: [
+      { id: 'k8', kind: 'listed in', concepts: ['c-issuer', 'c-trust-registry'] },
+      { id: 'k15', kind: 'co-governs', concepts: ['c-issuer', 'c-verifier', 'c-trust-registry'] }
+    ]
+  }
+
+  /* Typed loosely on purpose: some of these cases send a payload the schema must reject,
+     which would not typecheck against the shape inferred from graphPayload. */
+  const createGraph = async (payload: Record<string, unknown> = graphPayload, expected: number = httpStatus.CREATED) =>
+    request(app)
+      .post('/v1/artifacts')
+      .set('Authorization', `Bearer ${userOneAccessToken}`)
+      .send({
+        type: CONCEPT_GRAPH_ARTIFACT,
+        conversationId: conversation._id.toString(),
+        title: 'Concepts and contributions',
+        payload
+      })
+      .expect(expected)
+
+  it('round-trips a graph, including a contribution joining three concepts', async () => {
+    const res = await createGraph()
+
+    expect(res.body.type).toBe(CONCEPT_GRAPH_ARTIFACT)
+    const stored = res.body.currentVersion.payload
+    expect(stored.contributions.find((k) => k.id === 'k15').concepts).toEqual(['c-issuer', 'c-verifier', 'c-trust-registry'])
+    expect(stored.concepts.find((c) => c.id === 'c-issuer').origin).toBe('p1')
+    expect(stored.concepts.find((c) => c.id === 'c-trust-registry').provenance.pseudonym).toBe('Bold Aardvark')
+    expect(stored.originPrompts).toHaveLength(1)
+  })
+
+  it('fills in the empty arrays, so an artifact can be created before an event populates it', async () => {
+    const res = await createGraph({})
+
+    expect(res.body.currentVersion.payload).toEqual({ concepts: [], contributions: [], originPrompts: [] })
+  })
+
+  it('rejects a graph whose contribution names a concept that is not there', async () => {
+    await createGraph(
+      { concepts: [{ id: 'c1', label: 'Alone' }], contributions: [{ id: 'k1', kind: 'points at', concepts: ['ghost'] }] },
+      httpStatus.BAD_REQUEST
+    )
+  })
+
+  it('rejects a document payload sent as a concept graph', async () => {
+    await createGraph({ body: 'prose, not a graph' }, httpStatus.BAD_REQUEST)
+  })
+
+  it('versions a graph the same way as any other artifact, keeping the earlier one readable', async () => {
+    const { body: created } = await createGraph()
+    const grown = {
+      ...graphPayload,
+      concepts: [...graphPayload.concepts, { id: 'c-holder', label: 'Holder' }]
+    }
+
+    await request(app)
+      .post(`/v1/artifacts/${created.id}/versions`)
+      .set('Authorization', `Bearer ${userOneAccessToken}`)
+      .send({ payload: grown, note: 'Holder came up in the second half' })
+      .expect(httpStatus.CREATED)
+
+    const latest = await request(app)
+      .get(`/v1/artifacts/${created.id}`)
+      .query({ artifactPasscode: created.artifactPasscode })
+      .set('Authorization', `Bearer ${participantAccessToken}`)
+      .expect(httpStatus.OK)
+    const first = await request(app)
+      .get(`/v1/artifacts/${created.id}/versions/1`)
+      .query({ artifactPasscode: created.artifactPasscode })
+      .set('Authorization', `Bearer ${participantAccessToken}`)
+      .expect(httpStatus.OK)
+
+    expect(latest.body.currentVersion.payload.concepts).toHaveLength(4)
+    expect(first.body.payload.concepts).toHaveLength(3)
+  })
+
+  it('lists graph and document artifacts together, each with its own type', async () => {
+    await createGraph()
+    await createArtifact()
+
+    const res = await request(app)
+      .get('/v1/artifacts')
+      .query({ conversationId: conversation._id.toString() })
+      .set('Authorization', `Bearer ${userOneAccessToken}`)
+      .expect(httpStatus.OK)
+
+    expect(res.body.map((a) => a.type).sort()).toEqual([CONCEPT_GRAPH_ARTIFACT, DOCUMENT_ARTIFACT])
   })
 })
 

@@ -1,9 +1,10 @@
 import Joi from 'joi'
-/* Load-bearing beyond the constant: importing this module is what registers the
-   discriminator with mongoose, and every writer reaches the registry before it creates an
-   artifact. Inlining the string here would leave `Artifact.create({ __t: ... })` failing on
-   an unregistered discriminator in any process that never imported the model directly. */
+/* Load-bearing beyond the constants: importing these modules is what registers the
+   discriminators with mongoose, and every writer reaches the registry before it creates an
+   artifact. Inlining the strings here would leave `Artifact.create({ __t: ... })` failing
+   on an unregistered discriminator in any process that never imported the model directly. */
 import { DOCUMENT_ARTIFACT } from './documentArtifact.js'
+import { CONCEPT_GRAPH_ARTIFACT } from './conceptGraphArtifact.js'
 
 /*
  * Every artifact kind the API accepts, and the shape of that kind's version payload.
@@ -26,6 +27,104 @@ export interface ArtifactKind {
   payloadSchema: Joi.Schema
 }
 
+/* Where a node came from. Optional throughout: a graph an agent assembles from a whole
+   event, or one an organizer writes by hand, has no single message to point at, while one
+   built live from the transcript can attribute nearly every node. `conversationId` earns
+   its place even though the artifact already knows its own container, because a
+   topic-scoped graph draws on several conversations. */
+const PROVENANCE = Joi.object().keys({
+  conversationId: Joi.string(),
+  messageId: Joi.string(),
+  pseudonym: Joi.string()
+})
+
+/* An idea or entity. `id` is opaque and stable so renaming a concept stays an edit to one
+   node rather than a delete plus a create, which is what keeps two versions of a graph
+   diffable; `label` is what a client draws. */
+const CONCEPT = Joi.object().keys({
+  id: Joi.string().required(),
+  label: Joi.string().required(),
+  origin: Joi.string(),
+  provenance: PROVENANCE
+})
+
+/* A relationship, reified as a node so it can join more than the two concepts an edge
+   allows. `kind` is the relationship's name, the label a client renders on the node
+   ("anchors", "issued by", "co-governs"). */
+const CONTRIBUTION = Joi.object().keys({
+  id: Joi.string().required(),
+  kind: Joi.string().required(),
+  /* One is allowed, not just two: a contribution attached to a single concept is a
+     meaningful intermediate state while a graph is still being built live. */
+  concepts: Joi.array().items(Joi.string()).min(1).required(),
+  origin: Joi.string(),
+  provenance: PROVENANCE
+})
+
+/* The prompt or question a concept or contribution came out of. */
+const ORIGIN_PROMPT = Joi.object().keys({
+  id: Joi.string().required(),
+  text: Joi.string().required(),
+  provenance: PROVENANCE
+})
+
+/*
+ * The checks Joi's per-field rules cannot express, run once the individual nodes are known
+ * to be well formed.
+ *
+ * Ids are unique across all three node arrays, not just within each one. A client builds a
+ * single id-keyed map of every node to draw the graph, so a concept and a contribution
+ * sharing an id silently loses one of them at render time rather than failing here.
+ *
+ * References have to resolve. A contribution naming a concept that is not in the payload,
+ * or an `origin` naming no prompt, would draw an edge to nothing — and since the payload is
+ * stored as Mixed, this validator is the only thing standing between a typo and a graph
+ * that renders wrong for every future reader of that version.
+ */
+const graphIntegrity = (payload, helpers) => {
+  const { concepts = [], contributions = [], originPrompts = [] } = payload
+
+  const seen = new Set<string>()
+  for (const node of [...concepts, ...contributions, ...originPrompts]) {
+    if (seen.has(node.id)) return helpers.message(`Duplicate node id in graph: ${node.id}`)
+    seen.add(node.id)
+  }
+
+  const conceptIds = new Set<string>(concepts.map((c) => c.id))
+  for (const contribution of contributions) {
+    for (const conceptId of contribution.concepts) {
+      if (!conceptIds.has(conceptId)) {
+        return helpers.message(`Contribution ${contribution.id} references unknown concept: ${conceptId}`)
+      }
+    }
+  }
+
+  const originIds = new Set<string>(originPrompts.map((p) => p.id))
+  for (const node of [...concepts, ...contributions]) {
+    if (node.origin && !originIds.has(node.origin)) {
+      return helpers.message(`Node ${node.id} references unknown origin prompt: ${node.origin}`)
+    }
+  }
+
+  return payload
+}
+
+/*
+ * Concepts, the contributions relating them, and the prompts they came from.
+ *
+ * Every array defaults to empty, so an organizer can create the artifact when an event
+ * starts and let it fill in as the conversation runs, rather than having to wait until
+ * there is something to say.
+ */
+const CONCEPT_GRAPH_PAYLOAD = Joi.object()
+  .keys({
+    concepts: Joi.array().items(CONCEPT).default([]),
+    contributions: Joi.array().items(CONTRIBUTION).default([]),
+    originPrompts: Joi.array().items(ORIGIN_PROMPT).default([])
+  })
+  .required()
+  .custom(graphIntegrity)
+
 const artifactKinds: Record<string, ArtifactKind> = {
   [DOCUMENT_ARTIFACT]: {
     label: 'Document',
@@ -34,6 +133,10 @@ const artifactKinds: Record<string, ArtifactKind> = {
         body: Joi.string().required()
       })
       .required()
+  },
+  [CONCEPT_GRAPH_ARTIFACT]: {
+    label: 'Concept graph',
+    payloadSchema: CONCEPT_GRAPH_PAYLOAD
   }
 }
 

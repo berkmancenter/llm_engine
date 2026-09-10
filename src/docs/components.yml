@@ -1353,6 +1353,122 @@ components:
         refresh:
           $ref: '#/components/schemas/Token'
 
+    GraphNodeProvenance:
+      type: object
+      description: >-
+        Where a node in a concept graph came from. Every field is optional: a graph
+        assembled from a whole event has no single message to point at, while one built
+        live from the transcript can attribute nearly every node.
+      properties:
+        conversationId:
+          type: string
+          description: >-
+            Carried even though the artifact knows its own container, because a
+            topic-scoped graph draws on several conversations.
+        messageId:
+          type: string
+          description: The specific message this node came from
+        pseudonym:
+          type: string
+          description: Display name of whoever contributed it
+
+    GraphConcept:
+      type: object
+      description: An idea or entity in a concept graph.
+      required:
+        - id
+        - label
+      properties:
+        id:
+          type: string
+          description: >-
+            Opaque and stable, so renaming a concept is an edit to one node rather than a
+            delete plus a create, and two versions of the graph stay diffable.
+          example: c-verifiable-credential
+        label:
+          type: string
+          description: What the client draws
+          example: Verifiable Credential
+        origin:
+          type: string
+          description: Id of the GraphOriginPrompt this concept came out of
+          example: p1
+        provenance:
+          $ref: '#/components/schemas/GraphNodeProvenance'
+
+    GraphContribution:
+      type: object
+      description: >-
+        A relationship between concepts, reified as its own node rather than left as an
+        edge. That is what lets one contribution join three or more concepts at once, which
+        a plain edge cannot express — and why concepts never reference each other directly.
+      required:
+        - id
+        - kind
+        - concepts
+      properties:
+        id:
+          type: string
+          example: k15
+        kind:
+          type: string
+          description: "The relationship's name, and the label a client renders"
+          example: co-governs
+        concepts:
+          type: array
+          minItems: 1
+          description: Ids of the GraphConcepts this relationship joins
+          items:
+            type: string
+          example: [c-issuer, c-verifier, c-trust-registry]
+        origin:
+          type: string
+          description: Id of the GraphOriginPrompt this contribution came out of
+        provenance:
+          $ref: '#/components/schemas/GraphNodeProvenance'
+
+    GraphOriginPrompt:
+      type: object
+      description: >-
+        The prompt or question a concept or contribution came out of: the third node kind.
+        Attached by a direct `origin` reference rather than through a contribution, since
+        an origin is attribution rather than a relationship between concepts.
+      required:
+        - id
+        - text
+      properties:
+        id:
+          type: string
+          example: p1
+        text:
+          type: string
+          example: 'What has to be trustworthy for a credential to mean anything?'
+        provenance:
+          $ref: '#/components/schemas/GraphNodeProvenance'
+
+    ConceptGraphPayload:
+      type: object
+      description: >-
+        The version payload of a ConceptGraphArtifact. Every array defaults to empty, so
+        the artifact can be created when an event starts and fill in as it runs. Nothing
+        about layout is stored — position, size and colour are all derived by the client
+        from the graph itself. Ids are unique across all three arrays, every id in
+        `contributions[].concepts` names a concept in this payload, and every `origin`
+        names an origin prompt in it.
+      properties:
+        concepts:
+          type: array
+          items:
+            $ref: '#/components/schemas/GraphConcept'
+        contributions:
+          type: array
+          items:
+            $ref: '#/components/schemas/GraphContribution'
+        originPrompts:
+          type: array
+          items:
+            $ref: '#/components/schemas/GraphOriginPrompt'
+
     ArtifactVersion:
       type: object
       description: >-
@@ -1375,11 +1491,14 @@ components:
             append that claims a number and then fails to write leaves it unused.
           example: 3
         payload:
-          type: object
+          oneOf:
+            - $ref: '#/components/schemas/ConceptGraphPayload'
+            - type: object
+              additionalProperties: true
           description: >-
             Kind-specific content, whose shape is determined by the artifact's `type`. A
-            DocumentArtifact payload is `{ body: string }`.
-          additionalProperties: true
+            DocumentArtifact payload is `{ body: string }`; a ConceptGraphArtifact payload
+            is a ConceptGraphPayload.
           example:
             body: 'The group converged on three priorities...'
         createdBy:
@@ -1414,7 +1533,7 @@ components:
             Which kind of artifact this is, and therefore which renderer a client should
             use and what shape its version payload has. Serialized from the mongoose
             discriminator key.
-          enum: [DocumentArtifact]
+          enum: [DocumentArtifact, ConceptGraphArtifact]
           example: DocumentArtifact
         scope:
           type: string

@@ -52,7 +52,7 @@ const router = express.Router()
  *             properties:
  *               type:
  *                 type: string
- *                 enum: [DocumentArtifact]
+ *                 enum: [DocumentArtifact, ConceptGraphArtifact]
  *                 description: Which kind of artifact to create, which determines the shape of `payload`
  *                 example: DocumentArtifact
  *               topicId:
@@ -70,9 +70,14 @@ const router = express.Router()
  *                 type: string
  *                 example: 'What the group agreed matters most, updated as the session runs'
  *               payload:
- *                 type: object
- *                 description: 'First version''s content. For DocumentArtifact: { body: string }.'
- *                 additionalProperties: true
+ *                 oneOf:
+ *                   - $ref: '#/components/schemas/ConceptGraphPayload'
+ *                   - type: object
+ *                     additionalProperties: true
+ *                 description: >-
+ *                   First version's content, in the shape the chosen `type` requires. A
+ *                   DocumentArtifact takes `{ body: string }`; a ConceptGraphArtifact takes
+ *                   a ConceptGraphPayload.
  *                 example:
  *                   body: 'The group converged on three priorities...'
  *               note:
@@ -96,6 +101,34 @@ const router = express.Router()
  *                 title: 'Themes across the series'
  *                 payload:
  *                   body: 'Across all six sessions, participants returned to...'
+ *             conceptGraph:
+ *               summary: A concept graph, including a contribution joining three concepts
+ *               value:
+ *                 type: ConceptGraphArtifact
+ *                 conversationId: '6733fe79ca20209f1fa02168'
+ *                 title: 'Concepts and contributions'
+ *                 payload:
+ *                   originPrompts:
+ *                     - id: 'p1'
+ *                       text: 'What has to be trustworthy for a credential to mean anything?'
+ *                   concepts:
+ *                     - id: 'c-issuer'
+ *                       label: 'Issuer'
+ *                       origin: 'p1'
+ *                     - id: 'c-verifier'
+ *                       label: 'Verifier'
+ *                     - id: 'c-trust-registry'
+ *                       label: 'Trust Registry'
+ *                       provenance:
+ *                         messageId: '6750a665664156091cdf5a31'
+ *                         pseudonym: 'Bold Aardvark'
+ *                   contributions:
+ *                     - id: 'k8'
+ *                       kind: 'listed in'
+ *                       concepts: ['c-issuer', 'c-trust-registry']
+ *                     - id: 'k15'
+ *                       kind: 'co-governs'
+ *                       concepts: ['c-issuer', 'c-verifier', 'c-trust-registry']
  *     responses:
  *       '201':
  *         description: Artifact created, with its first version and the container's read passcode
@@ -328,9 +361,14 @@ router
  *               - payload
  *             properties:
  *               payload:
- *                 type: object
- *                 description: 'The new version''s content, in the artifact type''s shape. For DocumentArtifact: { body: string }.'
- *                 additionalProperties: true
+ *                 oneOf:
+ *                   - $ref: '#/components/schemas/ConceptGraphPayload'
+ *                   - type: object
+ *                     additionalProperties: true
+ *                 description: >-
+ *                   The new version's content, in the shape the artifact's own `type`
+ *                   requires. A version replaces the payload wholesale rather than patching
+ *                   it, so a concept graph sends the whole graph each time.
  *                 example:
  *                   body: 'Revised after the second breakout...'
  *               note:
