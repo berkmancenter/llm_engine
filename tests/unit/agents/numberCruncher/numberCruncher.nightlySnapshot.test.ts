@@ -192,6 +192,7 @@ describe('numberCruncher respond() nightly cost snapshot', () => {
     // that). Its ConversationCost record from that earlier stop is 'complete' and may still
     // be recent — the debounce must not treat that as "already snapshotted tonight" and
     // skip a conversation that is genuinely active again.
+    mockCombineCostAggregates.mockReturnValue(makeAggregate({ estimatedCostUSD: 0.5, llmCallCount: 5 }))
     const conversation = await insertConversation()
     await ConversationCost.create({
       conversationId: conversation._id,
@@ -246,14 +247,14 @@ describe('numberCruncher respond() nightly cost snapshot', () => {
     expect(responses[0].message).not.toContain('since the last check')
   })
 
-  it('keeps the delta out of the fallback text when it is negative', async () => {
-    // LangSmith's ~2-week run retention can drop old runs, leaving today's cumulative read
-    // below the stored baseline; that reads as a refund rather than as data aging out.
+  it('posts no card on a night with no new LLM calls, but still advances the baseline', async () => {
+    // Otherwise an always-on conversation repeats last night's card with a +$0.00 delta
+    // every night it sits idle.
     const conversation = await insertConversation()
     await ConversationCost.create({
       conversationId: conversation._id,
       name: conversation.name,
-      liveEvent: makeAggregate({ estimatedCostUSD: 5 }),
+      liveEvent: makeAggregate({ estimatedCostUSD: 0.5, llmCallCount: 1 }),
       postEvent: makeAggregate({ estimatedCostUSD: 0, llmCallCount: 0 }),
       status: 'pending',
       capturedAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
@@ -262,13 +263,36 @@ describe('numberCruncher respond() nightly cost snapshot', () => {
 
     const responses = await numberCruncher.respond.call(buildContext())
 
-    expect(responses).toHaveLength(1)
-    expect(responses[0].message).not.toContain('since the last check')
-    // Still carried in renderData — the renderer makes the same call for the card.
-    expect((responses[0].renderData as { since: { estimatedCostUSD: number } }).since.estimatedCostUSD).toBeLessThan(0)
+    expect(responses).toEqual([])
+    // The LangSmith read still happened and was written through — a suppressed night that
+    // also skipped the write would leave the baseline stale (see the retention note).
+    const doc = await ConversationCost.findOne({ conversationId: conversation._id })
+    expect(doc!.capturedAt!.getTime()).toBeGreaterThan(Date.now() - 60 * 1000)
+  })
+
+  it('posts no card when the delta is negative, which means nothing new was spent either', async () => {
+    // LangSmith's ~2-week retention can drop old runs, leaving today's cumulative read below
+    // the stored baseline. The baseline still advances, so the next real spend does report.
+    const conversation = await insertConversation()
+    await ConversationCost.create({
+      conversationId: conversation._id,
+      name: conversation.name,
+      liveEvent: makeAggregate({ estimatedCostUSD: 5, llmCallCount: 40 }),
+      postEvent: makeAggregate({ estimatedCostUSD: 0, llmCallCount: 0 }),
+      status: 'pending',
+      capturedAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      topicIsPrivate: false
+    })
+
+    const responses = await numberCruncher.respond.call(buildContext())
+
+    expect(responses).toEqual([])
+    const doc = await ConversationCost.findOne({ conversationId: conversation._id })
+    expect(doc!.liveEvent.estimatedCostUSD).toBe(0.5)
   })
 
   it('uses a completed record from a prior stop as the delta baseline', async () => {
+    mockCombineCostAggregates.mockReturnValue(makeAggregate({ estimatedCostUSD: 0.5, llmCallCount: 5 }))
     const conversation = await insertConversation()
     await ConversationCost.create({
       conversationId: conversation._id,

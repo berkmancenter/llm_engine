@@ -160,7 +160,9 @@ describe('renderConversationCostCard', () => {
     expect(textOf(blocks)).not.toContain('Since the last check')
   })
 
-  it('shows a zero delta, which is real information: nothing was spent overnight', () => {
+  // The sweep suppresses the whole card on a no-spend night rather than sending a zero
+  // delta, but the renderer stays tolerant of one: it is a pure function of its input.
+  it('renders a zero delta rather than treating it as missing', () => {
     const blocks = renderConversationCostCard({
       ...data,
       since: { estimatedCostUSD: 0, llmCallCount: 0, capturedAt: '2026-07-12T18:30:00.000Z' }

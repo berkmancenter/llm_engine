@@ -148,10 +148,27 @@ async function buildNightlySnapshotResponses(channels: IChannel[] | undefined) {
           }
         : undefined
 
+    /* Persisted before the no-news check below, deliberately — the baseline has to keep
+       moving even on a night nothing is posted. LangSmith's ~2-week run retention means a
+       long-lived conversation's cumulative read can FALL as old runs age out; if a
+       suppressed night also skipped the write, that shrunken read would be measured against
+       a permanently stale high-water baseline and the delta would stay negative through
+       every subsequent night of real spending, silencing the conversation for good. */
     try {
       await conversationCostService.persistSnapshot(conversation, phases!, { topicIsPrivate })
     } catch (error) {
       logger.error(`numberCruncher: could not persist nightly cost snapshot for ${conversationId}`, error)
+    }
+
+    /* No calls since the last check, so the card would be last night's card with the same
+       cumulative figure and a +$0.00 delta. On an always-on conversation — one that never
+       stops, and so never gets a stop-event card — that is most nights, and posting it
+       anyway trains everyone to scroll past the cards that do say something. A conversation
+       with no baseline yet (its first snapshot) always posts: there is no "since" to be
+       empty. Negative counts land here too; see the retention note above. */
+    if (since && since.llmCallCount <= 0) {
+      logger.debug(`numberCruncher: conversation ${conversationId} has no new LLM calls since its last snapshot, skipping`)
+      continue
     }
 
     responses.push(buildCostSummaryResponse(conversation, topicIsPrivate, phases!, total, channels, since))
