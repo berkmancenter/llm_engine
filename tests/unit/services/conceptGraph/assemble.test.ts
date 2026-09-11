@@ -189,8 +189,7 @@ describe('provenance', () => {
     const { payload } = assembleGraph(
       [result({ contributions: [{ kind: 'checked by', concepts: ['Trust Registry', 'Verifier'], sourceRefs: ['m4'] }] })],
       safety,
-      'conv1',
-      refs
+      { conversationId: 'conv1', sourceRefs: refs }
     )
 
     expect(payload.contributions[0].provenance).toEqual({
@@ -203,15 +202,14 @@ describe('provenance', () => {
     const { payload } = assembleGraph(
       [result({ contributions: [{ kind: 'checked by', concepts: ['Trust Registry', 'Verifier'], sourceRefs: ['m99'] }] })],
       safety,
-      'conv1',
-      new Map()
+      { conversationId: 'conv1', sourceRefs: new Map() }
     )
 
     expect(payload.contributions[0].provenance).toEqual({ conversationId: 'conv1' })
   })
 
   it('records no pseudonym, since the graph is unattributed by construction', () => {
-    const { payload } = assembleGraph([result()], safety, 'conv1')
+    const { payload } = assembleGraph([result()], safety, { conversationId: 'conv1' })
 
     for (const node of [...payload.concepts, ...payload.contributions]) {
       expect(node.provenance).not.toHaveProperty('pseudonym')

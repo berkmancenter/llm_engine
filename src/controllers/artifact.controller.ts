@@ -32,9 +32,11 @@ const listArtifacts = catchAsync(async (req, res) => {
    version of the existing one after that. A run that finds too little to map is a success
    with nothing to show, not an error, so it answers 200 with a reason. */
 const generateConceptGraph = catchAsync(async (req, res) => {
-  const result = await conceptGraphService.generateConceptGraph(req.body.conversationId, req.user)
+  const result = req.body.topicId
+    ? await conceptGraphService.refineTopicGraph(req.body.topicId, req.user)
+    : await conceptGraphService.generateConceptGraph(req.body.conversationId, req.user)
   if (!result) {
-    res.status(httpStatus.OK).send({ generated: false, reason: 'Not enough of the event record to map' })
+    res.status(httpStatus.OK).send({ generated: false, reason: 'Not enough of the record to map' })
     return
   }
   res.status(httpStatus.ACCEPTED).send({

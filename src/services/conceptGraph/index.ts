@@ -2,7 +2,7 @@ import httpStatus from 'http-status'
 import { traceable } from 'langsmith/traceable'
 import logger from '../../config/logger.js'
 import ApiError from '../../utils/ApiError.js'
-import { Conversation, Message, RealNameRegistry, User } from '../../models/index.js'
+import { Conversation, Message, RealNameRegistry, Topic, User } from '../../models/index.js'
 import Artifact from '../../models/artifact.model/artifact.js'
 import { CONCEPT_GRAPH_ARTIFACT } from '../../models/artifact.model/conceptGraphArtifact.js'
 import { getModelChat, coreLLMModel, coreLLMPlatform } from '../../agents/helpers/getModelChat.js'
@@ -11,6 +11,7 @@ import artifactService from '../artifact.service.js'
 import { EXTRACTION_PROMPT, EXTRACTION_SCHEMA } from './prompt.js'
 import { assembleGraph, AssemblyReport, ExtractionResult, SourceRefMap } from './assemble.js'
 import { screenForIdentities } from './nameScreen.js'
+import { payloadToExtraction, resolveConceptAliases } from './topicGraph.js'
 import { ConceptGraphPayload, IBaseUser } from '../../types/index.types.js'
 
 /*
@@ -52,31 +53,40 @@ interface GraphSources {
 }
 
 /*
- * Every name this conversation knows, for the attribution check.
+ * Every name a topic knows, for the attribution check.
+ *
+ * Scoped to the whole topic, never to one conversation, and that is a correctness
+ * requirement rather than convenience. Session two can name someone who only ever spoke in
+ * session one — an organizer, a returning participant — and a check that only knew session
+ * two's roster would pass that name straight through. The union is the only list that makes
+ * the Chatham House guarantee hold for a series, and it costs one extra query.
  *
  * Three registers, because a participant can appear under any of them: the pseudonym they
- * posted under, a real name reserved in RealNameRegistry when the conversation runs with
- * real names on, and the presenters and moderators named on the conversation record.
+ * posted under, a real name reserved in RealNameRegistry when a conversation runs with real
+ * names on, and the presenters and moderators named on each conversation record.
  */
-const collectKnownIdentities = async (conversation): Promise<string[]> => {
+const collectKnownIdentities = async (conversations): Promise<string[]> => {
   const identities = new Set<string>()
+  const conversationIds = conversations.map((c) => c._id)
 
-  for (const profile of [...(conversation.presenters ?? []), ...(conversation.moderators ?? [])]) {
-    if (profile?.name) identities.add(profile.name)
-    if (profile?.alternateName) identities.add(profile.alternateName)
+  for (const conversation of conversations) {
+    for (const profile of [...(conversation.presenters ?? []), ...(conversation.moderators ?? [])]) {
+      if (profile?.name) identities.add(profile.name)
+      if (profile?.alternateName) identities.add(profile.alternateName)
+    }
   }
 
-  const reservations = await RealNameRegistry.find({ conversationId: conversation._id })
+  const reservations = await RealNameRegistry.find({ conversationId: { $in: conversationIds } })
     .select('normalizedPseudonym')
     .lean()
     .exec()
   for (const reservation of reservations)
     if (reservation.normalizedPseudonym) identities.add(reservation.normalizedPseudonym)
 
-  /* Pseudonyms of everyone who posted here. Read off the users rather than the messages so
-     an inactive pseudonym still counts — a name is identifying whether or not it is the one
-     currently displayed. */
-  const posters = await Message.distinct('owner', { conversation: conversation._id }).exec()
+  /* Pseudonyms of everyone who posted anywhere in the topic. Read off the users rather than
+     the messages so an inactive pseudonym still counts — a name is identifying whether or
+     not it is the one currently displayed. */
+  const posters = await Message.distinct('owner', { conversation: { $in: conversationIds } }).exec()
   if (posters.length > 0) {
     const users = await User.find({ _id: { $in: posters } })
       .select('pseudonyms.pseudonym')
@@ -88,8 +98,12 @@ const collectKnownIdentities = async (conversation): Promise<string[]> => {
   return [...identities]
 }
 
-/** The messages the graph is built from, oldest first, plus the identities to screen for. */
-const loadSources = async (conversation): Promise<GraphSources> => {
+/* Every conversation under a topic, with just the fields the identity union needs. */
+const topicConversations = async (topicId) =>
+  Conversation.find({ topic: topicId }).select('name presenters moderators topic').lean().exec()
+
+/** The messages one conversation contributes, oldest first, tagged for citation. */
+const loadSources = async (conversation, knownIdentities: string[]): Promise<GraphSources> => {
   const messages = await Message.find({
     conversation: conversation._id,
     channels: { $in: [...GRAPH_SOURCE_CHANNELS] },
@@ -119,7 +133,7 @@ const loadSources = async (conversation): Promise<GraphSources> => {
     sourceRefs.set(tag, message._id!.toString())
   })
 
-  return { texts, taggedLines, sourceRefs, knownIdentities: await collectKnownIdentities(conversation) }
+  return { texts, taggedLines, sourceRefs, knownIdentities }
 }
 
 /* Packs whole messages into chunks, never splitting one, so a statement is always judged
@@ -234,7 +248,13 @@ export const generateConceptGraph = async (conversationId: string, caller: IBase
     throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${conversationId} not found`)
   }
 
-  const { texts, taggedLines, sourceRefs, knownIdentities } = await loadSources({ ...conversation, _id: conversationId })
+  /* Screened against every name the whole topic knows, not just this conversation's — see
+     collectKnownIdentities. A conversation with no topic falls back to itself. */
+  const siblings = conversation.topic ? await topicConversations(conversation.topic) : []
+  const knownIdentities = await collectKnownIdentities(
+    siblings.length > 0 ? siblings : [{ ...conversation, _id: conversationId }]
+  )
+  const { texts, taggedLines, sourceRefs } = await loadSources({ ...conversation, _id: conversationId }, knownIdentities)
   const totalChars = texts.reduce((sum, t) => sum + t.length, 0)
   if (totalChars < MIN_SOURCE_CHARS) {
     logger.info(`conceptGraph: conversation ${conversationId} has too little content to map (${totalChars} chars)`)
@@ -258,7 +278,7 @@ export const generateConceptGraph = async (conversationId: string, caller: IBase
     throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'Concept graph extraction produced nothing')
   }
 
-  const assembled = assembleGraph(results, { sourceTexts: texts, knownIdentities }, conversationId, sourceRefs)
+  const assembled = assembleGraph(results, { sourceTexts: texts, knownIdentities }, { conversationId, sourceRefs })
 
   /* The exact checks inside assembleGraph have run by here; this is the pass that catches
      what no list could — an unrecorded name, an identifying affiliation. Only the free text
@@ -290,7 +310,7 @@ export const generateConceptGraph = async (conversationId: string, caller: IBase
 
   if (existing) {
     const version = await artifactService.appendVersion(existing._id!.toString(), { payload, note }, caller)
-    return { artifact: existing, version, report }
+    return { artifact: existing, version, report, results, knownIdentities, texts }
   }
 
   const { artifact, version } = await artifactService.createArtifact(
@@ -304,8 +324,130 @@ export const generateConceptGraph = async (conversationId: string, caller: IBase
     },
     caller
   )
+  /* The raw extraction rides along so a topic refinement triggered by the same event can
+     merge it without paying for the transcript to be read a second time. */
+  return { artifact, version, report, results, knownIdentities, texts }
+}
+
+/**
+ * Folds one event's understanding into its topic's graph, and saves the result as a version.
+ *
+ * A series unfolds over time, so the topic graph is refined rather than rebuilt: the
+ * existing graph is read back into extraction form, merged with what is new, and written as
+ * the next version. Each event therefore leaves one version behind, and the sequence of
+ * versions is a record of how the series' understanding developed — which is the thing a
+ * rebuild-from-scratch approach cannot give you at any price.
+ *
+ * @param topicId The topic whose graph to refine.
+ * @param caller Agent or user the write is attributed to.
+ * @param incoming Extraction already paid for by a conversation-level run, plus the source
+ *   texts it was checked against. Omit to read every conversation in the topic from
+ *   scratch, which is how a series that predates this feature gets backfilled.
+ */
+export const refineTopicGraph = async (
+  topicId: string,
+  caller: IBaseUser,
+  incoming?: { results: ExtractionResult[]; texts: string[]; knownIdentities: string[] }
+) => {
+  const topic = await Topic.findOne({ _id: topicId, isDeleted: { $ne: true } })
+    .select('name')
+    .lean()
+    .exec()
+  if (!topic) throw new ApiError(httpStatus.NOT_FOUND, `Topic with id ${topicId} not found`)
+
+  const conversations = await topicConversations(topicId)
+  const knownIdentities = incoming?.knownIdentities ?? (await collectKnownIdentities(conversations))
+  const llm = await getModelChat(coreLLMPlatform, coreLLMModel, { maxTokens: 4000 })
+
+  let results: ExtractionResult[] = incoming?.results ?? []
+  let texts: string[] = incoming?.texts ?? []
+
+  /* Backfill path: no event handed us an extraction, so read the whole series. Deliberately
+     the slow path — it exists for a topic whose events all predate this feature, not for the
+     steady state, where each event contributes its own extraction as it ends. */
+  if (results.length === 0) {
+    for (const conversation of conversations) {
+      const sources = await loadSources(conversation, knownIdentities)
+      if (sources.texts.length === 0) continue
+      texts = [...texts, ...sources.texts]
+      for (const [index, chunk] of chunkSources(sources.taggedLines).entries()) {
+        try {
+          results.push(await extractFromChunk(llm, chunk, conversation._id.toString(), index))
+        } catch (error) {
+          logger.warn(`conceptGraph: topic ${topicId} chunk ${index} failed for ${conversation._id}: ${error}`)
+        }
+      }
+    }
+  }
+
+  const existing = await Artifact.findOne({
+    topic: topicId,
+    scope: 'topic',
+    __t: CONCEPT_GRAPH_ARTIFACT,
+    isDeleted: { $ne: true }
+  })
+    .sort('createdAt')
+    .populate('currentVersion')
+    .exec()
+
+  /* The graph so far becomes just another extraction to merge, so one code path merges two
+     chunks of a transcript and six sessions of a series. */
+  const priorPayload = (existing?.currentVersion as { payload?: ConceptGraphPayload } | undefined)?.payload
+  if (priorPayload) results = [payloadToExtraction(priorPayload), ...results]
+
+  if (results.length === 0) {
+    logger.info(`conceptGraph: nothing to fold into the graph for topic ${topicId}`)
+    return null
+  }
+
+  /* Canonical folding only catches spellings of one word. Across sessions months apart the
+     same idea comes back in different words, and only a reader who understands both can say
+     they are the same — so the merge is proposed here and applied deterministically below. */
+  const labels = [...new Set(results.flatMap((r) => (r.concepts ?? []).map((c) => c.label)))]
+  const aliases = await resolveConceptAliases(llm, labels, topicId)
+
+  const assembled = assembleGraph(results, { sourceTexts: texts, knownIdentities }, { aliases })
+  const { payload, report } = await applyIdentityScreen(llm, assembled.payload, topicId, assembled.report)
+
+  logger.info(
+    `conceptGraph: topic ${topicId} -> ${payload.concepts.length} concepts, ${payload.contributions.length} ` +
+      `contributions across ${conversations.length} conversation(s) (merged ${report.mergedConcepts}, ` +
+      `${aliases.length} alias group(s))`
+  )
+
+  if (payload.contributions.length === 0) {
+    logger.info(`conceptGraph: nothing survived assembly for topic ${topicId}, not writing an artifact`)
+    return null
+  }
+
+  const note = priorPayload
+    ? `Refined with one further conversation; ${conversations.length} in the series`
+    : `Built from ${conversations.length} conversation${conversations.length === 1 ? '' : 's'}`
+
+  if (existing) {
+    const version = await artifactService.appendVersion(existing._id!.toString(), { payload, note }, caller)
+    return { artifact: existing, version, report }
+  }
+
+  const { artifact, version } = await artifactService.createArtifact(
+    {
+      type: CONCEPT_GRAPH_ARTIFACT,
+      topicId,
+      title: `Concept map — ${topic.name}`,
+      description: 'Concepts this series has turned on, and how its discussions related them. Refined after each event.',
+      payload,
+      note
+    },
+    caller
+  )
   return { artifact, version, report }
 }
 
-const conceptGraphService = { generateConceptGraph, chunkSources, loadSources, GRAPH_SOURCE_CHANNELS }
+const conceptGraphService = {
+  generateConceptGraph,
+  refineTopicGraph,
+  chunkSources,
+  loadSources,
+  GRAPH_SOURCE_CHANNELS
+}
 export default conceptGraphService

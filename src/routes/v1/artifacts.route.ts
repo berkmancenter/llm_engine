@@ -229,11 +229,18 @@ router.route('/').get(auth('listArtifacts'), validate(artifactValidation.listArt
  * @swagger
  * /artifacts/generate:
  *   post:
- *     summary: Build a concept graph from a finished event
+ *     summary: Build or refine a concept graph
  *     description: >-
- *       Reads the conversation's transcript and group chat and writes a ConceptGraphArtifact
- *       from them. This is the manual trigger; the same generation runs automatically when a
- *       conversation with the Concept Cartographer agent stops.
+ *       With a `conversationId`, reads that event's transcript and group chat and writes a
+ *       ConceptGraphArtifact for it. With a `topicId`, folds every conversation in the series
+ *       into one topic-scoped graph — which is also how a series predating this feature gets
+ *       backfilled.
+ *
+ *       Both run automatically when a conversation with the Concept Cartographer agent stops:
+ *       the event gets its own graph, and the topic's graph is refined with it. A series
+ *       unfolds over time, so the topic graph accumulates a version per event rather than
+ *       being rebuilt, and the sequence of versions records how the series' understanding
+ *       developed. Concepts keep stable ids across versions, so two can be diffed.
  *
  *       Safe to re-run, and re-running is how a poor extraction gets redone: the second run
  *       appends a new version to the existing graph rather than replacing it or creating a
@@ -255,15 +262,17 @@ router.route('/').get(auth('listArtifacts'), validate(artifactValidation.listArt
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - conversationId
  *             properties:
  *               conversationId:
  *                 type: string
- *                 description: >-
- *                   The finished conversation to map. Conversation-scoped only — the
- *                   extractor reads one event's record, and a topic has none of its own.
+ *                 description: The finished conversation to map. Mutually exclusive with topicId.
  *                 example: '6733fe79ca20209f1fa02168'
+ *               topicId:
+ *                 type: string
+ *                 description: >-
+ *                   The series to refine, folding in every conversation under it. Mutually
+ *                   exclusive with conversationId.
+ *                 example: '61b7ea6aa771004e80ed4409'
  *     responses:
  *       '202':
  *         description: The graph was built and written as a version
@@ -290,8 +299,8 @@ router.route('/').get(auth('listArtifacts'), validate(artifactValidation.listArt
  *                     mergedConcepts: { type: number }
  *       '200':
  *         description: >-
- *           Nothing was written because the event record was too thin to map, or nothing
- *           survived the safety checks. Not an error.
+ *           Nothing was written because the record was too thin to map, or nothing survived
+ *           the safety checks. Not an error.
  *         content:
  *           application/json:
  *             schema:

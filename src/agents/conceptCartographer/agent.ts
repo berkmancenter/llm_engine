@@ -77,11 +77,28 @@ export default verify({
       const result = await conceptGraphService.generateConceptGraph(evt.conversationId, this)
       if (!result) {
         logger.info(`conceptCartographer: nothing to map for conversation ${evt.conversationId}`)
-      } else {
-        logger.info(
-          `conceptCartographer: wrote version ${result.version.versionNumber} of artifact ${result.artifact!._id} ` +
-            `for conversation ${evt.conversationId}`
-        )
+        return []
+      }
+      logger.info(
+        `conceptCartographer: wrote version ${result.version.versionNumber} of artifact ${result.artifact!._id} ` +
+          `for conversation ${evt.conversationId}`
+      )
+
+      /* Then fold this event into the series' own graph. A topic accumulates: each event
+         leaves one more version behind, so the sequence of versions records how the
+         series' understanding developed. The extraction is handed over rather than redone,
+         so the second graph costs a merge and an alias pass, not a second read of the
+         transcript. */
+      const topicId = this.conversation?.topic?._id?.toString() ?? this.conversation?.topic?.toString()
+      if (topicId) {
+        const refined = await conceptGraphService.refineTopicGraph(topicId, this, {
+          results: result.results,
+          texts: result.texts,
+          knownIdentities: result.knownIdentities
+        })
+        if (refined) {
+          logger.info(`conceptCartographer: refined topic ${topicId} graph to version ${refined.version.versionNumber}`)
+        }
       }
     } catch (error) {
       /* The event is already over and the artifact is regenerable from
