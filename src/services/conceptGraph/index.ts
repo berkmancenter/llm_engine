@@ -9,9 +9,10 @@ import { getModelChat, coreLLMModel, coreLLMPlatform } from '../../agents/helper
 import { getChatPromptResponse } from '../../agents/helpers/llmChain.js'
 import artifactService from '../artifact.service.js'
 import { EXTRACTION_PROMPT, EXTRACTION_SCHEMA } from './prompt.js'
-import { assembleGraph, AssemblyReport, ExtractionResult, SourceRefMap } from './assemble.js'
+import { aliasedKey, assembleGraph, AssemblyReport, ExtractionResult, SourceRefMap } from './assemble.js'
 import { screenForIdentities } from './nameScreen.js'
-import { payloadToExtraction, resolveConceptAliases } from './topicGraph.js'
+import { knownConceptLabels, payloadToExtraction, resolveConceptAliases, KNOWN_CONCEPT_LIMIT } from './topicGraph.js'
+import { applyRelinks, proposeRelinks } from './relink.js'
 import { ConceptGraphPayload, IBaseUser } from '../../types/index.types.js'
 
 /*
@@ -152,15 +153,46 @@ export const chunkSources = (texts: string[], limit = CHUNK_CHARS): string[] => 
   return chunks
 }
 
-const extractFromChunk = async (llm, chunk: string, conversationId: string, index: number): Promise<ExtractionResult> => {
+const extractFromChunk = async (
+  llm,
+  chunk: string,
+  conversationId: string,
+  index: number,
+  knownConcepts: string[] = []
+): Promise<ExtractionResult> => {
   /* Tagged the way the stop-time summary is, so numberCruncher attributes this spend to the
      conversation it maps and groups it with the rest of the post-event work. */
   const result = await traceable(
     async () =>
-      getChatPromptResponse(llm, EXTRACTION_PROMPT, 'Event record:\n\n{chunk}', { chunk }, undefined, EXTRACTION_SCHEMA),
+      getChatPromptResponse(
+        llm,
+        EXTRACTION_PROMPT,
+        'Concepts this series has already established:\n{knownConcepts}\n\nEvent record:\n\n{chunk}',
+        {
+          chunk,
+          knownConcepts: knownConcepts.length > 0 ? knownConcepts.join('\n') : '(none — this is the first event mapped)'
+        },
+        undefined,
+        EXTRACTION_SCHEMA
+      ),
     { name: 'conceptGraphExtraction', metadata: { conversationId, costPhase: 'postEvent' as const, chunk: index } }
   )()
   return result as ExtractionResult
+}
+
+/* The series graph as it stands, for vocabulary and for relinking. */
+const currentTopicGraph = async (topicId?: string) => {
+  if (!topicId) return { artifact: null, payload: undefined as ConceptGraphPayload | undefined }
+  const artifact = await Artifact.findOne({
+    topic: topicId,
+    scope: 'topic',
+    __t: CONCEPT_GRAPH_ARTIFACT,
+    isDeleted: { $ne: true }
+  })
+    .sort('createdAt')
+    .populate('currentVersion')
+    .exec()
+  return { artifact, payload: (artifact?.currentVersion as { payload?: ConceptGraphPayload } | undefined)?.payload }
 }
 
 /*
@@ -262,11 +294,17 @@ export const generateConceptGraph = async (conversationId: string, caller: IBase
   }
 
   const llm = await getModelChat(coreLLMPlatform, coreLLMModel, { maxTokens: 4000 })
+  /* Offer this event the vocabulary the series has already built, so its contributions can
+     reach concepts established before it rather than staying sealed inside this transcript.
+     The topic refinement reuses this same extraction, so the crossings come through for free. */
+  const topicIdForVocabulary = conversation.topic?.toString()
+  const { payload: seriesPayload } = await currentTopicGraph(topicIdForVocabulary)
+  const knownConcepts = knownConceptLabels(seriesPayload)
   const chunks = chunkSources(taggedLines)
   const results: ExtractionResult[] = []
   for (const [index, chunk] of chunks.entries()) {
     try {
-      results.push(await extractFromChunk(llm, chunk, conversationId, index))
+      results.push(await extractFromChunk(llm, chunk, conversationId, index, knownConcepts))
     } catch (error) {
       /* One chunk failing costs that slice of the event, not the whole map. The graph is a
          summary, so a partial one is still worth writing — and the alternative is throwing
@@ -347,7 +385,7 @@ export const generateConceptGraph = async (conversationId: string, caller: IBase
 export const refineTopicGraph = async (
   topicId: string,
   caller: IBaseUser,
-  incoming?: { results: ExtractionResult[]; texts: string[]; knownIdentities: string[] }
+  incoming?: { results: ExtractionResult[]; texts: string[]; knownIdentities: string[]; conversationId?: string }
 ) => {
   const topic = await Topic.findOne({ _id: topicId, isDeleted: { $ne: true } })
     .select('name')
@@ -366,13 +404,27 @@ export const refineTopicGraph = async (
      the slow path — it exists for a topic whose events all predate this feature, not for the
      steady state, where each event contributes its own extraction as it ends. */
   if (results.length === 0) {
+    /* Walked in order, carrying the vocabulary forward: each conversation is offered what the
+       earlier ones established, so a backfill builds the same crossings the incremental path
+       would have built had the feature existed at the time. */
+    const accumulated: string[] = []
     for (const conversation of conversations) {
       const sources = await loadSources(conversation, knownIdentities)
       if (sources.texts.length === 0) continue
       texts = [...texts, ...sources.texts]
       for (const [index, chunk] of chunkSources(sources.taggedLines).entries()) {
         try {
-          results.push(await extractFromChunk(llm, chunk, conversation._id.toString(), index))
+          const extracted = await extractFromChunk(
+            llm,
+            chunk,
+            conversation._id.toString(),
+            index,
+            accumulated.slice(0, KNOWN_CONCEPT_LIMIT)
+          )
+          results.push(extracted)
+          for (const concept of extracted.concepts ?? []) {
+            if (concept.label && !accumulated.includes(concept.label)) accumulated.push(concept.label)
+          }
         } catch (error) {
           logger.warn(`conceptGraph: topic ${topicId} chunk ${index} failed for ${conversation._id}: ${error}`)
         }
@@ -380,20 +432,12 @@ export const refineTopicGraph = async (
     }
   }
 
-  const existing = await Artifact.findOne({
-    topic: topicId,
-    scope: 'topic',
-    __t: CONCEPT_GRAPH_ARTIFACT,
-    isDeleted: { $ne: true }
-  })
-    .sort('createdAt')
-    .populate('currentVersion')
-    .exec()
+  const { artifact: existing, payload: priorPayload } = await currentTopicGraph(topicId)
 
   /* The graph so far becomes just another extraction to merge, so one code path merges two
      chunks of a transcript and six sessions of a series. */
-  const priorPayload = (existing?.currentVersion as { payload?: ConceptGraphPayload } | undefined)?.payload
-  if (priorPayload) results = [payloadToExtraction(priorPayload), ...results]
+  const prior = priorPayload ? payloadToExtraction(priorPayload) : undefined
+  if (prior) results = [prior, ...results]
 
   if (results.length === 0) {
     logger.info(`conceptGraph: nothing to fold into the graph for topic ${topicId}`)
@@ -406,7 +450,31 @@ export const refineTopicGraph = async (
   const labels = [...new Set(results.flatMap((r) => (r.concepts ?? []).map((c) => c.label)))]
   const aliases = await resolveConceptAliases(llm, labels, topicId)
 
-  const assembled = assembleGraph(results, { sourceTexts: texts, knownIdentities }, { aliases })
+  /*
+   * Reconsider what the series already believed, now that this event has introduced concepts
+   * it did not have. Run after alias resolution on purpose: a concept is only genuinely new if
+   * it is not just a rewording of something the map already held, and asking before the
+   * aliases are known would relink half the graph onto duplicates of itself.
+   */
+  if (prior) {
+    const priorKeys = new Set((prior.concepts ?? []).map((c) => aliasedKey(c.label, aliases)))
+    const newConceptLabels = [
+      ...new Set(
+        results
+          .filter((r) => r !== prior)
+          .flatMap((r) => (r.concepts ?? []).map((c) => c.label))
+          .filter((label) => !priorKeys.has(aliasedKey(label, aliases)))
+      )
+    ]
+    const relinked = applyRelinks(prior, await proposeRelinks(llm, prior, newConceptLabels, topicId))
+    results = [...relinked, ...results.filter((r) => r !== prior)]
+  }
+
+  const assembled = assembleGraph(
+    results,
+    { sourceTexts: texts, knownIdentities },
+    { aliases, conversationId: incoming?.conversationId }
+  )
   const { payload, report } = await applyIdentityScreen(llm, assembled.payload, topicId, assembled.report)
 
   logger.info(

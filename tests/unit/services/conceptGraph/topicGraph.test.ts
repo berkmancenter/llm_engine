@@ -1,4 +1,8 @@
-import { payloadToExtraction, resolveConceptAliases } from '../../../../src/services/conceptGraph/topicGraph.js'
+import {
+  knownConceptLabels,
+  payloadToExtraction,
+  resolveConceptAliases
+} from '../../../../src/services/conceptGraph/topicGraph.js'
 import { assembleGraph } from '../../../../src/services/conceptGraph/assemble.js'
 import { ConceptGraphPayload } from '../../../../src/types/index.types.js'
 
@@ -136,5 +140,82 @@ describe('alias resolution guards', () => {
     /* Opposite stance to the identity screen, which fails closed: an unmerged duplicate
        makes the map redundant, where a skipped safety check would leak a name. */
     expect(await resolveConceptAliases(null, ['One', 'Two'])).toEqual([])
+  })
+})
+
+describe('series vocabulary offered to the next event', () => {
+  it('ranks established concepts by how connected they are, not by age', () => {
+    const payload: ConceptGraphPayload = {
+      concepts: [
+        { id: 'c-peripheral', label: 'Peripheral' },
+        { id: 'c-hub', label: 'Hub' },
+        { id: 'c-middle', label: 'Middle' }
+      ],
+      contributions: [
+        { id: 'k1', kind: 'a', concepts: ['c-hub', 'c-middle'] },
+        { id: 'k2', kind: 'b', concepts: ['c-hub', 'c-peripheral'] },
+        { id: 'k3', kind: 'c', concepts: ['c-hub', 'c-middle'] }
+      ],
+      originPrompts: []
+    }
+
+    expect(knownConceptLabels(payload)[0]).toBe('Hub')
+  })
+
+  it('offers nothing for a series with no graph yet', () => {
+    expect(knownConceptLabels(undefined)).toEqual([])
+    expect(knownConceptLabels({ concepts: [], contributions: [], originPrompts: [] })).toEqual([])
+  })
+
+  it('caps the list, since a series grows without bound and the prompt does not', () => {
+    const many: ConceptGraphPayload = {
+      concepts: Array.from({ length: 80 }, (_, i) => ({ id: `c-${i}`, label: `Concept ${i}` })),
+      contributions: [],
+      originPrompts: []
+    }
+
+    expect(knownConceptLabels(many).length).toBeLessThanOrEqual(60)
+  })
+})
+
+describe('an extended statement, end to end', () => {
+  it('reaches a concept from a later session while keeping its own provenance', () => {
+    /* The case the relink pass exists for: session one's claim, session four's concept. */
+    const priorGraph: ConceptGraphPayload = {
+      concepts: [
+        { id: 'c-trust-registry', label: 'Trust Registry', provenance: { conversationId: 'session1' } },
+        { id: 'c-verifier', label: 'Verifier', provenance: { conversationId: 'session1' } }
+      ],
+      contributions: [
+        {
+          id: 'k-old',
+          kind: 'checked by',
+          concepts: ['c-trust-registry', 'c-verifier'],
+          statement: 'A registry is worthless unless somebody checks it.',
+          provenance: { conversationId: 'session1' }
+        }
+      ],
+      originPrompts: []
+    }
+    const prior = payloadToExtraction(priorGraph)
+    const extended = {
+      ...prior,
+      contributions: [{ ...prior.contributions[0], concepts: [...prior.contributions[0].concepts, 'Revocation'] }]
+    }
+    const session4 = {
+      concepts: [{ label: 'Revocation' }],
+      contributions: [{ kind: 'introduced', concepts: ['Revocation'] }],
+      originPrompts: []
+    }
+
+    const { payload } = assembleGraph([extended, session4], safety, { conversationId: 'session4' })
+
+    const statement = payload.contributions.find((k) => k.statement?.startsWith('A registry is worthless'))!
+    const revocation = payload.concepts.find((c) => c.label === 'Revocation')!
+    expect(statement.concepts).toContain(revocation.id)
+    /* The claim still belongs to the session that made it, even though the series only
+       later saw what it reached. */
+    expect(statement.provenance).toEqual({ conversationId: 'session1' })
+    expect(revocation.provenance).toEqual({ conversationId: 'session4' })
   })
 })

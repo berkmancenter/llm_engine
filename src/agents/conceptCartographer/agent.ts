@@ -94,7 +94,8 @@ export default verify({
         const refined = await conceptGraphService.refineTopicGraph(topicId, this, {
           results: result.results,
           texts: result.texts,
-          knownIdentities: result.knownIdentities
+          knownIdentities: result.knownIdentities,
+          conversationId: evt.conversationId
         })
         if (refined) {
           logger.info(`conceptCartographer: refined topic ${topicId} graph to version ${refined.version.versionNumber}`)
