@@ -72,7 +72,7 @@ async function persistCost(
 }
 
 /* Nightly proactive check on a conversation that's still active (see Number Cruncher's
-   respond(), the 4am ET cron sweep) — a live, non-final read on today's running total.
+   respond(), the nightly cron sweep) — a live, non-final read on today's running total.
    Same $set-upsert shape as persistCost, but deliberately keeps status 'pending': the
    conversation hasn't stopped, so this can never be the settled figure persistCost's
    'complete' means. Each night's snapshot overwrites the last; no history of past

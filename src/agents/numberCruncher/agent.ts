@@ -77,7 +77,7 @@ function buildCostSummaryResponse(
   }
 }
 
-/* One nightly (4am ET) sweep, mirroring Scorekeeper's respond(): find every conversation
+/* One nightly sweep, mirroring Scorekeeper's respond(): find every conversation
    still active right now, take a live (non-settled — there's nothing to settle on a
    conversation that hasn't stopped) cost read for each, and post one card per conversation
    to Number Cruncher's own channel(s), exactly where its stop-event cost cards already go. */
@@ -206,15 +206,18 @@ async function fetchBudgetAlerts(budgets: BudgetConfig[]): Promise<BudgetAlert[]
 export default verify({
   name: 'Number Cruncher',
   description:
-    'Checks LLM API budget endpoints and active-conversation cost snapshots nightly at 4am ET, and posts an ' +
-    'estimated LLM cost summary when an event ends (public or private).',
+    'Checks LLM API budget endpoints and takes a cost snapshot of every running conversation on a ' +
+    'schedule, and posts an estimated LLM cost summary when an event ends (public or private).',
   priority: 100,
   maxTokens: undefined,
   defaultTriggers: {
-    // Budget-alert checks moved onto this same trigger from 3am UTC so the new nightly
-    // cost-snapshot sweep (respond(), below) can share it rather than needing a second,
-    // independently-timed cron — the framework only supports one cron trigger per agent.
-    cron: { expression: '0 4 * * *', timezone: 'America/New_York' }
+    /* The nightly cost-snapshot sweep (respond(), below) shares this existing budget-alert
+       cron rather than getting one of its own — the framework supports a single cron trigger
+       per agent. Left exactly as it was: nothing about the sweep needs a particular hour, so
+       retiming it would only strand every already-saved agent on the old expression (the
+       agent model fills `triggers` solely when undefined, and an existing agenda job keeps
+       its own copy of it), for no gain. */
+    cron: { expression: '0 3 * * *' }
   },
   llmTemplateVars: undefined,
   defaultLLMTemplates: undefined,
