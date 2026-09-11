@@ -97,6 +97,19 @@ the position — not whether it is well known within this field. Nobody who took
 event qualifies, however senior they are or however they introduced themselves. If you are
 at all unsure, leave the name out and describe the position instead.
 
+CONCEPTS THE SERIES HAS ALREADY ESTABLISHED are listed for you below the instructions. They
+come from earlier events in this same series.
+
+- Where this discussion touches one of them, reuse that label EXACTLY as written. That is
+  what connects this event to the rest of the series; a near-miss spelling silently creates a
+  second node for one idea.
+- A contribution may join an established concept to a new one. Those crossings are the most
+  valuable thing you can produce here, because they are what turns a pile of separate events
+  into one map.
+- Do NOT force a fit. If an idea is genuinely new, coin a new label for it. A list of
+  established concepts is a vocabulary offered to you, not a set of boxes to sort into, and an
+  event that introduces nothing new is a rare thing.
+
 Produce three things:
 
 1. CONCEPTS. The distinct ideas the discussion actually turned on. Name each as a short noun

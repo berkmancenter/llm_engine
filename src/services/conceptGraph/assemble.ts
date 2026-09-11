@@ -119,6 +119,20 @@ export interface AssemblyOptions {
 }
 
 /**
+ * The key a label folds onto once alias groups are applied — the same folding assembly does
+ * internally, exposed so callers can ask "is this concept genuinely new?" and get an answer
+ * that agrees with what assembly will actually do.
+ */
+export const aliasedKey = (label: string, aliases: string[][] = []): string => {
+  const key = canonical(label)
+  for (const group of aliases) {
+    const keys = group.map(canonical).filter(Boolean)
+    if (keys.includes(key)) return keys[0]
+  }
+  return key
+}
+
+/**
  * Assembles one payload from one or more extraction results.
  *
  * @param results One per transcript chunk, in order. Concepts repeated across chunks merge.

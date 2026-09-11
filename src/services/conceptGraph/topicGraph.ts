@@ -15,6 +15,31 @@ import { ExtractionResult } from './assemble.js'
  * will come back in different words months apart.
  */
 
+/* How many established concepts to offer the extractor. A series' vocabulary grows without
+   bound while the prompt does not, and the most-connected concepts are the ones an event is
+   most likely to touch — so the list is capped by degree rather than truncated by age. */
+export const KNOWN_CONCEPT_LIMIT = 60
+
+/*
+ * The concepts a series has already established, most connected first.
+ *
+ * Handing these to the extractor is what lets one event's discussion link into the rest of
+ * the series: a model that cannot name an earlier concept cannot relate anything to it, so
+ * without this every event's contributions stay inside that event and the topic graph is
+ * only ever joined where two events happen to coin the same label independently.
+ */
+export const knownConceptLabels = (payload?: ConceptGraphPayload): string[] => {
+  if (!payload?.concepts?.length) return []
+  const degree = new Map<string, number>()
+  for (const contribution of payload.contributions ?? []) {
+    for (const id of contribution.concepts) degree.set(id, (degree.get(id) ?? 0) + 1)
+  }
+  return [...payload.concepts]
+    .sort((a, b) => (degree.get(b.id) ?? 0) - (degree.get(a.id) ?? 0))
+    .slice(0, KNOWN_CONCEPT_LIMIT)
+    .map((c) => c.label)
+}
+
 /*
  * Reads a stored graph back into the shape the assembler works in.
  *
@@ -132,4 +157,4 @@ export const resolveConceptAliases = async (llm, labels: string[], topicId?: str
   }
 }
 
-export default { payloadToExtraction, resolveConceptAliases }
+export default { payloadToExtraction, resolveConceptAliases, knownConceptLabels, KNOWN_CONCEPT_LIMIT }
