@@ -14,10 +14,14 @@ import { ConversationCostRecord } from '../types/index.types.js'
    after-the-fact work (the Vibes Analyst recap, the conversation summary) without
    re-deriving it from LangSmith.
 
-   THIS RECORD IS AN ACCUMULATOR, NOT A CACHE OF A LANGSMITH QUERY. LangSmith keeps
-   runs for a limited window (~2 weeks on the base plan), so no single read can
-   reproduce the lifetime cost of a conversation older than that — an unbounded read
-   returns a trailing window, and it SHRINKS as runs age out. Every writer therefore
+   THIS RECORD IS AN ACCUMULATOR, NOT A CACHE OF A LANGSMITH QUERY. LangSmith drops
+   runs past a retention horizon, so no single read can reproduce the lifetime cost of
+   a conversation older than that — an unbounded read returns a trailing window, and it
+   SHRINKS as runs age out. How long that horizon is does not matter to anything here,
+   and deliberately isn't encoded: it's a per-project setting (base vs. extended
+   retention, currently 14 vs. 400 days) rather than a property of the plan, an ops
+   change away from moving, and every always-on conversation crosses it eventually at
+   either length. Every writer therefore
    reads only what is new since `capturedAt` and adds it to what is already stored,
    so each run is counted exactly once, while it is still visible. See
    fetchConversationCost's `since` and accumulateCostPhases.
