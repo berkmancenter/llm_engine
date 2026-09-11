@@ -48,7 +48,15 @@ const RELINK_SCHEMA = z.object({
         addConcepts: z.array(z.string()).describe('Newly introduced concept labels, copied exactly.'),
         kindStillHolds: z
           .boolean()
-          .describe('True only if the statement’s existing relationship label is still accurate over the larger set.')
+          .describe('True only if the statement’s existing relationship label is still accurate over the larger set.'),
+        bridgeKind: z
+          .string()
+          .optional()
+          .describe('Required when kindStillHolds is false: a short label, 1-3 words, for the relationship that does hold.'),
+        bridgeStatement: z
+          .string()
+          .optional()
+          .describe('Required when kindStillHolds is false: one sentence in your own words saying what connects them.')
       })
     )
     .describe('Existing statements that are genuinely about a newly introduced concept. Usually few; empty is fine.'),
@@ -78,8 +86,11 @@ EXTENSIONS — an existing statement that is genuinely, substantively about one 
 concepts. Give the statement's index and the new concept labels it reaches. Also say whether
 the statement's existing relationship label still describes the relationship accurately once
 those concepts are included. Be strict about that: if adding the concept makes the existing
-label a poor description of the whole set, say so, and it will be recorded as a bridge
-instead.
+label a poor description of the whole set, set kindStillHolds to false and ALSO give a
+bridgeKind and a bridgeStatement — a short label for the relationship that does hold, and one
+sentence in your own words describing it. Do not repeat the original statement back; the
+original stays on the map untouched, and a second copy of the same sentence is worse than no
+connection at all.
 
 BRIDGES — a relationship the new session reveals between an established concept and a new
 one, that no existing statement already expresses. Give it a short relationship label, the
@@ -160,15 +171,24 @@ export const proposeRelinks = async (
 
       if (proposal.kindStillHolds) {
         extensions.set(proposal.index, additions)
-      } else {
-        /* The connection is real but the old label no longer describes it, so it becomes its
-           own relationship rather than distorting the original claim. */
-        bridges.push({
-          kind: 'relates to',
-          concepts: [...target.concepts, ...additions],
-          statement: target.statement
-        })
+        continue
       }
+
+      /* The connection is real but the old label no longer describes it, so it becomes its
+         own relationship rather than distorting the original claim. That needs a label and a
+         sentence of its own: carrying the original statement across would put the same words
+         on two nodes, which reads as a duplicate and says nothing new. If the model did not
+         supply them, the proposal is dropped rather than fabricated — it still has the
+         bridges channel below for a connection it can actually describe. */
+      if (!proposal.bridgeKind?.trim() || !proposal.bridgeStatement?.trim()) {
+        logger.debug(`conceptGraph: relink dropped an extension with no usable relabelling (index ${proposal.index})`)
+        continue
+      }
+      bridges.push({
+        kind: proposal.bridgeKind.trim(),
+        concepts: [...target.concepts, ...additions],
+        statement: proposal.bridgeStatement.trim()
+      })
     }
 
     for (const bridge of result?.bridges ?? []) {
