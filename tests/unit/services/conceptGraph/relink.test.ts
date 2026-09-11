@@ -48,6 +48,46 @@ describe('proposing relinks', () => {
     /* The connection is real but "checked by" would no longer describe the larger set, so
        the original claim is left alone and the connection becomes its own edge. */
     mockGetChatPromptResponse.mockResolvedValue({
+      extensions: [
+        {
+          index: 0,
+          addConcepts: ['Revocation'],
+          kindStillHolds: false,
+          bridgeKind: 'made moot by',
+          bridgeStatement: 'Checking a registry means little if the entry was already revoked.'
+        }
+      ],
+      bridges: []
+    })
+
+    const result = await proposeRelinks({}, prior, NEW_CONCEPTS, 'topic1')
+
+    expect(result.extensions.size).toBe(0)
+    expect(result.bridges[0].kind).toBe('made moot by')
+    expect(result.bridges[0].concepts).toEqual(['Trust Registry', 'Verifier', 'Revocation'])
+  })
+
+  it('never copies the original sentence onto the bridge, which would read as a duplicate', async () => {
+    mockGetChatPromptResponse.mockResolvedValue({
+      extensions: [
+        {
+          index: 0,
+          addConcepts: ['Revocation'],
+          kindStillHolds: false,
+          bridgeKind: 'made moot by',
+          bridgeStatement: 'Checking a registry means little if the entry was already revoked.'
+        }
+      ],
+      bridges: []
+    })
+
+    const result = await proposeRelinks({}, prior, NEW_CONCEPTS, 'topic1')
+
+    expect(result.bridges[0].statement).not.toBe(prior.contributions[0].statement)
+  })
+
+  it('drops a rejected extension the model could not relabel, rather than fabricating one', async () => {
+    mockGetChatPromptResponse.mockResolvedValue({
       extensions: [{ index: 0, addConcepts: ['Revocation'], kindStillHolds: false }],
       bridges: []
     })
@@ -55,7 +95,7 @@ describe('proposing relinks', () => {
     const result = await proposeRelinks({}, prior, NEW_CONCEPTS, 'topic1')
 
     expect(result.extensions.size).toBe(0)
-    expect(result.bridges[0].concepts).toEqual(['Trust Registry', 'Verifier', 'Revocation'])
+    expect(result.bridges).toHaveLength(0)
   })
 
   it('accepts a bridge that crosses from an established concept to a new one', async () => {
