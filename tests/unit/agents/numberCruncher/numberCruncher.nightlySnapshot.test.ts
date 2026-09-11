@@ -130,6 +130,36 @@ describe('numberCruncher respond() nightly cost snapshot', () => {
     expect(mockFetchConversationCost).not.toHaveBeenCalled()
   })
 
+  it("ignores an ops bot's own admin channel", async () => {
+    // Otherwise Number Cruncher posts a nightly card about the very channel it posts into.
+    await insertConversation({ conversationType: 'numberCruncher' })
+    await insertConversation({ _id: new mongoose.Types.ObjectId(), conversationType: 'scorekeeper' })
+    await insertConversation({ _id: new mongoose.Types.ObjectId(), conversationType: 'vibesAnalyst' })
+
+    const responses = await numberCruncher.respond.call(buildContext())
+
+    expect(responses).toEqual([])
+    expect(mockFetchConversationCost).not.toHaveBeenCalled()
+  })
+
+  it('snapshots an always-on community conversation, which never stops and so never gets a stop-event card', async () => {
+    await insertConversation({ conversationType: 'slackCommunityAssistant', name: 'Community Channel' })
+
+    const responses = await numberCruncher.respond.call(buildContext())
+
+    expect(responses).toHaveLength(1)
+    expect(responses[0].message).toContain('Community Channel')
+  })
+
+  it('snapshots a conversation with no conversationType at all', async () => {
+    // $nin matches a missing field; anything not explicitly flagged adminChannel is in scope.
+    await insertConversation({ conversationType: undefined })
+
+    const responses = await numberCruncher.respond.call(buildContext())
+
+    expect(responses).toHaveLength(1)
+  })
+
   it('skips a conversation with no LLM calls yet', async () => {
     mockCombineCostAggregates.mockReturnValue({ ...total, llmCallCount: 0 })
     await insertConversation()
@@ -179,6 +209,82 @@ describe('numberCruncher respond() nightly cost snapshot', () => {
     expect(mockFetchConversationCost).toHaveBeenCalledWith(String(conversation._id))
     const doc = await ConversationCost.findOne({ conversationId: conversation._id })
     expect(doc!.status).toBe('pending')
+  })
+
+  it('reports the delta since the previous snapshot alongside the cumulative total', async () => {
+    // Today's cumulative read is $0.50 over 12 calls, against a combined baseline of
+    // $0.30 over 8 — so last night's activity was $0.20 and 4 calls.
+    mockCombineCostAggregates.mockReturnValue(makeAggregate({ estimatedCostUSD: 0.5, llmCallCount: 12 }))
+    const conversation = await insertConversation()
+    await ConversationCost.create({
+      conversationId: conversation._id,
+      name: conversation.name,
+      liveEvent: makeAggregate({ estimatedCostUSD: 0.2, llmCallCount: 5 }),
+      postEvent: makeAggregate({ estimatedCostUSD: 0.1, llmCallCount: 3 }),
+      status: 'pending',
+      // Older than the debounce window, so this is a baseline rather than a skip.
+      capturedAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      topicIsPrivate: false
+    })
+
+    const responses = await numberCruncher.respond.call(buildContext())
+
+    expect(responses).toHaveLength(1)
+    const renderData = responses[0].renderData as { since?: { estimatedCostUSD: number; llmCallCount: number } }
+    expect(renderData.since!.estimatedCostUSD).toBeCloseTo(0.2)
+    expect(renderData.since!.llmCallCount).toBe(4)
+    expect(responses[0].message).toContain('+$0.20')
+  })
+
+  it('omits the delta on the first snapshot a conversation ever gets', async () => {
+    await insertConversation()
+
+    const responses = await numberCruncher.respond.call(buildContext())
+
+    expect(responses).toHaveLength(1)
+    expect((responses[0].renderData as { since?: unknown }).since).toBeUndefined()
+    expect(responses[0].message).not.toContain('since the last check')
+  })
+
+  it('keeps the delta out of the fallback text when it is negative', async () => {
+    // LangSmith's ~2-week run retention can drop old runs, leaving today's cumulative read
+    // below the stored baseline; that reads as a refund rather than as data aging out.
+    const conversation = await insertConversation()
+    await ConversationCost.create({
+      conversationId: conversation._id,
+      name: conversation.name,
+      liveEvent: makeAggregate({ estimatedCostUSD: 5 }),
+      postEvent: makeAggregate({ estimatedCostUSD: 0, llmCallCount: 0 }),
+      status: 'pending',
+      capturedAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      topicIsPrivate: false
+    })
+
+    const responses = await numberCruncher.respond.call(buildContext())
+
+    expect(responses).toHaveLength(1)
+    expect(responses[0].message).not.toContain('since the last check')
+    // Still carried in renderData — the renderer makes the same call for the card.
+    expect((responses[0].renderData as { since: { estimatedCostUSD: number } }).since.estimatedCostUSD).toBeLessThan(0)
+  })
+
+  it('uses a completed record from a prior stop as the delta baseline', async () => {
+    const conversation = await insertConversation()
+    await ConversationCost.create({
+      conversationId: conversation._id,
+      name: conversation.name,
+      liveEvent: makeAggregate({ estimatedCostUSD: 0.1, llmCallCount: 1 }),
+      postEvent: makeAggregate({ estimatedCostUSD: 0, llmCallCount: 0 }),
+      status: 'complete',
+      capturedAt: new Date(),
+      topicIsPrivate: false
+    })
+
+    const responses = await numberCruncher.respond.call(buildContext())
+
+    expect(responses).toHaveLength(1)
+    const renderData = responses[0].renderData as { since?: { estimatedCostUSD: number } }
+    expect(renderData.since!.estimatedCostUSD).toBeCloseTo(0.4)
   })
 
   it('redacts the conversation name for a private-topic conversation', async () => {

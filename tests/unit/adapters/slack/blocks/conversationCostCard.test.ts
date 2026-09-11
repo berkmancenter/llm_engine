@@ -129,6 +129,48 @@ describe('renderConversationCostCard', () => {
     expect(text).not.toContain('cost unknown')
   })
 
+  it('shows what accrued since the last check when the card carries a delta', () => {
+    const blocks = renderConversationCostCard({
+      ...data,
+      since: { estimatedCostUSD: 0.185, llmCallCount: 4, capturedAt: '2026-07-12T18:30:00.000Z' }
+    })
+    const text = textOf(blocks)
+
+    expect(text).toContain('Since the last check')
+    expect(text).toContain('+$0.19')
+    expect(text).toContain('4 calls')
+    // The cumulative headline is still there — the delta sits alongside it, not instead of it.
+    expect(text).toContain('~$1.47')
+  })
+
+  it('omits the delta on a stop-event card, which has nothing to compare against', () => {
+    const blocks = renderConversationCostCard(data)
+
+    expect(textOf(blocks)).not.toContain('Since the last check')
+  })
+
+  it('omits a negative delta rather than rendering it as a refund', () => {
+    // LangSmith's ~2-week run retention means a long-lived conversation's cumulative total
+    // can fall between captures as old runs age out; "-$0.12 since" would misread as money back.
+    const blocks = renderConversationCostCard({
+      ...data,
+      since: { estimatedCostUSD: -0.12, llmCallCount: -2, capturedAt: '2026-07-12T18:30:00.000Z' }
+    })
+
+    expect(textOf(blocks)).not.toContain('Since the last check')
+  })
+
+  it('shows a zero delta, which is real information: nothing was spent overnight', () => {
+    const blocks = renderConversationCostCard({
+      ...data,
+      since: { estimatedCostUSD: 0, llmCallCount: 0, capturedAt: '2026-07-12T18:30:00.000Z' }
+    })
+    const text = textOf(blocks)
+
+    expect(text).toContain('Since the last check')
+    expect(text).toContain('+$0.00')
+  })
+
   it('truncates long conversation names to fit Slack header limits', () => {
     const longName = 'x'.repeat(300)
     const blocks = renderConversationCostCard({ ...data, conversationName: longName })

@@ -382,6 +382,13 @@ export interface ConversationType {
      fallback when they don't. */
   useRealNames?: boolean
   enforceMembership?: boolean
+  /* Marks a conversation type whose channel exists to operate the system rather than to
+     host a discussion — the ops bots' own Slack channels. Reporting that runs over "every
+     conversation" excludes these, so a report doesn't end up describing the channel it is
+     posting into. Unset means a normal conversation: anything not explicitly flagged is
+     included, so a custom or injected type (see setConversationTypes) is reported on by
+     default rather than silently skipped. */
+  adminChannel?: boolean
 }
 
 export interface Profile {
@@ -1383,6 +1390,20 @@ export interface ConversationCostData extends ConversationCostPhases {
   checkedAt: string
   total: ConversationCostAggregates
   topicIsPrivate: boolean
+  /* Spend accrued since the last capture, for the nightly snapshot sweep. `total` above is
+     cumulative over the conversation's whole life, which on an always-on channel only ever
+     climbs — the same card every night with a bigger number and no sense of what the night
+     actually cost. Absent on the stop-event card (nothing to compare against) and on the
+     first snapshot a conversation ever gets. */
+  since?: ConversationCostDelta
+}
+
+export interface ConversationCostDelta {
+  estimatedCostUSD: number
+  llmCallCount: number
+  /* When the figures being compared against were captured — the delta is "since then",
+     which is usually but not necessarily 24h (a missed nightly tick widens the window). */
+  capturedAt: string
 }
 
 /* One thing the assistant can do, as shown on the Slack App Home page. `key` is the

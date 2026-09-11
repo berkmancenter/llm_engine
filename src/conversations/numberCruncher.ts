@@ -5,6 +5,7 @@ const numberCruncher: ConversationType = {
   label: 'Number Cruncher',
   description:
     'An admin bot that checks LLM API budget endpoints on a schedule and posts alerts to a Slack channel when spending exceeds configured thresholds',
+  adminChannel: true,
   platforms: [{ name: 'slack', label: 'Slack' }],
   properties: [
     {

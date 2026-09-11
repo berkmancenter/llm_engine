@@ -5,6 +5,7 @@ const scorekeeper: ConversationType = {
   label: 'Scorekeeper',
   description:
     'An admin bot that fetches nightly LangSmith evaluator feedback scores for all conversations and posts a quality report card per conversation to a Slack channel',
+  adminChannel: true,
   platforms: [{ name: 'slack', label: 'Slack' }],
   properties: [
     {
