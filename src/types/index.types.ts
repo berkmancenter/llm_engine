@@ -704,6 +704,10 @@ export interface DocumentArtifactPayload {
    several conversations. */
 export interface GraphNodeProvenance {
   conversationId?: string
+  /* The message this node came from. Note that on a graph generated under the Chatham
+     House Rule this is the one field that can re-identify a contributor, since the message
+     it names has an owner — see the FUTURE CONSIDERATION note in
+     services/conceptGraph/assemble.ts before widening who can read it. */
   messageId?: string
   pseudonym?: string
 }
@@ -724,8 +728,15 @@ export interface GraphConcept {
    edge cannot express — and why concepts never reference each other directly. */
 export interface GraphContribution {
   id: string
-  /* The relationship's name, and the label a client renders: 'anchors', 'co-governs'. */
+  /* The relationship's name, and the label a client renders on the node itself:
+     'anchors', 'co-governs'. Kept short on purpose — it has to fit next to a diamond. */
   kind: string
+  /* What the conversation actually said about this relationship, in a sentence: the
+     hover or side-panel text behind the node's short `kind` label. Normally a paraphrase.
+     A verbatim quotation is allowed only inside quotation marks and only when it carries
+     no personally identifying information — see conceptGraph/quoteSafety.ts, which
+     enforces both halves of that rule. */
+  statement?: string
   /* Ids of the GraphConcepts this relationship joins. */
   concepts: string[]
   /* Id of the GraphOriginPrompt this contribution came out of. */

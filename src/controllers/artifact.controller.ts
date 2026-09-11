@@ -2,6 +2,7 @@ import httpStatus from 'http-status'
 import catchAsync from '../utils/catchAsync.js'
 import pick from '../utils/pick.js'
 import { artifactService } from '../services/index.js'
+import conceptGraphService from '../services/conceptGraph/index.js'
 
 /* The created artifact plus the container's read passcode, so the creator can build the
    link a client loads it with without a second request. GET /artifacts/passcode is the
@@ -24,6 +25,24 @@ const listArtifacts = catchAsync(async (req, res) => {
     req.query.artifactPasscode
   )
   res.status(httpStatus.OK).send(artifacts)
+})
+
+/* 202 rather than 201: the caller is asking for the graph to be rebuilt, and what comes
+   back is whichever artifact version that produced — a new artifact on the first run, a new
+   version of the existing one after that. A run that finds too little to map is a success
+   with nothing to show, not an error, so it answers 200 with a reason. */
+const generateConceptGraph = catchAsync(async (req, res) => {
+  const result = await conceptGraphService.generateConceptGraph(req.body.conversationId, req.user)
+  if (!result) {
+    res.status(httpStatus.OK).send({ generated: false, reason: 'Not enough of the event record to map' })
+    return
+  }
+  res.status(httpStatus.ACCEPTED).send({
+    generated: true,
+    artifact: result.artifact!.toJSON(),
+    version: result.version.toJSON(),
+    report: result.report
+  })
 })
 
 const getContainerPasscode = catchAsync(async (req, res) => {
@@ -55,4 +74,13 @@ const getVersion = catchAsync(async (req, res) => {
   res.status(httpStatus.OK).send(version)
 })
 
-export { createArtifact, appendVersion, listArtifacts, getContainerPasscode, getArtifact, listVersions, getVersion }
+export {
+  createArtifact,
+  appendVersion,
+  generateConceptGraph,
+  listArtifacts,
+  getContainerPasscode,
+  getArtifact,
+  listVersions,
+  getVersion
+}

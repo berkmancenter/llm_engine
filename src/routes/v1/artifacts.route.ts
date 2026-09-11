@@ -227,6 +227,94 @@ router.route('/').get(auth('listArtifacts'), validate(artifactValidation.listArt
 
 /**
  * @swagger
+ * /artifacts/generate:
+ *   post:
+ *     summary: Build a concept graph from a finished event
+ *     description: >-
+ *       Reads the conversation's transcript and group chat and writes a ConceptGraphArtifact
+ *       from them. This is the manual trigger; the same generation runs automatically when a
+ *       conversation with the Concept Cartographer agent stops.
+ *
+ *       Safe to re-run, and re-running is how a poor extraction gets redone: the second run
+ *       appends a new version to the existing graph rather than replacing it or creating a
+ *       duplicate, so both extractions stay readable and comparable.
+ *
+ *       The event is treated as running under the Chatham House Rule. Nothing in the output
+ *       names or otherwise identifies anyone who took part, and statements are paraphrased —
+ *       a verbatim quotation survives only inside quotation marks and only when it identifies
+ *       no one.
+ *
+ *       Registered ahead of `/artifacts/{artifactId}` so `generate` is not read as an id.
+ *     tags: [Artifact]
+ *     operationId: generateConceptGraph
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - conversationId
+ *             properties:
+ *               conversationId:
+ *                 type: string
+ *                 description: >-
+ *                   The finished conversation to map. Conversation-scoped only — the
+ *                   extractor reads one event's record, and a topic has none of its own.
+ *                 example: '6733fe79ca20209f1fa02168'
+ *     responses:
+ *       '202':
+ *         description: The graph was built and written as a version
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 generated:
+ *                   type: boolean
+ *                   example: true
+ *                 artifact:
+ *                   $ref: '#/components/schemas/Artifact'
+ *                 version:
+ *                   $ref: '#/components/schemas/ArtifactVersion'
+ *                 report:
+ *                   type: object
+ *                   description: What assembly and the Chatham House checks removed
+ *                   properties:
+ *                     droppedConcepts: { type: number }
+ *                     droppedContributions: { type: number }
+ *                     droppedStatements: { type: number }
+ *                     droppedOriginPrompts: { type: number }
+ *                     mergedConcepts: { type: number }
+ *       '200':
+ *         description: >-
+ *           Nothing was written because the event record was too thin to map, or nothing
+ *           survived the safety checks. Not an error.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 generated:
+ *                   type: boolean
+ *                   example: false
+ *                 reason:
+ *                   type: string
+ *       '401':
+ *         $ref: '#/components/responses/Unauthorized'
+ *       '403':
+ *         $ref: '#/components/responses/Forbidden'
+ *       '404':
+ *         $ref: '#/components/responses/NotFound'
+ */
+router
+  .route('/generate')
+  .post(auth('manageArtifacts'), validate(artifactValidation.generateConceptGraph), artifactController.generateConceptGraph)
+
+/**
+ * @swagger
  * /artifacts/passcode:
  *   get:
  *     summary: Get the artifact read passcode for a topic or conversation
