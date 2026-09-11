@@ -1,6 +1,15 @@
 import ConversationCost from '../models/conversationCost.model.js'
 import { ConversationCostAggregates, ConversationCostPhases } from '../types/index.types.js'
 
+export interface ConversationCostBaseline {
+  phases: ConversationCostPhases
+  /* Absent on a record written before capture times were tracked. A caller must then treat
+     the baseline as unusable for accumulation (see accumulateCostPhases): with no point to
+     window a new read from, the read covers everything still retained, which already
+     includes whatever the baseline counted. */
+  capturedAt?: Date
+}
+
 const ZERO_AGGREGATE: ConversationCostAggregates = {
   estimatedCostUSD: 0,
   totalPromptTokens: 0,
@@ -14,6 +23,19 @@ const ZERO_AGGREGATE: ConversationCostAggregates = {
 export const ZERO_PHASES: ConversationCostPhases = {
   liveEvent: ZERO_AGGREGATE,
   postEvent: ZERO_AGGREGATE
+}
+
+/* The running total a new windowed read is added onto, and the point to window it from.
+   conversationId is uniquely indexed, so there is at most one record per conversation.
+   Read once at the top of a flow and held in memory: createPending may insert between the
+   read and the final write, and re-reading would then fold that partial figure back in. */
+async function findBaseline(conversationId: unknown): Promise<ConversationCostBaseline | null> {
+  const record = await ConversationCost.findOne({ conversationId }).select('liveEvent postEvent capturedAt').lean()
+  if (!record) return null
+  return {
+    phases: { liveEvent: record.liveEvent, postEvent: record.postEvent },
+    capturedAt: record.capturedAt
+  }
 }
 
 /* Written the moment a conversationStopped event is picked up, before the settle-poll
@@ -87,7 +109,7 @@ async function persistCost(
 async function persistSnapshot(
   conversation: { _id: unknown; name?: string },
   phases: ConversationCostPhases,
-  opts: { topicIsPrivate: boolean }
+  opts: { topicIsPrivate: boolean; capturedAt?: Date }
 ) {
   return ConversationCost.findOneAndUpdate(
     { conversationId: conversation._id },
@@ -98,11 +120,15 @@ async function persistSnapshot(
         source: 'langsmith',
         status: 'pending',
         topicIsPrivate: opts.topicIsPrivate,
-        capturedAt: new Date()
+        /* The caller passes the moment the LangSmith read STARTED, not the moment this
+           write happens, because this value becomes the next read's window start. Stamping
+           write-time instead would silently drop anything logged while the read was in
+           flight: too late for this window, before the next one begins. */
+        capturedAt: opts.capturedAt ?? new Date()
       }
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   )
 }
 
-export default { createPending, persistCost, persistSnapshot }
+export default { createPending, persistCost, persistSnapshot, findBaseline }

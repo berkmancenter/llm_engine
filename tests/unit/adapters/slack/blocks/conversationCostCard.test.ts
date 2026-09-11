@@ -149,19 +149,10 @@ describe('renderConversationCostCard', () => {
     expect(textOf(blocks)).not.toContain('Since the last check')
   })
 
-  it('omits a negative delta rather than rendering it as a refund', () => {
-    // LangSmith's ~2-week run retention means a long-lived conversation's cumulative total
-    // can fall between captures as old runs age out; "-$0.12 since" would misread as money back.
-    const blocks = renderConversationCostCard({
-      ...data,
-      since: { estimatedCostUSD: -0.12, llmCallCount: -2, capturedAt: '2026-07-12T18:30:00.000Z' }
-    })
-
-    expect(textOf(blocks)).not.toContain('Since the last check')
-  })
-
-  // The sweep suppresses the whole card on a no-spend night rather than sending a zero
-  // delta, but the renderer stays tolerant of one: it is a pure function of its input.
+  /* The sweep suppresses the whole card on a no-spend night rather than sending a zero
+     delta, but the renderer stays tolerant of one: it is a pure function of its input.
+     There is no negative case to cover — `since` is a directly measured LangSmith window,
+     not the difference of two cumulative reads, so it cannot come out below zero. */
   it('renders a zero delta rather than treating it as missing', () => {
     const blocks = renderConversationCostCard({
       ...data,

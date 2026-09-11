@@ -12,10 +12,46 @@ const mockCombineCostAggregates = jest.fn<(...args: any[]) => any>()
 // relative specifier — it must match agent.ts's own resolved import exactly.
 const conversationCostModulePath = path.resolve(process.cwd(), 'src/agents/numberCruncher/conversationCost.ts')
 
+/* accumulateCostPhases is a pure helper, so the real semantics are stubbed rather than
+   mocked: a null baseline means nothing is stored yet and the window becomes the total.
+   combineCostAggregates stays a mock so tests can dictate the headline figures. */
+type Aggregate = {
+  estimatedCostUSD: number
+  totalPromptTokens: number
+  totalCompletionTokens: number
+  llmCallCount: number
+  models: unknown[]
+  agents: unknown[]
+  hasUnpricedCalls: boolean
+}
+type Phases = { liveEvent: Aggregate; postEvent: Aggregate }
+
+function sumAggregates(a: Aggregate, b: Aggregate) {
+  return {
+    ...a,
+    estimatedCostUSD: a.estimatedCostUSD + b.estimatedCostUSD,
+    totalPromptTokens: a.totalPromptTokens + b.totalPromptTokens,
+    totalCompletionTokens: a.totalCompletionTokens + b.totalCompletionTokens,
+    llmCallCount: a.llmCallCount + b.llmCallCount,
+    models: [...a.models, ...b.models],
+    agents: [...a.agents, ...b.agents],
+    hasUnpricedCalls: Boolean(a.hasUnpricedCalls) || Boolean(b.hasUnpricedCalls)
+  }
+}
+
+function stubAccumulate(baseline: Phases | null, window: Phases) {
+  if (!baseline) return window
+  return {
+    liveEvent: sumAggregates(baseline.liveEvent, window.liveEvent),
+    postEvent: sumAggregates(baseline.postEvent, window.postEvent)
+  }
+}
+
 jest.unstable_mockModule(conversationCostModulePath, () => ({
   isLangsmithCostTrackingConfigured: mockIsConfigured,
   fetchConversationCost: mockFetchConversationCost,
   combineCostAggregates: mockCombineCostAggregates,
+  accumulateCostPhases: stubAccumulate,
   fetchConversationCostWithSettle: jest.fn()
 }))
 
@@ -80,7 +116,10 @@ describe('numberCruncher respond() nightly cost snapshot', () => {
     jest.clearAllMocks()
     mockIsConfigured.mockReturnValue(true)
     mockFetchConversationCost.mockResolvedValue(phases)
-    mockCombineCostAggregates.mockReturnValue(total)
+    /* A real sum by default: the sweep calls this twice per conversation, once for the
+       window and once for the accumulated total, and they must differ. Individual tests
+       still override it with mockReturnValue where they want to dictate the headline. */
+    mockCombineCostAggregates.mockImplementation(sumAggregates)
   })
 
   afterEach(() => {
@@ -192,7 +231,7 @@ describe('numberCruncher respond() nightly cost snapshot', () => {
     // that). Its ConversationCost record from that earlier stop is 'complete' and may still
     // be recent — the debounce must not treat that as "already snapshotted tonight" and
     // skip a conversation that is genuinely active again.
-    mockCombineCostAggregates.mockReturnValue(makeAggregate({ estimatedCostUSD: 0.5, llmCallCount: 5 }))
+    const capturedAt = new Date()
     const conversation = await insertConversation()
     await ConversationCost.create({
       conversationId: conversation._id,
@@ -200,22 +239,25 @@ describe('numberCruncher respond() nightly cost snapshot', () => {
       liveEvent: total,
       postEvent: phases.postEvent,
       status: 'complete',
-      capturedAt: new Date(),
+      capturedAt,
       topicIsPrivate: false
     })
 
     const responses = await numberCruncher.respond.call(buildContext())
 
     expect(responses).toHaveLength(1)
-    expect(mockFetchConversationCost).toHaveBeenCalledWith(String(conversation._id))
+    expect(mockFetchConversationCost).toHaveBeenCalledWith(String(conversation._id), { since: capturedAt })
     const doc = await ConversationCost.findOne({ conversationId: conversation._id })
     expect(doc!.status).toBe('pending')
   })
 
-  it('reports the delta since the previous snapshot alongside the cumulative total', async () => {
-    // Today's cumulative read is $0.50 over 12 calls, against a combined baseline of
-    // $0.30 over 8 — so last night's activity was $0.20 and 4 calls.
-    mockCombineCostAggregates.mockReturnValue(makeAggregate({ estimatedCostUSD: 0.5, llmCallCount: 12 }))
+  it('reports the window it just read as the delta, and adds it to the stored total', async () => {
+    // $0.30 over 8 calls on record; this window found $0.20 over 4 more.
+    const capturedAt = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    mockFetchConversationCost.mockResolvedValue({
+      liveEvent: makeAggregate({ estimatedCostUSD: 0.2, llmCallCount: 4 }),
+      postEvent: makeAggregate({ estimatedCostUSD: 0, llmCallCount: 0 })
+    })
     const conversation = await insertConversation()
     await ConversationCost.create({
       conversationId: conversation._id,
@@ -223,18 +265,63 @@ describe('numberCruncher respond() nightly cost snapshot', () => {
       liveEvent: makeAggregate({ estimatedCostUSD: 0.2, llmCallCount: 5 }),
       postEvent: makeAggregate({ estimatedCostUSD: 0.1, llmCallCount: 3 }),
       status: 'pending',
-      // Older than the debounce window, so this is a baseline rather than a skip.
-      capturedAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      capturedAt,
       topicIsPrivate: false
     })
 
     const responses = await numberCruncher.respond.call(buildContext())
 
     expect(responses).toHaveLength(1)
-    const renderData = responses[0].renderData as { since?: { estimatedCostUSD: number; llmCallCount: number } }
+    const renderData = responses[0].renderData as {
+      since?: { estimatedCostUSD: number; llmCallCount: number }
+      total: { estimatedCostUSD: number; llmCallCount: number }
+    }
     expect(renderData.since!.estimatedCostUSD).toBeCloseTo(0.2)
     expect(renderData.since!.llmCallCount).toBe(4)
+    // Accumulated, not re-read: $0.30 on record plus this window's $0.20.
+    expect(renderData.total.estimatedCostUSD).toBeCloseTo(0.5)
+    expect(renderData.total.llmCallCount).toBe(12)
     expect(responses[0].message).toContain('+$0.20')
+  })
+
+  it('windows the read from the last capture rather than re-reading the whole history', async () => {
+    const capturedAt = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    const conversation = await insertConversation()
+    await ConversationCost.create({
+      conversationId: conversation._id,
+      name: conversation.name,
+      liveEvent: total,
+      postEvent: phases.postEvent,
+      status: 'pending',
+      capturedAt,
+      topicIsPrivate: false
+    })
+
+    await numberCruncher.respond.call(buildContext())
+
+    expect(mockFetchConversationCost).toHaveBeenCalledWith(String(conversation._id), { since: capturedAt })
+  })
+
+  it('reads unbounded, and does not accumulate, when the stored record has no capture time', async () => {
+    // Nothing to window from, so the read covers everything still retained — which already
+    // includes whatever the record counted. Adding the two would double it.
+    const conversation = await insertConversation()
+    await ConversationCost.collection.insertOne({
+      conversationId: conversation._id,
+      name: conversation.name,
+      liveEvent: makeAggregate({ estimatedCostUSD: 9, llmCallCount: 90 }),
+      postEvent: makeAggregate({ estimatedCostUSD: 0, llmCallCount: 0 }),
+      source: 'langsmith',
+      status: 'pending',
+      topicIsPrivate: false
+    })
+
+    const responses = await numberCruncher.respond.call(buildContext())
+
+    expect(mockFetchConversationCost).toHaveBeenCalledWith(String(conversation._id), {})
+    const renderData = responses[0].renderData as { total: { estimatedCostUSD: number }; since?: unknown }
+    expect(renderData.total.estimatedCostUSD).toBeCloseTo(0.5)
+    expect(renderData.since).toBeUndefined()
   })
 
   it('omits the delta on the first snapshot a conversation ever gets', async () => {
@@ -247,9 +334,12 @@ describe('numberCruncher respond() nightly cost snapshot', () => {
     expect(responses[0].message).not.toContain('since the last check')
   })
 
-  it('posts no card on a night with no new LLM calls, but still advances the baseline', async () => {
-    // Otherwise an always-on conversation repeats last night's card with a +$0.00 delta
-    // every night it sits idle.
+  it('posts no card on a night with no new LLM calls, but still advances the capture time', async () => {
+    // Otherwise an always-on conversation repeats last night's card every night it sits
+    // idle — and, worse, the window start would stay put until it outran LangSmith's
+    // retention horizon and began missing runs outright.
+    mockFetchConversationCost.mockResolvedValue(null)
+    const capturedAt = new Date(Date.now() - 24 * 60 * 60 * 1000)
     const conversation = await insertConversation()
     await ConversationCost.create({
       conversationId: conversation._id,
@@ -257,22 +347,25 @@ describe('numberCruncher respond() nightly cost snapshot', () => {
       liveEvent: makeAggregate({ estimatedCostUSD: 0.5, llmCallCount: 1 }),
       postEvent: makeAggregate({ estimatedCostUSD: 0, llmCallCount: 0 }),
       status: 'pending',
-      capturedAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      capturedAt,
       topicIsPrivate: false
     })
 
     const responses = await numberCruncher.respond.call(buildContext())
 
     expect(responses).toEqual([])
-    // The LangSmith read still happened and was written through — a suppressed night that
-    // also skipped the write would leave the baseline stale (see the retention note).
     const doc = await ConversationCost.findOne({ conversationId: conversation._id })
-    expect(doc!.capturedAt!.getTime()).toBeGreaterThan(Date.now() - 60 * 1000)
+    expect(doc!.capturedAt!.getTime()).toBeGreaterThan(capturedAt.getTime())
   })
 
-  it('posts no card when the delta is negative, which means nothing new was spent either', async () => {
-    // LangSmith's ~2-week retention can drop old runs, leaving today's cumulative read below
-    // the stored baseline. The baseline still advances, so the next real spend does report.
+  it('never lets a stored total shrink when LangSmith has aged its runs out', async () => {
+    /* The regression this whole windowing scheme exists for. LangSmith keeps runs for a
+       limited period, so an unbounded re-read of a long-lived conversation returns less
+       than it did last night. Accumulating windows means the stored figure is built from
+       reads taken while each run was still visible, and a window that finds nothing can
+       only leave the total alone — never revise it downward. */
+    mockFetchConversationCost.mockResolvedValue(null)
+    const capturedAt = new Date(Date.now() - 24 * 60 * 60 * 1000)
     const conversation = await insertConversation()
     await ConversationCost.create({
       conversationId: conversation._id,
@@ -280,19 +373,19 @@ describe('numberCruncher respond() nightly cost snapshot', () => {
       liveEvent: makeAggregate({ estimatedCostUSD: 5, llmCallCount: 40 }),
       postEvent: makeAggregate({ estimatedCostUSD: 0, llmCallCount: 0 }),
       status: 'pending',
-      capturedAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      capturedAt,
       topicIsPrivate: false
     })
 
-    const responses = await numberCruncher.respond.call(buildContext())
+    await numberCruncher.respond.call(buildContext())
 
-    expect(responses).toEqual([])
     const doc = await ConversationCost.findOne({ conversationId: conversation._id })
-    expect(doc!.liveEvent.estimatedCostUSD).toBe(0.5)
+    expect(doc!.liveEvent.estimatedCostUSD).toBe(5)
+    expect(doc!.liveEvent.llmCallCount).toBe(40)
   })
 
-  it('uses a completed record from a prior stop as the delta baseline', async () => {
-    mockCombineCostAggregates.mockReturnValue(makeAggregate({ estimatedCostUSD: 0.5, llmCallCount: 5 }))
+  it('accumulates onto a completed record from a prior stop, not just a nightly one', async () => {
+    const capturedAt = new Date(Date.now() - 24 * 60 * 60 * 1000)
     const conversation = await insertConversation()
     await ConversationCost.create({
       conversationId: conversation._id,
@@ -300,15 +393,19 @@ describe('numberCruncher respond() nightly cost snapshot', () => {
       liveEvent: makeAggregate({ estimatedCostUSD: 0.1, llmCallCount: 1 }),
       postEvent: makeAggregate({ estimatedCostUSD: 0, llmCallCount: 0 }),
       status: 'complete',
-      capturedAt: new Date(),
+      capturedAt,
       topicIsPrivate: false
     })
 
     const responses = await numberCruncher.respond.call(buildContext())
 
     expect(responses).toHaveLength(1)
-    const renderData = responses[0].renderData as { since?: { estimatedCostUSD: number } }
-    expect(renderData.since!.estimatedCostUSD).toBeCloseTo(0.4)
+    const renderData = responses[0].renderData as {
+      since?: { estimatedCostUSD: number }
+      total: { estimatedCostUSD: number }
+    }
+    expect(renderData.since!.estimatedCostUSD).toBeCloseTo(0.5)
+    expect(renderData.total.estimatedCostUSD).toBeCloseTo(0.6)
   })
 
   it('redacts the conversation name for a private-topic conversation', async () => {

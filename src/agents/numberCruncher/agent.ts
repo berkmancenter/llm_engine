@@ -6,8 +6,13 @@ import { getAdminChannelTypeNames } from '../../conversations/index.js'
 import ConversationCost from '../../models/conversationCost.model.js'
 import access from '../../auth/access.js'
 import conversationCostTrackingService from '../../services/conversationCostTracking.service.js'
-import conversationCostService from '../../services/conversationCost.service.js'
-import { fetchConversationCost, combineCostAggregates, isLangsmithCostTrackingConfigured } from './conversationCost.js'
+import conversationCostService, { ZERO_PHASES } from '../../services/conversationCost.service.js'
+import {
+  fetchConversationCost,
+  combineCostAggregates,
+  accumulateCostPhases,
+  isLangsmithCostTrackingConfigured
+} from './conversationCost.js'
 import type {
   BudgetAlertData,
   BudgetAlert,
@@ -29,14 +34,11 @@ const HELLO_MESSAGE =
    skip it rather than post the same cost card to Slack twice. */
 const NIGHTLY_SNAPSHOT_DEBOUNCE_MS = 12 * 60 * 60 * 1000 // 12 hours
 
-/* The delta clause for the fallback text, mirroring what the card renderer shows.
-   Suppressed when the delta is negative, which is uncommon but real: the cumulative
-   LangSmith read is bounded by LangSmith's own ~2-week run retention, so on a
-   long-lived conversation runs can age out between captures and today's total can
-   land below the stored one. "−$0.12 since yesterday" would read as a refund; the
-   honest framing of that case is just the cumulative figure on its own. */
+/* The delta clause for the fallback text, mirroring what the card renderer shows. No
+   guard against a negative figure: `since` is a directly measured window, not the
+   difference of two cumulative reads, so it cannot come out below zero. */
 function sinceText(since?: ConversationCostDelta): string {
-  if (!since || since.estimatedCostUSD < 0) return ''
+  if (!since) return ''
   return ` — +$${since.estimatedCostUSD.toFixed(2)} (${since.llmCallCount} calls) since the last check`
 }
 
@@ -108,8 +110,8 @@ async function buildNightlySnapshotResponses(channels: IChannel[] | undefined) {
     const topicIsPrivate = topic?.private !== false
 
     /* conversationId is uniquely indexed, so there is at most one cost record per
-       conversation and this is it — serving both the debounce below and the delta baseline
-       further down, rather than reading the same document twice. */
+       conversation and this is it — serving both the debounce below and the running total
+       this night's window is added onto, rather than reading the same document twice. */
     const previous = await ConversationCost.findOne({ conversationId: conversation._id })
       .select('liveEvent postEvent status capturedAt')
       .lean()
@@ -129,49 +131,58 @@ async function buildNightlySnapshotResponses(channels: IChannel[] | undefined) {
       continue
     }
 
-    const phases = await fetchConversationCost(conversationId)
-    const total = phases ? combineCostAggregates(phases.liveEvent, phases.postEvent) : null
-    if (!total || total.llmCallCount === 0) continue
+    /* Read only what is new since the last capture, then add it to the stored total, rather
+       than re-reading the conversation's whole history every night. This is what makes the
+       figures survive LangSmith's run retention — see fetchConversationCost's `since`. A
+       record with no capturedAt cannot be windowed from, so it is not a usable baseline:
+       the unbounded read below already covers everything the record counted, and adding the
+       two would double it. Note `readAt` is taken BEFORE the read and stored as the next
+       window's start, so runs logged mid-read are picked up next time instead of falling
+       between the two windows. */
+    const baseline = capturedAt ? { liveEvent: previous!.liveEvent, postEvent: previous!.postEvent } : null
+    const readAt = new Date()
+    const windowRead = await fetchConversationCost(conversationId, capturedAt ? { since: capturedAt } : {})
 
-    /* Summed directly rather than through combineCostAggregates: only the two headline
-       numbers are compared, and combining would build per-model/per-agent breakdown maps
-       that get thrown away. A 'complete' baseline from a prior stop is used just as happily
-       as a 'pending' one — the LangSmith read is cumulative over the conversation's whole
-       life either way, so "since that capture" is the right reading of both. */
-    const since: ConversationCostDelta | undefined =
-      previous && capturedAt
-        ? {
-            estimatedCostUSD:
-              total.estimatedCostUSD - (previous.liveEvent.estimatedCostUSD + previous.postEvent.estimatedCostUSD),
-            llmCallCount: total.llmCallCount - (previous.liveEvent.llmCallCount + previous.postEvent.llmCallCount),
-            capturedAt: new Date(capturedAt).toISOString()
-          }
-        : undefined
+    // Nothing new, and nothing on record either: this conversation has never spent anything.
+    if (!windowRead && !baseline) continue
 
-    /* Persisted before the no-news check below, deliberately — the baseline has to keep
-       moving even on a night nothing is posted. LangSmith's ~2-week run retention means a
-       long-lived conversation's cumulative read can FALL as old runs age out; if a
-       suppressed night also skipped the write, that shrunken read would be measured against
-       a permanently stale high-water baseline and the delta would stay negative through
-       every subsequent night of real spending, silencing the conversation for good. */
+    const windowPhases = windowRead ?? ZERO_PHASES
+    const windowTotal = combineCostAggregates(windowPhases.liveEvent, windowPhases.postEvent)
+    const phases = accumulateCostPhases(baseline, windowPhases)
+    const total = combineCostAggregates(phases.liveEvent, phases.postEvent)
+    if (total.llmCallCount === 0) continue
+
+    /* Measured, not derived: the window IS this period's spend, so it can never come out
+       negative the way subtracting two retention-bounded cumulative reads could. */
+    const since: ConversationCostDelta | undefined = capturedAt
+      ? {
+          estimatedCostUSD: windowTotal.estimatedCostUSD,
+          llmCallCount: windowTotal.llmCallCount,
+          capturedAt: new Date(capturedAt).toISOString()
+        }
+      : undefined
+
+    /* Persisted before the no-news check below, deliberately. capturedAt has to advance on
+       every sweep, including quiet ones: it is the next window's start, so leaving it put
+       on a night nothing was posted would let the window keep growing until it reached past
+       LangSmith's retention horizon and started missing runs outright. */
     try {
-      await conversationCostService.persistSnapshot(conversation, phases!, { topicIsPrivate })
+      await conversationCostService.persistSnapshot(conversation, phases, { topicIsPrivate, capturedAt: readAt })
     } catch (error) {
       logger.error(`numberCruncher: could not persist nightly cost snapshot for ${conversationId}`, error)
     }
 
-    /* No calls since the last check, so the card would be last night's card with the same
-       cumulative figure and a +$0.00 delta. On an always-on conversation — one that never
-       stops, and so never gets a stop-event card — that is most nights, and posting it
-       anyway trains everyone to scroll past the cards that do say something. A conversation
-       with no baseline yet (its first snapshot) always posts: there is no "since" to be
-       empty. Negative counts land here too; see the retention note above. */
-    if (since && since.llmCallCount <= 0) {
+    /* Nothing was spent this period, so the card would repeat last night's with a +$0.00
+       delta. On an always-on conversation — one that never stops, and so never gets a
+       stop-event card — that is most nights, and posting it anyway trains everyone to
+       scroll past the cards that do say something. A conversation with no baseline yet
+       (its first snapshot) always posts: there is no window to be empty. */
+    if (capturedAt && windowTotal.llmCallCount === 0) {
       logger.debug(`numberCruncher: conversation ${conversationId} has no new LLM calls since its last snapshot, skipping`)
       continue
     }
 
-    responses.push(buildCostSummaryResponse(conversation, topicIsPrivate, phases!, total, channels, since))
+    responses.push(buildCostSummaryResponse(conversation, topicIsPrivate, phases, total, channels, since))
   }
   return responses
 }

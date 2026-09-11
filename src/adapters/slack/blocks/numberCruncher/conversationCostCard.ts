@@ -47,13 +47,11 @@ export default function renderConversationCostCard(data: ConversationCostData): 
   /* On the nightly snapshot of a conversation that is still running, the headline above is
      cumulative over the conversation's whole life — on an always-on channel it only climbs,
      so the same card every night says nothing about what the night actually cost. This line
-     is what makes a repeat card worth reading.
-
-     Skipped when the delta is negative: the cumulative LangSmith read is bounded by
-     LangSmith's ~2-week run retention, so on a long-lived conversation runs can age out
-     between captures and today's total can land below the stored one. Rendering
-     "−$0.12 since ..." would read as a refund rather than as data falling off the back. */
-  if (data.since && data.since.estimatedCostUSD >= 0) {
+     is what makes a repeat card worth reading. The sweep measures it as its own LangSmith
+     window rather than subtracting two cumulative reads, so it is always a real figure for
+     a real period and never negative. Absent on the stop-event card, which has no prior
+     capture to measure from. */
+  if (data.since) {
     const since = new Date(data.since.capturedAt).toLocaleString('en-US', {
       month: 'short',
       day: 'numeric',
