@@ -51,6 +51,14 @@ const listArtifacts = {
     .xor('topicId', 'conversationId')
 }
 
+/* Generation is conversation-only: the extractor reads one event's transcript and chat, and
+   a topic has neither. A cross-conversation graph would be a different pipeline. */
+const generateConceptGraph = {
+  body: Joi.object().keys({
+    conversationId: Joi.string().custom(objectId).required()
+  })
+}
+
 const getContainerPasscode = {
   query: Joi.object()
     .keys({
@@ -94,6 +102,7 @@ const getVersion = {
 const artifactValidation = {
   createArtifact,
   appendVersion,
+  generateConceptGraph,
   listArtifacts,
   getContainerPasscode,
   getArtifact,

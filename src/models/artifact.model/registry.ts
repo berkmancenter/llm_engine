@@ -54,6 +54,9 @@ const CONCEPT = Joi.object().keys({
 const CONTRIBUTION = Joi.object().keys({
   id: Joi.string().required(),
   kind: Joi.string().required(),
+  /* The sentence behind the node's short `kind` label. Optional: a graph written by hand,
+     or one whose relationships are self-evident from their labels, needs no prose. */
+  statement: Joi.string(),
   /* One is allowed, not just two: a contribution attached to a single concept is a
      meaningful intermediate state while a graph is still being built live. */
   concepts: Joi.array().items(Joi.string()).min(1).required(),

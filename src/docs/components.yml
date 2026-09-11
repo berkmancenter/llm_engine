@@ -1412,8 +1412,18 @@ components:
           example: k15
         kind:
           type: string
-          description: "The relationship's name, and the label a client renders"
+          description: "The relationship's name, and the short label a client renders on the node"
           example: co-governs
+        statement:
+          type: string
+          description: >-
+            What the conversation said about this relationship, in a sentence — the hover or
+            side-panel text behind the short `kind` label. Normally a paraphrase; a verbatim
+            quotation appears only inside quotation marks and only when it carries no
+            personally identifying information.
+          example: >-
+            Participants argued a trust registry only means anything if verifiers actually
+            check it before accepting a credential.
         concepts:
           type: array
           minItems: 1
