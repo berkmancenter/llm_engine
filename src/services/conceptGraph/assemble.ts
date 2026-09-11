@@ -1,5 +1,11 @@
 import slugify from 'slugify'
-import { ConceptGraphPayload, GraphConcept, GraphContribution, GraphOriginPrompt } from '../../types/index.types.js'
+import {
+  ConceptGraphPayload,
+  GraphConcept,
+  GraphContribution,
+  GraphNodeProvenance,
+  GraphOriginPrompt
+} from '../../types/index.types.js'
 import { checkStatement, StatementCheckInput } from './quoteSafety.js'
 
 /*
@@ -23,9 +29,16 @@ import { checkStatement, StatementCheckInput } from './quoteSafety.js'
 
 /* What the model returns, before ids exist. Mirrors EXTRACTION_SCHEMA in prompt.ts. */
 export interface ExtractionResult {
-  concepts: { label: string; gloss?: string; sourceRefs?: string[] }[]
-  contributions: { kind: string; concepts: string[]; statement?: string; originPrompt?: string; sourceRefs?: string[] }[]
-  originPrompts: { text: string; sourceRefs?: string[] }[]
+  concepts: { label: string; gloss?: string; sourceRefs?: string[]; provenance?: GraphNodeProvenance }[]
+  contributions: {
+    kind: string
+    concepts: string[]
+    statement?: string
+    originPrompt?: string
+    sourceRefs?: string[]
+    provenance?: GraphNodeProvenance
+  }[]
+  originPrompts: { text: string; sourceRefs?: string[]; provenance?: GraphNodeProvenance }[]
 }
 
 /* Maps the [m#] tags the record was labelled with back to real message ids, so a node can
@@ -53,8 +66,21 @@ const canonical = (label: string) =>
     .replace(/(?:ies)$/, 'y')
     .replace(/(?<=[^s])s$/, '')
 
-const idFor = (prefix: string, label: string, taken: Set<string>) => {
-  const base = `${prefix}-${slugify(label, { lower: true, strict: true }) || 'node'}`.slice(0, 60)
+/*
+ * Ids are derived from a node's canonical content, not from the order it happened to be
+ * generated in, which is what makes them stable across versions.
+ *
+ * That matters because a topic graph is refined incrementally: a concept that survives from
+ * one session to the next keeps the same id, so two versions can be diffed, and a client can
+ * animate a node moving rather than watching it vanish and a stranger appear in its place.
+ * Deriving from the *canonical* form rather than the display label means a change of casing
+ * or plural does not rename the node either.
+ *
+ * The suffix on a collision is deterministic for the same input set, since assembly always
+ * walks the nodes in the same order.
+ */
+const idFor = (prefix: string, key: string, taken: Set<string>) => {
+  const base = `${prefix}-${slugify(key, { lower: true, strict: true }) || 'node'}`.slice(0, 60)
   let id = base
   let n = 2
   while (taken.has(id)) {
@@ -63,6 +89,33 @@ const idFor = (prefix: string, label: string, taken: Set<string>) => {
   }
   taken.add(id)
   return id
+}
+
+/* Short, stable digest of a relation's endpoints, so the same relationship over the same
+   concepts keeps its id however many sessions later it recurs. */
+const digest = (input: string) => {
+  /* Modulo a large prime rather than the usual bitwise fold: this only needs to be stable
+     and well spread, not fast or cryptographic, and the intermediate stays far inside the
+     safe integer range. */
+  let hash = 0
+  for (let i = 0; i < input.length; i += 1) {
+    hash = (hash * 31 + input.charCodeAt(i)) % 2147483647
+  }
+  return hash.toString(36).slice(0, 6)
+}
+
+/*
+ * Options beyond the extraction itself.
+ *
+ * `aliases` carries the cross-session merges that canonical folding cannot see: two sessions
+ * calling the same idea "trust registry" and "credential registry" fold to different keys,
+ * and only a reader who understands both can say they are one concept. Each group's first
+ * entry is the label the merged node keeps.
+ */
+export interface AssemblyOptions {
+  conversationId?: string
+  sourceRefs?: SourceRefMap
+  aliases?: string[][]
 }
 
 /**
@@ -75,8 +128,7 @@ const idFor = (prefix: string, label: string, taken: Set<string>) => {
 export const assembleGraph = (
   results: ExtractionResult[],
   safety: StatementCheckInput,
-  conversationId?: string,
-  sourceRefs: SourceRefMap = new Map()
+  { conversationId, sourceRefs = new Map(), aliases = [] }: AssemblyOptions = {}
 ): { payload: ConceptGraphPayload; report: AssemblyReport } => {
   const report: AssemblyReport = {
     droppedConcepts: 0,
@@ -86,6 +138,28 @@ export const assembleGraph = (
     mergedConcepts: 0
   }
   const takenIds = new Set<string>()
+
+  /* Folds every alias in a group onto the group's first entry, so the rest of assembly can
+     keep treating one canonical key as one concept. */
+  const aliasTo = new Map<string, string>()
+  /* The leader's own spelling wins for the merged node, overriding the usual first-seen
+     rule. The leader is whichever label was judged clearest for the shared idea, whereas
+     first-seen is just whichever session happened to run first — and across a series, the
+     later, better wording is often the one worth keeping. */
+  const leaderLabel = new Map<string, string>()
+  for (const group of aliases) {
+    const display = group.find((label) => canonical(label))
+    if (!display) continue
+    const leader = canonical(display)
+    leaderLabel.set(leader, display)
+    for (const alias of group.map(canonical).filter(Boolean)) {
+      if (alias !== leader) aliasTo.set(alias, leader)
+    }
+  }
+  const keyFor = (label: string) => {
+    const key = canonical(label)
+    return aliasTo.get(key) ?? key
+  }
 
   /* Provenance is the conversation plus, where the model cited one, the message. Only the
      first citation is kept: the field holds one message, and the first is the one the node
@@ -107,7 +181,12 @@ export const assembleGraph = (
      conversation ran under stricter terms, (b) storing it privately so only organizers see
      it, or (c) graded artifact visibility, which was scoped out of the original API and is
      what would let the pointer exist for organizers and not for everyone else. */
-  const provenanceFor = (refs?: string[]) => {
+  const provenanceFor = (refs?: string[], carried?: GraphNodeProvenance) => {
+    /* A node carried in from an earlier version of this graph keeps the provenance it was
+       written with. Re-deriving it would stamp every surviving node with whichever session
+       happened to trigger the latest refinement, quietly rewriting where the idea came
+       from — the opposite of what provenance is for. */
+    if (carried) return { provenance: carried }
     const messageId = (refs ?? []).map((ref) => sourceRefs.get(ref.replace(/[[\]]/g, '').trim())).find(Boolean)
     if (!conversationId && !messageId) return {}
     return { provenance: { ...(conversationId && { conversationId }), ...(messageId && { messageId }) } }
@@ -124,9 +203,9 @@ export const assembleGraph = (
       report.droppedOriginPrompts += 1
       continue
     }
-    const id = idFor('p', text.slice(0, 40), takenIds)
+    const id = idFor('p', canonical(text).slice(0, 40), takenIds)
     promptIdByText.set(canonical(text), id)
-    originPrompts.push({ id, text, ...provenanceFor(prompt.sourceRefs) })
+    originPrompts.push({ id, text, ...provenanceFor(prompt.sourceRefs, prompt.provenance) })
   }
 
   /* Concepts, merged by canonical label. The first spelling seen wins as the display
@@ -136,7 +215,7 @@ export const assembleGraph = (
   for (const concept of results.flatMap((r) => r.concepts ?? [])) {
     const label = concept.label?.trim()
     if (!label) continue
-    const key = canonical(label)
+    const key = keyFor(label)
     if (!key) continue
     if (conceptIdByLabel.has(key)) {
       report.mergedConcepts += 1
@@ -148,9 +227,9 @@ export const assembleGraph = (
       report.droppedConcepts += 1
       continue
     }
-    const id = idFor('c', label, takenIds)
+    const id = idFor('c', key, takenIds)
     conceptIdByLabel.set(key, id)
-    concepts.push({ id, label, ...provenanceFor(concept.sourceRefs) })
+    concepts.push({ id, label: leaderLabel.get(key) ?? label, ...provenanceFor(concept.sourceRefs, concept.provenance) })
   }
 
   /* Contributions last, once every id they could reference exists. */
@@ -167,7 +246,7 @@ export const assembleGraph = (
        is not a partial truth, it is a different claim, so it is dropped rather than
        reconnected to whatever is left. */
     const conceptIds = (contribution.concepts ?? [])
-      .map((label) => conceptIdByLabel.get(canonical(label ?? '')))
+      .map((label) => conceptIdByLabel.get(keyFor(label ?? '')))
       .filter((id): id is string => !!id)
     if (conceptIds.length === 0 || conceptIds.length !== (contribution.concepts ?? []).length) {
       report.droppedContributions += 1
@@ -192,12 +271,12 @@ export const assembleGraph = (
     const originId = contribution.originPrompt ? promptIdByText.get(canonical(contribution.originPrompt)) : undefined
 
     contributions.push({
-      id: idFor('k', kind, takenIds),
+      id: idFor('k', `${canonical(kind)}-${digest(relationKey)}`, takenIds),
       kind,
       concepts: conceptIds,
       ...(statement && { statement }),
       ...(originId && { origin: originId }),
-      ...provenanceFor(contribution.sourceRefs)
+      ...provenanceFor(contribution.sourceRefs, contribution.provenance)
     })
   }
 
