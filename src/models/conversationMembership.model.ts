@@ -31,12 +31,20 @@ const schema = new mongoose.Schema<IConversationMembership>(
       trim: true,
       default: ''
     },
-    // Set by a future invite ticket; import only ever creates records as 'pending' and
-    // never advances or resets this on re-import (re-importing must never re-invite).
+    // Advanced only by invite sends (invite.service.ts); import creates records as
+    // 'pending' and never touches this on re-import (re-importing must never re-invite).
+    // 'failed' means the send bounced or errored, so batch sends retry it; 'invited'
+    // members are never mailed again outside an explicit admin resend.
     inviteState: {
       type: String,
-      enum: ['pending', 'invited'],
+      enum: ['pending', 'invited', 'failed'],
       default: 'pending'
+    },
+    // Per-recipient send failure, kept on the record because a bounced invite is someone
+    // who believes they were invited and has no way in unless an admin can see why.
+    inviteError: {
+      type: String,
+      default: null
     },
     joined: {
       type: Boolean,
