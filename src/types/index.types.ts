@@ -104,6 +104,11 @@ export interface ITopic {
   conversationCreationAllowed: boolean
   private: boolean
   passcode?: number
+  /* Shared secret a client must present to read this topic's artifacts. Minted lazily on
+     first artifact creation, so a topic that has never had one carries no key. Kept apart
+     from `passcode` on purpose: that one unlocks a private topic itself, and an artifact
+     link must never be able to clear it. See artifact.service.ts. */
+  artifactPasscode?: string
   archivable: boolean
   archived?: boolean
   isDeleted?: boolean
@@ -538,6 +543,9 @@ export interface IConversation {
      ignores it, so an owner can never flip anonymity on or off mid-conversation. */
   useRealNames?: boolean
   enforceMembership?: boolean
+  /* Same shared secret as ITopic.artifactPasscode, for artifacts scoped to this
+     conversation rather than its topic. Minted lazily; see artifact.service.ts. */
+  artifactPasscode?: string
   owner: IUser
   topic: ITopic
   // How this conversation was created, when not the standard event-creation form. Deliberately
@@ -611,6 +619,147 @@ export interface IPollResponse {
 
 export interface PollResponseModel extends mongoose.Model<IPollResponse> {
   replaceObjectsWithIds(pollResponse: IPollResponse): IPollResponse
+}
+
+/* Which container an artifact belongs to. Exactly one of IArtifact.topic /
+   IArtifact.conversation is set, and this says which — stored rather than inferred so a
+   query can filter on it without testing two fields for null. */
+export type ArtifactScope = 'topic' | 'conversation'
+
+/* The base of the artifact discriminator hierarchy: a shared object that emerges from one
+   or more conversations. Everything a client needs to list and label an artifact lives
+   here; everything that differs by kind lives in the version payload, so a new kind is a
+   new discriminator plus a payload validator and touches no route.
+
+   Content is deliberately absent. An artifact's content is the payload of its current
+   IArtifactVersion, because every revision is kept — see artifact.service.ts. */
+export interface IArtifact {
+  _id?: mongoose.Types.ObjectId
+  id?: string
+  /* The discriminator key mongoose stamps on save, e.g. 'DocumentArtifact'. Present on the
+     document; the toJSON transform republishes it as `type` below, which is the name the
+     API uses in both directions. */
+  __t?: string
+  /* What `__t` is called in every request and response: the create body sends it, the
+     serialized artifact carries it, and a client picks its renderer from it. */
+  type?: string
+  scope: ArtifactScope
+  /* Set when scope is 'topic'. Also set for a conversation-scoped artifact, denormalized
+     from the conversation, so "every artifact under this topic" stays one indexed query
+     rather than a lookup through conversations. */
+  topic?: ITopic | mongoose.Types.ObjectId
+  /* Set only when scope is 'conversation'. */
+  conversation?: IConversation | mongoose.Types.ObjectId
+  title: string
+  description?: string
+  /* Points at the newest version, so reading the current artifact is one populate rather
+     than a sort over the version collection. */
+  currentVersion?: IArtifactVersion | mongoose.Types.ObjectId
+  /* The newest version's number, and the allocator for the next one: appendVersion claims
+     a number by incrementing this field, which is what keeps two concurrent appends from
+     both writing the same version. 0 on an artifact whose first version has not landed
+     yet. See artifact.service.ts. */
+  currentVersionNumber?: number
+  /* Whoever asked for the artifact — an organizer through the API, or the agent that
+     produced it. Both are BaseUser documents. */
+  createdBy?: IBaseUser | mongoose.Types.ObjectId
+  /* No further versions may be appended. The artifact and its history stay readable. */
+  locked?: boolean
+  isDeleted?: boolean
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+/* One immutable revision of an artifact. Nothing updates or deletes these: an edit appends
+   a new one and repoints IArtifact.currentVersion, which is what makes the full history
+   available through the versions API. */
+export interface IArtifactVersion {
+  _id?: mongoose.Types.ObjectId
+  id?: string
+  artifact: IArtifact | mongoose.Types.ObjectId
+  /* 1-based and strictly increasing per artifact, enforced by a unique compound index.
+     Callers address a version by this rather than by id, since it is the number a client
+     shows. Not guaranteed contiguous: an append that claims a number and then fails to
+     write leaves that number unused. */
+  versionNumber: number
+  /* Kind-specific content, validated against the artifact discriminator's schema in
+     src/models/artifact.model/registry.ts before it is written. Mixed in the model because
+     each discriminator defines its own shape. */
+  payload: Record<string, unknown>
+  createdBy?: IBaseUser | mongoose.Types.ObjectId
+  /* Free-text note on what changed, for a history view. */
+  note?: string
+  createdAt?: Date
+}
+
+/* A document artifact's payload: prose the client renders. The first and simplest kind. */
+export interface DocumentArtifactPayload {
+  body: string
+}
+
+/* Where a node in a concept graph came from. Every field is optional: a graph assembled
+   from a whole event has no single message to point at, while one built live from the
+   transcript can attribute nearly every node. `conversationId` is worth carrying even
+   though the artifact knows its own container, because a topic-scoped graph draws on
+   several conversations. */
+export interface GraphNodeProvenance {
+  conversationId?: string
+  /* The message this node came from. Note that on a graph generated under the Chatham
+     House Rule this is the one field that can re-identify a contributor, since the message
+     it names has an owner — see the FUTURE CONSIDERATION note in
+     services/conceptGraph/assemble.ts before widening who can read it. */
+  messageId?: string
+  pseudonym?: string
+}
+
+/* An idea or entity in a concept graph. `id` is opaque and stable so a rename stays an
+   edit to one node rather than a delete plus a create, which is what keeps two versions of
+   the graph diffable; `label` is what the client draws. */
+export interface GraphConcept {
+  id: string
+  label: string
+  /* Id of the GraphOriginPrompt this concept came out of. */
+  origin?: string
+  provenance?: GraphNodeProvenance
+}
+
+/* A relationship between concepts, reified as its own node rather than left as an edge.
+   That is what lets one contribution join three or more concepts at once, which a plain
+   edge cannot express — and why concepts never reference each other directly. */
+export interface GraphContribution {
+  id: string
+  /* The relationship's name, and the label a client renders on the node itself:
+     'anchors', 'co-governs'. Kept short on purpose — it has to fit next to a diamond. */
+  kind: string
+  /* What the conversation actually said about this relationship, in a sentence: the
+     hover or side-panel text behind the node's short `kind` label. Normally a paraphrase.
+     A verbatim quotation is allowed only inside quotation marks and only when it carries
+     no personally identifying information — see conceptGraph/quoteSafety.ts, which
+     enforces both halves of that rule. */
+  statement?: string
+  /* Ids of the GraphConcepts this relationship joins. */
+  concepts: string[]
+  /* Id of the GraphOriginPrompt this contribution came out of. */
+  origin?: string
+  provenance?: GraphNodeProvenance
+}
+
+/* The prompt or question a concept or contribution came out of: the third node kind.
+   Attached by a direct `origin` reference rather than through a contribution, since an
+   origin is attribution rather than a relationship between concepts. */
+export interface GraphOriginPrompt {
+  id: string
+  text: string
+  provenance?: GraphNodeProvenance
+}
+
+/* A concept graph artifact's payload. Every array is optional and defaults to empty, so
+   the artifact can be created when an event starts and fill in as it runs. Nothing about
+   layout is stored — position, size and colour are all derived by the client. */
+export interface ConceptGraphPayload {
+  concepts: GraphConcept[]
+  contributions: GraphContribution[]
+  originPrompts: GraphOriginPrompt[]
 }
 
 /**

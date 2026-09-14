@@ -10,7 +10,12 @@ const participantRights = [
   'inspectPoll',
   'getPollResponseCounts',
   'getUser',
-  'manageAccount'
+  'manageAccount',
+  /* Reading an artifact is gated by its container's artifact passcode, not by role — a
+     participant may hold a link to one without an account that could be given a right.
+     See artifact.service.ts. Creating or revising one needs `manageArtifacts` below. */
+  'getArtifact',
+  'listArtifacts'
 ]
 
 const adminOnlyRights = [
@@ -49,7 +54,11 @@ const adminOnlyRights = [
   'ping',
   'getUsers',
   'manageUsers',
-  'manageMembers'
+  'manageMembers',
+  /* Create an artifact, and append versions to one. Required outright for a topic-scoped
+     artifact, since a topic spans other people's conversations; for a conversation-scoped
+     one the conversation's or topic's owner qualifies without it. */
+  'manageArtifacts'
 ]
 
 const allRoles = {

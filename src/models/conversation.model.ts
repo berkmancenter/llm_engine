@@ -122,6 +122,15 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
       type: Boolean,
       default: false
     },
+    /* Read key for this conversation's artifacts, the conversation-scoped twin of
+       Topic.artifactPasscode. Minted on first artifact creation, so no existing
+       conversation needed a migration. `private: true` keeps it out of every toJSON
+       response; findByIdFull uses toObject instead, so it strips this for non-owners
+       explicitly alongside the channel passcodes. */
+    artifactPasscode: {
+      type: String,
+      private: true
+    },
     owner: {
       type: mongoose.SchemaTypes.ObjectId,
       ref: 'BaseUser',
