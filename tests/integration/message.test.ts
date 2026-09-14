@@ -29,7 +29,6 @@ import {
 import websocketGateway from '../../src/websockets/websocketGateway.js'
 
 jest.mock('agenda')
-jest.setTimeout(30000)
 setupIntTest()
 const publicTopic = newPublicTopic()
 

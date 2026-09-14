@@ -22,7 +22,6 @@ jest.mock('agenda')
 
 const { default: app } = await import('../../src/app.js')
 
-jest.setTimeout(30000)
 setupIntTest()
 
 const slackContext = {

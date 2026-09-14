@@ -10,8 +10,6 @@ type Block = Record<string, unknown>
 type ActionElement = { type: string; text: { text: string }; url: string }
 type ActionsBlock = { type: 'actions'; elements: ActionElement[] }
 
-jest.setTimeout(30000)
-
 const testConfig = setupAgentTest('eventSetup')
 
 const BOT_NAME = 'Event Setup Bot'

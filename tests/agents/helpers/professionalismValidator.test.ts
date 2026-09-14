@@ -2,7 +2,6 @@ import validateProfessionalism from '../../../src/agents/helpers/professionalism
 import { getModelChat, supportedModels } from '../../../src/agents/helpers/getModelChat.js'
 import { LlmPlatforms } from '../../../src/types/index.types.js'
 
-jest.setTimeout(30000) // Set timeout to 30 seconds for LLM calls
 describe('professionalismValidator', () => {
   let llm
 

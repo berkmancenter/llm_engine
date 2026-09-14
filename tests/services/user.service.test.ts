@@ -29,8 +29,6 @@ import websocketGateway from '../../src/websockets/websocketGateway.js'
 
 setupIntTest()
 
-jest.setTimeout(30000)
-
 const createVote = () => ({
   _id: new mongoose.Types.ObjectId(),
   owner: new mongoose.Types.ObjectId()
