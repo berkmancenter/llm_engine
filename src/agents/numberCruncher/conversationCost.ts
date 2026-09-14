@@ -1,6 +1,7 @@
 import { Client } from 'langsmith'
 import config from '../../config/config.js'
 import logger from '../../config/logger.js'
+import LangSmithCostFetchError from '../../utils/LangSmithCostFetchError.js'
 import {
   AgentCostBreakdown,
   ConversationCostAggregates,
@@ -140,10 +141,29 @@ class PhaseAccumulator {
  * so nothing is double counted. A leaf run whose trace root is missing costPhase
  * (should not happen once Task 1 has shipped everywhere) defaults to liveEvent.
  *
- * Returns null when LangSmith is not configured, no tagged roots exist (yet), or
- * the query fails; callers treat null as "not ready, maybe retry".
+ * Returns null when LangSmith is not configured or no tagged roots exist (yet); callers
+ * treat null as "nothing found, maybe retry". A query failure THROWS LangSmithCostFetchError
+ * instead of returning null, because the two must stay distinguishable: a caller adding
+ * windowed reads onto a stored total would otherwise record a failed read as an empty
+ * window and advance the window past runs that were never counted.
+ *
+ * `since` bounds the read to runs that started at or after it, which is what makes cost
+ * tracking survive LangSmith's own run retention (see ConversationCost's model comment).
+ * An unbounded read returns only what LangSmith still holds, so on a conversation older
+ * than the retention window it is a trailing window masquerading as a lifetime figure,
+ * and the difference between two such reads is last night's spend minus whatever aged off
+ * the back. A caller that windows each read and accumulates the results itself never loses
+ * a run, because every run is counted while it is still visible. One boundary caveat: the
+ * bound applies to both queries below, so an llm run inside the window whose trace ROOT
+ * started before it is excluded with its root. Traces here are single agent turns, seconds
+ * long, so this only bites a run straddling the exact cutoff — and the next window, which
+ * starts where this one ended, does not pick it up either. Undercounting by at most one
+ * straddling trace beats the double-count the alternative would produce.
  */
-export async function fetchConversationCost(conversationId: string): Promise<ConversationCostPhases | null> {
+export async function fetchConversationCost(
+  conversationId: string,
+  opts: { since?: Date } = {}
+): Promise<ConversationCostPhases | null> {
   if (!config.langsmith.key || !config.langsmith.project) {
     logger.debug('numberCruncher: LangSmith key or project not configured; skipping cost fetch')
     return null
@@ -155,7 +175,8 @@ export async function fetchConversationCost(conversationId: string): Promise<Con
     for await (const run of client.listRuns({
       projectName: config.langsmith.project,
       isRoot: true,
-      filter: conversationFilter(conversationId)
+      filter: conversationFilter(conversationId),
+      ...(opts.since && { startTime: opts.since })
     })) {
       const metadata = (run.extra as { metadata?: Record<string, unknown> } | undefined)?.metadata
       const costPhase: CostPhase = metadata?.costPhase === 'postEvent' ? 'postEvent' : 'liveEvent'
@@ -174,7 +195,8 @@ export async function fetchConversationCost(conversationId: string): Promise<Con
     for await (const run of client.listRuns({
       projectName: config.langsmith.project,
       runType: 'llm',
-      traceFilter: conversationFilter(conversationId)
+      traceFilter: conversationFilter(conversationId),
+      ...(opts.since && { startTime: opts.since })
     })) {
       const raw = run as unknown as Record<string, unknown>
       const info = traceInfo.get(String(run.trace_id))
@@ -184,7 +206,19 @@ export async function fetchConversationCost(conversationId: string): Promise<Con
     return { liveEvent: accumulators.liveEvent.finalize(), postEvent: accumulators.postEvent.finalize() }
   } catch (error) {
     logger.error(`numberCruncher: LangSmith cost fetch failed for ${conversationId}`, error)
-    return null
+    throw new LangSmithCostFetchError(conversationId, error)
+  }
+}
+
+/* Swallows a failed read so the settle-poll keeps polling; its next attempt is the retry.
+   The nightly sweep must not do the same, because it saves what it reads and a failure
+   saved as "nothing" would be lost for good. */
+async function readForSettle(conversationId: string, opts: { since?: Date }): Promise<ConversationCostPhases | null> {
+  try {
+    return await fetchConversationCost(conversationId, opts)
+  } catch (error) {
+    if (error instanceof LangSmithCostFetchError) return null
+    throw error
   }
 }
 
@@ -243,6 +277,26 @@ export function combineCostAggregates(
 }
 
 /**
+ * Adds one windowed read onto a stored running total, phase by phase — the counterpart to
+ * fetchConversationCost's `since`. Together they make a conversation's lifetime cost an
+ * integral of windows captured while their runs were still in LangSmith, rather than a
+ * re-read of history LangSmith is actively deleting. Pass a null baseline for the first
+ * capture, or whenever the stored record has no capture time to window from: without a
+ * `since` the window IS the whole retained history, and adding that onto a baseline built
+ * from the same runs would count them twice.
+ */
+export function accumulateCostPhases(
+  baseline: ConversationCostPhases | null,
+  window: ConversationCostPhases
+): ConversationCostPhases {
+  if (!baseline) return window
+  return {
+    liveEvent: combineCostAggregates(baseline.liveEvent, window.liveEvent),
+    postEvent: combineCostAggregates(baseline.postEvent, window.postEvent)
+  }
+}
+
+/**
  * Fetches until the COMBINED (both phases summed) LLM-call count is non-zero and
  * unchanged across two consecutive reads, or the delay budget runs out. Returns the
  * last read, which may be null (no data ever appeared) or all-zero (nothing tagged).
@@ -250,7 +304,8 @@ export function combineCostAggregates(
 export async function fetchConversationCostWithSettle(
   conversationId: string,
   delaysMs: number[] = SETTLE_DELAYS_MS,
-  minimumWaitMs: number = MINIMUM_SETTLE_WAIT_MS
+  minimumWaitMs: number = MINIMUM_SETTLE_WAIT_MS,
+  opts: { since?: Date } = {}
 ): Promise<ConversationCostPhases | null> {
   const combinedCount = (phases: ConversationCostPhases | null) =>
     phases ? phases.liveEvent.llmCallCount + phases.postEvent.llmCallCount : 0
@@ -259,7 +314,7 @@ export async function fetchConversationCostWithSettle(
   const waitedEnough = () => Date.now() - startedAt >= minimumWaitMs
 
   let previous: ConversationCostPhases | null = null
-  let current = await fetchConversationCost(conversationId)
+  let current = await readForSettle(conversationId, opts)
   let attempt = 1
   logger.debug(
     `numberCruncher: settle-poll attempt ${attempt} for ${conversationId} — combined calls: ${combinedCount(current)}`
@@ -276,7 +331,7 @@ export async function fetchConversationCostWithSettle(
     previous = current
     await sleep(delayMs)
     attempt += 1
-    current = await fetchConversationCost(conversationId)
+    current = await readForSettle(conversationId, opts)
     logger.debug(
       `numberCruncher: settle-poll attempt ${attempt} for ${conversationId} — combined calls: ${combinedCount(current)}`
     )
@@ -285,9 +340,7 @@ export async function fetchConversationCostWithSettle(
   if (combinedCount(current) > 0 && combinedCount(current) === combinedCount(previous)) {
     logger.debug(`numberCruncher: settle-poll settled for ${conversationId} after ${attempt} attempt(s)`)
   } else {
-    logger.debug(
-      `numberCruncher: settle-poll exhausted its delay budget for ${conversationId} after ${attempt} attempt(s)`
-    )
+    logger.debug(`numberCruncher: settle-poll exhausted its delay budget for ${conversationId} after ${attempt} attempt(s)`)
   }
   return current
 }

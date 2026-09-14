@@ -12,9 +12,10 @@ jest.unstable_mockModule('../src/config/logger.js', () => ({
   default: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
 }))
 
-const { fetchConversationCost, fetchConversationCostWithSettle, combineCostAggregates } = await import(
+const { fetchConversationCost, fetchConversationCostWithSettle, combineCostAggregates, accumulateCostPhases } = await import(
   '../../../../src/agents/numberCruncher/conversationCost.js'
 )
+const { default: LangSmithCostFetchError } = await import('../../../../src/utils/LangSmithCostFetchError.js')
 
 function asyncIterable(items: unknown[]) {
   return (async function* () {
@@ -145,12 +146,15 @@ describe('fetchConversationCost', () => {
     expect(result?.postEvent.llmCallCount).toBe(0)
   })
 
-  it('returns null when the LangSmith query throws', async () => {
+  it('throws a LangSmithCostFetchError, rather than returning null, when the LangSmith query fails', async () => {
+    // null means "nothing found"; a caller adding windowed reads onto a stored total must
+    // be able to tell that apart from "could not look", or a failed read advances the
+    // window past runs that were never counted.
     mockListRuns.mockImplementation(() => {
       throw new Error('boom')
     })
 
-    await expect(fetchConversationCost('conv-err')).resolves.toBeNull()
+    await expect(fetchConversationCost('conv-err')).rejects.toBeInstanceOf(LangSmithCostFetchError)
   })
 
   it('flags a model as unpriced (not $0) when LangSmith returns a null cost for real token usage', async () => {
@@ -240,6 +244,78 @@ describe('fetchConversationCost', () => {
 
     expect(result?.liveEvent.hasUnpricedCalls).toBe(false)
     expect(result?.liveEvent.models[0].priced).toBe(true)
+  })
+})
+
+describe('fetchConversationCost windowing', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockListRuns.mockImplementation((params: { isRoot?: boolean }) =>
+      params.isRoot ? asyncIterable(rootRuns) : asyncIterable(llmRuns)
+    )
+  })
+
+  it('passes `since` to LangSmith as startTime on both queries', async () => {
+    // Bounding the read is what lets a caller accumulate windows instead of re-reading a
+    // history LangSmith is actively deleting — see the retention note on fetchConversationCost.
+    const since = new Date('2026-09-10T03:00:00.000Z')
+
+    await fetchConversationCost('conv-1', { since })
+
+    expect(mockListRuns).toHaveBeenCalledTimes(2)
+    for (const [params] of mockListRuns.mock.calls as [{ startTime?: Date }][]) {
+      expect(params.startTime).toBe(since)
+    }
+  })
+
+  it('sends no startTime at all when no window is given', async () => {
+    await fetchConversationCost('conv-1')
+
+    for (const [params] of mockListRuns.mock.calls as [Record<string, unknown>][]) {
+      expect(params).not.toHaveProperty('startTime')
+    }
+  })
+})
+
+describe('accumulateCostPhases', () => {
+  const aggregate = (estimatedCostUSD: number, llmCallCount: number, model = 'gpt-test') => ({
+    estimatedCostUSD,
+    totalPromptTokens: 100,
+    totalCompletionTokens: 20,
+    llmCallCount,
+    models: [{ model, llmCalls: llmCallCount, promptTokens: 100, completionTokens: 20, estimatedCostUSD, priced: true }],
+    agents: [{ agentType: 'eventAssistant', llmCalls: llmCallCount, estimatedCostUSD }],
+    hasUnpricedCalls: false
+  })
+
+  it('adds a window onto a stored baseline phase by phase', () => {
+    const result = accumulateCostPhases(
+      { liveEvent: aggregate(1, 10), postEvent: aggregate(0.5, 5) },
+      { liveEvent: aggregate(0.25, 2), postEvent: aggregate(0.1, 1) }
+    )
+
+    expect(result.liveEvent.estimatedCostUSD).toBeCloseTo(1.25)
+    expect(result.liveEvent.llmCallCount).toBe(12)
+    expect(result.postEvent.estimatedCostUSD).toBeCloseTo(0.6)
+    expect(result.postEvent.llmCallCount).toBe(6)
+  })
+
+  it('merges a model that appears in both rather than listing it twice', () => {
+    const result = accumulateCostPhases(
+      { liveEvent: aggregate(1, 10), postEvent: aggregate(0, 0) },
+      { liveEvent: aggregate(0.25, 2), postEvent: aggregate(0, 0) }
+    )
+
+    expect(result.liveEvent.models).toHaveLength(1)
+    expect(result.liveEvent.models[0].llmCalls).toBe(12)
+  })
+
+  it('returns the window untouched when there is no baseline', () => {
+    // The first capture, or a record with no capture time to window from — adding an
+    // unbounded read onto a baseline built from the same runs would count them twice.
+    const window = { liveEvent: aggregate(0.25, 2), postEvent: aggregate(0, 0) }
+
+    expect(accumulateCostPhases(null, window)).toBe(window)
   })
 })
 
@@ -403,6 +479,24 @@ describe('fetchConversationCostWithSettle', () => {
 
     expect((result?.liveEvent.llmCallCount ?? 0) + (result?.postEvent.llmCallCount ?? 0)).toBe(3)
     expect(readIndex).toBe(4) // initial read + 4 loop reads; did NOT early-settle
+  })
+
+  it('keeps polling through a read that fails, instead of aborting the settle', async () => {
+    // Read 1 throws (a transient LangSmith error); reads 2 and 3 both see all 3 runs.
+    let readIndex = -1
+    mockListRuns.mockImplementation((params: { isRoot?: boolean }) => {
+      if (params.isRoot) {
+        readIndex += 1
+        if (readIndex === 0) throw new Error('boom')
+        return asyncIterable(rootRuns)
+      }
+      return asyncIterable(llmRuns)
+    })
+
+    const result = await fetchConversationCostWithSettle('conv-1', [0, 0, 0, 0], 0)
+
+    expect((result?.liveEvent.llmCallCount ?? 0) + (result?.postEvent.llmCallCount ?? 0)).toBe(3)
+    expect(readIndex).toBe(2)
   })
 
   it('returns the last read when the delay budget runs out without settling', async () => {

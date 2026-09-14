@@ -44,6 +44,32 @@ export default function renderConversationCostCard(data: ConversationCostData): 
     }
   ]
 
+  /* On the nightly snapshot of a conversation that is still running, the headline above is
+     cumulative over the conversation's whole life — on an always-on channel it only climbs,
+     so the same card every night says nothing about what the night actually cost. This line
+     is what makes a repeat card worth reading. The sweep measures it as its own LangSmith
+     window rather than subtracting two cumulative reads, so it is always a real figure for
+     a real period and never negative. Absent on the stop-event card, which has no prior
+     capture to measure from. */
+  if (data.since) {
+    const since = new Date(data.since.capturedAt).toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZoneName: 'short'
+    })
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text:
+          `*Since the last check:* +$${formatUSD(data.since.estimatedCostUSD)} ` +
+          `(${formatCount(data.since.llmCallCount)} calls) · last checked ${since}`
+      }
+    })
+  }
+
   // Phase breakdown: only mention "after it ended" when there was any such spend,
   // so an event with no post-event agent activity doesn't show a confusing $0 line.
   const phaseLines = [

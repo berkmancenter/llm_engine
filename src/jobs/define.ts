@@ -22,7 +22,10 @@ const defineJob = {
     await agenda.define('periodicAgent', { lockLifetime: LLM_JOB_LOCK_LIFETIME }, JobHandlers.periodicAgent)
   },
   cronAgent: async () => {
-    await agenda.define('cronAgent', JobHandlers.periodicAgent)
+    // Shares periodicAgent's handler and, now that Scorekeeper and Number Cruncher's cron
+    // triggers both loop over conversations calling out to LangSmith, its LLM_JOB_LOCK_LIFETIME
+    // too — this job name was missing it even though periodicAgent (same handler) already had it.
+    await agenda.define('cronAgent', { lockLifetime: LLM_JOB_LOCK_LIFETIME }, JobHandlers.periodicAgent)
   },
   agentResponse: async () => {
     await agenda.define('agentResponse', { lockLifetime: LLM_JOB_LOCK_LIFETIME }, JobHandlers.agentResponse)

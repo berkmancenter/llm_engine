@@ -31,6 +31,14 @@ export const getConversationType = (typeName: string): ConversationType | undefi
 
 export const getAllConversationTypes = (): Record<string, ConversationType> => ({ ...conversationTypes })
 
+/* The type NAMES carrying adminChannel (see ConversationType), for querying conversations
+   by their stored `conversationType` string. Read off the live registry on every call
+   rather than computed once at module load, so a setConversationTypes() swap is reflected. */
+export const getAdminChannelTypeNames = (): string[] =>
+  Object.values(conversationTypes)
+    .filter((type) => type.adminChannel)
+    .map((type) => type.name)
+
 export const setConversationTypes = (types: Record<string, ConversationType>): void => {
   conversationTypes = types
 }

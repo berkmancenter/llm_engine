@@ -4,6 +4,7 @@ import {
   fetchConversationCost,
   fetchConversationCostWithSettle,
   combineCostAggregates,
+  accumulateCostPhases,
   isLangsmithCostTrackingConfigured
 } from '../agents/numberCruncher/conversationCost.js'
 import { ConversationCostAggregates, ConversationCostPhases } from '../types/index.types.js'
@@ -61,8 +62,30 @@ export async function trackConversationCost(
     return null
   }
 
+  /* A conversation that ran longer than LangSmith keeps its runs already has a total here
+     that no single read can reproduce — the nightly sweep built it by accumulating windows
+     while each one was still visible (see fetchConversationCost's `since`). Overwriting that
+     with an unbounded read at stop time would silently replace a real lifetime figure with
+     the trailing window LangSmith happens to still hold. So both reads below are windowed
+     from the stored capture point and added onto it, exactly as the sweep does.
+
+     Read ONCE, up front, and held: createPending may insert a record between here and the
+     final write, and re-reading would fold that partial figure back into the total. For a
+     conversation with no prior record the baseline is null, the reads are unbounded and
+     this is identical to the previous behaviour. */
+  const baseline = await conversationCostService.findBaseline(conversation._id)
+  const since = baseline?.capturedAt
+  const priorPhases = since ? baseline!.phases : null
+  const window = since ? { since } : {}
+
   logger.debug(`conversationCost: conversation ${conversationId} stopped; computing preliminary cost`)
-  const preliminaryPhases = await fetchConversationCost(conversationId)
+  /* A failed preliminary read is treated like an empty one: the settle-poll below is the
+     retry, and this read only feeds the placeholder pending record it will overwrite. */
+  const preliminaryWindow = await fetchConversationCost(conversationId, window).catch((error: unknown) => {
+    logger.warn(`conversationCost: preliminary read failed for ${conversationId}; relying on the settle-poll`, error)
+    return null
+  })
+  const preliminaryPhases = preliminaryWindow ? accumulateCostPhases(priorPhases, preliminaryWindow) : priorPhases
   const preliminaryTotal = summarizeCost(conversationId, preliminaryPhases, 'preliminary cost')
   if (!preliminaryTotal || preliminaryTotal.llmCallCount === 0) {
     logger.debug(
@@ -79,7 +102,14 @@ export async function trackConversationCost(
   }
 
   logger.debug(`conversationCost: starting LangSmith cost settle-poll for conversation ${conversationId}`)
-  const phases = await fetchConversationCostWithSettle(conversationId)
+  /* Settles on the WINDOW's call count, not the accumulated total — the point of the poll is
+     to wait for this stop's runs to finish landing, and a large stored total would otherwise
+     look "settled" from the first read. The flip side: a conversation stopped with nothing
+     new since its last snapshot never reaches a non-zero count and burns the full delay
+     budget before giving up. That is a few wasted minutes inside the job's lock, not a wrong
+     number, and it cannot happen to an event, whose own runs are always inside the window. */
+  const settledWindow = await fetchConversationCostWithSettle(conversationId, undefined, undefined, window)
+  const phases = settledWindow ? accumulateCostPhases(priorPhases, settledWindow) : priorPhases
   const total = summarizeCost(conversationId, phases, 'settled cost')
 
   if (!total || total.llmCallCount === 0) {

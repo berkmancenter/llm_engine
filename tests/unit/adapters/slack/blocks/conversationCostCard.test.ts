@@ -129,6 +129,41 @@ describe('renderConversationCostCard', () => {
     expect(text).not.toContain('cost unknown')
   })
 
+  it('shows what accrued since the last check when the card carries a delta', () => {
+    const blocks = renderConversationCostCard({
+      ...data,
+      since: { estimatedCostUSD: 0.185, llmCallCount: 4, capturedAt: '2026-07-12T18:30:00.000Z' }
+    })
+    const text = textOf(blocks)
+
+    expect(text).toContain('Since the last check')
+    expect(text).toContain('+$0.19')
+    expect(text).toContain('4 calls')
+    // The cumulative headline is still there — the delta sits alongside it, not instead of it.
+    expect(text).toContain('~$1.47')
+  })
+
+  it('omits the delta on a stop-event card, which has nothing to compare against', () => {
+    const blocks = renderConversationCostCard(data)
+
+    expect(textOf(blocks)).not.toContain('Since the last check')
+  })
+
+  /* The sweep suppresses the whole card on a no-spend night rather than sending a zero
+     delta, but the renderer stays tolerant of one: it is a pure function of its input.
+     There is no negative case to cover — `since` is a directly measured LangSmith window,
+     not the difference of two cumulative reads, so it cannot come out below zero. */
+  it('renders a zero delta rather than treating it as missing', () => {
+    const blocks = renderConversationCostCard({
+      ...data,
+      since: { estimatedCostUSD: 0, llmCallCount: 0, capturedAt: '2026-07-12T18:30:00.000Z' }
+    })
+    const text = textOf(blocks)
+
+    expect(text).toContain('Since the last check')
+    expect(text).toContain('+$0.00')
+  })
+
   it('truncates long conversation names to fit Slack header limits', () => {
     const longName = 'x'.repeat(300)
     const blocks = renderConversationCostCard({ ...data, conversationName: longName })

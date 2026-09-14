@@ -2,9 +2,9 @@ import mongoose from 'mongoose'
 import { toJSON, paginate } from './plugins/index.js'
 import { ConversationCostRecord } from '../types/index.types.js'
 
-/* One persisted LLM-cost estimate per conversation, captured after the conversation
-   stops. Kept in its own collection — NOT on ConversationAnalytics, which holds
-   engagement metrics sourced from web analytics — because cost has a different
+/* One persisted LLM-cost estimate per conversation. Kept in its own collection — NOT
+   on ConversationAnalytics, which holds engagement metrics sourced from web
+   analytics — because cost has a different
    source (LangSmith), lifecycle, and audience. Figures use LangSmith's pricing
    table, not the provider invoice, so they are estimates and are never reconciled
    against billing after capture.
@@ -12,7 +12,28 @@ import { ConversationCostRecord } from '../types/index.types.js'
    liveEvent and postEvent are stored as separate sub-documents (not pre-summed) so
    spend while the conversation was running can be disaggregated from spend on
    after-the-fact work (the Vibes Analyst recap, the conversation summary) without
-   re-deriving it from LangSmith, whose own retention is only ~2 weeks. */
+   re-deriving it from LangSmith.
+
+   THIS RECORD IS AN ACCUMULATOR, NOT A CACHE OF A LANGSMITH QUERY. LangSmith drops
+   runs past a retention horizon, so no single read can reproduce the lifetime cost of
+   a conversation older than that — an unbounded read returns a trailing window, and it
+   SHRINKS as runs age out. How long that horizon is does not matter to anything here,
+   and deliberately isn't encoded: it's a per-project setting (base vs. extended
+   retention, currently 14 vs. 400 days) rather than a property of the plan, an ops
+   change away from moving, and every always-on conversation crosses it eventually at
+   either length. Every writer therefore
+   reads only what is new since `capturedAt` and adds it to what is already stored,
+   so each run is counted exactly once, while it is still visible. See
+   fetchConversationCost's `since` and accumulateCostPhases.
+
+   Two invariants fall out of that, and anything writing here must preserve both:
+
+   - `capturedAt` is the next read's window start, so it must advance on EVERY
+     capture, including one that found nothing. Leaving it put lets the window grow
+     until it reaches past the retention horizon and starts missing runs outright.
+   - A write must never replace the stored figures with the result of an unbounded
+     read. That is the one thing guaranteed to lose history, silently, and only for
+     the longest-running conversations. */
 const modelBreakdownSchema = new mongoose.Schema(
   {
     model: { type: String, required: true },

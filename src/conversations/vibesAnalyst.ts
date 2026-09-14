@@ -6,6 +6,7 @@ const vibesAnalyst: ConversationType = {
   name: 'vibesAnalyst',
   label: 'Vibes Analyst',
   description: 'An admin bot that posts engagement metrics to a private Slack channel whenever a public event ends',
+  adminChannel: true,
   platforms: [{ name: 'slack', label: 'Slack' }],
   properties: [
     {
