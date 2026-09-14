@@ -451,6 +451,30 @@ describe(`event assistant CI tests`, () => {
     expect(responses).toHaveLength(0)
   })
 
+  it('correctly identifies the asking user by pseudonym in a multi-user group chat', async () => {
+    // Real-world bug: without the sender pseudonym in the prompt, the agent would guess
+    // the asker's identity from conversation history and sometimes get it wrong.
+    const user2 = await createUser('Sleepy Salamander')
+    const user3 = await createUser('Grumpy Gopher')
+    const history = {
+      messages: [
+        await createMessage('I work in machine learning', user2, conversation, ['chat']),
+        await createMessage('My background is in policy research', user3, conversation, ['chat'])
+      ]
+    }
+
+    // user1 (Boring Badger) asks — history contains only user2 and user3 messages
+    const msg = await createMessage(`@${agent.agentConfig.botName} what do you know about me?`, user1, conversation, [
+      'chat'
+    ])
+    const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, history, msg)
+
+    await validateResponse(responses, 'chat')
+    const reply = (responses[0].messageType === 'json' ? responses[0].message.text : responses[0].message).toLowerCase()
+    // Should not confuse the asker with other users present only in history
+    expect(reply).not.toMatch(/sleepy salamander|grumpy gopher|machine learning|policy/)
+  })
+
   describe('introduce', () => {
     it('sends an LLM-generated intro to DM channels', async () => {
       const [directChannel] = await Channel.create([

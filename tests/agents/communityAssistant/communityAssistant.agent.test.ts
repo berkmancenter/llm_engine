@@ -106,6 +106,27 @@ describe('communityAssistant agent tests', () => {
     expect(responses[0].message.toLowerCase()).toContain('paris')
   })
 
+  it('correctly identifies the asking user by pseudonym in a multi-user chat', async () => {
+    // Real-world bug: without the sender pseudonym in the prompt, the agent would guess
+    // the asker's identity from conversation history and sometimes get it wrong.
+    const t = Date.now()
+    const history = buildHistory([
+      await createMessage('I work in machine learning', user2, conversation, ['chat'], new Date(t - 5000)),
+      await createMessage('My background is in policy', user3, conversation, ['chat'], new Date(t - 4000)),
+      await createMessage('I focus on privacy law', user2, conversation, ['chat'], new Date(t - 3000))
+    ])
+
+    // user1 (Alice) asks — history contains only user2 and user3 messages
+    const msg = await ask(`@${BOT_NAME} who am I?`)
+    const responses = await respond(history, msg)
+
+    expect(responses).toHaveLength(1)
+    const reply = responses[0].message.toLowerCase()
+    // Should identify Alice, not guess Bob or Carol from history
+    expect(reply).toContain(user1.pseudonyms[0].pseudonym.toLowerCase())
+    expect(reply).not.toMatch(/machine learning|policy|privacy law/)
+  })
+
   it('does not respond to casual conversation not intended for the bot', async () => {
     const msg = await ask('I really liked what the last speaker said about flexible work')
     const responses = await respond(buildHistory([]), msg)

@@ -95,7 +95,9 @@ async function periodicMemberIntro() {
   try {
     message = await getChatPromptResponse(llm, systemPrompt, userPrompt, {})
   } catch (err) {
-    logger.error(`periodicMemberIntro: LLM call failed for conversation ${conversationId}, rolling back claims: ${err.message}`)
+    logger.error(
+      `periodicMemberIntro: LLM call failed for conversation ${conversationId}, rolling back claims: ${err.message}`
+    )
     await ConversationMembership.updateMany({ _id: { $in: ids } }, { $set: { introduced: false } })
     return []
   }
@@ -242,13 +244,14 @@ export default verify({
         }
       : undefined
 
+    const questionHeader = userMessage.pseudonym ? `## Question from ${userMessage.pseudonym}:` : '## Question:'
     const dmContextNote =
       isDM && sharedChatContext
         ? 'Note: the prior conversation is your private DM thread with this user. The group channel content is below.\n\n'
         : ''
     const userPrompt = sharedChatContext
-      ? `${dmContextNote}## Shared Chat History:\n${sharedChatContext}\n\n## Question:\n${question}`
-      : `## Question:\n${question}`
+      ? `${dmContextNote}## Shared Chat History:\n${sharedChatContext}\n\n${questionHeader}\n${question}`
+      : `${questionHeader}\n${question}`
 
     const response = await getAgentStructuredResponse(
       llm,

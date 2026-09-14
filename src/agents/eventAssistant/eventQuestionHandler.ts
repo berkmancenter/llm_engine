@@ -564,7 +564,11 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
     const userMandate = hasWebSearch
       ? `${EVENT_ASSISTANT_TOOL_USER_MANDATE}${series ? EVENT_ASSISTANT_SERIES_HISTORY_USER_CARVEOUT : ''}`
       : ''
-    const userPrompt = `${userMandate}## User question:\n${question}`
+    const questionHeader =
+      channelType === 'groupChat' && userMessage.pseudonym
+        ? `## Question from ${userMessage.pseudonym}:`
+        : '## User question:'
+    const userPrompt = `${userMandate}${questionHeader}\n${question}`
     // Series history adds 3 tools (get_event_list, search_topic_transcripts, search_conversation_transcript);
     // a full research workflow across past events consumes more LangGraph supersteps than the
     // web-search-only case, so give more headroom when that feature is active.
@@ -601,7 +605,9 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
         : `eventAssistant.toolTrace ${tracePayload}`
     )
   } else {
-    llmResponse = await getResponse.call(this, question, contextString, chatHistory, topic, systemTemplate)
+    const labeledQuestion =
+      channelType === 'groupChat' && userMessage.pseudonym ? `(from ${userMessage.pseudonym}) ${question}` : question
+    llmResponse = await getResponse.call(this, labeledQuestion, contextString, chatHistory, topic, systemTemplate)
   }
 
   let responseMessage = llmResponse
