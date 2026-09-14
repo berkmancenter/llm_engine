@@ -106,9 +106,13 @@ describe('communityAssistant agent tests', () => {
     expect(responses[0].message.toLowerCase()).toContain('paris')
   })
 
-  it('correctly identifies the asking user by pseudonym in a multi-user chat', async () => {
+  it('explains identity privacy when useRealNames is false and user asks who they are', async () => {
     // Real-world bug: without the sender pseudonym in the prompt, the agent would guess
     // the asker's identity from conversation history and sometimes get it wrong.
+    // With useRealNames: false, the agent should also explain that real names are intentionally
+    // not shared with the AI, rather than implying it simply doesn't have the information.
+    agent.conversation.useRealNames = false
+
     const t = Date.now()
     const history = buildHistory([
       await createMessage('I work in machine learning', user2, conversation, ['chat'], new Date(t - 5000)),
@@ -116,14 +120,36 @@ describe('communityAssistant agent tests', () => {
       await createMessage('I focus on privacy law', user2, conversation, ['chat'], new Date(t - 3000))
     ])
 
-    // user1 (Alice) asks — history contains only user2 and user3 messages
+    // user1 asks — history contains only user2 and user3 messages
     const msg = await ask(`@${BOT_NAME} who am I?`)
     const responses = await respond(history, msg)
 
     expect(responses).toHaveLength(1)
     const reply = responses[0].message.toLowerCase()
-    // Should identify Alice, not guess Bob or Carol from history
-    expect(reply).toContain(user1.pseudonyms[0].pseudonym.toLowerCase())
+    // Should explain the pseudonym design choice, not guess from history
+    expect(reply).toMatch(/pseudonym|by design|real name|real identit/)
+    expect(reply).not.toMatch(/machine learning|policy|privacy law/)
+  })
+
+  it('does not add privacy disclaimer when useRealNames is true', async () => {
+    // When real names are shared, the agent should answer directly without the privacy disclaimer.
+    agent.conversation.useRealNames = true
+
+    const t = Date.now()
+    const history = buildHistory([
+      await createMessage('I work in machine learning', user2, conversation, ['chat'], new Date(t - 5000)),
+      await createMessage('My background is in policy', user3, conversation, ['chat'], new Date(t - 4000)),
+      await createMessage('I focus on privacy law', user2, conversation, ['chat'], new Date(t - 3000))
+    ])
+
+    const msg = await ask(`@${BOT_NAME} who am I?`)
+    const responses = await respond(history, msg)
+
+    expect(responses).toHaveLength(1)
+    const reply = responses[0].message.toLowerCase()
+    // Should not explain the pseudonym design choice — that note is only added when useRealNames is false
+    expect(reply).not.toMatch(/by design|real identit/)
+    // Should not guess from conversation history
     expect(reply).not.toMatch(/machine learning|policy|privacy law/)
   })
 

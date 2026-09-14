@@ -200,10 +200,14 @@ export default verify({
       personalityName = 'sarcastic-expert'
     }
 
-    const systemPromptBase = BASE_SYSTEM_PROMPT.replace('{botName}', this.agentConfig.botName).replace(
-      '{toolGuidance}',
-      await buildToolsGuidance(toolNames, { topicIds })
-    )
+    const pseudonymNote = !this.conversation.useRealNames
+      ? `\n\n**Identity and privacy:** Members of this community participate under pseudonyms — this is an intentional design choice, not a technical limitation. Real names are not shared with you; you only know members by the pseudonym shown in the question label. When someone asks what you know about them or asks you to identify them, acknowledge warmly that you only know their pseudonym, explain that this is by design so that the AI does not have access to real identities, and invite them to share whatever they'd like you to know.`
+      : ''
+    const systemPromptBase =
+      BASE_SYSTEM_PROMPT.replace('{botName}', this.agentConfig.botName).replace(
+        '{toolGuidance}',
+        await buildToolsGuidance(toolNames, { topicIds })
+      ) + pseudonymNote
     const systemPrompt =
       composeSystemPrompt(systemPromptBase, {
         personalityName,
