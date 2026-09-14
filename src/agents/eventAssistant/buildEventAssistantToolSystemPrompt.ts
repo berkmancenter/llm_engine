@@ -1,4 +1,5 @@
 import { buildEventHistoryToolsPrompt } from '../tools/eventHistory.js'
+import { VOICE_OUTPUT_RULES } from '../helpers/voiceDirectives.js'
 
 /**
  * System instructions for the event assistant when tools (e.g. web_search) are enabled.
@@ -62,6 +63,9 @@ export interface EventAssistantToolPromptOptions {
   series?: { name: string }
   /** ISO date string for today (e.g. "2026-06-22") — lets the LLM resolve calendar references like "last week". */
   today?: string
+  /** When true, appends VOICE_OUTPUT_RULES after all other sections so TTS constraints hard-override
+   *  any conflicting citation or formatting guidance, including the web search URL mandate. */
+  voiceOutput?: boolean
 }
 
 /**
@@ -80,7 +84,7 @@ export async function buildEventAssistantToolSystemPrompt(
   contextString: string,
   options: EventAssistantToolPromptOptions = {}
 ) {
-  const { hasWebSearch = true, series, today = new Date().toISOString().slice(0, 10) } = options
+  const { hasWebSearch = true, series, today = new Date().toISOString().slice(0, 10), voiceOutput } = options
   const ruleBlocks = [
     hasWebSearch ? EVENT_ASSISTANT_TOOL_USAGE_RULES : '',
     series ? await buildSeriesHistoryRules(series.name, today) : ''
@@ -88,7 +92,7 @@ export async function buildEventAssistantToolSystemPrompt(
     .filter(Boolean)
     .join('\n\n')
 
-  return `${systemTemplate}${ruleBlocks ? `\n\n${ruleBlocks}` : ''}
+  return `${systemTemplate}${ruleBlocks ? `\n\n${ruleBlocks}` : ''}${voiceOutput ? VOICE_OUTPUT_RULES : ''}
 
 ## Event topic:
 ${topic}
