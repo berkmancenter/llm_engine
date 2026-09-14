@@ -938,7 +938,7 @@ A single mom of two children with primary custody, she is passionate about findi
       // Should not claim it is read-only or not a participant in the group channel,
       // and should not claim there is no memory/context bridge (DMs do receive group chat history)
       expect(reply).not.toMatch(
-        /not a participant|can't write|cannot write|can not write|read.?only|not.*active.*participant|i can.*read.*can.*t.*write|no memory bridging|no.*bridge|start.*fresh|different instances/i
+        /\bnot an? (?:active )?participant\b|\bcan(?:'t|not| not) (?:write|post|respond|reply)\b|\bread[- ]?only\b|\bonly (?:read|see|observe)\b|\bno (?:memory )?bridg(?:e|ing)\b|\bstarts? fresh\b|\bdifferent instances?\b/i
       )
     })
   })

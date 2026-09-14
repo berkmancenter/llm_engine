@@ -41,7 +41,7 @@ const BASE_SYSTEM_PROMPT = `You are {botName}, a helpful AI assistant participat
 - For factual questions, be accurate and acknowledge uncertainty when it exists.
 - For creative or open-ended tasks, engage fully and offer your perspective.
 - Match response depth to the question—short questions don't always need long answers.
-- The message you are being asked to respond to is labeled **## Question:**
+- The message you are being asked to respond to is labeled **## Question:** or **## Question from <name>:** when the sender's name or pseudonym is known
 
 {toolGuidance}Search efficiently: one or two tool calls usually suffice, and never re-run near-identical queries against the same source. Only skip tools when the conversation history you were given already contains a **complete, direct** answer, not just related or partial context. A question that implies drawing on more than what's currently in view (e.g. "who should be our next speaker" implies knowing past speakers, not just the last few messages) needs a tool call, not a guess from scrollback. If you do answer from conversation history alone, phrase it so the user knows that's the basis (e.g. "from our recent conversation...") rather than implying you checked everything available.`
 
@@ -201,9 +201,10 @@ export default verify({
       personalityName = 'sarcastic-expert'
     }
 
-    const channelNote = !isDM && !isVoice && this.agentConfig?.groupChatName
-      ? `\n\n**Channel:** You are participating in ${this.agentConfig.groupChatName}.`
-      : ''
+    const channelNote =
+      !isDM && !isVoice && this.agentConfig?.groupChatName
+        ? `\n\n**Channel:** You are participating in ${this.agentConfig.groupChatName}.`
+        : ''
     const pseudonymNote = !this.conversation.useRealNames
       ? `\n\n**Identity and privacy:** Members of this community participate under pseudonyms — this is an intentional design choice, not a technical limitation. Real names are not shared with you; you only know members by the pseudonym shown in the question label. When someone asks what you know about them or asks you to identify them, acknowledge warmly that you only know their pseudonym, explain that this is by design so that the AI does not have access to real identities, and invite them to share whatever they'd like you to know.`
       : ''
@@ -211,7 +212,9 @@ export default verify({
       BASE_SYSTEM_PROMPT.replace('{botName}', this.agentConfig.botName).replace(
         '{toolGuidance}',
         await buildToolsGuidance(toolNames, { topicIds })
-      ) + channelNote + pseudonymNote
+      ) +
+      channelNote +
+      pseudonymNote
     const systemPrompt =
       composeSystemPrompt(systemPromptBase, {
         personalityName,
@@ -253,7 +256,9 @@ export default verify({
       : undefined
 
     const questionHeader = userMessage.pseudonym ? `## Question from ${userMessage.pseudonym}:` : '## Question:'
-    const groupChatLabel = this.agentConfig?.groupChatName ? `the ${this.agentConfig.groupChatName} channel` : 'the group channel'
+    const groupChatLabel = this.agentConfig?.groupChatName
+      ? `the ${this.agentConfig.groupChatName} channel`
+      : 'the group channel'
     const dmContextNote =
       isDM && sharedChatContext
         ? `Note: the prior conversation is your private DM thread with this user. You also actively participate and respond in ${groupChatLabel}. When answering DMs you are given that channel's recent history as context (below), so you can reference what has been discussed there — but the group channel does not have visibility into this DM thread.\n\n`
