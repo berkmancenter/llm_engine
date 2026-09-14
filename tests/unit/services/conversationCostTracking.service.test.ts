@@ -124,6 +124,17 @@ describe('trackConversationCost', () => {
     expect(mockCreatePending).toHaveBeenCalledWith(conversation, ZERO_PHASES, { topicIsPrivate: false })
   })
 
+  it('still records a pending record and settles when the preliminary read fails', async () => {
+    // The settle-poll is the retry; a transient failure on the first read must not abort it.
+    mockFetchConversationCost.mockRejectedValue(new Error('LangSmith 503'))
+
+    const result = await trackConversationCost(conversation, { topicIsPrivate: false })
+
+    expect(mockCreatePending).toHaveBeenCalledWith(conversation, ZERO_PHASES, { topicIsPrivate: false })
+    expect(mockFetchWithSettle).toHaveBeenCalled()
+    expect(result?.phases).toEqual(phases)
+  })
+
   it('persists the settled phases as complete and returns the combined total', async () => {
     const result = await trackConversationCost(conversation, { topicIsPrivate: true })
 

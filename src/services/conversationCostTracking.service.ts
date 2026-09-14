@@ -79,7 +79,12 @@ export async function trackConversationCost(
   const window = since ? { since } : {}
 
   logger.debug(`conversationCost: conversation ${conversationId} stopped; computing preliminary cost`)
-  const preliminaryWindow = await fetchConversationCost(conversationId, window)
+  /* A failed preliminary read is treated like an empty one: the settle-poll below is the
+     retry, and this read only feeds the placeholder pending record it will overwrite. */
+  const preliminaryWindow = await fetchConversationCost(conversationId, window).catch((error: unknown) => {
+    logger.warn(`conversationCost: preliminary read failed for ${conversationId}; relying on the settle-poll`, error)
+    return null
+  })
   const preliminaryPhases = preliminaryWindow ? accumulateCostPhases(priorPhases, preliminaryWindow) : priorPhases
   const preliminaryTotal = summarizeCost(conversationId, preliminaryPhases, 'preliminary cost')
   if (!preliminaryTotal || preliminaryTotal.llmCallCount === 0) {

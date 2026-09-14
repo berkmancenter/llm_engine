@@ -1,6 +1,7 @@
 import { Client } from 'langsmith'
 import config from '../../config/config.js'
 import logger from '../../config/logger.js'
+import LangSmithCostFetchError from '../../utils/LangSmithCostFetchError.js'
 import {
   AgentCostBreakdown,
   ConversationCostAggregates,
@@ -140,8 +141,11 @@ class PhaseAccumulator {
  * so nothing is double counted. A leaf run whose trace root is missing costPhase
  * (should not happen once Task 1 has shipped everywhere) defaults to liveEvent.
  *
- * Returns null when LangSmith is not configured, no tagged roots exist (yet), or
- * the query fails; callers treat null as "not ready, maybe retry".
+ * Returns null when LangSmith is not configured or no tagged roots exist (yet); callers
+ * treat null as "nothing found, maybe retry". A query failure THROWS LangSmithCostFetchError
+ * instead of returning null, because the two must stay distinguishable: a caller adding
+ * windowed reads onto a stored total would otherwise record a failed read as an empty
+ * window and advance the window past runs that were never counted.
  *
  * `since` bounds the read to runs that started at or after it, which is what makes cost
  * tracking survive LangSmith's own run retention (see ConversationCost's model comment).
@@ -202,7 +206,19 @@ export async function fetchConversationCost(
     return { liveEvent: accumulators.liveEvent.finalize(), postEvent: accumulators.postEvent.finalize() }
   } catch (error) {
     logger.error(`numberCruncher: LangSmith cost fetch failed for ${conversationId}`, error)
-    return null
+    throw new LangSmithCostFetchError(conversationId, error)
+  }
+}
+
+/* Swallows a failed read so the settle-poll keeps polling; its next attempt is the retry.
+   The nightly sweep must not do the same, because it saves what it reads and a failure
+   saved as "nothing" would be lost for good. */
+async function readForSettle(conversationId: string, opts: { since?: Date }): Promise<ConversationCostPhases | null> {
+  try {
+    return await fetchConversationCost(conversationId, opts)
+  } catch (error) {
+    if (error instanceof LangSmithCostFetchError) return null
+    throw error
   }
 }
 
@@ -298,7 +314,7 @@ export async function fetchConversationCostWithSettle(
   const waitedEnough = () => Date.now() - startedAt >= minimumWaitMs
 
   let previous: ConversationCostPhases | null = null
-  let current = await fetchConversationCost(conversationId, opts)
+  let current = await readForSettle(conversationId, opts)
   let attempt = 1
   logger.debug(
     `numberCruncher: settle-poll attempt ${attempt} for ${conversationId} — combined calls: ${combinedCount(current)}`
@@ -315,7 +331,7 @@ export async function fetchConversationCostWithSettle(
     previous = current
     await sleep(delayMs)
     attempt += 1
-    current = await fetchConversationCost(conversationId, opts)
+    current = await readForSettle(conversationId, opts)
     logger.debug(
       `numberCruncher: settle-poll attempt ${attempt} for ${conversationId} — combined calls: ${combinedCount(current)}`
     )
@@ -324,9 +340,7 @@ export async function fetchConversationCostWithSettle(
   if (combinedCount(current) > 0 && combinedCount(current) === combinedCount(previous)) {
     logger.debug(`numberCruncher: settle-poll settled for ${conversationId} after ${attempt} attempt(s)`)
   } else {
-    logger.debug(
-      `numberCruncher: settle-poll exhausted its delay budget for ${conversationId} after ${attempt} attempt(s)`
-    )
+    logger.debug(`numberCruncher: settle-poll exhausted its delay budget for ${conversationId} after ${attempt} attempt(s)`)
   }
   return current
 }

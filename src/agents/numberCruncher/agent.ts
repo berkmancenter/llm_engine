@@ -25,8 +25,8 @@ import type {
 import { AgentMessageActions } from '../../types/index.types.js'
 
 const HELLO_MESSAGE =
-  "Number Cruncher online. I'll check your configured budget endpoints on schedule, post a nightly cost " +
-  "snapshot for every conversation still running, and post an estimated LLM cost summary here when an event ends."
+  'Number Cruncher online. I will check your configured budget endpoints on schedule, post a nightly cost ' +
+  'snapshot for every conversation still running, and post an estimated LLM cost summary here when an event ends.'
 
 /* A retry after a mid-job kill (see jobs/CLAUDE.md) happens within the cronAgent job's
    lockLifetime, far shorter than a day, so a snapshot already captured this recently is
@@ -141,7 +141,17 @@ async function buildNightlySnapshotResponses(channels: IChannel[] | undefined) {
        between the two windows. */
     const baseline = capturedAt ? { liveEvent: previous!.liveEvent, postEvent: previous!.postEvent } : null
     const readAt = new Date()
-    const windowRead = await fetchConversationCost(conversationId, capturedAt ? { since: capturedAt } : {})
+    let windowRead: ConversationCostPhases | null
+    try {
+      windowRead = await fetchConversationCost(conversationId, capturedAt ? { since: capturedAt } : {})
+    } catch (error) {
+      /* A failed read is not an empty window. Nothing is persisted, so capturedAt stays
+         where it was and the next sweep re-reads the same window; advancing it here would
+         start the next window after runs that were never counted, and the accumulator
+         has no way to recover them later. Other conversations still get their sweep. */
+      logger.error(`numberCruncher: skipping nightly cost snapshot for ${conversationId}, read failed`, error)
+      continue
+    }
 
     // Nothing new, and nothing on record either: this conversation has never spent anything.
     if (!windowRead && !baseline) continue

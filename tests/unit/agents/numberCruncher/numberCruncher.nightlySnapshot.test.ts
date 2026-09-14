@@ -358,6 +358,42 @@ describe('numberCruncher respond() nightly cost snapshot', () => {
     expect(doc!.capturedAt!.getTime()).toBeGreaterThan(capturedAt.getTime())
   })
 
+  it('leaves the record untouched and posts no card when the LangSmith read fails', async () => {
+    /* A failed read is not an empty window. Advancing capturedAt past it would start the
+       next window after runs that were never counted, and the accumulator has no way to
+       recover them later. Leaving the record alone means the next sweep re-reads the same
+       window and picks them up. */
+    mockFetchConversationCost.mockRejectedValue(new Error('LangSmith 503'))
+    const capturedAt = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    const conversation = await insertConversation()
+    await ConversationCost.create({
+      conversationId: conversation._id,
+      name: conversation.name,
+      liveEvent: makeAggregate({ estimatedCostUSD: 5, llmCallCount: 40 }),
+      postEvent: makeAggregate({ estimatedCostUSD: 0, llmCallCount: 0 }),
+      status: 'pending',
+      capturedAt,
+      topicIsPrivate: false
+    })
+
+    const responses = await numberCruncher.respond.call(buildContext())
+
+    expect(responses).toEqual([])
+    const doc = await ConversationCost.findOne({ conversationId: conversation._id })
+    expect(doc!.capturedAt!.getTime()).toBe(capturedAt.getTime())
+    expect(doc!.liveEvent.llmCallCount).toBe(40)
+  })
+
+  it('moves on to the next conversation when one read fails', async () => {
+    mockFetchConversationCost.mockRejectedValueOnce(new Error('LangSmith 503')).mockResolvedValue(phases)
+    await insertConversation({ name: 'First' })
+    await insertConversation({ name: 'Second' })
+
+    const responses = await numberCruncher.respond.call(buildContext())
+
+    expect(responses).toHaveLength(1)
+  })
+
   it('never lets a stored total shrink when LangSmith has aged its runs out', async () => {
     /* The regression this whole windowing scheme exists for. LangSmith keeps runs for a
        limited period, so an unbounded re-read of a long-lived conversation returns less
