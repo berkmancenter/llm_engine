@@ -26,7 +26,11 @@ const loginUser = async (loginBody) => {
  * @returns {Promise}
  */
 const logout = async (refreshToken) => {
-  const refreshTokenDoc = await Token.findOne({ token: refreshToken, type: tokenTypes.REFRESH, blacklisted: false })
+  const refreshTokenDoc = await Token.findOne({
+    token: tokenService.hashToken(refreshToken),
+    type: tokenTypes.REFRESH,
+    blacklisted: false
+  })
   if (!refreshTokenDoc) {
     throw new ApiError(httpStatus.NOT_FOUND, 'Not found')
   }
@@ -82,7 +86,11 @@ const resetPassword = async (token, password) => {
   }
   user.password = await userService.hashPassword(password)
   await user.save()
-  await Token.deleteOne({ _id: tokenDoc._id })
+  /* Delete every outstanding reset token for this user (not just the one used) so
+     a token skimmed from an email cannot be replayed after a successful reset. */
+  await Token.deleteMany({ user: user._id, type: tokenTypes.RESET_PASSWORD })
+  /* Revoke all active sessions so a stolen refresh token dies with the password. */
+  await Token.deleteMany({ user: user._id, type: tokenTypes.REFRESH })
 }
 
 const authService = {

@@ -286,6 +286,81 @@ We received your email, but ${reasonLine} Please send it again with a Zoom meeti
   await sendEmailAsync(to, subject, text, html, 'on-demand-event-failed')
 }
 
+/* CSV sanitization strips control characters but deliberately leaves markup-looking text
+   alone (a bio may legitimately mention "<div>"), so anything CSV-sourced must be escaped
+   at the point it enters an HTML body. */
+const escapeHtml = (value: string) =>
+  value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+
+/**
+ * Build the member-invite message for one recipient. Pure builder, separated from the
+ * transport so the copy stays reviewable and testable while the batch send itself waits
+ * on outbound email moving to Postmark's API.
+ *
+ * The token rides in the query string, never the URL fragment. Enterprise email security
+ * gateways (e.g. Proofpoint) rewrite every link in an incoming message to route it through
+ * a scanning proxy before the recipient's browser ever sees it. Because those rewriters
+ * encode the whole URL — including any fragment — putting the token in the fragment buys
+ * nothing while its costs remain (hard JS dependency, no server-side error rendering).
+ * Additionally, the GET validate endpoint does not consume the token, so a scanner that
+ * pre-fetches the link to check it cannot use the token on the recipient's behalf.
+ * @param {string} name
+ * @param {string} roomName
+ * @param {string} token
+ * @returns {{subject: string, text: string, html: string}}
+ */
+const buildMemberInviteEmail = (name: string, roomName: string, token: string) => {
+  const inviteUrl = `${config.appHost}${config.invitePath}?token=${token}`
+  const expiryDays = config.jwt.inviteExpirationDays
+  const subject = `You're invited to join ${roomName}`
+  const text = `Hello ${name},
+You've been invited to join ${roomName}. To accept, open this link, choose a password, and you'll land right in the room: ${inviteUrl}
+This link is just for you, so please don't forward it. It expires in ${expiryDays} days; if it has expired, reply to this email and we'll send a fresh one.`
+  const html = `<p>Hello ${escapeHtml(name)},</p>
+<p>You've been invited to join ${escapeHtml(
+    roomName
+  )}. To accept, <a href="${inviteUrl}">open this link</a>, choose a password, and you'll land right in the room.</p>
+<p>If the link doesn't open, copy and paste this address into your browser: ${inviteUrl}</p>
+<p>This link is just for you, so please don't forward it. It expires in ${expiryDays} days; if it has expired, reply to this email and we'll send a fresh one.</p>`
+  return { subject, text, html }
+}
+
+/**
+ * Send invite emails in bulk with per-recipient results via Postmark's batch API.
+ *
+ * Tracking is off: Postmark link tracking rewrites the token URL through its own redirector,
+ * which stacks on top of any enterprise gateway rewrite the recipient's mail system applies.
+ * Two layers of rewriting increase the chance of breakage with no benefit for a one-time link.
+ * @param {Array<{membershipId: string, to: string, name: string, roomName: string, token: string}>} invites
+ * @returns {Promise<Array<{membershipId: string, success: boolean, error?: string}>>}
+ */
+const sendMemberInviteBatch = async (
+  invites: Array<{ membershipId: string; to: string; name: string; roomName: string; token: string }>
+): Promise<Array<{ membershipId: string; success: boolean; error?: string }>> => {
+  const messages: postmark.Message[] = invites.map(({ to, name, roomName, token }) => {
+    const { subject, text, html } = buildMemberInviteEmail(name, roomName, token)
+    return {
+      From: config.email.from,
+      To: to,
+      Subject: subject,
+      TextBody: text,
+      HtmlBody: html,
+      MessageStream: 'outbound',
+      TrackOpens: false,
+      TrackLinks: postmark.Models.LinkTrackingOptions.None,
+      Tag: 'member-invite'
+    }
+  })
+
+  const results = await client.sendEmailBatch(messages)
+
+  return invites.map(({ membershipId }, i) => ({
+    membershipId,
+    success: results[i].ErrorCode === 0,
+    ...(results[i].ErrorCode !== 0 ? { error: results[i].Message } : {})
+  }))
+}
+
 const emailService = {
   client,
   sendEmail,
@@ -297,6 +372,8 @@ const emailService = {
   sendEventCreatedEmail,
   sendEventCreationFailedEmail,
   sendOnDemandEventEmail,
-  sendOnDemandEventFailedEmail
+  sendOnDemandEventFailedEmail,
+  buildMemberInviteEmail,
+  sendMemberInviteBatch
 }
 export default emailService

@@ -497,4 +497,101 @@ describe('email.service', () => {
       expect(msg.HtmlBody).not.toMatch(/at \w+\.\w+ \(/)
     })
   })
+
+  describe('buildMemberInviteEmail', () => {
+    const token = 'abc.def.ghi'
+
+    it('links to the invite path with the token in the query string, in both text and html', () => {
+      const msg = emailService.buildMemberInviteEmail('Jane Doe', 'Community Room', token)
+
+      const expectedUrl = `${config.appHost}${config.invitePath}?token=${token}`
+      expect(msg.subject).toEqual(expect.any(String))
+      expect(msg.text).toContain(expectedUrl)
+      expect(msg.html).toContain(expectedUrl)
+      expect(msg.text).not.toContain(`#token=`)
+      expect(msg.html).not.toContain(`#token=`)
+    })
+
+    it('greets the person by name and names the room', () => {
+      const msg = emailService.buildMemberInviteEmail('Jane Doe', 'Community Room', token)
+
+      expect(msg.text).toContain('Jane Doe')
+      expect(msg.html).toContain('Jane Doe')
+      expect(msg.text).toContain('Community Room')
+      expect(msg.subject).toContain('Community Room')
+    })
+
+    it('HTML-escapes names and room names so a CSV value cannot inject markup', () => {
+      const msg = emailService.buildMemberInviteEmail('<b>Jane</b> & "Doe"', 'Room <script>', token)
+
+      expect(msg.html).not.toContain('<b>Jane</b>')
+      expect(msg.html).not.toContain('<script>')
+      expect(msg.html).toContain('&lt;b&gt;Jane&lt;/b&gt;')
+      // The plain-text body needs no escaping and keeps the value as-is.
+      expect(msg.text).toContain('<b>Jane</b> & "Doe"')
+    })
+
+    it('tells the person the link is personal and how long it lasts', () => {
+      const msg = emailService.buildMemberInviteEmail('Jane Doe', 'Community Room', token)
+
+      expect(msg.text).toContain(`${config.jwt.inviteExpirationDays} days`)
+      expect(msg.text).toMatch(/link is (just )?for you|personal|do not forward|don't forward/i)
+    })
+  })
+
+  describe('sendMemberInviteBatch', () => {
+    let batchSpy
+
+    beforeEach(() => {
+      batchSpy = jest
+        .spyOn(emailService.client, 'sendEmailBatch')
+        .mockResolvedValue([{ ErrorCode: 0, Message: 'OK' }] as never)
+    })
+
+    afterEach(() => {
+      batchSpy.mockRestore()
+    })
+
+    it('sends via the Postmark batch API with tracking off and the member-invite tag', async () => {
+      await emailService.sendMemberInviteBatch([
+        { membershipId: 'm1', to: 'jane@example.com', name: 'Jane Doe', roomName: 'Community Room', token: 'tok' }
+      ])
+
+      expect(batchSpy).toHaveBeenCalledTimes(1)
+      const [messages] = batchSpy.mock.calls[0]
+      expect(messages).toHaveLength(1)
+      expect(messages[0].To).toBe('jane@example.com')
+      expect(messages[0].Tag).toBe('member-invite')
+      expect(messages[0].TrackOpens).toBe(false)
+      expect(messages[0].TrackLinks).toBe('None')
+      expect(messages[0].MessageStream).toBe('outbound')
+    })
+
+    it('returns success:true for ErrorCode 0 and success:false with error for non-zero', async () => {
+      batchSpy.mockResolvedValue([
+        { ErrorCode: 0, Message: 'OK' },
+        { ErrorCode: 406, Message: 'Inactive recipient' }
+      ] as never)
+
+      const results = await emailService.sendMemberInviteBatch([
+        { membershipId: 'm1', to: 'ok@example.com', name: 'Alice', roomName: 'Room', token: 't1' },
+        { membershipId: 'm2', to: 'bad@example.com', name: 'Bob', roomName: 'Room', token: 't2' }
+      ])
+
+      expect(results[0]).toEqual({ membershipId: 'm1', success: true })
+      expect(results[1]).toEqual({ membershipId: 'm2', success: false, error: 'Inactive recipient' })
+    })
+
+    it('places the token in the query string of the invite URL, not the fragment', async () => {
+      await emailService.sendMemberInviteBatch([
+        { membershipId: 'm1', to: 'jane@example.com', name: 'Jane', roomName: 'Room', token: 'mytoken' }
+      ])
+
+      const [messages] = batchSpy.mock.calls[0]
+      expect(messages[0].TextBody).toContain('?token=mytoken')
+      expect(messages[0].TextBody).not.toContain('#')
+      expect(messages[0].HtmlBody).toContain('?token=mytoken')
+      expect(messages[0].HtmlBody).not.toContain('#token=')
+    })
+  })
 })

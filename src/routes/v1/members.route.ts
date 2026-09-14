@@ -1,8 +1,8 @@
 import express from 'express'
 import multer from 'multer'
-import { memberController } from '../../controllers/index.js'
+import { memberController, inviteController } from '../../controllers/index.js'
 import auth from '../../middlewares/auth.js'
-import { memberImportLimiter } from '../../middlewares/rateLimiter.js'
+import { memberImportLimiter, inviteSendLimiter } from '../../middlewares/rateLimiter.js'
 import memberValidation from '../../validations/member.validation.js'
 import validate from '../../middlewares/validate.js'
 
@@ -70,5 +70,79 @@ router
     validate(memberValidation.importMembers),
     memberController.importMembers
   )
+
+/**
+ * @swagger
+ * /members/{conversationId}/invites:
+ *   post:
+ *     summary: Email an invite link to every not-yet-invited member of a conversation
+ *     description: >
+ *       Admin-only. Mails every imported member who has never been successfully invited
+ *       (inviteState 'pending' or 'failed') a single-use set-password link in one batch.
+ *       Members already marked 'invited' are never re-mailed by this endpoint; use the
+ *       per-member resend for that. Returns per-recipient failures so a bounced invite
+ *       is visible rather than silent.
+ *     tags: [Members]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         description: ID of the conversation whose members to invite
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Sent/failed counts plus per-recipient failures
+ *       404:
+ *         description: Conversation not found
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       501:
+ *         description: Outbound batch email is not configured yet
+ */
+router
+  .route('/:conversationId/invites')
+  .post(inviteSendLimiter, auth('manageMembers'), validate(memberValidation.sendInvites), inviteController.sendInvites)
+
+/**
+ * @swagger
+ * /members/invites/{membershipId}/resend:
+ *   post:
+ *     summary: Re-send one member's invite link
+ *     description: >
+ *       Admin-only. Invalidates the member's outstanding invite link and mails a fresh
+ *       one. Refused once the member has joined, because a live invite link for an
+ *       already-provisioned account could take the account over.
+ *     tags: [Members]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: membershipId
+ *         required: true
+ *         description: ID of the membership record to re-invite
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Sent/failed count for the one recipient
+ *       400:
+ *         description: Member has already joined
+ *       404:
+ *         description: Membership not found
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       501:
+ *         description: Outbound batch email is not configured yet
+ */
+router
+  .route('/invites/:membershipId/resend')
+  .post(inviteSendLimiter, auth('manageMembers'), validate(memberValidation.resendInvite), inviteController.resendInvite)
 
 export default router
