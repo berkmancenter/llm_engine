@@ -779,7 +779,7 @@ A single mom of two children with primary custody, she is passionate about findi
         conversation: ctxConversation,
         llmPlatform: testConfig.llmPlatform,
         llmModel: testConfig.llmModel,
-        agentConfig: { botName: BOT_NAME, tools: [], streaming: false }
+        agentConfig: { botName: BOT_NAME, tools: [], streaming: false, groupChatName: '#community-chat' }
       })
       const [chatChannel, dmChannel, transcriptChannel] = await Channel.create([
         { name: 'chat' },
@@ -891,6 +891,55 @@ A single mom of two children with primary custody, she is passionate about findi
       expect(responses).toHaveLength(1)
       console.log('Voice with chat context:', responses[0].message)
       expect(responses[0].message.toLowerCase()).toMatch(/indigo42|indigo 42/)
+    })
+
+    it('recognizes its own channel name when referenced by name in group chat', async () => {
+      // When groupChatName is configured, the agent should know it is participating in that
+      // channel and not be confused when a user refers to it by name.
+      const msg = await createMessage(
+        `@${BOT_NAME} what channel is this? Is this #community-chat?`,
+        user1,
+        ctxConversation,
+        ['chat']
+      )
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(ctxAgent, buildHistory([]), msg)
+
+      expect(responses).toHaveLength(1)
+      const reply = responses[0].message.toLowerCase()
+      console.log('Channel name recognition:', reply)
+      expect(reply).toContain('#community-chat')
+    })
+
+    it('correctly describes its own participation in both DM and group chat when asked', async () => {
+      const t = Date.now()
+      const chatMessages = [
+        await createMessage(
+          'Has anyone read the new paper on LLM alignment?',
+          user2,
+          ctxConversation,
+          ['chat'],
+          new Date(t - 5000)
+        ),
+        await createMessage('Not yet — can you share the link?', user3, ctxConversation, ['chat'], new Date(t - 4000))
+      ]
+      await prepareMessagesForAgent(chatMessages, ctxConversation, ctxAgent)
+
+      const msg = await createMessage(
+        `Is your existence in this DM consistent with your presence in #community-chat?`,
+        user1,
+        ctxConversation,
+        [ctxDmChannel.name]
+      )
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(ctxAgent, buildHistory([]), msg)
+
+      expect(responses).toHaveLength(1)
+      const reply = responses[0].message.toLowerCase()
+      console.log('Multi-channel identity:', reply)
+      // Should not claim it is read-only or not a participant in the group channel,
+      // and should not claim there is no memory/context bridge (DMs do receive group chat history)
+      expect(reply).not.toMatch(
+        /not a participant|can't write|cannot write|can not write|read.?only|not.*active.*participant|i can.*read.*can.*t.*write|no memory bridging|no.*bridge|start.*fresh|different instances/i
+      )
     })
   })
 

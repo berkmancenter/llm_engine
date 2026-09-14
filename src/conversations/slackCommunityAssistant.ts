@@ -110,6 +110,14 @@ const slackCommunityAssistant: ConversationType = {
       default: true
     },
     {
+      name: 'groupChatName',
+      label: 'Group Chat Name',
+      description:
+        'The human-readable name of the group channel (e.g. #community-chat). When set, the assistant uses this name in context so it can correctly identify the channel when users refer to it by name.',
+      required: false,
+      type: 'string'
+    },
+    {
       name: 'showOnAppHome',
       label: 'Advertise on App Home',
       description:
@@ -130,7 +138,8 @@ const slackCommunityAssistant: ConversationType = {
         { $ref: 'notifications', as: 'agentConfig.notifications' },
         { $ref: 'tools', as: 'agentConfig.tools' },
         { $ref: 'topicIds', as: 'agentConfig.topicIds' },
-        { $ref: 'periodicMemberIntros', as: 'agentConfig.periodicMemberIntros' }
+        { $ref: 'periodicMemberIntros', as: 'agentConfig.periodicMemberIntros' },
+        { $ref: 'groupChatName', as: 'agentConfig.groupChatName' }
       ]
     }
   ],
