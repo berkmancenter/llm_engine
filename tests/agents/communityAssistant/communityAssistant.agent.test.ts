@@ -106,6 +106,53 @@ describe('communityAssistant agent tests', () => {
     expect(responses[0].message.toLowerCase()).toContain('paris')
   })
 
+  it('explains identity privacy when useRealNames is false and user asks who they are', async () => {
+    // Real-world bug: without the sender pseudonym in the prompt, the agent would guess
+    // the asker's identity from conversation history and sometimes get it wrong.
+    // With useRealNames: false, the agent should also explain that real names are intentionally
+    // not shared with the AI, rather than implying it simply doesn't have the information.
+    agent.conversation.useRealNames = false
+
+    const t = Date.now()
+    const history = buildHistory([
+      await createMessage('I work in machine learning', user2, conversation, ['chat'], new Date(t - 5000)),
+      await createMessage('My background is in policy', user3, conversation, ['chat'], new Date(t - 4000)),
+      await createMessage('I focus on privacy law', user2, conversation, ['chat'], new Date(t - 3000))
+    ])
+
+    // user1 asks — history contains only user2 and user3 messages
+    const msg = await ask(`@${BOT_NAME} who am I?`)
+    const responses = await respond(history, msg)
+
+    expect(responses).toHaveLength(1)
+    const reply = responses[0].message.toLowerCase()
+    // Should explain the pseudonym design choice, not guess from history
+    expect(reply).toMatch(/pseudonym|by design|real name|real identit/)
+    expect(reply).not.toMatch(/machine learning|policy|privacy law/)
+  })
+
+  it('does not add privacy disclaimer when useRealNames is true', async () => {
+    // When real names are shared, the agent should answer directly without the privacy disclaimer.
+    agent.conversation.useRealNames = true
+
+    const t = Date.now()
+    const history = buildHistory([
+      await createMessage('I work in machine learning', user2, conversation, ['chat'], new Date(t - 5000)),
+      await createMessage('My background is in policy', user3, conversation, ['chat'], new Date(t - 4000)),
+      await createMessage('I focus on privacy law', user2, conversation, ['chat'], new Date(t - 3000))
+    ])
+
+    const msg = await ask(`@${BOT_NAME} who am I?`)
+    const responses = await respond(history, msg)
+
+    expect(responses).toHaveLength(1)
+    const reply = responses[0].message.toLowerCase()
+    // Should not explain the pseudonym design choice — that note is only added when useRealNames is false
+    expect(reply).not.toMatch(/by design|real identit/)
+    // Should not guess from conversation history
+    expect(reply).not.toMatch(/machine learning|policy|privacy law/)
+  })
+
   it('does not respond to casual conversation not intended for the bot', async () => {
     const msg = await ask('I really liked what the last speaker said about flexible work')
     const responses = await respond(buildHistory([]), msg)
@@ -732,7 +779,7 @@ A single mom of two children with primary custody, she is passionate about findi
         conversation: ctxConversation,
         llmPlatform: testConfig.llmPlatform,
         llmModel: testConfig.llmModel,
-        agentConfig: { botName: BOT_NAME, tools: [], streaming: false }
+        agentConfig: { botName: BOT_NAME, tools: [], streaming: false, groupChatName: '#community-chat' }
       })
       const [chatChannel, dmChannel, transcriptChannel] = await Channel.create([
         { name: 'chat' },
@@ -844,6 +891,55 @@ A single mom of two children with primary custody, she is passionate about findi
       expect(responses).toHaveLength(1)
       console.log('Voice with chat context:', responses[0].message)
       expect(responses[0].message.toLowerCase()).toMatch(/indigo42|indigo 42/)
+    })
+
+    it('recognizes its own channel name when referenced by name in group chat', async () => {
+      // When groupChatName is configured, the agent should know it is participating in that
+      // channel and not be confused when a user refers to it by name.
+      const msg = await createMessage(
+        `@${BOT_NAME} what channel is this? Is this #community-chat?`,
+        user1,
+        ctxConversation,
+        ['chat']
+      )
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(ctxAgent, buildHistory([]), msg)
+
+      expect(responses).toHaveLength(1)
+      const reply = responses[0].message.toLowerCase()
+      console.log('Channel name recognition:', reply)
+      expect(reply).toContain('#community-chat')
+    })
+
+    it('correctly describes its own participation in both DM and group chat when asked', async () => {
+      const t = Date.now()
+      const chatMessages = [
+        await createMessage(
+          'Has anyone read the new paper on LLM alignment?',
+          user2,
+          ctxConversation,
+          ['chat'],
+          new Date(t - 5000)
+        ),
+        await createMessage('Not yet — can you share the link?', user3, ctxConversation, ['chat'], new Date(t - 4000))
+      ]
+      await prepareMessagesForAgent(chatMessages, ctxConversation, ctxAgent)
+
+      const msg = await createMessage(
+        `Is your existence in this DM consistent with your presence in #community-chat?`,
+        user1,
+        ctxConversation,
+        [ctxDmChannel.name]
+      )
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(ctxAgent, buildHistory([]), msg)
+
+      expect(responses).toHaveLength(1)
+      const reply = responses[0].message.toLowerCase()
+      console.log('Multi-channel identity:', reply)
+      // Should not claim it is read-only or not a participant in the group channel,
+      // and should not claim there is no memory/context bridge (DMs do receive group chat history)
+      expect(reply).not.toMatch(
+        /\bnot an? (?:active )?participant\b|\bcan(?:'t|not| not) (?:write|post|respond|reply)\b|\bread[- ]?only\b|\bonly (?:read|see|observe)\b|\bno (?:memory )?bridg(?:e|ing)\b|\bstarts? fresh\b|\bdifferent instances?\b/i
+      )
     })
   })
 
