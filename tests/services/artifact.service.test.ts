@@ -124,6 +124,45 @@ describe('createArtifact', () => {
     expect(artifact!.conversation).toBeUndefined()
   })
 
+  // An agent shaped like the Concept Cartographer: write grant on its own conversation.
+  const agentOn = (ownConversation) => ({
+    _id: new mongoose.Types.ObjectId(),
+    __t: 'Agent',
+    conversation: ownConversation,
+    capabilities: { read: [{ type: 'ownConversation' }], write: [{ type: 'ownConversation' }] }
+  })
+
+  it('lets an agent write a topic-scoped artifact for the topic its own conversation belongs to', async () => {
+    const { artifact } = await artifactService.createArtifact(topicBody(), agentOn(conversation))
+
+    expect(artifact!.scope).toBe('topic')
+    expect(artifact!.topic?.toString()).toBe(topic._id.toString())
+  })
+
+  it('refuses an agent writing to a topic its conversation is not part of', async () => {
+    const otherTopic = newPublicTopic()
+    otherTopic.owner = userOne._id
+    await insertTopics([otherTopic])
+
+    await expect(
+      artifactService.createArtifact(topicBody({ topicId: otherTopic._id.toString() }), agentOn(conversation))
+    ).rejects.toThrow('An agent may only write artifacts for its own conversation or the topic')
+  })
+
+  it('refuses an agent writing to a conversation other than its own', async () => {
+    const sibling = await Conversation.create({
+      name: 'Session two',
+      slug: 'session-two',
+      owner: userTwo._id,
+      topic: topic._id
+    })
+
+    await expect(
+      artifactService.createArtifact(conversationBody({ conversationId: sibling._id.toString() }), agentOn(conversation))
+    ).rejects.toThrow()
+    expect(await Artifact.countDocuments({})).toBe(0)
+  })
+
   it('requires exactly one container', async () => {
     await expect(
       artifactService.createArtifact({ ...conversationBody(), topicId: topic._id.toString() }, userOne)

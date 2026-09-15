@@ -11,7 +11,7 @@ import access from '../auth/access.js'
 import logger from '../config/logger.js'
 import websocketGateway from '../websockets/websocketGateway.js'
 import { roleRights } from '../config/roles.js'
-import { ArtifactScope, IArtifact, IBaseUser } from '../types/index.types.js'
+import { ArtifactScope, IAgent, IArtifact, IBaseUser } from '../types/index.types.js'
 
 const PASSCODE_LENGTH = 8
 
@@ -99,6 +99,17 @@ const resolveContainer = async ({ topicId, conversationId }: ContainerSelector):
   return null
 }
 
+// The agent's conversation is usually populated but its topic is not, so fall back to a lookup.
+const agentTopicId = async (caller: IAgent): Promise<string | undefined> => {
+  const conversation = caller.conversation as { topic?: unknown } | undefined
+  const conversationId = idOf(conversation)
+  if (!conversationId) return undefined
+  const populatedTopicId = typeof conversation === 'object' ? idOf(conversation.topic) : undefined
+  if (populatedTopicId) return populatedTopicId
+  const found = await Conversation.findById(conversationId).select('topic').lean().exec()
+  return idOf(found?.topic)
+}
+
 const containerOf = (artifact: IArtifact): Promise<ArtifactContainer | null> =>
   artifact.scope === 'conversation'
     ? resolveConversationContainer(idOf(artifact.conversation)!)
@@ -170,17 +181,26 @@ const authorizeArtifactRead = (container: ArtifactContainer, user, presentedPass
  * - Conversation scope needs the conversation's owner, its topic's owner, or an
  *   administrator — the same trio that may already edit the conversation and upload its
  *   resources (see resource.service.ts).
- * - An agent goes through access.assertCanWrite, so an artifact written mid-conversation is
- *   bound by the same capability grants as everything else the agent writes, and can only
- *   ever touch its own conversation.
+ * - An agent goes through access.assertCanWrite, so it may write to its own conversation,
+ *   and to that conversation's topic, since the series graph is topic-scoped.
  */
 const authorizeArtifactWrite = async (container: ArtifactContainer, caller: IBaseUser) => {
-  if ((caller as IBaseUser)?.__t === 'Agent') {
-    if (container.scope !== 'conversation' || !container.conversationId) {
-      throw new ApiError(httpStatus.FORBIDDEN, 'An agent may only write artifacts for its own conversation')
+  if (caller?.__t === 'Agent') {
+    if (container.scope === 'conversation' && container.conversationId) {
+      await access.assertCanWrite(caller, { type: 'conversation', id: container.conversationId })
+      return
     }
-    await access.assertCanWrite(caller, { type: 'conversation', id: container.conversationId })
-    return
+    const agent = caller as IAgent
+    const ownConversationId = idOf(agent.conversation)
+    const ownTopicId = await agentTopicId(agent)
+    if (ownConversationId && ownTopicId && ownTopicId === container.topicId) {
+      await access.assertCanWrite(caller, { type: 'conversation', id: ownConversationId })
+      return
+    }
+    throw new ApiError(
+      httpStatus.FORBIDDEN,
+      'An agent may only write artifacts for its own conversation or the topic that conversation belongs to'
+    )
   }
 
   if (holdsRight(caller, 'manageArtifacts') && container.scope === 'topic') return
