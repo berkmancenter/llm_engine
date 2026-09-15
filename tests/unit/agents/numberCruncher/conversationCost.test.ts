@@ -521,7 +521,7 @@ describe('fetchConversationCostWithSettle', () => {
     await fetchConversationCostWithSettle('conv-1', [0, 0, 0, 0], 0)
 
     expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('settle-poll attempt'))
-    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('settled'))
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('settled'))
   })
 
   it('logs that the delay budget was exhausted when counts never settle', async () => {
@@ -530,6 +530,6 @@ describe('fetchConversationCostWithSettle', () => {
 
     await fetchConversationCostWithSettle('conv-none', [0, 0], 0)
 
-    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('exhausted'))
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('exhausted'))
   })
 })

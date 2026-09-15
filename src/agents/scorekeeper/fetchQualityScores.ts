@@ -40,7 +40,7 @@ function conversationFilter(conversationId: string): string {
  */
 export async function fetchQualityScores(conversationId: string): Promise<QualityScores | null> {
   if (!config.langsmith.key || !config.langsmith.project) {
-    logger.debug('scorekeeper: LangSmith key or project not configured; skipping')
+    logger.info('scorekeeper: LangSmith key or project not configured; skipping')
     return null
   }
 

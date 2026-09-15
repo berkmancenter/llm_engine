@@ -6,7 +6,7 @@ import { parseDuration } from '../../utils/detectTimeQuery.js'
 
 const batchTranscript = async (job) => {
   const { conversationId } = job.attrs.data
-  logger.debug(`batchTranscript start: ${conversationId}`)
+  logger.info(`batchTranscript start: ${conversationId}`)
   const progress = await Job.findOne({ name: 'batchTranscript', conversationId })
   const lastProcessedAt = progress?.lastProcessedAt || new Date()
   const messages = await Message.find({

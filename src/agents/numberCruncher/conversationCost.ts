@@ -165,7 +165,7 @@ export async function fetchConversationCost(
   opts: { since?: Date } = {}
 ): Promise<ConversationCostPhases | null> {
   if (!config.langsmith.key || !config.langsmith.project) {
-    logger.debug('numberCruncher: LangSmith key or project not configured; skipping cost fetch')
+    logger.info('numberCruncher: LangSmith key or project not configured; skipping cost fetch')
     return null
   }
   const client = new Client({ apiKey: config.langsmith.key })
@@ -325,7 +325,7 @@ export async function fetchConversationCostWithSettle(
     // a stable count seen inside the first ${minimumWaitMs}ms can just mean a slow
     // post-event agent hasn't started spending yet, so returning then would undercount.
     if (combinedCount(current) > 0 && combinedCount(current) === combinedCount(previous) && waitedEnough()) {
-      logger.debug(`numberCruncher: settle-poll settled for ${conversationId} after ${attempt} attempt(s)`)
+      logger.info(`numberCruncher: settle-poll settled for ${conversationId} after ${attempt} attempt(s)`)
       return current
     }
     previous = current
@@ -338,9 +338,9 @@ export async function fetchConversationCostWithSettle(
   }
 
   if (combinedCount(current) > 0 && combinedCount(current) === combinedCount(previous)) {
-    logger.debug(`numberCruncher: settle-poll settled for ${conversationId} after ${attempt} attempt(s)`)
+    logger.info(`numberCruncher: settle-poll settled for ${conversationId} after ${attempt} attempt(s)`)
   } else {
-    logger.debug(`numberCruncher: settle-poll exhausted its delay budget for ${conversationId} after ${attempt} attempt(s)`)
+    logger.warn(`numberCruncher: settle-poll exhausted its delay budget for ${conversationId} after ${attempt} attempt(s)`)
   }
   return current
 }
