@@ -6,8 +6,9 @@ import { conversationService } from '../../services/index.js'
 import { agentResponseToMessageData } from '../../services/message.service.js'
 import { Conversation } from '../../models/index.js'
 import { IChannel } from '../../types/index.types.js'
+import introduceOnce from '../../services/agentIntroduction.service.js'
 
-async function collectChannelIntros(conversation, channelNames) {
+export async function collectChannelIntros(conversation, channelNames, user) {
   const intros: ReturnType<typeof agentResponseToMessageData>[] = []
   if (!conversation.active) return intros
   for (const channelName of channelNames) {
@@ -15,7 +16,7 @@ async function collectChannelIntros(conversation, channelNames) {
     if (!channel) continue
     for (const agent of conversation.agents) {
       agent.conversation = conversation
-      const agentIntros = await agent.introduce(channel)
+      const agentIntros = await introduceOnce({ conversation, agent, channel, user })
       for (const intro of agentIntros) {
         intros.push(agentResponseToMessageData(intro, agent))
       }
@@ -42,7 +43,7 @@ export default (io, socket) => {
     logger.debug('Joining channel via socket. Room: %s', roomId)
     socket.join(roomId)
     const conversation = await Conversation.findOne({ _id: data.conversationId }).populate(['agents', 'channels'])
-    const intros = await collectChannelIntros(conversation, [data.channel.name])
+    const intros = await collectChannelIntros(conversation, [data.channel.name], data.user)
     if (typeof callback === 'function') callback({ intros })
   })
   const joinConversation = catchAsync(async (data, callback) => {
@@ -69,7 +70,7 @@ export default (io, socket) => {
         socket.join(roomId)
       })
       await conversation.populate(['agents', 'channels'])
-      const intros = await collectChannelIntros(conversation, channelNames)
+      const intros = await collectChannelIntros(conversation, channelNames, data.user)
       if (typeof callback === 'function') callback({ intros })
     } else if (typeof callback === 'function') callback({ intros: [] })
   })
