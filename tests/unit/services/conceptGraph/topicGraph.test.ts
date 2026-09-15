@@ -35,6 +35,12 @@ describe('reading a stored graph back for merging', () => {
     expect(extraction.contributions[0].originPrompt).toBe('What has to be trustworthy?')
   })
 
+  it('carries each contribution id across, so a claim keeps its id from one version to the next', () => {
+    const extraction = payloadToExtraction(graph())
+
+    expect(extraction.contributions[0].id).toBe('k-checked-by-abc')
+  })
+
   it('carries provenance across, so an earlier session keeps where its ideas came from', () => {
     const extraction = payloadToExtraction(graph())
 

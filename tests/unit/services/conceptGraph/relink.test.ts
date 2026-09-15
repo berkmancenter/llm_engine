@@ -181,6 +181,12 @@ describe('applying relinks', () => {
     expect(extended.contributions[0].statement).toBe(prior.contributions[0].statement)
   })
 
+  it('records which concepts were added, so assembly can tell them from the original claim', () => {
+    const [extended] = applyRelinks(prior, { extensions: new Map([[0, ['Revocation']]]), bridges: [] })
+
+    expect(extended.contributions[0].extendedWith).toEqual(['Revocation'])
+  })
+
   it('leaves the original extraction untouched', () => {
     applyRelinks(prior, { extensions: new Map([[0, ['Revocation']]]), bridges: [] })
 

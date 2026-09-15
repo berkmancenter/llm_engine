@@ -39,6 +39,69 @@ describe('assembly', () => {
     expect(report.droppedContributions).toBe(1)
   })
 
+  it('keeps a settled claim when a concept a relink pass added to it does not survive', () => {
+    // Losing an added concept must not delete a claim because of something said sessions later.
+    const { payload, report } = assembleGraph(
+      [
+        result({
+          concepts: [{ label: 'Trust Registry' }, { label: 'Verifier' }, { label: 'Rosa Klein' }],
+          contributions: [
+            {
+              kind: 'checked by',
+              concepts: ['Trust Registry', 'Verifier', 'Rosa Klein'],
+              extendedWith: ['Rosa Klein'],
+              statement: 'A registry needs checking.'
+            }
+          ]
+        })
+      ],
+      safety
+    )
+
+    expect(payload.contributions).toHaveLength(1)
+    expect(payload.contributions[0].concepts).toEqual(payload.concepts.map((c) => c.id))
+    expect(payload.concepts.map((c) => c.label)).toEqual(['Trust Registry', 'Verifier'])
+    expect(report.droppedContributions).toBe(0)
+  })
+
+  it('still drops a claim when one of its original concepts does not survive', () => {
+    const { payload } = assembleGraph(
+      [
+        result({
+          concepts: [{ label: 'Rosa Klein' }, { label: 'Verifier' }, { label: 'Revocation' }],
+          contributions: [
+            { kind: 'checked by', concepts: ['Rosa Klein', 'Verifier', 'Revocation'], extendedWith: ['Revocation'] }
+          ]
+        })
+      ],
+      safety
+    )
+
+    expect(payload.contributions).toHaveLength(0)
+  })
+
+  it('keeps the id a stored claim was read back with, even once it has been extended', () => {
+    const { payload } = assembleGraph(
+      [
+        result({
+          concepts: [{ label: 'Trust Registry' }, { label: 'Verifier' }, { label: 'Revocation' }],
+          contributions: [
+            {
+              id: 'k-checked-by-abc123',
+              kind: 'checked by',
+              concepts: ['Trust Registry', 'Verifier', 'Revocation'],
+              extendedWith: ['Revocation']
+            }
+          ]
+        })
+      ],
+      safety
+    )
+
+    expect(payload.contributions[0].id).toBe('k-checked-by-abc123')
+    expect(payload.contributions[0].concepts).toHaveLength(3)
+  })
+
   it('merges the same concept across chunks instead of drawing it twice', () => {
     const { payload, report } = assembleGraph(
       [

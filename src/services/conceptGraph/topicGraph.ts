@@ -59,6 +59,7 @@ export const payloadToExtraction = (payload: ConceptGraphPayload): ExtractionRes
     concepts: payload.concepts.map((c) => ({ label: c.label, provenance: c.provenance })),
     contributions: payload.contributions
       .map((k) => ({
+        id: k.id,
         kind: k.kind,
         concepts: k.concepts.map((id) => labelById.get(id)).filter((label): label is string => !!label),
         statement: k.statement,

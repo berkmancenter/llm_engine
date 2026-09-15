@@ -31,8 +31,13 @@ import { checkStatement, StatementCheckInput } from './quoteSafety.js'
 export interface ExtractionResult {
   concepts: { label: string; gloss?: string; sourceRefs?: string[]; provenance?: GraphNodeProvenance }[]
   contributions: {
+    // Carried over from a stored graph so a surviving claim keeps its id.
+    id?: string
     kind: string
     concepts: string[]
+    /* Concepts a relink pass added after the claim was made. Losing one of these keeps the
+       claim; losing an original concept drops it. */
+    extendedWith?: string[]
     statement?: string
     originPrompt?: string
     sourceRefs?: string[]
@@ -102,6 +107,14 @@ const digest = (input: string) => {
     hash = (hash * 31 + input.charCodeAt(i)) % 2147483647
   }
   return hash.toString(36).slice(0, 6)
+}
+
+/* Keeps a stored id so a version diff shows a claim changing, not one claim vanishing and
+   another appearing. Falls back to a derived id on collision. */
+const carriedId = (id: string | undefined, taken: Set<string>) => {
+  if (!id || taken.has(id)) return undefined
+  taken.add(id)
+  return id
 }
 
 /*
@@ -256,16 +269,22 @@ export const assembleGraph = (
       continue
     }
 
-    /* Every referenced concept must have survived. A relationship missing one of its ends
-       is not a partial truth, it is a different claim, so it is dropped rather than
-       reconnected to whatever is left. */
-    const conceptIds = (contribution.concepts ?? [])
+    /* A claim missing one of its original concepts is a different claim, so it is dropped.
+       A concept a relink pass added later is different: losing it returns the claim to what
+       it was. */
+    const extended = new Set((contribution.extendedWith ?? []).map((label) => keyFor(label ?? '')))
+    const originalLabels = (contribution.concepts ?? []).filter((label) => !extended.has(keyFor(label ?? '')))
+    const originalIds = originalLabels
       .map((label) => conceptIdByLabel.get(keyFor(label ?? '')))
       .filter((id): id is string => !!id)
-    if (conceptIds.length === 0 || conceptIds.length !== (contribution.concepts ?? []).length) {
+    if (originalIds.length === 0 || originalIds.length !== originalLabels.length) {
       report.droppedContributions += 1
       continue
     }
+    const addedIds = [...extended]
+      .map((key) => conceptIdByLabel.get(key))
+      .filter((id): id is string => !!id && !originalIds.includes(id))
+    const conceptIds = [...originalIds, ...addedIds]
 
     /* One relationship of the same kind over the same set of concepts is one edge, however
        many chunks mentioned it. */
@@ -285,7 +304,7 @@ export const assembleGraph = (
     const originId = contribution.originPrompt ? promptIdByText.get(canonical(contribution.originPrompt)) : undefined
 
     contributions.push({
-      id: idFor('k', `${canonical(kind)}-${digest(relationKey)}`, takenIds),
+      id: carriedId(contribution.id, takenIds) ?? idFor('k', `${canonical(kind)}-${digest(relationKey)}`, takenIds),
       kind,
       concepts: conceptIds,
       ...(statement && { statement }),

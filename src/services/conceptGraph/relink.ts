@@ -29,11 +29,11 @@ import { ExtractionResult } from './assemble.js'
  *
  * Bridges are the default and extensions are the exception, because a wrong bridge is a
  * redundant edge while a wrong extension quietly rewrites something a person may already have
- * read. Neither ever removes anything.
+ * read. Neither removes anything: an extension is marked in `extendedWith`, so if the added
+ * concept is later dropped by a safety pass the claim returns to what it was.
  *
- * Auditability comes from versioning rather than from a marker on the node: ids are stable
- * across versions, so diffing the previous version against this one shows exactly which
- * contributions gained an endpoint and which bridges appeared.
+ * Auditability comes from versioning: a stored claim keeps its id when read back, so diffing
+ * two versions shows which contributions gained a concept and which bridges appeared.
  */
 
 /* Per contribution, so an over-eager pass cannot turn one statement into a hub joining
@@ -231,7 +231,12 @@ export const applyRelinks = (prior: ExtractionResult, { extensions, bridges }: R
     ...prior,
     contributions: prior.contributions.map((contribution, index) => {
       const additions = extensions.get(index)
-      return additions ? { ...contribution, concepts: [...contribution.concepts, ...additions] } : contribution
+      if (!additions) return contribution
+      return {
+        ...contribution,
+        concepts: [...contribution.concepts, ...additions],
+        extendedWith: [...(contribution.extendedWith ?? []), ...additions]
+      }
     })
   }
   if (bridges.length === 0) return [extended]
