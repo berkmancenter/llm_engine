@@ -410,16 +410,19 @@ const getContainerPasscode = async ({ topicId, conversationId }: ContainerSelect
  * Every artifact for a topic or a conversation, newest first, with its current version
  * inlined so a client can render the set without a request per artifact.
  *
- * A topic listing includes the artifacts of that topic's conversations, since `topic` is
- * denormalized onto those too — asking a topic for its artifacts should not silently omit
- * everything that emerged from the conversations in it.
+ * A topic listing includes its conversations' artifacts only for the topic owner and
+ * administrators. A topic passcode never opens a conversation artifact (see
+ * resolveConversationContainer), so the list must not return what the single read refuses.
  */
 const listArtifacts = async ({ topicId, conversationId }: ContainerSelector, user, passcode?: string) => {
   const container = await resolveContainer({ topicId, conversationId })
   if (!container) throw new ApiError(httpStatus.FORBIDDEN, READ_REFUSAL)
   authorizeArtifactRead(container, user, passcode)
 
-  const filter = conversationId ? { conversation: conversationId } : { topic: topicId }
+  const userId = idOf(user?._id)
+  const readsEveryConversation = holdsRight(user, 'manageArtifacts') || (!!userId && userId === container.topicOwnerId)
+  const topicFilter = readsEveryConversation ? { topic: topicId } : { topic: topicId, scope: 'topic' }
+  const filter = conversationId ? { conversation: conversationId } : topicFilter
   return Artifact.find({ ...filter, isDeleted: { $ne: true } })
     .populate('currentVersion')
     .sort('-createdAt')

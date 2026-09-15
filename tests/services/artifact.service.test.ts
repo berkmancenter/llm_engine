@@ -366,13 +366,22 @@ describe('listArtifacts', () => {
     expect(artifacts[0].currentVersion).toHaveProperty('payload')
   })
 
-  it("includes a topic's conversations' artifacts in the topic listing", async () => {
+  it("includes a topic's conversations' artifacts in the topic listing for the topic owner", async () => {
+    await artifactService.createArtifact(conversationBody({ title: 'From the conversation' }), userTwo)
+    await artifactService.createArtifact(topicBody({ title: 'From the topic' }), userOne)
+
+    const artifacts = await artifactService.listArtifacts({ topicId: topic._id.toString() }, userOne)
+
+    expect(artifacts.map((a) => a.title).sort()).toEqual(['From the conversation', 'From the topic'])
+  })
+
+  it("does not hand a topic passcode holder the conversations' artifacts, which need their own passcode", async () => {
     await artifactService.createArtifact(conversationBody({ title: 'From the conversation' }), userTwo)
     const { passcode } = await artifactService.createArtifact(topicBody({ title: 'From the topic' }), userOne)
 
     const artifacts = await artifactService.listArtifacts({ topicId: topic._id.toString() }, participant, passcode)
 
-    expect(artifacts.map((a) => a.title).sort()).toEqual(['From the conversation', 'From the topic'])
+    expect(artifacts.map((a) => a.title)).toEqual(['From the topic'])
   })
 
   it('excludes another conversation artifacts', async () => {

@@ -1556,7 +1556,8 @@ components:
             - $ref: '#/components/schemas/Topic'
           description: >-
             Always set. For a conversation-scoped artifact this is the conversation's own
-            topic, so a topic listing includes the artifacts of its conversations.
+            topic, so a topic listing can include the artifacts of its conversations for
+            the topic owner and administrators.
         conversation:
           oneOf:
             - type: string
