@@ -81,7 +81,7 @@ const deleteTranscript = async (conversationId, user, channels: ChannelCredentia
     throw new ApiError(httpStatus.BAD_REQUEST, 'Cannot delete an active transcript. Please pause the transcript first.')
   }
 
-  logger.debug(`Delete transcript for conversation: ${conversation._id}`)
+  logger.info(`Delete transcript for conversation: ${conversation._id}`)
 
   try {
     await transcript.clearTranscript(conversation)
@@ -104,7 +104,7 @@ const pauseTranscript = async (conversationId, user, channels: ChannelCredential
   if (!conversation.transcript) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'No transcript configured for this conversation')
   }
-  logger.debug(`Pause transcript recording for conversation: ${conversation._id}`)
+  logger.info(`Pause transcript recording for conversation: ${conversation._id}`)
 
   // Pause recording on all adapters
   for (const adapter of conversation.adapters) {
@@ -124,7 +124,7 @@ const resumeTranscript = async (conversationId, user, channels: ChannelCredentia
     throw new ApiError(httpStatus.BAD_REQUEST, 'No transcript configured for this conversation')
   }
 
-  logger.debug(`Resume transcript recording for conversation: ${conversation._id}`)
+  logger.info(`Resume transcript recording for conversation: ${conversation._id}`)
 
   // If conversation is not active, start it first
   // Starting the conversation already handles adapter.start() which deploys the bot

@@ -55,7 +55,7 @@ async function schedulePeriodicAgent(agent, { reschedule = true } = {}) {
   await defineJob.periodicAgent()
   if (reschedule || !(await schedule.periodicAgentExists(agent._id))) {
     await schedule.periodicAgent(`${agent.triggers.periodic.timerPeriod} seconds`, { agentId: agent._id })
-    logger.debug(`Set timer for ${agent.agentType} ${agent._id} ${agent.triggers.periodic.timerPeriod} seconds`)
+    logger.info(`Set timer for ${agent.agentType} ${agent._id} ${agent.triggers.periodic.timerPeriod} seconds`)
   } else {
     logger.debug(`Timer already scheduled for ${agent.agentType} ${agent._id}; left as-is`)
   }
@@ -68,7 +68,11 @@ async function scheduleCronAgent(agent, { reschedule = true } = {}) {
   await defineJob.cronAgent()
   if (reschedule || !(await schedule.cronAgentExists(agent._id))) {
     await schedule.cronAgent(agent.triggers.cron.expression, { agentId: agent._id }, agent.triggers.cron.timezone)
-    logger.debug(`Set cron for ${agent.agentType} ${agent._id} "${agent.triggers.cron.expression}"${agent.triggers.cron.timezone ? ` (${agent.triggers.cron.timezone})` : ''}`)
+    logger.info(
+      `Set cron for ${agent.agentType} ${agent._id} "${agent.triggers.cron.expression}"${
+        agent.triggers.cron.timezone ? ` (${agent.triggers.cron.timezone})` : ''
+      }`
+    )
   } else {
     logger.debug(`Cron already scheduled for ${agent.agentType} ${agent._id}; left as-is`)
   }
@@ -153,9 +157,8 @@ async function initializeAgents() {
 
   // onIdle, not onEmpty: empty means every task has *started*, idle means they have finished.
   await queue.onIdle()
-  logger.debug(`Agents initialized: ${count}`)
+  logger.info(`Agents initialized: ${count}`)
 }
-
 
 async function createAgent(agentType, conversation, agentProps?) {
   const agent = new Agent({
@@ -181,7 +184,7 @@ async function patchAgent(agent, agentProps) {
 }
 
 async function startAgent(agent) {
-  logger.debug(`Agent service start: ${agent._id}`)
+  logger.info(`Agent service start: ${agent._id}`)
   await agent.start()
   if (agent.triggers?.periodic) {
     await schedulePeriodicAgent(agent)
@@ -194,7 +197,7 @@ async function startAgent(agent) {
 }
 
 async function stopAgent(agent) {
-  logger.debug(`Agent service stop: ${agent._id}`)
+  logger.info(`Agent service stop: ${agent._id}`)
   await agent.stop()
   if (agent.triggers?.periodic) {
     await schedule.cancelPeriodicAgent(agent._id)

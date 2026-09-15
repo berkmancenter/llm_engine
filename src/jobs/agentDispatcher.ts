@@ -15,7 +15,7 @@ async function dispatch(event: ConversationEvent, scope: ReadScope) {
       await schedule.conversationEvent({ agentId, event })
       notified++
     } catch (err) {
-      logger.debug(`Agent ${agent._id} skipped: ${err.message}`)
+      logger.warn(`Agent ${agent._id} skipped: ${err.message}`)
     }
   }
 

@@ -129,7 +129,7 @@ export async function doStartConversation(conversation) {
   if (doc.draft) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Cannot start a draft conversation until required fields are filled in.')
   }
-  logger.debug(`Start conversation: ${doc._id}`)
+  logger.info(`Start conversation: ${doc._id}`)
   doc.startTime = new Date()
   /* Persist active=true before starting agents/adapters, not after. If an instance is
      torn down mid-flight (autoscaler scale-down, rolling deploy) and this job is retried
@@ -154,7 +154,7 @@ export async function doStartConversation(conversation) {
 
 export async function doStopConversation(conversation) {
   const doc = conversation
-  logger.debug(`Stop conversation: ${doc._id}`)
+  logger.info(`Stop conversation: ${doc._id}`)
   doc.endTime = new Date()
   /* Same reasoning as doStartConversation: persist active=false before running the stop
      side effects (agent/adapter stop, the LLM summary call below), so a from-scratch
@@ -190,7 +190,7 @@ export async function doStopConversation(conversation) {
     const owner = await User.findById(conversation.owner)
 
     if (owner && config.disablePostEventAnalysis) {
-      logger.debug(`Post-event analysis disabled — skipping stop-time summary for conversation ${doc._id}`)
+      logger.info(`Post-event analysis disabled — skipping stop-time summary for conversation ${doc._id}`)
     } else if (owner) {
       const conversationDoc = await Conversation.findOne({ _id: conversation._id })
         .populate('channels')
@@ -235,7 +235,7 @@ export async function doStopConversation(conversation) {
           { name: 'conversationSummary', metadata: { conversationId: doc._id.toString(), costPhase: 'postEvent' as const } }
         )()
 
-        logger.debug(`Conversation summary generated for conversation ${doc._id}`)
+        logger.info(`Conversation summary generated for conversation ${doc._id}`)
 
         doc.summary = structuredSummary
       } else logger.warn(`No conversation document found for conversation ${doc._id}`)
@@ -251,7 +251,7 @@ export async function doStopConversation(conversation) {
   const topicId = doc.topic?._id?.toString() ?? doc.topic?.toString()
   const topicIsPrivate = doc.topic?.private ?? true
   if (config.disablePostEventAnalysis) {
-    logger.debug(`Post-event analysis disabled — skipping conversationStopped dispatch for ${doc._id}`)
+    logger.info(`Post-event analysis disabled — skipping conversationStopped dispatch for ${doc._id}`)
   } else {
     await agentDispatcher.dispatch(
       { type: 'conversationStopped', conversationId: doc._id.toString(), topicId },

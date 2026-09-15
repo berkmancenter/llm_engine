@@ -66,7 +66,7 @@ async function syncSlackExternalIds() {
       if (updates.length > 0) {
         await ConversationMembership.bulkWrite(updates)
         totalUpdated += updates.length
-        logger.debug(`Slack externalIds sync: page ${pageCount} updated ${updates.length} memberships`)
+        logger.info(`Slack externalIds sync: page ${pageCount} updated ${updates.length} memberships`)
       }
     }
 

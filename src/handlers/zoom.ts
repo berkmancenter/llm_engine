@@ -55,12 +55,12 @@ const handleEvent = async (req, res) => {
           return
         }
       }
-      logger.debug(`Starting conversation ${conversations[0]._id} on Zoom meeting started event`)
+      logger.info(`Starting conversation ${conversations[0]._id} on Zoom meeting started event`)
       await conversationService.startConversation(conversations[0], conversations[0].owner)
     } else {
       // Stop all active conversations with this Zoom meeting ID
       for (const conversation of conversations) {
-        logger.debug(`Stopping conversation ${conversation._id} on Zoom meeting ended event`)
+        logger.info(`Stopping conversation ${conversation._id} on Zoom meeting ended event`)
         await conversationService.stopConversation(conversation, conversation.owner)
       }
     }
