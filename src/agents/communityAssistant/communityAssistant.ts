@@ -131,7 +131,11 @@ export default verify({
     notifications: [] as string[],
     streaming: undefined as boolean | undefined,
     periodicMemberIntros: false as boolean,
-    groupChatName: undefined as string | undefined
+    groupChatName: undefined as string | undefined,
+    // Gates the member_bios tool separately from periodicMemberIntros: bios are collected for
+    // the curated Spotlight message, so answering arbitrary questions from them ("who here works
+    // on X") is a distinct surface. Defaults to true; set explicitly to false to opt out.
+    memberBioSearch: undefined as boolean | undefined
   },
   llmTemplateVars: {
     user: [{ name: 'question', description: 'The user message or question' }]
@@ -191,8 +195,13 @@ export default verify({
     }
     const chatHistory = formatMultiUserConversationHistory(conversationHistory)
 
-    const toolNames: string[] = this.agentConfig?.tools || []
+    const conversationId = this.conversation._id.toString()
+    const configuredToolNames: string[] = this.agentConfig?.tools || []
+    const memberBioSearchEnabled = this.agentConfig?.memberBioSearch ?? true
+    const toolNames = memberBioSearchEnabled ? [...configuredToolNames, 'member_bios'] : configuredToolNames
     const topicIds: string[] = this.agentConfig?.topicIds || []
+
+    const toolContext = { topicIds, activeConversationId: conversationId }
 
     let personalityName: string | null = null
     if (this.agentConfig?.personality !== undefined) {
@@ -211,7 +220,7 @@ export default verify({
     const systemPromptBase =
       BASE_SYSTEM_PROMPT.replace('{botName}', this.agentConfig.botName).replace(
         '{toolGuidance}',
-        await buildToolsGuidance(toolNames, { topicIds })
+        await buildToolsGuidance(toolNames, toolContext)
       ) +
       channelNote +
       pseudonymNote
@@ -236,7 +245,7 @@ export default verify({
           : 'No shared chat messages yet.'
     }
 
-    const tools: StructuredToolInterface[] = await getTools(toolNames, { topicIds })
+    const tools: StructuredToolInterface[] = await getTools(toolNames, toolContext)
 
     const inputChannelNames = userMessage?.channels ?? ['chat']
 
@@ -245,7 +254,6 @@ export default verify({
     // costs 2 graph steps; with both event-history and archive tool sets the agent may need to
     // consult several before answering.
     const shouldStream = this.agentConfig?.streaming ?? isVoice
-    const conversationId = this.conversation._id.toString()
     const requestId = (userMessage.source?.requestId as string | undefined) ?? conversationId
     const onChunk = shouldStream
       ? (text: string) => {

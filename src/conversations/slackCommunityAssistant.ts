@@ -118,6 +118,15 @@ const slackCommunityAssistant: ConversationType = {
       type: 'string'
     },
     {
+      name: 'memberBioSearch',
+      label: 'Member Bio Search',
+      description:
+        'Let the assistant search member bios/interests to answer questions like "who here works on X" or ' +
+        '"what do you know about @name". Defaults to enabled; set to false to opt out.',
+      required: false,
+      type: 'boolean'
+    },
+    {
       name: 'showOnAppHome',
       label: 'Advertise on App Home',
       description:
@@ -139,7 +148,8 @@ const slackCommunityAssistant: ConversationType = {
         { $ref: 'tools', as: 'agentConfig.tools' },
         { $ref: 'topicIds', as: 'agentConfig.topicIds' },
         { $ref: 'periodicMemberIntros', as: 'agentConfig.periodicMemberIntros' },
-        { $ref: 'groupChatName', as: 'agentConfig.groupChatName' }
+        { $ref: 'groupChatName', as: 'agentConfig.groupChatName' },
+        { $ref: 'memberBioSearch', as: 'agentConfig.memberBioSearch' }
       ]
     }
   ],
