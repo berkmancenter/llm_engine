@@ -37,15 +37,17 @@ export default (io, socket) => {
     socket.join(data.topicId.toString())
   })
   const joinChannel = catchAsync(async (data, callback) => {
+    const startedAt = Date.now()
     await authChannels([data.channel], data.conversationId.toString(), data.user)
     const roomId = getRoomId(data.conversationId.toString(), data.channel.name)
-    logger.debug('Joining channel via socket. Room: %s', roomId)
     socket.join(roomId)
     const conversation = await Conversation.findOne({ _id: data.conversationId }).populate(['agents', 'channels'])
     const intros = await collectChannelIntros(conversation, [data.channel.name])
+    logger.info(`Socket join: user ${data.user._id} joined room ${roomId} in ${Date.now() - startedAt}ms`)
     if (typeof callback === 'function') callback({ intros })
   })
   const joinConversation = catchAsync(async (data, callback) => {
+    const startedAt = Date.now()
     const conversation = await conversationService.joinConversation(data.conversationId.toString(), data.user)
 
     // Support both single channel and array of channels
@@ -56,22 +58,24 @@ export default (io, socket) => {
 
     // Always join the bare conversation room (receives conversation-level events e.g. resources:updated)
     const conversationRoomId = getRoomId(data.conversationId.toString())
-    logger.debug('Joining conversation via socket. Room: %s', conversationRoomId)
     socket.join(conversationRoomId)
 
+    let intros: Awaited<ReturnType<typeof collectChannelIntros>> = []
     if (channels.length > 0) {
       await authChannels(channels, data.conversationId.toString(), data.user)
       const channelNames = channels.map((ch) => ch.name)
       const roomIds = getRoomIds(data.conversationId.toString(), channelNames) as string[]
-
-      roomIds.forEach((roomId) => {
-        logger.debug('Joining conversation via socket. Room: %s', roomId)
-        socket.join(roomId)
-      })
+      roomIds.forEach((roomId) => socket.join(roomId))
       await conversation.populate(['agents', 'channels'])
-      const intros = await collectChannelIntros(conversation, channelNames)
-      if (typeof callback === 'function') callback({ intros })
-    } else if (typeof callback === 'function') callback({ intros: [] })
+      intros = await collectChannelIntros(conversation, channelNames)
+    }
+    // Timed through the agent intros: those LLM calls are the slow part of a join, not the room membership
+    logger.info(
+      `Socket join: user ${data.user._id} joined room ${conversationRoomId} (${channels.length} channels) in ${
+        Date.now() - startedAt
+      }ms`
+    )
+    if (typeof callback === 'function') callback({ intros })
   })
   socket.use(([event, args], next) => {
     logger.debug('Checking auth (JWT) for topic socket requests.')
