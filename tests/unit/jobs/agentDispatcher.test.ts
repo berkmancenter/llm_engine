@@ -8,10 +8,11 @@ import { ConversationEvent, ReadScope } from '../../../src/types/index.types.js'
 const event: ConversationEvent = { type: 'conversationStopped', conversationId: 'conv-1' }
 const scope: ReadScope = { type: 'conversation', id: 'conv-1', topicId: 'topic-1' }
 
-function makeAgent() {
+function makeAgent({ handlesEvents = true } = {}) {
   return {
     _id: new mongoose.Types.ObjectId(),
-    capabilities: { read: [{ type: 'topic', id: 'topic-1' }], write: [] }
+    capabilities: { read: [{ type: 'topic', id: 'topic-1' }], write: [] },
+    handlesConversationEvents: () => handlesEvents
   }
 }
 
@@ -67,6 +68,32 @@ describe('agentDispatcher.dispatch', () => {
     await agentDispatcher.dispatch(event, scope)
 
     expect(scheduleSpy).toHaveBeenCalledTimes(2)
+  })
+
+  test('widens the query to the agents named in alsoNotify, which are no longer active', async () => {
+    const findSpy = mockFind([])
+    const stoppedAgentId = new mongoose.Types.ObjectId().toString()
+
+    await agentDispatcher.dispatch(event, scope, { alsoNotify: [stoppedAgentId] })
+
+    expect(findSpy).toHaveBeenCalledWith({ $or: [{ active: true }, { _id: { $in: [stoppedAgentId] } }] })
+  })
+
+  test('queries only active agents when alsoNotify is empty', async () => {
+    const findSpy = mockFind([])
+
+    await agentDispatcher.dispatch(event, scope, { alsoNotify: [] })
+
+    expect(findSpy).toHaveBeenCalledWith({ active: true })
+  })
+
+  test('skips an agent whose type has no conversation event handler, so no empty job is scheduled', async () => {
+    mockFind([makeAgent({ handlesEvents: false }), makeAgent()])
+    assertCanReadSpy.mockReturnValue(undefined)
+
+    await agentDispatcher.dispatch(event, scope)
+
+    expect(scheduleSpy).toHaveBeenCalledTimes(1)
   })
 
   test('passes the event and agentId to schedule', async () => {
