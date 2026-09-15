@@ -1,24 +1,66 @@
+import { jest } from '@jest/globals'
+import path from 'path'
 import request from 'supertest'
 import httpStatus from 'http-status'
 import mongoose from 'mongoose'
-import setupIntTest from '../utils/setupIntTest.js'
-import app from '../../src/app.js'
-import { insertUsers, registeredUser, userOne } from '../fixtures/user.fixture.js'
-import { registeredUserAccessToken } from '../fixtures/token.fixture.js'
-import { insertConversations, publicTopic } from '../fixtures/conversation.fixture.js'
-import Experiment from '../../src/models/experiment.model/experiment.js'
-import { Agent, Message, Conversation, Channel } from '../../src/models/index.js'
-import { insertMessages } from '../fixtures/message.fixture.js'
-import { setAgentTypes } from '../../src/models/user.model/agent.model/index.js'
-import defaultAgentTypes from '../../src/agents/index.js'
-import { insertTopics } from '../fixtures/topic.fixture.js'
-import { AgentMessageActions } from '../../src/types/index.types.js'
-import { defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/getModelChat.js'
+
+/* Running an experiment seeds the result conversation's vector store, which in the real
+   module means an HTTP call to the embeddings API and another to Chroma. Neither is what
+   these tests check, and a slow or hung call there was the usual reason this file timed
+   out in CI. The whole network layer is replaced here so the run path stays in-process.
+   An absolute path sidesteps any ambiguity in how unstable_mockModule resolves a relative
+   specifier; it must match the resolved import the transcript helper uses. */
+const ragModulePath = path.resolve(process.cwd(), 'src/agents/helpers/rag.ts')
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockAddTextsToVectorStore = jest.fn<(...args: any[]) => Promise<any>>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockRemoveFromVectorStore = jest.fn<(...args: any[]) => Promise<any>>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockGetContextChunksForQuestion = jest.fn<(...args: any[]) => Promise<any>>()
+
+jest.unstable_mockModule(ragModulePath, () => ({
+  TRANSCRIPT_COLLECTION_PREFIX: 'event-transcript',
+  default: {
+    getContextChunksForQuestion: mockGetContextChunksForQuestion,
+    addTextsToVectorStore: mockAddTextsToVectorStore,
+    addPDFToVectorStore: jest.fn(),
+    removeFromVectorStore: mockRemoveFromVectorStore,
+    createCollection: jest.fn(),
+    deleteCollection: jest.fn(),
+    deleteAllCollections: jest.fn(),
+    checkCollections: jest.fn(),
+    getCollection: jest.fn()
+  }
+}))
+
+/* Everything that reaches the app must be imported dynamically, after the mock above: a
+   static import would be hoisted ahead of it and load the real rag module first. */
+const { default: setupIntTest } = await import('../utils/setupIntTest.js')
+const { default: app } = await import('../../src/app.js')
+const { insertUsers, registeredUser, userOne } = await import('../fixtures/user.fixture.js')
+const { registeredUserAccessToken } = await import('../fixtures/token.fixture.js')
+const { insertConversations, publicTopic } = await import('../fixtures/conversation.fixture.js')
+const { default: Experiment } = await import('../../src/models/experiment.model/experiment.js')
+const { Agent, Message, Conversation, Channel } = await import('../../src/models/index.js')
+const { insertMessages } = await import('../fixtures/message.fixture.js')
+const { setAgentTypes } = await import('../../src/models/user.model/agent.model/index.js')
+const { default: defaultAgentTypes } = await import('../../src/agents/index.js')
+const { insertTopics } = await import('../fixtures/topic.fixture.js')
+const { AgentMessageActions } = await import('../../src/types/index.types.js')
+const { defaultLLMPlatform, defaultLLMModel } = await import('../../src/agents/helpers/getModelChat.js')
 
 setupIntTest()
 
-const mockRespond = jest.fn()
-const mockStart = jest.fn()
+beforeEach(() => {
+  mockAddTextsToVectorStore.mockResolvedValue(undefined)
+  mockRemoveFromVectorStore.mockResolvedValue(undefined)
+  mockGetContextChunksForQuestion.mockResolvedValue({ retrievedDocs: [], chunks: [] })
+})
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockRespond = jest.fn<(...args: any[]) => Promise<any>>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockStart = jest.fn<(...args: any[]) => Promise<any>>()
 
 // Test fixtures
 const baseConversationId = new mongoose.Types.ObjectId()
@@ -453,6 +495,18 @@ describe('Experiment routes', () => {
         .send(experimentCreateRequest)
 
       createdExperiment = response.body
+    })
+
+    test('seeds the result conversation vector store through the mocked layer, never the live one', async () => {
+      mockRespond.mockResolvedValue([{ visible: true, message: 'A response', pause: 0 }])
+
+      await request(app)
+        .post(`/v1/experiments/${createdExperiment.id}/run`)
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .expect(httpStatus.OK)
+
+      expect(mockRemoveFromVectorStore).toHaveBeenCalled()
+      expect(mockAddTextsToVectorStore).toHaveBeenCalled()
     })
 
     test('should return 200 and run experiment simulation', async () => {
