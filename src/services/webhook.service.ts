@@ -5,6 +5,7 @@ import userService from './user.service.js'
 import messageService from './message.service.js'
 import conversationService from './conversation.service/index.js'
 import logger from '../config/logger.js'
+import introduceOnce from './agentIntroduction.service.js'
 
 async function getOrCreateUser(adapter, adapterUser) {
   let user = await User.findOne({ username: adapterUser.username })
@@ -163,9 +164,15 @@ const participantJoined = async (adapter, participant) => {
         // failing on the same introduction again, indefinitely. Log which agent could not
         // introduce itself and carry on with the rest.
         try {
-          const introMessages = await agent.introduce(channel, adapter.type)
+          const introMessages = await introduceOnce({
+            conversation: adapter.conversation,
+            agent,
+            channel,
+            user,
+            adapterType: adapter.type
+          })
           for (const introMsg of introMessages) {
-            const body = introMsg.message?.text ?? introMsg.message
+            const body = (introMsg.message as { text?: string })?.text ?? introMsg.message
             await adapter.sendMessage({ ...introMsg, body, channels: [directChannelName] })
           }
         } catch (error) {

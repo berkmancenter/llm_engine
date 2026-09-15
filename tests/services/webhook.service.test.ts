@@ -801,6 +801,39 @@ describe('adapter service tests', () => {
       loggerSpy.mockRestore()
     })
 
+    it('sends the stored DM introduction again on rejoin without asking the agent twice', async () => {
+      await createConversation('Meeting with Rejoining Greeted User')
+      conversation.enableDMs = ['agents']
+      const agent = new Agent({ agentType: 'test', conversation })
+      await agent.save()
+      conversation.agents.push(agent)
+      await conversation.save()
+
+      adapter.dmChannels = [{ direct: true, agent: agent._id, direction: Direction.BOTH, config: {} }]
+      await adapter.save()
+
+      const introduce = jest.fn().mockResolvedValue([{ message: { text: 'Hello' } }])
+      setAgentTypes({ test: { ...testAgentTypeSpecification.test, introduce } })
+      const sendMessage = jest.fn().mockResolvedValue(undefined)
+      adapter.sendMessage = sendMessage
+      mockAdapterType.participantJoined.mockReturnValue({
+        username: 'Rejoining Greeted User',
+        dmConfig: { to: 600 }
+      })
+      const participant = { id: 600, name: 'Rejoining Greeted User', platform: 'test' }
+
+      try {
+        await webhookService.participantJoined(adapter, participant)
+        await webhookService.participantJoined(adapter, participant)
+      } finally {
+        setAgentTypes(testAgentTypeSpecification)
+      }
+
+      expect(introduce).toHaveBeenCalledTimes(1)
+      expect(sendMessage).toHaveBeenCalledTimes(2)
+      expect(sendMessage.mock.calls[1][0].body).toEqual('Hello')
+    })
+
     it('uses existing user when participant with same name joins', async () => {
       await createConversation('Meeting with Existing User')
       conversation.enableDMs = ['agents']
