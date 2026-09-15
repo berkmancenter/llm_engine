@@ -1,60 +1,24 @@
-import mongoose from 'mongoose'
 import catchAsync from '../../utils/catchAsync.js'
 import { checkAuth, getRoomId, getRoomIds } from '../utils.js'
 import logger from '../../config/logger.js'
 import authChannels from '../../utils/authChannels.js'
 import { conversationService } from '../../services/index.js'
 import { agentResponseToMessageData } from '../../services/message.service.js'
-import { AgentIntroduction, Conversation } from '../../models/index.js'
-import { AgentResponse, IChannel } from '../../types/index.types.js'
-
-const introductionKey = (channelName: string, agentId: mongoose.Types.ObjectId) => `${channelName}:${agentId}`
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const withoutChannel = ({ channels, ...intro }: AgentResponse<unknown>) => intro
-
-/**
- * Saves a greeting unless one is already stored, and returns the stored copy. Two joins from one
- * browser can race past the lookup and both generate a greeting; the unique index lets the first
- * insert win, and the other join must deliver that same copy so both show identical text.
- */
-async function saveOrReuseIntros(filter: Record<string, unknown>, intros: Omit<AgentResponse<unknown>, 'channels'>[]) {
-  try {
-    const record = await AgentIntroduction.findOneAndUpdate(
-      filter,
-      { $setOnInsert: { intros } },
-      { upsert: true, returnDocument: 'after' }
-    )
-    return record!.intros
-  } catch (err) {
-    if (err.code !== 11000) throw err
-    const record = await AgentIntroduction.findOne(filter)
-    return record!.intros
-  }
-}
+import { Conversation } from '../../models/index.js'
+import { IChannel } from '../../types/index.types.js'
+import introduceOnce from '../../services/agentIntroduction.service.js'
 
 export async function collectChannelIntros(conversation, channelNames, user) {
   const intros: ReturnType<typeof agentResponseToMessageData>[] = []
   if (!conversation.active) return intros
-  const priorIntroductions = await AgentIntroduction.find({ conversation: conversation._id, user: user._id })
-  const savedIntros = new Map(priorIntroductions.map((prior) => [introductionKey(prior.channel, prior.agent), prior.intros]))
   for (const channelName of channelNames) {
     const channel = conversation.channels?.find((c) => c.name === channelName)
     if (!channel) continue
     for (const agent of conversation.agents) {
       agent.conversation = conversation
-      let saved = savedIntros.get(introductionKey(channelName, agent._id))
-      if (!saved) {
-        const agentIntros = await agent.introduce(channel)
-        // An empty result (no greeting for this channel, or a failed LLM call) is not recorded, so the next join asks again.
-        if (agentIntros.length === 0) continue
-        saved = await saveOrReuseIntros(
-          { conversation: conversation._id, user: user._id, agent: agent._id, channel: channelName },
-          agentIntros.map(withoutChannel)
-        )
-      }
-      for (const intro of saved) {
-        intros.push(agentResponseToMessageData({ ...intro, channels: [channel] }, agent))
+      const agentIntros = await introduceOnce({ conversation, agent, channel, user })
+      for (const intro of agentIntros) {
+        intros.push(agentResponseToMessageData(intro, agent))
       }
     }
   }
