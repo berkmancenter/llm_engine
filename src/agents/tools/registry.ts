@@ -5,6 +5,7 @@ import { searchSemanticScholarTool, getSemanticScholarRecommendationsTool } from
 import createEventHistoryTools, { TopicRef, buildEventHistoryToolsPrompt } from './eventHistory.js'
 import Topic from '../../models/topic.model.js'
 import { bkcArchiveWikiTools, buildArchiveWikiToolsPrompt } from './bkcArchiveWiki.js'
+import createMemberBioTools, { buildMemberBioToolsPrompt } from './memberBios.js'
 
 /**
  * A factory that returns one or more LangChain tools, optionally async.
@@ -128,3 +129,15 @@ registerToolPrompt('event_history', async (context) => {
   const topicIds = Array.isArray(context?.topicIds) ? (context.topicIds as string[]) : []
   return buildEventHistoryToolsPrompt(false, topicIds)
 })
+
+// Member bio search loads its per-conversation collection at request time from the active
+// conversation — there's no cross-room roster to scope, unlike event_history's topics.
+registerTool('member_bios', (context) => {
+  const conversationId = typeof context?.activeConversationId === 'string' ? context.activeConversationId : undefined
+  if (!conversationId) {
+    logger.warn('Tool registry: member_bios requested but no activeConversationId in context')
+    return []
+  }
+  return createMemberBioTools({ conversationId })
+})
+registerToolPrompt('member_bios', () => buildMemberBioToolsPrompt())

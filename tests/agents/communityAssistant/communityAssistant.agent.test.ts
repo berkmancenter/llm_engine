@@ -12,6 +12,8 @@ import {
   prepareMessagesForAgent
 } from '../../utils/agentTestHelpers.js'
 import { Agent, Channel } from '../../../src/models/index.js'
+import ConversationMembership from '../../../src/models/conversationMembership.model.js'
+import memberBios from '../../../src/utils/memberBios.js'
 import { AgentMessageActions, ConversationHistory } from '../../../src/types/index.types.js'
 import { newPublicTopic, insertTopics } from '../../fixtures/topic.fixture.js'
 import websocketGateway from '../../../src/websockets/websocketGateway.js'
@@ -939,6 +941,134 @@ A single mom of two children with primary custody, she is passionate about findi
       // and should not claim there is no memory/context bridge (DMs do receive group chat history)
       expect(reply).not.toMatch(
         /\bnot an? (?:active )?participant\b|\bcan(?:'t|not| not) (?:write|post|respond|reply)\b|\bread[- ]?only\b|\bonly (?:read|see|observe)\b|\bno (?:memory )?bridg(?:e|ing)\b|\bstarts? fresh\b|\bdifferent instances?\b/i
+      )
+    })
+  })
+
+  describe('uses member bio tools to answer member questions', () => {
+    let memberBioAgent
+    let memberBioConversation
+
+    beforeEach(async () => {
+      memberBioConversation = await createConversation({ name: 'Member Bio Test' }, user1, topic)
+      memberBioAgent = new Agent({
+        agentType: 'communityAssistant',
+        conversation: memberBioConversation,
+        llmPlatform: testConfig.llmPlatform,
+        llmModel: testConfig.llmModel,
+        agentConfig: { botName: BOT_NAME }
+      })
+      const channels = await Channel.create([{ name: 'chat' }])
+      memberBioConversation.channels.push(...channels)
+      await memberBioAgent.save()
+      memberBioConversation.agents.push(memberBioAgent)
+      await memberBioConversation.save()
+      await memberBioAgent.start()
+
+      const conversationId = memberBioConversation._id.toString()
+      const memberships = await ConversationMembership.create([
+        {
+          conversation: memberBioConversation._id,
+          email: 'diana@example.com',
+          name: 'Diana',
+          bio: 'Policy researcher specializing in AI governance and technology regulation',
+          interests: 'AI policy, tech law, regulatory frameworks',
+          status: 'active'
+        },
+        {
+          conversation: memberBioConversation._id,
+          email: 'evan@example.com',
+          name: 'Evan',
+          bio: 'Climate scientist studying carbon sequestration in boreal forests',
+          interests: 'climate change, carbon capture, ecology',
+          status: 'active'
+        },
+        {
+          conversation: memberBioConversation._id,
+          email: 'fiona@example.com',
+          name: 'Fiona',
+          bio: 'UX designer focused on accessibility and inclusive design practices',
+          interests: 'design systems, WCAG compliance, user research',
+          status: 'active'
+        }
+      ])
+      await memberBios.indexMemberBios(
+        conversationId,
+        memberships.map((m) => ({ id: m._id.toString(), name: m.name, bio: m.bio, interests: m.interests }))
+      )
+    })
+
+    async function askMemberBioAgent(body: string) {
+      console.log(`Q: ${body}`)
+      const msg = await createMessage(body, user1, memberBioConversation, ['chat'])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(memberBioAgent, buildHistory([]), msg)
+      console.log(`A: ${responses[0]?.message}`)
+      return responses
+    }
+
+    it('identifies a member by expertise using search_members', async () => {
+      const responses = await askMemberBioAgent(`@${BOT_NAME} who here works on AI policy or tech regulation?`)
+
+      expect(responses).toHaveLength(1)
+      expect(responses[0].message).toBeDefined()
+      expect(responses[0].message.toLowerCase()).toContain('diana')
+    })
+
+    it('retrieves a specific named member bio using get_member', async () => {
+      const responses = await askMemberBioAgent(`@${BOT_NAME} what do you know about Evan?`)
+
+      expect(responses).toHaveLength(1)
+      expect(responses[0].message).toBeDefined()
+      expect(responses[0].message.toLowerCase()).toMatch(/evan/)
+      expect(responses[0].message.toLowerCase()).toMatch(/climate|carbon|forest|ecology/)
+    })
+
+    it('retrieves a member bio when the name is @-prefixed', async () => {
+      const responses = await askMemberBioAgent(`@${BOT_NAME} what do you know about @Evan?`)
+
+      expect(responses).toHaveLength(1)
+      expect(responses[0].message).toBeDefined()
+      expect(responses[0].message.toLowerCase()).toMatch(/climate|carbon|forest|ecology/)
+    })
+
+    it('does not surface member bios when memberBioSearch is disabled', async () => {
+      const disabledConv = await createConversation({ name: 'Member Bio Disabled Test' }, user1, topic)
+      const disabledAgent = new Agent({
+        agentType: 'communityAssistant',
+        conversation: disabledConv,
+        llmPlatform: testConfig.llmPlatform,
+        llmModel: testConfig.llmModel,
+        agentConfig: { botName: BOT_NAME, memberBioSearch: false }
+      })
+      const channels = await Channel.create([{ name: 'chat' }])
+      disabledConv.channels.push(...channels)
+      await disabledAgent.save()
+      disabledConv.agents.push(disabledAgent)
+      await disabledConv.save()
+      await disabledAgent.start()
+
+      // Index a member into this conversation's collection — the agent should not be able to
+      // surface her because the member_bios tool is disabled
+      const membership = await ConversationMembership.create({
+        conversation: disabledConv._id,
+        email: 'diana@example.com',
+        name: 'Diana',
+        bio: 'Policy researcher specializing in AI governance and technology regulation',
+        status: 'active'
+      })
+      await memberBios.indexMemberBios(disabledConv._id.toString(), [
+        { id: membership._id.toString(), name: 'Diana', bio: membership.bio }
+      ])
+
+      const msg = await createMessage(`@${BOT_NAME} who here works on AI policy?`, user1, disabledConv, ['chat'])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(disabledAgent, buildHistory([]), msg)
+      console.log(`A (memberBioSearch disabled): ${responses[0]?.message}`)
+
+      expect(responses).toHaveLength(1)
+      // Without the tool the agent cannot know Diana's specific expertise; her name should not
+      // appear in a confident answer about AI policy
+      expect(responses[0].message.toLowerCase()).not.toMatch(
+        /diana.*ai policy|ai policy.*diana|diana.*policy|diana.*governance/
       )
     })
   })

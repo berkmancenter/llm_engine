@@ -1,5 +1,6 @@
 import { ChatPostMessageResponse } from '@slack/web-api'
 import type { KnownBlock, Block } from '@slack/types'
+import * as fuzzball from 'fuzzball'
 import logger from '../../config/logger.js'
 import slackClientPool from './client.js'
 import { AdapterMessage } from '../../types/adapter.types.js'
@@ -13,6 +14,77 @@ function normalizeBotMention(text: string, botUserId: string, botName: string): 
   const escapedId = botUserId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   // eslint-disable-next-line security/detect-non-literal-regexp
   return text.replace(new RegExp(`(?:&lt;|<)@${escapedId}(?:&gt;|>)`, 'g'), `@${botName}`)
+}
+
+/**
+ * Inbound: replace resolved Slack mention tokens (<@UID>) with the member's real name
+ * so the LLM sees plain names rather than opaque IDs. Members not in the roster are
+ * left as-is. No-ops if the text contains no mention tokens.
+ */
+async function normalizeMemberMentions(text: string, conversationId: string): Promise<string> {
+  const mentionPattern = /(?:&lt;|<)@([A-Z0-9]+)(?:&gt;|>)/gi
+  const uids = [...new Set([...text.matchAll(mentionPattern)].map((m) => m[1]))]
+  if (uids.length === 0) return text
+
+  const members = await ConversationMembership.find({
+    conversation: conversationId,
+    'externalIds.slack': { $in: uids }
+  })
+    .select('name externalIds')
+    .lean()
+
+  const uidToName = new Map(members.map((m) => [m.externalIds?.slack?.toUpperCase(), m.name]))
+
+  return text.replace(mentionPattern, (match, uid) => {
+    const name = uidToName.get(uid.toUpperCase())
+    return name ? `@${name}` : match
+  })
+}
+
+/**
+ * Outbound: replace @Name mentions in LLM output with <@UID> so Slack renders them
+ * as clickable mentions and the person gets notified. Only matches explicit @Name
+ * patterns not already in <@UID> format. Uses a high fuzzy-match threshold (85) to
+ * avoid false positives.
+ */
+async function resolveOutboundMentions(text: string, conversationId: string): Promise<string> {
+  if (!text.includes('@')) return text
+  // Match @Word or @Multi Word — not already preceded by < (i.e. not <@UID>)
+
+  // Require each word to start with a capital letter — genuine names are capitalized;
+  // continuation words like "and", "please" are not, which prevents over-capture.
+  // eslint-disable-next-line security/detect-unsafe-regex
+  const mentionPattern = /(?<!<)@([A-Z][a-zA-Z0-9]*(?:[ ][A-Z][a-zA-Z0-9]*){0,3})/g
+  const rawMentions = [...new Set([...text.matchAll(mentionPattern)].map((m) => m[1]))]
+  if (rawMentions.length === 0) return text
+
+  const members = await ConversationMembership.find({
+    conversation: conversationId,
+    'externalIds.slack': { $exists: true }
+  })
+    .select('name externalIds')
+    .lean()
+
+  if (members.length === 0) return text
+
+  const nameToUid = new Map<string, string>()
+  for (const mention of rawMentions) {
+    const lower = mention.toLowerCase()
+    const best = members.reduce(
+      (acc, m) => {
+        const score = fuzzball.ratio(lower, m.name.toLowerCase())
+        return score > acc.score ? { score, uid: m.externalIds?.slack } : acc
+      },
+      { score: 0, uid: undefined as string | undefined }
+    )
+    if (best.score >= 85 && best.uid) nameToUid.set(mention, best.uid)
+  }
+
+  if (nameToUid.size === 0) return text
+  return text.replace(mentionPattern, (match, name) => {
+    const uid = nameToUid.get(name)
+    return uid ? `<@${uid}>` : match
+  })
 }
 
 async function syncSlackExternalIds() {
@@ -111,8 +183,12 @@ export async function publishHomeView(
 }
 
 async function receiveGroupChatMessage(event) {
+  const normalized = await normalizeMemberMentions(
+    normalizeBotMention(event.text, this.config.botUserId, this.config.botName),
+    this.conversation._id
+  )
   const msg: AdapterMessage<string> = {
-    message: normalizeBotMention(event.text, this.config.botUserId, this.config.botName),
+    message: normalized,
     /* Store Slack identity in source so it survives DB persistence.
        The user field is only used for auth lookup and is not saved. */
     source: { type: 'slack', id: event.ts, userId: event.user, teamId: event.team, channelId: event.channel },
@@ -127,8 +203,12 @@ async function receiveGroupChatMessage(event) {
 }
 
 async function receiveDirectMesssage(event) {
+  const normalized = await normalizeMemberMentions(
+    normalizeBotMention(event.text, this.config.botUserId, this.config.botName),
+    this.conversation._id
+  )
   const msg: AdapterMessage<string> = {
-    message: normalizeBotMention(event.text, this.config.botUserId, this.config.botName),
+    message: normalized,
     source: { type: 'slack', id: event.ts },
     channels: this.dmChannels,
     user: {
@@ -184,9 +264,10 @@ export default {
   },
   async sendMessage(message, channelConfig?) {
     const channel = channelConfig?.channel ? channelConfig?.channel : this.config.channel
-    // Convert markdown to Slack mrkdwn format, then convert Slack user ID mentions to Slack format.
-    // Handles bare IDs (U123ABC) and @-prefixed IDs (@U123ABC), but not already-wrapped <@...> or non-ID @names.
-    const text = markdownToMrkdwn(message.body)
+    // Resolve @Name mentions to <@UID> where possible, then convert markdown to Slack mrkdwn
+    // format, then wrap any remaining bare Slack user IDs.
+    const resolvedBody = await resolveOutboundMentions(message.body, this.conversation._id)
+    const text = markdownToMrkdwn(resolvedBody)
       .replace(/(?<![<@\w])(U[A-Z0-9]{6,})\b/g, '<@$1>')
       .replace(/(?<!<)@(U[A-Z0-9]{6,})\b/g, '<@$1>')
     const slackWebClient = slackClientPool.getClient(this.config.botToken)

@@ -1,5 +1,11 @@
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import { registerTool, registerToolPrompt, getTools, buildToolsGuidance, listRegisteredTools } from '../../../src/agents/tools/registry.js'
+import {
+  registerTool,
+  registerToolPrompt,
+  getTools,
+  buildToolsGuidance,
+  listRegisteredTools
+} from '../../../src/agents/tools/registry.js'
 import { buildWebSearchPrompt } from '../../../src/agents/tools/webSearch.js'
 
 describe('Tool Registry', () => {
@@ -11,6 +17,7 @@ describe('Tool Registry', () => {
     expect(registered).toContain('get_semantic_scholar_recommendations')
     expect(registered).toContain('event_history')
     expect(registered).toContain('bkc_archive_wiki')
+    expect(registered).toContain('member_bios')
   })
 
   test('should resolve web_search to tool instance', async () => {
@@ -109,5 +116,22 @@ describe('Tool Registry', () => {
       activeConversationId: '507f1f77bcf86cd799439012'
     })
     expect(tools).toHaveLength(3)
+  })
+
+  test('member_bios factory returns search_members and get_member when activeConversationId is provided', async () => {
+    const tools = await getTools(['member_bios'], { activeConversationId: '507f1f77bcf86cd799439012' })
+    expect(tools.map((t) => t.name)).toEqual(['search_members', 'get_member'])
+  })
+
+  test('member_bios factory returns empty array without activeConversationId in context', async () => {
+    const tools = await getTools(['member_bios'], {})
+    expect(tools).toHaveLength(0)
+  })
+
+  test('buildToolsGuidance returns member_bios prompt regardless of useRealNames', async () => {
+    const guidance = await buildToolsGuidance(['member_bios'])
+    expect(guidance).toContain('search_members')
+    expect(guidance).toContain('get_member')
+    expect(guidance).toContain('untrusted user-supplied text')
   })
 })

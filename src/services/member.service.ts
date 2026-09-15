@@ -6,6 +6,7 @@ import Conversation from '../models/conversation.model.js'
 import ConversationMembership from '../models/conversationMembership.model.js'
 import { matchHeaders, CanonicalField } from '../utils/csvHeaderMatcher.js'
 import { sanitizeSingleLineText, sanitizeMultiLineText, sanitizeEmail, SanitizedField } from '../utils/csvRowSanitize.js'
+import memberBios from '../utils/memberBios.js'
 
 // Defense-in-depth against a memory-only large-file scenario the multer byte-size cap alone
 // wouldn't catch (e.g. a file that's small on disk but expands to many rows).
@@ -159,19 +160,38 @@ const importMembersFromCsv = async (conversationId: string, buffer: Buffer, acti
     const newEmails = rows.filter((_, i) => upsertedIndexes.has(i)).map((r) => r.email)
     const updatedEmails = rows.filter((_, i) => !upsertedIndexes.has(i)).map((r) => r.email)
 
-    if (newEmails.length) {
-      const docs = await ConversationMembership.find({ conversation: conversationId, email: { $in: newEmails } })
-        .select('_id email')
+    const touchedEmails = [...newEmails, ...updatedEmails]
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let touchedDocs: any[] = []
+    if (touchedEmails.length) {
+      touchedDocs = await ConversationMembership.find({ conversation: conversationId, email: { $in: touchedEmails } })
+        .select('_id email name bio interests')
         .lean()
         .exec()
-      newMembers = docs.map((d) => ({ id: d._id.toString(), email: d.email }))
+    }
+    if (newEmails.length) {
+      const newEmailSet = new Set(newEmails)
+      newMembers = touchedDocs.filter((d) => newEmailSet.has(d.email)).map((d) => ({ id: d._id.toString(), email: d.email }))
     }
     if (updatedEmails.length) {
-      const docs = await ConversationMembership.find({ conversation: conversationId, email: { $in: updatedEmails } })
-        .select('_id email')
-        .lean()
-        .exec()
-      updatedMembers = docs.map((d) => ({ id: d._id.toString(), email: d.email }))
+      const updatedEmailSet = new Set(updatedEmails)
+      updatedMembers = touchedDocs
+        .filter((d) => updatedEmailSet.has(d.email))
+        .map((d) => ({ id: d._id.toString(), email: d.email }))
+    }
+
+    // Keep the room's searchable bio index in sync with the roster — re-embeds new and updated rows, including clearing a bio/interests that
+    // got blanked out in this import. Best-effort: the roster import itself already
+    // succeeded above, so a Chroma hiccup here shouldn't fail the whole request.
+    if (touchedDocs.length) {
+      try {
+        await memberBios.indexMemberBios(
+          conversationId,
+          touchedDocs.map((d) => ({ id: d._id.toString(), name: d.name, bio: d.bio, interests: d.interests }))
+        )
+      } catch (err) {
+        logger.warn(`member.service: failed to reindex member bios for ${conversationId}: ${err}`)
+      }
     }
   }
 

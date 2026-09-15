@@ -882,6 +882,151 @@ describe('slack adapter tests', () => {
     })
   })
 
+  describe('member mention normalization (inbound)', () => {
+    beforeEach(async () => {
+      await createConversation('Member Mention Inbound Test')
+      adapter.chatChannels = [{ name: 'general', direction: Direction.BOTH }]
+      await adapter.save()
+    })
+
+    it('replaces <@UID> with @Name when UID matches an active member', async () => {
+      await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'alice@example.com',
+        name: 'Alice Chen',
+        externalIds: { slack: 'UALICE' }
+      })
+      const msgs = await adapter.receiveMessage({
+        user: 'UOTHER',
+        team: 'T123456789',
+        text: 'Hey <@UALICE>, what do you think?',
+        channel: '#test-channel',
+        ts: '1234567890.000001'
+      })
+      expect(msgs[0].message).toBe('Hey @Alice Chen, what do you think?')
+    })
+
+    it('replaces HTML-encoded &lt;@UID&gt; with @Name', async () => {
+      await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'bob@example.com',
+        name: 'Bob Kim',
+        externalIds: { slack: 'UBOBKM' }
+      })
+      const msgs = await adapter.receiveMessage({
+        user: 'UOTHER',
+        team: 'T123456789',
+        text: 'Thanks &lt;@UBOBKM&gt; for the help',
+        channel: '#test-channel',
+        ts: '1234567890.000002'
+      })
+      expect(msgs[0].message).toBe('Thanks @Bob Kim for the help')
+    })
+
+    it('leaves <@UID> unchanged when UID has no matching member', async () => {
+      const msgs = await adapter.receiveMessage({
+        user: 'UOTHER',
+        team: 'T123456789',
+        text: 'Hey <@UUNKWN>, are you there?',
+        channel: '#test-channel',
+        ts: '1234567890.000003'
+      })
+      expect(msgs[0].message).toBe('Hey <@UUNKWN>, are you there?')
+    })
+
+    it('normalizes multiple mentions in one message', async () => {
+      await ConversationMembership.create([
+        { conversation: conversation._id, email: 'alice@example.com', name: 'Alice Chen', externalIds: { slack: 'UALICE' } },
+        { conversation: conversation._id, email: 'bob@example.com', name: 'Bob Kim', externalIds: { slack: 'UBOBKM' } }
+      ])
+      const msgs = await adapter.receiveMessage({
+        user: 'UOTHER',
+        team: 'T123456789',
+        text: '<@UALICE> and <@UBOBKM> should connect',
+        channel: '#test-channel',
+        ts: '1234567890.000004'
+      })
+      expect(msgs[0].message).toBe('@Alice Chen and @Bob Kim should connect')
+    })
+
+    it('passes through messages with no mention tokens unchanged', async () => {
+      const msgs = await adapter.receiveMessage({
+        user: 'UOTHER',
+        team: 'T123456789',
+        text: 'Just a normal message',
+        channel: '#test-channel',
+        ts: '1234567890.000005'
+      })
+      expect(msgs[0].message).toBe('Just a normal message')
+    })
+  })
+
+  describe('member mention resolution (outbound)', () => {
+    async function sendAndGetText(body: string): Promise<string> {
+      mockWebClient.chat.postMessage.mockResolvedValue({ ok: true, ts: '1234567890.123456', channel: '#test-channel' })
+      await adapter.sendMessage({ body, channels: ['general'] })
+      return mockWebClient.chat.postMessage.mock.calls[0][0].text
+    }
+
+    beforeEach(async () => {
+      await createConversation('Member Mention Outbound Test')
+      adapter.chatChannels = [{ name: 'general', direction: Direction.OUTGOING }]
+    })
+
+    it('resolves @Name to <@UID> when name fuzzy-matches an active member', async () => {
+      await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'alice@example.com',
+        name: 'Alice Chen',
+        externalIds: { slack: 'UALICE' }
+      })
+      expect(await sendAndGetText('Great point @Alice Chen!')).toBe('Great point <@UALICE>!')
+    })
+
+    it('resolves a name with slight variation (fuzzy match above threshold)', async () => {
+      await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'alice@example.com',
+        name: 'Alice Chen',
+        externalIds: { slack: 'UALICE' }
+      })
+      expect(await sendAndGetText('ping @Alice Chen please')).toBe('ping <@UALICE> please')
+    })
+
+    it('leaves @Name unchanged when no member matches above the threshold', async () => {
+      await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'alice@example.com',
+        name: 'Alice Chen',
+        externalIds: { slack: 'UALICE' }
+      })
+      // "Zephyr" shares nothing with "Alice Chen"
+      expect(await sendAndGetText('hey @Zephyr how are you')).toBe('hey @Zephyr how are you')
+    })
+
+    it('leaves already-formatted <@UID> mentions untouched', async () => {
+      await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'alice@example.com',
+        name: 'Alice Chen',
+        externalIds: { slack: 'UALICE' }
+      })
+      expect(await sendAndGetText('hello <@UALICE> again')).toBe('hello <@UALICE> again')
+    })
+
+    it('resolves multiple names in one message', async () => {
+      await ConversationMembership.create([
+        { conversation: conversation._id, email: 'alice@example.com', name: 'Alice Chen', externalIds: { slack: 'UALICE' } },
+        { conversation: conversation._id, email: 'bob@example.com', name: 'Bob Kim', externalIds: { slack: 'UBOBKM' } }
+      ])
+      expect(await sendAndGetText('@Alice Chen and @Bob Kim should pair up')).toBe('<@UALICE> and <@UBOBKM> should pair up')
+    })
+
+    it('no-ops fast when message contains no @ character', async () => {
+      expect(await sendAndGetText('no mentions here at all')).toBe('no mentions here at all')
+    })
+  })
+
   describe('participantJoined', () => {
     beforeEach(async () => {
       await createConversation('participantJoined Test', ['agents'])
@@ -954,12 +1099,12 @@ describe('slack adapter tests', () => {
       })
       mockWebClient.users.list.mockResolvedValue({
         ok: true,
-        members: [{ id: 'U_ALICE', profile: { email: 'alice@example.com' }, is_bot: false, deleted: false }],
+        members: [{ id: 'UALICE', profile: { email: 'alice@example.com' }, is_bot: false, deleted: false }],
         response_metadata: { next_cursor: '' }
       })
       await adapter.start()
       const updated = await ConversationMembership.findById(membership._id).lean()
-      expect(updated?.externalIds?.slack).toBe('U_ALICE')
+      expect(updated?.externalIds?.slack).toBe('UALICE')
     })
 
     it('handles pagination and writes members across multiple pages', async () => {
