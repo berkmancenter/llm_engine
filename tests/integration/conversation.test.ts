@@ -2240,17 +2240,27 @@ describe('Conversation routes', () => {
       await request(app).delete(`/v1/conversations/${conversationOne._id}`).send().expect(httpStatus.UNAUTHORIZED)
     })
 
-    test('should return 403 when user is not conversation owner or topic owner', async () => {
-      // userTwo tries to delete conversationOne (owned by userOne, topic owned by userOne)
+    test('should allow an admin to delete a conversation they do not own', async () => {
+      // Use an inactive conversation with no transcript to avoid triggering the LLM summary path
+      const otherConversation = new Conversation({
+        name: 'Admin Delete Test',
+        owner: userOne._id,
+        topic: publicTopic._id,
+        active: false,
+        agents: [],
+        messages: []
+      })
+      await otherConversation.save()
+
+      // userTwo is an admin but not the owner
       await request(app)
-        .delete(`/v1/conversations/${conversationOne._id}`)
+        .delete(`/v1/conversations/${otherConversation._id}`)
         .set('Authorization', `Bearer ${userTwoAccessToken}`)
         .send()
-        .expect(httpStatus.FORBIDDEN)
+        .expect(httpStatus.OK)
 
-      // Verify conversation still exists
-      const conversation = await Conversation.findById(conversationOne._id)
-      expect(conversation).toBeTruthy()
+      const conversation = await Conversation.findById(otherConversation._id)
+      expect(conversation).toBeNull()
     })
 
     test('should return 400 when conversationId is invalid ObjectId', async () => {

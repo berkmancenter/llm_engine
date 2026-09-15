@@ -2677,4 +2677,92 @@ describe('Conversation service methods', () => {
       dispatchSpy.mockRestore()
     })
   })
+
+  describe('admin ownership bypass', () => {
+    let conversation
+    let convOwner
+    const admin = { _id: new mongoose.Types.ObjectId(), role: 'admin' }
+    const stranger = { _id: new mongoose.Types.ObjectId(), role: 'participant' }
+
+    beforeEach(async () => {
+      convOwner = { _id: new mongoose.Types.ObjectId(), role: 'participant' }
+      await insertUsers([registeredUser])
+      await insertTopics([topicOne])
+      conversation = new Conversation({
+        name: 'Ownership Test',
+        owner: convOwner._id,
+        topic: topicOne._id,
+        active: false,
+        draft: false,
+        agents: [],
+        adapters: [],
+        messages: []
+      })
+      await conversation.save()
+      jest.spyOn(schedule, 'autoStopConversation').mockResolvedValue(undefined)
+      jest.spyOn(schedule, 'cancelAutoStopConversation').mockResolvedValue(undefined)
+      jest.spyOn(defineJob, 'autoStopConversation').mockResolvedValue(undefined)
+      jest.spyOn(agentDispatcher, 'dispatch').mockResolvedValue(undefined)
+    })
+
+    test('non-owner participant cannot start a conversation', async () => {
+      await expect(conversationService.startConversation(conversation._id.toString(), stranger)).rejects.toMatchObject({
+        statusCode: httpStatus.FORBIDDEN
+      })
+    })
+
+    test('admin can start a conversation they do not own', async () => {
+      await expect(conversationService.startConversation(conversation._id.toString(), admin)).resolves.not.toThrow()
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.active).toBe(true)
+    })
+
+    test('non-owner participant cannot stop a conversation', async () => {
+      await conversation.updateOne({ active: true })
+      await expect(conversationService.stopConversation(conversation._id.toString(), stranger)).rejects.toMatchObject({
+        statusCode: httpStatus.FORBIDDEN
+      })
+    })
+
+    test('admin can stop a conversation they do not own', async () => {
+      await conversation.updateOne({ active: true })
+      await expect(conversationService.stopConversation(conversation._id.toString(), admin)).resolves.not.toThrow()
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.active).toBe(false)
+    })
+
+    test('non-owner participant cannot delete a conversation', async () => {
+      await expect(conversationService.deleteConversation(conversation._id.toString(), stranger)).rejects.toMatchObject({
+        statusCode: httpStatus.FORBIDDEN
+      })
+    })
+
+    test('admin can delete a conversation they do not own', async () => {
+      await expect(conversationService.deleteConversation(conversation._id.toString(), admin)).resolves.not.toThrow()
+      const deleted = await Conversation.findById(conversation._id)
+      expect(deleted).toBeNull()
+    })
+
+    test('non-owner participant cannot patch an agent on a conversation', async () => {
+      const agent = new Agent({ agentType: 'eventAssistant', conversation: conversation._id })
+      await agent.save()
+      conversation.agents.push(agent)
+      await conversation.save()
+
+      await expect(
+        conversationService.patchConversationAgent(conversation._id.toString(), agent._id.toString(), {}, stranger)
+      ).rejects.toMatchObject({ statusCode: httpStatus.FORBIDDEN })
+    })
+
+    test('admin can patch an agent on a conversation they do not own', async () => {
+      const agent = new Agent({ agentType: 'eventAssistant', conversation: conversation._id })
+      await agent.save()
+      conversation.agents.push(agent)
+      await conversation.save()
+
+      await expect(
+        conversationService.patchConversationAgent(conversation._id.toString(), agent._id.toString(), {}, admin)
+      ).resolves.not.toThrow()
+    })
+  })
 })

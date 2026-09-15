@@ -68,6 +68,7 @@ const startConversation = async (conversationOrId, user) => {
   }
   await conversation.populate(['topic', 'agents', 'adapters'])
   if (
+    user.role !== 'admin' &&
     user._id.toString() !== conversation.owner._id.toString() &&
     user._id.toString() !== conversation.topic?.owner?._id.toString()
   ) {
@@ -86,6 +87,7 @@ const stopConversation = async (conversationOrId, user) => {
   }
   await conversation.populate(['topic', 'agents', 'adapters'])
   if (
+    user.role !== 'admin' &&
     user._id.toString() !== conversation.owner.toString() &&
     user._id.toString() !== conversation.topic?.owner?.toString()
   ) {
@@ -794,6 +796,7 @@ const deleteConversation = async (id, user) => {
     throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${id} not found`)
   }
   if (
+    user.role !== 'admin' &&
     user._id.toString() !== conversation.owner.toString() &&
     user._id.toString() !== conversation.topic?.owner?.toString()
   ) {
@@ -832,6 +835,7 @@ const patchConversationAgent = async (id, agentId, body, user) => {
   }
   const agentIdStr = agentId.toString() ? agentId.toString() : agentId
   if (
+    user.role !== 'admin' &&
     user._id.toString() !== conversation.owner.toString() &&
     user._id.toString() !== conversation.topic?.owner?.toString()
   ) {
