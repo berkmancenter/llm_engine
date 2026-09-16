@@ -1,6 +1,5 @@
 import { ChatPostMessageResponse } from '@slack/web-api'
 import type { KnownBlock, Block } from '@slack/types'
-import * as fuzzball from 'fuzzball'
 import logger from '../../config/logger.js'
 import slackClientPool from './client.js'
 import { AdapterMessage } from '../../types/adapter.types.js'
@@ -44,46 +43,50 @@ async function normalizeMemberMentions(text: string, conversationId: string): Pr
 /**
  * Outbound: replace @Name mentions in LLM output with <@UID> so Slack renders them
  * as clickable mentions and the person gets notified. Only matches explicit @Name
- * patterns not already in <@UID> format. Uses a high fuzzy-match threshold (85) to
- * avoid false positives.
+ * patterns not already in <@UID> format.
+ *
+ * Each captured span is tried as a series of word-count prefixes from longest to
+ * shortest, queried against the DB with case-insensitive collation. The longest
+ * prefix that resolves wins; any trailing captured words are reinserted as plain text.
+ * Requiring the first word to start with a capital letter avoids matching Slack
+ * built-ins like @here/@channel/@everyone.
  */
 async function resolveOutboundMentions(text: string, conversationId: string): Promise<string> {
   if (!text.includes('@')) return text
-  // Match @Word or @Multi Word — not already preceded by < (i.e. not <@UID>)
-
-  // Require each word to start with a capital letter — genuine names are capitalized;
-  // continuation words like "and", "please" are not, which prevents over-capture.
   // eslint-disable-next-line security/detect-unsafe-regex
   const mentionPattern = /(?<!<)@([A-Z][a-zA-Z0-9]*(?:[ ][A-Z][a-zA-Z0-9]*){0,3})/g
-  const rawMentions = [...new Set([...text.matchAll(mentionPattern)].map((m) => m[1]))]
-  if (rawMentions.length === 0) return text
+  const matches = [...text.matchAll(mentionPattern)]
+  if (matches.length === 0) return text
 
-  const members = await ConversationMembership.find({
-    conversation: conversationId,
-    'externalIds.slack': { $exists: true }
-  })
+  // Build the full set of prefix candidates across all matches so we hit the DB once.
+  const allPrefixes = new Set<string>()
+  for (const m of matches) {
+    const words = m[1].split(' ')
+    for (let len = words.length; len >= 1; len--) allPrefixes.add(words.slice(0, len).join(' '))
+  }
+
+  const matched = await ConversationMembership.find(
+    { conversation: conversationId, name: { $in: [...allPrefixes] }, 'externalIds.slack': { $exists: true } },
+    null,
+    { collation: { locale: 'en', strength: 2 } }
+  )
     .select('name externalIds')
     .lean()
 
-  if (members.length === 0) return text
+  if (matched.length === 0) return text
 
-  const nameToUid = new Map<string, string>()
-  for (const mention of rawMentions) {
-    const lower = mention.toLowerCase()
-    const best = members.reduce(
-      (acc, m) => {
-        const score = fuzzball.ratio(lower, m.name.toLowerCase())
-        return score > acc.score ? { score, uid: m.externalIds?.slack } : acc
-      },
-      { score: 0, uid: undefined as string | undefined }
-    )
-    if (best.score >= 85 && best.uid) nameToUid.set(mention, best.uid)
-  }
+  const nameToUid = new Map(matched.map((m) => [m.name.toLowerCase(), m.externalIds?.slack as string]))
 
-  if (nameToUid.size === 0) return text
-  return text.replace(mentionPattern, (match, name) => {
-    const uid = nameToUid.get(name)
-    return uid ? `<@${uid}>` : match
+  return text.replace(mentionPattern, (match, captured: string) => {
+    const words = captured.split(' ')
+    for (let len = words.length; len >= 1; len--) {
+      const uid = nameToUid.get(words.slice(0, len).join(' ').toLowerCase())
+      if (uid) {
+        const trailing = words.slice(len).join(' ')
+        return trailing ? `<@${uid}> ${trailing}` : `<@${uid}>`
+      }
+    }
+    return match
   })
 }
 

@@ -973,7 +973,7 @@ describe('slack adapter tests', () => {
       adapter.chatChannels = [{ name: 'general', direction: Direction.OUTGOING }]
     })
 
-    it('resolves @Name to <@UID> when name fuzzy-matches an active member', async () => {
+    it('resolves @Name to <@UID> when name matches a member (case-insensitive)', async () => {
       await ConversationMembership.create({
         conversation: conversation._id,
         email: 'alice@example.com',
@@ -983,24 +983,35 @@ describe('slack adapter tests', () => {
       expect(await sendAndGetText('Great point @Alice Chen!')).toBe('Great point <@UALICE>!')
     })
 
-    it('resolves a name with slight variation (fuzzy match above threshold)', async () => {
+    it('resolves by first name only when trailing words do not extend the match', async () => {
       await ConversationMembership.create({
         conversation: conversation._id,
         email: 'alice@example.com',
-        name: 'Alice Chen',
+        name: 'Alice',
         externalIds: { slack: 'UALICE' }
       })
-      expect(await sendAndGetText('ping @Alice Chen please')).toBe('ping <@UALICE> please')
+      // "I" is capitalized so is captured, but only "Alice" matches — "I" is reinserted
+      expect(await sendAndGetText('Thanks @Alice I agree')).toBe('Thanks <@UALICE> I agree')
     })
 
-    it('leaves @Name unchanged when no member matches above the threshold', async () => {
+    it('does not capture continuation words that happen to be capitalized', async () => {
       await ConversationMembership.create({
         conversation: conversation._id,
         email: 'alice@example.com',
         name: 'Alice Chen',
         externalIds: { slack: 'UALICE' }
       })
-      // "Zephyr" shares nothing with "Alice Chen"
+      // "I" after the name should not be swallowed
+      expect(await sendAndGetText('Thanks @Alice Chen I agree')).toBe('Thanks <@UALICE> I agree')
+    })
+
+    it('leaves @Name unchanged when no member matches', async () => {
+      await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'alice@example.com',
+        name: 'Alice Chen',
+        externalIds: { slack: 'UALICE' }
+      })
       expect(await sendAndGetText('hey @Zephyr how are you')).toBe('hey @Zephyr how are you')
     })
 
