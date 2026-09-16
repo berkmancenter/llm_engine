@@ -1031,14 +1031,14 @@ A single mom of two children with primary custody, she is passionate about findi
       expect(responses[0].message.toLowerCase()).toMatch(/climate|carbon|forest|ecology/)
     })
 
-    it('does not surface member bios when memberBioSearch is disabled', async () => {
+    it('does not surface member bios when member_bios is not in the tools list', async () => {
       const disabledConv = await createConversation({ name: 'Member Bio Disabled Test' }, user1, topic)
       const disabledAgent = new Agent({
         agentType: 'communityAssistant',
         conversation: disabledConv,
         llmPlatform: testConfig.llmPlatform,
         llmModel: testConfig.llmModel,
-        agentConfig: { botName: BOT_NAME, memberBioSearch: false }
+        agentConfig: { botName: BOT_NAME, tools: ['web_search'] }
       })
       const channels = await Channel.create([{ name: 'chat' }])
       disabledConv.channels.push(...channels)
@@ -1062,7 +1062,7 @@ A single mom of two children with primary custody, she is passionate about findi
 
       const msg = await createMessage(`@${BOT_NAME} who here works on AI policy?`, user1, disabledConv, ['chat'])
       const responses = await defaultAgentTypes.communityAssistant.respond.call(disabledAgent, buildHistory([]), msg)
-      console.log(`A (memberBioSearch disabled): ${responses[0]?.message}`)
+      console.log(`A (member_bios excluded from tools): ${responses[0]?.message}`)
 
       expect(responses).toHaveLength(1)
       // Without the tool the agent cannot know Diana's specific expertise; her name should not

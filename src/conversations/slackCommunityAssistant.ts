@@ -80,7 +80,7 @@ const slackCommunityAssistant: ConversationType = {
       name: 'tools',
       label: 'Enabled Tools',
       description:
-        'Tool names the assistant can use. Available: web_search, event_history, bkc_archive_wiki. Defaults to all.',
+        'Tool names the assistant can use. Available: web_search, event_history, bkc_archive_wiki, member_bio. Defaults to all.',
       required: false,
       type: 'object'
     },
@@ -118,15 +118,6 @@ const slackCommunityAssistant: ConversationType = {
       type: 'string'
     },
     {
-      name: 'memberBioSearch',
-      label: 'Member Bio Search',
-      description:
-        'Let the assistant search member bios/interests to answer questions like "who here works on X" or ' +
-        '"what do you know about @name". Defaults to enabled; set to false to opt out.',
-      required: false,
-      type: 'boolean'
-    },
-    {
       name: 'showOnAppHome',
       label: 'Advertise on App Home',
       description:
@@ -148,8 +139,7 @@ const slackCommunityAssistant: ConversationType = {
         { $ref: 'tools', as: 'agentConfig.tools' },
         { $ref: 'topicIds', as: 'agentConfig.topicIds' },
         { $ref: 'periodicMemberIntros', as: 'agentConfig.periodicMemberIntros' },
-        { $ref: 'groupChatName', as: 'agentConfig.groupChatName' },
-        { $ref: 'memberBioSearch', as: 'agentConfig.memberBioSearch' }
+        { $ref: 'groupChatName', as: 'agentConfig.groupChatName' }
       ]
     }
   ],

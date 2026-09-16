@@ -126,16 +126,12 @@ export default verify({
   },
   agentConfig: {
     enablePersonality: config.enableAgentPersonality,
-    tools: ['event_history', 'bkc_archive_wiki', 'web_search'] as string[],
+    tools: ['event_history', 'bkc_archive_wiki', 'web_search', 'member_bios'] as string[],
     topicIds: [] as string[],
     notifications: [] as string[],
     streaming: undefined as boolean | undefined,
     periodicMemberIntros: false as boolean,
-    groupChatName: undefined as string | undefined,
-    // Gates the member_bios tool separately from periodicMemberIntros: bios are collected for
-    // the curated Spotlight message, so answering arbitrary questions from them ("who here works
-    // on X") is a distinct surface. Defaults to true; set explicitly to false to opt out.
-    memberBioSearch: undefined as boolean | undefined
+    groupChatName: undefined as string | undefined
   },
   llmTemplateVars: {
     user: [{ name: 'question', description: 'The user message or question' }]
@@ -196,9 +192,7 @@ export default verify({
     const chatHistory = formatMultiUserConversationHistory(conversationHistory)
 
     const conversationId = this.conversation._id.toString()
-    const configuredToolNames: string[] = this.agentConfig?.tools || []
-    const memberBioSearchEnabled = this.agentConfig?.memberBioSearch ?? true
-    const toolNames = memberBioSearchEnabled ? [...configuredToolNames, 'member_bios'] : configuredToolNames
+    const toolNames: string[] = this.agentConfig?.tools || []
     const topicIds: string[] = this.agentConfig?.topicIds || []
 
     const toolContext = { topicIds, activeConversationId: conversationId }

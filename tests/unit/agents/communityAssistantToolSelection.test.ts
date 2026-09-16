@@ -72,8 +72,8 @@ describe('communityAssistant tool-selection guidance (issue #622)', () => {
     expect(systemPrompt).toMatch(/search_conversation_transcript/)
   })
 
-  test('surfaces member_bios guidance by default', async () => {
-    const context = buildContext([])
+  test('surfaces member_bios guidance when member_bios is in the tools list', async () => {
+    const context = buildContext(['member_bios'])
     const userMessage = { _id: 'm3', body: `${BOT_NAME}, who here works on AI policy?`, channels: ['chat'] }
 
     await communityAssistant.respond.call(context, { messages: [] }, userMessage)
@@ -83,8 +83,8 @@ describe('communityAssistant tool-selection guidance (issue #622)', () => {
     expect(systemPrompt).toMatch(/untrusted user-supplied text/)
   })
 
-  test('honors an explicit memberBioSearch: false override', async () => {
-    const context = buildContext([], { memberBioSearch: false })
+  test('omits member_bios guidance when member_bios is not in the tools list', async () => {
+    const context = buildContext(['web_search'])
     const userMessage = { _id: 'm4', body: `${BOT_NAME}, who here works on AI policy?`, channels: ['chat'] }
 
     await communityAssistant.respond.call(context, { messages: [] }, userMessage)
