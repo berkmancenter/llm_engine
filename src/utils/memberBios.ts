@@ -24,22 +24,29 @@ export interface MemberBioInput {
  * membershipId before current content is added, so both edits and clears take effect. A member
  * with neither bio nor interests ends up unindexed — nothing there worth searching.
  */
+const CHROMA_BATCH_SIZE = 100
+
 async function indexMemberBios(conversationId: string, members: MemberBioInput[]): Promise<void> {
   if (members.length === 0) return
   const collection = memberBioCollectionName(conversationId)
 
-  await Promise.all(
-    members.map(async (member) => {
-      try {
-        await rag.removeFromVectorStore(collection, { membershipId: member.id })
-      } catch (error) {
-        // Collection may not exist yet on first import — fine, there's nothing stale to remove.
-        logger.debug(
-          `indexMemberBios: could not remove stale entry for ${member.id} (collection may not exist): ${error.message}`
-        )
-      }
-    })
-  )
+  // Remove stale entries in batches to avoid 502s on large imports. Failures are
+  // logged but do not block the add — Chroma has no transactions so we can't
+  // guarantee atomicity; a failed batch may have partially executed. The add
+  // proceeds regardless: worst case a member is temporarily double-indexed until
+  // the next re-import. The whole operation is already best-effort at the call site.
+  const ids = members.map((m) => m.id)
+  for (let i = 0; i < ids.length; i += CHROMA_BATCH_SIZE) {
+    try {
+      await rag.removeFromVectorStore(collection, { membershipId: { $in: ids.slice(i, i + CHROMA_BATCH_SIZE) } })
+    } catch (error) {
+      logger.warn(
+        `indexMemberBios: failed to remove stale entries for conversation ${conversationId} (batch ${
+          i / CHROMA_BATCH_SIZE + 1
+        }): ${error.message}`
+      )
+    }
+  }
 
   const docs: string[] = []
   const metadatas: Record<string, string>[] = []
@@ -55,7 +62,13 @@ async function indexMemberBios(conversationId: string, members: MemberBioInput[]
   })
 
   if (docs.length === 0) return
-  await rag.addTextsToVectorStore(collection, docs, { metadatas })
+
+  // addTextsToVectorStore sends all docs in one request; batch to avoid 502s on large imports.
+  for (let i = 0; i < docs.length; i += CHROMA_BATCH_SIZE) {
+    await rag.addTextsToVectorStore(collection, docs.slice(i, i + CHROMA_BATCH_SIZE), {
+      metadatas: metadatas.slice(i, i + CHROMA_BATCH_SIZE)
+    })
+  }
 }
 
 const removeMemberBio = async (conversationId: string, membershipId: string): Promise<void> => {

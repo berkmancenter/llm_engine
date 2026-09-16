@@ -33,10 +33,10 @@ describe('memberBios', () => {
       expect(ragAddSpy).not.toHaveBeenCalled()
     })
 
-    it('removes any stale entry for each member before adding current content', async () => {
+    it('removes stale entries for all members in one request before adding current content', async () => {
       await indexMemberBios('conv1', [{ id: 'm1', name: 'Ada Lovelace', bio: 'Mathematician.', interests: 'computing' }])
 
-      expect(ragRemoveSpy).toHaveBeenCalledWith('member-bio-conv1', { membershipId: 'm1' })
+      expect(ragRemoveSpy).toHaveBeenCalledWith('member-bio-conv1', { membershipId: { $in: ['m1'] } })
       expect(ragAddSpy).toHaveBeenCalledWith(
         'member-bio-conv1',
         ['Ada Lovelace is a member of this community. Mathematician. Interests: computing'],
@@ -50,6 +50,7 @@ describe('memberBios', () => {
         { id: 'm2', name: 'Interests Only', interests: 'gardening' }
       ])
 
+      expect(ragRemoveSpy).toHaveBeenCalledWith('member-bio-conv1', { membershipId: { $in: ['m1', 'm2'] } })
       expect(ragAddSpy).toHaveBeenCalledWith(
         'member-bio-conv1',
         [
@@ -68,16 +69,27 @@ describe('memberBios', () => {
     it('skips embedding (but still clears stale entries) for a member with neither bio nor interests', async () => {
       await indexMemberBios('conv1', [{ id: 'm1', name: 'Blank Member', bio: '', interests: '   ' }])
 
-      expect(ragRemoveSpy).toHaveBeenCalledWith('member-bio-conv1', { membershipId: 'm1' })
+      expect(ragRemoveSpy).toHaveBeenCalledWith('member-bio-conv1', { membershipId: { $in: ['m1'] } })
       expect(ragAddSpy).not.toHaveBeenCalled()
     })
 
-    it('tolerates a missing collection when removing stale entries', async () => {
-      ragRemoveSpy.mockRejectedValueOnce(new Error('collection does not exist'))
+    it('logs a warning but still adds when a delete batch fails', async () => {
+      ragRemoveSpy.mockRejectedValueOnce(new Error('Chroma is down'))
       await expect(
         indexMemberBios('conv1', [{ id: 'm1', name: 'Ada Lovelace', bio: 'Mathematician.' }])
       ).resolves.not.toThrow()
       expect(ragAddSpy).toHaveBeenCalled()
+    })
+
+    it('batches deletes and adds in groups of 100 to avoid Chroma 502s', async () => {
+      const members = Array.from({ length: 150 }, (_, i) => ({
+        id: `m${i}`,
+        name: `Member ${i}`,
+        bio: `Bio for member ${i}.`
+      }))
+      await indexMemberBios('conv1', members)
+      expect(ragRemoveSpy).toHaveBeenCalledTimes(2)
+      expect(ragAddSpy).toHaveBeenCalledTimes(2)
     })
   })
 
