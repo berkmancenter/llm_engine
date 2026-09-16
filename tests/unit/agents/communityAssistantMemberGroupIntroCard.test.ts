@@ -12,10 +12,10 @@ describe('renderMemberGroupIntroCard', () => {
     expect(blocks[3].type).toBe('context')
   })
 
-  it('header contains "Member Spotlight"', () => {
+  it('header contains "Community Spotlight"', () => {
     const blocks = renderMemberGroupIntroCard({ text })
     const header = blocks[1] as { type: string; text: { text: string } }
-    expect(header.text.text).toContain('Member Spotlight')
+    expect(header.text.text).toContain('Community Spotlight')
   })
 
   it('section contains the LLM-generated text as mrkdwn', () => {
