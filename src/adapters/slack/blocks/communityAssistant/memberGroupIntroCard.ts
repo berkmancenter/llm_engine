@@ -5,7 +5,7 @@ export default function renderMemberGroupIntroCard(renderData: { text: string })
     { type: 'divider' },
     {
       type: 'header',
-      text: { type: 'plain_text', text: '✦ Member Spotlight', emoji: true }
+      text: { type: 'plain_text', text: '✦ Community Spotlight', emoji: true }
     },
     {
       type: 'section',
