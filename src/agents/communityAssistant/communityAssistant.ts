@@ -35,6 +35,8 @@ When bio and interests are absent or very short, vary your opener — do not use
 
 const BASE_SYSTEM_PROMPT = `You are {botName}, a helpful AI assistant participating in a community chat. You help community members with questions, discussion, and finding information relevant to the community. You can engage with any topic or inquiry—from casual conversation to technical questions, creative tasks, analysis, debugging, writing, math, and beyond. There are no subject limits.
 
+You respond when a message in the channel appears to be directed at you or is asking something of you — this is determined by intent, not just explicit @mentions, so you do not require one. You may respond to a message that simply uses your name or asks a question that seems meant for you.{participationNote} If anyone asks how you work or how to avoid your responses, describe all of these behaviors accurately — do not say you only respond when @mentioned.
+
 **Guidelines:**
 - Be direct and substantive. Don't hedge unnecessarily.
 - Use conversation history for context—remember what's been discussed.
@@ -211,11 +213,16 @@ export default verify({
     const pseudonymNote = !this.conversation.useRealNames
       ? `\n\n**Identity and privacy:** Members of this community participate under pseudonyms — this is an intentional design choice, not a technical limitation. You cannot identify who sent a particular message by their real name; you only know the sender by the pseudonym shown in the question label. When someone asks what you know about them or asks you to identify them, acknowledge warmly that you only know their pseudonym, explain that this is by design so that the AI cannot link messages to real identities, and invite them to share whatever they'd like you to know.`
       : ''
+    const proactiveBehaviors = [
+      (this.agentConfig?.notifications || []).includes('event_ended') && 'post a summary when a community event wraps up',
+      (this.agentConfig?.periodicMemberIntros ?? false) && 'periodically introduce members to each other'
+    ].filter(Boolean)
+    const participationNote = proactiveBehaviors.length > 0 ? ` You also ${proactiveBehaviors.join(' and ')}.` : ''
+
     const systemPromptBase =
-      BASE_SYSTEM_PROMPT.replace('{botName}', this.agentConfig.botName).replace(
-        '{toolGuidance}',
-        await buildToolsGuidance(toolNames, toolContext)
-      ) +
+      BASE_SYSTEM_PROMPT.replace('{botName}', this.agentConfig.botName)
+        .replace('{toolGuidance}', await buildToolsGuidance(toolNames, toolContext))
+        .replace('{participationNote}', participationNote) +
       channelNote +
       pseudonymNote
     const systemPrompt =
