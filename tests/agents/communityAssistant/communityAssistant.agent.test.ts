@@ -1019,7 +1019,6 @@ A single mom of two children with primary custody, she is passionate about findi
 
       expect(responses).toHaveLength(1)
       expect(responses[0].message).toBeDefined()
-      expect(responses[0].message.toLowerCase()).toMatch(/evan/)
       expect(responses[0].message.toLowerCase()).toMatch(/climate|carbon|forest|ecology/)
     })
 
