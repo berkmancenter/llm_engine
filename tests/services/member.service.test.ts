@@ -4,11 +4,25 @@ import httpStatus from 'http-status'
 import mongoose from 'mongoose'
 import setupIntTest from '../utils/setupIntTest.js'
 import memberService from '../../src/services/member.service.js'
+import memberBios from '../../src/utils/memberBios.js'
 import { ConversationMembership } from '../../src/models/index.js'
 import { insertConversations, conversationCommunityRoom } from '../fixtures/conversation.fixture.js'
 import { insertUsers, admin } from '../fixtures/user.fixture.js'
 
 setupIntTest()
+
+// importMembersFromCsv re-embeds bios into Chroma as a best-effort side effect.
+// Mocked here so these tests exercise the Mongo roster behavior without needing
+// a live Chroma instance; reindexing itself is covered separately below.
+let indexMemberBiosSpy
+
+beforeEach(() => {
+  indexMemberBiosSpy = jest.spyOn(memberBios, 'indexMemberBios').mockResolvedValue()
+})
+
+afterEach(() => {
+  indexMemberBiosSpy.mockRestore()
+})
 
 // eslint-disable-next-line security/detect-non-literal-fs-filename
 const readCsv = (name: string) => fs.readFileSync(path.join('tests/fixtures/csv', name))
@@ -236,5 +250,61 @@ describe('memberService.importMembersFromCsv', () => {
     await expect(
       memberService.importMembersFromCsv(conversationCommunityRoom._id.toString(), csv, admin)
     ).rejects.toMatchObject({ statusCode: httpStatus.BAD_REQUEST })
+  })
+
+  describe('member bio reindexing', () => {
+    test('reindexes every newly imported member', async () => {
+      await memberService.importMembersFromCsv(conversationCommunityRoom._id.toString(), readCsv('members-clean.csv'), admin)
+
+      expect(indexMemberBiosSpy).toHaveBeenCalledTimes(1)
+      const [conversationId, members] = indexMemberBiosSpy.mock.calls[0]
+      expect(conversationId).toBe(conversationCommunityRoom._id.toString())
+      expect(members).toHaveLength(5)
+      const ada = members.find((m) => m.name === 'Ada Lovelace')
+      expect(ada).toMatchObject({ bio: 'Mathematician and writer.', interests: 'Computing;Mathematics' })
+      expect(typeof ada.id).toBe('string')
+    })
+
+    test('skips members whose name/bio/interests did not change on re-import', async () => {
+      await memberService.importMembersFromCsv(conversationCommunityRoom._id.toString(), readCsv('members-clean.csv'), admin)
+      indexMemberBiosSpy.mockClear()
+
+      // Re-import the same file — nothing changed, so reindexing should be skipped
+      await memberService.importMembersFromCsv(conversationCommunityRoom._id.toString(), readCsv('members-clean.csv'), admin)
+      expect(indexMemberBiosSpy).not.toHaveBeenCalled()
+
+      // Import with updated bios — all 5 changed, so all 5 should be reindexed
+      await memberService.importMembersFromCsv(
+        conversationCommunityRoom._id.toString(),
+        readCsv('members-reimport-update.csv'),
+        admin
+      )
+      expect(indexMemberBiosSpy).toHaveBeenCalledTimes(1)
+      const [, members] = indexMemberBiosSpy.mock.calls[0]
+      expect(members).toHaveLength(5)
+      const ada = members.find((m) => m.name === 'Ada Lovelace')
+      expect(ada?.bio).toBe('Updated: pioneering computer programmer.')
+    })
+
+    test('does not fail the import when reindexing fails', async () => {
+      indexMemberBiosSpy.mockRejectedValueOnce(new Error('Chroma unreachable'))
+
+      const result = await memberService.importMembersFromCsv(
+        conversationCommunityRoom._id.toString(),
+        readCsv('members-clean.csv'),
+        admin
+      )
+
+      expect(result).toMatchObject({ added: 5, failed: 0 })
+      expect(await ConversationMembership.countDocuments({ conversation: conversationCommunityRoom._id })).toBe(5)
+    })
+
+    test('does not reindex when every row in the file fails validation', async () => {
+      const csv = Buffer.from('First Name,Last Name,Email,Bio,Interests\n,,not-an-email,Bio,Interests\n', 'utf8')
+      const result = await memberService.importMembersFromCsv(conversationCommunityRoom._id.toString(), csv, admin)
+
+      expect(result.added).toBe(0)
+      expect(indexMemberBiosSpy).not.toHaveBeenCalled()
+    })
   })
 })

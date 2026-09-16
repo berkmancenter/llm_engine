@@ -6,6 +6,7 @@ import Conversation from '../models/conversation.model.js'
 import ConversationMembership from '../models/conversationMembership.model.js'
 import { matchHeaders, CanonicalField } from '../utils/csvHeaderMatcher.js'
 import { sanitizeSingleLineText, sanitizeMultiLineText, sanitizeEmail, SanitizedField } from '../utils/csvRowSanitize.js'
+import memberBios from '../utils/memberBios.js'
 
 // Defense-in-depth against a memory-only large-file scenario the multer byte-size cap alone
 // wouldn't catch (e.g. a file that's small on disk but expands to many rows).
@@ -141,6 +142,17 @@ const importMembersFromCsv = async (conversationId: string, buffer: Buffer, acti
   let updatedMembers: Array<{ id: string; email: string }> = []
 
   if (rows.length) {
+    // Snapshot bio fields before the write so the background job can skip members
+    // whose searchable content didn't change.
+    const existingByEmail = new Map(
+      (
+        await ConversationMembership.find({ conversation: conversationId, email: { $in: rows.map((r) => r.email) } })
+          .select('email name bio interests')
+          .lean()
+          .exec()
+      ).map((d) => [d.email, d])
+    )
+
     const operations = rows.map((row) => ({
       updateOne: {
         filter: { conversation: conversationId, email: row.email },
@@ -159,19 +171,45 @@ const importMembersFromCsv = async (conversationId: string, buffer: Buffer, acti
     const newEmails = rows.filter((_, i) => upsertedIndexes.has(i)).map((r) => r.email)
     const updatedEmails = rows.filter((_, i) => !upsertedIndexes.has(i)).map((r) => r.email)
 
-    if (newEmails.length) {
-      const docs = await ConversationMembership.find({ conversation: conversationId, email: { $in: newEmails } })
-        .select('_id email')
+    const touchedEmails = [...newEmails, ...updatedEmails]
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let touchedDocs: any[] = []
+    if (touchedEmails.length) {
+      touchedDocs = await ConversationMembership.find({ conversation: conversationId, email: { $in: touchedEmails } })
+        .select('_id email name bio interests')
         .lean()
         .exec()
-      newMembers = docs.map((d) => ({ id: d._id.toString(), email: d.email }))
+    }
+    if (newEmails.length) {
+      const newEmailSet = new Set(newEmails)
+      newMembers = touchedDocs.filter((d) => newEmailSet.has(d.email)).map((d) => ({ id: d._id.toString(), email: d.email }))
     }
     if (updatedEmails.length) {
-      const docs = await ConversationMembership.find({ conversation: conversationId, email: { $in: updatedEmails } })
-        .select('_id email')
-        .lean()
-        .exec()
-      updatedMembers = docs.map((d) => ({ id: d._id.toString(), email: d.email }))
+      const updatedEmailSet = new Set(updatedEmails)
+      updatedMembers = touchedDocs
+        .filter((d) => updatedEmailSet.has(d.email))
+        .map((d) => ({ id: d._id.toString(), email: d.email }))
+    }
+
+    // Reindex bios for members whose searchable content changed. New members always
+    // need indexing; existing members only if name/bio/interests differ from what was
+    // in the DB before this import. Best-effort: the roster write already succeeded.
+    const newEmailSet = new Set(newEmails)
+    const membersToIndex = touchedDocs.filter((d) => {
+      if (newEmailSet.has(d.email)) return true
+      const prev = existingByEmail.get(d.email)
+      return !prev || prev.name !== d.name || prev.bio !== d.bio || prev.interests !== d.interests
+    })
+
+    if (membersToIndex.length) {
+      try {
+        await memberBios.indexMemberBios(
+          conversationId,
+          membersToIndex.map((d) => ({ id: d._id.toString(), name: d.name, bio: d.bio, interests: d.interests }))
+        )
+      } catch (err) {
+        logger.warn(`member.service: failed to reindex member bios for ${conversationId}: ${err}`)
+      }
     }
   }
 

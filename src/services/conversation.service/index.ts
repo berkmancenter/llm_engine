@@ -18,6 +18,7 @@ import adapterTypes from '../../adapters/index.js'
 import resolveConversationType from '../../conversations/resolver.js'
 import { supportedModels } from '../../agents/helpers/getEmbeddings.js'
 import transcript from '../../agents/helpers/transcript.js'
+import memberBios from '../../utils/memberBios.js'
 import reportService from '../report.service.js'
 import {
   doStartConversation,
@@ -813,6 +814,12 @@ const deleteConversation = async (id, user) => {
   }
 
   try {
+    await memberBios.deleteMemberBioCollection(conversation._id!.toString())
+  } catch {
+    logger.warn(`Failed to delete member bio collection for conversation ${conversation._id}.`)
+  }
+
+  try {
     await resourceService.deleteResources(conversation._id!.toString())
   } catch {
     logger.warn(`Failed to delete resources for conversation ${conversation._id}.`)
@@ -826,6 +833,7 @@ const deleteConversation = async (id, user) => {
   await Message.deleteMany({ conversation })
   await Agent.deleteMany({ conversation })
   await Adapter.deleteMany({ conversation })
+  await ConversationMembership.deleteMany({ conversation: id })
 }
 
 const patchConversationAgent = async (id, agentId, body, user) => {

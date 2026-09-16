@@ -44,6 +44,8 @@ import defineJob from '../../src/jobs/define.js'
 import { ConversationType, Direction } from '../../src/types/index.types.js'
 import transcript from '../../src/agents/helpers/transcript.js'
 import backgroundCollection from '../../src/agents/helpers/backgroundCollection.js'
+import memberBios from '../../src/utils/memberBios.js'
+import ConversationMembership from '../../src/models/conversationMembership.model.js'
 
 jest.setTimeout(120000)
 
@@ -2224,6 +2226,41 @@ describe('Conversation routes', () => {
 
       expect(transcriptSpy).toHaveBeenCalled()
       transcriptSpy.mockRestore()
+    })
+
+    test('should delete member bio Chroma collection when conversation deleted', async () => {
+      const memberBioSpy = jest.spyOn(memberBios, 'deleteMemberBioCollection').mockResolvedValue()
+
+      const conv = new Conversation({ topic: publicTopic._id, name: 'Bio Test', owner: userOne._id })
+      await conv.save()
+
+      await request(app)
+        .delete(`/v1/conversations/${conv._id}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.OK)
+
+      expect(memberBioSpy).toHaveBeenCalledWith(conv._id.toString())
+      memberBioSpy.mockRestore()
+    })
+
+    test('should delete conversation memberships when conversation deleted', async () => {
+      const conv = new Conversation({ topic: publicTopic._id, name: 'Membership Test', owner: userOne._id })
+      await conv.save()
+
+      await ConversationMembership.create([
+        { conversation: conv._id, email: 'a@example.com', name: 'Alice' },
+        { conversation: conv._id, email: 'b@example.com', name: 'Bob' }
+      ])
+
+      await request(app)
+        .delete(`/v1/conversations/${conv._id}`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send()
+        .expect(httpStatus.OK)
+
+      const remaining = await ConversationMembership.countDocuments({ conversation: conv._id })
+      expect(remaining).toBe(0)
     })
 
     test('should return 404 when conversation does not exist', async () => {

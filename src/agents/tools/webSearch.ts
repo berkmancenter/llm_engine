@@ -108,5 +108,5 @@ export const webSearchTool = tool(
  */
 export function buildWebSearchPrompt(): string {
   return `**Web search:**
-Use \`web_search\` only for general knowledge or current events that the other available tools cannot answer. Try those first. Cite sources inline — never state a fact from search results without attribution. Don't suggest the user check an external site without having searched it yourself first.`
+Use \`web_search\` for general knowledge, current events, or anything the other available tools can't answer. Prefer other tools when the question clearly falls within their scope; for everything else, go to web search without exhausting irrelevant tools first. Cite sources inline — never state a fact from search results without attribution. Don't suggest the user check an external site without having searched it yourself first.`
 }

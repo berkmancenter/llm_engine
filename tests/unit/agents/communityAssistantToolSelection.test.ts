@@ -1,4 +1,5 @@
 import { jest } from '@jest/globals'
+import mongoose from 'mongoose'
 import { buildEventHistoryToolsPrompt } from '../../../src/agents/tools/eventHistory.js'
 import setupIntTest from '../../utils/setupIntTest.js'
 
@@ -21,11 +22,22 @@ setupIntTest()
 
 const BOT_NAME = 'Berkie'
 
-function buildContext(tools: string[] = []) {
+function buildContext(
+  tools: string[] = [],
+  agentConfigOverrides: Record<string, unknown> = {},
+  conversationId = 'conv-1',
+  useRealNames = false
+) {
   return {
     _id: 'agent-1',
-    agentConfig: { botName: BOT_NAME, tools, topicIds: [] as string[] },
-    conversation: { _id: 'conv-1', channels: [{ name: 'chat' }], messages: [], behaviorPolicy: undefined },
+    agentConfig: { botName: BOT_NAME, tools, topicIds: [] as string[], ...agentConfigOverrides },
+    conversation: {
+      _id: conversationId,
+      channels: [{ name: 'chat' }],
+      messages: [],
+      behaviorPolicy: undefined,
+      useRealNames
+    },
     getLLM: async () => ({ fakeLlm: true })
   }
 }
@@ -58,6 +70,27 @@ describe('communityAssistant tool-selection guidance (issue #622)', () => {
     expect(systemPrompt).toMatch(/event-wrapped-up summaries/i)
     expect(systemPrompt).toMatch(/get_event_list/)
     expect(systemPrompt).toMatch(/search_conversation_transcript/)
+  })
+
+  test('surfaces member_bios guidance when member_bios is in the tools list', async () => {
+    const context = buildContext(['member_bios'])
+    const userMessage = { _id: 'm3', body: `${BOT_NAME}, who here works on AI policy?`, channels: ['chat'] }
+
+    await communityAssistant.respond.call(context, { messages: [] }, userMessage)
+
+    const [, , systemPrompt] = mockGetAgentStructuredResponse.mock.calls[0]
+    expect(systemPrompt).toMatch(/search_members/)
+    expect(systemPrompt).toMatch(/untrusted user-supplied text/)
+  })
+
+  test('omits member_bios guidance when member_bios is not in the tools list', async () => {
+    const context = buildContext(['web_search'])
+    const userMessage = { _id: 'm4', body: `${BOT_NAME}, who here works on AI policy?`, channels: ['chat'] }
+
+    await communityAssistant.respond.call(context, { messages: [] }, userMessage)
+
+    const [, , systemPrompt] = mockGetAgentStructuredResponse.mock.calls[0]
+    expect(systemPrompt).not.toMatch(/search_members/)
   })
 })
 

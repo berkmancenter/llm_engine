@@ -126,7 +126,7 @@ export default verify({
   },
   agentConfig: {
     enablePersonality: config.enableAgentPersonality,
-    tools: ['event_history', 'bkc_archive_wiki', 'web_search'] as string[],
+    tools: ['event_history', 'bkc_archive_wiki', 'web_search', 'member_bios'] as string[],
     topicIds: [] as string[],
     notifications: [] as string[],
     streaming: undefined as boolean | undefined,
@@ -191,8 +191,11 @@ export default verify({
     }
     const chatHistory = formatMultiUserConversationHistory(conversationHistory)
 
+    const conversationId = this.conversation._id.toString()
     const toolNames: string[] = this.agentConfig?.tools || []
     const topicIds: string[] = this.agentConfig?.topicIds || []
+
+    const toolContext = { topicIds, activeConversationId: conversationId }
 
     let personalityName: string | null = null
     if (this.agentConfig?.personality !== undefined) {
@@ -206,12 +209,12 @@ export default verify({
         ? `\n\n**Channel:** You are participating in ${this.agentConfig.groupChatName}.`
         : ''
     const pseudonymNote = !this.conversation.useRealNames
-      ? `\n\n**Identity and privacy:** Members of this community participate under pseudonyms — this is an intentional design choice, not a technical limitation. Real names are not shared with you; you only know members by the pseudonym shown in the question label. When someone asks what you know about them or asks you to identify them, acknowledge warmly that you only know their pseudonym, explain that this is by design so that the AI does not have access to real identities, and invite them to share whatever they'd like you to know.`
+      ? `\n\n**Identity and privacy:** Members of this community participate under pseudonyms — this is an intentional design choice, not a technical limitation. You cannot identify who sent a particular message by their real name; you only know the sender by the pseudonym shown in the question label. When someone asks what you know about them or asks you to identify them, acknowledge warmly that you only know their pseudonym, explain that this is by design so that the AI cannot link messages to real identities, and invite them to share whatever they'd like you to know.`
       : ''
     const systemPromptBase =
       BASE_SYSTEM_PROMPT.replace('{botName}', this.agentConfig.botName).replace(
         '{toolGuidance}',
-        await buildToolsGuidance(toolNames, { topicIds })
+        await buildToolsGuidance(toolNames, toolContext)
       ) +
       channelNote +
       pseudonymNote
@@ -236,7 +239,7 @@ export default verify({
           : 'No shared chat messages yet.'
     }
 
-    const tools: StructuredToolInterface[] = await getTools(toolNames, { topicIds })
+    const tools: StructuredToolInterface[] = await getTools(toolNames, toolContext)
 
     const inputChannelNames = userMessage?.channels ?? ['chat']
 
@@ -245,7 +248,6 @@ export default verify({
     // costs 2 graph steps; with both event-history and archive tool sets the agent may need to
     // consult several before answering.
     const shouldStream = this.agentConfig?.streaming ?? isVoice
-    const conversationId = this.conversation._id.toString()
     const requestId = (userMessage.source?.requestId as string | undefined) ?? conversationId
     const onChunk = shouldStream
       ? (text: string) => {
