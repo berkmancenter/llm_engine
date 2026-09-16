@@ -128,7 +128,7 @@ async function scheduleConversationAutoStart(conversation) {
   await schedule.cancelAutoStartConversation(conversation._id)
   const scheduledAt = new Date(conversation.scheduledTime.getTime() - autoStartLeadTimeMs)
   await schedule.autoStartConversation(scheduledAt, { conversationId: conversation._id })
-  logger.debug(`Scheduled auto-start for conversation ${conversation._id} at ${scheduledAt}`)
+  logger.info(`Scheduled auto-start for conversation ${conversation._id} at ${scheduledAt}`)
 }
 
 async function scheduleConversationEndingSoon(conversation) {
@@ -142,7 +142,7 @@ async function scheduleConversationEndingSoon(conversation) {
   }
   const scheduledAt = new Date(conversation.scheduledEndTime.getTime() - maxScheduledInterval)
   await schedule.conversationEndingSoon(scheduledAt, { conversationId: conversation._id })
-  logger.debug(`Scheduled conversation ending soon for conversation ${conversation._id} at ${scheduledAt}`)
+  logger.info(`Scheduled conversation ending soon for conversation ${conversation._id} at ${scheduledAt}`)
 }
 
 /**

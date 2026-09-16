@@ -90,7 +90,7 @@ const handleEvent = async (req, res) => {
   }
   const eventId = payload.event_id
   if (eventId && isDuplicate(eventId)) {
-    logger.debug(`Slack duplicate event skipped: ${eventId}`)
+    logger.info(`Slack duplicate event skipped: ${eventId}`)
     res.status(httpStatus.OK).send('ok')
     return
   }

@@ -3,7 +3,7 @@ import websocketGateway from '../../websockets/websocketGateway.js'
 
 const pollExpired = async (job) => {
   const { pollId, conversationId } = job.attrs.data
-  logger.debug(`Poll expired: ${pollId}`)
+  logger.info(`Poll expired: ${pollId}`)
   await websocketGateway.broadcastPollExpired(conversationId, pollId)
 }
 
