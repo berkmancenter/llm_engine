@@ -5,8 +5,8 @@ import {
   getTools,
   buildToolsGuidance,
   listRegisteredTools
-} from '../../../src/agents/tools/registry.js'
-import { buildWebSearchPrompt } from '../../../src/agents/tools/webSearch.js'
+} from '../../../../src/agents/tools/registry.js'
+import { buildWebSearchPrompt } from '../../../../src/agents/tools/webSearch.js'
 
 describe('Tool Registry', () => {
   test('should have built-in tools registered', () => {
