@@ -37,7 +37,16 @@ describe('memberBios tools', () => {
       const [searchMembersTool] = createMemberBioTools({ conversationId })
       const result = await searchMembersTool.invoke({ query: 'mathematics' })
 
-      expect(ragSpy).toHaveBeenCalledWith(`member-bio-${conversationId}`, 'mathematics', undefined, undefined, 5)
+      expect(ragSpy).toHaveBeenCalledWith(
+        `member-bio-${conversationId}`,
+        'mathematics',
+        undefined,
+        undefined,
+        15,
+        undefined,
+        undefined,
+        0.8
+      )
       expect(result).toContain('Member: Ada Lovelace')
       expect(result).toContain('Bio: Mathematician and writer.')
       expect(result).toContain('Interests: computing, mathematics')
@@ -164,5 +173,4 @@ describe('memberBios tools', () => {
       expect(result).toBe('No matching member found.')
     })
   })
-
 })

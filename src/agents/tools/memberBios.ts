@@ -36,12 +36,19 @@ export default function createMemberBioTools(options: MemberBioToolOptions) {
 
   const searchMembersTool = tool(
     async ({ query }) => {
+      // Fetch more chunks than we need before deduping by membershipId — a single member
+      // can produce multiple chunks if their bio is long, and we want up to 5 distinct
+      // members. The score threshold (lower = more similar in Chroma's L2 distance space)
+      // filters out members whose bios are genuinely unrelated to the query.
       const { retrievedDocs } = await rag.getContextChunksForQuestion(
         memberBioCollectionName(conversationId),
         query,
         undefined,
         undefined,
-        5
+        15,
+        undefined,
+        undefined,
+        0.8
       )
       if (retrievedDocs.length === 0) return 'No matching members found.'
 
