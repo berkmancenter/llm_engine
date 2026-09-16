@@ -215,7 +215,7 @@ export default verify({
         ? `\n\n**Channel:** You are participating in ${this.agentConfig.groupChatName}.`
         : ''
     const pseudonymNote = !this.conversation.useRealNames
-      ? `\n\n**Identity and privacy:** Members of this community participate under pseudonyms — this is an intentional design choice, not a technical limitation. Real names are not shared with you; you only know members by the pseudonym shown in the question label. When someone asks what you know about them or asks you to identify them, acknowledge warmly that you only know their pseudonym, explain that this is by design so that the AI does not have access to real identities, and invite them to share whatever they'd like you to know.`
+      ? `\n\n**Identity and privacy:** Members of this community participate under pseudonyms — this is an intentional design choice, not a technical limitation. You cannot identify who sent a particular message by their real name; you only know the sender by the pseudonym shown in the question label. When someone asks what you know about them or asks you to identify them, acknowledge warmly that you only know their pseudonym, explain that this is by design so that the AI cannot link messages to real identities, and invite them to share whatever they'd like you to know.`
       : ''
     const systemPromptBase =
       BASE_SYSTEM_PROMPT.replace('{botName}', this.agentConfig.botName).replace(
