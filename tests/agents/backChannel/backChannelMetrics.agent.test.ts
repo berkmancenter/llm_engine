@@ -23,7 +23,7 @@ describe('back channel agent tests', () => {
       username: faker.name.findName(),
       email: faker.internet.email().toLowerCase(),
       password: 'password1',
-      role: 'user',
+      role: 'participant',
       isEmailVerified: false,
       pseudonyms: [
         {
