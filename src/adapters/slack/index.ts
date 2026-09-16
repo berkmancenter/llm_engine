@@ -51,7 +51,7 @@ async function normalizeMemberMentions(text: string, conversationId: string): Pr
  * Requiring the first word to start with a capital letter avoids matching Slack
  * built-ins like @here/@channel/@everyone.
  */
-async function resolveOutboundMentions(text: string, conversationId: string): Promise<string> {
+async function resolveOutboundMentions(text: string, conversationId: string, botName?: string): Promise<string> {
   if (!text.includes('@')) return text
   // eslint-disable-next-line security/detect-unsafe-regex
   const mentionPattern = /(?<!<)@([A-Z][a-zA-Z0-9]*(?:[ ][A-Z][a-zA-Z0-9]*){0,3})/g
@@ -59,11 +59,17 @@ async function resolveOutboundMentions(text: string, conversationId: string): Pr
   if (matches.length === 0) return text
 
   // Build the full set of prefix candidates across all matches so we hit the DB once.
+  // Exclude the bot's own name — it's never in the member roster (bots are skipped
+  // during syncSlackExternalIds) so including it only wastes a DB query.
+  const botNameLower = botName?.toLowerCase()
   const allPrefixes = new Set<string>()
   for (const m of matches) {
+    if (botNameLower && m[1].toLowerCase() === botNameLower) continue
     const words = m[1].split(' ')
     for (let len = words.length; len >= 1; len--) allPrefixes.add(words.slice(0, len).join(' '))
   }
+
+  if (allPrefixes.size === 0) return text
 
   const matched = await ConversationMembership.find(
     { conversation: conversationId, name: { $in: [...allPrefixes] }, 'externalIds.slack': { $exists: true } },
@@ -269,7 +275,7 @@ export default {
     const channel = channelConfig?.channel ? channelConfig?.channel : this.config.channel
     // Resolve @Name mentions to <@UID> where possible, then convert markdown to Slack mrkdwn
     // format, then wrap any remaining bare Slack user IDs.
-    const resolvedBody = await resolveOutboundMentions(message.body, this.conversation._id)
+    const resolvedBody = await resolveOutboundMentions(message.body, this.conversation._id, this.config.botName)
     const text = markdownToMrkdwn(resolvedBody)
       .replace(/(?<![<@\w])(U[A-Z0-9]{6,})\b/g, '<@$1>')
       .replace(/(?<!<)@(U[A-Z0-9]{6,})\b/g, '<@$1>')

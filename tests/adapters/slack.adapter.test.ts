@@ -1036,6 +1036,14 @@ describe('slack adapter tests', () => {
     it('no-ops fast when message contains no @ character', async () => {
       expect(await sendAndGetText('no mentions here at all')).toBe('no mentions here at all')
     })
+
+    it('does not query the DB when the only @mention is the bot name', async () => {
+      adapter.config = { ...adapter.config, botName: 'Berkie' }
+      const findSpy = jest.spyOn(ConversationMembership, 'find')
+      await sendAndGetText('Thanks @Berkie for your help!')
+      expect(findSpy).not.toHaveBeenCalled()
+      findSpy.mockRestore()
+    })
   })
 
   describe('participantJoined', () => {
