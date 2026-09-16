@@ -11,9 +11,9 @@ import { insertUsers, admin } from '../fixtures/user.fixture.js'
 
 setupIntTest()
 
-// importMembersFromCsv re-embeds bios into Chroma  as a
-// best-effort side effect. Mocked here so these tests exercise the Mongo roster behavior
-// without needing a live Chroma instance; reindexing itself is covered separately below.
+// importMembersFromCsv re-embeds bios into Chroma as a best-effort side effect.
+// Mocked here so these tests exercise the Mongo roster behavior without needing
+// a live Chroma instance; reindexing itself is covered separately below.
 let indexMemberBiosSpy
 
 beforeEach(() => {
@@ -265,18 +265,23 @@ describe('memberService.importMembersFromCsv', () => {
       expect(typeof ada.id).toBe('string')
     })
 
-    test('reindexes only the rows touched by a re-import, with the updated bio', async () => {
+    test('skips members whose name/bio/interests did not change on re-import', async () => {
       await memberService.importMembersFromCsv(conversationCommunityRoom._id.toString(), readCsv('members-clean.csv'), admin)
       indexMemberBiosSpy.mockClear()
 
+      // Re-import the same file — nothing changed, so reindexing should be skipped
+      await memberService.importMembersFromCsv(conversationCommunityRoom._id.toString(), readCsv('members-clean.csv'), admin)
+      expect(indexMemberBiosSpy).not.toHaveBeenCalled()
+
+      // Import with updated bios — all 5 changed, so all 5 should be reindexed
       await memberService.importMembersFromCsv(
         conversationCommunityRoom._id.toString(),
         readCsv('members-reimport-update.csv'),
         admin
       )
-
       expect(indexMemberBiosSpy).toHaveBeenCalledTimes(1)
       const [, members] = indexMemberBiosSpy.mock.calls[0]
+      expect(members).toHaveLength(5)
       const ada = members.find((m) => m.name === 'Ada Lovelace')
       expect(ada?.bio).toBe('Updated: pioneering computer programmer.')
     })

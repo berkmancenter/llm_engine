@@ -142,6 +142,17 @@ const importMembersFromCsv = async (conversationId: string, buffer: Buffer, acti
   let updatedMembers: Array<{ id: string; email: string }> = []
 
   if (rows.length) {
+    // Snapshot bio fields before the write so the background job can skip members
+    // whose searchable content didn't change.
+    const existingByEmail = new Map(
+      (
+        await ConversationMembership.find({ conversation: conversationId, email: { $in: rows.map((r) => r.email) } })
+          .select('email name bio interests')
+          .lean()
+          .exec()
+      ).map((d) => [d.email, d])
+    )
+
     const operations = rows.map((row) => ({
       updateOne: {
         filter: { conversation: conversationId, email: row.email },
@@ -180,14 +191,21 @@ const importMembersFromCsv = async (conversationId: string, buffer: Buffer, acti
         .map((d) => ({ id: d._id.toString(), email: d.email }))
     }
 
-    // Keep the room's searchable bio index in sync with the roster — re-embeds new and updated rows, including clearing a bio/interests that
-    // got blanked out in this import. Best-effort: the roster import itself already
-    // succeeded above, so a Chroma hiccup here shouldn't fail the whole request.
-    if (touchedDocs.length) {
+    // Reindex bios for members whose searchable content changed. New members always
+    // need indexing; existing members only if name/bio/interests differ from what was
+    // in the DB before this import. Best-effort: the roster write already succeeded.
+    const newEmailSet = new Set(newEmails)
+    const membersToIndex = touchedDocs.filter((d) => {
+      if (newEmailSet.has(d.email)) return true
+      const prev = existingByEmail.get(d.email)
+      return !prev || prev.name !== d.name || prev.bio !== d.bio || prev.interests !== d.interests
+    })
+
+    if (membersToIndex.length) {
       try {
         await memberBios.indexMemberBios(
           conversationId,
-          touchedDocs.map((d) => ({ id: d._id.toString(), name: d.name, bio: d.bio, interests: d.interests }))
+          membersToIndex.map((d) => ({ id: d._id.toString(), name: d.name, bio: d.bio, interests: d.interests }))
         )
       } catch (err) {
         logger.warn(`member.service: failed to reindex member bios for ${conversationId}: ${err}`)
