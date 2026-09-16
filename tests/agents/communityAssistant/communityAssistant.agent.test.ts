@@ -1156,4 +1156,50 @@ A single mom of two children with primary custody, she is passionate about findi
       expect(responses[0].message.toLowerCase()).toMatch(/webb/i)
     })
   })
+
+  describe('self-description accuracy', () => {
+    let selfDescAgent
+    let selfDescConversation
+
+    beforeEach(async () => {
+      selfDescConversation = await createConversation({ name: 'Self Description Test' }, user1, topic)
+      selfDescAgent = new Agent({
+        agentType: 'communityAssistant',
+        conversation: selfDescConversation,
+        llmPlatform: testConfig.llmPlatform,
+        llmModel: testConfig.llmModel,
+        agentConfig: {
+          botName: BOT_NAME,
+          notifications: ['event_ended'],
+          periodicMemberIntros: true
+        }
+      })
+      const channels = await Channel.create([{ name: 'chat' }])
+      selfDescConversation.channels.push(...channels)
+      await selfDescAgent.save()
+      selfDescConversation.agents.push(selfDescAgent)
+      await selfDescConversation.save()
+      await selfDescAgent.start()
+    })
+
+    it('does not claim it only responds when @mentioned when asked how to avoid it', async () => {
+      // Regression: bot previously responded to "are there channels where humans can chat without
+      // the bot?" with "I only speak when @-mentioned", which was inaccurate — it also responds
+      // based on intent detection and posts proactive summaries/introductions.
+      const msg = await createMessage(
+        `@${BOT_NAME} if someone doesn't want to see your replies, can they just not @mention you and you'll stay quiet?`,
+        user1,
+        selfDescConversation,
+        ['chat']
+      )
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(selfDescAgent, buildHistory([]), msg)
+      console.log(`A (self-description): ${responses[0]?.message}`)
+
+      expect(responses).toHaveLength(1)
+      const reply = responses[0].message.toLowerCase()
+      // Must not claim @mention is the only trigger
+      expect(reply).not.toMatch(/only (?:respond|reply|speak|chime in|jump in) when (?:@|at-?mention)/i)
+      expect(reply).not.toMatch(/requires? @?mention/i)
+    })
+  })
 })
