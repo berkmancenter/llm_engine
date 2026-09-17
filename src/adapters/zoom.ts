@@ -108,8 +108,8 @@ async function deployMeetingBot() {
           timeout: 2,
           activate_after: 1
         },
-        waiting_room_timeout: 1200,
-        noone_joined_timeout: 1200,
+        waiting_room_timeout: 1800,
+        noone_joined_timeout: 1800,
         in_call_not_recording_timeout: 3600,
         recording_permission_denied_timeout: 30
       },
