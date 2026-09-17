@@ -7,6 +7,8 @@ import {
 } from '../../services/conversation.service/lifecycle.js'
 
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000
+const MIN_TRANSCRIPT_MESSAGES_TO_STOP = 10
+const NEVER_STARTED_GRACE_MS = 30 * 60 * 1000
 
 const autoStartConversation = async (job) => {
   const { conversationId } = job.attrs.data
@@ -53,27 +55,46 @@ const autoStopConversation = async (job) => {
       logger.warn(`autoStop: conversation ${conversationId} not found`)
       return
     }
+    if (!conversation.active) {
+      logger.info(`autoStop: conversation ${conversationId} already inactive, skipping`)
+      return
+    }
 
     const now = Date.now()
-    const lastTranscriptMessage = await Message.findOne({
-      conversation: conversationId,
-      channels: { $in: ['transcript'] }
-    })
-      .sort({ createdAt: -1 })
-      .select('createdAt')
-      .lean()
+    const [lastTranscriptMessage, transcriptCount] = await Promise.all([
+      Message.findOne({ conversation: conversationId, channels: { $in: ['transcript'] } })
+        .sort({ createdAt: -1 })
+        .select('createdAt')
+        .lean(),
+      Message.countDocuments({ conversation: conversationId, channels: { $in: ['transcript'] } })
+    ])
 
-    const shouldStop = !lastTranscriptMessage || now - (lastTranscriptMessage.createdAt?.getTime() ?? 0) >= IDLE_TIMEOUT_MS
+    const runningTimeMs = now - (conversation.startTime?.getTime() ?? now)
+    const lastActivityMs = lastTranscriptMessage ? now - (lastTranscriptMessage.createdAt?.getTime() ?? 0) : Infinity
 
-    if (shouldStop) {
-      logger.info(
-        `autoStop: stopping conversation ${conversationId} — ${
-          lastTranscriptMessage ? `idle for ${IDLE_TIMEOUT_MS / 60000} minutes` : 'no transcript activity in grace period'
-        }`
+    if (lastActivityMs < IDLE_TIMEOUT_MS) {
+      logger.debug(
+        `autoStop: conversation ${conversationId} is active — last transcript ${lastActivityMs === Infinity ? 'never' : `${Math.round(lastActivityMs / 60000)} min ago`}, ${transcriptCount} message(s)`
       )
-      await conversation.populate(['topic', 'agents', 'adapters'])
-      await doStopConversation(conversation)
+      return
     }
+
+    // Never-started guard: few messages and within the grace period — give it more time
+    if (transcriptCount < MIN_TRANSCRIPT_MESSAGES_TO_STOP && runningTimeMs < NEVER_STARTED_GRACE_MS) {
+      logger.info(
+        `autoStop: skipping stop for conversation ${conversationId} — only ${transcriptCount} transcript message(s), running for ${Math.round(
+          runningTimeMs / 60000
+        )} minutes`
+      )
+      return
+    }
+
+    const idleMinutes = lastActivityMs === Infinity ? 'never started' : `${Math.round(lastActivityMs / 60000)} min`
+    logger.info(
+      `autoStop: stopping conversation ${conversationId} — idle for ${idleMinutes}, ${transcriptCount} transcript message(s)`
+    )
+    await conversation.populate(['topic', 'agents', 'adapters'])
+    await doStopConversation(conversation)
   } catch (err) {
     logger.error(`Auto stop check failed for conversation ${conversationId}`, err)
   }

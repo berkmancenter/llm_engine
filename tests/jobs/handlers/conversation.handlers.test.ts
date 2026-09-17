@@ -81,29 +81,28 @@ describe('conversation handler tests', () => {
   })
 
   describe('autoStopConversation', () => {
-    const startedLongAgo = new Date(Date.now() - 20 * 60 * 1000) // 20 min ago, past NEVER_STARTED_TIMEOUT_MS
+    const startedLongAgo = new Date(Date.now() - 90 * 60 * 1000) // > NEVER_STARTED_GRACE_MS
+    const startedRecently = new Date(Date.now() - 10 * 60 * 1000) // < NEVER_STARTED_GRACE_MS
+
+    async function createTranscriptMessages(count: number, ageMs: number) {
+      await Message.insertMany(
+        Array.from({ length: count }, () => ({
+          conversation: conversation._id,
+          channels: ['transcript'],
+          body: 'hello',
+          pseudonym: 'Speaker',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          createdAt: new Date(Date.now() - ageMs)
+        }))
+      )
+    }
 
     beforeEach(async () => {
       await Conversation.findByIdAndUpdate(conversation._id, { active: true, startTime: startedLongAgo })
     })
 
-    test('stops when no transcript messages exist (never-started case)', async () => {
-      await JobHandlers.autoStopConversation({ attrs: { data: { conversationId: conversation._id } } })
-
-      const updated = await Conversation.findById(conversation._id)
-      expect(updated!.active).toBe(false)
-      expect(updated!.endTime).toBeDefined()
-    })
-
-    test('stops when last transcript message is older than IDLE_TIMEOUT_MS', async () => {
-      await Message.create({
-        conversation: conversation._id,
-        channels: ['transcript'],
-        body: 'hello',
-        pseudonym: 'Speaker',
-        pseudonymId: new mongoose.Types.ObjectId(),
-        createdAt: new Date(Date.now() - 6 * 60 * 1000) // 6 min ago
-      })
+    test('stops when idle past IDLE_TIMEOUT_MS with sufficient messages', async () => {
+      await createTranscriptMessages(10, 10 * 60 * 1000) // 10 messages, 10 min old
 
       await JobHandlers.autoStopConversation({ attrs: { data: { conversationId: conversation._id } } })
 
@@ -112,20 +111,69 @@ describe('conversation handler tests', () => {
       expect(updated!.endTime).toBeDefined()
     })
 
-    test('does not stop when a recent transcript message exists', async () => {
-      await Message.create({
-        conversation: conversation._id,
-        channels: ['transcript'],
-        body: 'hello',
-        pseudonym: 'Speaker',
-        pseudonymId: new mongoose.Types.ObjectId(),
-        createdAt: new Date(Date.now() - 60 * 1000) // 1 min ago
-      })
+    test('does not stop when last transcript message is within IDLE_TIMEOUT_MS', async () => {
+      await createTranscriptMessages(10, 60 * 1000) // 10 messages, 1 min old
 
       await JobHandlers.autoStopConversation({ attrs: { data: { conversationId: conversation._id } } })
 
       const updated = await Conversation.findById(conversation._id)
       expect(updated!.active).toBe(true)
+      expect(updated!.endTime).toBeUndefined()
+    })
+
+    test('stops a scheduled event after its end time when idle', async () => {
+      const scheduledEndTime = new Date(Date.now() - 10 * 60 * 1000) // ended 10 min ago
+      await Conversation.findByIdAndUpdate(conversation._id, { scheduledEndTime })
+      await createTranscriptMessages(10, 10 * 60 * 1000) // 10 min idle
+
+      await JobHandlers.autoStopConversation({ attrs: { data: { conversationId: conversation._id } } })
+
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.active).toBe(false)
+      expect(updated!.endTime).toBeDefined()
+    })
+
+    test('does not stop a scheduled event after its end time if still active', async () => {
+      const scheduledEndTime = new Date(Date.now() - 10 * 60 * 1000) // ended 10 min ago
+      await Conversation.findByIdAndUpdate(conversation._id, { scheduledEndTime })
+      await createTranscriptMessages(10, 60 * 1000) // 1 min idle — still talking
+
+      await JobHandlers.autoStopConversation({ attrs: { data: { conversationId: conversation._id } } })
+
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.active).toBe(true)
+      expect(updated!.endTime).toBeUndefined()
+    })
+
+    test('does not stop when fewer than MIN_TRANSCRIPT_MESSAGES exist within NEVER_STARTED_GRACE_MS', async () => {
+      await Conversation.findByIdAndUpdate(conversation._id, { startTime: startedRecently })
+      await createTranscriptMessages(2, 10 * 60 * 1000) // only 2 messages, idle
+
+      await JobHandlers.autoStopConversation({ attrs: { data: { conversationId: conversation._id } } })
+
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.active).toBe(true)
+      expect(updated!.endTime).toBeUndefined()
+    })
+
+    test('stops when fewer than MIN_TRANSCRIPT_MESSAGES exist but past NEVER_STARTED_GRACE_MS', async () => {
+      // startedLongAgo (90min) is already set in beforeEach, past the 30-min grace period
+      await createTranscriptMessages(2, 10 * 60 * 1000) // only 2 messages
+
+      await JobHandlers.autoStopConversation({ attrs: { data: { conversationId: conversation._id } } })
+
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.active).toBe(false)
+      expect(updated!.endTime).toBeDefined()
+    })
+
+    test('skips if conversation is already inactive', async () => {
+      await Conversation.findByIdAndUpdate(conversation._id, { active: false })
+
+      await JobHandlers.autoStopConversation({ attrs: { data: { conversationId: conversation._id } } })
+
+      // endTime must not be set — doStopConversation was not called
+      const updated = await Conversation.findById(conversation._id)
       expect(updated!.endTime).toBeUndefined()
     })
 
@@ -186,7 +234,7 @@ describe('conversation handler tests', () => {
       await agent.save()
       conversation.agents.push(agent)
       conversation.active = true
-      conversation.startTime = new Date()
+      conversation.startTime = new Date(Date.now() - 90 * 60 * 1000) // past MAX_RUNNING_TIME_MS
       await conversation.save()
       jest.spyOn(agentService, 'stopAgent').mockRejectedValue(new Error('boom'))
 
