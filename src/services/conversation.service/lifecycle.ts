@@ -20,6 +20,7 @@ import { isValidPropertyFormat } from '../../conversations/propertyFormats.js'
 
 const transcriptBatchInterval = 30
 const autoStopCheckInterval = 5 * 60
+const MIN_TRANSCRIPT_MESSAGES_TO_SUMMARIZE = 20
 
 const SUMMARIZATION_PROMPT = `
   Please summarize what happened during this conversation. Where possible, also draw conclusions about outcomes of the discussion.
@@ -34,7 +35,8 @@ const SUMMARIZATION_PROMPT = `
   - The event content will be made up of a transcript as well as participant messages.
   - The transcript is drawing from what was said by the speakers in the event, or in some cases might be a video presentation of some kind. Be aware that speakers are generally allowed to use whatever media they would like during the conversation.
   - The participant messages are from attendees in a group chat either on Zoom or within a custom-built front-end app. Messages labelled "AI Assistant" are from automated assistants — ignore them entirely, do not mention or attribute them.
-  - Only include a section about group chat if there were meaningful participant contributions. If the chat was empty or contained only AI Assistant messages, omit it entirely.`
+  - Only include a section about group chat if there were meaningful participant contributions. If the chat was empty or contained only AI Assistant messages, omit it entirely.
+  - If the transcript is very sparse or empty, do not infer content from the event description — instead state that the event did not have sufficient recorded content to summarize.`
 
 export const updateTranscriptStatus = async (
   conversation,
@@ -205,42 +207,51 @@ export async function doStopConversation(conversation) {
           (a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0)
         )
         const transcriptMessages = sortedMessages.filter((m) => m.channels?.includes('transcript'))
-        const transcript = formatTranscript(transcriptMessages, 'UTC')
 
-        const chatHistory = getConversationHistory(sortedMessages, { channels: ['chat'] })
-        const sharedChat =
-          formatMultiUserConversationHistory(chatHistory)
-            .map((m) => (m.role === 'assistant' ? `AI Assistant: ${m.content}` : m.content))
-            .join('\n') || 'No participant chat messages.'
+        if (transcriptMessages.length < MIN_TRANSCRIPT_MESSAGES_TO_SUMMARIZE) {
+          logger.info(
+            `Skipping summary for conversation ${doc._id} — only ${transcriptMessages.length} transcript message(s), below minimum of ${MIN_TRANSCRIPT_MESSAGES_TO_SUMMARIZE}`
+          )
+        } else {
+          const transcript = formatTranscript(transcriptMessages, 'UTC')
+          const chatHistory = getConversationHistory(sortedMessages, { channels: ['chat'] })
+          const sharedChat =
+            formatMultiUserConversationHistory(chatHistory)
+              .map((m) => (m.role === 'assistant' ? `AI Assistant: ${m.content}` : m.content))
+              .join('\n') || 'No participant chat messages.'
 
-        // Get speaker and moderator information if available
-        const speakers = `${conversationDoc.presenters?.map((p) => `${p.name}: ${p.bio}`).join(', ')}` || 'Not provided'
-        const moderators = `${conversationDoc.moderators?.map((m) => `${m.name}: ${m.bio}`).join(', ')}` || 'Not provided'
-        const eventDescription = conversationDoc.description || 'Not provided'
+          // Get speaker and moderator information if available
+          const speakers = `${conversationDoc.presenters?.map((p) => `${p.name}: ${p.bio}`).join(', ')}` || 'Not provided'
+          const moderators = `${conversationDoc.moderators?.map((m) => `${m.name}: ${m.bio}`).join(', ')}` || 'Not provided'
+          const eventDescription = conversationDoc.description || 'Not provided'
 
-        /* Tagged like agent traces (conversationId + costPhase: 'postEvent') so
-           numberCruncher's cost fetcher attributes this call to the conversation it
-           summarizes, grouped with other post-stop spend rather than the live event. */
-        const structuredSummary = await traceable(
-          async () =>
-            getChatPromptResponse(
-              llm,
-              SUMMARIZATION_PROMPT,
-              `
+          /* Tagged like agent traces (conversationId + costPhase: 'postEvent') so
+             numberCruncher's cost fetcher attributes this call to the conversation it
+             summarizes, grouped with other post-stop spend rather than the live event. */
+          const structuredSummary = await traceable(
+            async () =>
+              getChatPromptResponse(
+                llm,
+                SUMMARIZATION_PROMPT,
+                `
             Event Transcript: {transcript},
             Shared Chat: {sharedChat},
             Speaker(s): {speakers},
             Moderator(s): {moderators},
             Event Description: {eventDescription}
           `,
-              { transcript, sharedChat, speakers, moderators, eventDescription }
-            ),
-          { name: 'conversationSummary', metadata: { conversationId: doc._id.toString(), costPhase: 'postEvent' as const } }
-        )()
+                { transcript, sharedChat, speakers, moderators, eventDescription }
+              ),
+            {
+              name: 'conversationSummary',
+              metadata: { conversationId: doc._id.toString(), costPhase: 'postEvent' as const }
+            }
+          )()
 
-        logger.info(`Conversation summary generated for conversation ${doc._id}`)
+          logger.info(`Conversation summary generated for conversation ${doc._id}`)
 
-        doc.summary = structuredSummary
+          doc.summary = structuredSummary
+        }
       } else logger.warn(`No conversation document found for conversation ${doc._id}`)
     } else logger.warn(`No owner found for conversation ${doc._id}`)
   }

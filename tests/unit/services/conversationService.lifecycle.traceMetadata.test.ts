@@ -41,10 +41,24 @@ const { default: setupIntTest } = await import('../../utils/setupIntTest.js')
 const { insertUsers, registeredUser } = await import('../../fixtures/user.fixture.js')
 const { publicTopic } = await import('../../fixtures/conversation.fixture.js')
 const { insertTopics } = await import('../../fixtures/topic.fixture.js')
-const { Conversation } = await import('../../../src/models/index.js')
+const { Conversation, Message } = await import('../../../src/models/index.js')
 const { doStopConversation } = await import('../../../src/services/conversation.service/lifecycle.js')
 const { default: config } = await import('../../../src/config/config.js')
 
+const seedTranscriptMessages = async (conversationId: unknown, count = 20) => {
+  const msgs = await Message.insertMany(
+    Array.from({ length: count }, (_, i) => ({
+      conversation: conversationId,
+      channels: ['transcript'],
+      body: `Speaker: message ${i + 1}`,
+      pseudonym: 'Speaker',
+      pseudonymId: conversationId
+    }))
+  )
+  await Conversation.findByIdAndUpdate(conversationId, { $push: { messages: { $each: msgs.map((m) => m._id) } } })
+}
+// seedTranscriptMessages is used only to satisfy MIN_TRANSCRIPT_MESSAGES_TO_SUMMARIZE so
+// the LLM path is reached — summary behaviour itself is tested in lifecycle.summary.test.ts.
 setupIntTest()
 
 describe('doStopConversation LangSmith trace metadata', () => {
@@ -69,6 +83,7 @@ describe('doStopConversation LangSmith trace metadata', () => {
       transcript: { status: 'active' }
     })
     await conversation.save()
+    await seedTranscriptMessages(conversation._id)
 
     await doStopConversation(conversation)
 
