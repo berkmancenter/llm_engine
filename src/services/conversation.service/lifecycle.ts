@@ -20,7 +20,7 @@ import { isValidPropertyFormat } from '../../conversations/propertyFormats.js'
 
 const transcriptBatchInterval = 30
 const autoStopCheckInterval = 5 * 60
-const autoStopGracePeriod = 15 * 60
+
 const SUMMARIZATION_PROMPT = `
   Please summarize what happened during this conversation. Where possible, also draw conclusions about outcomes of the discussion.
   When available, use as reference the listed speaker(s), moderator(s) and their bios, and event description.
@@ -67,8 +67,11 @@ async function scheduleAutoStop(conversation) {
   if (!hasTranscriptChannel) return
   await schedule.cancelAutoStopConversation(conversation._id)
   await defineJob.autoStopConversation(conversation._id)
-  const firstCheckAt = new Date(Date.now() + autoStopGracePeriod * 1000)
-  await schedule.autoStopConversation(`${autoStopCheckInterval} seconds`, { conversationId: conversation._id }, firstCheckAt)
+  await schedule.autoStopConversation(
+    `${autoStopCheckInterval} seconds`,
+    { conversationId: conversation._id },
+    conversation.scheduledEndTime ?? new Date()
+  )
 }
 
 /**
