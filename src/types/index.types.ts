@@ -209,6 +209,16 @@ export interface IConversationMembership {
   updatedAt?: Date
 }
 
+export interface IAgentIntroduction {
+  conversation: mongoose.Types.ObjectId
+  user: mongoose.Types.ObjectId
+  agent: mongoose.Types.ObjectId
+  channel: string
+  intros: Omit<AgentResponse<unknown>, 'channels'>[]
+  createdAt?: Date
+  updatedAt?: Date
+}
+
 export const ChannelZodSchema = z.object({
   name: z.string(),
   passcode: z.string().nullable(),
