@@ -315,16 +315,14 @@ const appendVersion = async (artifactId: string, { payload, note }: VersionInput
   logger.info('Appended version %s to artifact %s (%s)', versionNumber, artifact._id, artifact.__t)
 
   /* The version is already committed by this point, so a socket layer that is down must not
-     turn a successful append into a 500 — the client would retry and write a duplicate
+     turn a successful append into a 500: the client would retry and write a duplicate
      version. Clients reconcile by fetching the artifact, so a missed broadcast costs a
      delayed re-render, not the edit. */
   if (container.scope === 'conversation' && container.conversationId) {
     try {
       await websocketGateway.broadcastArtifactVersion(container.conversationId, {
         artifactId: artifact._id!.toString(),
-        type: artifact.__t,
-        title: artifact.title,
-        version: version.toJSON()
+        versionNumber
       })
     } catch (err) {
       logger.warn(`artifact.service: failed to broadcast version ${versionNumber} of artifact ${artifact._id}: ${err}`)

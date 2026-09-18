@@ -131,16 +131,12 @@ class WebsocketGateway {
   }
 
   /**
-   * Announces a new version of an artifact so a client showing it can re-render without
-   * polling — this is what "updated live during the conversation" rests on.
-   *
-   * Broadcast to the conversation room with no channel filter, matching the read rule: one
-   * artifact passcode per conversation, so everyone who can read the artifact at all can
-   * read every version of it. Carries the version itself rather than just an id, since the
-   * payload is what the client needs and a fetch would have to re-present the passcode.
+   * Tells clients a new version exists so they can refetch it over HTTP. Only ids go out:
+   * the conversation room is joined without any passcode, while reading an artifact needs
+   * the artifact passcode, so the content must come from the route that checks it.
    */
-  async broadcastArtifactVersion(conversationId: string, artifactVersion) {
-    await this.broadcast(conversationId, 'artifact:version', artifactVersion)
+  async broadcastArtifactVersion(conversationId: string, notice: { artifactId: string; versionNumber: number }) {
+    await this.broadcast(conversationId, 'artifact:version', notice)
   }
 
   /**

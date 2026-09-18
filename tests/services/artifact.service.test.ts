@@ -209,16 +209,19 @@ describe('appendVersion', () => {
     expect(await ArtifactVersion.countDocuments({ artifact: artifact!._id })).toBe(2)
   })
 
-  it('broadcasts the new version so a client can re-render mid-conversation', async () => {
+  /* The socket room takes no passcode, so the announcement must carry nothing a client
+     would otherwise need the artifact passcode to read. The content comes from the HTTP
+     route, which checks the passcode. */
+  it('announces a new version by id only, never with its content', async () => {
     const { artifact } = await artifactService.createArtifact(conversationBody(), userTwo)
     broadcastSpy.mockClear()
 
     await artifactService.appendVersion(artifact!._id!.toString(), { payload: { body: 'Live update.' } }, userTwo)
 
-    expect(broadcastSpy).toHaveBeenCalledWith(
-      conversation._id.toString(),
-      expect.objectContaining({ artifactId: artifact!._id!.toString(), type: DOCUMENT_ARTIFACT })
-    )
+    expect(broadcastSpy).toHaveBeenCalledWith(conversation._id.toString(), {
+      artifactId: artifact!._id!.toString(),
+      versionNumber: 2
+    })
   })
 
   it('does not lose the append when the broadcast fails', async () => {
