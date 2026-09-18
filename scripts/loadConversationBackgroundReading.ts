@@ -4,15 +4,15 @@
  * Handles PDF resources from rag_documents/background/{conversationId}/
  *
  * USAGE:
- * NODE_ENV=... node --loader ts-node/esm src/utils/loadConversationBackgroundReading.ts <conversationId>
+ * NODE_ENV=... node --loader ts-node/esm scripts/loadConversationBackgroundReading.ts <conversationId>
  */
 /* eslint-disable no-console */
 
 import mongoose from 'mongoose'
-import config from '../config/config.js'
-import { Conversation } from '../models/index.js'
-import backgroundCollection from '../agents/helpers/backgroundCollection.js'
-import { Resource } from '../types/index.types.js'
+import config from '../src/config/config.js'
+import { Conversation } from '../src/models/index.js'
+import backgroundCollection from '../src/agents/helpers/backgroundCollection.js'
+import { Resource } from '../src/types/index.types.js'
 
 async function main() {
   const conversationId = process.argv[2]

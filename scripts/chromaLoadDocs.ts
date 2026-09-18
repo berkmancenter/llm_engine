@@ -1,16 +1,16 @@
 /**
  * Loads the Chroma vector store with material for agent RAG
  * USAGE:
- * NODE_ENV=... node --loader ts-node/esm src/utils/chromaLoadDocs.ts [name of subfolder in rag_documents]
+ * NODE_ENV=... node --loader ts-node/esm scripts/chromaLoadDocs.ts [name of subfolder in rag_documents]
  *
  */
 /* eslint-disable no-console */
 
 import fs from 'fs'
 import path from 'path'
-import rag from '../agents/helpers/rag.js'
-import backgroundCollection from '../agents/helpers/backgroundCollection.js'
-import config from '../config/config.js'
+import rag from '../src/agents/helpers/rag.js'
+import backgroundCollection from '../src/agents/helpers/backgroundCollection.js'
+import config from '../src/config/config.js'
 
 const CONFIG_FILE = 'config.ts'
 
