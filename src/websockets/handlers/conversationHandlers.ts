@@ -78,6 +78,14 @@ export default (io, socket) => {
     )
     if (typeof callback === 'function') callback({ intros })
   })
+  /* Only the bare room: Socket.io gives a client no room attribution on a received event,
+     so a client moving between conversations has to leave the old room to stop hearing
+     conversation-level events for it. Channel rooms are still dropped on disconnect. */
+  const leaveConversation = catchAsync(async (data) => {
+    const roomId = getRoomId(data.conversationId.toString())
+    logger.debug('Leaving conversation via socket. Room: %s', roomId)
+    socket.leave(roomId)
+  })
   socket.use(([event, args], next) => {
     logger.debug('Checking auth (JWT) for topic socket requests.')
     checkAuth(event, args, next)
@@ -86,6 +94,7 @@ export default (io, socket) => {
   socket.on('topic:join', joinTopic)
   socket.on('channel:join', joinChannel)
   socket.on('conversation:join', joinConversation)
+  socket.on('conversation:leave', leaveConversation)
   socket.on('topic:disconnect', () => {
     logger.info('Socket disconnecting from topic.')
     socket.disconnect(true)
