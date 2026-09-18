@@ -454,6 +454,8 @@ describe('POST /v1/webhooks/email', () => {
 
     beforeEach(() => {
       jest.spyOn(websocketGateway, 'broadcastNewConversation').mockResolvedValue(undefined as never)
+      jest.spyOn(websocketGateway, 'broadcastConversationStarted').mockResolvedValue(undefined as never)
+      jest.spyOn(websocketGateway, 'broadcastConversationStopped').mockResolvedValue(undefined as never)
       jest.spyOn(transcript, 'loadTopicMetadataIntoVectorStore').mockResolvedValue(undefined as never)
       jest.spyOn(transcript, 'loadEventMetadataIntoVectorStore').mockResolvedValue(undefined as never)
       // The extraction call is unit-tested on its own (planner.service.test.ts); mocked here so
@@ -557,6 +559,8 @@ describe('POST /v1/webhooks/email', () => {
 
     beforeEach(() => {
       jest.spyOn(websocketGateway, 'broadcastNewConversation').mockResolvedValue(undefined as never)
+      jest.spyOn(websocketGateway, 'broadcastConversationStarted').mockResolvedValue(undefined as never)
+      jest.spyOn(websocketGateway, 'broadcastConversationStopped').mockResolvedValue(undefined as never)
       jest.spyOn(transcript, 'loadTopicMetadataIntoVectorStore').mockResolvedValue(undefined as never)
       jest.spyOn(transcript, 'loadEventMetadataIntoVectorStore').mockResolvedValue(undefined as never)
       // The extraction call is unit-tested on its own (planner.service.test.ts); mocked here so

@@ -122,6 +122,14 @@ class WebsocketGateway {
     )
   }
 
+  async broadcastConversationStarted(conversation) {
+    await this.broadcast(conversation._id.toString(), 'conversation:started', conversation)
+  }
+
+  async broadcastConversationStopped(conversation) {
+    await this.broadcast(conversation._id.toString(), 'conversation:stopped', conversation)
+  }
+
   async broadcastConversationAlmostEnding(conversation) {
     await this.broadcast(conversation._id.toString(), 'conversation:ending', conversation)
   }
