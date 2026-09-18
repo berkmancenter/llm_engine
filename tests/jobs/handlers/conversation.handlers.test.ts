@@ -39,6 +39,9 @@ describe('conversation handler tests', () => {
        default it to Draft and block it from starting. */
     conversation = new Conversation({ ...conversationOne, active: false, draft: false })
     await conversation.save()
+
+    jest.spyOn(websocketGateway, 'broadcastConversationStarted').mockResolvedValue(undefined)
+    jest.spyOn(websocketGateway, 'broadcastConversationStopped').mockResolvedValue(undefined)
   })
 
   afterEach(() => {
