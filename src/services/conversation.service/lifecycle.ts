@@ -167,6 +167,9 @@ export async function doStopConversation(conversation) {
      guard and doesn't redo them. */
   doc.active = false
   await doc.save()
+  /* Taken before the loop below switches them off: the dispatcher only considers active
+     agents, and this conversation's own agents still need to hear that it ended. */
+  const runningAgentIds = doc.agents.filter((agent) => agent.active).map((agent) => agent._id.toString())
   for (const agent of doc.agents) {
     // needed so agent has all conversation info for activation
     agent.conversation = doc
@@ -269,7 +272,8 @@ export async function doStopConversation(conversation) {
   } else {
     await agentDispatcher.dispatch(
       { type: 'conversationStopped', conversationId: doc._id.toString(), topicId },
-      { type: 'conversation', id: doc._id.toString(), topicId, topicIsPrivate }
+      { type: 'conversation', id: doc._id.toString(), topicId, topicIsPrivate },
+      { alsoNotify: runningAgentIds }
     )
   }
 

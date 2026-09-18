@@ -49,6 +49,7 @@ export interface AgentMethods {
   stop()
   introduce(channel: IChannel): Promise<Array<AgentResponse<unknown>>>
   onConversationEvent(evt: ConversationEvent): Promise<Array<AgentResponse<unknown>>>
+  handlesConversationEvents(): boolean
   pingLLM(): Promise<void>
   getLLM(): Promise<unknown>
   claimResponseTrigger(triggerId: string): Promise<boolean>
@@ -579,6 +580,11 @@ agentSchema.method('deepPatch', function (origPatch) {
   Object.assign(this, update)
 
   this.conversation = conversation
+})
+
+// Lets the dispatcher skip agents with no event handler instead of scheduling a job to find out.
+agentSchema.method('handlesConversationEvents', function () {
+  return typeof agentTypes[this.agentType]?.onConversationEvent === 'function'
 })
 
 agentSchema.method('onConversationEvent', async function (evt: ConversationEvent) {

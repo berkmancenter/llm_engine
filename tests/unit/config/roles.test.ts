@@ -10,7 +10,9 @@ const PARTICIPANT_RIGHTS = [
   'inspectPoll',
   'getPollResponseCounts',
   'getUser',
-  'manageAccount'
+  'manageAccount',
+  'getArtifact',
+  'listArtifacts'
 ]
 
 const ADMINISTRATION_RIGHTS = [
@@ -32,7 +34,8 @@ const ADMINISTRATION_RIGHTS = [
   'deleteTranscript',
   'pauseTranscript',
   'resumeTranscript',
-  'getTranscript'
+  'getTranscript',
+  'manageArtifacts'
 ]
 
 const ENUMERATION_RIGHTS = [

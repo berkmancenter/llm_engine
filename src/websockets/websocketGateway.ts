@@ -2,6 +2,7 @@ import { Worker } from 'node:cluster'
 import socketIO from './socketIO.js'
 import logger from '../config/logger.js'
 import { getRoomIds } from './utils.js'
+import { ArtifactVersionNotice } from '../types/index.types.js'
 
 const isSubdocument = (value) => value !== null && typeof value === 'object' && value.constructor === Object
 
@@ -128,6 +129,19 @@ class WebsocketGateway {
 
   async broadcastResourcesUpdated(conversationId: string, resources) {
     await this.broadcast(conversationId, 'resources:updated', { resources: resources.map((r) => r.toJSON()) })
+  }
+
+  /**
+   * Tells clients a new version exists so they can refetch it over HTTP. Only ids go out:
+   * the conversation room is joined without any passcode, while reading an artifact needs
+   * the artifact passcode, so the content must come from the route that checks it.
+   *
+   * The container is named because Socket.io does not tell a client which room an event
+   * arrived through, and a client that has moved between conversations may still be in the
+   * old room. `conversationId` is present only for a conversation-scoped artifact.
+   */
+  async broadcastArtifactVersion(conversationId: string, notice: ArtifactVersionNotice) {
+    await this.broadcast(conversationId, 'artifact:version', notice)
   }
 
   /**

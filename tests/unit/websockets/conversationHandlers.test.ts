@@ -1,7 +1,9 @@
 import { jest } from '@jest/globals'
+import mongoose from 'mongoose'
 import setupIntTest from '../../utils/setupIntTest.js'
 import logger from '../../../src/config/logger.js'
 import registerConversationHandlers, { collectChannelIntros } from '../../../src/websockets/handlers/conversationHandlers.js'
+import { getRoomId } from '../../../src/websockets/utils.js'
 import { Agent, AgentIntroduction, Channel, Conversation } from '../../../src/models/index.js'
 import { setAgentTypes } from '../../../src/models/user.model/agent.model/index.js'
 import defaultAgentTypes from '../../../src/agents/index.js'
@@ -16,6 +18,7 @@ const registerWithFakeSocket = () => {
   const handlers: Record<string, (...args: unknown[]) => unknown> = {}
   const socket = {
     join: jest.fn(),
+    leave: jest.fn(),
     use: jest.fn(),
     disconnect: jest.fn(),
     on: (event: string, handler: (...args: unknown[]) => unknown) => {
@@ -23,7 +26,7 @@ const registerWithFakeSocket = () => {
     }
   }
   registerConversationHandlers({}, socket)
-  return handlers
+  return { handlers, socket }
 }
 
 // catchAsync swallows a failed join into logger.error and never calls back, so surface it instead of timing out
@@ -67,7 +70,7 @@ describe('conversation:join logging', () => {
   const joinLines = () => infoSpy.mock.calls.map((call) => String(call[0])).filter((m) => m.startsWith('Socket join:'))
 
   it('logs one info line naming the user, the room, and the elapsed time', async () => {
-    const handlers = registerWithFakeSocket()
+    const { handlers } = registerWithFakeSocket()
 
     await joinAndWaitForCallback(handlers['conversation:join'], { conversationId: conversation._id, user })
 
@@ -79,7 +82,7 @@ describe('conversation:join logging', () => {
   })
 
   it('logs one info line for a channel join', async () => {
-    const handlers = registerWithFakeSocket()
+    const { handlers } = registerWithFakeSocket()
 
     await joinAndWaitForCallback(handlers['channel:join'], {
       conversationId: conversation._id,
@@ -91,6 +94,21 @@ describe('conversation:join logging', () => {
     expect(lines).toHaveLength(1)
     expect(lines[0]).toContain(`room ${conversation._id}_general`)
     expect(lines[0]).toMatch(/ in \d+ms$/)
+  })
+})
+
+/* Socket.io gives a client no room attribution on a received event, so a client moving
+   between conversations leaves the old bare room to stop hearing its events. */
+describe('conversation:leave', () => {
+  it('leaves the bare conversation room and nothing else', async () => {
+    const { handlers, socket } = registerWithFakeSocket()
+    const conversationId = new mongoose.Types.ObjectId()
+
+    await handlers['conversation:leave']({ conversationId })
+
+    expect(socket.leave).toHaveBeenCalledTimes(1)
+    expect(socket.leave).toHaveBeenCalledWith(getRoomId(conversationId.toString()))
+    expect(socket.disconnect).not.toHaveBeenCalled()
   })
 })
 

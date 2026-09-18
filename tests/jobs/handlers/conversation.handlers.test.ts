@@ -11,6 +11,7 @@ import { setAgentTypes } from '../../../src/models/user.model/agent.model/index.
 import defaultAgentTypes from '../../../src/agents/index.js'
 import { defaultLLMPlatform, defaultLLMModel } from '../../../src/agents/helpers/getModelChat.js'
 import config from '../../../src/config/config.js'
+import schedule from '../../../src/jobs/schedule.js'
 
 setupIntTest()
 
@@ -245,6 +246,60 @@ describe('conversation handler tests', () => {
       const updated = await Conversation.findById(conversation._id)
       expect(updated!.active).toBe(false)
       expect(updated!.endTime).toBeDefined()
+    })
+  })
+
+  /* The stop routine deactivates this conversation's agents before it announces the stop,
+     and the dispatcher only considers active agents. Post-event analysis is re-enabled here
+     because the outer suite turns it off. */
+  describe('conversationStopped reaches an agent attached to the stopping conversation', () => {
+    let scheduleSpy: jest.SpyInstance
+
+    beforeAll(() => {
+      config.disablePostEventAnalysis = false
+    })
+
+    afterAll(() => {
+      config.disablePostEventAnalysis = true
+    })
+
+    /* The block above stubs agentService.stopAgent and the outer afterEach only clears call
+       history, so the stub has to be restored before this test, not just after it. */
+    beforeEach(() => {
+      jest.restoreAllMocks()
+      scheduleSpy = jest.spyOn(schedule, 'conversationEvent').mockResolvedValue(undefined)
+    })
+
+    afterEach(() => {
+      jest.restoreAllMocks()
+    })
+
+    test('notifies the Concept Cartographer when the conversation it belongs to stops', async () => {
+      /* No transcript, so the stop routine skips the live LLM summary call. Started well
+         past the grace period that keeps a quiet conversation open, so it still stops. */
+      const chatOnlyConversation = new Conversation({
+        ...conversationOne,
+        _id: new mongoose.Types.ObjectId(),
+        transcript: undefined,
+        active: true,
+        draft: false,
+        startTime: new Date(Date.now() - 90 * 60 * 1000) // 90 min ago
+      })
+      const agent = new Agent({
+        agentType: 'conceptCartographer',
+        conversation: chatOnlyConversation._id,
+        active: true
+      })
+      await agent.save()
+      chatOnlyConversation.agents.push(agent)
+      await chatOnlyConversation.save()
+
+      await JobHandlers.autoStopConversation({ attrs: { data: { conversationId: chatOnlyConversation._id } } })
+
+      expect(scheduleSpy).toHaveBeenCalledWith({
+        agentId: agent._id.toString(),
+        event: expect.objectContaining({ type: 'conversationStopped', conversationId: chatOnlyConversation._id.toString() })
+      })
     })
   })
 
