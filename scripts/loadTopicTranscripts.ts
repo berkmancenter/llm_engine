@@ -3,17 +3,17 @@
  * transcript vector stores. Skips conversations already present in the topic collection.
  *
  * USAGE:
- * NODE_ENV=... node --loader ts-node/esm src/utils/loadTopicTranscripts.ts [topicId]
+ * NODE_ENV=... node --loader ts-node/esm scripts/loadTopicTranscripts.ts [topicId]
  *
  * If topicId is omitted, loads all public (private=false) topics.
  */
 /* eslint-disable no-console */
 
 import mongoose from 'mongoose'
-import config from '../config/config.js'
-import transcript from '../agents/helpers/transcript.js'
-import rag from '../agents/helpers/rag.js'
-import Topic from '../models/topic.model.js'
+import config from '../src/config/config.js'
+import transcript from '../src/agents/helpers/transcript.js'
+import rag from '../src/agents/helpers/rag.js'
+import Topic from '../src/models/topic.model.js'
 
 async function main() {
   const topicId = process.argv[2]
