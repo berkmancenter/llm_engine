@@ -275,14 +275,15 @@ describe('conversation handler tests', () => {
     })
 
     test('notifies the Concept Cartographer when the conversation it belongs to stops', async () => {
-      // No transcript, so the stop routine skips the live LLM summary call.
+      /* No transcript, so the stop routine skips the live LLM summary call. Started well
+         past the grace period that keeps a quiet conversation open, so it still stops. */
       const chatOnlyConversation = new Conversation({
         ...conversationOne,
         _id: new mongoose.Types.ObjectId(),
         transcript: undefined,
         active: true,
         draft: false,
-        startTime: new Date()
+        startTime: new Date(Date.now() - 90 * 60 * 1000) // 90 min ago
       })
       const agent = new Agent({
         agentType: 'conceptCartographer',
