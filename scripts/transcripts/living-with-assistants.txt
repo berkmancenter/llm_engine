@@ -1,0 +1,32 @@
+# Sample transcript for scripts/seedEvent.ts. One utterance per line as "Speaker: text".
+# Blank lines and lines starting with # are ignored. A line with no "Speaker:" prefix
+# continues the previous utterance.
+Maya: Thanks for coming. I want to start with a plain question: how many of you use an assistant every day, and for what?
+Theo: Every day, mostly for first drafts. Emails, summaries, the boring half of a document. I never ship what it gives me, but I stopped starting from a blank page a year ago.
+Priya: I use it as a rubber duck. I explain a problem to it and half the time I have the answer before it replies. The reply is almost beside the point.
+Jonah: I am the skeptic in the room. I use it for code, and I have been burned enough times that I read every line it writes. It is fast, but the speed is a trap if you stop checking.
+Maya: Say more about the trap.
+Jonah: When a person is unsure they hedge. The assistant does not. It gives you a confident wrong answer in the same voice as a confident right one, so you have to verify everything at the same level of care, and that eats most of the time you saved.
+Theo: That matches my experience with drafts. The prose is fluent, so errors hide in plain sight. A clumsy sentence would have made me stop and look. A smooth one sails through.
+Priya: I think that is why the rubber duck framing works for me. I never treat the output as an answer. I treat it as a prompt back to myself.
+Maya: Does anyone trust it more in some areas than others?
+Jonah: Boilerplate, yes. Anything where the shape is standard and the cost of being wrong is low. Tests, config, glue code. Anything with a subtle invariant, no.
+Theo: Same split for writing. Structure and tone, sure. Facts, dates, names, quotes, never without a source.
+Priya: I would add that trust changes over time in a way I did not expect. I trusted it more in month one than I do now, and I think that is healthy. The honeymoon wore off and a working relationship replaced it.
+Maya: Let's talk about the relationship side. Does it change how you think, not just how you work?
+Theo: Yes. I outline more now. Because I know I will hand the outline to something that fills it in, I put more care into the outline. The thinking moved upstream.
+Jonah: For me it moved to review. I used to think while typing. Now I think while reading. That is a real skill shift and I am not sure it is a good one for junior people who never learned to type it out first.
+Priya: That worries me too. The people who benefit most already know what good looks like. If you cannot tell a good answer from a plausible one, the tool makes you faster at being wrong.
+Maya: So the assistant amplifies judgment rather than replacing it.
+Jonah: That is the optimistic version. The pessimistic version is that it lets you skip building judgment in the first place.
+Theo: Both are true depending on the person. I think teams need a norm about it. Ours is that you own anything you submit, however it was produced. No one gets to say the model did it.
+Priya: We have the same rule and it changed behavior overnight. People started reading the output because their name was on it.
+Maya: What about privacy and what you put into these things?
+Jonah: We have a hard list. No customer data, no credentials, no unreleased financials. It is enforced by a proxy, not by trust, because trust does not scale to two hundred people.
+Theo: We rely on training and a checklist, which I would not call enforcement. It mostly works because the stakes for us are lower.
+Priya: I think about it personally more than professionally. I catch myself telling it things I would not put in an email. It feels like a conversation, and conversations feel private, and that feeling is not accurate.
+Maya: Last question. What would make you trust it more?
+Jonah: Show me its confidence honestly. If it said I am guessing here, I would forgive a lot more mistakes.
+Theo: Citations that actually resolve. Not a link that looks right, a link I can click and find the sentence.
+Priya: Memory I can inspect and edit. I want to see what it thinks it knows about me and correct it.
+Maya: Honest uncertainty, real sources, and inspectable memory. That is a good list to end on. Thank you all.
