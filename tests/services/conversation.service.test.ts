@@ -215,6 +215,8 @@ describe('Conversation service methods', () => {
 
   beforeEach(async () => {
     jest.spyOn(websocketGateway, 'broadcastNewConversation').mockResolvedValue()
+    jest.spyOn(websocketGateway, 'broadcastConversationStarted').mockResolvedValue()
+    jest.spyOn(websocketGateway, 'broadcastConversationStopped').mockResolvedValue()
     jest.spyOn(transcript, 'loadEventMetadataIntoVectorStore').mockResolvedValue()
     jest.spyOn(transcript, 'deleteTranscript').mockResolvedValue()
     jest.spyOn(schedule, 'cancelBatchTranscript').mockResolvedValue()
@@ -1539,6 +1541,15 @@ describe('Conversation service methods', () => {
       expect(updatedFailing!.active).toBe(false)
       expect(dispatchSpy).toHaveBeenCalledTimes(1)
     })
+
+    test('broadcasts conversation:stopped when the conversation is stopped', async () => {
+      jest.spyOn(agentDispatcher, 'dispatch').mockResolvedValue(undefined)
+      const broadcastSpy = jest.spyOn(websocketGateway, 'broadcastConversationStopped')
+
+      await conversationService.stopConversation(conversation._id.toString(), registeredUser)
+
+      expect(broadcastSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }))
+    })
   })
 
   describe('startConversation() auto-stop scheduling', () => {
@@ -1664,6 +1675,42 @@ describe('Conversation service methods', () => {
 
       const reloaded = await Conversation.findById(conversation._id)
       expect(reloaded!.active).toBe(true)
+    })
+
+    test('broadcasts conversation:started when the conversation starts', async () => {
+      const conversation = new Conversation({
+        name: 'Ready Event',
+        owner: registeredUser._id,
+        topic: topicOne._id,
+        draft: false,
+        agents: [],
+        adapters: [],
+        messages: []
+      })
+      await conversation.save()
+      const broadcastSpy = jest.spyOn(websocketGateway, 'broadcastConversationStarted')
+
+      await conversationService.startConversation(conversation._id.toString(), registeredUser)
+
+      expect(broadcastSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }))
+    })
+
+    test('does not broadcast conversation:started when start is rejected for a draft', async () => {
+      const conversation = new Conversation({
+        name: 'Draft Event',
+        owner: registeredUser._id,
+        topic: topicOne._id,
+        draft: true,
+        agents: [],
+        adapters: [],
+        messages: []
+      })
+      await conversation.save()
+      const broadcastSpy = jest.spyOn(websocketGateway, 'broadcastConversationStarted')
+
+      await expect(conversationService.startConversation(conversation._id.toString(), registeredUser)).rejects.toThrow()
+
+      expect(broadcastSpy).not.toHaveBeenCalled()
     })
   })
 

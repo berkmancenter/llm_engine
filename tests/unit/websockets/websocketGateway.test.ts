@@ -79,4 +79,15 @@ describe('websocketGateway conversation broadcasts', () => {
       expect(broadcastSpy).not.toHaveBeenCalled()
     })
   })
+
+  describe.each([
+    ['conversation:started', (c) => websocketGateway.broadcastConversationStarted(c)],
+    ['conversation:stopped', (c) => websocketGateway.broadcastConversationStopped(c)]
+  ])('%s', (eventName, broadcastConversation) => {
+    test('broadcasts to the conversation room with the correct event name', async () => {
+      await broadcastConversation({ ...secrets })
+
+      expect(broadcastSpy).toHaveBeenCalledWith('conv-1', eventName, { conversationId: 'conv-1' })
+    })
+  })
 })
