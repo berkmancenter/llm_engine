@@ -63,6 +63,8 @@ describe('POST /v1/webhooks/zoom', () => {
     await conversation.save()
     jest.spyOn(webhookService, 'receiveMessage').mockResolvedValue()
     broadcastTranscriptStatusChangeSpy = jest.spyOn(websocketGateway, 'broadcastTranscriptStatusChange').mockResolvedValue()
+    jest.spyOn(websocketGateway, 'broadcastConversationStarted').mockResolvedValue()
+    jest.spyOn(websocketGateway, 'broadcastConversationStopped').mockResolvedValue()
     mockZoomGetUniqueKeys.mockReturnValue(['type', 'config.meetingUrl'])
   })
   afterAll(() => {
@@ -70,9 +72,7 @@ describe('POST /v1/webhooks/zoom', () => {
     config.zoom.secretToken = zoomSecretToken
   })
   afterEach(async () => {
-    if (broadcastTranscriptStatusChangeSpy) {
-      broadcastTranscriptStatusChangeSpy.mockRestore()
-    }
+    jest.restoreAllMocks()
     jest.clearAllMocks()
   })
   describe('Signature validation', () => {
