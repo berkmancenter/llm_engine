@@ -644,6 +644,16 @@ export interface PollResponseModel extends mongoose.Model<IPollResponse> {
    query can filter on it without testing two fields for null. */
 export type ArtifactScope = 'topic' | 'conversation'
 
+/* What the `artifact:version` socket event carries: enough to refetch the version over
+   HTTP and to tell which container it belongs to, and never the content itself. */
+export interface ArtifactVersionNotice {
+  artifactId: string
+  versionNumber: number
+  scope: ArtifactScope
+  topicId: string
+  conversationId?: string
+}
+
 /* The base of the artifact discriminator hierarchy: a shared object that emerges from one
    or more conversations. Everything a client needs to list and label an artifact lives
    here; everything that differs by kind lives in the version payload, so a new kind is a

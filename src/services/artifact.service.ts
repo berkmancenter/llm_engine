@@ -322,7 +322,10 @@ const appendVersion = async (artifactId: string, { payload, note }: VersionInput
     try {
       await websocketGateway.broadcastArtifactVersion(container.conversationId, {
         artifactId: artifact._id!.toString(),
-        versionNumber
+        versionNumber,
+        scope: container.scope,
+        topicId: container.topicId,
+        conversationId: container.conversationId
       })
     } catch (err) {
       logger.warn(`artifact.service: failed to broadcast version ${versionNumber} of artifact ${artifact._id}: ${err}`)

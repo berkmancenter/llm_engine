@@ -211,8 +211,9 @@ describe('appendVersion', () => {
 
   /* The socket room takes no passcode, so the announcement must carry nothing a client
      would otherwise need the artifact passcode to read. The content comes from the HTTP
-     route, which checks the passcode. */
-  it('announces a new version by id only, never with its content', async () => {
+     route, which checks the passcode. The container is named because a socket can sit in
+     several rooms at once and the event itself does not say which room it came from. */
+  it('announces a new version with its ids and container, never with its content', async () => {
     const { artifact } = await artifactService.createArtifact(conversationBody(), userTwo)
     broadcastSpy.mockClear()
 
@@ -220,7 +221,10 @@ describe('appendVersion', () => {
 
     expect(broadcastSpy).toHaveBeenCalledWith(conversation._id.toString(), {
       artifactId: artifact!._id!.toString(),
-      versionNumber: 2
+      versionNumber: 2,
+      scope: 'conversation',
+      topicId: topic._id.toString(),
+      conversationId: conversation._id.toString()
     })
   })
 
