@@ -15,6 +15,7 @@ import experimentsRoute from './experiments.route.js'
 import healthRoute from './health.route.js'
 import openApiRoute from './openapi.route.js'
 import eventSetupRoute from './eventSetup.route.js'
+import artifactsRoute from './artifacts.route.js'
 // import exportRoute from './export.route.js'
 
 const router = express.Router()
@@ -74,6 +75,10 @@ const defaultRoutes = [
   {
     path: '/openapi.json',
     route: openApiRoute
+  },
+  {
+    path: '/artifacts',
+    route: artifactsRoute
   },
   {
     path: '/event-setup',

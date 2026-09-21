@@ -19,3 +19,7 @@ export { default as ConversationAnalytics } from './conversationAnalytics.model.
 export { default as ConversationCost } from './conversationCost.model.js'
 export { default as ConversationMetricsSnapshot } from './conversationMetricsSnapshot.model.js'
 export { default as Job } from './job.model.js'
+export { default as Artifact } from './artifact.model/artifact.js'
+export { default as ArtifactVersion } from './artifact.model/version.js'
+export { default as DocumentArtifact } from './artifact.model/documentArtifact.js'
+export { default as ConceptGraphArtifact } from './artifact.model/conceptGraphArtifact.js'

@@ -1471,7 +1471,8 @@ describe('Conversation service methods', () => {
 
       expect(dispatchSpy).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'conversationStopped', conversationId: conversation._id.toString() }),
-        expect.objectContaining({ type: 'conversation', id: conversation._id.toString() })
+        expect.objectContaining({ type: 'conversation', id: conversation._id.toString() }),
+        { alsoNotify: [] }
       )
     })
 

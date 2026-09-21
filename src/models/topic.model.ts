@@ -37,6 +37,15 @@ const topicSchema = new mongoose.Schema<ITopic>(
       type: Number,
       private: true
     },
+    /* Read key for this topic's artifacts. Minted on first artifact creation rather than at
+       topic creation, so no existing topic needed a migration and a topic without artifacts
+       carries no secret at all. Deliberately not `passcode` above: that one gates the
+       private topic itself, and handing an artifact reader a key that also clears
+       POST /topics/auth would widen access well past the artifact. */
+    artifactPasscode: {
+      type: String,
+      private: true
+    },
     archivable: {
       type: Boolean,
       required: true,

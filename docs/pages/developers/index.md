@@ -32,6 +32,8 @@
 
 ✅ Support **threaded messages**
 
+✅ Produce **[artifacts](artifacts.md)** from an event, such as an unattributed **concept graph** of what it discussed, with versioned history and passcode-protected read access
+
 [ ] LLM **automated prompt iteration and refinement**
 
 ## System Description
@@ -171,6 +173,10 @@ Unit and integration tests can be run with `yarn run test`, and a coverage repor
 ### Agent tests
 
 Tests of the built-in "production" agent types can be run with `yarn test:agents`.
+
+### Testing artifacts
+
+See the [artifacts guide](artifacts.md) for a script that seeds an ended event with a transcript, and for a manual test of the concept graph flow.
 
 ### Red teaming
 

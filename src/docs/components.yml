@@ -1353,6 +1353,242 @@ components:
         refresh:
           $ref: '#/components/schemas/Token'
 
+    GraphNodeProvenance:
+      type: object
+      description: >-
+        Where a node in a concept graph came from. Every field is optional: a graph
+        assembled from a whole event has no single message to point at, while one built
+        live from the transcript can attribute nearly every node.
+      properties:
+        conversationId:
+          type: string
+          description: >-
+            Carried even though the artifact knows its own container, because a
+            topic-scoped graph draws on several conversations.
+        messageId:
+          type: string
+          description: The specific message this node came from
+        pseudonym:
+          type: string
+          description: Display name of whoever contributed it
+
+    GraphConcept:
+      type: object
+      description: An idea or entity in a concept graph.
+      required:
+        - id
+        - label
+      properties:
+        id:
+          type: string
+          description: >-
+            Opaque and stable, so renaming a concept is an edit to one node rather than a
+            delete plus a create, and two versions of the graph stay diffable.
+          example: c-verifiable-credential
+        label:
+          type: string
+          description: What the client draws
+          example: Verifiable Credential
+        origin:
+          type: string
+          description: Id of the GraphOriginPrompt this concept came out of
+          example: p1
+        provenance:
+          $ref: '#/components/schemas/GraphNodeProvenance'
+
+    GraphContribution:
+      type: object
+      description: >-
+        A relationship between concepts, reified as its own node rather than left as an
+        edge. That is what lets one contribution join three or more concepts at once, which
+        a plain edge cannot express — and why concepts never reference each other directly.
+      required:
+        - id
+        - kind
+        - concepts
+      properties:
+        id:
+          type: string
+          example: k15
+        kind:
+          type: string
+          description: "The relationship's name, and the short label a client renders on the node"
+          example: co-governs
+        statement:
+          type: string
+          description: >-
+            What the conversation said about this relationship, in a sentence — the hover or
+            side-panel text behind the short `kind` label. Normally a paraphrase; a verbatim
+            quotation appears only inside quotation marks and only when it carries no
+            personally identifying information.
+          example: >-
+            Participants argued a trust registry only means anything if verifiers actually
+            check it before accepting a credential.
+        concepts:
+          type: array
+          minItems: 1
+          description: Ids of the GraphConcepts this relationship joins
+          items:
+            type: string
+          example: [c-issuer, c-verifier, c-trust-registry]
+        origin:
+          type: string
+          description: Id of the GraphOriginPrompt this contribution came out of
+        provenance:
+          $ref: '#/components/schemas/GraphNodeProvenance'
+
+    GraphOriginPrompt:
+      type: object
+      description: >-
+        The prompt or question a concept or contribution came out of: the third node kind.
+        Attached by a direct `origin` reference rather than through a contribution, since
+        an origin is attribution rather than a relationship between concepts.
+      required:
+        - id
+        - text
+      properties:
+        id:
+          type: string
+          example: p1
+        text:
+          type: string
+          example: 'What has to be trustworthy for a credential to mean anything?'
+        provenance:
+          $ref: '#/components/schemas/GraphNodeProvenance'
+
+    ConceptGraphPayload:
+      type: object
+      description: >-
+        The version payload of a ConceptGraphArtifact. Every array defaults to empty, so
+        the artifact can be created when an event starts and fill in as it runs. Nothing
+        about layout is stored — position, size and colour are all derived by the client
+        from the graph itself. Ids are unique across all three arrays, every id in
+        `contributions[].concepts` names a concept in this payload, and every `origin`
+        names an origin prompt in it.
+      properties:
+        concepts:
+          type: array
+          items:
+            $ref: '#/components/schemas/GraphConcept'
+        contributions:
+          type: array
+          items:
+            $ref: '#/components/schemas/GraphContribution'
+        originPrompts:
+          type: array
+          items:
+            $ref: '#/components/schemas/GraphOriginPrompt'
+
+    ArtifactVersion:
+      type: object
+      description: >-
+        One immutable revision of an artifact. Versions are append-only: an edit writes a
+        new one rather than changing an existing one, so the full history stays readable.
+      required:
+        - artifact
+        - versionNumber
+        - payload
+      properties:
+        id:
+          type: string
+        artifact:
+          type: string
+          description: Artifact ObjectId
+        versionNumber:
+          type: number
+          description: >-
+            1-based and strictly increasing per artifact. Not guaranteed contiguous: an
+            append that claims a number and then fails to write leaves it unused.
+          example: 3
+        payload:
+          oneOf:
+            - $ref: '#/components/schemas/ConceptGraphPayload'
+            - type: object
+              additionalProperties: true
+          description: >-
+            Kind-specific content, whose shape is determined by the artifact's `type`. A
+            DocumentArtifact payload is `{ body: string }`; a ConceptGraphArtifact payload
+            is a ConceptGraphPayload.
+          example:
+            body: 'The group converged on three priorities...'
+        createdBy:
+          type: string
+          description: BaseUser ObjectId — the organizer or agent that wrote this version
+        note:
+          type: string
+          description: Free-text note on what changed, for a history view
+          example: 'Revised after the second breakout'
+        createdAt:
+          type: string
+          format: date-time
+
+    Artifact:
+      type: object
+      description: >-
+        A shared data object that emerges from one or more conversations — a document, a
+        link to an external resource, or a custom data model a client renders its own way.
+        Scoped either to a single conversation or to a whole topic. The artifact's content
+        is the payload of its `currentVersion`; every earlier version is retained and
+        readable through the versions endpoints.
+      required:
+        - scope
+        - topic
+        - title
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          description: >-
+            Which kind of artifact this is, and therefore which renderer a client should
+            use and what shape its version payload has. Serialized from the mongoose
+            discriminator key.
+          enum: [DocumentArtifact, ConceptGraphArtifact]
+          example: DocumentArtifact
+        scope:
+          type: string
+          enum: [topic, conversation]
+          description: Which container this artifact belongs to
+        topic:
+          oneOf:
+            - type: string
+              description: Topic ObjectId when not populated
+            - $ref: '#/components/schemas/Topic'
+          description: >-
+            Always set. For a conversation-scoped artifact this is the conversation's own
+            topic, so a topic listing can include the artifacts of its conversations for
+            the topic owner and administrators.
+        conversation:
+          oneOf:
+            - type: string
+              description: Conversation ObjectId when not populated
+            - $ref: '#/components/schemas/Conversation'
+          description: Set only when scope is `conversation`
+        title:
+          type: string
+          example: 'Shared priorities'
+        description:
+          type: string
+        currentVersion:
+          oneOf:
+            - type: string
+              description: ArtifactVersion ObjectId when not populated
+            - $ref: '#/components/schemas/ArtifactVersion'
+          description: The newest version — populated by the fetch and list endpoints
+        currentVersionNumber:
+          type: number
+          description: The newest version's number
+          example: 3
+        createdBy:
+          type: string
+          description: BaseUser ObjectId
+        locked:
+          type: boolean
+          description: When true no further versions may be appended; the artifact stays readable
+        createdAt:
+          type: string
+          format: date-time
+
     Error:
       type: object
       properties:
