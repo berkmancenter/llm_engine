@@ -17,6 +17,7 @@ import memberBios from '../../../src/utils/memberBios.js'
 import { AgentMessageActions, ConversationHistory } from '../../../src/types/index.types.js'
 import { newPublicTopic, insertTopics } from '../../fixtures/topic.fixture.js'
 import websocketGateway from '../../../src/websockets/websocketGateway.js'
+import config from '../../../src/config/config.js'
 
 jest.setTimeout(300000)
 
@@ -1200,6 +1201,79 @@ A single mom of two children with primary custody, she is passionate about findi
       // Must not claim @mention is the only trigger
       expect(reply).not.toMatch(/only (?:respond|reply|speak|chime in|jump in) when (?:@|at-?mention)/i)
       expect(reply).not.toMatch(/requires? @?mention/i)
+    })
+  })
+
+  describe('platform and model identity awareness', () => {
+    /* Verify that platform context and model identity injected via composeSystemPrompt
+       reach the communityAssistant and are used to answer self-referential questions. */
+
+    let platformAgent
+    let platformConversation
+
+    beforeEach(async () => {
+      platformConversation = await createConversation({ name: 'Platform Awareness Test' }, user1, topic)
+      platformConversation.platforms = ['nextspace', 'slack']
+      await platformConversation.save()
+
+      platformAgent = new Agent({
+        agentType: 'communityAssistant',
+        conversation: platformConversation,
+        llmPlatform: testConfig.llmPlatform,
+        llmModel: testConfig.llmModel,
+        agentConfig: { botName: BOT_NAME }
+      })
+      const channels = await Channel.create([{ name: 'chat' }])
+      platformConversation.channels.push(...channels)
+      await platformAgent.save()
+      platformConversation.agents.push(platformAgent)
+      await platformConversation.save()
+      await platformAgent.start()
+    })
+
+    async function askPlatform(body: string) {
+      console.log(`Q (platform): ${body}`)
+      const msg = await createMessage(body, user1, platformConversation, ['chat'])
+      const responses = await defaultAgentTypes.communityAssistant.respond.call(platformAgent, buildHistory([]), msg)
+      console.log(`A (platform): ${responses[0]?.message}`)
+      return responses
+    }
+
+    it('names the AI model it is running on when asked', async () => {
+      const responses = await askPlatform(`@${BOT_NAME} what AI model are you running on?`)
+      expect(responses).toHaveLength(1)
+      const text: string = responses[0].message
+      // testConfig.llmModel contains the model name injected via modelInfo
+      expect(text.toLowerCase()).toContain(testConfig.llmModel.toLowerCase().split(/[-_]/)[0])
+    })
+
+    it('covers all configured platforms when asked what you can do (hybrid event)', async () => {
+      const responses = await askPlatform(`@${BOT_NAME} what platforms can members use to access this community?`)
+      expect(responses).toHaveLength(1)
+      const text: string = responses[0].message
+      expect(text).toMatch(/nextspace/i)
+      expect(text).toMatch(/slack/i)
+    })
+
+    it('uses correct platform name even when transcript misspells it', async () => {
+      // Seed a message that garbles the platform name as a transcription error would
+      await createMessage('Welcome to NextBase everyone!', user2, platformConversation, ['chat'])
+
+      const responses = await askPlatform(`@${BOT_NAME} what platform are we using today?`)
+      expect(responses).toHaveLength(1)
+      const text: string = responses[0].message
+      expect(text).toMatch(/nextspace/i)
+      expect(text).not.toMatch(/nextbase/i)
+    })
+
+    it('answers operator context questions when OPERATOR_CONTEXT is configured', async () => {
+      if (!config.operatorContext) {
+        console.log('Skipping: OPERATOR_CONTEXT not set')
+        return
+      }
+      const responses = await askPlatform(`@${BOT_NAME} who built this platform?`)
+      expect(responses).toHaveLength(1)
+      expect(responses[0].message).toBeDefined()
     })
   })
 })
