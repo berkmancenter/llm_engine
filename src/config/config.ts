@@ -188,7 +188,12 @@ const envVarsSchema = Joi.object()
     ),
     ON_DEMAND_EVENT_DURATION_MINUTES: Joi.number()
       .default(120)
-      .description('Default length of an event created from a plain emailed Zoom link, when the email states no duration')
+      .description('Default length of an event created from a plain emailed Zoom link, when the email states no duration'),
+    OPERATOR_CONTEXT: Joi.string()
+      .allow('')
+      .description(
+        'Deployment-wide context injected into every agent system prompt — who built this, org identity, data handling notes, etc.'
+      )
   })
   .unknown()
 
@@ -354,6 +359,7 @@ const config = {
     .split(',')
     .map((domain: string) => domain.trim().toLowerCase())
     .filter((domain: string) => domain.length > 0),
-  onDemandEventDurationMinutes: envVars.ON_DEMAND_EVENT_DURATION_MINUTES
+  onDemandEventDurationMinutes: envVars.ON_DEMAND_EVENT_DURATION_MINUTES,
+  operatorContext: envVars.OPERATOR_CONTEXT as string | undefined
 }
 export default config

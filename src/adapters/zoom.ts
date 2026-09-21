@@ -288,6 +288,8 @@ async function receiveChatMessage(data) {
 export default {
   name: 'zoom',
   label: 'Zoom',
+  description:
+    'This conversation is taking place in a Zoom meeting. Participants join by video and audio. The assistant is present via a meeting bot that transcribes speech in real time and can interact via Zoom chat.',
   /* Maps conversation property keys to the adapter config keys they should write.
      The conversation service reads this at update time to push changed properties
      to adapter documents without needing to know which keys each adapter type cares about. */

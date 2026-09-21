@@ -385,6 +385,8 @@ export interface FeatureConfig {
 export interface PlatformConfig {
   name: string
   label?: string
+  /** Plain-language description of this platform, injected into agent system prompts at runtime. */
+  description?: string
 }
 
 export interface AdapterConfig {
