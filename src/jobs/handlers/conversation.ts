@@ -70,7 +70,9 @@ const autoStopConversation = async (job) => {
     ])
 
     const runningTimeMs = now - (conversation.startTime?.getTime() ?? now)
-    const lastActivityMs = lastTranscriptMessage ? now - (lastTranscriptMessage.createdAt?.getTime() ?? 0) : Infinity
+    const lastTranscriptMs = lastTranscriptMessage?.createdAt?.getTime() ?? 0
+    const startTimeMs = conversation.startTime?.getTime() ?? 0
+    const lastActivityMs = lastTranscriptMessage ? now - Math.max(lastTranscriptMs, startTimeMs) : Infinity
 
     if (lastActivityMs < IDLE_TIMEOUT_MS) {
       logger.debug(

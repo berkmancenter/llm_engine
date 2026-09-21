@@ -171,6 +171,19 @@ describe('conversation handler tests', () => {
       expect(updated!.endTime).toBeDefined()
     })
 
+    test('does not stop a restarted conversation with stale transcript messages within IDLE_TIMEOUT_MS of startTime', async () => {
+      // Simulate a restart: startTime is recent but transcript messages are old (from the previous run)
+      const restartedAt = new Date(Date.now() - 2 * 60 * 1000) // restarted 2 min ago
+      await Conversation.findByIdAndUpdate(conversation._id, { startTime: restartedAt })
+      await createTranscriptMessages(10, 10 * 60 * 1000) // 10 messages, 10 min old (pre-restart)
+
+      await JobHandlers.autoStopConversation({ attrs: { data: { conversationId: conversation._id } } })
+
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.active).toBe(true)
+      expect(updated!.endTime).toBeUndefined()
+    })
+
     test('skips if conversation is already inactive', async () => {
       await Conversation.findByIdAndUpdate(conversation._id, { active: false })
 
