@@ -26,9 +26,20 @@ export enum QuestionClassification {
   CATCHUP = 'CATCHUP'
 }
 
-export function buildLLMTemplates(botName?: string, toolNames: string[] = [], answerScope?: string) {
+export function buildLLMTemplates(
+  botName?: string,
+  toolNames: string[] = [],
+  answerScope?: string,
+  capabilities?: { hasMindMap?: boolean; hasMod?: boolean }
+) {
   const botIdentity = botName
     ? `Your name is ${botName} - always refer to yourself with this exact spelling, even if your name appears differently in transcripts or conversation history.`
+    : ''
+  const extraCapabilityLines: string[] = []
+  if (capabilities?.hasMindMap) extraCapabilityLines.push('- /mindmap — the user types this command to trigger a visual mind map of the key topics. **Never produce a mind map, markdown outline, or markmap diagram in your text response** — if asked, tell the user to type /mindmap instead.')
+  if (capabilities?.hasMod) extraCapabilityLines.push('- /mod — submits a question anonymously to the moderator')
+  const capabilitiesSection = extraCapabilityLines.length > 0
+    ? `\n\n## Your Capabilities\nThe following slash commands are available. Do not mention or suggest these in regular answers — only describe them when a participant directly asks what you can do or how to use a specific feature.\n${extraCapabilityLines.join('\n')}`
     : ''
   const hasTools = toolNames.length > 0
   const scopeRestricted = answerScope === 'companyContextOnly'
@@ -121,14 +132,16 @@ Exception: if the question requests direct, specific factual info or statistics 
 - Content creation based on the event (tweets, summaries, posts, etc.)
 - Simple acknowledgments ("thanks", "got it")
 - Requests for resources, recommendations, or "where can I learn more about X?"
-- Requests for up-to-date facts/stats or policy/guardrail details in the topic's domain`
+- Requests for up-to-date facts/stats or policy/guardrail details in the topic's domain
+- Questions about the assistant itself: its name, what it is, what model or AI powers it, its capabilities or limitations, whether it can search the web, how it works, or how to use it`
     : `**ON_TOPIC_ANSWER**: Can be answered authoritatively and exhaustively WITHOUT speaker input from available context and clearly NOT helpful for the speaker to understand audience sentiment.
 - Help writing/formulating a question for the speaker
 - Speaker/moderator info available in context (name, bio)
 - Direct quotes or summaries of what was explicitly said
 - Content creation based on the event (tweets, summaries, posts, etc.)
 - Simple acknowledgments ("thanks", "got it")
-- Direct requests for up-to-date facts/stats or policy/guardrail details in the topic's domain (e.g., "last month" numbers, or comparable provider guardrails when the event discusses a different provider)`
+- Direct requests for up-to-date facts/stats or policy/guardrail details in the topic's domain (e.g., "last month" numbers, or comparable provider guardrails when the event discusses a different provider)
+- Questions about the assistant itself: its name, what it is, what model or AI powers it, its capabilities or limitations, how it works, or how to use it`
 
   return {
     timeWindowSystem: `${
@@ -164,7 +177,7 @@ ${resourceSection}
 **Failsafe:** If you cannot provide any substantive answer, explain why.
 
 ${helpfulnessLine}
-Always provide a substantive response.
+Always provide a substantive response.${capabilitiesSection}
 `,
     semanticClassificationSystem: `You are a classification system for live event Q&A. Return ONLY a classification string.
 
@@ -187,6 +200,7 @@ ${classificationOnTopicAnswer}
 
 **OFF_TOPIC**: Zero connection to the event or the event topic, or an entirely irrelevant request or instruction
 - Must be completely unrelated subject matter
+- **Never use OFF_TOPIC for questions about the assistant itself** (what it is, what model powers it, its capabilities, whether it can search the web, how it works) — these are always ON_TOPIC_ANSWER.
 - **Ignore @BotName mentions:** The user question may start with an @mention to the assistant (e.g. "@Berkie! ..."). Strip that prefix mentally - it is not part of the topic signal.
 - **Context anchoring:** If the question asks for names, lists, counts, entities, products, or facts that **appear in the Context** (Recent Transcript or Relevant Retrieved Context) or are clearly the same subject as phrases in that Context (e.g. "15 AI companions" when the transcript discusses those companions), it is **not OFF_TOPIC**. Prefer ON_TOPIC_ANSWER when the answer is likely in the Context; otherwise ON_TOPIC_ASK_SPEAKER.
 - **Conversation-thread continuation:** You receive prior chat messages before the current user message. If recent turns show participants and/or the speaker actively discussing a concrete sub-topic, treat follow-up questions that **continue that same thread** as **on-topic** (usually ON_TOPIC_ASK_SPEAKER, or ON_TOPIC_ANSWER if fully answerable from transcript/context alone). Do **not** use OFF_TOPIC for those follow-ups, even if they would look unrelated to the overall session title **without** that thread context.
@@ -416,7 +430,15 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
   const answerScope = this.conversation.behaviorPolicy?.channels?.dm?.qaBehavior?.answerScope
 
   // Get the appropriate templates based on personality setting
-  const templates = buildLLMTemplates(this.agentConfig?.botName, toolNames, answerScope)
+  const templates = buildLLMTemplates(
+    this.agentConfig?.botName,
+    toolNames,
+    answerScope,
+    {
+      hasMindMap: !this.conversation.platforms?.length || this.conversation.platforms.includes('nextspace'),
+      hasMod: !!this.agentConfig?.moderatorSupport
+    }
+  )
 
   // Use provided context from options if available, otherwise search transcript
   let contextString: string
@@ -547,7 +569,9 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
     conversationContext: this.conversation.conversationContext,
     behaviorPolicy: this.conversation.behaviorPolicy,
     channelType,
-    personalityName
+    personalityName,
+    platforms: this.conversation.platforms,
+    modelInfo: { llmModel: this.llmModel, llmPlatform: this.llmPlatform }
   })
 
   let llmResponse: string
