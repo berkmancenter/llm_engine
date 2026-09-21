@@ -229,7 +229,9 @@ export default verify({
       composeSystemPrompt(systemPromptBase, {
         personalityName,
         behaviorPolicy: this.conversation.behaviorPolicy,
-        channelType: isDM ? 'dm' : 'groupChat'
+        channelType: isDM ? 'dm' : 'groupChat',
+        platforms: this.conversation.platforms,
+        modelInfo: { llmModel: this.llmModel, llmPlatform: this.llmPlatform }
       }) + (isVoice ? VOICE_OUTPUT_RULES : '')
 
     // When answering a DM or voice message, the agent framework narrows conversationHistory
