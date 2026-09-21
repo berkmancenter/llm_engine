@@ -321,7 +321,7 @@ export const assembleGraph = (
   report.droppedConcepts += concepts.length - keptConcepts.length
 
   /* Likewise a prompt nothing points at. */
-  const referencedPrompts = new Set(contributions.map((c) => c.origin).filter(Boolean))
+  const referencedPrompts = new Set([...keptConcepts, ...contributions].map((c) => c.origin).filter(Boolean))
   const keptPrompts = originPrompts.filter((p) => referencedPrompts.has(p.id))
   report.droppedOriginPrompts += originPrompts.length - keptPrompts.length
 

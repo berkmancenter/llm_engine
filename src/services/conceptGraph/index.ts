@@ -245,7 +245,15 @@ const applyIdentityScreen = async (
   const unsafeConcepts = flaggedOf('concept')
   const unsafePrompts = flaggedOf('prompt')
 
-  const concepts = payload.concepts.filter((c) => !unsafeConcepts.has(c.id))
+  const concepts = payload.concepts
+    .filter((c) => !unsafeConcepts.has(c.id))
+    .map((c) => {
+      const { origin, ...rest } = c
+      return {
+        ...rest,
+        ...(origin && !unsafePrompts.has(origin) && { origin })
+      }
+    })
   const originPrompts = payload.originPrompts.filter((p) => !unsafePrompts.has(p.id))
   const contributions = payload.contributions
     .filter((k) => !k.concepts.some((id) => unsafeConcepts.has(id)))
