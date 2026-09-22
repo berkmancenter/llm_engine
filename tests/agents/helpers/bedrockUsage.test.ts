@@ -51,9 +51,9 @@ describe('attachUsageMetadata', () => {
     } as never)
 
     expect((result.generations[0].message as AIMessage).usage_metadata).toEqual({
-      input_tokens: 30,
+      input_tokens: 1230,
       output_tokens: 10,
-      total_tokens: 40,
+      total_tokens: 1240,
       input_token_details: { cache_read: 1200 }
     })
   })
@@ -71,9 +71,9 @@ describe('attachUsageMetadata', () => {
     } as never)
 
     expect((result.generations[0].message as AIMessage).usage_metadata).toEqual({
-      input_tokens: 1850,
+      input_tokens: 3700,
       output_tokens: 10,
-      total_tokens: 1860,
+      total_tokens: 3710,
       input_token_details: { cache_creation: 1850 }
     })
   })

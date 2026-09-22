@@ -31,10 +31,14 @@ export function attachUsageMetadata(result: ChatResult): ChatResult {
     const usage = (generation.generationInfo as { usage?: AnthropicUsage } | undefined)?.usage
     const message = generation.message as AIMessage | undefined
     if (!usage || !message || message.usage_metadata) continue
-    const inputTokens = usage.input_tokens ?? 0
     const outputTokens = usage.output_tokens ?? 0
     const cacheRead = usage.cache_read_input_tokens
     const cacheCreation = usage.cache_creation_input_tokens
+    // Anthropic's input_tokens excludes cache_read/cache_creation_input_tokens — they're
+    // separate, non-overlapping counters. LangChain's UsageMetadata.input_tokens is
+    // documented as "sum of all input token types", so fold the cache counters in here;
+    // input_token_details below is just an (optional) breakdown of that total.
+    const inputTokens = (usage.input_tokens ?? 0) + (cacheRead ?? 0) + (cacheCreation ?? 0)
     message.usage_metadata = {
       input_tokens: inputTokens,
       output_tokens: outputTokens,
