@@ -139,6 +139,46 @@ describe('invite endpoints', () => {
       expect(batchSpy).not.toHaveBeenCalled()
     })
 
+    test('never mails a member who has already joined, even if never invited', async () => {
+      await insertMembership({ joined: true, inviteState: 'pending' })
+      mockBatch()
+
+      const res = await request(app)
+        .post(sendUrl(conversationCommunityRoom._id))
+        .set('Authorization', `Bearer ${adminAccessToken}`)
+        .expect(httpStatus.OK)
+
+      expect(res.body).toMatchObject({ sent: 0, failed: 0 })
+      expect(batchSpy).not.toHaveBeenCalled()
+    })
+
+    test('rejects a second send for the same conversation while one is in flight', async () => {
+      await insertMembership()
+      let releaseSend: (value: BatchResult) => void = () => {}
+      batchSpy = jest.spyOn(emailService, 'sendMemberInviteBatch').mockImplementation(
+        (invites: InvitePayload[]) =>
+          new Promise<BatchResult>((resolve) => {
+            releaseSend = () => resolve(invites.map((i) => ({ membershipId: i.membershipId, success: true })))
+          })
+      )
+
+      const first = request(app)
+        .post(sendUrl(conversationCommunityRoom._id))
+        .set('Authorization', `Bearer ${adminAccessToken}`)
+      const firstStarted = first.then((r) => r)
+      // Give the first request time to reach the mocked send before firing the second.
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      const second = await request(app)
+        .post(sendUrl(conversationCommunityRoom._id))
+        .set('Authorization', `Bearer ${adminAccessToken}`)
+      expect(second.status).toBe(httpStatus.CONFLICT)
+
+      releaseSend([])
+      const firstRes = await firstStarted
+      expect(firstRes.status).toBe(httpStatus.OK)
+      expect(batchSpy).toHaveBeenCalledTimes(1)
+    })
+
     test('records a per-recipient failure on the member record and reports it', async () => {
       const janeM = await insertMembership()
       const bouncedM = await insertMembership({ email: 'bounced@example.com', name: 'Bounced Person' })

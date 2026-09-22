@@ -97,6 +97,8 @@ router
  *         description: Sent/failed counts plus per-recipient failures
  *       404:
  *         description: Conversation not found
+ *       409:
+ *         description: A batch send for this conversation is already in progress
  *       403:
  *         $ref: '#/components/responses/Forbidden'
  *       401:

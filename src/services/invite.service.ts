@@ -181,20 +181,16 @@ const applySendResults = async (results: Array<{ membershipId: string; success: 
   )
 }
 
-/**
- * Batch-send invites for a conversation: every 'pending' member (never mailed) and every
- * 'failed' one (mailed but never delivered). 'invited' members are excluded outright, so
- * re-running after an import can never re-mail anyone; that is the per-member resend's job.
- */
-const sendInvitesForConversation = async (conversationId, actingUser) => {
-  const conversation = await Conversation.findById(conversationId).exec()
-  if (!conversation) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'Conversation not found')
-  }
+const sendInvitesToPendingMembers = async (conversation, actingUser) => {
+  const conversationId = conversation._id
 
+  /* joined is excluded on top of inviteState: someone can join through Zoom or Slack
+     before any invite goes out, and a live invite for a provisioned account is an
+     account-takeover link. */
   const recipients = await ConversationMembership.find({
     conversation: conversationId,
     inviteState: { $in: ['pending', 'failed'] },
+    joined: false,
     status: 'active'
   }).exec()
 
@@ -232,6 +228,33 @@ const sendInvitesForConversation = async (conversationId, actingUser) => {
   )
 
   return { sent: results.length - failures.length, failed: failures.length, failures }
+}
+
+/* Two overlapping batch sends would each mint for the same members, the second killing the
+   first's links, so every recipient gets two emails and one dead link. The rate limiter
+   lets a double-click through, so the service refuses the overlap itself. In-process only,
+   which matches the in-memory rate limiters this app already relies on. */
+const sendsInFlight = new Set<string>()
+
+/**
+ * Batch-send invites for a conversation: every 'pending' member (never mailed) and every
+ * 'failed' one (mailed but never delivered). 'invited' members are excluded outright, so
+ * re-running after an import can never re-mail anyone; that is the per-member resend's job.
+ */
+const sendInvitesForConversation = async (conversationId, actingUser) => {
+  const conversation = await Conversation.findById(conversationId).exec()
+  if (!conversation) {
+    throw new ApiError(httpStatus.NOT_FOUND, 'Conversation not found')
+  }
+  if (sendsInFlight.has(conversationId.toString())) {
+    throw new ApiError(httpStatus.CONFLICT, 'Invites for this conversation are already being sent')
+  }
+  sendsInFlight.add(conversationId.toString())
+  try {
+    return await sendInvitesToPendingMembers(conversation, actingUser)
+  } finally {
+    sendsInFlight.delete(conversationId.toString())
+  }
 }
 
 /**
