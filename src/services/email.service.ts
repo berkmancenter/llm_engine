@@ -337,6 +337,9 @@ This link is just for you, so please don't forward it. It expires in ${expiryDay
 const sendMemberInviteBatch = async (
   invites: Array<{ membershipId: string; to: string; name: string; roomName: string; token: string }>
 ): Promise<Array<{ membershipId: string; success: boolean; error?: string }>> => {
+  if (!serverToken) {
+    throw new Error('Outgoing email is not configured: POSTMARK_SERVER_TOKEN is missing')
+  }
   const messages: postmark.Message[] = invites.map(({ to, name, roomName, token }) => {
     const { subject, text, html } = buildMemberInviteEmail(name, roomName, token)
     return {
