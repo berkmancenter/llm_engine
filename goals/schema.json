@@ -36,6 +36,11 @@
       ],
       "description": "Which channel this pattern operates in."
     },
+    "silenceCompatible": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this pattern's own trigger condition fires on chat being quiet, or doesn't reference chat activity at all. Lets callers know they should still consider this goal when shared chat has gone quiet, instead of skipping proactive evaluation outright."
+    },
     "triggers": {
       "type": "object",
       "required": [

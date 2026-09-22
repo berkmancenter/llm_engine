@@ -443,6 +443,7 @@ export interface ConversationGoal {
   label: string
   description: string
   channel: 'groupChat' | 'dm'
+  silenceCompatible?: boolean
   triggers: {
     conditions: TriggerCondition[]
     participantRequirements?: { minMessageCount?: number }

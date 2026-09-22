@@ -126,16 +126,6 @@ function resolveActiveGoals(conversation: { goals?: string[]; behaviorPolicy?: B
   return getEligibleGoals(conversation.goals, groupChatPolicy)
 }
 
-// Goals whose own trigger condition fires on chat being quiet (or, for missing_perspective,
-// doesn't reference chat at all) — see goals/*.json. Every other group-chat goal requires
-// actual chat content to react to (challenge_consensus even says so explicitly).
-const SILENCE_COMPATIBLE_GOAL_IDS = new Set([
-  'provoke_participation',
-  'play_commentary',
-  'poll_reveal',
-  'missing_perspective'
-])
-
 export default verify({
   name: 'Proactive Group Agent',
   description:
@@ -188,7 +178,7 @@ export default verify({
     }
     if (!hasRecentChat && hasRecentTranscript) {
       const groupChatGoals = getGroupChatGoals(resolveActiveGoals(this.conversation))
-      const silenceCompatible = groupChatGoals.some((g) => SILENCE_COMPATIBLE_GOAL_IDS.has(g.id))
+      const silenceCompatible = groupChatGoals.some((g) => g.silenceCompatible)
       if (!silenceCompatible) {
         logger.debug(`${this.name}: chat quiet, no silence-compatible goal eligible — skipping`)
         return {
