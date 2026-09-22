@@ -19,6 +19,47 @@ export function shouldUseClaudeFormat(model: string | undefined, platform: strin
   return false
 }
 
+// Marker prompt-builders insert at the boundary between stable (cacheable) and volatile
+// content in a composed system-prompt string. transformPayloadForClaude splits on this
+// marker (removing it) and emits a 2-block `system` array with cache_control on the
+// stable block — see docs/investigations/prompt-caching-bedrock.md for why the split
+// happens here rather than earlier in the LangChain message pipeline. A system prompt
+// without the marker is sent as a single string, unchanged from prior behavior.
+export const CACHE_BREAKPOINT_MARKER = '\n\n<!-- prompt-cache-breakpoint -->\n\n'
+
+interface ClaudeSystemBlock {
+  type: 'text'
+  text: string
+  cache_control?: { type: 'ephemeral' }
+}
+
+/**
+ * Builds the `system` field for the Bedrock Claude payload.
+ *  - An array is assumed to already be a correctly-shaped content-block array (e.g. a
+ *    future caller with finer-grained control) and is passed through unchanged — this
+ *    is the case blindly `String()`-coercing used to mangle into "[object Object]".
+ *  - A plain string containing CACHE_BREAKPOINT_MARKER is split into a stable block
+ *    (cached) and a volatile block (not cached); the marker itself is removed.
+ *  - A plain string without the marker is passed through unchanged, exactly as before.
+ */
+function buildSystemField(rawSystem: unknown): string | ClaudeSystemBlock[] {
+  if (Array.isArray(rawSystem)) {
+    return rawSystem as ClaudeSystemBlock[]
+  }
+  const systemString = String(rawSystem)
+  const markerIndex = systemString.indexOf(CACHE_BREAKPOINT_MARKER)
+  if (markerIndex === -1) {
+    return systemString
+  }
+  const stable = systemString.slice(0, markerIndex)
+  const volatile = systemString.slice(markerIndex + CACHE_BREAKPOINT_MARKER.length)
+  const blocks: ClaudeSystemBlock[] = [{ type: 'text', text: stable, cache_control: { type: 'ephemeral' } }]
+  if (volatile) {
+    blocks.push({ type: 'text', text: volatile })
+  }
+  return blocks
+}
+
 // Helper to build Bedrock Claude payload
 export function buildBedrockClaudePayload({
   systemPrompt,
@@ -27,7 +68,7 @@ export function buildBedrockClaudePayload({
   temperature,
   tools
 }: {
-  systemPrompt: string
+  systemPrompt: string | ClaudeSystemBlock[]
   userMessages: Record<string, unknown>[]
   maxTokens?: number
   temperature?: number
@@ -68,7 +109,7 @@ export function transformPayloadForClaude(bodyContent: unknown, defaultLLMModel:
     return bodyContent // Return as-is if not in expected format
   }
 
-  const systemPrompt = String((bodyContent as Record<string, unknown>).system)
+  const systemPrompt = buildSystemField((bodyContent as Record<string, unknown>).system)
 
   let messagesArr
   if (hasMessagesArray) {
@@ -94,9 +135,10 @@ export function transformPayloadForClaude(bodyContent: unknown, defaultLLMModel:
   // Only forward temperature if non-zero — LangChain defaults temperature to 0,
   // so a zero value is indistinguishable from "not set". Newer Claude models reject
   // the parameter entirely, so we omit it unless the caller explicitly set a value.
-  const rawTemperature = isObj && typeof (bodyContent as Record<string, unknown>).temperature === 'number'
-    ? ((bodyContent as Record<string, unknown>).temperature as number)
-    : undefined
+  const rawTemperature =
+    isObj && typeof (bodyContent as Record<string, unknown>).temperature === 'number'
+      ? ((bodyContent as Record<string, unknown>).temperature as number)
+      : undefined
   const temperature = rawTemperature !== undefined && rawTemperature !== 0 ? rawTemperature : undefined
 
   // Extract tools if present

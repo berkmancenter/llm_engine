@@ -29,6 +29,31 @@ export const supportedModels: LlmModelDetails[] = [
     description: "Anthropic's fastest model with near-frontier intelligence"
   },
   {
+    // Confirmed reachable on the HUIT Bedrock gateway (2026-09-21) — see the prompt-caching
+    // investigation's model-choice analysis, docs/investigations/prompt-caching-bedrock.md.
+    // Not yet the default: same per-token price as opus-4.6, but with an 8x lower minimum
+    // cacheable prefix (512 vs. 4096 tokens), so it's the model that actually benefits from
+    // the caching work in this PR. Making it the default `opus` family alias, or switching
+    // any agent's configured model, is a deliberate decision for later (needs eval
+    // verification first) — this only makes the model selectable.
+    name: 'opus-5',
+    label: 'AWS Bedrock Claude Opus 5',
+    llmPlatform: 'bedrock',
+    llmModel: 'us.anthropic.claude-opus-5',
+    description: "Anthropic's most capable model for demanding reasoning and long-horizon agentic work"
+  },
+  {
+    // Confirmed reachable on the HUIT Bedrock gateway (2026-09-21). Cheaper per-token than
+    // sonnet-4.6 ($2/$10 vs. $3/$15) with the same 512-token minimum cacheable prefix. Not
+    // yet the default — see the opus-5 note above; the same "needs eval verification"
+    // caveat applies here.
+    name: 'sonnet-5',
+    label: 'AWS Bedrock Claude Sonnet 5',
+    llmPlatform: 'bedrock',
+    llmModel: 'us.anthropic.claude-sonnet-5',
+    description: "Anthropic's fast model, next generation after Sonnet 4.6"
+  },
+  {
     name: 'gpt-5.2',
     label: 'OpenAI GPT-5.2',
     llmPlatform: 'openai',
@@ -63,11 +88,18 @@ export const { coreLLMModel } = config
 // No platform specified because only Google is currently supported for image generation
 export const { imageGenerationLLMModel } = config
 
-// Model family aliases - maps friendly names (e.g., "opus", "sonnet") to the latest supported version
-// This allows calling getModelChat with family names instead of exact model IDs
+// Model family aliases - maps friendly names (e.g., "opus", "sonnet") to a specific version.
+// This allows calling getModelChat with family names instead of exact model IDs.
+//
+// `opus`/`sonnet` deliberately still point at the 4.6 generation, not opus-5/sonnet-5 —
+// switching the default is a decision for later (needs eval verification first, see the
+// prompt-caching investigation's model-choice analysis). `opus-5`/`sonnet-5` are separate,
+// explicit keys so a call site can opt in ahead of that decision.
 const modelFamilies: Record<string, string> = {
   opus: 'us.anthropic.claude-opus-4-6-v1',
+  'opus-5': 'us.anthropic.claude-opus-5',
   sonnet: 'us.anthropic.claude-sonnet-4-6',
+  'sonnet-5': 'us.anthropic.claude-sonnet-5',
   gpt: 'gpt-5.2-2025-12-11',
   gemini: 'gemini-3-pro-preview'
 }
