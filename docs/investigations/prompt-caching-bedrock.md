@@ -4,11 +4,26 @@
 - **Status:** Investigation complete; implementation not started. This document is the record of what was measured and what it implies, so the next person picking this up doesn't have to re-derive it.
 - **Cost note:** All measurements below were done at effectively zero cost. Six intentional live-inference calls (~$0.05 total, tracked against a $20 approval ceiling) were used to *validate the caching mechanism itself and confirm real token counts* — every other number here comes from local computation or read-only production database queries (no writes, ever).
 
+## Bottom line
+
+**Model choice beats caching by roughly 6–9x on expected dollars, for this workload today.** Ranked by savings: switching Opus 4.6 → Sonnet 4.6 alone (no caching, no prompt changes) is **40%** (§6.2); adding caching on top of that only gets to **44.2%** — caching is 4.2 of those 44.2 points, about 9.5% of the total (§6.3). If the org stays on the Opus tier instead (Opus 4.6 → Opus 5, same price), caching is **100%** of the available savings, but that's only **~7%** (§6.3–6.4). A skeptic who says "the model swap is the real lever, caching is a rounding error next to it" is reading the numbers correctly — say so plainly rather than defending caching as the main event.
+
+**Why this work still has a claim on being worth doing, in order of how load-bearing each reason is:**
+
+1. **This investigation is what produced the model-choice numbers**, not a parallel effort — the tier-savings percentages, the cost/length concentration (§4.2), and the fan-out discovery (§4.3) all came from digging into real token usage, which the caching question forced. There was no shortcut to the model analysis that skipped this.
+2. **Two of the caching fixes are diagnostic/correctness work independent of caching's payoff** — surfacing `cache_creation_input_tokens`/`cache_read_input_tokens` (blocker #3) and fixing the `String()` coercion bug (blocker #1) are needed regardless of which model gets chosen; without them you can't measure whether *any* future decision is working.
+3. **The remaining implementation is small** — a handful of files (§7), not a competing initiative against a model migration. It ships alongside a model decision, not instead of one.
+4. **If Opus is non-negotiable, caching is the only lever left on the table** — modest (~7%, possibly more for the fan-out-heavy conversations specifically, §6.4), but it's the only money back available in that world.
+
+What this document does **not** defend: pitching caching as the primary cost initiative on its own terms. It isn't. It's a smaller, mostly-complementary lever that happens to have produced the investigation that found the actual big one.
+
 ---
 
 ## 1. Why this matters (from the original issue)
 
 `conversationcosts` snapshot (2026-08-19): **$786.86** total spend, 105 conversations, 17,989 LLM calls. **140.8M prompt tokens vs. 3.36M completion tokens (42:1)** — ~89% of spend is input tokens. Spend by agent: `eventAssistant` $502.64 (64%), `proactiveGroupAgent` $154.69, `librarian` $74.09, `moderatorNotifier` $49.39. Dominant model: `claude-opus-4-6` ($585.50 / 16,826 calls).
+
+(Superseded by cumulative totals in §6 below, pulled later in this investigation — spend has grown since the Aug 19 snapshot. The agent/model concentration story hasn't changed, just the absolute numbers.)
 
 **Nothing in the codebase sets `cache_control` today** — none of this spend is cached.
 
@@ -111,7 +126,96 @@ Opus 4.6's real gap to its own minimum is large enough (~2,250+ tokens short of 
 
 ---
 
-## 6. Open items / suggested next steps
+## 6. Model choice: Opus vs. Sonnet, and Opus 4.6 vs. Opus 5 (read-only, $0)
+
+Prompted by a separate question ("is it worth switching models") that turned out to connect directly back to the caching minimum. All numbers below are real historical token/cost totals pulled read-only from `conversationcosts` (`aggregate`/`$group`, no writes), re-priced under different rate cards — no prompts changed, no evals run.
+
+### 6.1 Real cumulative spend by model (all agents combined)
+
+| Model | Calls | Prompt tokens | Completion tokens | Actual cost |
+|---|---:|---:|---:|---:|
+| `claude-opus-4-6` | 16,085 | 323.8M | 6.74M | $1,787.53 |
+| `claude-opus-5` | 1,181 | 39.7M | 0.65M | $213.66 |
+| `claude-sonnet-4-6` | 255 | 0.31M | 0.02M | $1.23 |
+| `claude-haiku-4-5` | 53 | 0.76M | 0.02M | $0.88 |
+| **Total** | | | | **$2,003.30** |
+
+Opus-tier is 99.9% of the bill — re-confirms §1's concentration finding on fresher data. Re-computing `promptTokens × $5/1M + completionTokens × $25/1M` for the `claude-opus-4-6` row reproduces its actual cost almost exactly ($1,787.53 vs. $1,787.53), which cross-checks that the pricing assumptions used throughout this section match what the app's own cost accounting already uses.
+
+### 6.2 Tier-only savings (no caching, holding token counts fixed)
+
+Sonnet 4.6 is priced at *exactly* 60% of Opus on both input and output ($3 vs. $5, $15 vs. $25) — so switching tiers is a clean, mix-independent 40% cut:
+
+| Scenario | Rate ($/1M in, out) | Cost for the same tokens | vs. Opus 4.6 actual |
+|---|---|---:|---:|
+| Opus 4.6 / Opus 5 (same price) | $5 / $25 | $1,787.53 | — |
+| Sonnet 4.6 | $3 / $15 | $1,072.52 | −40.0% |
+| Sonnet 5 | $2 / $10 | $715.01 | −60.0% |
+| Fable 5.1 ("latest, most powerful") | $10 / $50 | $3,575.06 | **+100%** |
+
+Caveat: holds token counts fixed — an actual swap changes tokenizer and often response verbosity, so this is directionally solid, not exact to the dollar. Also: only 43 conversations have cost records total, too few to derive a responsible monthly run-rate — these are cumulative-since-tracking-began totals, not a rate.
+
+### 6.3 Combined tier + caching (the part that changes the recommendation)
+
+The minimum-cacheable-prefix table is **not monotonic by generation** — it's model-specific:
+
+| Model | Minimum |
+|---|---:|
+| Opus 5, Fable 5, Mythos 5 | 512 |
+| Opus 4.8, **Sonnet 4.6**, Sonnet 4.5, Sonnet 5 | 1,024 |
+| Opus 4.7, Haiku 3.5 | 2,048 |
+| **Opus 4.6**, Opus 4.5, Haiku 4.5 | 4,096 |
+
+**`Sonnet 4.6` — a "4-series" model — already shares Opus 5's low practical minimum for our workload; `Opus 4.6` is the specific outlier**, tied for the highest minimum of any current model. "4-series has a higher threshold" isn't the right generalization; "Opus 4.6 specifically has a high threshold" is.
+
+Applying this to our real ~1,850-token stable block (§3/§4.1) and Anthropic's cache pricing (writes 1.25x, reads 0.1x), assuming a 95% cache-read rate (grounded in the real cadence data in §4.3 — 98–100% of consecutive same-conversation calls land inside the 5-minute TTL; varying this 90–99% only moves the totals below by ±0.5 points, so it's not a fragile assumption):
+
+| Model | No-cache cost | 1,850 tok clears min? | With-cache cost | Total savings vs. Opus 4.6 today | Caching's own share of that savings |
+|---|---:|:---:|---:|---:|---:|
+| **Opus 4.6 (current)** | $1,787.53 | ❌ No | $1,787.53 (caching inert) | — | — |
+| **Opus 5** | $1,787.53 | ✅ Yes | $1,662.17 | $125.36 (**7.0%**) | **100%** — same price, pure caching |
+| **Sonnet 4.6** | $1,072.52 | ✅ Yes | $997.31 | $790.22 (44.2%) | +$75.21 (4.2 pts) on top of the tier switch |
+| **Sonnet 5** | $715.01 | ✅ Yes | $664.87 | $1,122.66 (62.8%) | +$50.14 (2.8 pts) on top of the tier switch |
+
+**Why caching only ever adds a few points on top of whichever model is chosen:** the stable, cacheable block (~1,850 tok) is only ~9% of the ~20,133 avg prompt tokens/call for this workload — the other ~91% is live transcript + chat history, which §2 already showed doesn't cache well past the sliding-window size. Caching amplifies a model choice; it doesn't replace one.
+
+### 6.4 Does the fan-out finding (§4.3) push these numbers higher?
+
+Checked directly: **no, not by much, and not for the reason it looks like it should.**
+
+The 95% read-rate assumption above already implicitly includes fan-out — it's derived from the same conversations' cadence data (98–100% of consecutive calls <5 min apart, median gap 0–14 seconds), and a *zero-second* median gap is itself a fan-out signature (many participants answered in the same burst, not one person chatting slowly). Fan-out isn't an additional effect to layer on top of 95%; it's most of what produced it.
+
+More importantly: pushing the read rate to its **theoretical ceiling — 100% reads, essentially zero writes ever, the best fan-out could physically do** — barely moves the number:
+
+| Read rate | Opus 5 with-cache cost | Savings vs. Opus 4.6 |
+|---|---:|---:|
+| 90% | $1,670.73 | 6.5% |
+| 95% (used above) | $1,662.17 | 7.0% |
+| **100% (theoretical max)** | **$1,653.62** | **7.5%** |
+
+Going from "realistic" to "physically impossible best case" is worth **half a point (~$8 on $1,787).** The read/write ratio only sets the *discount* on the cacheable slice — and that slice is capped at ~9% of total tokens. Even a perfect 0.1x discount on 100% of 9% can't recover more than 9% has to give. Fan-out improves the odds of *hitting* the ceiling; it doesn't raise the ceiling. The ceiling is a structural property of the prompt (how much is stable vs. volatile), not of the traffic pattern.
+
+**Two things fan-out surfaces that the 7.0% figure does *not* yet include — both point toward the real number being higher, not lower:**
+
+1. **Per-participant chat-history caching, exempt from the §2 death spiral.** Each DM thread in a fan-out event is short (~5.4 calls/participant in the "BKC Launch event" sample, §4.3) — short enough to never hit the sliding-window ceiling that kills history caching for the big shared group-chat threads. A *second* breakpoint on each thread's own growing history could add savings on top of the system+tools number. Not sized here — would need per-thread call-count/size data not yet pulled — but additive, not already counted in §6.3.
+2. **The ~9% figure is a population average across every call**, including large public Q&A turns with substantial RAG/transcript context. If DM check-in prompts run smaller per call (plausible — less context to carry than a public Q&A turn), the stable block is a *larger* fraction of exactly the fan-out conversations that are 64.3% of total cost (§4.2). That would make the real weighted savings for the dominant cost segment higher than the blended 7.0%. `conversationcosts` doesn't break tokens out by call-site (public Q&A vs. DM check-in), so this isn't quantified — it's a flagged follow-up, not a number to rely on yet.
+
+**Net: treat 7.0% (Opus 4.6→5) as a conservative floor for the fan-out-heavy segment specifically, not a ceiling** — but don't round it up without doing the per-call-site query that would actually justify a bigger number.
+
+### 6.5 The recommendation this implies
+
+**Opus 4.6 → Opus 5 is close to a free win**: identical per-token price, no prompt changes, and it removes the specific reason caching is worth $0 on our dominant model today. This is compatible with (not in tension with) wanting "the latest, most powerful model" — Opus 4.6 is the one blocking caching, not the Opus tier itself. Two things stand between this and being real:
+
+1. The caching mechanism (§3) still has to actually ship — swapping models alone unlocks nothing on its own.
+2. **`claude-opus-5` isn't in this codebase yet.** `src/agents/helpers/getModelChat.ts`'s `supportedModels`/`modelFamilies` only define `claude-opus-4-6-v1` and `claude-sonnet-4-6`. Whether `claude-opus-5` is reachable through the HUIT Bedrock gateway this app uses has **not been verified** — that's a cheap live check, not yet done.
+
+**The Sonnet-tier question (44–63% savings) is a separate, larger decision** — moving out of the Opus tier entirely — and caching doesn't add a new argument to it beyond the ~3–4 points above, since Sonnet 4.6 already caches fine today. That's a price/quality tradeoff (see below), not a caching one.
+
+**Quality is deliberately out of every number above.** This repo already has LLM-judge evaluation suites wired to LangSmith (`evaluations/event-assistant`, `checkin`, `qa-behavior`, `proactive-group-agent`), and each runner already reads its model from `TEST_LLM_PLATFORM`/`TEST_LLM_MODEL` env vars — re-running them against candidate models is a config change away, not new infrastructure. Not run as part of this investigation (explicitly deferred, and it costs real inference money across however many models get compared) — it's the natural next step before treating any model-switch recommendation as settled, especially the Sonnet-tier one.
+
+---
+
+## 7. Open items / suggested next steps
 
 Roughly in the order the original issue proposed, revised by everything above:
 
