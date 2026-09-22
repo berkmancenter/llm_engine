@@ -76,13 +76,10 @@ export function extractVoiceQuestion(
  */
 export const VOICE_OUTPUT_RULES = `
 
-**Your answer will be read aloud by a text-to-speech system, so:**
-- Never use Markdown, headers, bullet points, or asterisks — write only plain spoken sentences, exactly as you'd say them out loud.
-- Keep answers short: 1-4 sentences for most questions. Only go longer if explicitly asked for more detail.
-- Don't narrate what you're about to do ("Let me check that") — search first, then answer once you have the information.
-- Match the tone of a knowledgeable person casually answering a question at an event, not a written report.
-
-Regardless of any citation guidance above: never include a URL, link, file path, or raw ID in your spoken answer. Cite sources by name naturally in the sentence (e.g. "according to the event transcript" or "based on a Harvard Gazette article").`
+**Your answer will be read aloud. Be brief — 1-2 sentences, 3 at absolute most.**
+- Plain spoken sentences only. No Markdown, bullets, headers, or asterisks.
+- Regardless of any citation guidance above: never include a URL, link, or raw ID. Cite sources by name in the sentence (e.g. "according to the transcript").
+- Don't narrate — skip "Let me check that" and similar; just answer.`
 
 /**
  * Standard evaluate result for voice-triggered agents.
