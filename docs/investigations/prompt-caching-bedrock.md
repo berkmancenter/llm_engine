@@ -2,6 +2,10 @@
 
 - **Tracking issue:** [berkmancenter/llm_engine#264](https://github.com/berkmancenter/llm_engine/issues/264) — "Enable Anthropic prompt caching on the Bedrock path"
 - **Status:** Investigation complete; implementation not started. This document is the record of what was measured and what it implies, so the next person picking this up doesn't have to re-derive it.
+- **See also:** `docs/investigations/llm-cost-savings-survey.md` — a follow-on investigation
+  scoped to system-wide cost (everything outside `eventAssistant`'s tool path), including which
+  other agents are good caching candidates and a non-caching lever (skip idle periodic ticks)
+  that doesn't require a model decision.
 - **Cost note:** All measurements below were done at effectively zero cost. Six intentional live-inference calls (~$0.05 total, tracked against a $20 approval ceiling) were used to *validate the caching mechanism itself and confirm real token counts* — every other number here comes from local computation or read-only production database queries (no writes, ever).
 
 ## Bottom line
@@ -232,7 +236,7 @@ Going from "realistic" to "physically impossible best case" is worth **half a po
 - **Growing the stable prefix via extra tool bindings** — not implemented, by design (§5): research-backed anti-pattern.
 - **The deferred-tool-stub pattern** for `member_bios`/`search_semantic_scholar`/`event_history` (§5) — real, separate engineering effort; only pursue if production telemetry (now possible via #1) shows tool-set churn is actually hurting hit rate.
 - **Running the LangSmith eval suites** against Opus 5/Sonnet 4.6/Sonnet 5 (§6.5) — explicitly deferred, costs real inference money, needs to happen before any model-default change.
-- **Extending the marker to other agents** (`checkinHandler.ts`, `proactiveGroupAgent.ts`, `moderatorNotifier.ts`) or to `eventQuestionHandler`'s non-tool/classification path — not done; each has its own stable/volatile shape that hasn't been individually measured.
+- **Extending the marker to other agents** (`checkinHandler.ts`, `proactiveGroupAgent.ts`, `moderatorNotifier.ts`) or to `eventQuestionHandler`'s non-tool/classification path — not done; each has its own stable/volatile shape that hasn't been individually measured. **Update:** `proactiveGroupAgent`/`moderatorNotifier` have since been measured — see `docs/investigations/llm-cost-savings-survey.md` §4, which finds their prompts (37–85K avg tokens) are well clear of any model's cache minimum, unlike this doc's `eventAssistant` finding.
 - **Re-measuring against the cost baseline in production** — can't happen until this ships and runs against real traffic.
 
 ## Appendix: experiment scripts

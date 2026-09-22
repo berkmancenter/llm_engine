@@ -4,7 +4,11 @@ Self-contained status doc — read this first, before the full investigation not
 
 - **Tracking issue:** [berkmancenter/llm_engine#264](https://github.com/berkmancenter/llm_engine/issues/264)
 - **Full investigation notes:** `docs/investigations/prompt-caching-bedrock.md` — read its "Bottom line" section for the headline verdict (model choice saves far more than caching does) before doing anything with the model-decision item below.
-- **This doc's status:** implementation landed, not yet committed/pushed as of writing — check `git status` in this worktree before assuming otherwise.
+- **Related:** `docs/investigations/llm-cost-savings-survey.md` — system-wide follow-on covering
+  the ~45% of production cost outside `eventAssistant`, including two agents that are better
+  caching candidates than `eventAssistant` and a non-caching, no-eval-required lever
+  (skip idle periodic ticks).
+- **This doc's status:** implementation landed and shipped — see [PR #340](https://github.com/berkmancenter/llm_engine/pull/340).
 
 ## TL;DR
 
@@ -48,9 +52,10 @@ Prompt caching is now mechanically wired up (nothing sets `cache_control` before
 
 ## Immediate next steps, in order
 
-1. **Review and commit/push this work** (not yet done as of writing — confirm with whoever's driving this before assuming it should ship as-is).
+1. ~~**Review and commit/push this work**~~ **Done** — [PR #340](https://github.com/berkmancenter/llm_engine/pull/340) is open.
 2. **Deploy and watch `cache_read_input_tokens`/`cache_creation_input_tokens`** on real `eventAssistant` tool-path traffic. Expect: writes on the first call of a warm-cache window, reads on everything after, for calls sharing an event (including across different participants' DM threads — this is real, live-verified behavior, not a hope; see main doc §4.3). If reads stay at zero, something's broken — diff two consecutive request payloads and check the prefix is actually byte-identical up to the marker.
 3. **Confirm Opus 4.6 genuinely shows zero cache activity** (expected — its 1,850-token stable prefix is under its 4,096-token minimum, confirmed live in the investigation). This isn't a bug; it's exactly why the model-choice conversation in the main doc's §6 matters.
 4. **Scope and run the LangSmith eval comparison** (Opus 5, and Sonnet 4.6/5 if that's still on the table) against `evaluations/event-assistant` at minimum — get a budget number approved before running, same as every other live call in this investigation.
 5. **Make the model decision** using the eval results plus the main doc's §6 cost numbers, then flip `getModelChat.ts`'s `opus`/`sonnet` family default or whichever agents' configured models, as a separate, deliberate change — not bundled into a caching PR.
-6. **Only after that's settled**, consider extending the `CACHE_BREAKPOINT_MARKER` pattern to other agents/call sites, sizing each one individually first (don't assume `eventAssistant`'s ~9% stable fraction generalizes).
+6. **In parallel, not gated on the model decision:** `docs/investigations/llm-cost-savings-survey.md` found two agents (`proactiveGroupAgent`, `moderatorNotifier`, 32.8% of attributed system-wide cost) that are better caching candidates than `eventAssistant` — their prompts are well above any model's cache minimum — plus a non-caching "skip idle periodic ticks" lever with no eval requirement and no quality risk. These don't need to wait on steps 3–5.
+7. **Only after the model decision settles**, extend `CACHE_BREAKPOINT_MARKER` to any remaining agents/call sites, sizing each one individually first (don't assume `eventAssistant`'s ~9% stable fraction generalizes — the survey doc already found it doesn't for `proactiveGroupAgent`/`moderatorNotifier`).
