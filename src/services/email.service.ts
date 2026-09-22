@@ -325,6 +325,9 @@ This link is just for you, so please don't forward it. It expires in ${expiryDay
   return { subject, text, html }
 }
 
+// Postmark rejects a batch call carrying more than 500 messages.
+const POSTMARK_BATCH_LIMIT = 500
+
 /**
  * Send invite emails in bulk with per-recipient results via Postmark's batch API.
  *
@@ -355,7 +358,10 @@ const sendMemberInviteBatch = async (
     }
   })
 
-  const results = await client.sendEmailBatch(messages)
+  const results: postmark.Models.MessageSendingResponse[] = []
+  for (let start = 0; start < messages.length; start += POSTMARK_BATCH_LIMIT) {
+    results.push(...(await client.sendEmailBatch(messages.slice(start, start + POSTMARK_BATCH_LIMIT))))
+  }
 
   return invites.map(({ membershipId }, i) => ({
     membershipId,

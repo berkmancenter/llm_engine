@@ -582,6 +582,32 @@ describe('email.service', () => {
       expect(results[1]).toEqual({ membershipId: 'm2', success: false, error: 'Inactive recipient' })
     })
 
+    it('splits recipients into Postmark-sized chunks of 500 and returns results in the original order', async () => {
+      const invites = Array.from({ length: 501 }, (_, i) => ({
+        membershipId: `m${i}`,
+        to: `person${i}@example.com`,
+        name: `Person ${i}`,
+        roomName: 'Room',
+        token: `t${i}`
+      }))
+      batchSpy.mockImplementation(async (messages: postmark.Message[]) =>
+        messages.map((m) =>
+          m.To === 'person500@example.com'
+            ? { ErrorCode: 406, Message: 'Inactive recipient' }
+            : { ErrorCode: 0, Message: 'OK' }
+        )
+      )
+
+      const results = await emailService.sendMemberInviteBatch(invites)
+
+      expect(batchSpy).toHaveBeenCalledTimes(2)
+      expect(batchSpy.mock.calls[0][0]).toHaveLength(500)
+      expect(batchSpy.mock.calls[1][0]).toHaveLength(1)
+      expect(results).toHaveLength(501)
+      expect(results[0]).toEqual({ membershipId: 'm0', success: true })
+      expect(results[500]).toEqual({ membershipId: 'm500', success: false, error: 'Inactive recipient' })
+    })
+
     it('places the token in the query string of the invite URL, not the fragment', async () => {
       await emailService.sendMemberInviteBatch([
         { membershipId: 'm1', to: 'jane@example.com', name: 'Jane', roomName: 'Room', token: 'mytoken' }
