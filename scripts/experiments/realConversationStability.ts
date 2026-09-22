@@ -3,9 +3,9 @@
 /**
  * Real-data rerun of experiments 1 and 2, against 5 real, long production `eventAssistant`
  * conversations (2,315-4,357 messages each) exported READ-ONLY from prod via
- * llm_engine-infra/scripts/llm-engine-prod-run.sh --mongo-eval (aggregate/find/findOne only —
- * no writes). See /srv/dev/code/nextspace/llm_engine-infra/scripts/... for the export tool and
- * this repo's scratchpad for the export script itself. Local-only artifact, not committed:
+ * `llm_engine-infra`'s `scripts/llm-engine-prod-run.sh --mongo-eval` (aggregate/find/findOne
+ * only — no writes; see that repo for the export tool). The export script itself is a local,
+ * uncommitted scratchpad artifact:
  *   <scratchpad>/prodConversationExport.json
  *
  * Headline finding already visible in the raw export: all 5 conversations have
