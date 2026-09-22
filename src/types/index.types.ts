@@ -201,7 +201,8 @@ export interface IConversationMembership {
   name: string
   bio?: string
   interests?: string
-  inviteState: 'pending' | 'invited'
+  inviteState: 'pending' | 'invited' | 'failed'
+  inviteError?: string | null
   joined: boolean
   status: 'active' | 'removed'
   userAccount?: mongoose.Types.ObjectId
@@ -220,6 +221,20 @@ export interface IAgentIntroduction {
   agent: mongoose.Types.ObjectId
   channel: string
   intros: Omit<AgentResponse<unknown>, 'channels'>[]
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+// One row per minted invite link (see invite.service.ts). Only hashes of the token and
+// nonce are stored; the raw values exist nowhere but the email and the recipient's browser.
+export interface IMemberInvite {
+  membership: mongoose.Types.ObjectId
+  tokenHash: string
+  expiresAt: Date
+  consumedAt?: Date | null
+  invalidatedAt?: Date | null
+  nonceHash?: string | null
+  nonceExpiresAt?: Date | null
   createdAt?: Date
   updatedAt?: Date
 }
