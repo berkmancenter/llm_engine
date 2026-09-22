@@ -29,9 +29,8 @@ const getInvite = catchAsync(async (req, res) => {
 const consumeInvite = catchAsync(async (req, res) => {
   setInviteScreenHeaders(res)
   await inviteService.consumeInvite(req.body.token, req.body.nonce)
-  /* Account provisioning and session issuance follow in the set-password work. Consuming
-     without them is safe to ship first because no invite email can go out until the
-     Postmark batch send exists, so no real token can be stranded. */
+  /* Account provisioning and session issuance land in the set-password PR, which ships in
+     the same release as this one. Until it merges, consuming only burns the token. */
   res.status(httpStatus.OK).send({ consumed: true })
 })
 
