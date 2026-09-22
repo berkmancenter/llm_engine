@@ -12,7 +12,7 @@
 
 1. **This investigation is what produced the model-choice numbers**, not a parallel effort — the tier-savings percentages, the cost/length concentration (§4.2), and the fan-out discovery (§4.3) all came from digging into real token usage, which the caching question forced. There was no shortcut to the model analysis that skipped this.
 2. **Two of the caching fixes are diagnostic/correctness work independent of caching's payoff** — surfacing `cache_creation_input_tokens`/`cache_read_input_tokens` (blocker #3) and fixing the `String()` coercion bug (blocker #1) are needed regardless of which model gets chosen; without them you can't measure whether *any* future decision is working.
-3. **The remaining implementation is small** — a handful of files (§7), not a competing initiative against a model migration. It ships alongside a model decision, not instead of one.
+3. **The implementation was small** — a handful of files (§7, now shipped in this pass), not a competing initiative against a model migration. It lands alongside a model decision, not instead of one.
 4. **If Opus is non-negotiable, caching is the only lever left on the table** — modest (~7%, possibly more for the fan-out-heavy conversations specifically, §6.4), but it's the only money back available in that world.
 
 What this document does **not** defend: pitching caching as the primary cost initiative on its own terms. It isn't. It's a smaller, mostly-complementary lever that happens to have produced the investigation that found the actual big one.
@@ -206,8 +206,7 @@ Going from "realistic" to "physically impossible best case" is worth **half a po
 
 **Opus 4.6 → Opus 5 is close to a free win**: identical per-token price, no prompt changes, and it removes the specific reason caching is worth $0 on our dominant model today. This is compatible with (not in tension with) wanting "the latest, most powerful model" — Opus 4.6 is the one blocking caching, not the Opus tier itself. Two things stand between this and being real:
 
-1. The caching mechanism (§3) still has to actually ship — swapping models alone unlocks nothing on its own.
-2. **`claude-opus-5` isn't in this codebase yet.** `src/agents/helpers/getModelChat.ts`'s `supportedModels`/`modelFamilies` only define `claude-opus-4-6-v1` and `claude-sonnet-4-6`. Whether `claude-opus-5` is reachable through the HUIT Bedrock gateway this app uses has **not been verified** — that's a cheap live check, not yet done.
+1. ~~The caching mechanism (§3) still has to actually ship~~ **Done** — see §7. `claude-opus-5` and `claude-sonnet-5` are also now added to `getModelChat.ts` (as explicit, non-default options — see §7), and both confirmed live-reachable on the HUIT gateway under their bare IDs (`us.anthropic.claude-opus-5`, `us.anthropic.claude-sonnet-5`, no `-v1` suffix unlike 4.6).
 
 **The Sonnet-tier question (44–63% savings) is a separate, larger decision** — moving out of the Opus tier entirely — and caching doesn't add a new argument to it beyond the ~3–4 points above, since Sonnet 4.6 already caches fine today. That's a price/quality tradeoff (see below), not a caching one.
 
@@ -215,22 +214,30 @@ Going from "realistic" to "physically impossible best case" is worth **half a po
 
 ---
 
-## 7. Open items / suggested next steps
+## 7. Implementation status
 
-Roughly in the order the original issue proposed, revised by everything above:
+**Shipped in this pass** (see the handoff doc, `docs/investigations/prompt-caching-bedrock-handoff.md`, for exact files, test coverage, and what's next):
 
-1. **Fix `bedrockUsage.ts`** to surface `cache_creation_input_tokens`/`cache_read_input_tokens` onto `usage_metadata` — small, safe, unblocks real measurement in production. Not yet done.
-2. **Implement the sentinel-split mechanism** in `claudeHandler.ts` (§3) — fixes blocker #1, sidesteps blocker #2, and is the single change that turns on caching for every call site at once. Not yet done.
-3. **Fix the two silent invalidators found in §2** (classification-dependent template swap, mid-block date interpolation) before or alongside step 2 — a correct mechanism on top of an unstable prefix still won't cache.
-4. **Do not place a breakpoint on chat history/`messages`** for agents whose conversations exceed their configured window `count` (§2) — net negative there.
-5. **Decide on Opus 4.6 specifically**: either commit to writing genuinely useful content to close the ~1,547-token gap (§5.1), or accept that Opus 4.6 stays largely uncached for `eventAssistant` and lean on model choice (§5.2) for the agents where caching should carry more weight. This is a real decision point, not yet made.
-6. **Fix the `tavily_search`/`web_search` duplicate tool registration** (`src/agents/tools/registry.ts`) — worth doing regardless of caching.
-7. **Consider the deferred-tool-stub pattern** for `member_bios`/`search_semantic_scholar`/`event_history` (§5) as a follow-up, not a blocker for the above.
-8. Re-measure against the $787 cost baseline once steps 1–2 ship, per the original issue's step 5.
+1. ✅ **`bedrockUsage.ts`** now surfaces `cache_creation_input_tokens`/`cache_read_input_tokens` onto `usage_metadata.input_token_details` — the standard LangChain shape (`cache_read`/`cache_creation`).
+2. ✅ **The sentinel-split mechanism** — `CACHE_BREAKPOINT_MARKER` exported from `claudeHandler.ts`; `transformPayloadForClaude` splits `system` on it into `[stable + cache_control, volatile]`, and also fixes the blind `String()` coercion (blocker #1) by passing an already-array `system` through unchanged.
+3. ✅ **`buildEventAssistantToolSystemPrompt.ts`** inserts the marker right before `## Context:` — the highest-value call site (§3–§4) is wired up.
+4. ✅ **The mid-block date invalidator** — `buildSeriesHistoryRules` no longer interpolates `today` where the workflow instructions are discussed; both mentions are consolidated into a single trailing line, so a date rollover only invalidates one line instead of the whole block (§2, §6.4).
+5. ✅ **The `tavily_search`/`web_search` duplicate** — fixed generally in `getTools` (dedupes by resolved tool `.name`), not by removing the alias (which is intentionally tested elsewhere).
+6. ✅ **`claude-opus-5` and `claude-sonnet-5`** added to `getModelChat.ts` as explicit, selectable options — confirmed live-reachable on the HUIT gateway (bare IDs, no `-v1` suffix). **Not** wired as the `opus`/`sonnet` family defaults — that's the model decision below, deliberately not made here.
+
+**Deliberately not done, in order of why:**
+
+- **Classification-dependent template swap** (§2) — left as a documented, measured limitation. Restructuring 4 templates to share a stable preamble is real content-authoring work; decide whether it's worth it using real classification-flip-frequency data from #1's new telemetry once it's live, not a guess.
+- **Chat-history/`messages` caching** — not implemented anywhere, by design (§2): net negative for any agent whose conversations exceed its window `count`.
+- **Growing the stable prefix via extra tool bindings** — not implemented, by design (§5): research-backed anti-pattern.
+- **The deferred-tool-stub pattern** for `member_bios`/`search_semantic_scholar`/`event_history` (§5) — real, separate engineering effort; only pursue if production telemetry (now possible via #1) shows tool-set churn is actually hurting hit rate.
+- **Running the LangSmith eval suites** against Opus 5/Sonnet 4.6/Sonnet 5 (§6.5) — explicitly deferred, costs real inference money, needs to happen before any model-default change.
+- **Extending the marker to other agents** (`checkinHandler.ts`, `proactiveGroupAgent.ts`, `moderatorNotifier.ts`) or to `eventQuestionHandler`'s non-tool/classification path — not done; each has its own stable/volatile shape that hasn't been individually measured.
+- **Re-measuring against the cost baseline in production** — can't happen until this ships and runs against real traffic.
 
 ## Appendix: experiment scripts
 
-All under `scripts/experiments/` in this repo (not yet committed as of this writing — ask before assuming they should ship as-is):
+All under `scripts/experiments/` in this repo:
 
 - `eventAssistantSystemPromptStability.ts` — §2 synthetic system-prompt prefix stability
 - `chatHistoryWindowStability.ts` — §2 synthetic sliding-window behavior
@@ -240,5 +247,8 @@ All under `scripts/experiments/` in this repo (not yet committed as of this writ
 - `crossParticipantCacheTest.ts` — §4.3 live cross-participant cache sharing validation (paid)
 - `maxObviousPrefixSize.ts` — §5 zero-cost "bind everything" measurement (superseded by the research in §5)
 - `bkcArchiveWikiRealSize.ts` — §5 zero-cost real `bkc_archive_wiki` measurement
+- `probeOpus5Sonnet5ModelIds.ts` — §6.5/§7 live model-ID discovery (near-$0; invalid IDs reject before billing)
 
 Production data exports used for §4 were **not** committed (contain real message content) — they live in the session scratchpad that produced them, not this repo.
+
+See `docs/investigations/prompt-caching-bedrock-handoff.md` for a self-contained summary of what shipped, what's verified, and what to do next.
