@@ -42,7 +42,7 @@ interface ClaudeSystemBlock {
  *    (cached) and a volatile block (not cached); the marker itself is removed.
  *  - A plain string without the marker is passed through unchanged, exactly as before.
  */
-function buildSystemField(rawSystem: unknown): string | ClaudeSystemBlock[] {
+function buildSystemField(rawSystem: unknown) {
   if (Array.isArray(rawSystem)) {
     return rawSystem as ClaudeSystemBlock[]
   }
