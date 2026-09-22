@@ -19,11 +19,11 @@ cache minimum), and `moderatorNotifier` has no "anything new?" gate at all befor
 transcript, re-runs a RAG search, re-fetches DM/chat history, and calls the LLM.
 
 **Important correction from an earlier draft of this doc:** a blanket "skip when nothing new
-happened" gate is safe for `moderatorNotifier` but is **wrong** for `proactiveGroupAgent` — three
-of its ten group-chat goals (`provoke_participation`, `play_commentary`, `poll_reveal`) exist
-specifically to fire *because* chat has gone quiet while a speaker is still talking. Gating on
-chat silence would disable the agent's core value, not just its cost. See §4.2 for the
-narrower, safe version of this idea and why even that has a limit.
+happened" gate is safe for `moderatorNotifier` but is **wrong** for `proactiveGroupAgent` — four
+of its eleven group-chat goals (`provoke_participation`, `play_commentary`, `poll_reveal`,
+`missing_perspective`) exist specifically to fire *because* chat has gone quiet, or don't need
+chat at all. Gating on chat silence unconditionally would disable part of the agent's core
+value, not just its cost. See §4.2 for the goal-aware gate that avoids this.
 
 Independent, additive, low-risk levers that don't require a model decision or eval
 verification:
@@ -31,11 +31,12 @@ verification:
 1. **`moderatorNotifier`: skip the call entirely when nothing new arrived since the last
    tick** (§4.1) — safe, since all its triggers are pattern-accumulation from new content;
    "nothing new" really does mean "nothing to find."
-2. **`proactiveGroupAgent`: skip only when *both* chat and transcript are empty for the
-   window, not just chat** (§4.2) — narrower than #1, preserves every goal's real trigger
-   condition, and use backoff (not a hard skip) for the "chat's been quiet, transcript's
-   still running" case, since some goals depend on the *duration* of quiet, not just its
-   presence.
+2. **`proactiveGroupAgent`: a three-way, goal-aware gate, not a blanket skip** (§4.2) — run on
+   new chat activity; skip entirely when both chat and transcript are quiet; when only chat is
+   quiet, skip entirely too *unless* the conversation's eligible goals include one of the four
+   silence-compatible goals above, in which case backoff (not a hard skip), since that trigger
+   depends on the *duration* of quiet, not just whether it's new. The goal check is free —
+   `groupChatGoals` is already computed before any of the expensive work runs.
 3. **Extend `CACHE_BREAKPOINT_MARKER` (already shipped for `eventAssistant`) to both
    agents** (§4.1, §4.2) — their large prompts mean caching isn't blocked by the Opus
    4.6 minimum problem documented in the caching doc's §3/§6.
@@ -184,37 +185,58 @@ far fewer calls, because their prompts are 3–4× larger per call.
   (`runInterventionAnalysis` → `interventionHandler.ts`) before the LLM call.
 
 **Unlike `moderatorNotifier`, this agent's goals are not all reactive to new content — some
-are reactive to its *absence*.** Reading `goals/*.json` (`channel: "groupChat"`, 10 total):
-`provoke_participation`, `play_commentary`, and `poll_reveal` all explicitly trigger on chat
-going quiet *while the transcript is still active* — e.g. `provoke_participation`'s condition
-is "few or no participant messages in the last few minutes... a speaker actively presenting to
-a passive audience fully satisfies this trigger, including during opening introductions or the
-early minutes of an event." A gate that skips whenever chat is quiet would silently disable
-these three goals' entire reason for existing — that's the opposite of "no quality tradeoff."
+are reactive to its *absence*.** Reading `goals/*.json` (`channel: "groupChat"`, **eleven**
+total — corrected from an earlier miscount), `provoke_participation`, `play_commentary`, and
+`poll_reveal` all explicitly trigger on chat going quiet *while the transcript is still
+active* — e.g. `provoke_participation`'s condition is "few or no participant messages in the
+last few minutes... a speaker actively presenting to a passive audience fully satisfies this
+trigger, including during opening introductions or the early minutes of an event." A gate that
+skips whenever chat is quiet would silently disable these three goals' entire reason for
+existing — that's the opposite of "no quality tradeoff."
 
-Two things are still true and useful, though:
+**The gate should be three-way, keyed off which goals a given conversation actually has
+enabled — not two-way.** `resolveActiveGoals`/`getEligibleGoals`
+(`promptComposer.ts:90-104`) is a pure, cheap, config-driven filter over `conversation.goals`
+(static per-event setup) with goal definitions already cached in memory
+(`goals/loader.ts`) — `respond()` already computes `groupChatGoals` at line 166, before any
+transcript fetch, DM fetch, or RAG search. Classifying all eleven group-chat goals by whether
+they need chat activity to fire: `provoke_participation`, `play_commentary`, `poll_reveal`
+don't (chat silence is the trigger); `missing_perspective` doesn't either — its condition is
+"enough speakers have spoken in the *transcript*," with no reference to chat at all; the other
+seven (`bridge_topics`, `challenge_consensus`, `clarify_confusion`, `invite_quieter_voices`,
+`structure_conversation`, `surface_signal`, `synthesize_discussion`) all require actual chat
+content — `challenge_consensus` even says so explicitly ("only use when the room is actively
+exchanging messages — this goal is about the quality of an active discussion, not about
+waking a passive one"). That gives:
 
-- **Skipping when *both* chat and transcript are empty for the window is safe.** All ten
-  group-chat goals need either new chat content or an active transcript to react to; none
-  fire on literal silence across both channels (that state most plausibly means the session
-  hasn't started, is on a break, or has an AV outage — not a moment calling for a nudge).
-  Worth confirming `transcript.getTranscript` reliably returns empty/falsy for "nothing said"
-  before relying on this.
-- **Even that narrower gate shouldn't be a hard "skip if unchanged since last tick."**
-  `provoke_participation`'s trigger is about the *duration* of chat silence while transcript
-  stays active, not a discrete new event — two minutes of quiet and ten minutes of quiet look
-  identical under a "nothing new happened" check, but only one of them is likely to warrant an
-  intervention. A pure change-detection gate would freeze the agent's silence judgment at
-  whatever it concluded on the first quiet tick and never revisit it as the silence lengthens.
-  A **backoff** (widen the interval between checks during a stable "quiet chat, active
-  transcript" stretch, reset immediately on any new content) preserves that re-evaluation
-  while still cutting frequency, where a hard skip would not.
-- **`moderatorNotifier` and `proactiveGroupAgent` independently fetch and RAG-search nearly
-  the same context every 120s tick** — shared chat history, DM history across every direct
-  channel, and a semantic search over nearly the same combined text
-  (`interventionHandler.ts:142-143` vs `moderatorNotifier.ts:199-200`). Deduplicating that
-  fetch (or at least the RAG search result) between the two agents cuts real, measurable cost
-  without changing either agent's decision logic.
+- **Chat has new activity** → always run; the seven activity-dependent goals need it
+  regardless of transcript state.
+- **Chat quiet, transcript active** → run *only if* `groupChatGoals` intersects
+  `{provoke_participation, play_commentary, poll_reveal, missing_perspective}`; **skip
+  entirely otherwise** — a conversation configured without any of those four goals (e.g. an
+  event that only enabled `structure_conversation`/`synthesize_discussion`) has nothing that
+  could act on chat silence, so this is a full skip, not a backoff, with the same "nothing to
+  react to" safety as `moderatorNotifier`'s gate.
+- **Chat quiet, transcript quiet** → always skip (§4.2 original finding — nothing anywhere to
+  react to for any goal).
+- **Chat quiet, transcript active, and a silence-compatible goal *is* eligible** — this is the
+  one case that still needs the **backoff**, not a skip: `provoke_participation`'s trigger
+  depends on the *duration* of chat silence, not a discrete new event, so re-evaluation needs
+  to continue (at a widening interval) rather than freeze at the first quiet tick's
+  conclusion.
+
+**Not yet measurable from production telemetry:** `getTraceMetadata()` for this agent
+currently only logs `{ topic }` (line 316) — it doesn't record which goals were eligible on a
+given turn. Adding `activeGoalIds: groupChatGoals.map(g => g.id)` there is a near-zero-cost
+change that would make "what fraction of real conversations have zero silence-compatible
+goals enabled" measurable before and after this ships, rather than assumed.
+
+**`moderatorNotifier` and `proactiveGroupAgent` independently fetch and RAG-search nearly
+the same context every 120s tick**, separately from all of the above — shared chat history,
+DM history across every direct channel, and a semantic search over nearly the same combined
+text (`interventionHandler.ts:142-143` vs `moderatorNotifier.ts:199-200`). Deduplicating that
+fetch (or at least the RAG search result) between the two agents cuts real, measurable cost
+without changing either agent's decision logic, and stacks with the gating above.
 
 ### 4.3 `librarian` — the cleanest caching case in the codebase, structurally different from the other two
 
@@ -255,12 +277,16 @@ re-measured (same caveat the caching doc raises for its own numbers).
 1. **Add an activity gate to `moderatorNotifier`: skip when nothing arrived since the last
    tick.** Safe without qualification — every one of its triggers is pattern-accumulation
    from new content (§4.1), so "nothing new" really does mean "nothing to find."
-2. **For `proactiveGroupAgent`, gate on "chat and transcript both empty for the window," not
-   "no new messages"** (§4.2) — a blanket "skip if unchanged" gate would disable
-   `provoke_participation`, `play_commentary`, and `poll_reveal`, whose entire trigger
-   condition *is* chat going quiet while the transcript stays active. Pair this with a
-   **backoff** (not a hard skip) for the "chat quiet, transcript active" case specifically,
-   since that trigger depends on how long the quiet has lasted, not just whether it's new.
+2. **For `proactiveGroupAgent`, use a three-way, goal-aware gate, not a blanket
+   "skip if unchanged"** (§4.2): run on any new chat activity; **skip entirely** when chat and
+   transcript are both quiet; when chat alone is quiet, check whether the conversation's
+   *eligible* goals (already computed for free at `respond()` line 166) include any of
+   `provoke_participation`/`play_commentary`/`poll_reveal`/`missing_perspective` — if none are
+   eligible, skip entirely (no goal could act on the silence); if one is, **backoff** instead
+   of a hard skip, since that trigger depends on how long the quiet has lasted, not just
+   whether it's new. Add `activeGoalIds` to `getTraceMetadata()` alongside this so the real
+   split between "always full-skip eligible" and "needs backoff" conversations becomes
+   measurable rather than assumed.
 3. **Deduplicate `moderatorNotifier`'s and `proactiveGroupAgent`'s per-tick context fetch**
    (§4.2) — both independently fetch and RAG-search nearly the same chat/DM/transcript
    content every 120s. A shared fetch (or a shared, memoized RAG result) cuts real cost with
