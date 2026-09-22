@@ -7,7 +7,8 @@ import {
   ConversationHistory,
   ConversationGoal,
   IAgent,
-  IChannel
+  IChannel,
+  IMessage
 } from '../../types/index.types.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import {
@@ -125,6 +126,16 @@ function resolveActiveGoals(conversation: { goals?: string[]; behaviorPolicy?: B
   return getEligibleGoals(conversation.goals, groupChatPolicy)
 }
 
+// Goals whose own trigger condition fires on chat being quiet (or, for missing_perspective,
+// doesn't reference chat at all) — see goals/*.json. Every other group-chat goal requires
+// actual chat content to react to (challenge_consensus even says so explicitly).
+const SILENCE_COMPATIBLE_GOAL_IDS = new Set([
+  'provoke_participation',
+  'play_commentary',
+  'poll_reveal',
+  'missing_perspective'
+])
+
 export default verify({
   name: 'Proactive Group Agent',
   description:
@@ -150,6 +161,44 @@ export default verify({
   ragCollectionName: undefined,
 
   async evaluate(userMessage: unknown) {
+    // This agent is proactive (triggers.periodic.proactive), so the framework's own
+    // evaluate() never applies its "no new messages" skip — see agent.model/index.ts.
+    // Some of this agent's goals (provoke_participation, play_commentary, poll_reveal,
+    // missing_perspective) trigger ON chat silence, so a blanket "skip if quiet" gate
+    // would disable their entire purpose. This checks chat and transcript separately and
+    // only skips when neither has anything for ANY eligible goal to react to.
+    const windowMs = ((this.agentConfig?.transcriptWindow as number | undefined) ?? 10) * 60 * 1000
+    const cutoff = Date.now() - windowMs
+    const messages = (this.conversation.messages ?? []) as IMessage[]
+    const hasRecentChat = messages.some(
+      (m) => !m.fromAgent && m.channels?.includes('chat') && m.createdAt && m.createdAt.getTime() >= cutoff
+    )
+    const hasRecentTranscript = messages.some(
+      (m) => m.channels?.includes('transcript') && m.createdAt && m.createdAt.getTime() >= cutoff
+    )
+
+    if (!hasRecentChat && !hasRecentTranscript) {
+      logger.debug(`${this.name}: chat and transcript both quiet — skipping`)
+      return {
+        action: AgentMessageActions.REJECT,
+        userMessage,
+        userContributionVisible: false,
+        suggestion: undefined
+      }
+    }
+    if (!hasRecentChat && hasRecentTranscript) {
+      const groupChatGoals = getGroupChatGoals(resolveActiveGoals(this.conversation))
+      const silenceCompatible = groupChatGoals.some((g) => SILENCE_COMPATIBLE_GOAL_IDS.has(g.id))
+      if (!silenceCompatible) {
+        logger.debug(`${this.name}: chat quiet, no silence-compatible goal eligible — skipping`)
+        return {
+          action: AgentMessageActions.REJECT,
+          userMessage,
+          userContributionVisible: false,
+          suggestion: undefined
+        }
+      }
+    }
     return {
       action: AgentMessageActions.CONTRIBUTE,
       userMessage,
@@ -313,7 +362,11 @@ export default verify({
 
   getTraceMetadata() {
     return {
-      topic: this.conversation.name
+      topic: this.conversation.name,
+      // Lets production telemetry show whether real conversations are actually curating
+      // goal sets (vs. all using the same platform default) — needed to size the real
+      // hit rate of the silence-compatible-goal check in evaluate() above.
+      activeGoalIds: getGroupChatGoals(resolveActiveGoals(this.conversation)).map((g) => g.id)
     }
   },
 
