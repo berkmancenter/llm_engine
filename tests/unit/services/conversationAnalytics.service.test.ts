@@ -1071,7 +1071,7 @@ describe('computeResourceSummary', () => {
 })
 
 describe('deriveEventPlatform', () => {
-  it('reports both when the event ran on Nextspace and Zoom', () => {
+  it('reports both when the event ran on NextSpace and Zoom', () => {
     expect(deriveEventPlatform({ platforms: ['nextspace', 'zoom'] })).toBe('both')
   })
 
@@ -1079,7 +1079,7 @@ describe('deriveEventPlatform', () => {
     expect(deriveEventPlatform({ platforms: ['zoom'] })).toBe('zoom')
   })
 
-  it('reports nextspace for a Nextspace-only event', () => {
+  it('reports nextspace for a NextSpace-only event', () => {
     expect(deriveEventPlatform({ platforms: ['nextspace'] })).toBe('nextspace')
   })
 

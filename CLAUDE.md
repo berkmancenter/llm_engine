@@ -7,7 +7,7 @@ blocked). Tests: see [tests/CLAUDE.md](tests/CLAUDE.md). Agenda jobs: see
 ## Stay client-agnostic
 
 llm_engine serves more than one frontend. Don't reference a specific client (e.g.
-"Nextspace") by name in backend code, comments, copy, or log lines — those assumptions
+"NextSpace") by name in backend code, comments, copy, or log lines — those assumptions
 belong in the client repo, not here. Third-party services llm_engine talks to directly
 (Zoom, Matomo, Postmark, ...) are fine to name; the rule is about the client consuming
 this API, not the services it calls out to.
@@ -22,7 +22,7 @@ git commit -m "feat: subject"
 ```
 
 commitlint (config-conventional) enforces: **every line ≤ 100 chars** (header
-*and* each body line — hard-wrap the body), a lowercase `type:` prefix, and a
+_and_ each body line — hard-wrap the body), a lowercase `type:` prefix, and a
 non-empty subject. For a multi-paragraph body, pass it via a file
 (`git commit -F msg.txt`) so you control the wrapping.
 

@@ -1228,7 +1228,7 @@ export interface ConversationMetrics {
   receptions: QuoteReception[]
   // The event's readings and references, counted from participant-visible resources only.
   resourceSummary: ResourceSummary
-  // Which platform(s) the event ran on: Nextspace, Zoom, or both.
+  // Which platform(s) the event ran on: NextSpace, Zoom, or both.
   eventPlatform: EventPlatform
   // Computations run over this event's messages to answer one specific question, present only
   // on that path and scoped to that one request. The analytics service never sets it and no
@@ -1315,7 +1315,7 @@ export interface ResourceSummary {
 }
 
 /* Which platform(s) the event ran on, derived from the conversation's platforms list.
-   'both' when it ran on Nextspace and Zoom together. */
+   'both' when it ran on NextSpace and Zoom together. */
 export type EventPlatform = 'nextspace' | 'zoom' | 'both'
 
 /* One persisted snapshot of a conversation's metrics, one document per conversation in its

@@ -75,9 +75,9 @@ Available roles: `user`, `admin`, `serviceAccount`.
 
 If you would like to make use of Retrieval Augmented Generation (RAG) see our [rag guide](rag.md).
 
-## Optional: Nextspace integration
+## Optional: NextSpace integration
 
-If you would like to use LLM Engine with the Nextspace client, see our [nextspace guide](../platforms/nextspace.md).
+If you would like to use LLM Engine with the NextSpace client, see our [nextspace guide](../platforms/nextspace.md).
 
 ## Optional: Zoom integration
 

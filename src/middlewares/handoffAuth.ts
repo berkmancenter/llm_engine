@@ -7,8 +7,8 @@
  * can post the confirmation back into the same Slack thread.
  *
  * The handoff token is the ONLY authorization on these endpoints. There
- * is deliberately no Nextspace user session check because the organizer
- * may not be logged into Nextspace at all — they arrive directly from a
+ * is deliberately no NextSpace user session check because the organizer
+ * may not be logged into NextSpace at all — they arrive directly from a
  * Slack click. So any failure path (no token, bad signature, wrong type,
  * expired) has to return 401.
  *

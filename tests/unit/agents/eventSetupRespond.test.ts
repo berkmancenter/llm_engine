@@ -69,12 +69,7 @@ describe('buildEventSetupBlocks()', () => {
 
 describe('eventSetup respond()', () => {
   test('returns a single message routed to the setup channel', async () => {
-    const responses = await eventSetup.respond.call(
-      buildContext(),
-      { messages: [] },
-      buildSlackMessage(),
-      alwaysSetupIntent
-    )
+    const responses = await eventSetup.respond.call(buildContext(), { messages: [] }, buildSlackMessage(), alwaysSetupIntent)
 
     expect(responses).toHaveLength(1)
     expect(responses[0].visible).toBe(true)
@@ -88,7 +83,7 @@ describe('eventSetup respond()', () => {
 
     /* The token lives in the button URL (inside blocks), not in the fallback
        message text. Browsers never send URL fragments to servers, so placing
-       the token after # keeps it out of Nextspace's access logs and Referer
+       the token after # keeps it out of NextSpace's access logs and Referer
        headers on any third-party resources the form page loads. The fallback
        text is for push notifications and accessibility — it does not need the
        token. */
@@ -140,7 +135,7 @@ describe('eventSetup respond()', () => {
     expect(responses[0].parent).toBe('existing-thread-root-id')
   })
 
-  test('non-Slack origin: falls back to a text-only message with the Nextspace URL, no blocks', async () => {
+  test('non-Slack origin: falls back to a text-only message with the NextSpace URL, no blocks', async () => {
     const msg = buildSlackMessage({ source: { type: 'web', id: 'abc' } })
     const responses = await eventSetup.respond.call(buildContext(), { messages: [] }, msg, alwaysSetupIntent)
 
@@ -153,11 +148,26 @@ describe('eventSetup respond()', () => {
   })
 
   test.each([
-    ['source.userId is missing', { source: { type: 'slack', id: '1700000000.000100', teamId: 'T123ABC', channelId: 'C789GHI' } }],
-    ['source.teamId is missing', { source: { type: 'slack', id: '1700000000.000100', userId: 'U456DEF', channelId: 'C789GHI' } }],
-    ['source.channelId is missing', { source: { type: 'slack', id: '1700000000.000100', userId: 'U456DEF', teamId: 'T123ABC' } }],
-    ['source.id (thread ts) is missing', { source: { type: 'slack', userId: 'U456DEF', teamId: 'T123ABC', channelId: 'C789GHI' } }],
-    ['source.type is not slack', { source: { type: 'web', id: '1700000000.000100', userId: 'U456DEF', teamId: 'T123ABC', channelId: 'C789GHI' } }]
+    [
+      'source.userId is missing',
+      { source: { type: 'slack', id: '1700000000.000100', teamId: 'T123ABC', channelId: 'C789GHI' } }
+    ],
+    [
+      'source.teamId is missing',
+      { source: { type: 'slack', id: '1700000000.000100', userId: 'U456DEF', channelId: 'C789GHI' } }
+    ],
+    [
+      'source.channelId is missing',
+      { source: { type: 'slack', id: '1700000000.000100', userId: 'U456DEF', teamId: 'T123ABC' } }
+    ],
+    [
+      'source.id (thread ts) is missing',
+      { source: { type: 'slack', userId: 'U456DEF', teamId: 'T123ABC', channelId: 'C789GHI' } }
+    ],
+    [
+      'source.type is not slack',
+      { source: { type: 'web', id: '1700000000.000100', userId: 'U456DEF', teamId: 'T123ABC', channelId: 'C789GHI' } }
+    ]
   ])('Slack context but %s: falls back to text-only message without blocks', async (_label, override) => {
     const msg = buildSlackMessage(override)
     const responses = await eventSetup.respond.call(buildContext(), { messages: [] }, msg, alwaysSetupIntent)

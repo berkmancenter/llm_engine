@@ -2,9 +2,9 @@ import adapterTypes, { internalAdapterTypes } from './index.js'
 
 const nextspaceEntry = {
   name: 'nextspace',
-  label: 'Nextspace',
+  label: 'NextSpace',
   description:
-    'This conversation is running on Nextspace, a web-based live event platform. Participants interact through a private chat tab with the assistant, a group channel visible to all attendees, a live transcript, and a resources tab with pre-loaded and possibly on-the-fly AI-generated materials.'
+    'This conversation is running on NextSpace, a web-based live event platform. Participants interact through a private chat tab with the assistant, a group channel visible to all attendees, a live transcript, and a resources tab with pre-loaded and possibly on-the-fly AI-generated materials.'
 }
 
 const adapterKeys = Object.keys(adapterTypes)

@@ -62,7 +62,7 @@ const envVarsSchema = Joi.object()
       .description('minutes after which a password reset token expires'),
     HANDOFF_TOKEN_EXPIRATION_MINUTES: Joi.number()
       .default(60)
-      .description('minutes after which a Slack-to-Nextspace event-setup handoff token expires'),
+      .description('minutes after which a Slack-to-NextSpace event-setup handoff token expires'),
     INVITE_TOKEN_EXPIRATION_DAYS: Joi.number()
       .default(14)
       .description(

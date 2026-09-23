@@ -9,11 +9,14 @@ The event setup agent runs in a dedicated organizer Slack channel. Setting it up
 Create the Slack app once. Both local and production point at the same app — you just add each environment's webhook URL separately.
 
 ### Create the app
+
 1. Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From scratch**
-2. Name it (e.g. "Nextspace Events") and select your workspace
+2. Name it (e.g. "NextSpace Events") and select your workspace
 
 ### Configure OAuth scopes
+
 **OAuth & Permissions** → **Bot Token Scopes** → add:
+
 - `chat:write` — post messages to the channel
 - `channels:history` — read messages in public channels
 - `groups:history` — read messages in private channels
@@ -21,12 +24,15 @@ Create the Slack app once. Both local and production point at the same app — y
 Click **Install to Workspace** and approve. Copy the **Bot User OAuth Token** (`xoxb-...`) — you'll use this in both environments.
 
 ### Get the Bot User ID
+
 ```bash
 curl -H "Authorization: Bearer xoxb-..." https://slack.com/api/auth.test
 ```
+
 Copy the `user_id` field (`U...`).
 
 ### Collect credentials
+
 From **Basic Information** → **App Credentials**, copy the **Signing Secret** — you'll add this as `SLACK_SIGNING_SECRET` in both environments.
 
 ---
@@ -55,6 +61,7 @@ Restart the server after adding this.
 ### 2c. Register the local webhook URL with Slack
 
 In your Slack app → **Event Subscriptions** → toggle on → set Request URL:
+
 ```
 https://xxxx.ngrok-free.app/v1/webhooks/slack
 ```
@@ -116,6 +123,7 @@ curl -X POST http://localhost:3000/v1/conversations/<conversation-id>/start \
 ### Verification
 
 Send in `#event-setup-dev`:
+
 - `"I want to setup a new event"` → bot replies "Event setup coming soon" ✓
 - `"hello everyone"` → bot stays silent ✓
 
@@ -130,6 +138,7 @@ Set `SLACK_SIGNING_SECRET` in your production environment variables (however you
 ### 3b. Register the production webhook URL with Slack
 
 In your Slack app → **Event Subscriptions** → add a second URL entry (or replace the local one):
+
 ```
 https://<your-production-domain>/v1/webhooks/slack
 ```
@@ -186,5 +195,6 @@ curl -X POST https://<your-production-domain>/v1/conversations/<conversation-id>
 ### Verification
 
 Send in `#event-setup`:
+
 - `"I want to setup a new event"` → bot replies "Event setup coming soon" ✓
 - `"hello everyone"` → bot stays silent ✓

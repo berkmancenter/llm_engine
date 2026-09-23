@@ -1,4 +1,5 @@
 <!-- omit in toc -->
+
 # Contributing to LLM Engine
 
 Thanks for your interest in contributing to LLM Engine!
@@ -6,12 +7,14 @@ Thanks for your interest in contributing to LLM Engine!
 We encourage and value all contributions. See the [Table of Contents](#table-of-contents) for ways to help and contribution guidelines. Reading the relevant sections beforehand will facilitate a smoother process for everyone. We look forward to your contributions. 🎉
 
 > Like the project but don't have time to contribute? There are other easy ways to support LLM Engine!
+>
 > - Star the project
 > - Post on social media about it
 > - Refer this project in your project's readme
 > - Mention the project at local meetups and tell your friends/colleagues
 
 <!-- omit in toc -->
+
 ## Table of Contents
 
 - [Asking Questions](#asking-questions)
@@ -36,10 +39,13 @@ If you still have a question or need clarification, we recommend the following:
 We will address the issue as soon as possible.
 
 ## Reporting Bugs
+
 > ### Sensitive Bugs <!-- omit in toc -->
+>
 > Never report security related issues, vulnerabilities or bugs including sensitive information to the issue tracker, or elsewhere in public. Instead, please send sensitive bugs by email to <asml@cyber.harvard.edu>.
 
 <!-- omit in toc -->
+
 ### Before Submitting a Bug Report
 
 - Check [Github Issues](https://github.com/berkmancenter/llm_engine/issues?q=label%3Abug) to make sure the bug has not already been reported.
@@ -47,6 +53,7 @@ We will address the issue as soon as possible.
 - Investigate thoroughly so that you can describe the issue in detail in your report.
 
 <!-- omit in toc -->
+
 ### Submitting Your Report
 
 Bug reports can be submitted to [GitHub Issues](https://github.com/berkmancenter/llm_engine/issues/new/choose). Please select the appropriate issue type, use a descriptive and concise title, and follow the prompts.
@@ -56,9 +63,11 @@ Once it's filed, a team member will attempt to reproduce the issue with your pro
 ## Contributing
 
 > ### Legal Notice <!-- omit in toc -->
+>
 > When contributing to this project, you must agree that you have authored 100% of the content, that you have the necessary rights to the content, and that the content you contribute may be provided under the project license.
 
 ### Getting Started
+
 We would love for you to contribute to LLM Engine! To set up your development environment, please refer to our [README](https://github.com/berkmancenter/llm_engine/blob/main/README.md). The instructions there should allow you to run LLM Engine locally on your machine.
 
 If the feature you want to work on requires third-party services (e.g. Recall.ai for Zoom integration), please follow the instructions in the README to set up your own accounts.
@@ -66,12 +75,13 @@ If the feature you want to work on requires third-party services (e.g. Recall.ai
 If you have any questions about the instructions, please feel free to [submit an issue](https://github.com/berkmancenter/llm_engine/issues/new). We welcome any suggestions for improvements to the README from contributors, especially as a Pull Request to the documentation itself.
 
 ### What to Work On
-You can see what the LLM Engine team is working on in the [Nextspace Public Workstream](https://github.com/orgs/berkmancenter/projects/6). We would **love** your help, and that's the place to start.
 
+You can see what the LLM Engine team is working on in the [NextSpace Public Workstream](https://github.com/orgs/berkmancenter/projects/6). We would **love** your help, and that's the place to start.
 
 ## Styleguides
 
 ### Commit Messages
+
 We prefer longform "conventional commit" messages where possible! Check out [conventional commits](https://www.conventionalcommits.org/en) and [this article](https://meedan.com/post/how-to-write-longform-git-commits-for-better-software-development) for more on longform commits.
 
 **Not ideal:**
@@ -111,7 +121,6 @@ Commit messages should follow the [Conventional Commit Message](https://www.conv
 
 When you run `git commit`, it will execute commitizen, an interactive tool that will help you build the commit message in the proper format. If you supply a message with `git commit -m`, the commit will fail if the message is not in the proper format.
 
-
 ## Code of Conduct
 
 This project and everyone participating in it is governed by the
@@ -120,5 +129,7 @@ By participating, you are expected to uphold this code. Please report unacceptab
 to <asml@cyber.harvard.edu>.
 
 <!-- omit in toc -->
+
 ## Attribution
+
 This guide is based on the [contributing.md generator](https://contributing.md/generator).
