@@ -1,4 +1,5 @@
 import { buildEventHistoryToolsPrompt } from '../tools/eventHistory.js'
+import { CACHE_BREAKPOINT_MARKER } from '../helpers/claudeHandler.js'
 
 /**
  * System instructions for the event assistant when tools (e.g. web_search) are enabled.
@@ -32,10 +33,16 @@ export const EVENT_ASSISTANT_TOOL_USER_MANDATE = `**Tool policy (mandatory):** U
  * and which tool does what. Exported as a builder so unit tests can lock the wording without an LLM.
  */
 export async function buildSeriesHistoryRules(seriesName: string, today: string): Promise<string> {
+  // Date mentions are deliberately consolidated into the single line at the end, not
+  // interpolated inline where the workflow instructions are discussed. `today` changes
+  // once a day, but caching is a byte-prefix match — a mid-block interpolation would
+  // fragment this otherwise fully stable block into a much shorter cacheable prefix on
+  // every date rollover (measured: 71.6% shared instead of ~100% — see the prompt-caching
+  // investigation, docs/investigations/prompt-caching-bedrock.md). Putting it last means a
+  // rollover only invalidates one trailing line instead of everything after the first
+  // mention.
   return `**Event series history tools:**
 This event is part of the "${seriesName}" series. You can search the transcripts of **other past events in this series** to answer questions that reference earlier sessions, recurring speakers, or topics covered before.
-
-Today's date is ${today}.
 
 ${await buildEventHistoryToolsPrompt(true /* hasActiveConversation */)}
 
@@ -46,13 +53,15 @@ Call \`search_topic_transcripts\` directly. Use the user's question as your quer
 Call \`get_event_list\` first. The list is sorted most-recent-first, so the first result is 1 session ago, the second result is 2 sessions ago, etc. Then search that event's transcript.
 
 **Workflow for calendar references ("last week", "the session in March", "last month"):**
-Use today's date (${today}) to compute an ISO date range, then call \`get_event_list\` with the appropriate \`since\`/\`until\` params to identify the event(s). Then search their transcripts.
+Use today's date (given at the end of this section) to compute an ISO date range, then call \`get_event_list\` with the appropriate \`since\`/\`until\` params to identify the event(s). Then search their transcripts.
 
 **Important:** These tools already exclude the current event — every result is from a prior session. You do not need to pass a \`topicId\`. The current event's transcript is in your Context below; use these tools only for past events.
 
 **Same-name events:** Past events may share the same name as the current session — they are still distinct prior sessions, identifiable by their ID and date in \`get_event_list\` results.
 
-These transcripts are private to this series and are **not** on the public web — \`web_search\` cannot find them. Use these event-history tools for anything about past sessions, and reserve \`web_search\` for facts about the wider world.`
+These transcripts are private to this series and are **not** on the public web — \`web_search\` cannot find them. Use these event-history tools for anything about past sessions, and reserve \`web_search\` for facts about the wider world.
+
+Today's date is ${today}.`
 }
 
 export interface EventAssistantToolPromptOptions {
@@ -88,11 +97,16 @@ export async function buildEventAssistantToolSystemPrompt(
     .filter(Boolean)
     .join('\n\n')
 
+  // Everything above this point is stable per conversation (same behaviorPolicy, tools,
+  // and topic across turns); the Context block below is rebuilt from the live transcript
+  // and RAG results on every call. CACHE_BREAKPOINT_MARKER marks that boundary for
+  // claudeHandler.ts's transformPayloadForClaude, which splits on it and caches only the
+  // stable side — see docs/investigations/prompt-caching-bedrock.md.
   return `${systemTemplate}${ruleBlocks ? `\n\n${ruleBlocks}` : ''}
 
 ## Event topic:
 ${topic}
-
+${CACHE_BREAKPOINT_MARKER}
 ## Context:
 ${contextString}`
 }

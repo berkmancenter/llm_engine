@@ -6,6 +6,11 @@
  * `cache_control`, independent of the `BedrockChat`/`transformPayloadForClaude` bugs
  * documented in the prompt-caching investigation.
  *
+ * Full write-up, including everything found after this spike (real production
+ * measurements, the cross-participant cache-sharing finding, and why growing the
+ * stable prefix via extra tool bindings is off the table): see
+ * docs/investigations/prompt-caching-bedrock.md.
+ *
  * Sends two back-to-back requests with an identical, oversized `system` prefix carrying
  * a `cache_control` breakpoint:
  *   - Call 1 should show cache_creation_input_tokens > 0, cache_read_input_tokens === 0

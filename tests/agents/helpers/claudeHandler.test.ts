@@ -1,7 +1,8 @@
 import {
   shouldUseClaudeFormat,
   buildBedrockClaudePayload,
-  transformPayloadForClaude
+  transformPayloadForClaude,
+  CACHE_BREAKPOINT_MARKER
 } from '../../../src/agents/helpers/claudeHandler.js'
 
 describe('claudeHandler', () => {
@@ -413,6 +414,74 @@ describe('claudeHandler', () => {
       // Third message should have only one tool_use (duplicate removed)
       expect(result.messages[2].content).toHaveLength(1)
       expect(result.messages[2].content[0].id).toBe('tool_456')
+    })
+
+    describe('cache breakpoint marker', () => {
+      it('splits system into a cached stable block and an uncached volatile block', () => {
+        const inputPayload = {
+          system: `STABLE_RULES${CACHE_BREAKPOINT_MARKER}VOLATILE_CONTEXT`,
+          messages: [{ role: 'user', content: 'Hello world' }]
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result = transformPayloadForClaude(inputPayload, 'anthropic.claude-3-5-sonnet-20240620-v1:0', 'bedrock') as any
+
+        expect(result.system).toEqual([
+          { type: 'text', text: 'STABLE_RULES', cache_control: { type: 'ephemeral' } },
+          { type: 'text', text: 'VOLATILE_CONTEXT' }
+        ])
+      })
+
+      it('removes the marker itself from both sides of the split', () => {
+        const inputPayload = {
+          system: `STABLE${CACHE_BREAKPOINT_MARKER}VOLATILE`,
+          messages: [{ role: 'user', content: 'Hello world' }]
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result = transformPayloadForClaude(inputPayload, 'anthropic.claude-3-5-sonnet-20240620-v1:0', 'bedrock') as any
+
+        const allText = result.system.map((block: { text: string }) => block.text).join('')
+        expect(allText).not.toContain(CACHE_BREAKPOINT_MARKER)
+      })
+
+      it('omits the volatile block when nothing follows the marker', () => {
+        const inputPayload = {
+          system: `STABLE_ONLY${CACHE_BREAKPOINT_MARKER}`,
+          messages: [{ role: 'user', content: 'Hello world' }]
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result = transformPayloadForClaude(inputPayload, 'anthropic.claude-3-5-sonnet-20240620-v1:0', 'bedrock') as any
+
+        expect(result.system).toEqual([{ type: 'text', text: 'STABLE_ONLY', cache_control: { type: 'ephemeral' } }])
+      })
+
+      it('leaves system as a plain string when no marker is present', () => {
+        const inputPayload = {
+          system: 'No marker here',
+          messages: [{ role: 'user', content: 'Hello world' }]
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result = transformPayloadForClaude(inputPayload, 'anthropic.claude-3-5-sonnet-20240620-v1:0', 'bedrock') as any
+
+        expect(result.system).toBe('No marker here')
+      })
+
+      it('passes an already-array system through unchanged instead of stringifying it', () => {
+        const blockArray = [{ type: 'text', text: 'pre-built block', cache_control: { type: 'ephemeral' } }]
+        const inputPayload = {
+          system: blockArray,
+          messages: [{ role: 'user', content: 'Hello world' }]
+        }
+
+        const result = transformPayloadForClaude(inputPayload, 'anthropic.claude-3-5-sonnet-20240620-v1:0', 'bedrock') as {
+          system: unknown
+        }
+
+        expect(result.system).toBe(blockArray)
+      })
     })
   })
 })

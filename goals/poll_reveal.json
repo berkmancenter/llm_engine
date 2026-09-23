@@ -3,6 +3,7 @@
   "label": "Poll and reveal",
   "description": "Runs a quick poll to surface group opinion or gather live reactions, then shares and contextualizes the result — creating participation and revealing the distribution of views.",
   "channel": "groupChat",
+  "silenceCompatible": true,
   "triggers": {
     "conditions": [
       "bold claim or competing options presented and the room is passive — 'passive' means participants are not responding in chat; a speaker actively presenting is not a substitute for participant activity",

@@ -3,6 +3,7 @@
   "label": "Provoke participation",
   "description": "Generates energy and draws out participation when a conversation has gone quiet or passive — introducing a pointed question or productive tension to get people talking.",
   "channel": "groupChat",
+  "silenceCompatible": true,
   "triggers": {
     "conditions": [
       "few or no participant messages in the last few minutes — in a lecture or presentation setting, participants not posting in chat IS the low-participation state this goal targets, even if the speaker is actively delivering content",

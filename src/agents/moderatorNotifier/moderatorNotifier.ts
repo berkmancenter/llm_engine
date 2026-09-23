@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import verify from '../helpers/verify.js'
-import { AgentMessageActions, AgentResponse, ConversationHistory, IChannel } from '../../types/index.types.js'
+import { AgentMessageActions, AgentResponse, ConversationHistory, IChannel, IMessage } from '../../types/index.types.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import getConversationHistory from '../helpers/getConversationHistory.js'
@@ -153,6 +153,25 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
   },
 
   async evaluate(userMessage) {
+    // The framework's own evaluate() (agent.model/index.ts) already skips this call
+    // entirely when the conversation's total message count hasn't changed since last
+    // activation — but that count includes messages from OTHER agents too, so it's
+    // defeated by routine bot chatter even when no participant said anything. This
+    // narrows the check to real participant activity within the agent's own tick period.
+    const windowMs = ((this.triggers?.periodic?.timerPeriod ?? 120) as number) * 1000
+    const cutoff = Date.now() - windowMs
+    const hasRecentParticipantActivity = ((this.conversation.messages ?? []) as IMessage[]).some(
+      (msg) => !msg.fromAgent && msg.createdAt && msg.createdAt.getTime() >= cutoff
+    )
+    if (!hasRecentParticipantActivity) {
+      logger.debug(`${this.name}: no recent participant activity — skipping`)
+      return {
+        action: AgentMessageActions.REJECT,
+        userMessage,
+        userContributionVisible: false,
+        suggestion: undefined
+      }
+    }
     return {
       action: AgentMessageActions.CONTRIBUTE,
       userMessage,
