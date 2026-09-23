@@ -279,3 +279,114 @@ describe('provenance', () => {
     }
   })
 })
+
+describe('gloss', () => {
+  it('carries a concept’s gloss through, which used to be silently dropped', () => {
+    const { payload } = assembleGraph(
+      [result({ concepts: [{ label: 'Trust Registry', gloss: 'A registry participants check.' }, { label: 'Verifier' }] })],
+      safety
+    )
+
+    expect(payload.concepts.find((c) => c.label === 'Trust Registry')?.gloss).toBe('A registry participants check.')
+  })
+
+  it('drops a gloss that names someone the conversation knows, keeping the concept', () => {
+    const { payload, report } = assembleGraph(
+      [
+        result({
+          concepts: [
+            { label: 'Trust Registry', gloss: 'An idea Rosa Klein raised.' },
+            { label: 'Verifier' }
+          ]
+        })
+      ],
+      safety
+    )
+
+    const registry = payload.concepts.find((c) => c.label === 'Trust Registry')
+    expect(registry?.gloss).toBeUndefined()
+    expect(registry).toBeDefined()
+    expect(report.droppedGlosses).toBe(1)
+  })
+})
+
+describe('folding, for a graph that has outgrown CONCEPT_CAP', () => {
+  const across = [
+    result({
+      concepts: [
+        { label: 'Trust Registry', gloss: 'A registry participants check credentials against.' },
+        { label: 'Verifier' }
+      ],
+      contributions: [{ kind: 'checked by', concepts: ['Trust Registry', 'Verifier'] }]
+    }),
+    result({
+      concepts: [{ label: 'Revocation Latency', gloss: 'How quickly revocation takes effect.' }, { label: 'Verifier' }],
+      contributions: [{ kind: 'slows', concepts: ['Revocation Latency', 'Verifier'] }]
+    })
+  ]
+
+  it('folds a candidate into its survivor and re-points its contributions', () => {
+    const { payload, report } = assembleGraph(across, safety, { foldedGroups: [['Trust Registry', 'Revocation Latency']] })
+
+    expect(payload.concepts.map((c) => c.label).sort()).toEqual(['Trust Registry', 'Verifier'])
+    expect(report.foldedConcepts).toBe(1)
+    // 'Verifier' itself is repeated across both chunks — an ordinary merge, unrelated to the
+    // fold, tallied separately from it on purpose (see AssemblyReport.foldedConcepts).
+    expect(report.mergedConcepts).toBe(1)
+
+    const registry = payload.concepts.find((c) => c.label === 'Trust Registry')!
+    expect(payload.contributions.filter((k) => k.concepts.includes(registry.id))).toHaveLength(2)
+  })
+
+  it('records the folded label and appends its gloss, rather than discarding them', () => {
+    const { payload } = assembleGraph(across, safety, { foldedGroups: [['Trust Registry', 'Revocation Latency']] })
+
+    const registry = payload.concepts.find((c) => c.label === 'Trust Registry')!
+    expect(registry.foldedFrom).toEqual(['Revocation Latency'])
+    expect(registry.gloss).toBe('A registry participants check credentials against. How quickly revocation takes effect.')
+  })
+
+  it('gets the same result whichever of the pair the extraction list happens to list first', () => {
+    /* payloadToExtraction hands assembleGraph one flattened list with no guaranteed order —
+       the survivor's own gloss and provenance must win regardless of which entry this loop
+       reaches first. */
+    const reversed = [...across].reverse()
+    const { payload } = assembleGraph(reversed, safety, { foldedGroups: [['Trust Registry', 'Revocation Latency']] })
+
+    const registry = payload.concepts.find((c) => c.label === 'Trust Registry')!
+    expect(registry.foldedFrom).toEqual(['Revocation Latency'])
+    expect(registry.gloss).toBe('A registry participants check credentials against. How quickly revocation takes effect.')
+  })
+
+  it('collapses a contribution to nothing when folding leaves it with a single, self-joined concept', () => {
+    // The two concepts a contribution already joined are exactly the ones a fold now unifies.
+    const { payload, report } = assembleGraph(
+      [
+        result({
+          concepts: [{ label: 'Trust Registry' }, { label: 'Registry Interop' }],
+          contributions: [{ kind: 'relates to', concepts: ['Trust Registry', 'Registry Interop'] }]
+        })
+      ],
+      safety,
+      { foldedGroups: [['Trust Registry', 'Registry Interop']] }
+    )
+
+    expect(payload.contributions).toHaveLength(0)
+    expect(report.droppedContributions).toBe(1)
+  })
+
+  it('keeps a folded-in concept’s gloss recorded across a later refinement that folds nothing new', () => {
+    // Simulates a second refineTopicGraph run reading a payload that already carries a fold.
+    const already = result({
+      concepts: [
+        { label: 'Trust Registry', gloss: 'Base meaning.', foldedFrom: ['Revocation Latency'] },
+        { label: 'Verifier' }
+      ]
+    })
+    const { payload } = assembleGraph([already], safety)
+
+    const registry = payload.concepts.find((c) => c.label === 'Trust Registry')!
+    expect(registry.foldedFrom).toEqual(['Revocation Latency'])
+    expect(registry.gloss).toBe('Base meaning.')
+  })
+})

@@ -295,8 +295,16 @@ router.route('/').get(auth('listArtifacts'), validate(artifactValidation.listArt
  *                     droppedConcepts: { type: number }
  *                     droppedContributions: { type: number }
  *                     droppedStatements: { type: number }
+ *                     droppedGlosses: { type: number }
  *                     droppedOriginPrompts: { type: number }
  *                     mergedConcepts: { type: number }
+ *                     foldedConcepts:
+ *                       type: number
+ *                       description: >-
+ *                         Concepts consolidated into a related one because the series graph
+ *                         outgrew its size cap — distinct from mergedConcepts, which counts
+ *                         concepts recognised as the same idea rather than consolidated for
+ *                         space.
  *       '200':
  *         description: >-
  *           Nothing was written because the record was too thin to map, or nothing survived

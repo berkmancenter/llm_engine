@@ -15,8 +15,15 @@ import artifactService from '../artifact.service.js'
 import { EXTRACTION_PROMPT, EXTRACTION_SCHEMA } from './prompt.js'
 import { aliasedKey, assembleGraph, AssemblyReport, ExtractionResult, SourceRefMap } from './assemble.js'
 import { screenForIdentities } from './nameScreen.js'
-import { knownConceptLabels, payloadToExtraction, resolveConceptAliases, KNOWN_CONCEPT_LIMIT } from './topicGraph.js'
+import {
+  knownConceptLabels,
+  payloadToExtraction,
+  resolveConceptAliases,
+  KNOWN_CONCEPT_LIMIT,
+  CONCEPT_CAP
+} from './topicGraph.js'
 import { applyRelinks, proposeRelinks } from './relink.js'
+import { proposeConsolidations, ConsolidationCandidate } from './consolidate.js'
 import { ConceptGraphPayload, IBaseUser } from '../../types/index.types.js'
 
 /*
@@ -219,11 +226,17 @@ const applyIdentityScreen = async (
 ): Promise<{ payload: ConceptGraphPayload; report: AssemblyReport }> => {
   /* Screened together in one call, tracked by what each line came from so a flag can be
      turned back into the right removal. */
-  const candidates: { text: string; kind: 'statement' | 'concept' | 'prompt'; id: string }[] = [
+  const candidates: { text: string; kind: 'statement' | 'concept' | 'gloss' | 'prompt'; id: string }[] = [
     ...payload.contributions
       .filter((c) => c.statement)
       .map((c) => ({ text: c.statement!, kind: 'statement' as const, id: c.id })),
     ...payload.concepts.map((c) => ({ text: c.label, kind: 'concept' as const, id: c.id })),
+    /* Free-form model prose, same risk category as a statement — screened the same way,
+       and the same "smallest thing that carries the risk" rule applies: a flagged gloss
+       costs its own sentence, not the concept it describes. */
+    ...payload.concepts
+      .filter((c) => c.gloss)
+      .map((c) => ({ text: c.gloss!, kind: 'gloss' as const, id: c.id })),
     ...payload.originPrompts.map((p) => ({ text: p.text, kind: 'prompt' as const, id: p.id }))
   ]
 
@@ -243,14 +256,16 @@ const applyIdentityScreen = async (
     )
   const unsafeStatements = flaggedOf('statement')
   const unsafeConcepts = flaggedOf('concept')
+  const unsafeGlosses = flaggedOf('gloss')
   const unsafePrompts = flaggedOf('prompt')
 
   const concepts = payload.concepts
     .filter((c) => !unsafeConcepts.has(c.id))
     .map((c) => {
-      const { origin, ...rest } = c
+      const { origin, gloss, ...rest } = c
       return {
         ...rest,
+        ...(gloss && !unsafeGlosses.has(c.id) && { gloss }),
         ...(origin && !unsafePrompts.has(origin) && { origin })
       }
     })
@@ -273,6 +288,7 @@ const applyIdentityScreen = async (
       droppedConcepts: report.droppedConcepts + unsafeConcepts.size,
       droppedContributions: report.droppedContributions + (payload.contributions.length - contributions.length),
       droppedStatements: report.droppedStatements + unsafeStatements.size,
+      droppedGlosses: report.droppedGlosses + unsafeGlosses.size,
       droppedOriginPrompts: report.droppedOriginPrompts + unsafePrompts.size
     }
   }
@@ -487,7 +503,7 @@ export const refineTopicGraph = async (
     { sourceTexts: texts, knownIdentities },
     { aliases, conversationId: incoming?.conversationId }
   )
-  const { payload, report } = await applyIdentityScreen(llm, assembled.payload, topicId, assembled.report)
+  let { payload, report } = await applyIdentityScreen(llm, assembled.payload, topicId, assembled.report)
 
   logger.info(
     `conceptGraph: topic ${topicId} -> ${payload.concepts.length} concepts, ${payload.contributions.length} ` +
@@ -500,9 +516,62 @@ export const refineTopicGraph = async (
     return null
   }
 
-  const note = priorPayload
-    ? `Refined with one further conversation; ${conversations.length} in the series`
-    : `Built from ${conversations.length} conversation${conversations.length === 1 ? '' : 's'}`
+  /*
+   * The graph is a picture someone looks at, not just a store of everything ever said, and a
+   * series that runs long enough outgrows what a reader can take in on one canvas. Folding
+   * runs here, on the finished payload, rather than earlier alongside alias resolution: it
+   * needs the real, final degree of every concept — how many contributions actually touch it
+   * — which only exists once assembly and the identity screen are both done.
+   */
+  if (payload.concepts.length > CONCEPT_CAP) {
+    const degree = new Map<string, number>()
+    for (const contribution of payload.contributions) {
+      for (const id of contribution.concepts) degree.set(id, (degree.get(id) ?? 0) + 1)
+    }
+    const byDegreeAsc = [...payload.concepts].sort((a, b) => (degree.get(a.id) ?? 0) - (degree.get(b.id) ?? 0))
+    const overBy = payload.concepts.length - CONCEPT_CAP
+    const toCandidate = (c: (typeof payload.concepts)[number]): ConsolidationCandidate => ({
+      label: c.label,
+      gloss: c.gloss,
+      degree: degree.get(c.id) ?? 0
+    })
+    const candidates = byDegreeAsc.slice(0, overBy).map(toCandidate)
+    const central = byDegreeAsc.slice(overBy).map(toCandidate)
+
+    const foldedGroups = await proposeConsolidations(llm, candidates, central, topicId)
+    if (foldedGroups.length > 0) {
+      /* The whole current payload becomes just another extraction to merge, the same trick
+         `prior` already plays above — one code path folds concepts the same way it merges
+         chunks of a transcript or sessions of a series. `aliases` is left empty: alias
+         resolution has already run for this refinement, and this second pass exists only to
+         apply the folds just proposed. */
+      const folded = assembleGraph([payloadToExtraction(payload)], { sourceTexts: texts, knownIdentities }, { foldedGroups })
+      payload = folded.payload
+      report = {
+        ...report,
+        droppedConcepts: report.droppedConcepts + folded.report.droppedConcepts,
+        droppedContributions: report.droppedContributions + folded.report.droppedContributions,
+        droppedStatements: report.droppedStatements + folded.report.droppedStatements,
+        droppedGlosses: report.droppedGlosses + folded.report.droppedGlosses,
+        droppedOriginPrompts: report.droppedOriginPrompts + folded.report.droppedOriginPrompts,
+        foldedConcepts: report.foldedConcepts + folded.report.foldedConcepts
+      }
+      logger.info(
+        `conceptGraph: topic ${topicId} folded ${folded.report.foldedConcepts} concept(s) into related ones, ` +
+          `now ${payload.concepts.length}/${CONCEPT_CAP}`
+      )
+    }
+  }
+
+  const foldNote =
+    report.foldedConcepts > 0
+      ? ` — folded ${report.foldedConcepts} concept${report.foldedConcepts === 1 ? '' : 's'} into related ones to stay ` +
+        `readable; see the previous version for each on its own`
+      : ''
+  const note =
+    (priorPayload
+      ? `Refined with one further conversation; ${conversations.length} in the series`
+      : `Built from ${conversations.length} conversation${conversations.length === 1 ? '' : 's'}`) + foldNote
 
   if (existing) {
     const version = await artifactService.appendVersion(existing._id!.toString(), { payload, note }, caller)

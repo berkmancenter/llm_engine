@@ -20,6 +20,14 @@ import { ExtractionResult } from './assemble.js'
    most likely to touch — so the list is capped by degree rather than truncated by age. */
 export const KNOWN_CONCEPT_LIMIT = 60
 
+/* How large the series graph itself is allowed to grow before consolidate.ts folds its
+   least-connected concepts into more central ones. Set well above KNOWN_CONCEPT_LIMIT on
+   purpose: a graph a reader looks at should generally show more than the vocabulary window
+   offered to the extractor, not less — the extractor's window is about prompt budget, this is
+   about what a person can still take in on one canvas. There's no usage data yet to calibrate
+   against; revisit once a real long-running series actually approaches it. */
+export const CONCEPT_CAP = 150
+
 /*
  * The concepts a series has already established, most connected first.
  *
@@ -56,7 +64,12 @@ export const payloadToExtraction = (payload: ConceptGraphPayload): ExtractionRes
   const promptById = new Map(payload.originPrompts.map((p) => [p.id, p.text]))
 
   return {
-    concepts: payload.concepts.map((c) => ({ label: c.label, provenance: c.provenance })),
+    concepts: payload.concepts.map((c) => ({
+      label: c.label,
+      gloss: c.gloss,
+      foldedFrom: c.foldedFrom,
+      provenance: c.provenance
+    })),
     contributions: payload.contributions
       .map((k) => ({
         id: k.id,
@@ -158,4 +171,4 @@ export const resolveConceptAliases = async (llm, labels: string[], topicId?: str
   }
 }
 
-export default { payloadToExtraction, resolveConceptAliases, knownConceptLabels, KNOWN_CONCEPT_LIMIT }
+export default { payloadToExtraction, resolveConceptAliases, knownConceptLabels, KNOWN_CONCEPT_LIMIT, CONCEPT_CAP }
