@@ -585,7 +585,7 @@
 <p>✅ <strong>Support for multiple LLM models</strong> including OpenAI and open-source models using <a href="https://ollama.com/search">Ollama</a>, <a href="http://runpod.io">Runpod</a>, and <a href="http://modal.com">Modal</a>. (More coming soon!)</p>
 <p>✅ <strong>Modify agent prompts, models, and RAG materials</strong> via API to create custom interventions</p>
 <p>✅ <strong>Support for plain text and structured data messages/payloads</strong></p>
-<p>✅ Use with <strong>multiple simultaneous front-end clients</strong> such as Nextspace and Zoom <strong>in a single conversation</strong></p>
+<p>✅ Use with <strong>multiple simultaneous front-end clients</strong> such as NextSpace and Zoom <strong>in a single conversation</strong></p>
 <p>✅ <strong>Access and save real-time and full event transcripts</strong>, from both text and audio interactions</p>
 <p>✅ Supports organizing <strong>events</strong> into <strong>topics</strong>. Events can have <strong>channels</strong> to segment a conversation.</p>
 <p>✅ <strong>JWT authentication</strong> and support for <strong>pseudonymous user interaction</strong>, <strong>user persistence</strong> and optional <strong>login</strong>.</p>
@@ -600,7 +600,7 @@
 <li>Conversations are organized into "Topics"</li>
 <li>Conversations have many sequential Messages.</li>
 <li>Messages can contain structured data and be threaded through a parent/child relationship between Messages.</li>
-<li>Messages can be received or sent through different Adapters connected to various transports (e.g. Websockets or HTTP API) and platforms (e.g. Zoom, Slack or Nextspace).</li>
+<li>Messages can be received or sent through different Adapters connected to various transports (e.g. Websockets or HTTP API) and platforms (e.g. Zoom, Slack or NextSpace).</li>
 <li>Messages can be sent or received through one or more Channels to segregate different audiences (e.g. a moderator vs. participants) or content (e.g. group messages, DMs or audio transcripts)</li>
 <li>Agents can
    a. Intercept each message or be scheduled to run periodically
@@ -624,7 +624,7 @@
     Message["Message*"]
     Thread["Thread"]
     Zoom["Zoom (Audio/Text)"]
-    Nextspace["Nextspace"]
+    NextSpace["NextSpace"]
     Prompts["Prompts"]
     MCPTools["MCP Tools"]
     MCPResources["MCP Resources"]
@@ -653,7 +653,7 @@
 
     Adapter &lt;--&gt; Websocket
     Adapter &lt;--&gt; API
-    Adapter &lt;--&gt; Nextspace
+    Adapter &lt;--&gt; NextSpace
     Adapter &lt;--&gt; Slack
     Adapter &lt;--&gt; Zoom
 
@@ -700,8 +700,8 @@
 Describes how new messages are processed and routed through different agents for action.</p>
 <p><strong><a href="diagrams/agent_respond_message/">Agent Evaluate and Respond</a></strong>
 Describes how agents evaluate and choose to respond to or reject received messages.</p>
-<p><strong><a href="diagrams/receive_message_from_nextspace_or_nymspace/">Agents Receive a Message from Nextspace or Nymspace</a></strong>
-A more detailed description of what happens when a message is received from a websocket-based web app like Nextspace or Nymspace.</p>
+<p><strong><a href="diagrams/receive_message_from_nextspace_or_nymspace/">Agents Receive a Message from NextSpace or Nymspace</a></strong>
+A more detailed description of what happens when a message is received from a websocket-based web app like NextSpace or Nymspace.</p>
 <p><strong><a href="diagrams/receive_message_from_zoom_or_slack/">Agents Receive a Message from Zoom or Slack</a></strong>
 A more detailed description of what happens when a message is received from an external app like Zoom or Slack.</p>
 <p><strong><a href="diagrams/new_adapter_user_creation/">New Users via an Adapter</a></strong>
@@ -725,7 +725,7 @@ Describes how new system users are created as needed on demand when they encount
 <h3 id="testing-development-agents">Testing development agents</h3>
 <p>To run tests of the built-in development agent types, run <code>yarn test:agents:development</code>.</p>
 <h2 id="production-vs-development-platforms">Production vs. Development Platforms</h2>
-<p>A few platforms types have been carefully tested and vetted for "production" use (e.g. Nextspace and Zoom). There are other experimental <a href="development_platforms/">development platforms</a> under development. New platforms can be added by create a new <a href="adapters/">adapter</a>. Be careful with development platforms! They should only be used in experimental or development contexts.</p>
+<p>A few platforms types have been carefully tested and vetted for "production" use (e.g. NextSpace and Zoom). There are other experimental <a href="development_platforms/">development platforms</a> under development. New platforms can be added by create a new <a href="adapters/">adapter</a>. Be careful with development platforms! They should only be used in experimental or development contexts.</p>
 <h3 id="enabling-development-platforms">Enabling development platforms</h3>
 <p>In your <code>.env</code> file set <code>ENABLE_DEVELOPMENT_ADAPTERS=true</code>.</p>
 <h2 id="openapi-specs-and-types">OpenAPI specs and types</h2>

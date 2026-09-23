@@ -483,12 +483,12 @@
   <a href="#event-setup-bot-slack-nextspace-handoff" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Event Setup bot (Slack → Nextspace handoff)
+        Event Setup bot (Slack → NextSpace handoff)
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Event Setup bot (Slack → Nextspace handoff)">
+    <nav class="md-nav" aria-label="Event Setup bot (Slack → NextSpace handoff)">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -715,16 +715,16 @@
 <ol>
 <li>Post a message to the Slack Channel. Any agents configured on the <code>Conversation</code> should receive and send messages on their typical channels.</li>
 </ol>
-<h3 id="event-setup-bot-slack-nextspace-handoff">Event Setup bot (Slack → Nextspace handoff)</h3>
-<p>The <code>eventSetup</code> agent lets an organizer kick off a new Nextspace event from Slack. When the organizer mentions the bot or posts a setup-intent message (e.g. "create an event") in a designated Slack channel, the bot replies with a link to the Nextspace event-creation form. The link carries a signed handoff token (JWT) so the form knows which Slack user, team, channel, and thread the request came from. The form lives in Nextspace; this server only mints and verifies the token and runs the planner endpoint the form calls.</p>
+<h3 id="event-setup-bot-slack-nextspace-handoff">Event Setup bot (Slack → NextSpace handoff)</h3>
+<p>The <code>eventSetup</code> agent lets an organizer kick off a new NextSpace event from Slack. When the organizer mentions the bot or posts a setup-intent message (e.g. "create an event") in a designated Slack channel, the bot replies with a link to the NextSpace event-creation form. The link carries a signed handoff token (JWT) so the form knows which Slack user, team, channel, and thread the request came from. The form lives in NextSpace; this server only mints and verifies the token and runs the planner endpoint the form calls.</p>
 <p>A note on channel naming, because there are two different things both called "channel":</p>
 <ul>
 <li>The <strong>Slack channel</strong> is the actual channel in your Slack workspace where organizers post setup requests. You can name your channel anything.</li>
-<li>The <strong>Nextspace channel role</strong> is an internal label this codebase uses to describe what a channel is for. The <code>eventSetup</code> agent listens on a role literally named <code>setup</code>. Other agents listen on roles like <code>transcript</code> or <code>chat</code>. Operators do not need to rename these roles. They are part of the agent's contract, the same way every other agent in the codebase declares the role it serves.</li>
+<li>The <strong>NextSpace channel role</strong> is an internal label this codebase uses to describe what a channel is for. The <code>eventSetup</code> agent listens on a role literally named <code>setup</code>. Other agents listen on roles like <code>transcript</code> or <code>chat</code>. Operators do not need to rename these roles. They are part of the agent's contract, the same way every other agent in the codebase declares the role it serves.</li>
 </ul>
 <p>The Slack adapter bridges the two. In the Conversation you create below, <code>adapters[0].config.channel</code> says which Slack channel ID you want, and <code>adapters[0].chatChannels</code> maps that Slack channel into the <code>setup</code> role the agent listens on. So renaming your Slack channel never requires a code change, only an update to the Conversation config.</p>
 <h4 id="environment-variables">Environment variables</h4>
-<p>These are all that's needed for the event setup bot. No separate URL templates, calendar deeplink, or display timezone settings are needed. Those concerns moved to the Nextspace frontend.</p>
+<p>These are all that's needed for the event setup bot. No separate URL templates, calendar deeplink, or display timezone settings are needed. Those concerns moved to the NextSpace frontend.</p>
 <table>
 <thead>
 <tr>
@@ -737,7 +737,7 @@
 <tr>
 <td><code>APP_HOST</code></td>
 <td>yes</td>
-<td>Public URL of the Nextspace frontend. The bot builds the handoff link as <code>${APP_HOST}/events/new#token=...</code>. The token is placed in the URL fragment (after <code>#</code>) so browsers never send it to the Nextspace server, keeping it out of server access logs and Referer headers.</td>
+<td>Public URL of the NextSpace frontend. The bot builds the handoff link as <code>${APP_HOST}/events/new#token=...</code>. The token is placed in the URL fragment (after <code>#</code>) so browsers never send it to the NextSpace server, keeping it out of server access logs and Referer headers.</td>
 </tr>
 <tr>
 <td><code>JWT_SECRET</code></td>
@@ -793,7 +793,7 @@
 <span class="w">  </span><span class="p">]</span>
 <span class="p">}</span>
 </code></pre></div>
-<p><code>channels[0].name</code> and <code>chatChannels[0].name</code> both stay as <code>"setup"</code>. That value is the Nextspace channel role the agent listens on, not a Slack channel name. The Slack-side name is whatever you picked in step 1, and you reference it by ID in <code>adapters[0].config.channel</code>.</p>
+<p><code>channels[0].name</code> and <code>chatChannels[0].name</code> both stay as <code>"setup"</code>. That value is the NextSpace channel role the agent listens on, not a Slack channel name. The Slack-side name is whatever you picked in step 1, and you reference it by ID in <code>adapters[0].config.channel</code>.</p>
 <ol>
 <li><strong>Post a setup request</strong> in the Slack channel from step 1. Either mention the bot (e.g. <code>@&lt;BOT_DISPLAY_NAME&gt; create an event</code>) or use a setup-intent phrase like <code>create an event next Thursday</code>. The bot replies with the handoff link.</li>
 </ol>
@@ -802,7 +802,7 @@
 <p>That single Slack app can host many Conversations across many Slack channels and workspaces. What it cannot do is appear as more than one bot identity in Slack. Every outbound post from this server uses the installed app's bot user, with the display name and avatar configured at install time on api.slack.com. The adapter does not override <code>username</code> or <code>icon_url</code> per message (see <code>src/adapters/slack/index.ts</code>).</p>
 <p>If you need agents to appear as visually distinct Slack users (e.g. Berkie posting as "Berkie" and Mason posting as "Mason"), you need a separate Slack app and a separate LLM Engine instance, each with its own signing secret and installed identity.</p>
 <h5 id="sharing-a-slack-channel-between-multiple-agents">Sharing a Slack channel between multiple agents</h5>
-<p>A single Conversation can host more than one agent on the same channel binding. To put the event setup bot and another Nextspace agent (e.g. a moderator persona) into the same Slack channel, add both agent type names to the <code>agentTypes</code> array on the Conversation. They both attach to the <code>setup</code>-role channel binding declared in <code>chatChannels</code>.</p>
+<p>A single Conversation can host more than one agent on the same channel binding. To put the event setup bot and another NextSpace agent (e.g. a moderator persona) into the same Slack channel, add both agent type names to the <code>agentTypes</code> array on the Conversation. They both attach to the <code>setup</code>-role channel binding declared in <code>chatChannels</code>.</p>
 <p>Each agent evaluates incoming messages independently against its own triggers, so the two do not interfere with each other. If only one agent's triggers match a given message (e.g. only the event-setup intent pattern fires on <code>create an event next Thursday</code>), only that agent responds. If both match, each gets a chance to respond.</p>
 <p>Because of the one-app-per-server constraint above, both agents appear in Slack under the same bot identity. The <code>agentConfig.botName</code> value on each agent definition is used for in-prompt addressing and trace metadata. It does not change what Slack displays.</p>
 <h5 id="how-users-address-individual-agents-in-a-shared-channel">How users address individual agents in a shared channel</h5>
@@ -855,11 +855,11 @@
 <h4 id="deploying-to-production">Deploying to production</h4>
 <p>When merging this change to production, do these in order:</p>
 <ol>
-<li><strong>Set <code>APP_HOST</code></strong> to the production Nextspace URL (e.g. <code>https://nextspace.example.org</code>). Without this the bot will post <code>localhost</code> links.</li>
+<li><strong>Set <code>APP_HOST</code></strong> to the production NextSpace URL (e.g. <code>https://nextspace.example.org</code>). Without this the bot will post <code>localhost</code> links.</li>
 <li><strong>Confirm <code>JWT_SECRET</code> is set</strong> in the production environment and is not the placeholder from <code>.env.example</code>. The handoff token is signed with this secret; a weak or default secret means anyone can forge a handoff.</li>
 <li><strong>(Optional) Set <code>HANDOFF_TOKEN_EXPIRATION_MINUTES</code></strong> if the default 60 minutes doesn't fit your workflow.</li>
 <li><strong>Restart the llm_engine service</strong> so the new config is loaded.</li>
-<li><strong>Smoke test</strong> by posting a setup request in the Slack channel the production Conversation is wired to, and confirming the bot replies with a link pointing at the production <code>APP_HOST</code>. Clicking the link should land on the Nextspace event-creation form. That part requires the matching Nextspace deploy with the frontend handler; track that separately.</li>
+<li><strong>Smoke test</strong> by posting a setup request in the Slack channel the production Conversation is wired to, and confirming the bot replies with a link pointing at the production <code>APP_HOST</code>. Clicking the link should land on the NextSpace event-creation form. That part requires the matching NextSpace deploy with the frontend handler; track that separately.</li>
 <li><strong>Verify token rejection paths</strong> by hand-crafting a request to <code>POST /v1/event-setup/plan</code> without a token and with a tampered token. Both should return 401.</li>
 </ol>
 <h4 id="local-development">Local development</h4>
