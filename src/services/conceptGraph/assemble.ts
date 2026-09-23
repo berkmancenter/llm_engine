@@ -52,6 +52,11 @@ export interface ExtractionResult {
    token a model corrupts, while "m12" survives. */
 export type SourceRefMap = Map<string, string>
 
+/* The [p#] counterpart, mapping a poll tag back to the poll it came from. Kept as its own
+   map rather than folded into SourceRefMap because the two resolve to different provenance
+   fields (messageId vs pollId) — see provenanceFor below. */
+export type PollRefMap = Map<string, string>
+
 export interface AssemblyReport {
   droppedConcepts: number
   droppedContributions: number
@@ -128,6 +133,7 @@ const carriedId = (id: string | undefined, taken: Set<string>) => {
 export interface AssemblyOptions {
   conversationId?: string
   sourceRefs?: SourceRefMap
+  pollRefs?: PollRefMap
   aliases?: string[][]
 }
 
@@ -155,7 +161,7 @@ export const aliasedKey = (label: string, aliases: string[][] = []): string => {
 export const assembleGraph = (
   results: ExtractionResult[],
   safety: StatementCheckInput,
-  { conversationId, sourceRefs = new Map(), aliases = [] }: AssemblyOptions = {}
+  { conversationId, sourceRefs = new Map(), pollRefs = new Map(), aliases = [] }: AssemblyOptions = {}
 ): { payload: ConceptGraphPayload; report: AssemblyReport } => {
   const report: AssemblyReport = {
     droppedConcepts: 0,
@@ -214,9 +220,13 @@ export const assembleGraph = (
        happened to trigger the latest refinement, quietly rewriting where the idea came
        from — the opposite of what provenance is for. */
     if (carried) return { provenance: carried }
-    const messageId = (refs ?? []).map((ref) => sourceRefs.get(ref.replace(/[[\]]/g, '').trim())).find(Boolean)
-    if (!conversationId && !messageId) return {}
-    return { provenance: { ...(conversationId && { conversationId }), ...(messageId && { messageId }) } }
+    const cleaned = (refs ?? []).map((ref) => ref.replace(/[[\]]/g, '').trim())
+    const messageId = cleaned.map((ref) => sourceRefs.get(ref)).find(Boolean)
+    const pollId = cleaned.map((ref) => pollRefs.get(ref)).find(Boolean)
+    if (!conversationId && !messageId && !pollId) return {}
+    return {
+      provenance: { ...(conversationId && { conversationId }), ...(messageId && { messageId }), ...(pollId && { pollId }) }
+    }
   }
 
   /* Origin prompts first: contributions reference them, and one may be dropped for naming
@@ -320,9 +330,12 @@ export const assembleGraph = (
   const keptConcepts = concepts.filter((c) => connected.has(c.id))
   report.droppedConcepts += concepts.length - keptConcepts.length
 
-  /* Likewise a prompt nothing points at. */
+  /* Likewise a prompt nothing points at — except a poll's, which is exempt: it names a real
+     thing the room did whether or not the discussion happened to attach a contribution to
+     it, unlike an organically-posed question, which only means anything once something is
+     said to have come out of it. */
   const referencedPrompts = new Set([...keptConcepts, ...contributions].map((c) => c.origin).filter(Boolean))
-  const keptPrompts = originPrompts.filter((p) => referencedPrompts.has(p.id))
+  const keptPrompts = originPrompts.filter((p) => referencedPrompts.has(p.id) || !!p.provenance?.pollId)
   report.droppedOriginPrompts += originPrompts.length - keptPrompts.length
 
   return {

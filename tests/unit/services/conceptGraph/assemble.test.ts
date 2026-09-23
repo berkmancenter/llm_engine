@@ -161,6 +161,31 @@ describe('assembly', () => {
 
     expect(payload.concepts.map((c) => c.label)).not.toContain('Orphan')
   })
+
+  it('keeps a poll-derived origin prompt even when nothing references it yet', () => {
+    /* Unlike an organic origin prompt, which only means anything once a contribution says
+       it came out of it, a poll names a real thing the room did — it survives on its own. */
+    const pollRefs = new Map([['p1', 'poll-1']])
+
+    const { payload, report } = assembleGraph(
+      [result({ originPrompts: [{ text: 'Does the trust registry model scale?', sourceRefs: ['p1'] }] })],
+      safety,
+      { pollRefs }
+    )
+
+    expect(payload.originPrompts).toHaveLength(1)
+    expect(report.droppedOriginPrompts).toBe(0)
+  })
+
+  it('still drops an organic origin prompt nothing references', () => {
+    const { payload, report } = assembleGraph(
+      [result({ originPrompts: [{ text: 'What has to be trustworthy here?' }] })],
+      safety
+    )
+
+    expect(payload.originPrompts).toHaveLength(0)
+    expect(report.droppedOriginPrompts).toBe(1)
+  })
 })
 
 describe('assembly enforces the attribution rule', () => {
@@ -223,6 +248,20 @@ describe('assembly enforces the attribution rule', () => {
     expect(report.droppedOriginPrompts).toBeGreaterThan(0)
   })
 
+  it('drops a poll-derived origin prompt naming someone, the same as any other', () => {
+    /* A poll built with allowNewChoices lets a participant type a novel choice — the one
+       free-text risk in the whole poll data model. Nothing poll-specific has to catch it:
+       a poll question flows in as ordinary origin-prompt text, so the existing screen
+       already applies with no special-casing. */
+    const { payload, report } = assembleGraph(
+      [result({ originPrompts: [{ text: 'Should Rosa Klein chair the working group?', sourceRefs: ['p1'] }] })],
+      safety
+    )
+
+    expect(payload.originPrompts).toHaveLength(0)
+    expect(report.droppedOriginPrompts).toBeGreaterThan(0)
+  })
+
   it('keeps a clean origin prompt and links it', () => {
     const { payload } = assembleGraph(
       [
@@ -269,6 +308,21 @@ describe('provenance', () => {
     )
 
     expect(payload.contributions[0].provenance).toEqual({ conversationId: 'conv1' })
+  })
+
+  it('resolves a cited poll tag to pollId rather than messageId', () => {
+    const pollRefs = new Map([['p1', '6750a665664156091cdf5a99']])
+
+    const { payload } = assembleGraph(
+      [result({ originPrompts: [{ text: 'Does the trust registry model scale?', sourceRefs: ['p1'] }] })],
+      safety,
+      { conversationId: 'conv1', pollRefs }
+    )
+
+    expect(payload.originPrompts[0].provenance).toEqual({
+      conversationId: 'conv1',
+      pollId: '6750a665664156091cdf5a99'
+    })
   })
 
   it('records no pseudonym, since the graph is unattributed by construction', () => {
