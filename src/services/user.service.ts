@@ -65,7 +65,15 @@ const newToken = () => {
 // Trim/collapse-whitespace/lower-case a real name for comparison and storage in
 // normalizedPseudonym, so "Jane Doe" and "jane  doe" are recognized as the same
 // person instead of coexisting as two roster rows for one conversation.
-const normalizeRealName = (name: string): string => name.trim().replace(/\s+/g, ' ').toLowerCase()
+// Zero-width characters are dropped and compatibility forms folded first: both render
+// as a name someone already holds while comparing as a different one.
+const normalizeRealName = (name: string): string =>
+  name
+    .normalize('NFKC')
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
 
 const DUPLICATE_KEY_ERROR_CODE = 11000
 
@@ -95,6 +103,61 @@ const recordRealNameAudit = async (userId, conversationId, action): Promise<void
   } catch (err) {
     logger.warn(`Failed to record real-name audit entry (action: ${action}): ${err.message}`)
   }
+}
+
+/**
+ * Claim `name` as the caller's real name in one conversation.
+ *
+ * A guest's entry is created during registration from their guest list row (see createUser).
+ * An admin has no such row, so this is how they get one. The same reservation and audit
+ * machinery runs either way, which keeps an admin inside the per-conversation uniqueness
+ * guarantee rather than beside it.
+ *
+ * One real name usually covers every room, so a matching entry is extended instead of
+ * duplicated. A room where that name is already taken gets an entry of its own. A
+ * conversation may never appear in two entries: resolveDisplayName takes the first match, so
+ * a second one would leave the displayed name depending on entry order.
+ */
+const registerRealName = async (user, conversationId: string, name: string) => {
+  const conversation = await Conversation.findById(conversationId).select('useRealNames').lean()
+  if (!conversation) throw new ApiError(httpStatus.NOT_FOUND, `Conversation with ID ${conversationId} not found`)
+  if (!conversation.useRealNames) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'This conversation does not use real names.')
+  }
+  // An id is valid in either case, but conversations holds plain strings and resolveDisplayName
+  // compares against the lowercase form, so take the id back from the conversation itself.
+  const roomId = conversation._id.toString()
+  if (user.pseudonyms.some((p) => p.isRealName && p.conversations.includes(roomId))) {
+    throw new ApiError(httpStatus.CONFLICT, 'A real name is already set for this conversation.')
+  }
+
+  const reservation = await reserveRealName(name, roomId)
+  if (!reservation) {
+    await recordRealNameAudit(user._id, roomId, 'uniqueness_rejected')
+    throw new ApiError(httpStatus.CONFLICT, 'That name is already registered for this conversation.')
+  }
+
+  const normalized = normalizeRealName(name)
+  const existing = user.pseudonyms.find((p) => p.isRealName && p.normalizedPseudonym === normalized)
+  if (existing) {
+    existing.conversations.push(roomId)
+  } else {
+    user.pseudonyms.push({
+      token: newToken(),
+      pseudonym: name,
+      normalizedPseudonym: normalized,
+      // Never active - a real name can never be the pseudonym stamped on a message.
+      active: false,
+      isRealName: true,
+      conversations: [roomId]
+    })
+  }
+  user.markModified('pseudonyms')
+  await user.save()
+
+  await RealNameRegistry.updateOne({ _id: reservation._id }, { userId: user._id })
+  await recordRealNameAudit(user._id, roomId, 'created')
+  return user.pseudonyms
 }
 
 // Looks up the membership record for this email + conversation. Throws 403 if no record exists.
@@ -563,15 +626,21 @@ const ensureSystemUsers = async (): Promise<void> => {
  * `user` may also be an Agent — agents have their own pseudonym (bot name) but are
  * never registered room members, so the real-name lookup only applies to human
  * posters. `agentType` is Agent-only (required on Agent documents, absent on User).
+ *
+ * An admin can enter any conversation without registering (see assertMembership), so they
+ * reach this with no entry until they claim a name through registerRealName. Telling them to
+ * do that is more use than calling them unregistered, which is true of a member but not of
+ * someone let in by role.
  */
 export const resolveDisplayName = (user, conversation) => {
   if (!user.agentType && conversation.useRealNames) {
     const conversationId = conversation._id.toString()
-    const realName = user.pseudonyms.find((p) => p.isRealName && p.conversations.includes(conversationId))
-    if (!realName) {
-      throw new ApiError(httpStatus.FORBIDDEN, 'You are not registered for this conversation')
+    const registeredName = user.pseudonyms.find((p) => p.isRealName && p.conversations.includes(conversationId))
+    if (registeredName) return registeredName
+    if (user.role === 'admin') {
+      throw new ApiError(httpStatus.BAD_REQUEST, 'Set your real name for this conversation before posting.')
     }
-    return realName
+    throw new ApiError(httpStatus.FORBIDDEN, 'You are not registered for this conversation')
   }
   const activeName = user.pseudonyms.find((p) => p.active && !p.isRealName)
   if (!activeName) {
@@ -600,6 +669,7 @@ const userService = {
   hashPassword,
   getPreferences,
   updatePreferences,
-  ensureSystemUsers
+  ensureSystemUsers,
+  registerRealName
 }
 export default userService

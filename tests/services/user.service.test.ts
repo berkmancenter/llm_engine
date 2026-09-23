@@ -802,6 +802,160 @@ describe('User service methods', () => {
       })
     })
 
+    describe('admin real names', () => {
+      const makeAdmin = async () => {
+        const admin = await createNamedUser('Bold Aardvark')
+        admin.role = 'admin'
+        await admin.save()
+        return admin
+      }
+
+      const entriesFor = (user) => user.pseudonyms.filter((p) => p.isRealName)
+
+      test('claims a real name scoped to the conversation it was set for', async () => {
+        const admin = await makeAdmin()
+        const room = await createRoom(admin)
+
+        await userService.registerRealName(admin, room._id.toString(), 'Alex Admin')
+
+        const saved = await User.findById(admin._id)
+        const [entry] = entriesFor(saved!)
+        expect(entry.pseudonym).toBe('Alex Admin')
+        expect(entry.isRealName).toBe(true)
+        expect(entry.active).toBe(false)
+        expect(entry.conversations).toEqual([room._id.toString()])
+      })
+
+      // One real name, many rooms: the second room extends the entry the admin already has
+      // rather than duplicating the name across entries.
+      test('adds a second room to the entry the admin already holds', async () => {
+        const admin = await makeAdmin()
+        const roomOne = await createRoom(admin)
+        const roomTwo = await createRoom(admin)
+
+        await userService.registerRealName(admin, roomOne._id.toString(), 'Alex Admin')
+        await userService.registerRealName(admin, roomTwo._id.toString(), 'Alex Admin')
+
+        const saved = await User.findById(admin._id)
+        expect(entriesFor(saved!)).toHaveLength(1)
+        expect(entriesFor(saved!)[0].conversations).toEqual([roomOne._id.toString(), roomTwo._id.toString()])
+      })
+
+      test('refuses a name another member already holds in that room', async () => {
+        const admin = await makeAdmin()
+        const room = await createRoom(admin)
+        const member = await createNamedUser('Clever Cormorant')
+        await userService.registerRealName(member, room._id.toString(), 'Alex Admin')
+
+        await expect(userService.registerRealName(admin, room._id.toString(), 'Alex Admin')).rejects.toMatchObject({
+          statusCode: httpStatus.CONFLICT
+        })
+      })
+
+      // A zero-width character renders as nothing, so this is the same name on screen as the
+      // one already taken. It has to compare as the same name too.
+      test('refuses a taken name padded with an invisible character', async () => {
+        const admin = await makeAdmin()
+        const room = await createRoom(admin)
+        const member = await createNamedUser('Clever Cormorant')
+        await userService.registerRealName(member, room._id.toString(), 'Alex Admin')
+
+        await expect(userService.registerRealName(admin, room._id.toString(), 'Alex \u200bAdmin')).rejects.toMatchObject({
+          statusCode: httpStatus.CONFLICT
+        })
+      })
+
+      // The room-specific fallback: the admin's usual name is taken here, so this room gets
+      // an entry of its own rather than the shared one.
+      test('keeps a room-specific name in its own entry, leaving the shared one alone', async () => {
+        const admin = await makeAdmin()
+        const roomOne = await createRoom(admin)
+        const roomTwo = await createRoom(admin)
+        await userService.registerRealName(admin, roomOne._id.toString(), 'Alex Admin')
+
+        await userService.registerRealName(admin, roomTwo._id.toString(), 'A. Admin')
+
+        const saved = await User.findById(admin._id)
+        const entries = entriesFor(saved!)
+        expect(entries).toHaveLength(2)
+        expect(entries.find((e) => e.pseudonym === 'Alex Admin')!.conversations).toEqual([roomOne._id.toString()])
+        expect(entries.find((e) => e.pseudonym === 'A. Admin')!.conversations).toEqual([roomTwo._id.toString()])
+      })
+
+      // resolveDisplayName takes the first matching entry, so a room listed twice would make
+      // the displayed name depend on entry order.
+      test('never lists one conversation under two entries', async () => {
+        const admin = await makeAdmin()
+        const room = await createRoom(admin)
+        await userService.registerRealName(admin, room._id.toString(), 'Alex Admin')
+
+        await expect(userService.registerRealName(admin, room._id.toString(), 'A. Admin')).rejects.toMatchObject({
+          statusCode: httpStatus.CONFLICT
+        })
+
+        const saved = await User.findById(admin._id)
+        const covering = entriesFor(saved!).filter((e) => e.conversations.includes(room._id.toString()))
+        expect(covering).toHaveLength(1)
+      })
+
+      // An ObjectId is valid in either case, but conversations holds plain strings and
+      // resolveDisplayName compares against the lowercase form, so an uppercase id would
+      // store an entry that never matches while still burning the name's reservation.
+      test('matches the room when the id arrives in uppercase', async () => {
+        const admin = await makeAdmin()
+        const room = await createRoom(admin)
+
+        await userService.registerRealName(admin, room._id.toString().toUpperCase(), 'Alex Admin')
+
+        const saved = await User.findById(admin._id)
+        expect(resolveDisplayName(saved!, room).pseudonym).toBe('Alex Admin')
+      })
+
+      test('refuses a conversation that does not use real names', async () => {
+        const admin = await makeAdmin()
+        const event = await createEvent(admin)
+
+        await expect(userService.registerRealName(admin, event._id.toString(), 'Alex Admin')).rejects.toMatchObject({
+          statusCode: httpStatus.BAD_REQUEST
+        })
+      })
+
+      test('tells an admin with no entry to set a name, rather than calling them unregistered', async () => {
+        const admin = await makeAdmin()
+        const room = await createRoom(admin)
+
+        expect(() => resolveDisplayName(admin, room)).toThrow(
+          expect.objectContaining({
+            statusCode: httpStatus.BAD_REQUEST,
+            message: expect.stringMatching(/set your real name/i)
+          })
+        )
+      })
+
+      test('keeps an admin on their pseudonym in a conversation without real names', async () => {
+        const admin = await makeAdmin()
+        const event = await createEvent(admin)
+
+        expect(resolveDisplayName(admin, event).pseudonym).toBe('Bold Aardvark')
+      })
+
+      test('posts under the claimed name, stamping the entry that carries it', async () => {
+        const admin = await makeAdmin()
+        const room = await createRoom(admin)
+        await userService.registerRealName(admin, room._id.toString(), 'Alex Admin')
+        const saved = await User.findById(admin._id)
+
+        const [message] = await messageService.newMessageHandler(
+          { conversation: room._id, body: 'hello room', bodyType: 'text', channels: [] },
+          saved
+        )
+
+        const stored = await Message.findById(message._id)
+        expect(stored!.pseudonym).toBe('Alex Admin')
+        expect(stored!.pseudonymId.toString()).toBe(entriesFor(saved!)[0]._id!.toString())
+      })
+    })
+
     // Regression test for the two-identities fix: one account, active in an event
     // under a pseudonym and registered for the room under a real name, must be able
     // to post in either without breaking the other, and the real-name entry must
