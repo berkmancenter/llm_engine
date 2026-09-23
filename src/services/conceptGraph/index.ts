@@ -356,7 +356,7 @@ export const generateConceptGraph = async (conversationId: string, caller: IBase
     .sort('createdAt')
     .exec()
 
-  const note = `Generated from ${chunks.length} chunk${chunks.length === 1 ? '' : 's'} of the event record`
+  const note = `Generated from ${texts.length} message${texts.length === 1 ? '' : 's'} in the event record`
 
   if (existing) {
     const version = await artifactService.appendVersion(existing._id!.toString(), { payload, note }, caller)
