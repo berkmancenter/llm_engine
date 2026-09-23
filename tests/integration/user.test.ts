@@ -16,7 +16,6 @@ import {
 import { insertMessages, messageOne } from '../fixtures/message.fixture.js'
 import userService from '../../src/services/user.service.js'
 import config from '../../src/config/config.js'
-import jestAgentConfig from '../../jest.agent.config.js'
 
 const createPseudo = () => ({
   _id: new mongoose.Types.ObjectId(),
