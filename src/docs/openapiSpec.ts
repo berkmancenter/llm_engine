@@ -14,7 +14,7 @@ import swaggerDefinition from './swaggerDef.js'
  * container: `{ paths: {}, components: {} }`, no error.
  *
  * That empty spec is worse than a crash, because it breaks consumers far from here. The
- * Nextspace frontend generates its TypeScript types from this endpoint at build time, and
+ * NextSpace frontend generates its TypeScript types from this endpoint at build time, and
  * `openapi-typescript` renders a schema-less spec as `components.schemas: never` — which
  * turns every generated model into `never` and surfaces as "Property 'body' does not exist
  * on type 'never'" deep inside unrelated components.

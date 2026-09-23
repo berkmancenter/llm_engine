@@ -96,7 +96,7 @@ const router = express.Router()
  *                     audioChannels:
  *                       - name: "transcript"
  *             nextspaceBackChannel:
- *               summary: Create Nextspace backChannel conversation
+ *               summary: Create NextSpace backChannel conversation
  *               description: Example showing how to create a scheduled conversation with multiple agents (with custom properties) and channels for backchannel insights
  *               value:
  *                 name: "Cutting Through the Hype Cloud: The Deeper Questions We Need to Ask About AI"
@@ -205,13 +205,13 @@ router.route('/').post(auth('createConversation'), conversationsController.creat
  *                   type: string
  *                 description: 'Analytics sources this event opts into, keyed by source name with that source''s ref (e.g. matomo set to dimension7)'
  *           examples:
- *             eventAssistantNextspace:
- *               summary: Nextspace-only live event assistant
+ *             eventAssistantNextSpace:
+ *               summary: NextSpace-only live event assistant
  *               description: >
- *                 Nextspace handles participant DMs and chat; Zoom provides audio transcription only
+ *                 NextSpace handles participant DMs and chat; Zoom provides audio transcription only
  *                 (no Zoom DM channels). The "nextspace" platform resolves to the default adapter
  *                 config (Zoom audio in, no outbound DMs). A zoomMeetingUrl is still required for
- *                 transcription even in Nextspace-only events.
+ *                 transcription even in NextSpace-only events.
  *               value:
  *                 type: "eventAssistant"
  *                 name: "The Future of AI in Healthcare"
@@ -233,13 +233,13 @@ router.route('/').post(auth('createConversation'), conversationsController.creat
  *                       recommendationsPerInterval: 2
  *                   - name: "seriesHistory"
  *                     enabled: false
- *             eventAssistantNextspaceZoom:
- *               summary: Nextspace + Zoom hybrid event assistant
+ *             eventAssistantNextSpaceZoom:
+ *               summary: NextSpace + Zoom hybrid event assistant
  *               description: >
- *                 Hybrid setup where both Nextspace and Zoom participants attend the same event.
+ *                 Hybrid setup where both NextSpace and Zoom participants attend the same event.
  *                 Use platforms ["nextspace", "zoom"] — the engine resolves to the "nextspace,zoom"
  *                 adapter config, which wires Zoom for audio transcription and chat mirroring but
- *                 omits Zoom DM channels so they don't conflict with Nextspace participant DMs.
+ *                 omits Zoom DM channels so they don't conflict with NextSpace participant DMs.
  *               value:
  *                 type: "eventAssistant"
  *                 name: "Leadership & Organizational Change"

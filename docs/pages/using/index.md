@@ -2,7 +2,7 @@
 
 ## Creating a Conversation
 
-Once you have LLM Engine up and running, the first thing to do is create a Conversation. Since LLM Engine is a headless service, you can interact with the `conversations` API through any REST client such as Postman or directly through the OpenAPI swagger endpoint on your locally running server, at http://localhost:3000/v1/docs. If you wish to use a Front End to create and configure a Conversation, we recommend our open source [Nextspace app](https://github.com/berkmancenter/nextspace).
+Once you have LLM Engine up and running, the first thing to do is create a Conversation. Since LLM Engine is a headless service, you can interact with the `conversations` API through any REST client such as Postman or directly through the OpenAPI swagger endpoint on your locally running server, at http://localhost:3000/v1/docs. If you wish to use a Front End to create and configure a Conversation, we recommend our open source [NextSpace app](https://github.com/berkmancenter/nextspace).
 
 The easiest way to create a conversation is to use the `/conversations/from-type` endpoint, which allows you to specify only the minimal properties needed to create a conversation that uses either our Event Assistant or Back Channel production agents.
 

@@ -40,7 +40,7 @@ LLM Engine comes with three tested agents that are ready for use in your events 
 
 While any front end client could use our APIs, we specifically support the following:
 
-✅ **[Nextspace](https://github.com/berkmancenter/nextspace)**
+✅ **[NextSpace](https://github.com/berkmancenter/nextspace)**
 
 ✅ **Zoom** (audio and chat, including DMs)
 

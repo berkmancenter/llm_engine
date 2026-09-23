@@ -573,12 +573,18 @@ describe('getEffectiveMinConfidence', () => {
   })
 
   test('clamps result at 0 when modifier would go below 0', () => {
-    const veryLowBase: ConversationGoal = { ...FIXTURE_GROUP_GOAL, triggers: { ...FIXTURE_GROUP_GOAL.triggers, minConfidence: 5 } }
+    const veryLowBase: ConversationGoal = {
+      ...FIXTURE_GROUP_GOAL,
+      triggers: { ...FIXTURE_GROUP_GOAL.triggers, minConfidence: 5 }
+    }
     expect(getEffectiveMinConfidence(veryLowBase, { provoke_participation: 100 })).toBe(0)
   })
 
   test('clamps result at 100 when modifier would exceed 100', () => {
-    const veryHighBase: ConversationGoal = { ...FIXTURE_GROUP_GOAL, triggers: { ...FIXTURE_GROUP_GOAL.triggers, minConfidence: 95 } }
+    const veryHighBase: ConversationGoal = {
+      ...FIXTURE_GROUP_GOAL,
+      triggers: { ...FIXTURE_GROUP_GOAL.triggers, minConfidence: 95 }
+    }
     expect(getEffectiveMinConfidence(veryHighBase, { provoke_participation: 0 })).toBe(100)
   })
 })
@@ -622,11 +628,10 @@ describe('filterAndSortGoalsByPriority', () => {
 
 describe('buildGoalInstructions with goalPriorities', () => {
   test('renders ranked preference list when priorities differ from default', () => {
-    const result = buildGoalInstructions(
-      [FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL],
-      'groupChat',
-      { provoke_participation: 80, bridge_topics: 30 }
-    )
+    const result = buildGoalInstructions([FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL], 'groupChat', {
+      provoke_participation: 80,
+      bridge_topics: 30
+    })
     expect(result).toContain('When multiple patterns apply simultaneously')
     expect(result).toContain('1. Provoke participation')
     expect(result).toContain('2. Bridge topics')
@@ -638,11 +643,10 @@ describe('buildGoalInstructions with goalPriorities', () => {
   })
 
   test('does not render ranked list when all priorities are default (50)', () => {
-    const result = buildGoalInstructions(
-      [FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL],
-      'groupChat',
-      { provoke_participation: 50, bridge_topics: 50 }
-    )
+    const result = buildGoalInstructions([FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL], 'groupChat', {
+      provoke_participation: 50,
+      bridge_topics: 50
+    })
     expect(result).not.toContain('When multiple patterns apply simultaneously')
   })
 
@@ -668,11 +672,10 @@ describe('buildGoalInstructions with goalPriorities', () => {
   })
 
   test('ranked list reflects priority order, not input order', () => {
-    const result = buildGoalInstructions(
-      [FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL],
-      'groupChat',
-      { provoke_participation: 30, bridge_topics: 70 }
-    )
+    const result = buildGoalInstructions([FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL], 'groupChat', {
+      provoke_participation: 30,
+      bridge_topics: 70
+    })
     const bridgePos = result.indexOf('Bridge topics')
     const provokePos = result.indexOf('Provoke participation')
     expect(bridgePos).toBeLessThan(provokePos)
@@ -840,7 +843,7 @@ describe('composeSystemPrompt', () => {
   test('injects platform section when platforms is provided', () => {
     const result = composeSystemPrompt('Base.', { platforms: ['nextspace'] })
     expect(result).toContain('## Platform Context')
-    expect(result).toContain('Nextspace')
+    expect(result).toContain('NextSpace')
   })
 
   test('does not inject platform section when platforms is empty', () => {
@@ -896,7 +899,7 @@ describe('buildPlatformContextSection', () => {
   test('returns section for a single known platform', () => {
     const result = buildPlatformContextSection(['nextspace'])
     expect(result).toContain('## Platform Context')
-    expect(result).toContain('Nextspace')
+    expect(result).toContain('NextSpace')
   })
 
   test('does not add multi-platform note for a single platform', () => {
@@ -906,13 +909,13 @@ describe('buildPlatformContextSection', () => {
 
   test('includes labelled descriptions for all known platforms', () => {
     const result = buildPlatformContextSection(['nextspace', 'zoom'])
-    expect(result).toContain('**Nextspace:**')
+    expect(result).toContain('**NextSpace:**')
     expect(result).toContain('**Zoom:**')
   })
 
   test('names all platforms explicitly in the header', () => {
     const result = buildPlatformContextSection(['nextspace', 'zoom'])
-    expect(result).toContain('Nextspace and Zoom')
+    expect(result).toContain('NextSpace and Zoom')
   })
 
   test('adds must-cover-all-platforms instruction in header when multiple platforms present', () => {
@@ -924,13 +927,13 @@ describe('buildPlatformContextSection', () => {
   test('multi-platform header appears before the first platform description', () => {
     const result = buildPlatformContextSection(['nextspace', 'zoom'])
     const headerIdx = result.indexOf('multiple platforms')
-    const nextspaceIdx = result.indexOf('**Nextspace:**')
+    const nextspaceIdx = result.indexOf('**NextSpace:**')
     expect(headerIdx).toBeLessThan(nextspaceIdx)
   })
 
   test('skips platforms with no description without failing', () => {
     const result = buildPlatformContextSection(['nextspace', 'unknown_platform_xyz'])
-    expect(result).toContain('Nextspace')
+    expect(result).toContain('NextSpace')
     expect(result).not.toContain('unknown_platform_xyz')
     // Only one description resolved — no multi-platform note
     expect(result).not.toContain('multiple platforms')

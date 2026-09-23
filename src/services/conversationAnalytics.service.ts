@@ -1147,13 +1147,13 @@ export function computeResourceSummary(conversation: {
 }
 
 /* Derives which platform(s) the event ran on from the conversation's platforms list, the
-   source of truth set at creation. 'both' when Nextspace and Zoom ran together. Defaults to
+   source of truth set at creation. 'both' when NextSpace and Zoom ran together. Defaults to
    'nextspace' when nothing is recorded, since that is where the recap is read. */
 export function deriveEventPlatform(conversation: { platforms?: string[] }): EventPlatform {
   const platforms = conversation.platforms ?? []
   const hasZoom = platforms.includes('zoom')
-  const hasNextspace = platforms.includes('nextspace')
-  if (hasZoom && hasNextspace) return 'both'
+  const hasNextSpace = platforms.includes('nextspace')
+  if (hasZoom && hasNextSpace) return 'both'
   if (hasZoom) return 'zoom'
   return 'nextspace'
 }

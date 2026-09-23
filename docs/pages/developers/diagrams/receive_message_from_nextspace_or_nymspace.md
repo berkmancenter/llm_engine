@@ -1,6 +1,6 @@
 ```mermaid
 graph TD
-    N[Nextspace] --> M[Message]
+    N[NextSpace] --> M[Message]
     NY[Nymspace] --> M
     M --> C[Websockets Message Handler]
     M --> D["Message API: (route and controller)"]
