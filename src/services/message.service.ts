@@ -117,6 +117,7 @@ const createMessage = async (messageBody, user, conversation) => {
   })
 
   message.parseOutput = messageBody.parseOutput
+  if (conversation.useRealNames) message.ownerIsAdmin = user.role === 'admin'
 
   // Only set visible if it's explicitly included in the request from agent, else use default true
   if ('visible' in messageBody) {
@@ -129,6 +130,22 @@ const createMessage = async (messageBody, user, conversation) => {
   message.count = await conversation.messageCount()
   message.pause = messageBody.pause
   return message
+}
+
+/**
+ * Clients append "(Admin)" to an admin's name when they render it, so a role change applies to
+ * old messages too. That needs each author's role as it is now, looked up here rather than stored
+ * on the message. Only real-name conversations get it: elsewhere it would reveal which anonymous
+ * poster is an admin.
+ */
+const withOwnerIsAdmin = async (messages, conversation) => {
+  if (!conversation?.useRealNames) return messages
+  const ownerIds = [...new Set(messages.map((m) => m.owner?.toString()).filter(Boolean))]
+  const admins = await User.find({ _id: { $in: ownerIds }, role: 'admin' })
+    .select('_id')
+    .lean()
+  const adminIds = new Set(admins.map((a) => a._id.toString()))
+  return messages.map((m) => ({ ...m, ownerIsAdmin: adminIds.has(m.owner?.toString()) }))
 }
 
 const conversationMessages = async (id, channels, user) => {
@@ -194,7 +211,8 @@ const conversationMessages = async (id, channels, user) => {
     return msgObj
   })
 
-  return annotatedMessages
+  const conversation = await Conversation.findById(id).select('useRealNames').lean()
+  return withOwnerIsAdmin(annotatedMessages, conversation)
 }
 
 /**
@@ -406,7 +424,13 @@ const getMessageReplies = async (messageId, user, messageQuery = {}) => {
     .sort({ createdAt: 1 })
     .exec()
 
-  return replies
+  if (!parentMessage) return replies
+  const conversation = await Conversation.findById(parentMessage.conversation).select('useRealNames').lean()
+  if (!conversation?.useRealNames) return replies
+  return withOwnerIsAdmin(
+    replies.map((reply) => reply.toJSON()),
+    conversation
+  )
 }
 
 // duplicate messages from one conversation to another

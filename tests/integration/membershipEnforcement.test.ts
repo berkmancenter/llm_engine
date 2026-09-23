@@ -10,6 +10,7 @@ import { insertUsers, userOne } from '../fixtures/user.fixture.js'
 import { userOneAccessToken } from '../fixtures/token.fixture.js'
 import { newPublicTopic, insertTopics } from '../fixtures/topic.fixture.js'
 import { Conversation, ConversationMembership, Message, User, Agent } from '../../src/models/index.js'
+import userService from '../../src/services/user.service.js'
 import { setAgentTypes } from '../../src/models/user.model/agent.model/index.js'
 import defaultAgentTypes from '../../src/agents/index.js'
 import { defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/getModelChat.js'
@@ -154,6 +155,201 @@ describe('membership enforcement — HTTP and socket entry points', () => {
         .set('Authorization', `Bearer ${userOneAccessToken}`)
         .send({ conversation: enforcedConv._id, body: 'hello from admin' })
         .expect(httpStatus.CREATED)
+    })
+  })
+
+  describe('real-name room: admin posting and the author admin flag', () => {
+    let room
+    let memberMessage
+    let broadcastSpy
+
+    const historyFor = async (conversationId, token = userOneAccessToken) => {
+      const res = await request(app)
+        .get(`/v1/messages/${conversationId}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(httpStatus.OK)
+      return res.body
+    }
+
+    const postAsAdmin = (body, extra = {}) =>
+      request(app)
+        .post('/v1/messages')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({ conversation: room._id, body, ...extra })
+
+    beforeEach(async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(websocketGateway.broadcastNewMessage as any).mockRestore()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      broadcastSpy = jest.spyOn(websocketGateway, 'broadcast').mockResolvedValue(undefined as any)
+
+      room = await Conversation.create({
+        name: 'Community Room',
+        owner: userOne._id,
+        topic: topic._id,
+        enforceMembership: true,
+        useRealNames: true,
+        enableDMs: [],
+        enableAgents: false
+      })
+      await ConversationMembership.create({
+        conversation: room._id,
+        email: member.user.email,
+        name: 'Jane Doe',
+        userAccount: member.user._id
+      })
+      member.user.pseudonyms.push({
+        token: faker.datatype.uuid(),
+        pseudonym: 'Jane Doe',
+        active: false,
+        isRealName: true,
+        conversations: [room._id.toString()]
+      })
+      await member.user.save()
+
+      // The admin claims a name for this room, which is what the frontend prompt does.
+      await userService.registerRealName(await User.findById(userOne._id), room._id.toString(), 'Alex Admin')
+
+      memberMessage = await Message.create({
+        body: 'hi from a member',
+        bodyType: 'text',
+        conversation: room._id,
+        owner: member.user._id,
+        pseudonym: 'Jane Doe',
+        pseudonymId: member.user.pseudonyms[1]._id,
+        visible: true
+      })
+    })
+
+    test('an admin posts under the name claimed for this room', async () => {
+      await postAsAdmin('hello from admin').expect(httpStatus.CREATED)
+
+      const stored = await Message.findOne({ conversation: room._id, owner: userOne._id })
+      expect(stored!.pseudonym).toBe('Alex Admin')
+    })
+
+    test('an admin with no real name for this room is told to set one', async () => {
+      const other = await Conversation.create({
+        name: 'Another Community Room',
+        owner: userOne._id,
+        topic: topic._id,
+        enforceMembership: true,
+        useRealNames: true,
+        enableDMs: [],
+        enableAgents: false
+      })
+
+      const res = await request(app)
+        .post('/v1/messages')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({ conversation: other._id, body: 'hello' })
+        .expect(httpStatus.BAD_REQUEST)
+      expect(res.body.message).toMatch(/set your real name/i)
+    })
+
+    describe('POST /v1/users/pseudonyms/real-name', () => {
+      const claim = (token, conversationId, realName) =>
+        request(app)
+          .post('/v1/users/pseudonyms/real-name')
+          .set('Authorization', `Bearer ${token}`)
+          .send({ conversationId, realName })
+
+      test('an admin claims a name and can then post under it', async () => {
+        const other = await Conversation.create({
+          name: 'Second Community Room',
+          owner: userOne._id,
+          topic: topic._id,
+          enforceMembership: true,
+          useRealNames: true,
+          enableDMs: [],
+          enableAgents: false
+        })
+
+        await claim(userOneAccessToken, other._id, 'Alex Admin').expect(httpStatus.CREATED)
+
+        await request(app)
+          .post('/v1/messages')
+          .set('Authorization', `Bearer ${userOneAccessToken}`)
+          .send({ conversation: other._id, body: 'hello' })
+          .expect(httpStatus.CREATED)
+
+        const stored = await Message.findOne({ conversation: other._id, owner: userOne._id })
+        expect(stored!.pseudonym).toBe('Alex Admin')
+      })
+
+      test('refuses a name another person already holds in that room', async () => {
+        const other = await Conversation.create({
+          name: 'Third Community Room',
+          owner: userOne._id,
+          topic: topic._id,
+          enforceMembership: true,
+          useRealNames: true,
+          enableDMs: [],
+          enableAgents: false
+        })
+        await userService.registerRealName(await User.findById(member.user._id), other._id.toString(), 'Alex Admin')
+
+        await claim(userOneAccessToken, other._id, 'alex  admin').expect(httpStatus.CONFLICT)
+      })
+
+      // Guests are named by the guest list so nobody can name themselves. Leaving this open to
+      // any member would turn a real name into a self-service claim.
+      test('refuses a member, since only admins name themselves', async () => {
+        await claim(member.token, room._id, 'Someone Else').expect(httpStatus.FORBIDDEN)
+      })
+    })
+
+    test('history marks which authors are currently admins', async () => {
+      await postAsAdmin('hello from admin').expect(httpStatus.CREATED)
+
+      const messages = await historyFor(room._id)
+      const adminMessage = messages.find((m) => m.pseudonym === 'Alex Admin')
+      const fromMember = messages.find((m) => m.id === memberMessage._id.toString())
+      expect(adminMessage.ownerIsAdmin).toBe(true)
+      expect(fromMember.ownerIsAdmin).toBe(false)
+      expect(adminMessage.owner).toBe(userOne._id.toString())
+    })
+
+    test('demoting an admin clears the flag on their earlier messages', async () => {
+      await postAsAdmin('hello from admin').expect(httpStatus.CREATED)
+      await User.updateOne({ _id: userOne._id }, { $set: { role: 'participant' } })
+
+      const messages = await historyFor(room._id, member.token)
+      expect(messages.find((m) => m.pseudonym === 'Alex Admin').ownerIsAdmin).toBe(false)
+    })
+
+    test('replies carry the flag too', async () => {
+      await postAsAdmin('a reply from admin', { parentMessage: memberMessage._id }).expect(httpStatus.CREATED)
+
+      const res = await request(app)
+        .get(`/v1/messages/${memberMessage._id}/replies`)
+        .set('Authorization', `Bearer ${member.token}`)
+        .expect(httpStatus.OK)
+      expect(res.body).toHaveLength(1)
+      expect(res.body[0].ownerIsAdmin).toBe(true)
+      expect(res.body[0].body).toBe('a reply from admin')
+    })
+
+    test('a live message over the socket carries the flag', async () => {
+      await postAsAdmin('hello from admin').expect(httpStatus.CREATED)
+
+      const [, event, payload] = broadcastSpy.mock.calls.find(([, name]) => name === 'message:new')
+      expect(event).toBe('message:new')
+      expect(payload).toMatchObject({ pseudonym: 'Alex Admin', ownerIsAdmin: true })
+    })
+
+    // A pseudonymous conversation must not reveal that an anonymous poster is an admin.
+    test('a conversation without real names never carries the flag', async () => {
+      await request(app)
+        .post('/v1/messages')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({ conversation: enforcedConv._id, body: 'hello from admin' })
+        .expect(httpStatus.CREATED)
+
+      const messages = await historyFor(enforcedConv._id)
+      messages.forEach((m) => expect(m).not.toHaveProperty('ownerIsAdmin'))
+      const [, , payload] = broadcastSpy.mock.calls.find(([, name]) => name === 'message:new')
+      expect(payload).not.toHaveProperty('ownerIsAdmin')
     })
   })
 

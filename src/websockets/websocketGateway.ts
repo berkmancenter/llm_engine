@@ -82,7 +82,8 @@ class WebsocketGateway {
         ...message.toJSON(),
         count: message.count,
         request,
-        pause: message.pause
+        pause: message.pause,
+        ...(message.ownerIsAdmin !== undefined && { ownerIsAdmin: message.ownerIsAdmin })
       },
       message.channels
     )

@@ -57,6 +57,11 @@ components:
           type: string
         pseudonymId:
           type: string
+        ownerIsAdmin:
+          type: boolean
+          description: >-
+            Whether the author is an admin right now, not when they posted. Only present in
+            conversations that use real names, so an anonymous poster is never revealed as an admin.
         active:
           type: boolean
         isDeleted:
