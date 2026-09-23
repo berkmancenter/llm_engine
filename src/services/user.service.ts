@@ -399,7 +399,10 @@ const getUserById = async (id) => User.findById(id)
  */
 const getUserByUsernamePassword = async (username, password) => {
   const user = await getUserByUsername(username)
-  if (user) {
+  // An account with no password set has no password to match — bcrypt.compare requires a
+  // real hash string and throws on undefined, so this must be checked before calling it,
+  // not just left to fail through: an account without a password can never log in with one.
+  if (user?.password) {
     const match = await bcrypt.compare(password, user.password)
     if (match) return user
   }
@@ -530,19 +533,56 @@ const updatePreferences = async (userId, updateBody) => {
 }
 
 /**
- * Find-or-create all system accounts listed in the SYSTEM_USERS env var.
- * Safe to call on every startup; skips accounts that already exist.
+ * Find-or-create all system accounts listed in the SYSTEM_USERS env var, and keep an
+ * existing account's role and password in sync with config on every restart.
+ *
+ * Password sync: no configured password means the account must not have one (and so can't
+ * log in with one, enforced separately in getUserByUsernamePassword); a configured password
+ * is compared against the stored hash and only rehashed/written when it no longer matches,
+ * so rotating a system account's password in the environment takes effect on next restart.
+ *
+ * systemAccount marks the document as bot/service-owned (vs. a human participant/admin) so
+ * other code — user lists, analytics, moderation — can cheaply exclude it. It's set here
+ * only; createUser/updateUser never expose it to a client-supplied request body.
  */
 const ensureSystemUsers = async (): Promise<void> => {
-  for (const { username, role } of config.systemUsers) {
+  for (const { username, role, password } of config.systemUsers) {
+    const desiredRole = role || null
     let user = await User.findOne({ username })
+
     if (!user) {
+      const hash = password ? await hashPassword(password) : undefined
       user = await User.create({
         username,
-        role,
+        role: desiredRole,
+        systemAccount: true,
+        password: hash,
         pseudonyms: [{ token: newToken(), pseudonym: username, active: true }]
       })
-      logger.info(`Created system user: ${username} (${role})`)
+      logger.info(`Created system user: ${username}${desiredRole ? ` (${desiredRole})` : ''}`)
+      continue
+    }
+
+    let changed = false
+
+    if (desiredRole !== (user.role ?? null)) {
+      user.role = desiredRole
+      changed = true
+    }
+
+    if (!password) {
+      if (user.password) {
+        user.password = undefined
+        changed = true
+      }
+    } else if (!(await bcrypt.compare(password, user.password || ''))) {
+      user.password = await hashPassword(password)
+      changed = true
+    }
+
+    if (changed) {
+      await user.save()
+      logger.info(`Updated system user: ${username}`)
     }
   }
 }

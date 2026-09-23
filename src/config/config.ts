@@ -181,8 +181,13 @@ const envVarsSchema = Joi.object()
       .default(30)
       .description('Minutes after scheduledEndTime to auto-stop a conversation'),
     SYSTEM_USERS: Joi.string()
-      .default('event-setup-bot:serviceAccount')
-      .description('Comma-separated list of system accounts to create on startup, in username:role format'),
+      .default('')
+      .allow('')
+      .description(
+        'Comma-separated list of system accounts to create on startup, in username[:role[:password]] format. ' +
+          'Role and password are both optional — leave role blank (e.g. "name::secret") to set a password with no role. ' +
+          'Empty by default — no system accounts are created unless you configure some.'
+      ),
     ALLOWED_ORGANIZER_EMAIL_DOMAINS: Joi.string().description(
       'Comma-separated email domains whose senders, if they have no account yet, get a "please sign up" reply to an inbound email, calendar invite or plain on-demand email alike. A message from any other domain is rejected: no event, no reply. Unset means none, so every inbound email is silently dropped on both paths.'
     ),
@@ -351,10 +356,13 @@ const config = {
     autoStartLeadTimeMs: envVars.CONVERSATION_AUTO_START_LEAD_TIME_MINUTES * 60 * 1000,
     autoStopDelayMs: envVars.CONVERSATION_AUTO_STOP_DELAY_MINUTES * 60 * 1000
   },
-  systemUsers: envVars.SYSTEM_USERS.split(',').map((entry: string) => {
-    const [username, role] = entry.trim().split(':')
-    return { username, role }
-  }),
+  systemUsers: envVars.SYSTEM_USERS.split(',')
+    .map((entry: string) => entry.trim())
+    .filter((entry: string) => entry.length > 0)
+    .map((entry: string) => {
+      const [username, role, password] = entry.split(':')
+      return { username, role, password }
+    }),
   allowedOrganizerEmailDomains: (envVars.ALLOWED_ORGANIZER_EMAIL_DOMAINS ?? '')
     .split(',')
     .map((domain: string) => domain.trim().toLowerCase())

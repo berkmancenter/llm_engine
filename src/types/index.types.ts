@@ -80,7 +80,8 @@ export interface IUserPreferences {
 export interface IUser {
   goodReputation?: boolean
   role?: string
-  password: string
+  systemAccount?: boolean
+  password?: string
   email?: string
   username: string
   dataExportOptOut?: boolean

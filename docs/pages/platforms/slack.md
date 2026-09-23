@@ -101,7 +101,6 @@ These are all that's needed for the event setup bot. No separate URL templates, 
 | `JWT_SECRET`                       | yes             | Signs and verifies the handoff token. Must match between the Slack bot's process and any process that verifies the token (this same llm_engine instance).                                                                                                                     |
 | `HANDOFF_TOKEN_EXPIRATION_MINUTES` | no (default 60) | How long the link stays valid after the bot posts it. Short window is intentional.                                                                                                                                                                                            |
 | `SLACK_SIGNING_SECRET`             | yes             | Verifies inbound Slack webhooks (general Slack requirement, not event-setup specific).                                                                                                                                                                                        |
-| `SYSTEM_USERS`                     | recommended     | Include `event-setup-bot:serviceAccount` so the bot has an account to act under. See [Installing](../installing/index.md).                                                                                                                                                    |
 
 #### Slack-side setup
 

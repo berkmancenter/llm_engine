@@ -367,6 +367,43 @@ describe('User service methods', () => {
     })
   })
 
+  describe('getUserByUsernamePassword()', () => {
+    test('returns the user when the password matches', async () => {
+      await User.create({
+        username: 'has-password',
+        password: await userService.hashPassword('correcthorse1'),
+        pseudonyms: [{ token: 'tok-pw1', pseudonym: 'has-password', active: true }]
+      })
+
+      const user = await userService.getUserByUsernamePassword('has-password', 'correcthorse1')
+      expect(user).not.toBeNull()
+      expect(user!.username).toBe('has-password')
+    })
+
+    test('returns null when the password does not match', async () => {
+      await User.create({
+        username: 'has-password2',
+        password: await userService.hashPassword('correcthorse1'),
+        pseudonyms: [{ token: 'tok-pw2', pseudonym: 'has-password2', active: true }]
+      })
+
+      const user = await userService.getUserByUsernamePassword('has-password2', 'wrongpassword1')
+      expect(user).toBeNull()
+    })
+
+    // An account with no password set at all must not be able to log in with any password —
+    // bcrypt.compare requires a real hash string and throws on undefined, so this also
+    // guards against that call ever being reached with one.
+    test('returns null (not a thrown error) when the account has no password set', async () => {
+      await User.create({
+        username: 'no-password',
+        pseudonyms: [{ token: 'tok-nopw', pseudonym: 'no-password', active: true }]
+      })
+
+      await expect(userService.getUserByUsernamePassword('no-password', 'anything1')).resolves.toBeNull()
+    })
+  })
+
   describe('addPseudonym()', () => {
     test('should generate and store a fun fact for the added pseudonym', async () => {
       await withFunFactsOn(async () => {
