@@ -2,10 +2,11 @@ import httpStatus from 'http-status'
 import catchAsync from '../utils/catchAsync.js'
 import parseChannelParams from '../utils/channelParams.js'
 import { messageService } from '../services/index.js'
+import serializeMessage from '../utils/serializeMessage.js'
 
 const createMessage = catchAsync(async (req, res) => {
   const sentMessages = await messageService.newMessageHandler(req.body, req.user)
-  res.status(httpStatus.CREATED).send(sentMessages)
+  res.status(httpStatus.CREATED).send(sentMessages.map(serializeMessage))
 })
 const conversationMessages = catchAsync(async (req, res) => {
   const channels = parseChannelParams(req.query.channel)

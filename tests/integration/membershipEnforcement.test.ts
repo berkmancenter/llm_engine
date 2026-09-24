@@ -330,6 +330,28 @@ describe('membership enforcement — HTTP and socket entry points', () => {
       expect(res.body[0].body).toBe('a reply from admin')
     })
 
+    const repliesTo = (messageId) =>
+      request(app)
+        .get(`/v1/messages/${messageId}/replies`)
+        .set('Authorization', `Bearer ${member.token}`)
+        .expect(httpStatus.OK)
+
+    // The flag is read from the author's role at request time, so a reply written while they
+    // were an admin has to stop claiming it the moment they are not one.
+    test('demoting an admin clears the flag on their replies', async () => {
+      await postAsAdmin('a reply from admin', { parentMessage: memberMessage._id }).expect(httpStatus.CREATED)
+      await User.updateOne({ _id: userOne._id }, { $set: { role: 'participant' } })
+
+      const res = await repliesTo(memberMessage._id)
+      expect(res.body[0].ownerIsAdmin).toBe(false)
+    })
+
+    test('the response to posting carries the flag', async () => {
+      const res = await postAsAdmin('hello from admin').expect(httpStatus.CREATED)
+
+      expect(res.body[0]).toMatchObject({ pseudonym: 'Alex Admin', ownerIsAdmin: true })
+    })
+
     test('a live message over the socket carries the flag', async () => {
       await postAsAdmin('hello from admin').expect(httpStatus.CREATED)
 
@@ -340,7 +362,7 @@ describe('membership enforcement — HTTP and socket entry points', () => {
 
     // A pseudonymous conversation must not reveal that an anonymous poster is an admin.
     test('a conversation without real names never carries the flag', async () => {
-      await request(app)
+      const res = await request(app)
         .post('/v1/messages')
         .set('Authorization', `Bearer ${userOneAccessToken}`)
         .send({ conversation: enforcedConv._id, body: 'hello from admin' })
@@ -348,6 +370,7 @@ describe('membership enforcement — HTTP and socket entry points', () => {
 
       const messages = await historyFor(enforcedConv._id)
       messages.forEach((m) => expect(m).not.toHaveProperty('ownerIsAdmin'))
+      expect(res.body[0]).not.toHaveProperty('ownerIsAdmin')
       const [, , payload] = broadcastSpy.mock.calls.find(([, name]) => name === 'message:new')
       expect(payload).not.toHaveProperty('ownerIsAdmin')
     })
