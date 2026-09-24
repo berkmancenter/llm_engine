@@ -10,6 +10,7 @@ import ApiError from '../utils/ApiError.js'
 import { pseudonymAdjectives, pseudonymNouns } from '../config/pseudonym-dictionaries.js'
 import logger from '../config/logger.js'
 import config from '../config/config.js'
+import { roles } from '../config/roles.js'
 import { getModelChat, coreLLMPlatform, coreLLMModel } from '../agents/helpers/getModelChat.js'
 import { getChatPromptResponse } from '../agents/helpers/llmChain.js'
 import { password as passwordStrength } from '../validations/custom.validation.js'
@@ -549,11 +550,17 @@ const updatePreferences = async (userId, updateBody) => {
  */
 const ensureSystemUsers = async (): Promise<void> => {
   // Validated in a pass of its own, before any account is touched, so a bad SYSTEM_USERS
-  // password fails startup loudly and atomically — never leaves some accounts synced and
-  // others not because a later entry in the list turned out to be invalid. These are real
-  // login credentials on the same /v1/auth/login endpoint as everyone else, so hold them to
-  // the same floor human registration/reset enforce (see custom.validation.ts).
-  for (const { username, password } of config.systemUsers) {
+  // entry fails startup loudly and atomically — never leaves some accounts synced and
+  // others not because a later entry in the list turned out to be invalid. Passwords are
+  // real login credentials on the same /v1/auth/login endpoint as everyone else, so hold
+  // them to the same floor human registration/reset enforce (see custom.validation.ts); role
+  // is checked against the same enum the User schema itself validates against, so a typo'd
+  // or stale role fails here with a clean message instead of surfacing later as a raw
+  // Mongoose ValidationError partway through the batch.
+  for (const { username, role, password } of config.systemUsers) {
+    if (role && !roles.includes(role)) {
+      throw new Error(`SYSTEM_USERS: role "${role}" for "${username}" is invalid — must be one of ${roles.join(', ')}`)
+    }
     if (password) {
       const { error } = Joi.string().custom(passwordStrength).validate(password)
       if (error) {

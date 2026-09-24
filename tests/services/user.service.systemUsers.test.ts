@@ -100,6 +100,25 @@ describe('ensureSystemUsers()', () => {
     expect(await User.findOne({ username: 'bot-one' })).toBeNull()
   })
 
+  it('throws for a configured role that is not in the roles enum', async () => {
+    config.systemUsers = [{ username: 'test-bot', role: 'serviceAccount' }]
+
+    await expect(userService.ensureSystemUsers()).rejects.toThrow(/role "serviceAccount" for "test-bot" is invalid/)
+
+    expect(await User.findOne({ username: 'test-bot' })).toBeNull()
+  })
+
+  it('validates every configured role before touching any account (atomic, no partial sync)', async () => {
+    config.systemUsers = [
+      { username: 'bot-one', role: 'admin' },
+      { username: 'bot-two', role: 'bogus' }
+    ]
+
+    await expect(userService.ensureSystemUsers()).rejects.toThrow(/role "bogus" for "bot-two" is invalid/)
+
+    expect(await User.findOne({ username: 'bot-one' })).toBeNull()
+  })
+
   it('creates multiple accounts when config has multiple entries', async () => {
     config.systemUsers = [{ username: 'bot-one' }, { username: 'bot-two' }]
 
