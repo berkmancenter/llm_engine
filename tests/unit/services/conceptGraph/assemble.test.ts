@@ -177,6 +177,49 @@ describe('assembly', () => {
     expect(report.droppedOriginPrompts).toBe(0)
   })
 
+  it('dedupes a poll-seeded origin prompt against the model paraphrasing the same poll', () => {
+    /* The seeded prompt (exact question text, processed first) and the model's own
+       extraction of the same poll (a light paraphrase) canonicalize to different text, so
+       only a pollId-based dedup catches the duplicate. */
+    const pollRefs = new Map([['p1', 'poll-1']])
+
+    const { payload, report } = assembleGraph(
+      [
+        result({
+          originPrompts: [{ text: 'Does the trust registry model scale?', sourceRefs: ['p1'] }]
+        }),
+        result({
+          originPrompts: [{ text: 'Will the trust registry model be able to scale up?', sourceRefs: ['p1'] }]
+        })
+      ],
+      safety,
+      { pollRefs }
+    )
+
+    expect(payload.originPrompts).toHaveLength(1)
+    expect(payload.originPrompts[0].text).toBe('Does the trust registry model scale?')
+    expect(report.droppedOriginPrompts).toBe(0)
+  })
+
+  it('dedupes a poll-seeded origin prompt carrying provenance directly, the backfill path', () => {
+    const pollRefs = new Map([['p1', 'poll-1']])
+
+    const { payload } = assembleGraph(
+      [
+        result({
+          originPrompts: [{ text: 'Does the trust registry model scale?', provenance: { pollId: 'poll-1' } }]
+        }),
+        result({
+          originPrompts: [{ text: 'Will the trust registry model be able to scale up?', sourceRefs: ['p1'] }]
+        })
+      ],
+      safety,
+      { pollRefs }
+    )
+
+    expect(payload.originPrompts).toHaveLength(1)
+  })
+
   it('still drops an organic origin prompt nothing references', () => {
     const { payload, report } = assembleGraph(
       [result({ originPrompts: [{ text: 'What has to be trustworthy here?' }] })],

@@ -232,16 +232,26 @@ export const assembleGraph = (
   /* Origin prompts first: contributions reference them, and one may be dropped for naming
      someone, in which case the references have to fall away with it. */
   const promptIdByText = new Map<string, string>()
+  /* A poll's own seeded prompt (exact question text) is processed first and claims that
+     pollId; the model's own extraction of the same poll, which may lightly paraphrase the
+     question, canonicalizes to different text and would otherwise survive as a duplicate
+     node. Deduping on the resolved pollId as well as the text catches that. */
+  const promptIdByPollId = new Map<string, string>()
   const originPrompts: GraphOriginPrompt[] = []
   for (const prompt of results.flatMap((r) => r.originPrompts ?? [])) {
     const text = prompt.text?.trim()
-    if (!text || promptIdByText.has(canonical(text))) continue
+    if (!text) continue
+    const cleaned = (prompt.sourceRefs ?? []).map((ref) => ref.replace(/[[\]]/g, '').trim())
+    const pollId = prompt.provenance?.pollId ?? cleaned.map((ref) => pollRefs.get(ref)).find(Boolean)
+    if (pollId && promptIdByPollId.has(pollId)) continue
+    if (promptIdByText.has(canonical(text))) continue
     if (checkStatement(text, safety).length > 0) {
       report.droppedOriginPrompts += 1
       continue
     }
     const id = idFor('p', canonical(text).slice(0, 40), takenIds)
     promptIdByText.set(canonical(text), id)
+    if (pollId) promptIdByPollId.set(pollId, id)
     originPrompts.push({ id, text, ...provenanceFor(prompt.sourceRefs, prompt.provenance) })
   }
 
