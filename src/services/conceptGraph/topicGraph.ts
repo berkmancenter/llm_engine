@@ -21,12 +21,12 @@ import { ExtractionResult } from './assemble.js'
 export const KNOWN_CONCEPT_LIMIT = 60
 
 /* How large the series graph itself is allowed to grow before consolidate.ts folds its
-   least-connected concepts into more central ones. Set well above KNOWN_CONCEPT_LIMIT on
-   purpose: a graph a reader looks at should generally show more than the vocabulary window
-   offered to the extractor, not less — the extractor's window is about prompt budget, this is
-   about what a person can still take in on one canvas. There's no usage data yet to calibrate
-   against; revisit once a real long-running series actually approaches it. */
-export const CONCEPT_CAP = 150
+   least-connected concepts into more central ones. Deliberately conservative to start:
+   there's no usage data yet to calibrate against, and it's easier to raise this once a real
+   long-running series approaches it than to have let an unreadable graph accumulate first.
+   Below KNOWN_CONCEPT_LIMIT for now as a result — once real graphs approach this cap, revisit
+   both together. */
+export const CONCEPT_CAP = 42
 
 /*
  * The concepts a series has already established, most connected first.

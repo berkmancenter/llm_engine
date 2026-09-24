@@ -56,15 +56,18 @@ const { insertUsers, userOne } = await import(path.resolve(process.cwd(), 'tests
 const { insertTopics, newPublicTopic } = await import(path.resolve(process.cwd(), 'tests/fixtures/topic.fixture.ts'))
 const { Agent, Conversation } = await import(path.resolve(process.cwd(), 'src/models/index.ts'))
 const { default: conceptGraphService } = await import(path.resolve(process.cwd(), 'src/services/conceptGraph/index.ts'))
+const { CONCEPT_CAP } = await import(path.resolve(process.cwd(), 'src/services/conceptGraph/topicGraph.ts'))
 
 setupIntTest()
 jest.setTimeout(20000)
 
-/* A hub joined to 150 leaves is 151 concepts, one over CONCEPT_CAP (150): every leaf has
-   degree 1, the hub has degree 150, so byDegreeAsc's stable sort puts exactly one concept —
-   the first leaf — below the cap line as the sole fold candidate, with the hub among the
-   central concepts it might fold into. Deterministic without depending on real extraction. */
-const LEAF_COUNT = 150
+/* A hub joined to CONCEPT_CAP leaves is CONCEPT_CAP + 1 concepts, one over the cap: every leaf
+   has degree 1, the hub has degree CONCEPT_CAP, so byDegreeAsc's stable sort puts exactly one
+   concept — the first leaf — below the cap line as the sole fold candidate, with the hub among
+   the central concepts it might fold into. Deterministic without depending on real extraction.
+   Derived from the real constant rather than a copied number, so this stays in sync with
+   whatever CONCEPT_CAP is currently set to. */
+const LEAF_COUNT = CONCEPT_CAP
 const overCapExtraction = (): ExtractionResult => ({
   concepts: [{ label: 'Hub Concept' }, ...Array.from({ length: LEAF_COUNT }, (_, i) => ({ label: `Leaf ${i + 1}` }))],
   contributions: Array.from({ length: LEAF_COUNT }, (_, i) => ({
@@ -132,8 +135,9 @@ describe('refineTopicGraph, folding a graph that has outgrown CONCEPT_CAP', () =
     // Consolidation was actually asked, not skipped — the glue under test ran.
     expect(consolidationCalls()).toHaveLength(1)
     expect(result.report.foldedConcepts).toBeGreaterThan(0)
-    // Fewer concepts survived than went in: assembly produced 151, the fold above removes one.
-    expect(result.version.payload.concepts).toHaveLength(150)
+    // Fewer concepts survived than went in: assembly produced CONCEPT_CAP + 1, the fold above
+    // removes one.
+    expect(result.version.payload.concepts).toHaveLength(CONCEPT_CAP)
     expect(result.version.note).toMatch(/folded/i)
     // Versioning already preserves the pre-fold detail — the note should say so rather than
     // reading as if the fold were the only record of it.
