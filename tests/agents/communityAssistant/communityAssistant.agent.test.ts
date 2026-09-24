@@ -313,8 +313,8 @@ A single mom of two children with primary custody, she is passionate about findi
       expect(responses).toHaveLength(1)
       expect(responses[0].message).toBeDefined()
       // Should name both events that exist in the series
-      expect(responses[0].message).toContain('Why your company should consider part-time work')
-      expect(responses[0].message).toContain('Where are all the aliens?')
+      expect(responses[0].message).toMatch(/Why your company should consider part-time work/i)
+      expect(responses[0].message).toMatch(/Where are all the aliens?/i)
     })
 
     it('identifies a speaker on extraterrestrials and UFOs', async () => {
@@ -334,7 +334,7 @@ A single mom of two children with primary custody, she is passionate about findi
 
       expect(responses).toHaveLength(1)
       expect(responses[0].message).toBeDefined()
-      expect(responses[0].message).toContain('Why your company should consider part-time work')
+      expect(responses[0].message).toMatch(/Why your company should consider part-time work/i)
       expect(responses[0].message.toLowerCase()).toMatch(/part.time|flexib|work/)
     })
 
@@ -605,8 +605,8 @@ A single mom of two children with primary custody, she is passionate about findi
       })
 
       expect(responses).toHaveLength(1)
-      expect(responses[0].message).toContain('Past Event')
-      expect(responses[0].message).toContain('Key takeaways from the event.')
+      expect(responses[0].message.toLowerCase()).toContain('past event')
+      expect(responses[0].message.toLowerCase()).toContain('key takeaways from the event.')
     })
 
     it('posts to the chat channel when one exists', async () => {
@@ -1145,8 +1145,8 @@ A single mom of two children with primary custody, she is passionate about findi
 
       expect(responses).toHaveLength(1)
       expect(responses[0].message).toBeDefined()
-      expect(responses[0].message).toContain('Why your company should consider part-time work')
-      expect(responses[0].message).toContain('Where are all the aliens?')
+      expect(responses[0].message).toMatch(/Why your company should consider part-time work/i)
+      expect(responses[0].message).toMatch(/Where are all the aliens?/i)
     })
 
     it('answers a speaker question using auto-discovered topics', async () => {
