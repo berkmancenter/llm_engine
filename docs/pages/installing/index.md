@@ -61,10 +61,10 @@ Open source models are also available through [Ollama](https://ollama.com) runni
 
 ## System accounts
 
-LLM Engine creates system accounts for bots and services on startup, driven by the `SYSTEM_USERS` env var. Each entry is `username[:role[:password]]`, comma-separated — role and password are both optional:
+LLM Engine creates system accounts for bots and services on startup, driven by the `SYSTEM_USERS` env var. Each entry is `username[:role[:password]]`, semicolon-separated (not comma — a password may contain commas) — role and password are both optional:
 
 ```
-SYSTEM_USERS=my-bot,another-bot:admin:s0mepassword
+SYSTEM_USERS=my-bot;another-bot:admin:s0mepassword
 ```
 
 Empty by default — no system accounts are created unless you configure some. Append an entry and restart to add one. Accounts are kept in sync with this env var on every restart: a role or password change here is picked up, and dropping either here clears it from the account.

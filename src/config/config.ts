@@ -7,18 +7,23 @@ const env = '.env'
 dotenv.config({ path: `${process.cwd()}/${env}` })
 
 /**
- * Parses the SYSTEM_USERS env var (username[:role[:password]], comma-separated) into plain
- * {username, role?, password?} entries. Purely structural — password strength is enforced
- * downstream, in ensureSystemUsers, where the rest of the system-user business rules live.
+ * Parses the SYSTEM_USERS env var (username[:role[:password]], semicolon-separated) into
+ * plain {username, role?, password?} entries. Purely structural — password strength is
+ * enforced downstream, in ensureSystemUsers, where the rest of the system-user business
+ * rules live.
  *
  * Splits only on the first two colons — entry.split(':') would otherwise silently truncate
  * a password containing a colon (e.g. "name:role:pass:word" would drop ":word").
+ *
+ * Entries are semicolon-separated, not comma-separated, specifically so a password can
+ * contain a comma without being mistaken for an entry boundary — a comma-separated password
+ * like "pa,ss1234" would otherwise silently split into two bogus entries.
  *
  * Exported so parsing can be unit-tested directly (see tests/unit/config/parseSystemUsersEnv.test.ts).
  */
 export const parseSystemUsersEnv = (raw: string) =>
   raw
-    .split(',')
+    .split(';')
     .map((entry: string) => entry.trim())
     .filter((entry: string) => entry.length > 0)
     .map((entry: string) => {
@@ -223,9 +228,10 @@ const envVarsSchema = Joi.object()
       .default('')
       .allow('')
       .description(
-        'Comma-separated list of system accounts to create on startup, in username[:role[:password]] format. ' +
-          'Role and password are both optional — leave role blank (e.g. "name::secret") to set a password with no role. ' +
-          'Empty by default — no system accounts are created unless you configure some.'
+        'Semicolon-separated list of system accounts to create on startup, in username[:role[:password]] ' +
+          'format. Role and password are both optional — leave role blank (e.g. "name::secret") to set a ' +
+          'password with no role. A semicolon (not a comma) separates entries, so passwords may safely ' +
+          'contain commas. Empty by default — no system accounts are created unless you configure some.'
       ),
     ALLOWED_ORGANIZER_EMAIL_DOMAINS: Joi.string().description(
       'Comma-separated email domains whose senders, if they have no account yet, get a "please sign up" reply to an inbound email, calendar invite or plain on-demand email alike. A message from any other domain is rejected: no event, no reply. Unset means none, so every inbound email is silently dropped on both paths.'
