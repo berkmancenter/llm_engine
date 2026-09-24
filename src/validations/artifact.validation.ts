@@ -58,7 +58,11 @@ const generateConceptGraph = {
   body: Joi.object()
     .keys({
       conversationId: Joi.string().custom(objectId),
-      topicId: Joi.string().custom(objectId)
+      topicId: Joi.string().custom(objectId),
+      /* Operator-only escape hatch for a series graph gone bad — see refineTopicGraph's own
+         doc comment for why an ordinary re-run cannot undo a past fold on its own. Forbidden
+         alongside conversationId, which has no accumulated state to reset in the first place. */
+      reset: Joi.boolean().when('conversationId', { is: Joi.exist(), then: Joi.forbidden() })
     })
     .xor('conversationId', 'topicId')
 }

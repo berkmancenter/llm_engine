@@ -409,12 +409,24 @@ export const generateConceptGraph = async (conversationId: string, caller: IBase
  * @param incoming Extraction already paid for by a conversation-level run, plus the source
  *   texts it was checked against. Omit to read every conversation in the topic from
  *   scratch, which is how a series that predates this feature gets backfilled.
+ * @param options.reset Recompute from the raw transcripts alone, ignoring the graph's current
+ *   version as a merge source. An ordinary re-run still folds the current version in — see
+ *   `prior` below — which is right for redoing a bad extraction but means a past fold or a
+ *   too-low CONCEPT_CAP can never be undone by just raising the cap and re-running: the
+ *   folded concept's own node is gone, and only its label survives, on its survivor's
+ *   `foldedFrom`. Reset exists for that one case, is never sent by the client, and is not
+ *   meant to be routine — every conversation gets re-read and re-merged from nothing, so it
+ *   costs what a full backfill costs. The pre-reset graph is never lost either way: this
+ *   still writes through `appendVersion`, so it stays in the artifact's version history.
  */
 export const refineTopicGraph = async (
   topicId: string,
   caller: IBaseUser,
-  incoming?: { results: ExtractionResult[]; texts: string[]; knownIdentities: string[]; conversationId?: string }
+  incoming?: { results: ExtractionResult[]; texts: string[]; knownIdentities: string[]; conversationId?: string },
+  options?: { reset?: boolean }
 ) => {
+  const reset = options?.reset ?? false
+  if (reset) logger.info(`conceptGraph: topic ${topicId} resetting — recomputing from the raw transcripts alone`)
   const topic = await Topic.findOne({ _id: topicId, isDeleted: { $ne: true } })
     .select('name')
     .lean()
@@ -430,8 +442,11 @@ export const refineTopicGraph = async (
 
   /* Backfill path: no event handed us an extraction, so read the whole series. Deliberately
      the slow path — it exists for a topic whose events all predate this feature, not for the
-     steady state, where each event contributes its own extraction as it ends. */
-  if (results.length === 0) {
+     steady state, where each event contributes its own extraction as it ends. A reset always
+     takes this path too, even on the (currently theoretical) chance it was called alongside
+     an `incoming` extraction — resetting from anything less than the whole series would defeat
+     the point of it. */
+  if (reset || results.length === 0) {
     /* Walked in order, carrying the vocabulary forward: each conversation is offered what the
        earlier ones established, so a backfill builds the same crossings the incremental path
        would have built had the feature existed at the time. */
@@ -463,8 +478,10 @@ export const refineTopicGraph = async (
   const { artifact: existing, payload: priorPayload } = await currentTopicGraph(topicId)
 
   /* The graph so far becomes just another extraction to merge, so one code path merges two
-     chunks of a transcript and six sessions of a series. */
-  const prior = priorPayload ? payloadToExtraction(priorPayload) : undefined
+     chunks of a transcript and six sessions of a series. A reset deliberately leaves it out:
+     `existing` is still carried through to `appendVersion` below, so the pre-reset graph
+     survives as the previous version, but nothing about it feeds the recompute. */
+  const prior = !reset && priorPayload ? payloadToExtraction(priorPayload) : undefined
   if (prior) results = [prior, ...results]
 
   if (results.length === 0) {
@@ -569,10 +586,18 @@ export const refineTopicGraph = async (
       ? ` — folded ${report.foldedConcepts} concept${report.foldedConcepts === 1 ? '' : 's'} into related ones to stay ` +
         `readable; see the previous version for each on its own`
       : ''
-  const note =
-    (priorPayload
-      ? `Refined with one further conversation; ${conversations.length} in the series`
-      : `Built from ${conversations.length} conversation${conversations.length === 1 ? '' : 's'}`) + foldNote
+  const conversationCount = `${conversations.length} conversation${conversations.length === 1 ? '' : 's'}`
+  let noteBody: string
+  if (reset) {
+    noteBody =
+      `Recomputed from scratch across ${conversationCount}, ignoring the previous version's ` +
+      `accumulated state — see it for the pre-reset graph`
+  } else if (priorPayload) {
+    noteBody = `Refined with one further conversation; ${conversations.length} in the series`
+  } else {
+    noteBody = `Built from ${conversationCount}`
+  }
+  const note = noteBody + foldNote
 
   if (existing) {
     const version = await artifactService.appendVersion(existing._id!.toString(), { payload, note }, caller)
