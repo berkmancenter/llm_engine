@@ -246,6 +246,14 @@ router.route('/').get(auth('listArtifacts'), validate(artifactValidation.listArt
  *       appends a new version to the existing graph rather than replacing it or creating a
  *       duplicate, so both extractions stay readable and comparable.
  *
+ *       An ordinary re-run of a topic still folds the graph's current version in as a source,
+ *       which means a concept already folded away by the size cap stays folded even after
+ *       raising it. `reset` (topicId only) skips that: it recomputes the whole series from its
+ *       raw transcripts alone, ignoring the current graph entirely. It still only ever appends
+ *       a new version, so the pre-reset graph is never lost — it's just no longer what the new
+ *       one was built from. Costs a full backfill every time, so this is an operator escape
+ *       hatch, not something to reach for routinely.
+ *
  *       The event is treated as running under the Chatham House Rule. Nothing in the output
  *       names or otherwise identifies anyone who took part, and statements are paraphrased —
  *       a verbatim quotation survives only inside quotation marks and only when it identifies
@@ -273,6 +281,16 @@ router.route('/').get(auth('listArtifacts'), validate(artifactValidation.listArt
  *                   The series to refine, folding in every conversation under it. Mutually
  *                   exclusive with conversationId.
  *                 example: '61b7ea6aa771004e80ed4409'
+ *               reset:
+ *                 type: boolean
+ *                 default: false
+ *                 description: >-
+ *                   Only valid alongside topicId. Recomputes the series graph from its raw
+ *                   transcripts alone, ignoring the current version, so a concept already
+ *                   folded away by a since-raised CONCEPT_CAP is reconsidered rather than
+ *                   staying folded. The pre-reset graph is kept as the previous version, not
+ *                   overwritten. Not exposed in any client UI — an operator action, meant to
+ *                   be rare.
  *     responses:
  *       '202':
  *         description: The graph was built and written as a version
@@ -295,8 +313,16 @@ router.route('/').get(auth('listArtifacts'), validate(artifactValidation.listArt
  *                     droppedConcepts: { type: number }
  *                     droppedContributions: { type: number }
  *                     droppedStatements: { type: number }
+ *                     droppedGlosses: { type: number }
  *                     droppedOriginPrompts: { type: number }
  *                     mergedConcepts: { type: number }
+ *                     foldedConcepts:
+ *                       type: number
+ *                       description: >-
+ *                         Concepts consolidated into a related one because the series graph
+ *                         outgrew its size cap — distinct from mergedConcepts, which counts
+ *                         concepts recognised as the same idea rather than consolidated for
+ *                         space.
  *       '200':
  *         description: >-
  *           Nothing was written because the record was too thin to map, or nothing survived

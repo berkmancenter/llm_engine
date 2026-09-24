@@ -770,6 +770,17 @@ export interface GraphNodeProvenance {
 export interface GraphConcept {
   id: string
   label: string
+  /* One plain sentence saying what this concept means in this discussion, as the model wrote
+     it. Carried straight through from the extraction; the client doesn't render it today, but
+     concept folding (see services/conceptGraph/consolidate.ts) needs somewhere to append a
+     folded concept's own meaning so it survives losing its node. */
+  gloss?: string
+  /* Labels of concepts folded into this one because the graph outgrew CONCEPT_CAP
+     (topicGraph.ts) — distinct from an ordinary cross-session synonym merge, which leaves no
+     trace here since the two labels really were the same idea. A folded concept was a
+     genuinely distinct idea, consolidated for space, so its label is kept so a reader can
+     still find it. */
+  foldedFrom?: string[]
   /* Id of the GraphOriginPrompt this concept came out of. */
   origin?: string
   provenance?: GraphNodeProvenance
