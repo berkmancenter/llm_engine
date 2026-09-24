@@ -424,13 +424,13 @@ const getMessageReplies = async (messageId, user, messageQuery = {}) => {
     .sort({ createdAt: 1 })
     .exec()
 
-  if (!parentMessage) return replies
+  /* toJSON rather than lean(): the query has to return documents so the toJSON plugin runs and
+     renames _id to id, which is the shape every other message route already returns. */
+  const serializedReplies = replies.map((reply) => reply.toJSON())
+  if (!parentMessage) return serializedReplies
   const conversation = await Conversation.findById(parentMessage.conversation).select('useRealNames').lean()
-  if (!conversation?.useRealNames) return replies
-  return withOwnerIsAdmin(
-    replies.map((reply) => reply.toJSON()),
-    conversation
-  )
+  if (!conversation?.useRealNames) return serializedReplies
+  return withOwnerIsAdmin(serializedReplies, conversation)
 }
 
 // duplicate messages from one conversation to another
