@@ -547,6 +547,9 @@ const updatePreferences = async (userId, updateBody) => {
  */
 const ensureSystemUsers = async (): Promise<void> => {
   for (const { username, role, password } of config.systemUsers) {
+    // Explicit null (not undefined) for "no role" — Mongoose only applies the schema's
+    // 'participant' default when a path is undefined, so undefined here would silently
+    // re-default a system account that's meant to have no role at all.
     const desiredRole = role || null
     let user = await User.findOne({ username })
 
