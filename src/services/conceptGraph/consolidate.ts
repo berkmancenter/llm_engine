@@ -88,7 +88,7 @@ export const proposeConsolidations = async (
   candidates: ConsolidationCandidate[],
   central: ConsolidationCandidate[],
   topicId?: string
-): Promise<string[][]> => {
+) => {
   if (candidates.length === 0 || central.length === 0) return []
 
   const describe = (c: ConsolidationCandidate) => `- "${c.label}"${c.gloss ? `: ${c.gloss}` : ''} (connects to ${c.degree})`

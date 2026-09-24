@@ -554,7 +554,8 @@ export const refineTopicGraph = async (
         droppedStatements: report.droppedStatements + folded.report.droppedStatements,
         droppedGlosses: report.droppedGlosses + folded.report.droppedGlosses,
         droppedOriginPrompts: report.droppedOriginPrompts + folded.report.droppedOriginPrompts,
-        foldedConcepts: report.foldedConcepts + folded.report.foldedConcepts
+        foldedConcepts: report.foldedConcepts + folded.report.foldedConcepts,
+        mergedConcepts: report.mergedConcepts + folded.report.mergedConcepts
       }
       logger.info(
         `conceptGraph: topic ${topicId} folded ${folded.report.foldedConcepts} concept(s) into related ones, ` +

@@ -1,4 +1,5 @@
 import slugify from 'slugify'
+import logger from '../../config/logger.js'
 import {
   ConceptGraphPayload,
   GraphConcept,
@@ -233,7 +234,19 @@ export const assembleGraph = (
     const leader = aliasKeyFor(display)
     foldLeaderLabel.set(leader, display)
     for (const member of group.map(aliasKeyFor).filter(Boolean)) {
-      if (member !== leader) foldTo.set(member, leader)
+      if (member === leader) continue
+      const existing = foldTo.get(member)
+      if (existing && existing !== leader) {
+        /* Two different fold groups both claim this label — first group wins, matching the
+           "first entry / first seen" convention used elsewhere in this file, rather than
+           letting the later group silently overwrite the mapping. */
+        logger.warn(
+          `conceptGraph: fold conflict for "${member}" — already folding into "${existing}", ` +
+            `ignoring the later group's claim to fold it into "${leader}"`
+        )
+        continue
+      }
+      foldTo.set(member, leader)
     }
   }
   const keyFor = (label: string) => {
@@ -328,6 +341,16 @@ export const assembleGraph = (
     if (!key) continue
 
     if (isFoldedAway(label)) {
+      /* A label naming a person cannot be made safe by trimming part of it, the same rule the
+         ordinary concept path below applies. This has to run once per member, before anything
+         is queued into pendingFolds, regardless of whether this member happens to be the one
+         creating the placeholder — otherwise an unsafe label skips the check entirely whenever
+         a placeholder already exists (the survivor already resolved, or an earlier member
+         already created one), and still ends up applied to survivor.foldedFrom below. */
+      if (checkStatement(label, safety).length > 0) {
+        report.droppedConcepts += 1
+        continue
+      }
       if (!pendingFolds.has(key)) pendingFolds.set(key, [])
       pendingFolds.get(key)!.push({ label, gloss: concept.gloss })
       report.foldedConcepts += 1
@@ -338,10 +361,6 @@ export const assembleGraph = (
            itself dropped, or this call was never handed it), this placeholder — labelled with
            the fold's own designated survivor label — is what's left, which is a reasonable
            fallback rather than a dangling reference. */
-        if (checkStatement(label, safety).length > 0) {
-          report.droppedConcepts += 1
-          continue
-        }
         const id = idFor('c', key, takenIds)
         conceptIdByLabel.set(key, id)
         placeholderKeys.add(key)
@@ -367,6 +386,15 @@ export const assembleGraph = (
         const gloss = safeGloss(concept.gloss)
         if (gloss) node.gloss = gloss
         Object.assign(node, provenanceFor(concept.sourceRefs, concept.provenance))
+        /* Carry the survivor's own fold history (from an earlier version of this graph) onto
+           the node too — lost otherwise, since only gloss/provenance were copied above. Merge
+           rather than overwrite: pendingFolds may already have queued this session's own
+           members onto this key by the time this runs. */
+        if (concept.foldedFrom?.length) {
+          node.foldedFrom = node.foldedFrom ?? []
+          for (const foldedLabel of concept.foldedFrom)
+            if (!node.foldedFrom.includes(foldedLabel)) node.foldedFrom.push(foldedLabel)
+        }
         continue
       }
       report.mergedConcepts += 1
@@ -438,11 +466,14 @@ export const assembleGraph = (
     /* Deduped: two of this contribution's own labels can resolve to the same id once a fold
        (or, in principle, an alias) collapses them onto one concept — most plausibly when the
        contribution already joined the very two concepts a fold pass just decided belong
-       together. A contribution needs at least two distinct endpoints to mean anything; one
-       collapsing to a single concept is dropped below rather than kept as a claim about
-       nothing but itself. */
-    const conceptIds = [...new Set([...originalIds, ...addedIds])]
-    if (conceptIds.length < 2) {
+       together. A contribution that only ever named one concept is a meaningful intermediate
+       state (see the CONTRIBUTION schema's `concepts` comment in artifact.model/registry.ts)
+       and is kept; it is only a fold collapsing what were originally two-or-more distinct
+       endpoints down to one that is genuinely degenerate — a claim about nothing but
+       itself — and dropped below. */
+    const rawIds = [...originalIds, ...addedIds]
+    const conceptIds = [...new Set(rawIds)]
+    if (conceptIds.length === 0 || (rawIds.length > 1 && conceptIds.length < 2)) {
       report.droppedContributions += 1
       continue
     }

@@ -389,4 +389,97 @@ describe('folding, for a graph that has outgrown CONCEPT_CAP', () => {
     expect(registry.foldedFrom).toEqual(['Revocation Latency'])
     expect(registry.gloss).toBe('Base meaning.')
   })
+
+  it('carries a survivor’s own foldedFrom history onto the node even when a member’s ' +
+    'placeholder claimed the slot first', () => {
+    // Revocation Latency (a member) is processed before Trust Registry (the survivor), so a
+    // placeholder exists by the time Trust Registry's own entry arrives to claim it. Its own
+    // carried foldedFrom (from an earlier stored graph) must survive that claim, alongside
+    // whatever this pass's own fold adds.
+    const { payload } = assembleGraph(
+      [
+        result({
+          concepts: [
+            { label: 'Revocation Latency' },
+            { label: 'Trust Registry', foldedFrom: ['Older Fold'] },
+            { label: 'Verifier' }
+          ],
+          contributions: [{ kind: 'checked by', concepts: ['Trust Registry', 'Verifier'] }]
+        })
+      ],
+      safety,
+      { foldedGroups: [['Trust Registry', 'Revocation Latency']] }
+    )
+
+    const registry = payload.concepts.find((c) => c.label === 'Trust Registry')!
+    expect(registry.foldedFrom).toEqual(expect.arrayContaining(['Older Fold', 'Revocation Latency']))
+  })
+
+  it('drops an unsafe fold member instead of letting it reach the survivor once a ' +
+    'placeholder for the slot already exists', () => {
+    // Revocation Latency is folded away first and creates the placeholder; Rosa Klein is
+    // folded away second, once that placeholder already exists. Before the fix, checkStatement
+    // only ran while creating the placeholder, so the second member's unsafe label skipped the
+    // check entirely and still ended up in foldedFrom. Verifier is kept separate from the fold
+    // group so the contribution below has two genuinely distinct endpoints.
+    const { payload, report } = assembleGraph(
+      [
+        result({
+          concepts: [
+            { label: 'Revocation Latency' },
+            { label: 'Rosa Klein' },
+            { label: 'Trust Registry' },
+            { label: 'Verifier' }
+          ],
+          contributions: [{ kind: 'checked by', concepts: ['Trust Registry', 'Verifier'] }]
+        })
+      ],
+      safety,
+      { foldedGroups: [['Trust Registry', 'Revocation Latency', 'Rosa Klein']] }
+    )
+
+    const registry = payload.concepts.find((c) => c.label === 'Trust Registry')!
+    expect(registry.foldedFrom ?? []).not.toContain('Rosa Klein')
+    expect(report.droppedConcepts).toBeGreaterThan(0)
+  })
+
+  it('keeps the first fold group’s claim on a label two proposed groups both name, ' +
+    'rather than letting the second silently override it', () => {
+    const { payload } = assembleGraph(
+      [
+        result({
+          concepts: [
+            { label: 'Trust Registry' },
+            { label: 'Ledger' },
+            { label: 'Revocation Latency' },
+            { label: 'Verifier' }
+          ],
+          contributions: [
+            { kind: 'checked by', concepts: ['Trust Registry', 'Verifier'] },
+            { kind: 'relates to', concepts: ['Ledger', 'Verifier'] }
+          ]
+        })
+      ],
+      safety,
+      { foldedGroups: [['Trust Registry', 'Revocation Latency'], ['Ledger', 'Revocation Latency']] }
+    )
+
+    const registry = payload.concepts.find((c) => c.label === 'Trust Registry')
+    const ledger = payload.concepts.find((c) => c.label === 'Ledger')
+    expect(registry?.foldedFrom).toEqual(['Revocation Latency'])
+    expect(ledger?.foldedFrom ?? []).not.toContain('Revocation Latency')
+  })
+})
+
+describe('contributions naming a single concept', () => {
+  it('keeps a contribution that only ever named one concept, per the artifact schema', () => {
+    const { payload, report } = assembleGraph(
+      [result({ concepts: [{ label: 'Trust Registry' }], contributions: [{ kind: 'notes', concepts: ['Trust Registry'] }] })],
+      safety
+    )
+
+    expect(payload.contributions).toHaveLength(1)
+    expect(payload.contributions[0].concepts).toEqual([payload.concepts[0].id])
+    expect(report.droppedContributions).toBe(0)
+  })
 })
