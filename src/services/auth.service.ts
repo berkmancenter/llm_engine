@@ -75,7 +75,13 @@ const sendPasswordReset = async (email) => {
  * @returns {Promise}
  */
 const resetPassword = async (token, password) => {
-  const tokenDoc = await tokenService.verifyToken(token, tokenTypes.RESET_PASSWORD)
+  let tokenDoc
+  try {
+    tokenDoc = await tokenService.verifyToken(token, tokenTypes.RESET_PASSWORD)
+  } catch (err) {
+    logger.info(`Password reset rejected: ${err.message}`)
+    throw new ApiError(httpStatus.UNAUTHORIZED, 'Password reset link is invalid or has expired')
+  }
   const user = await User.findById(tokenDoc.user)
   if (!user) {
     throw new ApiError(httpStatus.UNAUTHORIZED, 'User not found')
