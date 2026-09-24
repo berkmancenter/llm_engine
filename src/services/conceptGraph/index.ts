@@ -149,10 +149,19 @@ const loadPolls = async (
       text: c.text,
       count: countByChoiceId.get(c.id) ?? 0
     }))
+    /* Poll voting isn't gated the same way message-posting participation is, so a
+       specific poll's own response count can exceed the conversation-level attendeeCount
+       above. Reconciled per poll rather than trusting the shared denominator everywhere:
+       when a poll's own responses outnumber it, the count would contradict itself ("12 of
+       10 attendees responded"), so that poll falls back to reporting its raw response
+       count instead. */
+    const totalResponses = pollChoices.reduce((sum, c) => sum + c.count, 0)
+    const trustedAttendeeCount =
+      attendeeCount !== undefined && totalResponses > attendeeCount ? undefined : attendeeCount
     return {
       pollId: poll._id.toString(),
       createdAt: poll.createdAt,
-      text: formatPollLine(question, pollChoices, attendeeCount),
+      text: formatPollLine(question, pollChoices, trustedAttendeeCount),
       question
     }
   })
