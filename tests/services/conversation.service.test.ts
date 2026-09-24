@@ -2739,6 +2739,35 @@ describe('Conversation service methods', () => {
       expect(dispatchSpy).not.toHaveBeenCalled()
       dispatchSpy.mockRestore()
     })
+
+    // The membership record, not the new DM channel, is what marks a member's first visit, so
+    // narrowing the channel fallback must not cost an ordinary member their welcome.
+    it('introduces a member on their first visit to a members-only room', async () => {
+      const { User } = await import('../../src/models/index.js')
+      const memberUser = await User.create({
+        username: 'joining-member',
+        email: 'joining-member@example.com',
+        role: 'participant',
+        pseudonyms: [{ token: 'joining-member-token', pseudonym: 'Bold Aardvark', active: true }]
+      })
+      joinConversation.enforceMembership = true
+      await joinConversation.save()
+      await ConversationMembership.create({
+        conversation: joinConversation._id,
+        email: memberUser.email,
+        userAccount: memberUser._id,
+        name: 'Bold Aardvark'
+      })
+      const dispatchSpy = jest.spyOn(agentDispatcher, 'dispatch')
+
+      await conversationService.joinConversation(joinConversation._id.toString(), memberUser)
+
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'participantJoined', userId: memberUser._id.toString() }),
+        expect.objectContaining({ type: 'conversation', id: joinConversation._id.toString() })
+      )
+      dispatchSpy.mockRestore()
+    })
   })
 
   describe('an admin entering a second real-name room', () => {
