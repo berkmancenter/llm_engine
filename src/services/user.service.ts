@@ -5,12 +5,21 @@ import crypto from 'crypto'
 import { uniqueNamesGenerator } from 'unique-names-generator'
 import bcrypt from 'bcryptjs'
 import { uid } from 'uid'
-import { User, Message, RealNameAudit, RealNameRegistry, ConversationMembership, Conversation } from '../models/index.js'
+import {
+  User,
+  Token,
+  Message,
+  RealNameAudit,
+  RealNameRegistry,
+  ConversationMembership,
+  Conversation
+} from '../models/index.js'
 import ApiError from '../utils/ApiError.js'
 import { pseudonymAdjectives, pseudonymNouns } from '../config/pseudonym-dictionaries.js'
 import logger from '../config/logger.js'
 import config from '../config/config.js'
 import { roles } from '../config/roles.js'
+import tokenTypes from '../config/tokens.js'
 import { getModelChat, coreLLMPlatform, coreLLMModel } from '../agents/helpers/getModelChat.js'
 import { getChatPromptResponse } from '../agents/helpers/llmChain.js'
 import { password as passwordStrength } from '../validations/custom.validation.js'
@@ -543,6 +552,8 @@ const updatePreferences = async (userId, updateBody) => {
  * log in with one, enforced separately in getUserByUsernamePassword); a configured password
  * is compared against the stored hash and only rehashed/written when it no longer matches,
  * so rotating a system account's password in the environment takes effect on next restart.
+ * A rotated or cleared password also deletes the account's outstanding refresh tokens, so a
+ * credential leak isn't still usable via a token issued before the rotation.
  *
  * systemAccount marks the document as bot/service-owned (vs. a human participant/admin) so
  * other code — user lists, analytics, moderation — can cheaply exclude it. It's set here
@@ -602,6 +613,7 @@ const ensureSystemUsers = async (): Promise<void> => {
     }
 
     let changed = false
+    let passwordChanged = false
 
     if (desiredRole !== (user.role ?? null)) {
       user.role = desiredRole
@@ -612,14 +624,22 @@ const ensureSystemUsers = async (): Promise<void> => {
       if (user.password) {
         user.password = undefined
         changed = true
+        passwordChanged = true
       }
     } else if (!(await bcrypt.compare(password, user.password || ''))) {
       user.password = await hashPassword(password)
       changed = true
+      passwordChanged = true
     }
 
     if (changed) {
       await user.save()
+      // A rotated or cleared password is meant to invalidate the leaked/retired credential
+      // immediately — leaving an already-issued refresh token usable would let it keep
+      // minting new access tokens until it naturally expires, undermining the rotation.
+      if (passwordChanged) {
+        await Token.deleteMany({ user: user._id, type: tokenTypes.REFRESH })
+      }
       logger.info(`Updated system user: ${username}`)
     }
   }

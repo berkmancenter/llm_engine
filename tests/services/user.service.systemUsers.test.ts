@@ -1,6 +1,8 @@
 import setupIntTest from '../utils/setupIntTest.js'
-import { User } from '../../src/models/index.js'
+import { User, Token } from '../../src/models/index.js'
 import userService from '../../src/services/user.service.js'
+import tokenService from '../../src/services/token.service.js'
+import tokenTypes from '../../src/config/tokens.js'
 import config from '../../src/config/config.js'
 import logger from '../../src/config/logger.js'
 
@@ -240,6 +242,43 @@ describe('ensureSystemUsers()', () => {
     const user = await User.findOne({ username: 'test-bot' })
     expect(user!.password).toBeFalsy()
     expect(await userService.getUserByUsernamePassword('test-bot', 'startpass1')).toBeNull()
+  })
+
+  it('deletes outstanding refresh tokens when a password is rotated', async () => {
+    config.systemUsers = [{ username: 'test-bot', password: 'startpass1' }]
+    await userService.ensureSystemUsers()
+    const user = (await User.findOne({ username: 'test-bot' }))!
+    await tokenService.generateAuthTokens(user)
+    expect(await Token.countDocuments({ user: user._id, type: tokenTypes.REFRESH })).toBe(1)
+
+    config.systemUsers = [{ username: 'test-bot', password: 'rotatedpass1' }]
+    await userService.ensureSystemUsers()
+
+    expect(await Token.countDocuments({ user: user._id, type: tokenTypes.REFRESH })).toBe(0)
+  })
+
+  it('deletes outstanding refresh tokens when a password is cleared', async () => {
+    config.systemUsers = [{ username: 'test-bot', password: 'startpass1' }]
+    await userService.ensureSystemUsers()
+    const user = (await User.findOne({ username: 'test-bot' }))!
+    await tokenService.generateAuthTokens(user)
+
+    config.systemUsers = [{ username: 'test-bot' }]
+    await userService.ensureSystemUsers()
+
+    expect(await Token.countDocuments({ user: user._id, type: tokenTypes.REFRESH })).toBe(0)
+  })
+
+  it('leaves outstanding refresh tokens alone when only the role changes', async () => {
+    config.systemUsers = [{ username: 'test-bot', password: 'startpass1' }]
+    await userService.ensureSystemUsers()
+    const user = (await User.findOne({ username: 'test-bot' }))!
+    await tokenService.generateAuthTokens(user)
+
+    config.systemUsers = [{ username: 'test-bot', role: 'admin', password: 'startpass1' }]
+    await userService.ensureSystemUsers()
+
+    expect(await Token.countDocuments({ user: user._id, type: tokenTypes.REFRESH })).toBe(1)
   })
 
   it('refuses to sync a username collision onto a pre-existing non-system account', async () => {
