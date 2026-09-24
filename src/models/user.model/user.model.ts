@@ -45,6 +45,12 @@ const userSchema = new mongoose.Schema<IUser, UserModel>(
       default: 'participant',
       index: true
     },
+    // Set only by ensureSystemUsers, never client-writable
+    systemAccount: {
+      type: Boolean,
+      default: false,
+      index: true
+    },
     goodReputation: {
       type: Boolean,
       index: true

@@ -79,8 +79,11 @@ export interface IUserPreferences {
 
 export interface IUser {
   goodReputation?: boolean
-  role?: string
-  password: string
+  // null (distinct from undefined) is a deliberate "no role" value — see ensureSystemUsers,
+  // which relies on it to bypass the schema's 'participant' default.
+  role?: string | null
+  systemAccount?: boolean
+  password?: string
   email?: string
   username: string
   dataExportOptOut?: boolean

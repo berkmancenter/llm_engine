@@ -6,6 +6,50 @@ import { availableParallelism } from 'node:os'
 const env = '.env'
 dotenv.config({ path: `${process.cwd()}/${env}` })
 
+/**
+ * Parses the SYSTEM_USERS env var (username[:role[:password]], semicolon-separated) into
+ * plain {username, role?, password?} entries. Purely structural — password strength is
+ * enforced downstream, in ensureSystemUsers, where the rest of the system-user business
+ * rules live.
+ *
+ * Splits only on the first two colons — entry.split(':') would otherwise silently truncate
+ * a password containing a colon (e.g. "name:role:pass:word" would drop ":word").
+ *
+ * Entries are semicolon-separated, not comma-separated, specifically so a password can
+ * contain a comma without being mistaken for an entry boundary — a comma-separated password
+ * like "pa,ss1234" would otherwise silently split into two bogus entries.
+ *
+ * Exported so parsing can be unit-tested directly (see tests/unit/config/parseSystemUsersEnv.test.ts).
+ */
+export const parseSystemUsersEnv = (raw: string) =>
+  raw
+    .split(';')
+    .map((entry: string) => entry.trim())
+    .filter((entry: string) => entry.length > 0)
+    .map((entry: string) => {
+      const firstColon = entry.indexOf(':')
+      let username = entry
+      let role: string | undefined
+      let password: string | undefined
+      if (firstColon !== -1) {
+        username = entry.slice(0, firstColon)
+        const rest = entry.slice(firstColon + 1)
+        const secondColon = rest.indexOf(':')
+        if (secondColon !== -1) {
+          role = rest.slice(0, secondColon)
+          password = rest.slice(secondColon + 1)
+        } else {
+          role = rest
+        }
+      }
+
+      return {
+        username,
+        ...(role && { role }),
+        ...(password && { password })
+      }
+    })
+
 const envVarsSchema = Joi.object()
   .keys({
     NODE_ENV: Joi.string().valid('production', 'development', 'test').required(),
@@ -181,8 +225,14 @@ const envVarsSchema = Joi.object()
       .default(30)
       .description('Minutes after scheduledEndTime to auto-stop a conversation'),
     SYSTEM_USERS: Joi.string()
-      .default('event-setup-bot:serviceAccount')
-      .description('Comma-separated list of system accounts to create on startup, in username:role format'),
+      .default('')
+      .allow('')
+      .description(
+        'Semicolon-separated list of system accounts to create on startup, in username[:role[:password]] ' +
+          'format. Role and password are both optional — leave role blank (e.g. "name::secret") to set a ' +
+          'password with no role. A semicolon (not a comma) separates entries, so passwords may safely ' +
+          'contain commas. Empty by default — no system accounts are created unless you configure some.'
+      ),
     ALLOWED_ORGANIZER_EMAIL_DOMAINS: Joi.string().description(
       'Comma-separated email domains whose senders, if they have no account yet, get a "please sign up" reply to an inbound email, calendar invite or plain on-demand email alike. A message from any other domain is rejected: no event, no reply. Unset means none, so every inbound email is silently dropped on both paths.'
     ),
@@ -351,10 +401,7 @@ const config = {
     autoStartLeadTimeMs: envVars.CONVERSATION_AUTO_START_LEAD_TIME_MINUTES * 60 * 1000,
     autoStopDelayMs: envVars.CONVERSATION_AUTO_STOP_DELAY_MINUTES * 60 * 1000
   },
-  systemUsers: envVars.SYSTEM_USERS.split(',').map((entry: string) => {
-    const [username, role] = entry.trim().split(':')
-    return { username, role }
-  }),
+  systemUsers: parseSystemUsersEnv(envVars.SYSTEM_USERS),
   allowedOrganizerEmailDomains: (envVars.ALLOWED_ORGANIZER_EMAIL_DOMAINS ?? '')
     .split(',')
     .map((domain: string) => domain.trim().toLowerCase())

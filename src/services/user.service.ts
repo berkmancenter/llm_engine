@@ -1,16 +1,28 @@
 /* eslint-disable no-param-reassign */
 import httpStatus from 'http-status'
+import Joi from 'joi'
 import crypto from 'crypto'
 import { uniqueNamesGenerator } from 'unique-names-generator'
 import bcrypt from 'bcryptjs'
 import { uid } from 'uid'
-import { User, Message, RealNameAudit, RealNameRegistry, ConversationMembership, Conversation } from '../models/index.js'
+import {
+  User,
+  Token,
+  Message,
+  RealNameAudit,
+  RealNameRegistry,
+  ConversationMembership,
+  Conversation
+} from '../models/index.js'
 import ApiError from '../utils/ApiError.js'
 import { pseudonymAdjectives, pseudonymNouns } from '../config/pseudonym-dictionaries.js'
 import logger from '../config/logger.js'
 import config from '../config/config.js'
+import { roles } from '../config/roles.js'
+import tokenTypes from '../config/tokens.js'
 import { getModelChat, coreLLMPlatform, coreLLMModel } from '../agents/helpers/getModelChat.js'
 import { getChatPromptResponse } from '../agents/helpers/llmChain.js'
+import { password as passwordStrength } from '../validations/custom.validation.js'
 
 const funFactSystemTemplate = `You create short, fun facts about pseudonyms. The pseudonym is in the form "adjective noun". Create a 1 sentence fun fact that is factual about the noun, but can be playful about the adjective part. Makes sure your answers are safe for work.
 Output only the fun fact sentence itself — no headings, labels, pseudonym names, or additional commentary.`
@@ -399,7 +411,10 @@ const getUserById = async (id) => User.findById(id)
  */
 const getUserByUsernamePassword = async (username, password) => {
   const user = await getUserByUsername(username)
-  if (user) {
+  // An account with no password set has no password to match — bcrypt.compare requires a
+  // real hash string and throws on undefined, so this must be checked before calling it,
+  // not just left to fail through: an account without a password can never log in with one.
+  if (user?.password) {
     const match = await bcrypt.compare(password, user.password)
     if (match) return user
   }
@@ -530,19 +545,102 @@ const updatePreferences = async (userId, updateBody) => {
 }
 
 /**
- * Find-or-create all system accounts listed in the SYSTEM_USERS env var.
- * Safe to call on every startup; skips accounts that already exist.
+ * Find-or-create all system accounts listed in the SYSTEM_USERS env var, and keep an
+ * existing account's role and password in sync with config on every restart.
+ *
+ * Password sync: no configured password means the account must not have one (and so can't
+ * log in with one, enforced separately in getUserByUsernamePassword); a configured password
+ * is compared against the stored hash and only rehashed/written when it no longer matches,
+ * so rotating a system account's password in the environment takes effect on next restart.
+ * A rotated or cleared password also deletes the account's outstanding refresh tokens, so a
+ * credential leak isn't still usable via a token issued before the rotation.
+ *
+ * systemAccount marks the document as bot/service-owned (vs. a human participant/admin) so
+ * other code — user lists, analytics, moderation — can cheaply exclude it. It's set here
+ * only; createUser/updateUser never expose it to a client-supplied request body.
  */
 const ensureSystemUsers = async (): Promise<void> => {
-  for (const { username, role } of config.systemUsers) {
+  // Validated in a pass of its own, before any account is touched, so a bad SYSTEM_USERS
+  // entry fails startup loudly and atomically — never leaves some accounts synced and
+  // others not because a later entry in the list turned out to be invalid. Passwords are
+  // real login credentials on the same /v1/auth/login endpoint as everyone else, so hold
+  // them to the same floor human registration/reset enforce (see custom.validation.ts); role
+  // is checked against the same enum the User schema itself validates against, so a typo'd
+  // or stale role fails here with a clean message instead of surfacing later as a raw
+  // Mongoose ValidationError partway through the batch.
+  for (const { username, role, password } of config.systemUsers) {
+    if (role && !roles.includes(role)) {
+      throw new Error(`SYSTEM_USERS: role "${role}" for "${username}" is invalid — must be one of ${roles.join(', ')}`)
+    }
+    if (password) {
+      const { error } = Joi.string().custom(passwordStrength).validate(password)
+      if (error) {
+        throw new Error(`SYSTEM_USERS: password for "${username}" is invalid — ${error.message}`)
+      }
+    }
+  }
+
+  for (const { username, role, password } of config.systemUsers) {
+    // Explicit null (not undefined) for "no role" — Mongoose only applies the schema's
+    // 'participant' default when a path is undefined, so undefined here would silently
+    // re-default a system account that's meant to have no role at all.
+    const desiredRole = role || null
     let user = await User.findOne({ username })
+
     if (!user) {
+      const hash = password ? await hashPassword(password) : undefined
       user = await User.create({
         username,
-        role,
+        role: desiredRole,
+        systemAccount: true,
+        password: hash,
         pseudonyms: [{ token: newToken(), pseudonym: username, active: true }]
       })
-      logger.info(`Created system user: ${username} (${role})`)
+      logger.info(`Created system user: ${username}${desiredRole ? ` (${desiredRole})` : ''}`)
+      continue
+    }
+
+    // Never adopt a pre-existing account this sync didn't create — otherwise a username
+    // collision (typo, or a bot name someone already registered as a human) would silently
+    // overwrite that person's real password/role on the next restart. Refuse and move on;
+    // this is never auto-backfilled (a human-created account never becomes a system one).
+    if (!user.systemAccount) {
+      logger.error(
+        `ensureSystemUsers: "${username}" already exists and is not a system account — refusing to sync its ` +
+          'password/role. Pick a different SYSTEM_USERS username, or investigate the collision.'
+      )
+      continue
+    }
+
+    let changed = false
+    let passwordChanged = false
+
+    if (desiredRole !== (user.role ?? null)) {
+      user.role = desiredRole
+      changed = true
+    }
+
+    if (!password) {
+      if (user.password) {
+        user.password = undefined
+        changed = true
+        passwordChanged = true
+      }
+    } else if (!(await bcrypt.compare(password, user.password || ''))) {
+      user.password = await hashPassword(password)
+      changed = true
+      passwordChanged = true
+    }
+
+    if (changed) {
+      await user.save()
+      // A rotated or cleared password is meant to invalidate the leaked/retired credential
+      // immediately — leaving an already-issued refresh token usable would let it keep
+      // minting new access tokens until it naturally expires, undermining the rotation.
+      if (passwordChanged) {
+        await Token.deleteMany({ user: user._id, type: tokenTypes.REFRESH })
+      }
+      logger.info(`Updated system user: ${username}`)
     }
   }
 }

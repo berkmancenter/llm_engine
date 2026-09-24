@@ -61,15 +61,15 @@ Open source models are also available through [Ollama](https://ollama.com) runni
 
 ## System accounts
 
-LLM Engine creates system accounts for bots and services on startup, driven by the `SYSTEM_USERS` env var. Each entry is a `username:role` pair, comma-separated:
+LLM Engine creates system accounts for bots and services on startup, driven by the `SYSTEM_USERS` env var. Each entry is `username[:role[:password]]`, semicolon-separated (not comma — a password may contain commas) — role and password are both optional:
 
 ```
-SYSTEM_USERS=event-setup-bot:serviceAccount,another-bot:serviceAccount
+SYSTEM_USERS=my-bot;another-bot:admin:s0mepassword
 ```
 
-Out of the box this creates `event-setup-bot` with the `serviceAccount` role, which the event setup agent uses to list and create topics. To add another account, append an entry and restart. The server skips accounts that already exist.
+Empty by default — no system accounts are created unless you configure some. Append an entry and restart to add one. Accounts are kept in sync with this env var on every restart: a role or password change here is picked up, and dropping either here clears it from the account.
 
-Available roles: `user`, `admin`, `serviceAccount`.
+Available roles: `participant`, `admin`. Leave the role segment blank for a system account that doesn't need one.
 
 ## Optional: Retrieval Augmented Generation
 

@@ -139,6 +139,21 @@ describe('User service methods', () => {
       expect(user.role).toBe('participant')
     })
 
+    // systemAccount gates ensureSystemUsers' collision guard (see user.service.ts) — this only
+    // holds if createUser can never be tricked into setting it, regardless of what's in the
+    // request body. Pinned down at this layer, not just the Joi schema, so a future schema
+    // edit can't silently reopen the account-takeover path this guards against.
+    test('should ignore a systemAccount flag supplied by the caller', async () => {
+      const user = await userService.createUser({
+        username: 'testuser4b',
+        token: 'sometoken4b',
+        pseudonym: 'Eager Egret',
+        systemAccount: true
+      })
+
+      expect(user.systemAccount).toBeFalsy()
+    })
+
     test('should generate and store a fun fact for the initial pseudonym', async () => {
       await withFunFactsOn(async () => {
         const user = await userService.createUser({ username: 'u1', token: 't1', pseudonym: 'Bold Aardvark' })
@@ -364,6 +379,43 @@ describe('User service methods', () => {
         const membership = await ConversationMembership.findOne({ conversation: conversation._id, email })
         expect(membership!.userAccount).toBeUndefined()
       })
+    })
+  })
+
+  describe('getUserByUsernamePassword()', () => {
+    test('returns the user when the password matches', async () => {
+      await User.create({
+        username: 'has-password',
+        password: await userService.hashPassword('correcthorse1'),
+        pseudonyms: [{ token: 'tok-pw1', pseudonym: 'has-password', active: true }]
+      })
+
+      const user = await userService.getUserByUsernamePassword('has-password', 'correcthorse1')
+      expect(user).not.toBeNull()
+      expect(user!.username).toBe('has-password')
+    })
+
+    test('returns null when the password does not match', async () => {
+      await User.create({
+        username: 'has-password2',
+        password: await userService.hashPassword('correcthorse1'),
+        pseudonyms: [{ token: 'tok-pw2', pseudonym: 'has-password2', active: true }]
+      })
+
+      const user = await userService.getUserByUsernamePassword('has-password2', 'wrongpassword1')
+      expect(user).toBeNull()
+    })
+
+    // An account with no password set at all must not be able to log in with any password —
+    // bcrypt.compare requires a real hash string and throws on undefined, so this also
+    // guards against that call ever being reached with one.
+    test('returns null (not a thrown error) when the account has no password set', async () => {
+      await User.create({
+        username: 'no-password',
+        pseudonyms: [{ token: 'tok-nopw', pseudonym: 'no-password', active: true }]
+      })
+
+      await expect(userService.getUserByUsernamePassword('no-password', 'anything1')).resolves.toBeNull()
     })
   })
 
