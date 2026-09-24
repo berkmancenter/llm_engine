@@ -812,11 +812,11 @@
 <li>When creating a Conversation with an Agent, specify <code>llmPlatform</code> to be <code>ollama</code> and <code>llmModel</code> to be an available <a href="https://ollama.com/search">open source model supported by ollama</a>.</li>
 </ol>
 <h2 id="system-accounts">System accounts</h2>
-<p>LLM Engine creates system accounts for bots and services on startup, driven by the <code>SYSTEM_USERS</code> env var. Each entry is a <code>username:role</code> pair, comma-separated:</p>
-<div class="highlight"><pre><span></span><code>SYSTEM_USERS=event-setup-bot:serviceAccount,another-bot:serviceAccount
+<p>LLM Engine creates system accounts for bots and services on startup, driven by the <code>SYSTEM_USERS</code> env var. Each entry is <code>username[:role[:password]]</code>, semicolon-separated (not comma — a password may contain commas) — role and password are both optional:</p>
+<div class="highlight"><pre><span></span><code>SYSTEM_USERS=my-bot;another-bot:admin:s0mepassword
 </code></pre></div>
-<p>Out of the box this creates <code>event-setup-bot</code> with the <code>serviceAccount</code> role, which the event setup agent uses to list and create topics. To add another account, append an entry and restart. The server skips accounts that already exist.</p>
-<p>Available roles: <code>user</code>, <code>admin</code>, <code>serviceAccount</code>.</p>
+<p>Empty by default — no system accounts are created unless you configure some. Append an entry and restart to add one. Accounts are kept in sync with this env var on every restart: a role or password change here is picked up, and dropping either here clears it from the account.</p>
+<p>Available roles: <code>participant</code>, <code>admin</code>. Leave the role segment blank for a system account that doesn't need one.</p>
 <h2 id="optional-retrieval-augmented-generation">Optional: Retrieval Augmented Generation</h2>
 <p>If you would like to make use of Retrieval Augmented Generation (RAG) see our <a href="rag/">rag guide</a>.</p>
 <h2 id="optional-nextspace-integration">Optional: NextSpace integration</h2>
