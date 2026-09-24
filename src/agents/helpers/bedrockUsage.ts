@@ -11,24 +11,44 @@ import type { AIMessage } from '@langchain/core/messages'
 interface AnthropicUsage {
   input_tokens?: number
   output_tokens?: number
+  cache_creation_input_tokens?: number
+  cache_read_input_tokens?: number
 }
 
 /**
  * Copies the Anthropic usage block from each generation's generationInfo onto the
  * message's usage_metadata when missing, so LangSmith extracts token counts. An
  * already-set usage_metadata is trusted and left alone.
+ *
+ * Also surfaces cache_creation_input_tokens/cache_read_input_tokens (absent from
+ * every call today since nothing sets cache_control yet — see the prompt-caching
+ * investigation, docs/investigations/prompt-caching-bedrock.md) onto the standard
+ * LangChain input_token_details.cache_creation/cache_read fields, so cache activity
+ * is visible once caching is enabled without another round of this same bug.
  */
 export function attachUsageMetadata(result: ChatResult): ChatResult {
   for (const generation of result.generations ?? []) {
     const usage = (generation.generationInfo as { usage?: AnthropicUsage } | undefined)?.usage
     const message = generation.message as AIMessage | undefined
     if (!usage || !message || message.usage_metadata) continue
-    const inputTokens = usage.input_tokens ?? 0
     const outputTokens = usage.output_tokens ?? 0
+    const cacheRead = usage.cache_read_input_tokens
+    const cacheCreation = usage.cache_creation_input_tokens
+    // Anthropic's input_tokens excludes cache_read/cache_creation_input_tokens — they're
+    // separate, non-overlapping counters. LangChain's UsageMetadata.input_tokens is
+    // documented as "sum of all input token types", so fold the cache counters in here;
+    // input_token_details below is just an (optional) breakdown of that total.
+    const inputTokens = (usage.input_tokens ?? 0) + (cacheRead ?? 0) + (cacheCreation ?? 0)
     message.usage_metadata = {
       input_tokens: inputTokens,
       output_tokens: outputTokens,
-      total_tokens: inputTokens + outputTokens
+      total_tokens: inputTokens + outputTokens,
+      ...((cacheRead || cacheCreation) && {
+        input_token_details: {
+          ...(cacheRead ? { cache_read: cacheRead } : {}),
+          ...(cacheCreation ? { cache_creation: cacheCreation } : {})
+        }
+      })
     }
   }
   return result

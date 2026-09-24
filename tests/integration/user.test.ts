@@ -16,7 +16,6 @@ import {
 import { insertMessages, messageOne } from '../fixtures/message.fixture.js'
 import userService from '../../src/services/user.service.js'
 import config from '../../src/config/config.js'
-import jestAgentConfig from '../../jest.agent.config.js'
 
 const createPseudo = () => ({
   _id: new mongoose.Types.ObjectId(),
@@ -77,15 +76,6 @@ describe('User routes', () => {
       await insertUsers([admin, participant])
 
       await promote(participant._id, adminAccessToken, 'superuser').expect(httpStatus.BAD_REQUEST)
-
-      const unchanged = await User.findById(participant._id)
-      expect(unchanged!.role).toBe('participant')
-    })
-
-    test('should return 400 for serviceAccount, which is provisioned from SYSTEM_USERS instead', async () => {
-      await insertUsers([admin, participant])
-
-      await promote(participant._id, adminAccessToken, 'serviceAccount').expect(httpStatus.BAD_REQUEST)
 
       const unchanged = await User.findById(participant._id)
       expect(unchanged!.role).toBe('participant')
@@ -274,6 +264,20 @@ describe('User routes', () => {
       expect(user!.username).toEqual(username)
       const match = await bcrypt.compare(password, user!.password)
       expect(match).toBe(true)
+    })
+
+    // systemAccount gates ensureSystemUsers' collision guard (see user.service.ts) — it must
+    // never be settable through this endpoint, regardless of who's calling it or what the
+    // request body carries.
+    test('should reject a systemAccount flag in the update body, leaving the account untouched', async () => {
+      await request(app)
+        .put('/v1/users')
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({ userId: registeredUser._id, systemAccount: true })
+        .expect(httpStatus.BAD_REQUEST)
+
+      const user = await User.findById(registeredUser._id)
+      expect(user!.systemAccount).toBeFalsy()
     })
 
     // The body carries the target userId, so without an admin gate this resets anyone's password.

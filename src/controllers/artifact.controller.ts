@@ -33,7 +33,7 @@ const listArtifacts = catchAsync(async (req, res) => {
    with nothing to show, not an error, so it answers 200 with a reason. */
 const generateConceptGraph = catchAsync(async (req, res) => {
   const result = req.body.topicId
-    ? await conceptGraphService.refineTopicGraph(req.body.topicId, req.user)
+    ? await conceptGraphService.refineTopicGraph(req.body.topicId, req.user, undefined, { reset: req.body.reset })
     : await conceptGraphService.generateConceptGraph(req.body.conversationId, req.user)
   if (!result) {
     res.status(httpStatus.OK).send({ generated: false, reason: 'Not enough of the record to map' })

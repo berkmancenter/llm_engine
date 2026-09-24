@@ -154,6 +154,7 @@ export async function doStartConversation(conversation) {
     adapter.conversation = doc
     await adapterService.start(adapter)
   }
+  await websocketGateway.broadcastConversationStarted(doc)
   return doc
 }
 
@@ -285,6 +286,7 @@ export async function doStopConversation(conversation) {
     await schedule.conversationCost({ conversationId: doc._id.toString(), topicIsPrivate })
   }
 
+  await websocketGateway.broadcastConversationStopped(doc)
   return doc
 }
 

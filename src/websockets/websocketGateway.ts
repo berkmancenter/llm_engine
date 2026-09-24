@@ -2,6 +2,7 @@ import { Worker } from 'node:cluster'
 import socketIO from './socketIO.js'
 import logger from '../config/logger.js'
 import { getRoomIds } from './utils.js'
+import serializeMessage from '../utils/serializeMessage.js'
 import { ArtifactVersionNotice } from '../types/index.types.js'
 
 const isSubdocument = (value) => value !== null && typeof value === 'object' && value.constructor === Object
@@ -79,7 +80,7 @@ class WebsocketGateway {
       message.conversation._id.toString(),
       'message:new',
       {
-        ...message.toJSON(),
+        ...serializeMessage(message),
         count: message.count,
         request,
         pause: message.pause
@@ -123,8 +124,20 @@ class WebsocketGateway {
     )
   }
 
+  async broadcastConversationStarted(conversation) {
+    await this.broadcast(conversation._id.toString(), 'conversation:started', {
+      conversationId: conversation._id.toString()
+    })
+  }
+
+  async broadcastConversationStopped(conversation) {
+    await this.broadcast(conversation._id.toString(), 'conversation:stopped', {
+      conversationId: conversation._id.toString()
+    })
+  }
+
   async broadcastConversationAlmostEnding(conversation) {
-    await this.broadcast(conversation._id.toString(), 'conversation:ending', conversation)
+    await this.broadcast(conversation._id.toString(), 'conversation:ending', { conversationId: conversation._id.toString() })
   }
 
   async broadcastResourcesUpdated(conversationId: string, resources) {

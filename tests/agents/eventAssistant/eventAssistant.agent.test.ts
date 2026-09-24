@@ -1771,6 +1771,253 @@ describe(`event assistant CI tests`, () => {
     )
   })
 
+  describe('operator, platform, and capability awareness', () => {
+    /* These tests verify that the agent can accurately answer questions about
+       itself, the platform it runs on, and the operator context it was deployed
+       in — all of which are injected via the system prompt rather than retrieved
+       from the event transcript or RAG. They should never be classified as
+       OFF_TOPIC. */
+
+    describe('capability questions', () => {
+      it(
+        'does not classify a question about its own capabilities as OFF_TOPIC',
+        async () => {
+          const msg = await createQuestion('What can you help me with during this event?')
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 72 * 1000),
+            count: 100,
+            directMessages: true
+          }
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+          expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
+        },
+        testTimeout
+      )
+
+      it(
+        'accurately answers whether it can search the web (no tools configured)',
+        async () => {
+          // Explicitly clear tools — default may include web_search if TAVILY_API_KEY is set
+          agent.agentConfig = { ...agent.agentConfig, tools: [] }
+          const msg = await createQuestion('Can you search the web for me?')
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 72 * 1000),
+            count: 100,
+            directMessages: true
+          }
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+          expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
+          // Without web_search configured, the agent should honestly say it cannot search the web.
+          // Match any phrasing that conveys absence/inability: "isn't", "not in", "can't", "no web search", etc.
+          const text: string = responses[0].message.text.toLowerCase()
+          expect(text).toMatch(/\b(isn'?t|aren'?t|not|no|cannot|can'?t|don'?t|without|unavailable|outside)\b/)
+        },
+        testTimeout
+      )
+
+      it(
+        'accurately answers whether it can search the web when web_search is enabled',
+        async () => {
+          agent.agentConfig = { ...agent.agentConfig, tools: ['web_search'] } // explicit, regardless of default
+          const msg = await createQuestion('Are you able to look things up on the internet?')
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 72 * 1000),
+            count: 100,
+            directMessages: true
+          }
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+          expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
+          const text: string = responses[0].message.text.toLowerCase()
+          expect(text).toMatch(/\b(yes|can|able|search|web|internet|look)\b/)
+        },
+        testTimeout
+      )
+
+      it(
+        'knows about /mindmap capability and does not classify the question as OFF_TOPIC',
+        async () => {
+          // conversation.platforms defaults to no-zoom, so hasMindMap = true
+          const msg = await createQuestion('Can you create a mind map of the topics discussed?')
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 829 * 1000),
+            count: 100,
+            directMessages: true
+          }
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+          expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
+          expect(responses[0].message.text).toContain('/mindmap')
+        },
+        testTimeout
+      )
+
+      it(
+        'knows about /mod capability when moderatorSupport is enabled',
+        async () => {
+          agent.agentConfig = { ...agent.agentConfig, moderatorSupport: true }
+          const msg = await createQuestion('How do I send a question to the moderator?')
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 72 * 1000),
+            count: 100,
+            directMessages: true
+          }
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+          expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
+          expect(responses[0].message.text).toContain('/mod')
+        },
+        testTimeout
+      )
+
+      it(
+        'can accurately state what model it is running on',
+        async () => {
+          const msg = await createQuestion('What AI model are you running on?')
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 72 * 1000),
+            count: 100,
+            directMessages: true
+          }
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+          expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
+          // The agent's llmModel is set from testConfig — it should appear in the response
+          expect(responses[0].message.text.toLowerCase()).toContain(agent.llmModel.toLowerCase())
+        },
+        testTimeout
+      )
+
+      it(
+        'does not proactively mention /mod in a regular event question when moderatorSupport is enabled',
+        async () => {
+          agent.agentConfig = { ...agent.agentConfig, moderatorSupport: true }
+          const msg = await createQuestion('What did Jessica say about the 40-hour work week?')
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 313 * 1000),
+            count: 100,
+            directMessages: true
+          }
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+          // /mod should not appear in answers to regular event questions
+          expect(responses[0].message.text).not.toContain('/mod')
+        },
+        testTimeout
+      )
+    })
+
+    describe('platform context questions', () => {
+      beforeEach(async () => {
+        // Both platforms active — tests that the agent can describe a hybrid event
+        conversation.platforms = ['nextspace', 'zoom']
+        await conversation.save()
+      })
+
+      it(
+        'describes all configured platforms when asked what you can do (hybrid event)',
+        async () => {
+          const msg = await createQuestion('What can I do on this platform?')
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 72 * 1000),
+            count: 100,
+            directMessages: true
+          }
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+          expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
+          // In a hybrid event the agent cannot know which platform the user is on,
+          // so it should mention both NextSpace and Zoom
+          const text: string = responses[0].message.text.toLowerCase()
+          expect(text).toMatch(/nextspace/i)
+          expect(text).toMatch(/zoom/i)
+        },
+        testTimeout
+      )
+
+      it(
+        'uses correct platform name even when transcript misspells it',
+        async () => {
+          // Simulate a common transcription error where the platform name is garbled
+          const misspelledTranscript = `00:00 | Moderator: Welcome to NextBase, our AI-facilitated event platform.
+00:10 | Moderator: You can ask NextBase questions privately during the session.
+00:20 | Moderator: NextBase will help you follow along and engage with the content.`
+          await loadTestTranscript(conversation, misspelledTranscript, false)
+
+          const msg = await createQuestion('What platform is this event running on?')
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 72 * 1000),
+            count: 100,
+            directMessages: true
+          }
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+          expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
+          // Platform description in system prompt anchors the correct spelling
+          expect(responses[0].message.text).toMatch(/nextspace/i)
+          expect(responses[0].message.text).not.toMatch(/nextbase/i)
+        },
+        testTimeout
+      )
+    })
+
+    describe('operator context questions', () => {
+      const hasOperatorContext = Boolean(config.operatorContext)
+
+      ;(hasOperatorContext ? it : it.skip)(
+        'can answer questions about who built or operates this platform',
+        async () => {
+          const msg = await createQuestion('Who made this platform?')
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 72 * 1000),
+            count: 100,
+            directMessages: true
+          }
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+          expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
+        },
+        testTimeout
+      )
+      ;(hasOperatorContext ? it : it.skip)(
+        'can accurately say whether conversation data is used to train AI models',
+        async () => {
+          const msg = await createQuestion('Is my conversation used to train AI models?')
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 72 * 1000),
+            count: 100,
+            directMessages: true
+          }
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+          expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
+          const text: string = responses[0].message.text.toLowerCase()
+          expect(text).toMatch(/\b(no|not|never|don'?t|does not|won'?t)\b/)
+        },
+        testTimeout
+      )
+      ;(hasOperatorContext ? it : it.skip)(
+        'can explain that messages in this chat are private and pseudonymized',
+        async () => {
+          const msg = await createQuestion('Can other participants see what I am asking you here?')
+          agent.conversationHistorySettings = {
+            endTime: new Date(startTime.getTime() + 72 * 1000),
+            count: 100,
+            directMessages: true
+          }
+          const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
+          await validateResponse(responses)
+          expect(responses[0].classification).toBe(QuestionClassification.ON_TOPIC_ANSWER)
+          const text: string = responses[0].message.text.toLowerCase()
+          expect(text).toMatch(/\b(private|pseudonym|anonymous|no one|only you|not visible)\b/)
+        },
+        testTimeout
+      )
+    })
+  })
+
   describe('conversation thread continuation (classification)', () => {
     const aliensTranscriptThread = `00:00 | Speaker: Today we're discussing aliens and how alien sightings are tracked and reported.
 00:05 | Speaker: We talked about the idea of counting sightings per year.`

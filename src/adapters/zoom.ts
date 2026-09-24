@@ -288,6 +288,8 @@ async function receiveChatMessage(data) {
 export default {
   name: 'zoom',
   label: 'Zoom',
+  description:
+    'This conversation is taking place in a Zoom meeting. Participants join by video and audio. The assistant is present via a meeting bot that transcribes speech in real time and can interact via Zoom chat.',
   /* Maps conversation property keys to the adapter config keys they should write.
      The conversation service reads this at update time to push changed properties
      to adapter documents without needing to know which keys each adapter type cares about. */
@@ -307,7 +309,7 @@ export default {
     if (message.bodyType === 'json') {
       const body = typeof message.body === 'string' ? JSON.parse(message.body) : message.body
       if (body?.type === 'poll') {
-        // Polls not supported in Zoom. Send a link to Nextspace if this is a hybrid event and Nextspace is configured
+        // Polls not supported in Zoom. Send a link to NextSpace if this is a hybrid event and NextSpace is configured
         if (!this.conversation.platforms?.includes('nextspace')) {
           logger.info(`Poll message not sent to Zoom: conversation does not have nextspace platform`)
           return
@@ -329,7 +331,7 @@ export default {
         messageBody = `🗳️ ${body.title}\n${body.text}\n${pollUrl}`
       }
     } else {
-      // in hybrid envs, need to show message as from participants in the Nextspace group chat, instead of from bot, to avoid confusion
+      // in hybrid envs, need to show message as from participants in the NextSpace group chat, instead of from bot, to avoid confusion
       const emoji = message.fromAgent ? '🤖' : '👤'
       const pseudonym = message.fromAgent ? '' : `${message.pseudonym}: `
       messageBody = channelConfig?.to ? message.body : `${emoji} ${pseudonym}${message.body}`

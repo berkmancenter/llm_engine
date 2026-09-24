@@ -1,4 +1,5 @@
 import slugify from 'slugify'
+import logger from '../../config/logger.js'
 import {
   ConceptGraphPayload,
   GraphConcept,
@@ -29,7 +30,16 @@ import { checkStatement, StatementCheckInput } from './quoteSafety.js'
 
 /* What the model returns, before ids exist. Mirrors EXTRACTION_SCHEMA in prompt.ts. */
 export interface ExtractionResult {
-  concepts: { label: string; gloss?: string; sourceRefs?: string[]; provenance?: GraphNodeProvenance }[]
+  concepts: {
+    label: string
+    gloss?: string
+    // Carried over from a stored graph so a concept folded in an earlier version stays
+    // folded — the model never produces this, the same way it never produces a contribution's
+    // carried `id` below.
+    foldedFrom?: string[]
+    sourceRefs?: string[]
+    provenance?: GraphNodeProvenance
+  }[]
   contributions: {
     // Carried over from a stored graph so a surviving claim keeps its id.
     id?: string
@@ -62,7 +72,17 @@ export interface AssemblyReport {
   droppedContributions: number
   droppedStatements: number
   droppedOriginPrompts: number
+  /* A gloss that failed the quoting/attribution check, costing that sentence rather than the
+     concept it describes — the same "drop the smallest thing" rule statements already get. */
+  droppedGlosses: number
   mergedConcepts: number
+  /* Distinct from mergedConcepts: a merge means two labels always named the same idea: the
+     duplicate carries nothing an id vanishing doesn't already say. A fold means a genuinely
+     distinct idea was consolidated into a related one because the graph outgrew CONCEPT_CAP
+     (see topicGraph.ts) — a reader needs to be able to tell "recognised as identical" apart
+     from "consolidated for space," which is what this counts and GraphConcept.foldedFrom
+     records. */
+  foldedConcepts: number
 }
 
 /* Case and punctuation folded away, so "Trust Registry", "trust registry" and "trust
@@ -129,12 +149,22 @@ const carriedId = (id: string | undefined, taken: Set<string>) => {
  * calling the same idea "trust registry" and "credential registry" fold to different keys,
  * and only a reader who understands both can say they are one concept. Each group's first
  * entry is the label the merged node keeps.
+ *
+ * `foldedGroups` is shaped the same way — each group's first entry is the label the surviving
+ * node keeps — but means something different: a fold is proposed by consolidate.ts when the
+ * graph has grown past CONCEPT_CAP, and its members are genuinely distinct ideas, not
+ * synonyms. Unlike an alias, a fold is applied order-independently regardless of which member
+ * of the group this call happens to encounter first in `results`: the survivor's own entry is
+ * always what the merged node's gloss and provenance come from, and every other member's
+ * label and gloss are recorded onto it (GraphConcept.foldedFrom / an appended gloss) rather
+ * than silently discarded the way an ordinary alias's losing spelling is.
  */
 export interface AssemblyOptions {
   conversationId?: string
   sourceRefs?: SourceRefMap
   pollRefs?: PollRefMap
   aliases?: string[][]
+  foldedGroups?: string[][]
 }
 
 /**
@@ -161,14 +191,22 @@ export const aliasedKey = (label: string, aliases: string[][] = []): string => {
 export const assembleGraph = (
   results: ExtractionResult[],
   safety: StatementCheckInput,
-  { conversationId, sourceRefs = new Map(), pollRefs = new Map(), aliases = [] }: AssemblyOptions = {}
+  {
+    conversationId,
+    sourceRefs = new Map(),
+    pollRefs = new Map(),
+    aliases = [],
+    foldedGroups = []
+  }: AssemblyOptions = {}
 ): { payload: ConceptGraphPayload; report: AssemblyReport } => {
   const report: AssemblyReport = {
     droppedConcepts: 0,
     droppedContributions: 0,
     droppedStatements: 0,
     droppedOriginPrompts: 0,
-    mergedConcepts: 0
+    droppedGlosses: 0,
+    mergedConcepts: 0,
+    foldedConcepts: 0
   }
   const takenIds = new Set<string>()
 
@@ -189,10 +227,48 @@ export const assembleGraph = (
       if (alias !== leader) aliasTo.set(alias, leader)
     }
   }
-  const keyFor = (label: string) => {
+  /* An alias key: what canonical folding plus alias resolution alone would call this label,
+     before any fold is applied. Folds are proposed over already-alias-resolved labels, so
+     this is the space `foldedGroups` groups its members in. */
+  const aliasKeyFor = (label: string) => {
     const key = canonical(label)
     return aliasTo.get(key) ?? key
   }
+
+  /* Same shape as aliasTo/leaderLabel, kept separate rather than merged into them: `foldTo`
+     answers a different question ("was this label folded away for space?") that the concepts
+     loop below needs to ask independently of ordinary alias resolution — see foldedLabel. */
+  const foldTo = new Map<string, string>()
+  const foldLeaderLabel = new Map<string, string>()
+  for (const group of foldedGroups) {
+    const display = group.find((label) => aliasKeyFor(label))
+    if (!display) continue
+    const leader = aliasKeyFor(display)
+    foldLeaderLabel.set(leader, display)
+    for (const member of group.map(aliasKeyFor).filter(Boolean)) {
+      if (member === leader) continue
+      const existing = foldTo.get(member)
+      if (existing && existing !== leader) {
+        /* Two different fold groups both claim this label — first group wins, matching the
+           "first entry / first seen" convention used elsewhere in this file, rather than
+           letting the later group silently overwrite the mapping. */
+        logger.warn(
+          `conceptGraph: fold conflict for "${member}" — already folding into "${existing}", ` +
+            `ignoring the later group's claim to fold it into "${leader}"`
+        )
+        continue
+      }
+      foldTo.set(member, leader)
+    }
+  }
+  const keyFor = (label: string) => {
+    const aliasKey = aliasKeyFor(label)
+    return foldTo.get(aliasKey) ?? aliasKey
+  }
+  /* Whether this label's alias-resolved key is itself being folded away — i.e. this entry is
+     a fold's member, never its survivor, regardless of which one the concepts loop happens to
+     reach first. */
+  const isFoldedAway = (label: string) => foldTo.has(aliasKeyFor(label))
 
   /* Provenance is the conversation plus, where the model cited one, the message. Only the
      first citation is kept: the field holds one message, and the first is the one the node
@@ -256,15 +332,97 @@ export const assembleGraph = (
   }
 
   /* Concepts, merged by canonical label. The first spelling seen wins as the display
-     label, so an early chunk's phrasing stays stable as later chunks repeat the idea. */
+     label, so an early chunk's phrasing stays stable as later chunks repeat the idea.
+
+     A folded-away member is the exception: it never claims a slot's identity even if it is
+     the first entry this loop reaches for its key, because "first seen wins" is the wrong
+     rule for it specifically — the survivor's own gloss and provenance must win regardless of
+     processing order, since `results` here can be a single flattened extraction (see
+     payloadToExtraction) with no guarantee the survivor's own entry precedes its members'.
+     Every folded-away entry is queued in `pendingFolds` instead, and applied once the whole
+     loop has run and every slot's real survivor is known to exist. */
   const conceptIdByLabel = new Map<string, string>()
   const concepts: GraphConcept[] = []
+  const conceptById = new Map<string, GraphConcept>()
+  const pendingFolds = new Map<string, { label: string; gloss?: string }[]>()
+  /* Keys whose node so far exists only as a placeholder created by a folded-away member that
+     happened to be processed before its own survivor — see isFoldedAway below. Removed the
+     moment the survivor's real entry arrives and claims it. */
+  const placeholderKeys = new Set<string>()
+
+  const safeGloss = (gloss: string | undefined): string | undefined => {
+    const trimmed = gloss?.trim()
+    if (!trimmed) return undefined
+    if (checkStatement(trimmed, safety).length > 0) {
+      report.droppedGlosses += 1
+      return undefined
+    }
+    return trimmed
+  }
+
   for (const concept of results.flatMap((r) => r.concepts ?? [])) {
     const label = concept.label?.trim()
     if (!label) continue
     const key = keyFor(label)
     if (!key) continue
+
+    if (isFoldedAway(label)) {
+      /* A label naming a person cannot be made safe by trimming part of it, the same rule the
+         ordinary concept path below applies. This has to run once per member, before anything
+         is queued into pendingFolds, regardless of whether this member happens to be the one
+         creating the placeholder — otherwise an unsafe label skips the check entirely whenever
+         a placeholder already exists (the survivor already resolved, or an earlier member
+         already created one), and still ends up applied to survivor.foldedFrom below. */
+      if (checkStatement(label, safety).length > 0) {
+        report.droppedConcepts += 1
+        continue
+      }
+      if (!pendingFolds.has(key)) pendingFolds.set(key, [])
+      pendingFolds.get(key)!.push({ label, gloss: concept.gloss })
+      report.foldedConcepts += 1
+      if (!conceptIdByLabel.has(key)) {
+        /* No survivor slot yet — create a placeholder so contributions can still resolve
+           against it. In the ordinary case the survivor's own entry appears somewhere else in
+           `results` and fills this in properly below; if it never does (the survivor was
+           itself dropped, or this call was never handed it), this placeholder — labelled with
+           the fold's own designated survivor label — is what's left, which is a reasonable
+           fallback rather than a dangling reference. */
+        const id = idFor('c', key, takenIds)
+        conceptIdByLabel.set(key, id)
+        placeholderKeys.add(key)
+        const node: GraphConcept = {
+          id,
+          label: foldLeaderLabel.get(key) ?? leaderLabel.get(key) ?? label,
+          ...provenanceFor(concept.sourceRefs, concept.provenance)
+        }
+        concepts.push(node)
+        conceptById.set(id, node)
+      }
+      continue
+    }
+
     if (conceptIdByLabel.has(key)) {
+      if (placeholderKeys.has(key)) {
+        /* This is the survivor's own entry, arriving after a member folded into it was
+           already processed and left a placeholder — claim the slot properly rather than
+           treating this as a discardable duplicate, which would silently drop the survivor's
+           own gloss and provenance in favour of whichever member happened to come first. */
+        placeholderKeys.delete(key)
+        const node = conceptById.get(conceptIdByLabel.get(key)!)!
+        const gloss = safeGloss(concept.gloss)
+        if (gloss) node.gloss = gloss
+        Object.assign(node, provenanceFor(concept.sourceRefs, concept.provenance))
+        /* Carry the survivor's own fold history (from an earlier version of this graph) onto
+           the node too — lost otherwise, since only gloss/provenance were copied above. Merge
+           rather than overwrite: pendingFolds may already have queued this session's own
+           members onto this key by the time this runs. */
+        if (concept.foldedFrom?.length) {
+          node.foldedFrom = node.foldedFrom ?? []
+          for (const foldedLabel of concept.foldedFrom)
+            if (!node.foldedFrom.includes(foldedLabel)) node.foldedFrom.push(foldedLabel)
+        }
+        continue
+      }
       report.mergedConcepts += 1
       continue
     }
@@ -276,7 +434,34 @@ export const assembleGraph = (
     }
     const id = idFor('c', key, takenIds)
     conceptIdByLabel.set(key, id)
-    concepts.push({ id, label: leaderLabel.get(key) ?? label, ...provenanceFor(concept.sourceRefs, concept.provenance) })
+    const gloss = safeGloss(concept.gloss)
+    const node: GraphConcept = {
+      id,
+      label: leaderLabel.get(key) ?? label,
+      ...(gloss && { gloss }),
+      ...(concept.foldedFrom?.length && { foldedFrom: [...concept.foldedFrom] }),
+      ...provenanceFor(concept.sourceRefs, concept.provenance)
+    }
+    concepts.push(node)
+    conceptById.set(id, node)
+  }
+
+  /* Apply every deferred fold onto whatever node actually ended up at each key — see the loop
+     above for why this has to wait until here. */
+  for (const [key, members] of pendingFolds) {
+    const id = conceptIdByLabel.get(key)
+    const survivor = id ? conceptById.get(id) : undefined
+    if (!survivor) continue
+    const seenGlosses = new Set(survivor.gloss ? [survivor.gloss] : [])
+    for (const member of members) {
+      survivor.foldedFrom = survivor.foldedFrom ?? []
+      if (!survivor.foldedFrom.includes(member.label)) survivor.foldedFrom.push(member.label)
+      const gloss = safeGloss(member.gloss)
+      if (gloss && !seenGlosses.has(gloss)) {
+        seenGlosses.add(gloss)
+        survivor.gloss = survivor.gloss ? `${survivor.gloss} ${gloss}` : gloss
+      }
+    }
   }
 
   /* Contributions last, once every id they could reference exists. */
@@ -304,7 +489,20 @@ export const assembleGraph = (
     const addedIds = [...extended]
       .map((key) => conceptIdByLabel.get(key))
       .filter((id): id is string => !!id && !originalIds.includes(id))
-    const conceptIds = [...originalIds, ...addedIds]
+    /* Deduped: two of this contribution's own labels can resolve to the same id once a fold
+       (or, in principle, an alias) collapses them onto one concept — most plausibly when the
+       contribution already joined the very two concepts a fold pass just decided belong
+       together. A contribution that only ever named one concept is a meaningful intermediate
+       state (see the CONTRIBUTION schema's `concepts` comment in artifact.model/registry.ts)
+       and is kept; it is only a fold collapsing what were originally two-or-more distinct
+       endpoints down to one that is genuinely degenerate — a claim about nothing but
+       itself — and dropped below. */
+    const rawIds = [...originalIds, ...addedIds]
+    const conceptIds = [...new Set(rawIds)]
+    if (conceptIds.length === 0 || (rawIds.length > 1 && conceptIds.length < 2)) {
+      report.droppedContributions += 1
+      continue
+    }
 
     /* One relationship of the same kind over the same set of concepts is one edge, however
        many chunks mentioned it. */

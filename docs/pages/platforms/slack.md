@@ -80,28 +80,27 @@ Example conversation body:
 
 6. Post a message to the Slack Channel. Any agents configured on the `Conversation` should receive and send messages on their typical channels.
 
-### Event Setup bot (Slack → Nextspace handoff)
+### Event Setup bot (Slack → NextSpace handoff)
 
-The `eventSetup` agent lets an organizer kick off a new Nextspace event from Slack. When the organizer mentions the bot or posts a setup-intent message (e.g. "create an event") in a designated Slack channel, the bot replies with a link to the Nextspace event-creation form. The link carries a signed handoff token (JWT) so the form knows which Slack user, team, channel, and thread the request came from. The form lives in Nextspace; this server only mints and verifies the token and runs the planner endpoint the form calls.
+The `eventSetup` agent lets an organizer kick off a new NextSpace event from Slack. When the organizer mentions the bot or posts a setup-intent message (e.g. "create an event") in a designated Slack channel, the bot replies with a link to the NextSpace event-creation form. The link carries a signed handoff token (JWT) so the form knows which Slack user, team, channel, and thread the request came from. The form lives in NextSpace; this server only mints and verifies the token and runs the planner endpoint the form calls.
 
 A note on channel naming, because there are two different things both called "channel":
 
 - The **Slack channel** is the actual channel in your Slack workspace where organizers post setup requests. You can name your channel anything.
-- The **Nextspace channel role** is an internal label this codebase uses to describe what a channel is for. The `eventSetup` agent listens on a role literally named `setup`. Other agents listen on roles like `transcript` or `chat`. Operators do not need to rename these roles. They are part of the agent's contract, the same way every other agent in the codebase declares the role it serves.
+- The **NextSpace channel role** is an internal label this codebase uses to describe what a channel is for. The `eventSetup` agent listens on a role literally named `setup`. Other agents listen on roles like `transcript` or `chat`. Operators do not need to rename these roles. They are part of the agent's contract, the same way every other agent in the codebase declares the role it serves.
 
 The Slack adapter bridges the two. In the Conversation you create below, `adapters[0].config.channel` says which Slack channel ID you want, and `adapters[0].chatChannels` maps that Slack channel into the `setup` role the agent listens on. So renaming your Slack channel never requires a code change, only an update to the Conversation config.
 
 #### Environment variables
 
-These are all that's needed for the event setup bot. No separate URL templates, calendar deeplink, or display timezone settings are needed. Those concerns moved to the Nextspace frontend.
+These are all that's needed for the event setup bot. No separate URL templates, calendar deeplink, or display timezone settings are needed. Those concerns moved to the NextSpace frontend.
 
 | Variable                           | Required        | Purpose                                                                                                                                                                                                                                                                       |
 | ---------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `APP_HOST`                         | yes             | Public URL of the Nextspace frontend. The bot builds the handoff link as `${APP_HOST}/events/new#token=...`. The token is placed in the URL fragment (after `#`) so browsers never send it to the Nextspace server, keeping it out of server access logs and Referer headers. |
+| `APP_HOST`                         | yes             | Public URL of the NextSpace frontend. The bot builds the handoff link as `${APP_HOST}/events/new#token=...`. The token is placed in the URL fragment (after `#`) so browsers never send it to the NextSpace server, keeping it out of server access logs and Referer headers. |
 | `JWT_SECRET`                       | yes             | Signs and verifies the handoff token. Must match between the Slack bot's process and any process that verifies the token (this same llm_engine instance).                                                                                                                     |
 | `HANDOFF_TOKEN_EXPIRATION_MINUTES` | no (default 60) | How long the link stays valid after the bot posts it. Short window is intentional.                                                                                                                                                                                            |
 | `SLACK_SIGNING_SECRET`             | yes             | Verifies inbound Slack webhooks (general Slack requirement, not event-setup specific).                                                                                                                                                                                        |
-| `SYSTEM_USERS`                     | recommended     | Include `event-setup-bot:serviceAccount` so the bot has an account to act under. See [Installing](../installing/index.md).                                                                                                                                                    |
 
 #### Slack-side setup
 
@@ -140,7 +139,7 @@ To trigger the bot in a workspace:
    }
    ```
 
-   `channels[0].name` and `chatChannels[0].name` both stay as `"setup"`. That value is the Nextspace channel role the agent listens on, not a Slack channel name. The Slack-side name is whatever you picked in step 1, and you reference it by ID in `adapters[0].config.channel`.
+   `channels[0].name` and `chatChannels[0].name` both stay as `"setup"`. That value is the NextSpace channel role the agent listens on, not a Slack channel name. The Slack-side name is whatever you picked in step 1, and you reference it by ID in `adapters[0].config.channel`.
 
 5. **Post a setup request** in the Slack channel from step 1. Either mention the bot (e.g. `@<BOT_DISPLAY_NAME> create an event`) or use a setup-intent phrase like `create an event next Thursday`. The bot replies with the handoff link.
 
@@ -154,7 +153,7 @@ If you need agents to appear as visually distinct Slack users (e.g. Berkie posti
 
 ##### Sharing a Slack channel between multiple agents
 
-A single Conversation can host more than one agent on the same channel binding. To put the event setup bot and another Nextspace agent (e.g. a moderator persona) into the same Slack channel, add both agent type names to the `agentTypes` array on the Conversation. They both attach to the `setup`-role channel binding declared in `chatChannels`.
+A single Conversation can host more than one agent on the same channel binding. To put the event setup bot and another NextSpace agent (e.g. a moderator persona) into the same Slack channel, add both agent type names to the `agentTypes` array on the Conversation. They both attach to the `setup`-role channel binding declared in `chatChannels`.
 
 Each agent evaluates incoming messages independently against its own triggers, so the two do not interfere with each other. If only one agent's triggers match a given message (e.g. only the event-setup intent pattern fires on `create an event next Thursday`), only that agent responds. If both match, each gets a chance to respond.
 
@@ -185,11 +184,11 @@ If you put two agents on one channel, their `evaluate()` functions have to be wr
 
 When merging this change to production, do these in order:
 
-1. **Set `APP_HOST`** to the production Nextspace URL (e.g. `https://nextspace.example.org`). Without this the bot will post `localhost` links.
+1. **Set `APP_HOST`** to the production NextSpace URL (e.g. `https://nextspace.example.org`). Without this the bot will post `localhost` links.
 2. **Confirm `JWT_SECRET` is set** in the production environment and is not the placeholder from `.env.example`. The handoff token is signed with this secret; a weak or default secret means anyone can forge a handoff.
 3. **(Optional) Set `HANDOFF_TOKEN_EXPIRATION_MINUTES`** if the default 60 minutes doesn't fit your workflow.
 4. **Restart the llm_engine service** so the new config is loaded.
-5. **Smoke test** by posting a setup request in the Slack channel the production Conversation is wired to, and confirming the bot replies with a link pointing at the production `APP_HOST`. Clicking the link should land on the Nextspace event-creation form. That part requires the matching Nextspace deploy with the frontend handler; track that separately.
+5. **Smoke test** by posting a setup request in the Slack channel the production Conversation is wired to, and confirming the bot replies with a link pointing at the production `APP_HOST`. Clicking the link should land on the NextSpace event-creation form. That part requires the matching NextSpace deploy with the frontend handler; track that separately.
 6. **Verify token rejection paths** by hand-crafting a request to `POST /v1/event-setup/plan` without a token and with a tampered token. Both should return 401.
 
 #### Local development

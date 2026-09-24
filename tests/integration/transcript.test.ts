@@ -53,12 +53,12 @@ describe('Transcript routes', () => {
     await insertUsers([userOne, userTwo, registeredUser, participant])
     await insertTopics([publicTopic, privateTopic])
     broadcastTranscriptStatusChangeSpy = jest.spyOn(websocketGateway, 'broadcastTranscriptStatusChange').mockResolvedValue()
+    jest.spyOn(websocketGateway, 'broadcastConversationStarted').mockResolvedValue()
+    jest.spyOn(websocketGateway, 'broadcastConversationStopped').mockResolvedValue()
   })
 
   afterEach(() => {
-    if (broadcastTranscriptStatusChangeSpy) {
-      broadcastTranscriptStatusChangeSpy.mockRestore()
-    }
+    jest.restoreAllMocks()
   })
 
   afterAll(() => {

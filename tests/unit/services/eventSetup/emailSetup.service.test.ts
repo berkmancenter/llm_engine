@@ -285,6 +285,8 @@ describe('emailSetup.service', () => {
     jest.spyOn(transcript, 'loadTopicMetadataIntoVectorStore').mockResolvedValue(undefined as never)
     jest.spyOn(transcript, 'loadEventMetadataIntoVectorStore').mockResolvedValue(undefined as never)
     jest.spyOn(websocketGateway, 'broadcastNewConversation').mockResolvedValue(undefined as never)
+    jest.spyOn(websocketGateway, 'broadcastConversationStarted').mockResolvedValue(undefined as never)
+    jest.spyOn(websocketGateway, 'broadcastConversationStopped').mockResolvedValue(undefined as never)
     loggerWarnSpy = jest.spyOn(logger, 'warn').mockReturnValue(undefined as never)
     jest.spyOn(logger, 'info').mockReturnValue(undefined as never)
     loggerErrorSpy = jest.spyOn(logger, 'error').mockReturnValue(undefined as never)

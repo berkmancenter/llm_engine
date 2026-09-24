@@ -115,8 +115,8 @@ describe('communityAssistant — periodicMemberIntros', () => {
   })
 
   it('marks introduced members as introduced: true in the database', async () => {
-    const m1 = await createMembership({ name: 'Alice', bio: 'designer' })
-    const m2 = await createMembership({ name: 'Bob', bio: 'developer' })
+    const m1 = await createMembership({ name: 'Alice', bio: 'Product designer focused on accessibility in mobile apps' })
+    const m2 = await createMembership({ name: 'Bob', bio: 'Backend developer building payment infrastructure' })
 
     await agent.respond()
 
@@ -127,9 +127,13 @@ describe('communityAssistant — periodicMemberIntros', () => {
   })
 
   it('does not re-introduce members already marked introduced', async () => {
-    await createMembership({ name: 'Alice', bio: 'already introduced', introduced: true })
-    const m2 = await createMembership({ name: 'Bob', bio: 'new member' })
-    const m3 = await createMembership({ name: 'Carol', bio: 'also new' })
+    await createMembership({
+      name: 'Alice',
+      bio: 'Grants coordinator; this bio should never appear because Alice was already introduced',
+      introduced: true
+    })
+    const m2 = await createMembership({ name: 'Bob', bio: 'Marine biologist studying coral reef restoration' })
+    const m3 = await createMembership({ name: 'Carol', bio: 'Data journalist covering housing policy' })
 
     const responses = await agent.respond()
 
@@ -143,7 +147,11 @@ describe('communityAssistant — periodicMemberIntros', () => {
   })
 
   it('caps the batch at 5 members when more than 5 are unintroduced', async () => {
-    await Promise.all(Array.from({ length: 7 }, (_, i) => createMembership({ name: `Member ${i}`, bio: `bio ${i}` })))
+    await Promise.all(
+      Array.from({ length: 7 }, (_, i) =>
+        createMembership({ name: `Member ${i}`, bio: `Software engineer number ${i} specializing in distributed systems` })
+      )
+    )
 
     await agent.respond()
 
@@ -154,19 +162,31 @@ describe('communityAssistant — periodicMemberIntros', () => {
   it('uses externalIds.slack as the identifier when present', async () => {
     await createMembership({
       name: 'Alice Example',
-      bio: 'researcher',
+      bio: 'Computational biologist studying protein folding at a genomics startup',
+      interests: 'CRISPR gene editing',
       externalIds: { slack: 'U123SLACKID' }
     })
-    await createMembership({ name: 'Bob Partner', bio: 'engineer' })
+    await createMembership({
+      name: 'Bob Partner',
+      bio: 'Backend engineer building distributed systems for a fintech company',
+      interests: 'database internals'
+    })
 
     const responses = await agent.respond()
+    console.log('\nSlack externalId:\n', responses[0]?.message) // eslint-disable-line no-console
 
     expect(responses[0].message).toContain('U123SLACKID')
   })
 
   it('falls back to name when no externalId is present', async () => {
-    await createMembership({ name: 'Charlie Nohandle', bio: 'community organizer' })
-    await createMembership({ name: 'Dana Partner', bio: 'researcher' })
+    await createMembership({
+      name: 'Charlie Nohandle',
+      bio: 'Community organizer running mutual aid networks across three neighborhoods'
+    })
+    await createMembership({
+      name: 'Dana Partner',
+      bio: 'Urban planning researcher studying transit deserts'
+    })
 
     const responses = await agent.respond()
 

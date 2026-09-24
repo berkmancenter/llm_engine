@@ -19,7 +19,8 @@ jest.unstable_mockModule('../src/agents/helpers/llmChain.js', () => ({
 jest.unstable_mockModule('../src/websockets/websocketGateway.js', () => ({
   default: {
     broadcastTranscriptStatusChange: jest.fn(),
-    broadcastConversationAlmostEnding: jest.fn()
+    broadcastConversationAlmostEnding: jest.fn(),
+    broadcastConversationStopped: jest.fn()
   }
 }))
 

@@ -49,6 +49,18 @@ describe('Auth routes', () => {
       })
     })
 
+    // systemAccount gates ensureSystemUsers' collision guard (see user.service.ts) — it must
+    // never be settable through registration, regardless of what the request body carries.
+    test('should reject a systemAccount flag on the registration body, creating no such account', async () => {
+      await request(app)
+        .post('/v1/auth/register')
+        .send({ ...newUser, systemAccount: true })
+        .expect(httpStatus.BAD_REQUEST)
+
+      const dbUser = await User.findOne({ username: newUser.username })
+      expect(dbUser).toBeNull()
+    })
+
     test('should return 400 error if username is already used', async () => {
       await insertUsers([userOne])
       newUser.username = userOne.username

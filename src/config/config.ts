@@ -6,6 +6,50 @@ import { availableParallelism } from 'node:os'
 const env = '.env'
 dotenv.config({ path: `${process.cwd()}/${env}` })
 
+/**
+ * Parses the SYSTEM_USERS env var (username[:role[:password]], semicolon-separated) into
+ * plain {username, role?, password?} entries. Purely structural — password strength is
+ * enforced downstream, in ensureSystemUsers, where the rest of the system-user business
+ * rules live.
+ *
+ * Splits only on the first two colons — entry.split(':') would otherwise silently truncate
+ * a password containing a colon (e.g. "name:role:pass:word" would drop ":word").
+ *
+ * Entries are semicolon-separated, not comma-separated, specifically so a password can
+ * contain a comma without being mistaken for an entry boundary — a comma-separated password
+ * like "pa,ss1234" would otherwise silently split into two bogus entries.
+ *
+ * Exported so parsing can be unit-tested directly (see tests/unit/config/parseSystemUsersEnv.test.ts).
+ */
+export const parseSystemUsersEnv = (raw: string) =>
+  raw
+    .split(';')
+    .map((entry: string) => entry.trim())
+    .filter((entry: string) => entry.length > 0)
+    .map((entry: string) => {
+      const firstColon = entry.indexOf(':')
+      let username = entry
+      let role: string | undefined
+      let password: string | undefined
+      if (firstColon !== -1) {
+        username = entry.slice(0, firstColon)
+        const rest = entry.slice(firstColon + 1)
+        const secondColon = rest.indexOf(':')
+        if (secondColon !== -1) {
+          role = rest.slice(0, secondColon)
+          password = rest.slice(secondColon + 1)
+        } else {
+          role = rest
+        }
+      }
+
+      return {
+        username,
+        ...(role && { role }),
+        ...(password && { password })
+      }
+    })
+
 const envVarsSchema = Joi.object()
   .keys({
     NODE_ENV: Joi.string().valid('production', 'development', 'test').required(),
@@ -62,7 +106,12 @@ const envVarsSchema = Joi.object()
       .description('minutes after which a password reset token expires'),
     HANDOFF_TOKEN_EXPIRATION_MINUTES: Joi.number()
       .default(60)
-      .description('minutes after which a Slack-to-Nextspace event-setup handoff token expires'),
+      .description('minutes after which a Slack-to-NextSpace event-setup handoff token expires'),
+    INVITE_TOKEN_EXPIRATION_DAYS: Joi.number()
+      .default(14)
+      .description(
+        'days after which a member invite link expires; generous because it is first contact to a cold mailbox, with admin resend as the safety net'
+      ),
     AUTH_TOKEN_SECRET: Joi.string().description('secret used to encrypt generated passwords'),
     POSTMARK_SERVER_TOKEN: Joi.string().description(
       'Server API token for outgoing email via Postmark; POSTMARK_API_TEST validates requests without sending'
@@ -84,6 +133,11 @@ const envVarsSchema = Joi.object()
     EVENT_MODERATOR_PATH: Joi.string()
       .default('/moderator/')
       .description("Path on APP_HOST for a moderator's view of an event; override for a frontend that routes differently"),
+    INVITE_PATH: Joi.string()
+      .default('/invite')
+      .description(
+        'Path on APP_HOST for the member-invite set-password screen; the token rides in the query string, never the fragment, so it survives corporate link rewriters'
+      ),
     TRULY_RANDOM_PSEUDONYMS: Joi.string()
       .default('false')
       .description('true/false if pseudonyms are made truly random with UID'),
@@ -171,14 +225,25 @@ const envVarsSchema = Joi.object()
       .default(30)
       .description('Minutes after scheduledEndTime to auto-stop a conversation'),
     SYSTEM_USERS: Joi.string()
-      .default('event-setup-bot:serviceAccount')
-      .description('Comma-separated list of system accounts to create on startup, in username:role format'),
+      .default('')
+      .allow('')
+      .description(
+        'Semicolon-separated list of system accounts to create on startup, in username[:role[:password]] ' +
+          'format. Role and password are both optional — leave role blank (e.g. "name::secret") to set a ' +
+          'password with no role. A semicolon (not a comma) separates entries, so passwords may safely ' +
+          'contain commas. Empty by default — no system accounts are created unless you configure some.'
+      ),
     ALLOWED_ORGANIZER_EMAIL_DOMAINS: Joi.string().description(
       'Comma-separated email domains whose senders, if they have no account yet, get a "please sign up" reply to an inbound email, calendar invite or plain on-demand email alike. A message from any other domain is rejected: no event, no reply. Unset means none, so every inbound email is silently dropped on both paths.'
     ),
     ON_DEMAND_EVENT_DURATION_MINUTES: Joi.number()
       .default(120)
-      .description('Default length of an event created from a plain emailed Zoom link, when the email states no duration')
+      .description('Default length of an event created from a plain emailed Zoom link, when the email states no duration'),
+    OPERATOR_CONTEXT: Joi.string()
+      .allow('')
+      .description(
+        'Deployment-wide context injected into every agent system prompt — who built this, org identity, data handling notes, etc.'
+      )
   })
   .unknown()
 
@@ -215,7 +280,8 @@ const config = {
     refreshExpirationDays: envVars.JWT_REFRESH_EXPIRATION_DAYS,
     resetPasswordExpirationMinutes: envVars.JWT_RESET_PASSWORD_EXPIRATION_MINUTES,
     verifyEmailExpirationMinutes: undefined,
-    handoffExpirationMinutes: envVars.HANDOFF_TOKEN_EXPIRATION_MINUTES
+    handoffExpirationMinutes: envVars.HANDOFF_TOKEN_EXPIRATION_MINUTES,
+    inviteExpirationDays: envVars.INVITE_TOKEN_EXPIRATION_DAYS
   },
   email: {
     postmarkServerToken: envVars.POSTMARK_SERVER_TOKEN,
@@ -311,6 +377,7 @@ const config = {
     participant: envVars.EVENT_PARTICIPANT_PATH,
     moderator: envVars.EVENT_MODERATOR_PATH
   },
+  invitePath: envVars.INVITE_PATH,
   trulyRandomPseudonyms: envVars.TRULY_RANDOM_PSEUDONYMS,
   DAYS_FOR_GOOD_REPUTATION: envVars.DAYS_FOR_GOOD_REPUTATION,
   conversationBotName: envVars.CONVERSATION_BOT_NAME,
@@ -334,14 +401,12 @@ const config = {
     autoStartLeadTimeMs: envVars.CONVERSATION_AUTO_START_LEAD_TIME_MINUTES * 60 * 1000,
     autoStopDelayMs: envVars.CONVERSATION_AUTO_STOP_DELAY_MINUTES * 60 * 1000
   },
-  systemUsers: envVars.SYSTEM_USERS.split(',').map((entry: string) => {
-    const [username, role] = entry.trim().split(':')
-    return { username, role }
-  }),
+  systemUsers: parseSystemUsersEnv(envVars.SYSTEM_USERS),
   allowedOrganizerEmailDomains: (envVars.ALLOWED_ORGANIZER_EMAIL_DOMAINS ?? '')
     .split(',')
     .map((domain: string) => domain.trim().toLowerCase())
     .filter((domain: string) => domain.length > 0),
-  onDemandEventDurationMinutes: envVars.ON_DEMAND_EVENT_DURATION_MINUTES
+  onDemandEventDurationMinutes: envVars.ON_DEMAND_EVENT_DURATION_MINUTES,
+  operatorContext: envVars.OPERATOR_CONTEXT as string | undefined
 }
 export default config

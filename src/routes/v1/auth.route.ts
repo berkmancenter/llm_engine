@@ -1,8 +1,9 @@
 import express from 'express'
 import validate from '../../middlewares/validate.js'
 import authValidation from '../../validations/auth.validation.js'
-import { authController } from '../../controllers/index.js'
+import { authController, inviteController } from '../../controllers/index.js'
 import auth from '../../middlewares/auth.js'
+import { inviteConsumeLimiter } from '../../middlewares/rateLimiter.js'
 
 const router = express.Router()
 
@@ -373,5 +374,68 @@ router.post('/forgotPassword', validate(authValidation.sendPasswordReset), authC
  *               message: "User not found"
  */
 router.post('/resetPassword', validate(authValidation.resetPassword), authController.resetPassword)
+
+/**
+ * @swagger
+ * /auth/invite:
+ *   get:
+ *     summary: Validate a member invite link without consuming it
+ *     description: >
+ *       Public. Checks the invite token from the emailed link and returns who it is for,
+ *       which conversation it opens, and a one-time nonce the set-password submit must
+ *       echo back. Deliberately repeatable: corporate mail scanners pre-open links with a
+ *       GET before the person ever clicks, so only the consume POST burns the token.
+ *     tags: [Auth]
+ *     parameters:
+ *       - in: query
+ *         name: token
+ *         required: true
+ *         description: Invite token from the emailed link
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Member name and email, conversation, and a one-time nonce
+ *       401:
+ *         description: Invite link is invalid or has expired
+ *       400:
+ *         description: Token missing
+ */
+router.get('/invite', inviteConsumeLimiter, validate(authValidation.getInvite), inviteController.getInvite)
+
+/**
+ * @swagger
+ * /auth/invite/consume:
+ *   post:
+ *     summary: Consume a member invite
+ *     description: >
+ *       Public. Burns the single-use invite token. Requires both the token and the nonce
+ *       issued by the validate GET, so a token skimmed from a log or scanner queue cannot
+ *       complete the flow on its own. Account provisioning and session issuance follow in
+ *       later work; today this endpoint only consumes.
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *               - nonce
+ *             properties:
+ *               token:
+ *                 type: string
+ *               nonce:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Invite consumed
+ *       401:
+ *         description: Invite link is invalid, expired, already used, or the nonce does not match
+ *       400:
+ *         description: Token or nonce missing
+ */
+router.post('/invite/consume', inviteConsumeLimiter, validate(authValidation.consumeInvite), inviteController.consumeInvite)
 
 export default router

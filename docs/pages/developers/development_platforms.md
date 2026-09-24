@@ -1,6 +1,6 @@
 ## Development - Supported Clients
 
-In addition to our three clients approved for production use (Nextspace, Zoom, and Slack), we also support other platforms:
+In addition to our three clients approved for production use (NextSpace, Zoom, and Slack), we also support other platforms:
 
 ❗ Caution! The platform types below are experimental! They are meant for evaluation, development and experimentation.
 ❗ Use them only with audiences who know they are engaging on an experimental platform!

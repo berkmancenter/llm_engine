@@ -258,6 +258,8 @@ describe('Conversation routes', () => {
     defineJobSpy = jest.spyOn(defineJob, 'batchTranscript').mockResolvedValue()
     newConversationSpy = jest.spyOn(websocketGateway, 'broadcastNewConversation').mockResolvedValue()
     transcriptStatusChangeSpy = jest.spyOn(websocketGateway, 'broadcastTranscriptStatusChange').mockResolvedValue()
+    jest.spyOn(websocketGateway, 'broadcastConversationStarted').mockResolvedValue()
+    jest.spyOn(websocketGateway, 'broadcastConversationStopped').mockResolvedValue()
     mockGetUniqueKeys.mockReturnValue([])
   })
   afterAll(() => {

@@ -16,7 +16,7 @@
 
 ✅ **Support for plain text and structured data messages/payloads**
 
-✅ Use with **multiple simultaneous front-end clients** such as Nextspace and Zoom **in a single conversation**
+✅ Use with **multiple simultaneous front-end clients** such as NextSpace and Zoom **in a single conversation**
 
 ✅ **Access and save real-time and full event transcripts**, from both text and audio interactions
 
@@ -41,7 +41,7 @@
 1. Conversations are organized into "Topics"
 2. Conversations have many sequential Messages.
 3. Messages can contain structured data and be threaded through a parent/child relationship between Messages.
-4. Messages can be received or sent through different Adapters connected to various transports (e.g. Websockets or HTTP API) and platforms (e.g. Zoom, Slack or Nextspace).
+4. Messages can be received or sent through different Adapters connected to various transports (e.g. Websockets or HTTP API) and platforms (e.g. Zoom, Slack or NextSpace).
 5. Messages can be sent or received through one or more Channels to segregate different audiences (e.g. a moderator vs. participants) or content (e.g. group messages, DMs or audio transcripts)
 6. Agents can
    a. Intercept each message or be scheduled to run periodically
@@ -69,7 +69,7 @@ flowchart TD
     Message["Message*"]
     Thread["Thread"]
     Zoom["Zoom (Audio/Text)"]
-    Nextspace["Nextspace"]
+    NextSpace["NextSpace"]
     Prompts["Prompts"]
     MCPTools["MCP Tools"]
     MCPResources["MCP Resources"]
@@ -98,7 +98,7 @@ flowchart TD
 
     Adapter <--> Websocket
     Adapter <--> API
-    Adapter <--> Nextspace
+    Adapter <--> NextSpace
     Adapter <--> Slack
     Adapter <--> Zoom
 
@@ -155,8 +155,8 @@ Describes how new messages are processed and routed through different agents for
 **[Agent Evaluate and Respond](diagrams/agent_respond_message.md)**
 Describes how agents evaluate and choose to respond to or reject received messages.
 
-**[Agents Receive a Message from Nextspace or Nymspace](diagrams/receive_message_from_nextspace_or_nymspace.md)**
-A more detailed description of what happens when a message is received from a websocket-based web app like Nextspace or Nymspace.
+**[Agents Receive a Message from NextSpace or Nymspace](diagrams/receive_message_from_nextspace_or_nymspace.md)**
+A more detailed description of what happens when a message is received from a websocket-based web app like NextSpace or Nymspace.
 
 **[Agents Receive a Message from Zoom or Slack](diagrams/receive_message_from_zoom_or_slack.md)**
 A more detailed description of what happens when a message is received from an external app like Zoom or Slack.
@@ -202,7 +202,7 @@ To run tests of the built-in development agent types, run `yarn test:agents:deve
 
 ## Production vs. Development Platforms
 
-A few platforms types have been carefully tested and vetted for "production" use (e.g. Nextspace and Zoom). There are other experimental [development platforms](development_platforms.md) under development. New platforms can be added by create a new [adapter](adapters.md). Be careful with development platforms! They should only be used in experimental or development contexts.
+A few platforms types have been carefully tested and vetted for "production" use (e.g. NextSpace and Zoom). There are other experimental [development platforms](development_platforms.md) under development. New platforms can be added by create a new [adapter](adapters.md). Be careful with development platforms! They should only be used in experimental or development contexts.
 
 ### Enabling development platforms
 
