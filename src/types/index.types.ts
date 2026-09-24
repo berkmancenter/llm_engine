@@ -762,6 +762,10 @@ export interface GraphNodeProvenance {
      services/conceptGraph/assemble.ts before widening who can read it. */
   messageId?: string
   pseudonym?: string
+  /* The poll this node came from. Unlike messageId, this can never re-identify a
+     contributor — a poll tally is aggregate by construction, naming no one, so it carries
+     none of messageId's Chatham House caveat above. */
+  pollId?: string
 }
 
 /* An idea or entity in a concept graph. `id` is opaque and stable so a rename stays an

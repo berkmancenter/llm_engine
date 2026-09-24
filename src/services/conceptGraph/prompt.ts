@@ -24,7 +24,7 @@ import { z } from 'zod'
 const SOURCE_REFS = z
   .array(z.string())
   .optional()
-  .describe('The [m#] tags of the lines this came from, copied exactly, e.g. ["m12", "m13"].')
+  .describe('The [m#] and [p#] tags of the lines this came from, copied exactly, e.g. ["m12", "p1"].')
 
 export const EXTRACTION_SCHEMA = z.object({
   concepts: z
@@ -125,7 +125,8 @@ Produce three things:
 
 3. ORIGIN PROMPTS. The questions or prompts the discussion was organised around — a posed
    question, a set exercise. Attach one to a contribution when that contribution came out of
-   it. State the question, never who asked it.
+   it. State the question, never who asked it. A [p#] poll line (see below) always gets an
+   origin prompt of its own, even if you attach no contribution to it yet.
 
 THE QUOTING RULE:
 - Paraphrase by default. Your sentence should be your own wording, not the transcript's.
@@ -139,6 +140,19 @@ Every line of the record is tagged [m1], [m2] and so on. Cite the tags a concept
 contribution came from in its sourceRefs, copying them exactly. They are how a reader gets
 back to the moment in the record; they are not part of any sentence you write, so never put
 a tag inside a label, statement or prompt.
+
+A [p1], [p2] line is different: it is a poll the room voted in, not something anyone said —
+the question, how many responded, and how the responses split. Treat the question as an
+origin prompt and the result as something the room did, not something one person argued.
+
+- Never say "the room believes X" or "attendees agreed X" from a poll result. State the
+  actual participation plainly instead: how much of the room the numbers actually reflect —
+  "roughly two-thirds of attendees," "a narrow majority of those who responded" — scaled
+  honestly to the response and attendance counts the line itself gives you. A poll eight
+  people answered is not "the room"; say so as eight people, or as whatever fraction of
+  attendance the line states.
+- The result is a room-level fact, not a participant's claim, so it needs no attribution and
+  nothing about it can identify anyone — there is no quoting rule to apply to it.
 
 Write about what the room worked out, not about the event's format or how it went.
 `.trim()
