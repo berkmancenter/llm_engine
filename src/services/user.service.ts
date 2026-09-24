@@ -582,6 +582,18 @@ const ensureSystemUsers = async (): Promise<void> => {
       continue
     }
 
+    // Never adopt a pre-existing account this sync didn't create — otherwise a username
+    // collision (typo, or a bot name someone already registered as a human) would silently
+    // overwrite that person's real password/role on the next restart. Refuse and move on;
+    // this is never auto-backfilled (a human-created account never becomes a system one).
+    if (!user.systemAccount) {
+      logger.error(
+        `ensureSystemUsers: "${username}" already exists and is not a system account — refusing to sync its ` +
+          'password/role. Pick a different SYSTEM_USERS username, or investigate the collision.'
+      )
+      continue
+    }
+
     let changed = false
 
     if (desiredRole !== (user.role ?? null)) {
