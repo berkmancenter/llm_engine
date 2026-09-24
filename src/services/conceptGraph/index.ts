@@ -531,7 +531,7 @@ export const generateConceptGraph = async (conversationId: string, caller: IBase
 
   if (existing) {
     const version = await artifactService.appendVersion(existing._id!.toString(), { payload, note }, caller)
-    return { artifact: existing, version, report, results, knownIdentities, texts }
+    return { artifact: existing, version, report, results, knownIdentities, texts, pollRefs }
   }
 
   const { artifact, version } = await artifactService.createArtifact(
@@ -547,7 +547,7 @@ export const generateConceptGraph = async (conversationId: string, caller: IBase
   )
   /* The raw extraction rides along so a topic refinement triggered by the same event can
      merge it without paying for the transcript to be read a second time. */
-  return { artifact, version, report, results, knownIdentities, texts }
+  return { artifact, version, report, results, knownIdentities, texts, pollRefs }
 }
 
 /**
@@ -568,7 +568,13 @@ export const generateConceptGraph = async (conversationId: string, caller: IBase
 export const refineTopicGraph = async (
   topicId: string,
   caller: IBaseUser,
-  incoming?: { results: ExtractionResult[]; texts: string[]; knownIdentities: string[]; conversationId?: string }
+  incoming?: {
+    results: ExtractionResult[]
+    texts: string[]
+    knownIdentities: string[]
+    conversationId?: string
+    pollRefs?: PollRefMap
+  }
 ) => {
   const topic = await Topic.findOne({ _id: topicId, isDeleted: { $ne: true } })
     .select('name')
@@ -596,12 +602,17 @@ export const refineTopicGraph = async (
       if (sources.texts.length === 0) continue
       texts = [...texts, ...sources.texts]
       /* Guarantees each conversation's poll questions become origin prompts even where the
-         model doesn't restate them — see the identical seed in generateConceptGraph. */
+         model doesn't restate them — see the identical seed in generateConceptGraph. Carries
+         provenance directly rather than a sourceRefs tag: each conversation's loadSources call
+         has its own locally-scoped tag namespace (poll tags restart at "p1" every time), so
+         merging every conversation's pollRefs into one map for this backfill's single
+         assembleGraph call would collide across conversations. The pollId is already known
+         here, so provenanceFor's carried-provenance fast path sidesteps that entirely. */
       if (sources.polls.length > 0) {
         results.push({
           concepts: [],
           contributions: [],
-          originPrompts: sources.polls.map((p) => ({ text: p.question, sourceRefs: [p.tag] }))
+          originPrompts: sources.polls.map((p) => ({ text: p.question, provenance: { pollId: p.pollId } }))
         })
       }
       for (const [index, chunk] of chunkSources(sources.taggedLines).entries()) {
@@ -665,7 +676,7 @@ export const refineTopicGraph = async (
   const assembled = assembleGraph(
     results,
     { sourceTexts: texts, knownIdentities },
-    { aliases, conversationId: incoming?.conversationId }
+    { aliases, conversationId: incoming?.conversationId, pollRefs: incoming?.pollRefs }
   )
   const { payload, report } = await applyIdentityScreen(llm, assembled.payload, topicId, assembled.report)
 
