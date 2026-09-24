@@ -1,5 +1,6 @@
 /* eslint-disable no-param-reassign */
 import httpStatus from 'http-status'
+import Joi from 'joi'
 import crypto from 'crypto'
 import { uniqueNamesGenerator } from 'unique-names-generator'
 import bcrypt from 'bcryptjs'
@@ -11,6 +12,7 @@ import logger from '../config/logger.js'
 import config from '../config/config.js'
 import { getModelChat, coreLLMPlatform, coreLLMModel } from '../agents/helpers/getModelChat.js'
 import { getChatPromptResponse } from '../agents/helpers/llmChain.js'
+import { password as passwordStrength } from '../validations/custom.validation.js'
 
 const funFactSystemTemplate = `You create short, fun facts about pseudonyms. The pseudonym is in the form "adjective noun". Create a 1 sentence fun fact that is factual about the noun, but can be playful about the adjective part. Makes sure your answers are safe for work.
 Output only the fun fact sentence itself — no headings, labels, pseudonym names, or additional commentary.`
@@ -546,6 +548,20 @@ const updatePreferences = async (userId, updateBody) => {
  * only; createUser/updateUser never expose it to a client-supplied request body.
  */
 const ensureSystemUsers = async (): Promise<void> => {
+  // Validated in a pass of its own, before any account is touched, so a bad SYSTEM_USERS
+  // password fails startup loudly and atomically — never leaves some accounts synced and
+  // others not because a later entry in the list turned out to be invalid. These are real
+  // login credentials on the same /v1/auth/login endpoint as everyone else, so hold them to
+  // the same floor human registration/reset enforce (see custom.validation.ts).
+  for (const { username, password } of config.systemUsers) {
+    if (password) {
+      const { error } = Joi.string().custom(passwordStrength).validate(password)
+      if (error) {
+        throw new Error(`SYSTEM_USERS: password for "${username}" is invalid — ${error.message}`)
+      }
+    }
+  }
+
   for (const { username, role, password } of config.systemUsers) {
     // Explicit null (not undefined) for "no role" — Mongoose only applies the schema's
     // 'participant' default when a path is undefined, so undefined here would silently
