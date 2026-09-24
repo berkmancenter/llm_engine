@@ -2,6 +2,7 @@ import setupIntTest from '../utils/setupIntTest.js'
 import { User } from '../../src/models/index.js'
 import userService from '../../src/services/user.service.js'
 import config from '../../src/config/config.js'
+import logger from '../../src/config/logger.js'
 
 setupIntTest()
 
@@ -71,6 +72,34 @@ describe('ensureSystemUsers()', () => {
     expect(user!.password).not.toBe('startpass1')
   })
 
+  // These are real login credentials on the same /v1/auth/login endpoint as everyone else, so
+  // they're held to the same floor human registration/reset enforce (see custom.validation.ts).
+  it('throws and creates no accounts when a configured password is too short', async () => {
+    config.systemUsers = [{ username: 'test-bot', password: 'weak' }]
+
+    await expect(userService.ensureSystemUsers()).rejects.toThrow(/password for "test-bot" is invalid/)
+
+    const user = await User.findOne({ username: 'test-bot' })
+    expect(user).toBeNull()
+  })
+
+  it('throws for a configured password missing a digit or letter', async () => {
+    config.systemUsers = [{ username: 'test-bot', password: 'onlyletters' }]
+
+    await expect(userService.ensureSystemUsers()).rejects.toThrow(/must contain at least 1 letter and 1 number/)
+  })
+
+  it('validates every configured password before touching any account (atomic, no partial sync)', async () => {
+    config.systemUsers = [
+      { username: 'bot-one', password: 'strongpass1' },
+      { username: 'bot-two', password: 'weak' }
+    ]
+
+    await expect(userService.ensureSystemUsers()).rejects.toThrow(/password for "bot-two" is invalid/)
+
+    expect(await User.findOne({ username: 'bot-one' })).toBeNull()
+  })
+
   it('creates multiple accounts when config has multiple entries', async () => {
     config.systemUsers = [{ username: 'bot-one' }, { username: 'bot-two' }]
 
@@ -93,6 +122,7 @@ describe('ensureSystemUsers()', () => {
   it('preserves the existing account identity when config is unchanged', async () => {
     const existing = await User.create({
       username: 'test-bot',
+      systemAccount: true,
       pseudonyms: [{ token: 'test-token', pseudonym: 'test-bot', active: true }]
     })
     config.systemUsers = [{ username: 'test-bot' }]
@@ -107,6 +137,7 @@ describe('ensureSystemUsers()', () => {
     await User.create({
       username: 'test-bot',
       role: 'participant',
+      systemAccount: true,
       pseudonyms: [{ token: 'test-token', pseudonym: 'test-bot', active: true }]
     })
     config.systemUsers = [{ username: 'test-bot', role: 'admin' }]
@@ -121,6 +152,7 @@ describe('ensureSystemUsers()', () => {
     await User.create({
       username: 'test-bot',
       role: 'admin',
+      systemAccount: true,
       pseudonyms: [{ token: 'test-token', pseudonym: 'test-bot', active: true }]
     })
     config.systemUsers = [{ username: 'test-bot' }]
@@ -134,6 +166,7 @@ describe('ensureSystemUsers()', () => {
   it('sets a password on an existing passwordless account when config adds one', async () => {
     await User.create({
       username: 'test-bot',
+      systemAccount: true,
       pseudonyms: [{ token: 'test-token', pseudonym: 'test-bot', active: true }]
     })
     config.systemUsers = [{ username: 'test-bot', password: 'newpass123' }]
@@ -167,6 +200,17 @@ describe('ensureSystemUsers()', () => {
     expect(afterHash).toBe(beforeHash)
   })
 
+  it('does not write to an existing account at all when config is unchanged', async () => {
+    config.systemUsers = [{ username: 'test-bot', role: 'admin', password: 'samepass1' }]
+    await userService.ensureSystemUsers()
+
+    const saveSpy = jest.spyOn(User.prototype, 'save')
+    await userService.ensureSystemUsers()
+
+    expect(saveSpy).not.toHaveBeenCalled()
+    saveSpy.mockRestore()
+  })
+
   it('clears the password on an existing account when config drops it', async () => {
     config.systemUsers = [{ username: 'test-bot', password: 'startpass1' }]
     await userService.ensureSystemUsers()
@@ -177,5 +221,27 @@ describe('ensureSystemUsers()', () => {
     const user = await User.findOne({ username: 'test-bot' })
     expect(user!.password).toBeFalsy()
     expect(await userService.getUserByUsernamePassword('test-bot', 'startpass1')).toBeNull()
+  })
+
+  it('refuses to sync a username collision onto a pre-existing non-system account', async () => {
+    const human = await User.create({
+      username: 'collision-bot',
+      role: 'participant',
+      password: await userService.hashPassword('humanpass1'),
+      pseudonyms: [{ token: 'test-token', pseudonym: 'collision-bot', active: true }]
+    })
+    config.systemUsers = [{ username: 'collision-bot', role: 'admin', password: 'newpass123' }]
+
+    const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => logger)
+    await userService.ensureSystemUsers()
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('collision-bot'))
+    errorSpy.mockRestore()
+
+    const user = await User.findOne({ username: 'collision-bot' })
+    expect(user!._id.toString()).toBe(human._id.toString())
+    expect(user!.systemAccount).toBeFalsy()
+    expect(user!.role).toBe('participant')
+    expect(await userService.getUserByUsernamePassword('collision-bot', 'humanpass1')).not.toBeNull()
+    expect(await userService.getUserByUsernamePassword('collision-bot', 'newpass123')).toBeNull()
   })
 })

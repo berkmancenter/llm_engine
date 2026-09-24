@@ -139,6 +139,21 @@ describe('User service methods', () => {
       expect(user.role).toBe('participant')
     })
 
+    // systemAccount gates ensureSystemUsers' collision guard (see user.service.ts) — this only
+    // holds if createUser can never be tricked into setting it, regardless of what's in the
+    // request body. Pinned down at this layer, not just the Joi schema, so a future schema
+    // edit can't silently reopen the account-takeover path this guards against.
+    test('should ignore a systemAccount flag supplied by the caller', async () => {
+      const user = await userService.createUser({
+        username: 'testuser4b',
+        token: 'sometoken4b',
+        pseudonym: 'Eager Egret',
+        systemAccount: true
+      })
+
+      expect(user.systemAccount).toBeFalsy()
+    })
+
     test('should generate and store a fun fact for the initial pseudonym', async () => {
       await withFunFactsOn(async () => {
         const user = await userService.createUser({ username: 'u1', token: 't1', pseudonym: 'Bold Aardvark' })
