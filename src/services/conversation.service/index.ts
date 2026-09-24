@@ -28,7 +28,7 @@ import {
   satisfiesTypeProperties
 } from './lifecycle.js'
 import agentDispatcher from '../../jobs/agentDispatcher.js'
-import { resolveDisplayName } from '../user.service.js'
+import userService, { resolveDisplayName } from '../user.service.js'
 import assertMembership from '../../utils/assertMembership.js'
 import resourceService from '../resource.service.js'
 
@@ -857,6 +857,22 @@ const patchConversationAgent = async (id, agentId, body, user) => {
   return agent
 }
 
+/* One real name covers every room, so an admin who claimed one already carries it into the
+   next room rather than being asked for the same name again. A room where someone else holds
+   that name is left alone: only the admin can choose what to be called there instead. */
+const carryAdminRealName = async (user, conversation) => {
+  if (user.role !== 'admin' || !conversation.useRealNames) return
+  const conversationId = conversation._id.toString()
+  const claimed = user.pseudonyms.filter((p) => p.isRealName)
+  if (!claimed.length || claimed.some((p) => p.conversations.includes(conversationId))) return
+
+  try {
+    await userService.registerRealName(user, conversationId, claimed[0].pseudonym)
+  } catch (err) {
+    if (err.statusCode !== httpStatus.CONFLICT) throw err
+  }
+}
+
 const joinConversation = async (conversationOrId, user) => {
   let conversation = conversationOrId
   if (typeof conversationOrId === 'string' || conversationOrId instanceof mongoose.Types.ObjectId) {
@@ -869,6 +885,7 @@ const joinConversation = async (conversationOrId, user) => {
     }
   }
   await assertMembership(user, conversation)
+  await carryAdminRealName(user, conversation)
 
   // Primary signal: atomically mark membership as joined on first visit.
   // Returns the pre-update doc when a record existed and wasn't yet joined; null otherwise.
@@ -893,7 +910,9 @@ const joinConversation = async (conversationOrId, user) => {
           passcode: null
         })
         // Fallback for conversations without membership records: new DM channel = first join.
-        if (!prevMembership) firstJoin = true
+        // Only admins get into a members-only conversation with no record, and an admin is
+        // not a new member to introduce.
+        if (!prevMembership && !conversation.enforceMembership) firstJoin = true
       }
     }
   }

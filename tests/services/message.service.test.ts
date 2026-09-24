@@ -1144,6 +1144,17 @@ describe('Message service methods', () => {
       })
     })
 
+    // A conversation with real names took a second code path that returned plain objects, so
+    // both paths are pinned to the serialized shape callers already get from every other route.
+    test('should return serialized replies whether or not the conversation uses real names', async () => {
+      const replies = await messageService.getMessageReplies(parentMessage._id, user1)
+
+      replies.forEach((reply) => {
+        expect(reply).not.toHaveProperty('_id')
+        expect(typeof reply.id).toBe('string')
+      })
+    })
+
     test('should filter replies using messageQuery parameter', async () => {
       // Get only replies with a specific source
       const filteredReplies = await messageService.getMessageReplies(parentMessage._id, user1, {

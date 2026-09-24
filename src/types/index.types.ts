@@ -173,6 +173,9 @@ export interface IMessage {
   createdAt?: Date
   updatedAt?: Date
   replyCount?: number
+  /* Not stored: filled from the author's current role on the way out, and only in a conversation
+     with useRealNames. See withOwnerIsAdmin in message.service.ts. */
+  ownerIsAdmin?: boolean
   prompt?: MessagePrompt
   /* Adapter-specific rich content (e.g. Slack Block Kit). Persisted so the
      Slack adapter can read it when forwarding the message to Slack's API.

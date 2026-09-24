@@ -2,6 +2,7 @@ import { Worker } from 'node:cluster'
 import socketIO from './socketIO.js'
 import logger from '../config/logger.js'
 import { getRoomIds } from './utils.js'
+import serializeMessage from '../utils/serializeMessage.js'
 import { ArtifactVersionNotice } from '../types/index.types.js'
 
 const isSubdocument = (value) => value !== null && typeof value === 'object' && value.constructor === Object
@@ -79,7 +80,7 @@ class WebsocketGateway {
       message.conversation._id.toString(),
       'message:new',
       {
-        ...message.toJSON(),
+        ...serializeMessage(message),
         count: message.count,
         request,
         pause: message.pause

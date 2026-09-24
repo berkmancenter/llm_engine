@@ -236,6 +236,53 @@ router.route('/pseudonyms').post(auth('managePseudonym'), userController.addPseu
 
 /**
  * @swagger
+ * /users/pseudonyms/real-name:
+ *   post:
+ *     summary: Claim the caller's real name in one conversation
+ *     description: >-
+ *       Creates the real-name pseudonym entry a conversation with useRealNames resolves a
+ *       poster's display name through. Guests get theirs from the guest list during
+ *       registration, so this covers accounts that were never on a guest list, which today
+ *       means admins. The name is reserved for that conversation, so a name another person
+ *       already holds there is refused and the caller picks a different one. An entry the
+ *       caller already holds under the same name is extended to cover this conversation
+ *       rather than duplicated.
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [conversationId, realName]
+ *             properties:
+ *               conversationId:
+ *                 type: string
+ *                 description: The conversation this name applies to
+ *               realName:
+ *                 type: string
+ *                 description: The name to display on this person's messages in that conversation
+ *                 example: "Jane Doe"
+ *     responses:
+ *       201:
+ *         description: The caller's pseudonyms, including the new real-name entry
+ *       400:
+ *         description: The conversation does not use real names
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       409:
+ *         description: The name is taken in that conversation, or a name is already set for it
+ */
+router
+  .route('/pseudonyms/real-name')
+  .post(auth('managePseudonym'), validate(userValidation.registerRealName), userController.registerRealName)
+
+/**
+ * @swagger
  * /users/pseudonyms/activate:
  *   put:
  *     summary: Activate a pseudonym
