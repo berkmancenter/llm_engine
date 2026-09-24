@@ -35,7 +35,10 @@ export interface ArtifactKind {
 const PROVENANCE = Joi.object().keys({
   conversationId: Joi.string(),
   messageId: Joi.string(),
-  pseudonym: Joi.string()
+  pseudonym: Joi.string(),
+  /* The poll a node was seeded or cited from — see PollRefMap / provenanceFor in
+     services/conceptGraph/assemble.ts. */
+  pollId: Joi.string()
 })
 
 /* An idea or entity. `id` is opaque and stable so renaming a concept stays an edit to one
