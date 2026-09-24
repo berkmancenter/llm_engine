@@ -6,6 +6,45 @@ import { availableParallelism } from 'node:os'
 const env = '.env'
 dotenv.config({ path: `${process.cwd()}/${env}` })
 
+/**
+ * Parses the SYSTEM_USERS env var (username[:role[:password]], comma-separated) into plain
+ * {username, role?, password?} entries. Purely structural — password strength is enforced
+ * downstream, in ensureSystemUsers, where the rest of the system-user business rules live.
+ *
+ * Splits only on the first two colons — entry.split(':') would otherwise silently truncate
+ * a password containing a colon (e.g. "name:role:pass:word" would drop ":word").
+ *
+ * Exported so parsing can be unit-tested directly (see tests/unit/config/parseSystemUsersEnv.test.ts).
+ */
+export const parseSystemUsersEnv = (raw: string) =>
+  raw
+    .split(',')
+    .map((entry: string) => entry.trim())
+    .filter((entry: string) => entry.length > 0)
+    .map((entry: string) => {
+      const firstColon = entry.indexOf(':')
+      let username = entry
+      let role: string | undefined
+      let password: string | undefined
+      if (firstColon !== -1) {
+        username = entry.slice(0, firstColon)
+        const rest = entry.slice(firstColon + 1)
+        const secondColon = rest.indexOf(':')
+        if (secondColon !== -1) {
+          role = rest.slice(0, secondColon)
+          password = rest.slice(secondColon + 1)
+        } else {
+          role = rest
+        }
+      }
+
+      return {
+        username,
+        ...(role && { role }),
+        ...(password && { password })
+      }
+    })
+
 const envVarsSchema = Joi.object()
   .keys({
     NODE_ENV: Joi.string().valid('production', 'development', 'test').required(),
@@ -356,13 +395,7 @@ const config = {
     autoStartLeadTimeMs: envVars.CONVERSATION_AUTO_START_LEAD_TIME_MINUTES * 60 * 1000,
     autoStopDelayMs: envVars.CONVERSATION_AUTO_STOP_DELAY_MINUTES * 60 * 1000
   },
-  systemUsers: envVars.SYSTEM_USERS.split(',')
-    .map((entry: string) => entry.trim())
-    .filter((entry: string) => entry.length > 0)
-    .map((entry: string) => {
-      const [username, role, password] = entry.split(':')
-      return { username, role, password }
-    }),
+  systemUsers: parseSystemUsersEnv(envVars.SYSTEM_USERS),
   allowedOrganizerEmailDomains: (envVars.ALLOWED_ORGANIZER_EMAIL_DOMAINS ?? '')
     .split(',')
     .map((domain: string) => domain.trim().toLowerCase())
