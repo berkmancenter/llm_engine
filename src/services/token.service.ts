@@ -3,6 +3,15 @@ import moment from 'moment'
 import config from '../config/config.js'
 import { Token } from '../models/index.js'
 import tokenTypes from '../config/tokens.js'
+
+/** Thrown by verifyToken when a correctly signed token has no matching, unblacklisted record (used or revoked). */
+class TokenNotFoundError extends Error {
+  constructor() {
+    super('Token not found')
+    this.name = 'TokenNotFoundError'
+  }
+}
+
 /**
  * Generate token
  * @param {ObjectId} userId
@@ -49,7 +58,7 @@ const verifyToken = async (token, type) => {
   const payload = jwt.verify(token, config.jwt.secret)
   const tokenDoc = await Token.findOne({ token, type, user: payload.sub, blacklisted: false })
   if (!tokenDoc) {
-    throw new Error('Token not found')
+    throw new TokenNotFoundError()
   }
   return tokenDoc
 }
@@ -119,3 +128,4 @@ const tokenService = {
   generatePasswordResetToken
 }
 export default tokenService
+export { TokenNotFoundError }

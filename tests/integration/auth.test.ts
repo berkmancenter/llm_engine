@@ -317,7 +317,7 @@ describe('Auth routes', () => {
       await request(app).post('/v1/auth/resetPassword').send({ password: 'password2' }).expect(httpStatus.BAD_REQUEST)
     })
 
-    test('should return 500 if reset password token is blacklisted', async () => {
+    test('should return 401 if reset password token is blacklisted', async () => {
       await insertUsers([userOne])
       const expires = moment().add(config.jwt.resetPasswordExpirationMinutes, 'minutes')
       const resetPasswordToken = tokenService.generateToken(userOne._id, expires, tokenTypes.RESET_PASSWORD)
@@ -326,10 +326,10 @@ describe('Auth routes', () => {
       await request(app)
         .post('/v1/auth/resetPassword')
         .send({ password: 'testing123', token: resetPasswordToken })
-        .expect(httpStatus.INTERNAL_SERVER_ERROR)
+        .expect(httpStatus.UNAUTHORIZED)
     })
 
-    test('should return 500 if reset password token is expired', async () => {
+    test('should return 401 if reset password token is expired', async () => {
       await insertUsers([userOne])
       const expires = moment().subtract(1, 'minutes')
       const resetPasswordToken = tokenService.generateToken(userOne._id, expires, tokenTypes.RESET_PASSWORD)
@@ -338,7 +338,47 @@ describe('Auth routes', () => {
       await request(app)
         .post('/v1/auth/resetPassword')
         .send({ password: 'testing123', token: resetPasswordToken })
+        .expect(httpStatus.UNAUTHORIZED)
+    })
+
+    test('should return 401 if reset password token has already been used', async () => {
+      await insertUsers([userOne])
+      const expires = moment().add(config.jwt.resetPasswordExpirationMinutes, 'minutes')
+      const resetPasswordToken = tokenService.generateToken(userOne._id, expires, tokenTypes.RESET_PASSWORD)
+      await tokenService.saveToken(resetPasswordToken, userOne._id, expires, tokenTypes.RESET_PASSWORD)
+      await request(app)
+        .post('/v1/auth/resetPassword')
+        .send({ password: 'testing123', token: resetPasswordToken })
+        .expect(httpStatus.NO_CONTENT)
+
+      await request(app)
+        .post('/v1/auth/resetPassword')
+        .send({ password: 'testing456', token: resetPasswordToken })
+        .expect(httpStatus.UNAUTHORIZED)
+    })
+
+    test('should return 401 if reset password token is malformed', async () => {
+      await request(app)
+        .post('/v1/auth/resetPassword')
+        .send({ password: 'testing123', token: 'not-a-real-token' })
+        .expect(httpStatus.UNAUTHORIZED)
+    })
+
+    test('should return 500, not 401, if the token lookup fails for a reason other than a bad token', async () => {
+      await insertUsers([userOne])
+      const expires = moment().add(config.jwt.resetPasswordExpirationMinutes, 'minutes')
+      const resetPasswordToken = tokenService.generateToken(userOne._id, expires, tokenTypes.RESET_PASSWORD)
+      await tokenService.saveToken(resetPasswordToken, userOne._id, expires, tokenTypes.RESET_PASSWORD)
+      const findOneSpy = jest.spyOn(Token, 'findOne').mockRejectedValueOnce(new Error('connection lost') as never)
+
+      await request(app)
+        .post('/v1/auth/resetPassword')
+        .send({ password: 'testing123', token: resetPasswordToken })
         .expect(httpStatus.INTERNAL_SERVER_ERROR)
+
+      findOneSpy.mockRestore()
+      const dbResetPasswordTokenDoc = await Token.findOne({ token: resetPasswordToken })
+      expect(dbResetPasswordTokenDoc).not.toBeNull()
     })
 
     test('should return 401 if user is not found', async () => {
