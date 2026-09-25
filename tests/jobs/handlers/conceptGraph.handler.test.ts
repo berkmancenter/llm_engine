@@ -127,14 +127,31 @@ describe('generateConceptGraph handler', () => {
     })
   })
 
-  it('does not broadcast a topic-scoped failure, which has no conversation room', async () => {
+  it('broadcasts a topic-scoped failure to the topic room, not a conversation room', async () => {
     refineSpy.mockResolvedValue(null)
 
     await handlers.generateConceptGraph(makeJob({ conversationId: undefined, topicId: topic._id.toString() }))
 
     const reloaded = await Artifact.findById(artifact._id)
     expect(reloaded!.generationStatus).toBe('failed')
-    expect(broadcastFailedSpy).not.toHaveBeenCalled()
+    expect(broadcastFailedSpy).toHaveBeenCalledWith(topic._id.toString(), {
+      artifactId: artifact._id.toString(),
+      reason: 'Not enough of the record to map'
+    })
+  })
+
+  it('broadcasts a topic-scoped thrown error to the topic room, not a conversation room', async () => {
+    refineSpy.mockRejectedValue(new Error('model call failed'))
+
+    await handlers.generateConceptGraph(makeJob({ conversationId: undefined, topicId: topic._id.toString() }))
+
+    const reloaded = await Artifact.findById(artifact._id)
+    expect(reloaded!.generationStatus).toBe('failed')
+    expect(reloaded!.generationError).toBe('model call failed')
+    expect(broadcastFailedSpy).toHaveBeenCalledWith(topic._id.toString(), {
+      artifactId: artifact._id.toString(),
+      reason: 'model call failed'
+    })
   })
 
   it('skips a redelivered job whose artifact is no longer pending', async () => {

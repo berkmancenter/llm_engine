@@ -267,8 +267,9 @@ router.route('/').get(auth('listArtifacts'), validate(artifactValidation.listArt
  *       `generationStatus: 'pending'`. A generation already in flight for this artifact is a
  *       no-op: the same, still-pending artifact comes back rather than a second job. Poll
  *       `GET /artifacts/{artifactId}` or listen for the `artifact:version` (done) /
- *       `artifact:generationFailed` (errored, or too little to map) socket events on the
- *       conversation's room to see the claim resolve.
+ *       `artifact:generationFailed` (errored, or too little to map) socket events — on the
+ *       conversation's room for a conversationId run, the topic's room for a topicId run —
+ *       to see the claim resolve.
  *     tags: [Artifact]
  *     operationId: generateConceptGraph
  *     security:

@@ -64,7 +64,7 @@ A locked artifact refuses the append with a 400.
 
 ### Live updates over the socket
 
-When a version is appended to a conversation-scoped artifact, the server emits `artifact:version` to that conversation's socket room. The notice names the artifact and version, plus its container:
+When a version is appended to an artifact, the server emits `artifact:version` to its container's socket room — the conversation's room for a conversation-scoped artifact, the topic's room for a topic-scoped one (a series graph, or any future topic-scoped kind). The notice names the artifact and version, plus its container, so a client can tell which is which regardless of which room delivered it:
 
 ```json
 {
@@ -76,11 +76,9 @@ When a version is appended to a conversation-scoped artifact, the server emits `
 }
 ```
 
-The notice carries no content on purpose. A client re-reads the artifact over REST, presenting its passcode as usual, so the socket never becomes a second path to the payload. A client joins the room with `conversation:join` and an empty `channels` list, which needs no channel passcode, and leaves with `conversation:leave`. Joining the room proves nothing about read access; the REST read still applies the guard.
+The notice carries no content on purpose. A client re-reads the artifact over REST, presenting its passcode as usual, so the socket never becomes a second path to the payload. A client joins the conversation room with `conversation:join` and an empty `channels` list, which needs no channel passcode, and leaves with `conversation:leave`; a client joins the topic room with `topic:join` and leaves with `topic:leave`. Joining either room proves nothing about read access; the REST read still applies the guard.
 
-The server does not broadcast topic-scoped artifacts. There is no topic-wide room, so a client showing a series graph refreshes on demand instead.
-
-If a background generation run for a conversation-scoped artifact errors, or finds too little to map, the server instead emits `artifact:generationFailed` to the same room:
+If a background generation run errors, or finds too little to map, the server emits `artifact:generationFailed` to the same room (conversation or topic, following the same rule as `artifact:version`):
 
 ```json
 {
@@ -89,7 +87,7 @@ If a background generation run for a conversation-scoped artifact errors, or fin
 }
 ```
 
-A client showing a pending state (`generationStatus: 'pending'` on the artifact) should treat either `artifact:version` or `artifact:generationFailed` as "stop waiting and refetch." As with `artifact:version`, a topic-scoped run's failure is visible only by refetching the artifact — there is no socket event for it.
+A client showing a pending state (`generationStatus: 'pending'` on the artifact) should treat either `artifact:version` or `artifact:generationFailed` as "stop waiting and refetch." Since either notice can still be missed (a client not in the room yet, a dropped connection), a client should also poll `GET /artifacts/{artifactId}` while an artifact is `pending`, so the status shown is eventually correct even with no live push at all — the socket only makes that happen sooner.
 
 ### Generating a concept graph
 
