@@ -56,6 +56,9 @@ const defineJob = {
   summarizePdf: async () => {
     await agenda.define('summarize pdf', { lockLifetime: LLM_JOB_LOCK_LIFETIME }, JobHandlers.summarizePdf)
   },
+  generateConceptGraph: async () => {
+    await agenda.define('generateConceptGraph', { lockLifetime: LLM_JOB_LOCK_LIFETIME }, JobHandlers.generateConceptGraph)
+  },
   conversationEvent: async () => {
     await agenda.define('conversationEvent', { lockLifetime: LLM_JOB_LOCK_LIFETIME }, JobHandlers.conversationEvent)
   },
