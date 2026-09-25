@@ -54,3 +54,7 @@ docs/output
 
 # Generated at image build time by scripts/generateOpenApiSpec.ts (see src/docs/openapiSpec.ts)
 openapi.json
+
+# Kokoro TTS model files (bot-media-server), downloaded/cached at runtime — see
+# bot-media-server/README.md
+bot-media-server/models/
