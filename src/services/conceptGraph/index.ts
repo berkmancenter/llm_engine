@@ -30,6 +30,7 @@ import {
 import { applyRelinks, proposeRelinks } from './relink.js'
 import { proposeConsolidations, ConsolidationCandidate } from './consolidate.js'
 import { ConceptGraphPayload, IBaseUser } from '../../types/index.types.js'
+import schedule from '../../jobs/schedule.js'
 
 /*
  * Builds a ConceptGraphArtifact from an event that has finished.
@@ -818,9 +819,85 @@ export const refineTopicGraph = async (
   return { artifact, version, report }
 }
 
+/*
+ * Claims (or creates) the target artifact and hands the actual generation off to a
+ * background job (jobs/handlers/conceptGraph.ts), rather than running generateConceptGraph/
+ * refineTopicGraph's LLM chain inline. POST /v1/artifacts/generate sits behind a load
+ * balancer with a much shorter timeout than this pipeline can take
+ * (infra/modules/webserver-mig/lb.tf), so a caller must never wait on either function
+ * directly.
+ *
+ * The atomic claim below — flip generationStatus to 'pending', but only if it is not
+ * already 'pending' — is the "claim before you act" guard jobs/CLAUDE.md asks for, and it
+ * doubles as the only thing stopping two overlapping requests for the same artifact from
+ * both starting a generation run and paying for the LLM calls twice. A generation already
+ * in flight is a no-op: the caller gets the same, still-pending artifact back rather than a
+ * second job.
+ */
+export const enqueueGeneration = async (
+  { conversationId, topicId, reset }: { conversationId?: string; topicId?: string; reset?: boolean },
+  caller: IBaseUser
+) => {
+  if (!!topicId === !!conversationId) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Provide exactly one of topicId or conversationId')
+  }
+
+  const container = await artifactService.resolveContainer({ topicId, conversationId })
+  if (!container) {
+    throw new ApiError(
+      httpStatus.NOT_FOUND,
+      conversationId ? `Conversation with id ${conversationId} not found` : `Topic with id ${topicId} not found`
+    )
+  }
+  await artifactService.authorizeArtifactWrite(container, caller)
+
+  const existing = await Artifact.findOne({
+    ...(conversationId ? { conversation: conversationId } : { topic: topicId, scope: 'topic' }),
+    __t: CONCEPT_GRAPH_ARTIFACT,
+    isDeleted: { $ne: true }
+  })
+    .sort('createdAt')
+    .exec()
+
+  const callerId = caller._id!.toString()
+
+  if (existing) {
+    const claimed = await Artifact.findOneAndUpdate(
+      { _id: existing._id, generationStatus: { $ne: 'pending' } },
+      { $set: { generationStatus: 'pending' }, $unset: { generationError: '' } },
+      { new: true }
+    ).exec()
+    if (!claimed) {
+      // Already generating — hand back the in-flight artifact rather than starting a duplicate.
+      return existing
+    }
+    await schedule.generateConceptGraph({ artifactId: claimed._id!.toString(), conversationId, topicId, callerId, reset })
+    return claimed
+  }
+
+  const name = conversationId
+    ? (await Conversation.findById(conversationId).select('name').lean().exec())?.name
+    : (await Topic.findOne({ _id: topicId, isDeleted: { $ne: true } }).select('name').lean().exec())?.name
+
+  const artifact = await Artifact.create({
+    __t: CONCEPT_GRAPH_ARTIFACT,
+    scope: container.scope,
+    topic: container.topicId,
+    ...(container.scope === 'conversation' && { conversation: container.conversationId }),
+    title: `Concept map — ${name ?? (conversationId ? 'event' : 'series')}`,
+    createdBy: caller?._id,
+    generationStatus: 'pending'
+  })
+
+  await schedule.generateConceptGraph({ artifactId: artifact._id!.toString(), conversationId, topicId, callerId, reset })
+
+  return artifact
+}
+
 const conceptGraphService = {
   generateConceptGraph,
   refineTopicGraph,
+  enqueueGeneration,
   chunkSources,
   loadSources,
   GRAPH_SOURCE_CHANNELS
