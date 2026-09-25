@@ -1,5 +1,6 @@
 import httpStatus from 'http-status'
-import tokenService from './token.service.js'
+import jwt from 'jsonwebtoken'
+import tokenService, { TokenNotFoundError } from './token.service.js'
 import userService from './user.service.js'
 import Token from '../models/token.model.js'
 import ApiError from '../utils/ApiError.js'
@@ -79,6 +80,8 @@ const resetPassword = async (token, password) => {
   try {
     tokenDoc = await tokenService.verifyToken(token, tokenTypes.RESET_PASSWORD)
   } catch (err) {
+    // Only a bad token means a bad link; anything else (such as a database outage) must stay a 500.
+    if (!(err instanceof jwt.JsonWebTokenError) && !(err instanceof TokenNotFoundError)) throw err
     logger.info(`Password reset rejected: ${err.message}`)
     throw new ApiError(httpStatus.UNAUTHORIZED, 'Password reset link is invalid or has expired')
   }
