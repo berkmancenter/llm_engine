@@ -260,6 +260,15 @@ router.route('/').get(auth('listArtifacts'), validate(artifactValidation.listArt
  *       no one.
  *
  *       Registered ahead of `/artifacts/{artifactId}` so `generate` is not read as an id.
+ *
+ *       Runs in a background job rather than inline in this request, since the pipeline can
+ *       run long enough to exceed the load balancer's backend timeout. This call only claims
+ *       (or creates) the target artifact and enqueues the run, answering 202 immediately with
+ *       `generationStatus: 'pending'`. A generation already in flight for this artifact is a
+ *       no-op: the same, still-pending artifact comes back rather than a second job. Poll
+ *       `GET /artifacts/{artifactId}` or listen for the `artifact:version` (done) /
+ *       `artifact:generationFailed` (errored, or too little to map) socket events on the
+ *       conversation's room to see the claim resolve.
  *     tags: [Artifact]
  *     operationId: generateConceptGraph
  *     security:
@@ -293,7 +302,15 @@ router.route('/').get(auth('listArtifacts'), validate(artifactValidation.listArt
  *                   be rare.
  *     responses:
  *       '202':
- *         description: The graph was built and written as a version
+ *         description: >-
+ *           The generation run was claimed and enqueued (or was already in flight). The
+ *           artifact returned here is a snapshot at claim time — `generationStatus` is
+ *           `pending`, and `currentVersion`/`currentVersionNumber` still reflect whatever
+ *           the artifact had before this call, or are absent entirely on a first-ever
+ *           generation. Poll `GET /artifacts/{artifactId}` or listen on the socket for the
+ *           result: `artifact:version` once a new version is written, or
+ *           `artifact:generationFailed` if the run errored or found too little of the
+ *           record to map.
  *         content:
  *           application/json:
  *             schema:
@@ -304,39 +321,11 @@ router.route('/').get(auth('listArtifacts'), validate(artifactValidation.listArt
  *                   example: true
  *                 artifact:
  *                   $ref: '#/components/schemas/Artifact'
- *                 version:
- *                   $ref: '#/components/schemas/ArtifactVersion'
- *                 report:
- *                   type: object
- *                   description: What assembly and the Chatham House checks removed
- *                   properties:
- *                     droppedConcepts: { type: number }
- *                     droppedContributions: { type: number }
- *                     droppedStatements: { type: number }
- *                     droppedGlosses: { type: number }
- *                     droppedOriginPrompts: { type: number }
- *                     mergedConcepts: { type: number }
- *                     foldedConcepts:
- *                       type: number
- *                       description: >-
- *                         Concepts consolidated into a related one because the series graph
- *                         outgrew its size cap — distinct from mergedConcepts, which counts
- *                         concepts recognised as the same idea rather than consolidated for
- *                         space.
- *       '200':
- *         description: >-
- *           Nothing was written because the record was too thin to map, or nothing survived
- *           the safety checks. Not an error.
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 generated:
- *                   type: boolean
- *                   example: false
- *                 reason:
+ *                 status:
  *                   type: string
+ *                   enum: [ready, pending, failed]
+ *                   description: Echoes the returned artifact's generationStatus, which is 'pending' immediately after a fresh claim
+ *                   example: pending
  *       '401':
  *         $ref: '#/components/responses/Unauthorized'
  *       '403':
