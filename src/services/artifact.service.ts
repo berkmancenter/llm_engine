@@ -38,7 +38,7 @@ const idOf = (value): string | undefined => {
  * ids and the read passcode. Both scopes collapse to this shape so the guards below have
  * one thing to reason about rather than a topic branch and a conversation branch.
  */
-interface ArtifactContainer {
+export interface ArtifactContainer {
   scope: ArtifactScope
   topicId: string
   conversationId?: string
@@ -312,7 +312,7 @@ const appendVersion = async (artifactId: string, { payload, note, provenance }: 
 
   await Artifact.updateOne(
     { _id: artifact._id, currentVersionNumber: versionNumber },
-    { $set: { currentVersion: version._id } }
+    { $set: { currentVersion: version._id, generationStatus: 'ready' }, $unset: { generationError: '' } }
   ).exec()
 
   logger.info('Appended version %s to artifact %s (%s)', versionNumber, artifact._id, artifact.__t)
@@ -474,6 +474,7 @@ const artifactService = {
   listVersions,
   getVersion,
   getArtifactType,
+  resolveContainer,
   authorizeArtifactRead,
   authorizeArtifactWrite,
   ensureArtifactPasscode,

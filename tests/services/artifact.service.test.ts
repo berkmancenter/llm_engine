@@ -228,6 +228,17 @@ describe('appendVersion', () => {
     })
   })
 
+  it('flips generationStatus to ready and clears generationError on a successful append', async () => {
+    const { artifact } = await artifactService.createArtifact(conversationBody(), userTwo)
+    await Artifact.updateOne({ _id: artifact!._id }, { $set: { generationStatus: 'pending' } })
+
+    await artifactService.appendVersion(artifact!._id!.toString(), { payload: { body: 'Ready now.' } }, userTwo)
+
+    const reloaded = await Artifact.findById(artifact!._id)
+    expect(reloaded!.generationStatus).toBe('ready')
+    expect(reloaded!.generationError).toBeUndefined()
+  })
+
   it('does not lose the append when the broadcast fails', async () => {
     const { artifact } = await artifactService.createArtifact(conversationBody(), userTwo)
     broadcastSpy.mockRejectedValueOnce(new Error('no socket server'))

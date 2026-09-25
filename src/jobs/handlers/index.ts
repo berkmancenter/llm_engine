@@ -1,4 +1,5 @@
 import agentHandlers from './agent.js'
+import conceptGraphHandlers from './conceptGraph.js'
 import conversationHandlers from './conversation.js'
 import conversationEventHandlers from './conversationEvent.js'
 import conversationCostHandlers from './conversationCost.js'
@@ -29,6 +30,9 @@ const JobHandlers = {
 
   // Resource handlers
   summarizePdf: resourceHandlers.summarizePdf,
+
+  // Concept graph handlers
+  generateConceptGraph: conceptGraphHandlers.generateConceptGraph,
 
   // Transcript handlers
   batchTranscript: transcriptHandlers.batchTranscript,

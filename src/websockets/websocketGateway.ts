@@ -3,7 +3,7 @@ import socketIO from './socketIO.js'
 import logger from '../config/logger.js'
 import { getRoomIds, getRoomId, getAdminRoomId } from './utils.js'
 import serializeMessage, { ownerIdOf } from '../utils/serializeMessage.js'
-import { ArtifactVersionNotice } from '../types/index.types.js'
+import { ArtifactGenerationFailedNotice, ArtifactVersionNotice } from '../types/index.types.js'
 import {
   HideContext,
   HiddenDisplay,
@@ -270,6 +270,15 @@ class WebsocketGateway {
    */
   async broadcastArtifactVersion(conversationId: string, notice: ArtifactVersionNotice) {
     await this.broadcast(conversationId, 'artifact:version', notice)
+  }
+
+  /**
+   * Tells clients a background generation run errored, or found nothing worth writing, so
+   * a client showing a pending state can stop waiting instead of polling forever. Only ids
+   * and a reason go out, same as broadcastArtifactVersion.
+   */
+  async broadcastArtifactGenerationFailed(conversationId: string, notice: ArtifactGenerationFailedNotice) {
+    await this.broadcast(conversationId, 'artifact:generationFailed', notice)
   }
 
   /**

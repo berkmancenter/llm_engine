@@ -17,6 +17,8 @@ An `Artifact` has:
 | `currentVersionNumber` | The highest version number claimed so far. Starts at 0 and also acts as the allocator for the next number.          |
 | `locked`               | When true, no further versions can be appended. The artifact and its history stay readable.                         |
 | `createdBy`            | The user or agent that made it.                                                                                     |
+| `generationStatus`     | `ready`, `pending`, or `failed`. Tracks a background generation run — see "Generating a concept graph" below. Absent on an artifact that predates this field, which is the same as `ready`. |
+| `generationError`      | Set alongside `generationStatus: failed`, with a short reason. Cleared once a new generation starts or succeeds.    |
 
 An `ArtifactVersion` holds one revision: the `payload`, a 1-based `versionNumber`, who wrote it, an optional `note`, and a creation time. Nothing ever edits a version. A new revision is always a new version, so an artifact's history is the full list of its versions.
 
@@ -78,6 +80,17 @@ The notice carries no content on purpose. A client re-reads the artifact over RE
 
 The server does not broadcast topic-scoped artifacts. There is no topic-wide room, so a client showing a series graph refreshes on demand instead.
 
+If a background generation run for a conversation-scoped artifact errors, or finds too little to map, the server instead emits `artifact:generationFailed` to the same room:
+
+```json
+{
+  "artifactId": "<artifact id>",
+  "reason": "Not enough of the record to map"
+}
+```
+
+A client showing a pending state (`generationStatus: 'pending'` on the artifact) should treat either `artifact:version` or `artifact:generationFailed` as "stop waiting and refetch." As with `artifact:version`, a topic-scoped run's failure is visible only by refetching the artifact — there is no socket event for it.
+
 ### Generating a concept graph
 
 `src/services/conceptGraph` builds a `ConceptGraphArtifact` from an event that has finished. It runs from two places, both through the same service function so the two paths cannot drift:
@@ -85,7 +98,9 @@ The server does not broadcast topic-scoped artifacts. There is no topic-wide roo
 - **Automatically**, when the Concept Cartographer agent (`src/agents/conceptCartographer`) receives the `conversationStopped` event for its conversation. No conversation type includes this agent by default; add `conceptCartographer` to a conversation's `agentTypes` to enable it. The agent posts nothing to the chat. Its only output is the artifact.
 - **On demand**, from `POST /v1/artifacts/generate` with either a `conversationId` or a `topicId` in the body. This needs the `manageArtifacts` right. It is how an administrator re-runs a bad extraction, and how a series that predates the feature gets a graph.
 
-The steps for one conversation:
+The pipeline below runs in a background job, not inline in the request: `POST /v1/artifacts/generate` claims (or creates, `generationStatus: 'pending'`) the target artifact, enqueues the job, and responds `202` immediately with that artifact. A caller behind an HTTP request must never wait on the pipeline directly — it can run for several minutes on a large backfill, well past the load balancer's backend timeout. Watch for the artifact's `generationStatus` to move to `ready` (a new version landed — see "Live updates over the socket") or `failed` (`generationError` has the reason). A generation already in flight for an artifact is a no-op: a second `POST` while one is `pending` returns the same artifact rather than starting a duplicate run.
+
+The steps for one conversation, run inside that job:
 
 1. Load the messages on the `transcript` and `chat` channels, oldest first, skipping agent messages. These are the only channels the whole room saw, and the graph is published to everyone holding the passcode, so it must not draw on anything narrower. Fewer than 400 characters in total means nothing to map, and the run returns without writing.
 2. Split the record into chunks of roughly 24,000 characters and ask the model named by `CORE_LLM_PLATFORM` and `CORE_LLM_MODEL` to extract concepts, contributions, and origin prompts from each. The event is offered the concept labels its series has already established, so a later event can link to a concept an earlier one raised. One failed chunk is logged and skipped; the graph is a summary, so a partial one still gets written.
@@ -105,7 +120,7 @@ All under `/v1/artifacts`. The OpenAPI page at `/v1/docs` on a running server ha
 | ---------------------------------------------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /artifacts`                                                | `manageArtifacts` | Create an artifact with its first version. The response is the only one that carries the passcode.                                                             |
 | `GET /artifacts?topicId=<id>` or `?conversationId=<id>`          | `listArtifacts`   | List a container's artifacts, newest first, with the current version inlined.                                                                                  |
-| `POST /artifacts/generate`                                       | `manageArtifacts` | Build or refine a concept graph for a conversation or a topic. Returns 202 with the artifact, or 200 with `generated: false` when there was too little to map. |
+| `POST /artifacts/generate`                                       | `manageArtifacts` | Claim or create a concept-graph artifact and enqueue a background job to build or refine it. Always returns 202 immediately with the artifact at `generationStatus: 'pending'` (or the already-in-flight artifact, unchanged, if one was already pending). Watch the artifact or the socket for `ready`/`failed`. |
 | `GET /artifacts/passcode?topicId=<id>` or `?conversationId=<id>` | `manageArtifacts` | Read (and mint if needed) a container's artifact passcode. Authorized as a write, since it hands out read access.                                              |
 | `GET /artifacts/{artifactId}`                                    | `getArtifact`     | One artifact at its current version.                                                                                                                           |
 | `POST /artifacts/{artifactId}/versions`                          | `manageArtifacts` | Append a version.                                                                                                                                              |
@@ -139,7 +154,7 @@ The script prints the new `topicId` and `conversationId` and the artifact page p
 
 The script refuses to run with `NODE_ENV=production`. Seeded users have no password, so nobody can log in as them.
 
-A full manual test of the flow, from seeding through generating, sharing a passcode link, and watching a regeneration arrive over the socket:
+A full manual test of the flow, from seeding through generating, sharing a passcode link, and watching a regeneration arrive over the socket. Generation now runs in a background job (see "Generating a concept graph" above), so each Generate/Regenerate click returns a `pending` artifact right away; make sure a worker process is running the `generateConceptGraph` job (`yarn dev` runs both the API and its jobs) and expect a short delay before the graph itself appears, driven by the `artifact:version` socket event once the job finishes:
 
 1. Start the API with `yarn dev` and seed an event as above.
 2. Start the web client and log in as an administrator.

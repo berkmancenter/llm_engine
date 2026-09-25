@@ -20,6 +20,7 @@ export async function startJobs() {
     await defineJob.autoStartConversation()
     await defineJob.conversationEndingSoon()
     await defineJob.summarizePdf()
+    await defineJob.generateConceptGraph()
     await defineJob.conversationEvent()
     await defineJob.conversationCost()
     await defineJob.pollExpired()
