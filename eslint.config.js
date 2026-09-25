@@ -64,8 +64,27 @@ export default tseslint.config(
     }
   },
   {
-    // Test file override
-    files: ['tests/**/*.ts'],
+    // Browser-served client script (bot-media-server/page.ts loads it directly via
+    // <script type="module" src="/client.js">) — plain JS run by the browser, not part of
+    // the Node/TS build graph, so it can't be type-aware-parsed against tsconfig.json.
+    files: ['bot-media-server/public/**/*.js'],
+    languageOptions: {
+      parserOptions: { project: null },
+      globals: { ...globals.browser }
+    },
+    rules: {
+      // This file is meant to grow more named exports over time as more browser-side logic
+      // gets extracted out of page.ts — a single export today isn't a sign it should be a
+      // default export.
+      'import/prefer-default-export': 'off'
+    }
+  },
+  {
+    // Test file override — mirrors jest.config.ts's testMatch glob (a true globstar prefix)
+    // rather than the project-root-relative 'tests/**/*.ts', so this also covers
+    // bot-media-server/tests/**, which jest.config.ts already runs but this block, and
+    // airbnb-base's own devDependencies allowlist, previously didn't recognize as test files.
+    files: ['**/tests/**/*.ts'],
     languageOptions: {
       globals: {
         ...globals.node,
@@ -79,7 +98,8 @@ export default tseslint.config(
       'jest/no-identical-title': 'error',
       'jest/prefer-to-have-length': 'warn',
       'jest/valid-expect': 'error',
-      'jest/expect-expect': 'off'
+      'jest/expect-expect': 'off',
+      'import/no-extraneous-dependencies': 'off'
     }
   }
 )
