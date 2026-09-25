@@ -252,13 +252,19 @@ describe('appendVersion', () => {
     expect(second.versionNumber).toBe(2)
   })
 
-  it('does not broadcast a topic-scoped artifact, which has no conversation room', async () => {
+  it('announces a topic-scoped artifact to the topic room, not a conversation room', async () => {
     const { artifact } = await artifactService.createArtifact(topicBody(), userOne)
     broadcastSpy.mockClear()
 
     await artifactService.appendVersion(artifact!._id!.toString(), { payload: { body: 'Revised.' } }, userOne)
 
-    expect(broadcastSpy).not.toHaveBeenCalled()
+    expect(broadcastSpy).toHaveBeenCalledWith(topic._id.toString(), {
+      artifactId: artifact!._id!.toString(),
+      versionNumber: 2,
+      scope: 'topic',
+      topicId: topic._id.toString(),
+      conversationId: undefined
+    })
   })
 
   it('refuses a caller holding only the read passcode, which must never authorize a write', async () => {

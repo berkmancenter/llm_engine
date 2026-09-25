@@ -10,17 +10,18 @@ const NOT_ENOUGH_TO_MAP = 'Not enough of the record to map'
    via artifactService.appendVersion, so only the failure/skip path needs to touch the
    artifact here. Mirrors appendVersion's own broadcast-is-best-effort handling: the status
    write already landed by the time a down socket layer could throw, so a missed broadcast
-   costs a delayed refresh, not the result. Topic-scoped runs get no broadcast at all, same
-   as appendVersion's success path — there is no topic-wide room (see
-   docs/pages/developers/artifacts.md). */
-const failGeneration = async (artifactId: string, conversationId: string | undefined, reason: string) => {
+   costs a delayed refresh, not the result.
+
+   `room` is whichever container the job was run for — the conversation for a
+   conversation-scoped run, the topic for a topic-scoped one — the same room
+   appendVersion's own broadcast would have targeted on success. */
+const failGeneration = async (artifactId: string, room: string, reason: string) => {
   await Artifact.updateOne(
     { _id: artifactId },
     { $set: { generationStatus: 'failed', generationError: reason } }
   ).exec()
-  if (!conversationId) return
   try {
-    await websocketGateway.broadcastArtifactGenerationFailed(conversationId, { artifactId, reason })
+    await websocketGateway.broadcastArtifactGenerationFailed(room, { artifactId, reason })
   } catch (err) {
     logger.warn(`conceptGraph handler: failed to broadcast generation failure for artifact ${artifactId}: ${err}`)
   }
@@ -28,6 +29,7 @@ const failGeneration = async (artifactId: string, conversationId: string | undef
 
 const generateConceptGraph = async (job) => {
   const { artifactId, conversationId, topicId, callerId, reset } = job.attrs.data
+  const room = conversationId ?? topicId
   try {
     /* If this job is redelivered after its Agenda lock expired — e.g. the instance running
        it died right after a successful appendVersion but before Agenda recorded the job as
@@ -43,7 +45,7 @@ const generateConceptGraph = async (job) => {
 
     const caller = await BaseUser.findById(callerId).exec()
     if (!caller) {
-      await failGeneration(artifactId, conversationId, 'The user or agent that requested this generation no longer exists')
+      await failGeneration(artifactId, room, 'The user or agent that requested this generation no longer exists')
       return
     }
 
@@ -52,11 +54,11 @@ const generateConceptGraph = async (job) => {
       : await conceptGraphService.generateConceptGraph(conversationId, caller)
 
     if (!result) {
-      await failGeneration(artifactId, conversationId, NOT_ENOUGH_TO_MAP)
+      await failGeneration(artifactId, room, NOT_ENOUGH_TO_MAP)
     }
   } catch (err) {
     logger.error(`conceptGraph handler: failed to generate concept graph for artifact ${artifactId}`, err)
-    await failGeneration(artifactId, conversationId, err instanceof Error ? err.message : String(err))
+    await failGeneration(artifactId, room, err instanceof Error ? err.message : String(err))
   }
 }
 

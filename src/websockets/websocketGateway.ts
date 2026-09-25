@@ -146,24 +146,27 @@ class WebsocketGateway {
 
   /**
    * Tells clients a new version exists so they can refetch it over HTTP. Only ids go out:
-   * the conversation room is joined without any passcode, while reading an artifact needs
-   * the artifact passcode, so the content must come from the route that checks it.
+   * the room is joined without any passcode, while reading an artifact needs the artifact
+   * passcode, so the content must come from the route that checks it.
    *
-   * The container is named because Socket.io does not tell a client which room an event
-   * arrived through, and a client that has moved between conversations may still be in the
-   * old room. `conversationId` is present only for a conversation-scoped artifact.
+   * `room` is the artifact's own conversation for a conversation-scoped artifact, or its
+   * topic for a topic-scoped one — whichever room a client joins to watch that container.
+   * The container is named in the notice because Socket.io does not tell a client which
+   * room an event arrived through, and a client that has moved between containers may
+   * still be in the old room.
    */
-  async broadcastArtifactVersion(conversationId: string, notice: ArtifactVersionNotice) {
-    await this.broadcast(conversationId, 'artifact:version', notice)
+  async broadcastArtifactVersion(room: string, notice: ArtifactVersionNotice) {
+    await this.broadcast(room, 'artifact:version', notice)
   }
 
   /**
    * Tells clients a background generation run errored, or found nothing worth writing, so
    * a client showing a pending state can stop waiting instead of polling forever. Only ids
-   * and a reason go out, same as broadcastArtifactVersion.
+   * and a reason go out, same as broadcastArtifactVersion. `room` is the same conversation
+   * -or-topic room broadcastArtifactVersion targets.
    */
-  async broadcastArtifactGenerationFailed(conversationId: string, notice: ArtifactGenerationFailedNotice) {
-    await this.broadcast(conversationId, 'artifact:generationFailed', notice)
+  async broadcastArtifactGenerationFailed(room: string, notice: ArtifactGenerationFailedNotice) {
+    await this.broadcast(room, 'artifact:generationFailed', notice)
   }
 
   /**
