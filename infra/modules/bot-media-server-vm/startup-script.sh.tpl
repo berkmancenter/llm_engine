@@ -47,7 +47,19 @@ if ! id -u $APP_USER >/dev/null 2>&1; then
   useradd --system --create-home --shell /usr/sbin/nologin $APP_USER
 fi
 
-if [ ! -d "$REPO_DIR/.git" ]; then
+# Gated on a completed-install marker, not just $REPO_DIR/.git existing:
+# ${checkout_ref} is var.web_server_image_tag, which in normal practice is
+# always a short git SHA (the deploy pipeline's own tagging convention) but
+# isn't a format Terraform or this script enforces — a bad ref (or any
+# other failure between clone and yarn install) would otherwise leave
+# $REPO_DIR/.git present with no working app, and every later boot would
+# skip this whole block forever, silently. rm -rf before retrying rather
+# than trying to resume: a plain `git clone` into a non-empty directory
+# errors out, so a partial attempt needs a clean slate, not an incremental
+# fix, to actually be recoverable via a plain instance reset.
+PROVISIONED_MARKER="$REPO_DIR/.bot-media-server-provisioned"
+if [ ! -f "$PROVISIONED_MARKER" ]; then
+  rm -rf "$REPO_DIR"
   # /srv isn't writable by a non-root user, so the clone below (run as
   # $APP_USER) can't create $REPO_DIR itself — same pattern as
   # archive-wiki-vm's REPO_DIR/mongo-vm's DB_DIR chown-before-clone.
@@ -60,6 +72,8 @@ if [ ! -d "$REPO_DIR/.git" ]; then
   # Whole-monorepo install: bot-media-server/ has no package.json of its
   # own, it shares the repo root's (see that package's README).
   sudo -u $APP_USER bash -c "cd $REPO_DIR && yarn install --frozen-lockfile"
+
+  sudo -u $APP_USER touch "$PROVISIONED_MARKER"
 fi
 
 # Kokoro models: no auto-download in production (bot-media-server/README.md
@@ -78,7 +92,19 @@ chown -R $APP_USER:$APP_USER "$REPO_DIR/bot-media-server/models"
 # already uses for its own app-env secret. Not baked into instance
 # metadata: fetched fresh here at boot.
 ENV_FILE="$REPO_DIR/bot-media-server/.env"
+# umask first, not just the chmod below: without it the file is created
+# with the default mode (typically world-readable) for the moment between
+# this redirect and the chmod — a real window for a secret-bearing file.
+# Reset right after so it doesn't affect anything created later in this
+# script.
+umask 077
 gcloud secrets versions access latest --secret=${app_env_secret_id} > "$ENV_FILE"
+umask 022
+# The blank line guards against the secret's own content having no
+# trailing newline — without it, a missing final \n glues the first
+# appended line onto the secret's last one (e.g. SOME_KEY=abcPORT=3100),
+# corrupting both values silently.
+echo >> "$ENV_FILE"
 {
   echo "PORT=${bot_media_server_port}"
   echo "LLM_ENGINE_URL=${internal_llm_engine_url}"

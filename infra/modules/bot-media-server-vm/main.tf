@@ -147,8 +147,17 @@ resource "google_compute_backend_service" "bot_media_server" {
   name                  = "llm-engine-bot-media-server-backend"
   protocol              = "HTTP"
   load_balancing_scheme = "EXTERNAL_MANAGED"
-  timeout_sec           = 30
-  health_checks         = [google_compute_health_check.bot_media_server.id]
+  # This is a hard connection-lifetime cap, not an idle timeout — GCP closes
+  # the socket.io connection once it's been open this long, active or not.
+  # 86400 (24h) rather than webserver-mig's 3600: that value already forces
+  # a reconnect once an hour, and here that means bot-media-server's own
+  # ~60s pre-disconnect grace period (app.ts) has to be enough to bridge
+  # every such reconnect for a live meeting — worth raising the ceiling
+  # rather than relying on that grace period once an hour, every hour.
+  # Tradeoff: a wedged/unresponsive backend instance also won't get
+  # dropped by the LB until this same ceiling elapses.
+  timeout_sec   = 86400
+  health_checks = [google_compute_health_check.bot_media_server.id]
 
   backend {
     group                 = google_compute_network_endpoint_group.bot_media_server.id

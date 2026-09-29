@@ -12,10 +12,18 @@
 # This backend service + forwarding rule is the stable target that takes
 # its place, tracking the same instance group lb.tf's external backends do.
 #
-# Reuses web_server_ws's existing TCP health check (main.tf, on ws_port)
-# rather than adding a third health check resource — it already confirms
-# the process is alive and listening; a crashed process fails both ports
-# together in practice.
+# Reuses web_server's existing HTTP health check (main.tf, GET /v1/health
+# on api_port) rather than adding a third health check resource. GCP
+# backend services here take exactly one health check, so this can only
+# ever directly cover one of the two ports the forwarding rule serves —
+# the API process going down alone without also taking the websocket
+# listener with it (or vice versa) genuinely isn't caught at this LB.
+# Picked the HTTP check over web_server_ws's TCP one anyway: a real
+# response on /v1/health is a stronger liveness signal than a bare TCP
+# accept, for whichever single port this ends up representing. The MIG's
+# own auto_healing_policies (same health check) is the backstop for the
+# gap either choice leaves — an API-only failure still gets the instance
+# replaced, just not instantly rerouted around at the LB level first.
 
 resource "google_compute_address" "web_server_internal" {
   project      = var.project_id
@@ -31,7 +39,7 @@ resource "google_compute_region_backend_service" "web_server_internal" {
   region                = var.region
   protocol              = "TCP"
   load_balancing_scheme = "INTERNAL"
-  health_checks         = [google_compute_health_check.web_server_ws.id]
+  health_checks         = [google_compute_health_check.web_server.id]
 
   backend {
     group = google_compute_region_instance_group_manager.web_server.instance_group
