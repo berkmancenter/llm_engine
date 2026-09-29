@@ -238,8 +238,13 @@ const updateUser = async (userBody) => {
       throw new ApiError(httpStatus.CONFLICT, 'Username is already registered')
     }
   }
-  if (userBody.email && userBody.email !== user.email) {
-    const existingUser = await getUserByEmail(userBody.email)
+  // Normalized before comparing, not just before the lookup below: User.email is stored
+  // lowercase (schema-level `lowercase: true`), so comparing it against a raw, differently-
+  // cased resubmission of the person's own email would misread that as a change — and the
+  // now-normalized lookup would then find their own account and reject it as a conflict.
+  const newEmail = userBody.email?.toLowerCase()
+  if (newEmail && newEmail !== user.email) {
+    const existingUser = await getUserByEmail(newEmail)
     if (existingUser) {
       throw new ApiError(httpStatus.CONFLICT, 'Email address is already registered')
     }
@@ -248,7 +253,7 @@ const updateUser = async (userBody) => {
   if (userBody.password) {
     user.password = await hashPassword(userBody.password)
   }
-  user.email = userBody.email ? userBody.email : user.email
+  user.email = newEmail || user.email
   await user.save()
   return user
 }
@@ -684,6 +689,34 @@ export const resolveDisplayName = (user, conversation) => {
 }
 
 /**
+ * Whether `password` matches the account already registered for `email` — but only when
+ * that account actually has a password to match. A missing account, or an existing one with
+ * no password yet (e.g. a shadow account webhook.service.ts's getOrCreateUser made from
+ * adapter participation, never having gone through a real registration), isn't a rejection
+ * here: both are the "still needs to set a password" case, which provisionInvitedMember
+ * handles by setting it rather than requiring it be verified first. Call this before an
+ * invite is claimed — see consumeInvite — so a typo against an already-provisioned account
+ * never burns the person's one-time link for nothing.
+ */
+const verifyExistingPassword = async (email: string, password: string): Promise<boolean> => {
+  const user = await getUserByEmail(email)
+  if (!user?.password) return true
+  return bcrypt.compare(password, user.password)
+}
+
+/**
+ * Whether an account already exists for `email` with a password already set — i.e. whether
+ * consuming this invite is a login (verify the submitted password) rather than a first
+ * password set (see provisionInvitedMember/verifyExistingPassword). False for both a
+ * genuinely new email and an existing passwordless shadow account, since both go through
+ * the same "set the password now" path.
+ */
+const hasPasswordAccount = async (email: string): Promise<boolean> => {
+  const user = await getUserByEmail(email)
+  return Boolean(user?.password)
+}
+
+/**
  * Provision an invited member's account on first password set.
  *
  * Finds an existing account by email or creates a fresh one, then writes the
@@ -694,6 +727,10 @@ export const resolveDisplayName = (user, conversation) => {
  * to the existing real-name entry's conversation list rather than creating a second.
  * Finally links the account to the membership record so assertMembership can find
  * it by userAccount.
+ *
+ * The submitted password is only ever used to set one, never to overwrite an existing
+ * one — an account that already has a password must have it verified by the caller (see
+ * verifyExistingPassword) before this is ever reached; this function doesn't re-check it.
  *
  * Fields written are explicit — no request-body spread, so role, isRealName, and
  * conversations are not reachable from the HTTP layer.
@@ -719,6 +756,13 @@ const provisionInvitedMember = async (membership, password: string, conversation
       user.pseudonyms[0].funFact = funFact
       await user.save()
     }
+  } else if (!user.password) {
+    // A shadow account (see getOrCreateUser in webhook.service.ts) with no password yet —
+    // functionally still a first login for this person. Set it on the account that's
+    // already there rather than creating a duplicate; everything else about it (pseudonym,
+    // bio, interests) is already correct from whatever created it.
+    user.password = await hashPassword(password)
+    await user.save()
   }
 
   if (conversation?.useRealNames) {
@@ -772,6 +816,8 @@ const provisionInvitedMember = async (membership, password: string, conversation
 const userService = {
   createUser,
   provisionInvitedMember,
+  verifyExistingPassword,
+  hasPasswordAccount,
   updateUser,
   queryUsers,
   getUserById,

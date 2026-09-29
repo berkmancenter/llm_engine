@@ -4,7 +4,7 @@ import httpStatus from 'http-status'
 import mongoose from 'mongoose'
 import setupIntTest from '../utils/setupIntTest.js'
 import app from '../../src/app.js'
-import { ConversationMembership, MemberInvite, User } from '../../src/models/index.js'
+import { ConversationMembership, MemberInvite, User, Conversation } from '../../src/models/index.js'
 import emailService from '../../src/services/email.service.js'
 import inviteService from '../../src/services/invite.service.js'
 import { inviteSendLimiter, inviteConsumeLimiter } from '../../src/middlewares/rateLimiter.js'
@@ -314,7 +314,8 @@ describe('invite endpoints', () => {
       const res = await request(app).get('/v1/auth/invite').query({ token }).expect(httpStatus.OK)
 
       expect(res.body.nonce).toEqual(expect.any(String))
-      expect(res.body.member).toMatchObject({ name: 'Jane Doe', email: 'jane.doe@example.com' })
+      expect(res.body.member).toMatchObject({ name: 'Jane Doe', hasAccount: false })
+      expect(res.body.member.email).toBeUndefined()
       expect(res.body.conversation).toMatchObject({ name: conversationCommunityRoom.name })
       // The response carries a live nonce; it must never be cached or leak a referrer.
       expect(res.headers['cache-control']).toContain('no-store')
@@ -458,6 +459,45 @@ describe('invite endpoints', () => {
         access: { token: expect.any(String) },
         refresh: { token: expect.any(String) }
       })
+    })
+
+    test('a second invite for an already-provisioned email reports hasAccount and requires the real password', async () => {
+      const email = 'second.room@example.com'
+      const membershipA = await insertMembership({ email })
+      const tokenA = (await inviteService.mintInvite(membershipA)).token
+      const nonceA = await getNonce(tokenA)
+      await request(app)
+        .post('/v1/auth/invite/consume')
+        .send({ token: tokenA, nonce: nonceA, password })
+        .expect(httpStatus.OK)
+
+      const secondRoom = await Conversation.create({
+        name: 'Second Room',
+        owner: new mongoose.Types.ObjectId(),
+        topic: new mongoose.Types.ObjectId(),
+        conversationType: 'communityRoom',
+        messages: [],
+        transcript: { status: 'stopped' }
+      })
+      const membershipB = await insertMembership({ email, conversation: secondRoom._id })
+      const tokenB = (await inviteService.mintInvite(membershipB)).token
+      const getRes = await request(app).get('/v1/auth/invite').query({ token: tokenB }).expect(httpStatus.OK)
+      expect(getRes.body.member).toMatchObject({ hasAccount: true })
+      const nonceB = getRes.body.nonce as string
+
+      await request(app)
+        .post('/v1/auth/invite/consume')
+        .send({ token: tokenB, nonce: nonceB, password: 'WrongPassword1' })
+        .expect(httpStatus.UNAUTHORIZED)
+      const stored = await MemberInvite.findOne({ membership: membershipB._id }).lean()
+      expect(stored!.consumedAt).toBeFalsy()
+
+      const res = await request(app)
+        .post('/v1/auth/invite/consume')
+        .send({ token: tokenB, nonce: nonceB, password })
+        .expect(httpStatus.OK)
+      expect(res.body.user.email).toBe(email)
+      expect(await User.countDocuments({ email })).toBe(1)
     })
   })
 })

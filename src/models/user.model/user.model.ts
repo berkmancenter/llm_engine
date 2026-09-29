@@ -58,6 +58,7 @@ const userSchema = new mongoose.Schema<IUser, UserModel>(
     email: {
       type: String,
       trim: true,
+      lowercase: true,
       validate: [validateEmail, 'Please fill a valid email address']
     },
     dataExportOptOut: {

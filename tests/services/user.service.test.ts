@@ -383,6 +383,63 @@ describe('User service methods', () => {
       expect(updated!.userAccount!.toString()).toBe(user._id.toString())
       expect(user.pseudonyms.filter((p) => p.isRealName)).toHaveLength(1)
     })
+
+    test('sets the password on an existing passwordless (shadow) account rather than duplicating it', async () => {
+      const email = 'shadow.account@example.com'
+      const conversation = await createConversationWithMembership(email)
+      const membership = await getMembership(conversation, email)
+
+      // Simulates a shadow account webhook.service.ts's getOrCreateUser would create from
+      // adapter participation — same shape, no password.
+      const shadow = await User.create({
+        username: email,
+        email,
+        pseudonyms: [{ token: 'shadow-token', pseudonym: 'Shadow Pseudonym', active: true }]
+      })
+
+      const user = await userService.provisionInvitedMember(membership, password, conversation)
+
+      expect(user._id.toString()).toBe(shadow._id.toString())
+      expect(await User.countDocuments({ email })).toBe(1)
+      const stored = await User.findById(shadow._id)
+      expect(stored!.password).toBeTruthy()
+      expect(await userService.verifyExistingPassword(email, password)).toBe(true)
+      // The pseudonym the shadow account already had is untouched.
+      expect(stored!.pseudonyms[0].pseudonym).toBe('Shadow Pseudonym')
+    })
+  })
+
+  describe('verifyExistingPassword() / hasPasswordAccount()', () => {
+    test('both treat a genuinely new email as passing through — nothing to verify yet', async () => {
+      expect(await userService.verifyExistingPassword('nobody@example.com', 'whatever')).toBe(true)
+      expect(await userService.hasPasswordAccount('nobody@example.com')).toBe(false)
+    })
+
+    test('both treat an existing passwordless account as passing through — same as a new email', async () => {
+      const email = 'passwordless@example.com'
+      await User.create({
+        username: email,
+        email,
+        pseudonyms: [{ token: 'tok', pseudonym: 'Some Pseudonym', active: true }]
+      })
+
+      expect(await userService.verifyExistingPassword(email, 'whatever')).toBe(true)
+      expect(await userService.hasPasswordAccount(email)).toBe(false)
+    })
+
+    test('an existing account with a password requires it to match', async () => {
+      const email = 'has.password@example.com'
+      await User.create({
+        username: email,
+        email,
+        password: await userService.hashPassword('CorrectHorse1'),
+        pseudonyms: [{ token: 'tok', pseudonym: 'Some Pseudonym', active: true }]
+      })
+
+      expect(await userService.hasPasswordAccount(email)).toBe(true)
+      expect(await userService.verifyExistingPassword(email, 'CorrectHorse1')).toBe(true)
+      expect(await userService.verifyExistingPassword(email, 'WrongPassword1')).toBe(false)
+    })
   })
 
   describe('getUserByUsernamePassword()', () => {

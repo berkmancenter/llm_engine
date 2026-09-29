@@ -77,6 +77,21 @@ describe('Auth routes', () => {
       await request(app).post('/v1/auth/register').send(newUser).expect(httpStatus.CONFLICT)
     })
 
+    test('should return 409 even when the already-used email is submitted in different case', async () => {
+      await insertUsers([userOne])
+      newUser.email = userOne.email.toUpperCase()
+
+      await request(app).post('/v1/auth/register').send(newUser).expect(httpStatus.CONFLICT)
+    })
+
+    test('stores a mixed-case submitted email as lowercase', async () => {
+      newUser.email = `Mixed.Case.${new Date().getTime()}@Example.com`
+
+      const res = await request(app).post('/v1/auth/register').send(newUser).expect(httpStatus.CREATED)
+
+      expect(res.body.user.email).toBe(newUser.email.toLowerCase())
+    })
+
     test('should return 409 error if password length is less than 8 characters', async () => {
       newUser.password = 'passwo1'
 

@@ -116,9 +116,18 @@ const issueNonce = async (inviteId) => {
  * else. The single atomic claim (filtering on unconsumed + matching live nonce, setting
  * consumedAt) is what makes two concurrent submits resolve to exactly one winner.
  *
- * After the token is consumed, provisions the account (find-or-create by email) and writes
- * the real-name identity if the conversation uses real names. Issues auth tokens so the
- * caller lands in the room without a separate login step.
+ * `password` serves two different roles depending on whether this email already has an
+ * account: for a new one (or an existing passwordless shadow account — see
+ * provisionInvitedMember), it's the password being set for the first time; for an account
+ * that already has one, it's a login credential that must be verified — checked here,
+ * before the invite is claimed, so a typo returns 401 and leaves the invite untouched
+ * rather than burning the person's one-time link for a failed login. Both cases return the
+ * same generic invalid-invite error on mismatch, so the response never reveals whether an
+ * account already exists for this email.
+ *
+ * After the token is consumed, provisions the account and writes the real-name identity if
+ * the conversation uses real names. Issues auth tokens so the caller lands in the room
+ * without a separate login step.
  *
  * If provisioning throws (e.g. a real-name clash with another member in the same room), the
  * claim is reverted so the person's one-time link still works once the underlying issue is
@@ -127,6 +136,10 @@ const issueNonce = async (inviteId) => {
 const consumeInvite = async (token: string, nonce: string, password: string) => {
   const { invite, membership } = await validateInvite(token)
   if (!nonce) {
+    throw invalidInviteError()
+  }
+
+  if (!(await userService.verifyExistingPassword(membership.email, password))) {
     throw invalidInviteError()
   }
 
@@ -161,17 +174,22 @@ const consumeInvite = async (token: string, nonce: string, password: string) => 
 }
 
 /**
- * Everything the set-password screen needs from one GET: who the invite is for, which
- * room it opens, and the nonce the eventual POST must echo back. Validates without
- * consuming (see validateInvite for why).
+ * Everything the set-password screen needs from one GET: who the invite is for, which room
+ * it opens, whether this is a first password set or a login (hasAccount), and the nonce the
+ * eventual POST must echo back. Validates without consuming (see validateInvite for why).
+ *
+ * Deliberately drops the email: this endpoint takes only a token, so anyone with a
+ * forwarded or leaked link can call it — the page only needs the name to greet the person
+ * by, never their email address.
  */
 const describeInvite = async (token: string) => {
   const { invite, membership } = await validateInvite(token)
   const conversation = await Conversation.findById(membership.conversation).exec()
   const nonce = await issueNonce(invite._id)
+  const hasAccount = await userService.hasPasswordAccount(membership.email)
   return {
     nonce,
-    member: { name: membership.name, email: membership.email },
+    member: { name: membership.name, hasAccount },
     conversation: conversation ? { id: conversation._id.toString(), name: conversation.name } : null
   }
 }

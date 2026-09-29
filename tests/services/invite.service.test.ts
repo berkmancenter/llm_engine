@@ -1,3 +1,4 @@
+import mongoose from 'mongoose'
 import jwt from 'jsonwebtoken'
 import moment from 'moment'
 import httpStatus from 'http-status'
@@ -5,7 +6,7 @@ import setupIntTest from '../utils/setupIntTest.js'
 import config from '../../src/config/config.js'
 import tokenTypes from '../../src/config/tokens.js'
 import inviteService from '../../src/services/invite.service.js'
-import { ConversationMembership, MemberInvite, Conversation, RealNameRegistry } from '../../src/models/index.js'
+import { ConversationMembership, MemberInvite, Conversation, RealNameRegistry, User } from '../../src/models/index.js'
 import { insertConversations, conversationCommunityRoom } from '../fixtures/conversation.fixture.js'
 
 setupIntTest()
@@ -279,6 +280,41 @@ describe('invite service', () => {
       await ConversationMembership.updateOne({ _id: membershipB._id }, { name: 'A Different Name' })
       const result = await inviteService.consumeInvite(tokenB, nonceB, password)
       expect(result.tokens.access.token).toEqual(expect.any(String))
+    })
+
+    test('an invite for an already-provisioned email verifies the password before claiming', async () => {
+      const email = 'existing.account@example.com'
+      const membershipA = await insertMembership({ email })
+      const { token: tokenA, invite: inviteA } = await inviteService.mintInvite(membershipA)
+      const nonceA = await inviteService.issueNonce(inviteA._id)
+      await inviteService.consumeInvite(tokenA, nonceA, password)
+
+      // A second room, same person/email — insertMembership's (conversation, email) unique
+      // index means this needs a conversation of its own.
+      const secondRoom = await Conversation.create({
+        name: 'Second Room',
+        owner: new mongoose.Types.ObjectId(),
+        topic: new mongoose.Types.ObjectId(),
+        conversationType: 'communityRoom',
+        messages: [],
+        transcript: { status: 'stopped' }
+      })
+      const membershipB = await insertMembership({ email, conversation: secondRoom._id })
+      const { token: tokenB, invite: inviteB } = await inviteService.mintInvite(membershipB)
+      const nonceB = await inviteService.issueNonce(inviteB._id)
+
+      // Wrong password: rejected, and the invite is left alone — a typo is retryable.
+      await expect(inviteService.consumeInvite(tokenB, nonceB, 'WrongPassword1')).rejects.toMatchObject({
+        statusCode: httpStatus.UNAUTHORIZED
+      })
+      const stored = await MemberInvite.findById(inviteB._id).lean()
+      expect(stored!.consumedAt).toBeFalsy()
+      expect(await User.countDocuments({ email })).toBe(1)
+
+      // Correct password: succeeds, same account, no duplicate created.
+      const result = await inviteService.consumeInvite(tokenB, nonceB, password)
+      expect(result.user.email).toBe(email)
+      expect(await User.countDocuments({ email })).toBe(1)
     })
   })
 
