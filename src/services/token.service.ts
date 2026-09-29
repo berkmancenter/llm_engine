@@ -8,6 +8,15 @@ import tokenTypes from '../config/tokens.js'
 /* Tokens are stored as their SHA-256 digest so a database read does not hand an
    attacker a live credential. Every lookup must hash the raw token first. */
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex')
+
+/** Thrown by verifyToken when a correctly signed token has no matching, unblacklisted record (used or revoked). */
+class TokenNotFoundError extends Error {
+  constructor() {
+    super('Token not found')
+    this.name = 'TokenNotFoundError'
+  }
+}
+
 /**
  * Generate token
  * @param {ObjectId} userId
@@ -54,7 +63,7 @@ const verifyToken = async (token, type) => {
   const payload = jwt.verify(token, config.jwt.secret)
   const tokenDoc = await Token.findOne({ token: hashToken(token), type, user: payload.sub, blacklisted: false })
   if (!tokenDoc) {
-    throw new Error('Token not found')
+    throw new TokenNotFoundError()
   }
   return tokenDoc
 }
@@ -125,3 +134,4 @@ const tokenService = {
   hashToken
 }
 export default tokenService
+export { TokenNotFoundError }
