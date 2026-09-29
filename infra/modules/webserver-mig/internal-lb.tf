@@ -1,0 +1,53 @@
+# Internal passthrough Network Load Balancer: lets another VM on this same
+# VPC (bot-media-server-vm) reach the web server MIG directly over a
+# stable internal IP, without a round trip through the public HTTPS LB in
+# lb.tf and without re-terminating TLS on the way back in. Plain L4
+# passthrough (protocol TCP, no HTTP/L7 behavior) so the API port and the
+# websocket port behave identically here — no proxy-layer WebSocket-upgrade
+# handling to get subtly wrong, unlike lb.tf's proxy-based external LB.
+#
+# A direct instance IP isn't an option in its place: web_server's instances
+# are MIG members with ephemeral IPs that come and go under autoscaling/
+# rolling updates, so nothing outside the MIG can hold onto one safely.
+# This backend service + forwarding rule is the stable target that takes
+# its place, tracking the same instance group lb.tf's external backends do.
+#
+# Reuses web_server_ws's existing TCP health check (main.tf, on ws_port)
+# rather than adding a third health check resource — it already confirms
+# the process is alive and listening; a crashed process fails both ports
+# together in practice.
+
+resource "google_compute_address" "web_server_internal" {
+  project      = var.project_id
+  name         = "llm-engine-web-server-internal-ip"
+  region       = var.region
+  subnetwork   = var.subnet_self_link
+  address_type = "INTERNAL"
+}
+
+resource "google_compute_region_backend_service" "web_server_internal" {
+  project               = var.project_id
+  name                  = "llm-engine-web-server-internal-backend"
+  region                = var.region
+  protocol              = "TCP"
+  load_balancing_scheme = "INTERNAL"
+  health_checks         = [google_compute_health_check.web_server_ws.id]
+
+  backend {
+    group = google_compute_region_instance_group_manager.web_server.instance_group
+  }
+}
+
+resource "google_compute_forwarding_rule" "web_server_internal" {
+  project               = var.project_id
+  name                  = "llm-engine-web-server-internal-fr"
+  region                = var.region
+  network               = var.network_self_link
+  subnetwork            = var.subnet_self_link
+  ip_address            = google_compute_address.web_server_internal.id
+  ip_protocol           = "TCP"
+  ports                 = [tostring(var.api_port), tostring(var.ws_port)]
+  load_balancing_scheme = "INTERNAL"
+  backend_service       = google_compute_region_backend_service.web_server_internal.id
+  allow_global_access   = false # same-region callers only (bot-media-server-vm is in this region) — no reason to widen this
+}

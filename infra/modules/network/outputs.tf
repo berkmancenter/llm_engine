@@ -33,6 +33,11 @@ output "archive_wiki_vm_tag" {
   value       = "archive-wiki-vm"
 }
 
+output "bot_media_server_vm_tag" {
+  description = "Network tag the bot-media-server-vm instance must carry for the firewall rules above to apply."
+  value       = "bot-media-server-vm"
+}
+
 output "iap_ssh_tag" {
   description = "Network tag to add to any instance that should be reachable via IAP SSH tunneling."
   value       = "iap-ssh"

@@ -26,6 +26,18 @@ variable "subnet_self_link" {
   type = string
 }
 
+variable "network_self_link" {
+  description = <<-EOT
+    Self link of the VPC network (from the network module). Not needed by
+    anything else in this module — the instance template and the external
+    LB both infer their network from subnet_self_link/the subnet's own
+    parent network — but an INTERNAL-scheme forwarding rule (internal-lb.tf)
+    requires it explicit. Same requirement archive-wiki-vm's module already
+    has for its own (external) NEG, for the same underlying provider reason.
+  EOT
+  type        = string
+}
+
 variable "network_tag" {
   type    = string
   default = "web-server"
@@ -218,6 +230,35 @@ variable "extra_host_backends" {
     IP and a second managed cert. Every domain across every entry (plus
     var.domain and var.additional_domains) lands on the one shared cert —
     still within Google's 100-domain-per-cert limit at this scale.
+  EOT
+  type = list(object({
+    domains            = list(string)
+    backend_service_id = string
+  }))
+  default = []
+}
+
+variable "dedicated_cert_host_backends" {
+  description = <<-EOT
+    Like extra_host_backends, but each entry gets its OWN
+    google_compute_managed_ssl_certificate and its own slot in this proxy's
+    ssl_certificates list (GCP selects which cert to present per connection
+    via SNI — a target HTTPS proxy can hold up to 15) instead of being
+    folded into the shared cert's domain list.
+
+    Use this for a NEW domain, not extra_host_backends: extra_host_backends
+    ties that domain's fate to the shared cert's — any future change to the
+    shared cert's domain set forces Google to revalidate every SAN on it,
+    including this one, and vice versa. A managed cert can't update its
+    domain list in place (a full replace, ~60 min with every domain on it
+    losing TLS until every SAN reverifies — see local.ssl_cert_domains'
+    comment) — splitting an entry onto its own cert means a change to it
+    (or to the shared cert) can never force the other to reprovision.
+
+    Not retroactively applied to existing extra_host_backends entries (e.g.
+    archive-wiki-vm) — migrating one there now would itself force exactly
+    the shared-cert replacement this variable exists to avoid, for a domain
+    that's already live and working. New entries only.
   EOT
   type = list(object({
     domains            = list(string)
