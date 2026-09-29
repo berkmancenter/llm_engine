@@ -191,7 +191,7 @@ describe('invite service', () => {
       const nonce = await inviteService.issueNonce(invite._id)
 
       const result = await inviteService.consumeInvite(token, nonce, password)
-      expect(result.membership._id.toString()).toBe(membership._id.toString())
+      expect(result.user.email).toBe(membership.email)
       expect(result.tokens).toMatchObject({
         access: { token: expect.any(String), expires: expect.anything() },
         refresh: { token: expect.any(String), expires: expect.anything() }

@@ -363,11 +363,21 @@ describe('invite endpoints', () => {
 
       const res = await request(app).post('/v1/auth/invite/consume').send({ token, nonce, password }).expect(httpStatus.OK)
       expect(res.headers['cache-control']).toContain('no-store')
+      // Matches /auth/login's response shape so the set-password page can start a session
+      // the same way login does
+      expect(res.body.user).toMatchObject({
+        id: expect.any(String),
+        email: membership.email,
+        pseudonyms: expect.arrayContaining([expect.objectContaining({ active: true })])
+      })
+      expect(res.body.user.password).toBeUndefined()
       expect(res.body.tokens).toMatchObject({
         access: { token: expect.any(String), expires: expect.anything() },
         refresh: { token: expect.any(String), expires: expect.anything() }
       })
       expect(res.body.conversationId).toBe(conversationCommunityRoom._id.toString())
+      expect(res.body.membership).toBeUndefined()
+      expect(res.body.invite).toBeUndefined()
 
       const invite = await MemberInvite.findOne({ membership: membership._id }).lean()
       expect(invite!.consumedAt).toBeTruthy()

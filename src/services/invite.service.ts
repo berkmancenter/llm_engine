@@ -155,7 +155,9 @@ const consumeInvite = async (token: string, nonce: string, password: string) => 
   }
   const tokens = await tokenService.generateAuthTokens(user)
 
-  return { invite: claimed, membership, tokens, conversationId: membership.conversation.toString() }
+  // Matches /auth/login's response shape (see auth.controller.ts) so the set-password page
+  // can start a session the same way login does
+  return { user, tokens, conversationId: membership.conversation.toString() }
 }
 
 /**

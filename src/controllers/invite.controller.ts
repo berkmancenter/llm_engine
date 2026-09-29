@@ -1,6 +1,6 @@
 import httpStatus from 'http-status'
 import catchAsync from '../utils/catchAsync.js'
-import { inviteService } from '../services/index.js'
+import { inviteService, userService } from '../services/index.js'
 
 /* The invite screens carry a live token and nonce, so their responses must never be
    cached or send a referrer. Set before any work so error responses carry the headers
@@ -29,6 +29,8 @@ const getInvite = catchAsync(async (req, res) => {
 const consumeInvite = catchAsync(async (req, res) => {
   setInviteScreenHeaders(res)
   const result = await inviteService.consumeInvite(req.body.token, req.body.nonce, req.body.password)
+  // Same shape as /auth/login and /auth/register (see auth.controller.ts).
+  result.user.goodReputation = await userService.goodReputation(result.user)
   res.status(httpStatus.OK).send(result)
 })
 
