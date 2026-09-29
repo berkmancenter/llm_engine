@@ -13,10 +13,17 @@ import emailService from './email.service.js'
 import userService from './user.service.js'
 import tokenService from './token.service.js'
 
-/* One deliberately vague message for every failure mode: a more specific error
-   ("expired" vs "already used" vs "no such invite") would tell an attacker probing
-   skimmed tokens which ones are worth replaying. */
-const invalidInviteError = () => new ApiError(httpStatus.UNAUTHORIZED, 'Invite link is invalid or has expired')
+/* One deliberately vague message for every dead-invite failure mode: a more specific error
+   ("expired" vs "already used" vs "no such invite") would tell an attacker probing skimmed
+   tokens which ones are worth replaying. 410 Gone: the link itself is what's dead, distinct
+   from a stale nonce (403) or a wrong password (401), so the frontend can tell them apart by
+   status code alone. */
+const invalidInviteError = () => new ApiError(httpStatus.GONE, 'Invite link is invalid or has expired')
+
+/* The nonce (not the invite) is the problem: missing, wrong, expired, or replaced by a
+   fresher page load. The frontend fetches a new one and retries once without the person
+   noticing, rather than showing them the dead-link screen. */
+const staleNonceError = () => new ApiError(httpStatus.FORBIDDEN, 'Invite link is invalid or has expired')
 
 /* Long enough to set one password on a slow connection; short enough that a nonce
    skimmed alongside its token goes stale before it is useful. */
@@ -120,10 +127,8 @@ const issueNonce = async (inviteId) => {
  * account: for a new one (or an existing passwordless shadow account — see
  * provisionInvitedMember), it's the password being set for the first time; for an account
  * that already has one, it's a login credential that must be verified — checked here,
- * before the invite is claimed, so a typo returns 401 and leaves the invite untouched
- * rather than burning the person's one-time link for a failed login. Both cases return the
- * same generic invalid-invite error on mismatch, so the response never reveals whether an
- * account already exists for this email.
+ * before the invite is claimed, so a wrong password (401 'Incorrect password') leaves the
+ * invite untouched rather than burning the person's one-time link for a failed login.
  *
  * After the token is consumed, provisions the account and writes the real-name identity if
  * the conversation uses real names. Issues auth tokens so the caller lands in the room
@@ -136,11 +141,11 @@ const issueNonce = async (inviteId) => {
 const consumeInvite = async (token: string, nonce: string, password: string) => {
   const { invite, membership } = await validateInvite(token)
   if (!nonce) {
-    throw invalidInviteError()
+    throw staleNonceError()
   }
 
   if (!(await userService.verifyExistingPassword(membership.email, password))) {
-    throw invalidInviteError()
+    throw new ApiError(httpStatus.UNAUTHORIZED, 'Incorrect password')
   }
 
   const claimed = await MemberInvite.findOneAndUpdate(
@@ -155,7 +160,10 @@ const consumeInvite = async (token: string, nonce: string, password: string) => 
     { new: true }
   ).exec()
   if (!claimed) {
-    throw invalidInviteError()
+    // validateInvite above already ruled out a dead invite (expired, consumed, invalidated,
+    // or no matching record) — this is specifically a wrong/expired nonce, or two submits
+    // racing for the same one, either way a 403 the frontend retries with a fresh nonce.
+    throw staleNonceError()
   }
 
   const conversation = await Conversation.findById(membership.conversation).exec()

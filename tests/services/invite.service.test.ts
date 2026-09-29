@@ -65,7 +65,7 @@ describe('invite service', () => {
       const firstStored = await MemberInvite.findById(first.invite._id).lean()
       expect(firstStored!.invalidatedAt).toBeTruthy()
       await expect(inviteService.validateInvite(first.token)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.GONE
       })
       await expect(inviteService.validateInvite(second.token)).resolves.toBeTruthy()
     })
@@ -105,7 +105,7 @@ describe('invite service', () => {
       )
 
       await expect(inviteService.validateInvite(forged)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.GONE
       })
     })
 
@@ -115,7 +115,7 @@ describe('invite service', () => {
       const tampered = `${token.slice(0, -2)}xx`
 
       await expect(inviteService.validateInvite(tampered)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.GONE
       })
     })
 
@@ -125,7 +125,7 @@ describe('invite service', () => {
       await MemberInvite.deleteMany({ membership: membership._id })
 
       await expect(inviteService.validateInvite(token)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.GONE
       })
     })
 
@@ -135,7 +135,7 @@ describe('invite service', () => {
       await MemberInvite.updateOne({ _id: invite._id }, { expiresAt: moment().subtract(1, 'minute').toDate() })
 
       await expect(inviteService.validateInvite(token)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.GONE
       })
     })
 
@@ -145,7 +145,7 @@ describe('invite service', () => {
       await ConversationMembership.updateOne({ _id: membership._id }, { status: 'removed' })
 
       await expect(inviteService.validateInvite(token)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.GONE
       })
     })
   })
@@ -172,7 +172,7 @@ describe('invite service', () => {
       await inviteService.issueNonce(invite._id)
 
       await expect(inviteService.consumeInvite(token, oldNonce, 'Invite1234')).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.FORBIDDEN
       })
     })
   })
@@ -203,7 +203,7 @@ describe('invite service', () => {
       expect(stored!.consumedAt).toBeTruthy()
 
       await expect(inviteService.consumeInvite(token, nonce, password)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.GONE
       })
     })
 
@@ -214,7 +214,7 @@ describe('invite service', () => {
       await inviteService.consumeInvite(token, nonce, password)
 
       await expect(inviteService.validateInvite(token)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.GONE
       })
     })
 
@@ -224,10 +224,10 @@ describe('invite service', () => {
       await inviteService.issueNonce(invite._id)
 
       await expect(inviteService.consumeInvite(token, 'not-the-nonce', password)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.FORBIDDEN
       })
       await expect(inviteService.consumeInvite(token, '', password)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.FORBIDDEN
       })
 
       const stored = await MemberInvite.findById(invite._id).lean()
@@ -240,7 +240,7 @@ describe('invite service', () => {
       const { token } = await inviteService.mintInvite(membership)
 
       await expect(inviteService.consumeInvite(token, 'anything', password)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.FORBIDDEN
       })
     })
 
@@ -251,7 +251,7 @@ describe('invite service', () => {
       await MemberInvite.updateOne({ _id: invite._id }, { nonceExpiresAt: moment().subtract(1, 'minute').toDate() })
 
       await expect(inviteService.consumeInvite(token, nonce, password)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.FORBIDDEN
       })
     })
 
@@ -328,7 +328,7 @@ describe('invite service', () => {
 
       // Token A with B's nonce must not consume either record.
       await expect(inviteService.consumeInvite(inviteA.token, nonceB, 'Invite1234')).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.FORBIDDEN
       })
       const storedA = await MemberInvite.findById(inviteA.invite._id).lean()
       const storedB = await MemberInvite.findById(inviteB.invite._id).lean()
@@ -342,7 +342,7 @@ describe('invite service', () => {
       await ConversationMembership.deleteMany({ _id: membership._id })
 
       await expect(inviteService.validateInvite(token)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.GONE
       })
     })
   })

@@ -296,7 +296,7 @@ describe('invite endpoints', () => {
         .expect(httpStatus.OK)
 
       await expect(inviteService.validateInvite(old.token)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.GONE
       })
       const invites = spy.mock.calls[0][0] as InvitePayload[]
       expect(invites).toHaveLength(1)
@@ -333,8 +333,8 @@ describe('invite endpoints', () => {
       expect(invite!.consumedAt).toBeFalsy()
     })
 
-    test('returns 401 for an invalid token and 400 for a missing one', async () => {
-      await request(app).get('/v1/auth/invite').query({ token: 'garbage' }).expect(httpStatus.UNAUTHORIZED)
+    test('returns 410 for an invalid token and 400 for a missing one', async () => {
+      await request(app).get('/v1/auth/invite').query({ token: 'garbage' }).expect(httpStatus.GONE)
       await request(app).get('/v1/auth/invite').expect(httpStatus.BAD_REQUEST)
     })
 
@@ -383,7 +383,7 @@ describe('invite endpoints', () => {
       const invite = await MemberInvite.findOne({ membership: membership._id }).lean()
       expect(invite!.consumedAt).toBeTruthy()
 
-      await request(app).post('/v1/auth/invite/consume').send({ token, nonce, password }).expect(httpStatus.UNAUTHORIZED)
+      await request(app).post('/v1/auth/invite/consume').send({ token, nonce, password }).expect(httpStatus.GONE)
     })
 
     test('a skimmed token alone cannot consume: nonce and password are required', async () => {
@@ -396,7 +396,7 @@ describe('invite endpoints', () => {
       await request(app)
         .post('/v1/auth/invite/consume')
         .send({ token, nonce: 'wrong', password })
-        .expect(httpStatus.UNAUTHORIZED)
+        .expect(httpStatus.FORBIDDEN)
 
       const invite = await MemberInvite.findOne({ membership: membership._id }).lean()
       expect(invite!.consumedAt).toBeFalsy()

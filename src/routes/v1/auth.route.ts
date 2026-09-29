@@ -387,8 +387,8 @@ router.post('/resetPassword', validate(authValidation.resetPassword), authContro
  *           type: string
  *     responses:
  *       200:
- *         description: Member name and email, conversation, and a one-time nonce
- *       401:
+ *         description: Member name and hasAccount, conversation, and a one-time nonce
+ *       410:
  *         description: Invite link is invalid or has expired
  *       400:
  *         description: Token missing
@@ -424,9 +424,13 @@ router.get('/invite', inviteConsumeLimiter, validate(authValidation.getInvite), 
  *       200:
  *         description: Invite consumed
  *       401:
- *         description: Invite link is invalid, expired, already used, or the nonce does not match
+ *         description: Incorrect password
+ *       403:
+ *         description: Nonce is missing, wrong, or expired — fetch a fresh one and retry
+ *       410:
+ *         description: Invite link is invalid or has expired
  *       400:
- *         description: Token or nonce missing
+ *         description: Token, nonce, or password missing
  */
 router.post('/invite/consume', inviteConsumeLimiter, validate(authValidation.consumeInvite), inviteController.consumeInvite)
 
