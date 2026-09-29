@@ -229,7 +229,9 @@ export default verify({
       composeSystemPrompt(systemPromptBase, {
         personalityName,
         behaviorPolicy: this.conversation.behaviorPolicy,
-        channelType: isDM ? 'dm' : 'groupChat'
+        channelType: isDM ? 'dm' : 'groupChat',
+        platforms: this.conversation.platforms,
+        modelInfo: { llmModel: this.llmModel, llmPlatform: this.llmPlatform }
       }) + (isVoice ? VOICE_OUTPUT_RULES : '')
 
     // When answering a DM or voice message, the agent framework narrows conversationHistory
@@ -255,7 +257,7 @@ export default verify({
     // costs 2 graph steps; with both event-history and archive tool sets the agent may need to
     // consult several before answering.
     const shouldStream = this.agentConfig?.streaming ?? isVoice
-    const requestId = (userMessage.source?.requestId as string | undefined) ?? conversationId
+    const requestId = (userMessage.source?.requestId as string | undefined) ?? userMessage._id?.toString() ?? conversationId
     const onChunk = shouldStream
       ? (text: string) => {
           websocketGateway

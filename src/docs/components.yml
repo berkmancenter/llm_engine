@@ -57,6 +57,11 @@ components:
           type: string
         pseudonymId:
           type: string
+        ownerIsAdmin:
+          type: boolean
+          description: >-
+            Whether the author is an admin right now, not when they posted. Only present in
+            conversations that use real names, so an anonymous poster is never revealed as an admin.
         active:
           type: boolean
         isDeleted:
@@ -1393,6 +1398,21 @@ components:
           type: string
           description: Id of the GraphOriginPrompt this concept came out of
           example: p1
+        gloss:
+          type: string
+          description: One plain sentence saying what this concept means in this discussion.
+          example: A registry participants check credentials against.
+        foldedFrom:
+          type: array
+          items:
+            type: string
+          description: >-
+            Labels of concepts folded into this one because the series graph outgrew its size
+            cap. Distinct from an ordinary cross-session merge, which leaves no trace here since
+            the two labels really named the same idea — a folded concept was a genuinely
+            distinct idea, consolidated for space, so its label is kept so a reader can still
+            find it.
+          example: ['Registry Interop']
         provenance:
           $ref: '#/components/schemas/GraphNodeProvenance'
 

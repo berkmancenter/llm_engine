@@ -38,6 +38,11 @@ const addPseudonym = catchAsync(async (req, res) => {
   const user = await userService.addPseudonym(req.body, req.user)
   res.status(httpStatus.CREATED).send(user!.pseudonyms.filter((x) => !x.isDeleted))
 })
+const registerRealName = catchAsync(async (req, res) => {
+  const user = await userService.getUserById(req.user.id)
+  const pseudonyms = await userService.registerRealName(user, req.body.conversationId, req.body.realName)
+  res.status(httpStatus.CREATED).send(pseudonyms.filter((x) => !x.isDeleted))
+})
 const deletePseudonym = catchAsync(async (req, res) => {
   await userService.deletePseudonym(req.params.pseudonymId, req.user)
   res.status(httpStatus.OK).send()
@@ -119,6 +124,7 @@ export {
   updateUserRole,
   getUser,
   addPseudonym,
+  registerRealName,
   activatePseudonym,
   getPseudonyms,
   deletePseudonym,

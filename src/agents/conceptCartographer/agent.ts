@@ -95,7 +95,8 @@ export default verify({
           results: result.results,
           texts: result.texts,
           knownIdentities: result.knownIdentities,
-          conversationId: evt.conversationId
+          conversationId: evt.conversationId,
+          pollRefs: result.pollRefs
         })
         if (refined) {
           logger.info(`conceptCartographer: refined topic ${topicId} graph to version ${refined.version.versionNumber}`)

@@ -24,7 +24,7 @@ export function buildEventSetupBlocks(slackUserId: string, url: string): object[
         type: 'mrkdwn',
         /* <@USER_ID> is Slack's mrkdwn syntax for a user mention — Slack
            renders it as the person's display name with a highlight. */
-        text: `Hey <@${slackUserId}>! I can help with that in Nextspace. Click the button below and we can get your event set up.`
+        text: `Hey <@${slackUserId}>! I can help with that in NextSpace. Click the button below and we can get your event set up.`
       }
     },
     {
@@ -130,7 +130,7 @@ export default verify({
       })
       /* The token goes in the URL fragment (after #) rather than the query
          string (after ?). Browsers never send fragments to the server, so
-         the Nextspace server never sees the token in its access logs and the
+         the NextSpace server never sees the token in its access logs and the
          token can't leak via the Referer header. The frontend reads it from
          window.location.hash on the client side. */
       const url = `${config.appHost}/events/new#token=${encodeURIComponent(token)}`
@@ -143,7 +143,7 @@ export default verify({
       return [
         {
           visible: true,
-          message: `Let's set up your event! Open Nextspace: ${config.appHost}/events/new`,
+          message: `Let's set up your event! Open NextSpace: ${config.appHost}/events/new`,
           messageType: 'text',
           channels: setupChannel ? [setupChannel] : [],
           parent: parentMessageId,
@@ -154,12 +154,12 @@ export default verify({
 
     /* Reached when Slack context is missing or partial — see the guard above.
        The organizer still gets a link to the event form; they just have to
-       authenticate on the Nextspace side instead of arriving pre-identified
+       authenticate on the NextSpace side instead of arriving pre-identified
        from Slack. No Block Kit blocks here since we're not on Slack. */
     return [
       {
         visible: true,
-        message: `Let's set up your event! Open Nextspace to continue: ${config.appHost}/events/new`,
+        message: `Let's set up your event! Open NextSpace to continue: ${config.appHost}/events/new`,
         messageType: 'text',
         channels: setupChannel ? [setupChannel] : [],
         parent: parentMessageId

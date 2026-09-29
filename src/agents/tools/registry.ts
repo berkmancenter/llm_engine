@@ -61,9 +61,16 @@ export async function buildToolsGuidance(names: string[], context?: ToolContext)
 /**
  * Resolve an array of tool names into LangChain tool instances.
  * Unknown names are logged as warnings and skipped.
+ *
+ * Deduplicates by the resolved tool's own `.name` — some registry keys are intentional
+ * aliases for the same underlying tool object (e.g. `tavily_search` -> `web_search`),
+ * and requesting both would otherwise bind the identical schema twice. Anthropic's
+ * cache-eligible prefix is `tools` + `system` combined, so a duplicated schema isn't
+ * just wasted tokens on every call, it's wasted tokens on every CACHED call too.
  */
 export async function getTools(names: string[], context?: ToolContext): Promise<StructuredToolInterface[]> {
   const tools: StructuredToolInterface[] = []
+  const seenNames = new Set<string>()
   for (const name of names) {
     const factory = factories.get(name)
     if (!factory) {
@@ -71,10 +78,11 @@ export async function getTools(names: string[], context?: ToolContext): Promise<
       continue
     }
     const result = await Promise.resolve(factory(context))
-    if (Array.isArray(result)) {
-      tools.push(...result)
-    } else {
-      tools.push(result)
+    const resolved = Array.isArray(result) ? result : [result]
+    for (const tool of resolved) {
+      if (seenNames.has(tool.name)) continue
+      seenNames.add(tool.name)
+      tools.push(tool)
     }
   }
   return tools

@@ -1,9 +1,13 @@
 import httpStatus from 'http-status'
+import mongoose from 'mongoose'
 import { traceable } from 'langsmith/traceable'
 import logger from '../../config/logger.js'
 import ApiError from '../../utils/ApiError.js'
 import Conversation from '../../models/conversation.model.js'
 import Message from '../../models/message.model.js'
+import Poll from '../../models/poll.model/poll.js'
+import PollChoice from '../../models/poll.model/choice.js'
+import PollResponse from '../../models/poll.model/response.js'
 import RealNameRegistry from '../../models/realNameRegistry.model.js'
 import Topic from '../../models/topic.model.js'
 import User from '../../models/user.model/user.model.js'
@@ -11,12 +15,20 @@ import Artifact from '../../models/artifact.model/artifact.js'
 import { CONCEPT_GRAPH_ARTIFACT } from '../../models/artifact.model/conceptGraphArtifact.js'
 import { getModelChat, coreLLMModel, coreLLMPlatform } from '../../agents/helpers/getModelChat.js'
 import { getChatPromptResponse } from '../../agents/helpers/llmChain.js'
+import { computeParticipation, countChannelParticipants, computeAudienceEngagement } from '../conversationAnalytics.service.js'
 import artifactService from '../artifact.service.js'
 import { EXTRACTION_PROMPT, EXTRACTION_SCHEMA } from './prompt.js'
-import { aliasedKey, assembleGraph, AssemblyReport, ExtractionResult, SourceRefMap } from './assemble.js'
+import { aliasedKey, assembleGraph, AssemblyReport, ExtractionResult, PollRefMap, SourceRefMap } from './assemble.js'
 import { screenForIdentities } from './nameScreen.js'
-import { knownConceptLabels, payloadToExtraction, resolveConceptAliases, KNOWN_CONCEPT_LIMIT } from './topicGraph.js'
+import {
+  knownConceptLabels,
+  payloadToExtraction,
+  resolveConceptAliases,
+  KNOWN_CONCEPT_LIMIT,
+  CONCEPT_CAP
+} from './topicGraph.js'
 import { applyRelinks, proposeRelinks } from './relink.js'
+import { proposeConsolidations, ConsolidationCandidate } from './consolidate.js'
 import { ConceptGraphPayload, IBaseUser } from '../../types/index.types.js'
 
 /*
@@ -48,13 +60,118 @@ const CHUNK_CHARS = 24_000
 const MIN_SOURCE_CHARS = 400
 
 interface GraphSources {
-  /* Verbatim message bodies, for the quote checker to compare against. */
+  /* Verbatim message bodies, for the quote checker to compare against. A poll line is never
+     added here: it is organizer-authored/aggregate text, not a participant's own words, so it
+     is not part of what the quote checker guards against being lifted unquoted. */
   texts: string[]
-  /* The same messages tagged [m1], [m2]..., which is what the model actually reads. */
+  /* Messages and polls, chronologically interleaved and tagged [m1], [m2].../[p1], [p2]...,
+     which is what the model actually reads. */
   taggedLines: string[]
   /* Tag to message id, so a cited tag becomes real provenance. */
   sourceRefs: SourceRefMap
+  /* Tag to poll id, the [p#] counterpart of sourceRefs. */
+  pollRefs: PollRefMap
+  /* Each poll's tag and bare question text, so a caller can pre-seed an origin prompt that
+     guarantees the node exists even on a chunk where the model doesn't bother restating it. */
+  polls: { tag: string; pollId: string; question: string }[]
   knownIdentities: string[]
+}
+
+/**
+ * Formats one poll as the single line the extractor reads: the question, how much of the
+ * room responded, and how the responses split. Pure and DB-free so the wording — especially
+ * the participation framing — can be tested directly against known counts.
+ *
+ * @param attendeeCount The tracked headcount to phrase turnout against, or undefined when
+ *   that count isn't trustworthy for this conversation (see loadPolls) — in which case the
+ *   raw response count is reported on its own rather than paired with a denominator that
+ *   might contradict it.
+ */
+export const formatPollLine = (
+  question: string,
+  choices: { text: string; count: number }[],
+  attendeeCount: number | undefined
+): string => {
+  const totalResponses = choices.reduce((sum, c) => sum + c.count, 0)
+  const tally =
+    totalResponses > 0
+      ? choices.map((c) => `${c.text} ${c.count} (${Math.round((c.count / totalResponses) * 100)}%)`).join(', ')
+      : 'no responses recorded'
+  const participationClause =
+    attendeeCount !== undefined
+      ? `${totalResponses} of ${attendeeCount} attendees responded`
+      : `${totalResponses} response${totalResponses === 1 ? '' : 's'}`
+
+  return `Poll (${participationClause}): "${question.trim()}" — ${tally}`
+}
+
+/* A poll folded into one line of the event record. Never gated on whether the poll has
+   "closed" — generateConceptGraph only ever runs after the conversation itself is inactive
+   (see respondPoll's own active-conversation guard in poll.service), so every poll belonging
+   to it already has permanently final results. */
+const loadPolls = async (
+  conversation
+): Promise<{ pollId: string; createdAt: Date; text: string; question: string }[]> => {
+  const conversationId = new mongoose.Types.ObjectId(conversation._id.toString())
+  const polls = (await Poll.find({ conversation: conversationId })
+    .select('title createdAt')
+    .lean()
+    .exec()) as unknown as { _id: mongoose.Types.ObjectId; title: string; createdAt: Date }[]
+  if (polls.length === 0) return []
+
+  const pollIds = polls.map((p) => p._id)
+  const [choices, responses] = await Promise.all([
+    PollChoice.find({ poll: { $in: pollIds } }).select('poll text').lean().exec(),
+    PollResponse.find({ poll: { $in: pollIds } }).select('poll choice').lean().exec()
+  ])
+
+  const choicesByPoll = new Map<string, { id: string; text: string }[]>()
+  for (const choice of choices) {
+    const key = choice.poll.toString()
+    const list = choicesByPoll.get(key) ?? []
+    list.push({ id: choice._id.toString(), text: choice.text })
+    choicesByPoll.set(key, list)
+  }
+  const countByChoiceId = new Map<string, number>()
+  for (const response of responses) {
+    const key = response.choice.toString()
+    countByChoiceId.set(key, (countByChoiceId.get(key) ?? 0) + 1)
+  }
+
+  /* The attendee denominator, computed once for the conversation and reused for every poll
+     in it — see conversationAnalytics.service.ts. Trusted only when tracked participation
+     actually reconciles with who posted (postersExceedTrackedSessions false) and there is a
+     real tracked headcount to divide by (participantCount > 0); otherwise an "of N attendees"
+     framing would either contradict the room's own poster count or imply a headcount that
+     was never actually tracked, so the response count is reported on its own instead. */
+  const participation = await computeParticipation(conversationId)
+  const channelParticipantCount = await countChannelParticipants(conversation)
+  const engagement = computeAudienceEngagement(participation.posterCount, channelParticipantCount)
+  const attendeeCount =
+    !engagement.postersExceedTrackedSessions && engagement.participantCount > 0 ? engagement.participantCount : undefined
+
+  return polls.map((poll) => {
+    const question = poll.title.trim()
+    const pollChoices = (choicesByPoll.get(poll._id.toString()) ?? []).map((c) => ({
+      text: c.text,
+      count: countByChoiceId.get(c.id) ?? 0
+    }))
+    /* Poll voting isn't gated the same way message-posting participation is, so a
+       specific poll's own response count can exceed the conversation-level attendeeCount
+       above. Reconciled per poll rather than trusting the shared denominator everywhere:
+       when a poll's own responses outnumber it, the count would contradict itself ("12 of
+       10 attendees responded"), so that poll falls back to reporting its raw response
+       count instead. */
+    const totalResponses = pollChoices.reduce((sum, c) => sum + c.count, 0)
+    const trustedAttendeeCount =
+      attendeeCount !== undefined && totalResponses > attendeeCount ? undefined : attendeeCount
+    return {
+      pollId: poll._id.toString(),
+      createdAt: poll.createdAt,
+      text: formatPollLine(question, pollChoices, trustedAttendeeCount),
+      question
+    }
+  })
 }
 
 /*
@@ -103,11 +220,59 @@ const collectKnownIdentities = async (conversations): Promise<string[]> => {
   return [...identities]
 }
 
-/* Every conversation under a topic, with just the fields the identity union needs. */
+/* Every conversation under a topic, with just the fields the identity union and loadSources'
+   poll lookup need. */
 const topicConversations = async (topicId) =>
-  Conversation.find({ topic: topicId }).select('name presenters moderators topic').lean().exec()
+  Conversation.find({ topic: topicId }).select('name presenters moderators topic agents channels').lean().exec()
 
-/** The messages one conversation contributes, oldest first, tagged for citation. */
+/* One message or poll, ordered and tagged together. Pure and DB-free — see
+   interleaveSources — so the ordering and tagging can be tested directly against synthetic
+   timestamps rather than through a database. */
+type SourceItem =
+  | { kind: 'message'; createdAt: Date; body: string; messageId: string }
+  | { kind: 'poll'; createdAt: Date; text: string; pollId: string; question: string }
+
+/**
+ * Interleaves messages and polls into one createdAt-ordered sequence and tags each line for
+ * citation — a poll in the position it was actually posted, alongside the chat that led up
+ * to and followed it, which is what lets a contribution attach to it. Messages and polls tag
+ * independently ([m1], [m2]... / [p1], [p2]...) so a cited tag's prefix alone says which map
+ * to resolve it against.
+ */
+export const interleaveSources = (items: SourceItem[]): Omit<GraphSources, 'knownIdentities'> => {
+  const ordered = [...items].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+
+  const texts: string[] = []
+  const taggedLines: string[] = []
+  const sourceRefs: SourceRefMap = new Map()
+  const pollRefs: PollRefMap = new Map()
+  const polls: { tag: string; pollId: string; question: string }[] = []
+  let messageIndex = 0
+  let pollIndex = 0
+  for (const item of ordered) {
+    if (item.kind === 'message') {
+      messageIndex += 1
+      const tag = `m${messageIndex}`
+      texts.push(item.body)
+      /* No speaker labels on these lines, deliberately. The model cannot reveal an identity
+         it was never shown, which makes the Chatham House guarantee structural here rather
+         than something the prompt has to talk it out of. */
+      taggedLines.push(`[${tag}] ${item.body}`)
+      sourceRefs.set(tag, item.messageId)
+    } else {
+      pollIndex += 1
+      const tag = `p${pollIndex}`
+      taggedLines.push(`[${tag}] ${item.text}`)
+      pollRefs.set(tag, item.pollId)
+      polls.push({ tag, pollId: item.pollId, question: item.question })
+    }
+  }
+
+  return { texts, taggedLines, sourceRefs, pollRefs, polls }
+}
+
+/** The messages and polls one conversation contributes, interleaved chronologically and
+    tagged for citation. */
 const loadSources = async (conversation, knownIdentities: string[]): Promise<GraphSources> => {
   const messages = await Message.find({
     conversation: conversation._id,
@@ -115,7 +280,7 @@ const loadSources = async (conversation, knownIdentities: string[]): Promise<Gra
     visible: { $ne: false }
   })
     .sort({ createdAt: 1 })
-    .select('body fromAgent')
+    .select('body fromAgent createdAt')
     .lean()
     .exec()
 
@@ -123,22 +288,23 @@ const loadSources = async (conversation, knownIdentities: string[]): Promise<Gra
      room's thinking, and mapping them would feed the model's earlier output back in as if
      participants had said it. */
   const usable = messages.filter((m) => !m.fromAgent && typeof m.body === 'string' && m.body.trim().length > 0)
+  const polls = await loadPolls(conversation)
 
-  const texts: string[] = []
-  const taggedLines: string[] = []
-  const sourceRefs: SourceRefMap = new Map()
-  usable.forEach((message, index) => {
-    const tag = `m${index + 1}`
-    const body = (message.body as string).trim()
-    texts.push(body)
-    /* No speaker labels on these lines, deliberately. The model cannot reveal an identity
-       it was never shown, which makes the Chatham House guarantee structural here rather
-       than something the prompt has to talk it out of. */
-    taggedLines.push(`[${tag}] ${body}`)
-    sourceRefs.set(tag, message._id!.toString())
-  })
+  const items: SourceItem[] = [
+    ...usable.map(
+      (m): SourceItem => ({
+        kind: 'message',
+        createdAt: m.createdAt as unknown as Date,
+        body: (m.body as string).trim(),
+        messageId: m._id!.toString()
+      })
+    ),
+    ...polls.map(
+      (p): SourceItem => ({ kind: 'poll', createdAt: p.createdAt, text: p.text, pollId: p.pollId, question: p.question })
+    )
+  ]
 
-  return { texts, taggedLines, sourceRefs, knownIdentities }
+  return { ...interleaveSources(items), knownIdentities }
 }
 
 /* Packs whole messages into chunks, never splitting one, so a statement is always judged
@@ -219,11 +385,17 @@ const applyIdentityScreen = async (
 ): Promise<{ payload: ConceptGraphPayload; report: AssemblyReport }> => {
   /* Screened together in one call, tracked by what each line came from so a flag can be
      turned back into the right removal. */
-  const candidates: { text: string; kind: 'statement' | 'concept' | 'prompt'; id: string }[] = [
+  const candidates: { text: string; kind: 'statement' | 'concept' | 'gloss' | 'prompt'; id: string }[] = [
     ...payload.contributions
       .filter((c) => c.statement)
       .map((c) => ({ text: c.statement!, kind: 'statement' as const, id: c.id })),
     ...payload.concepts.map((c) => ({ text: c.label, kind: 'concept' as const, id: c.id })),
+    /* Free-form model prose, same risk category as a statement — screened the same way,
+       and the same "smallest thing that carries the risk" rule applies: a flagged gloss
+       costs its own sentence, not the concept it describes. */
+    ...payload.concepts
+      .filter((c) => c.gloss)
+      .map((c) => ({ text: c.gloss!, kind: 'gloss' as const, id: c.id })),
     ...payload.originPrompts.map((p) => ({ text: p.text, kind: 'prompt' as const, id: p.id }))
   ]
 
@@ -243,14 +415,16 @@ const applyIdentityScreen = async (
     )
   const unsafeStatements = flaggedOf('statement')
   const unsafeConcepts = flaggedOf('concept')
+  const unsafeGlosses = flaggedOf('gloss')
   const unsafePrompts = flaggedOf('prompt')
 
   const concepts = payload.concepts
     .filter((c) => !unsafeConcepts.has(c.id))
     .map((c) => {
-      const { origin, ...rest } = c
+      const { origin, gloss, ...rest } = c
       return {
         ...rest,
+        ...(gloss && !unsafeGlosses.has(c.id) && { gloss }),
         ...(origin && !unsafePrompts.has(origin) && { origin })
       }
     })
@@ -273,6 +447,7 @@ const applyIdentityScreen = async (
       droppedConcepts: report.droppedConcepts + unsafeConcepts.size,
       droppedContributions: report.droppedContributions + (payload.contributions.length - contributions.length),
       droppedStatements: report.droppedStatements + unsafeStatements.size,
+      droppedGlosses: report.droppedGlosses + unsafeGlosses.size,
       droppedOriginPrompts: report.droppedOriginPrompts + unsafePrompts.size
     }
   }
@@ -287,7 +462,10 @@ const applyIdentityScreen = async (
  * @returns The artifact and the version written, or null when there was nothing to map.
  */
 export const generateConceptGraph = async (conversationId: string, caller: IBaseUser) => {
-  const conversation = await Conversation.findById(conversationId).select('name presenters moderators topic').lean().exec()
+  const conversation = await Conversation.findById(conversationId)
+    .select('name presenters moderators topic agents channels')
+    .lean()
+    .exec()
   if (!conversation) {
     throw new ApiError(httpStatus.NOT_FOUND, `Conversation with id ${conversationId} not found`)
   }
@@ -298,7 +476,10 @@ export const generateConceptGraph = async (conversationId: string, caller: IBase
   const knownIdentities = await collectKnownIdentities(
     siblings.length > 0 ? siblings : [{ ...conversation, _id: conversationId }]
   )
-  const { texts, taggedLines, sourceRefs } = await loadSources({ ...conversation, _id: conversationId }, knownIdentities)
+  const { texts, taggedLines, sourceRefs, pollRefs, polls } = await loadSources(
+    { ...conversation, _id: conversationId },
+    knownIdentities
+  )
   const totalChars = texts.reduce((sum, t) => sum + t.length, 0)
   if (totalChars < MIN_SOURCE_CHARS) {
     logger.info(`conceptGraph: conversation ${conversationId} has too little content to map (${totalChars} chars)`)
@@ -328,7 +509,22 @@ export const generateConceptGraph = async (conversationId: string, caller: IBase
     throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'Concept graph extraction produced nothing')
   }
 
-  const assembled = assembleGraph(results, { sourceTexts: texts, knownIdentities }, { conversationId, sourceRefs })
+  /* Guarantees a poll's question becomes an origin prompt even on a chunk where the model
+     didn't bother restating it — safe to double up with whatever the model itself produced,
+     since promptIdByText's canonical-text dedup in assembleGraph collapses the two. */
+  if (polls.length > 0) {
+    results.unshift({
+      concepts: [],
+      contributions: [],
+      originPrompts: polls.map((p) => ({ text: p.question, sourceRefs: [p.tag] }))
+    })
+  }
+
+  const assembled = assembleGraph(
+    results,
+    { sourceTexts: texts, knownIdentities },
+    { conversationId, sourceRefs, pollRefs }
+  )
 
   /* The exact checks inside assembleGraph have run by here; this is the pass that catches
      what no list could — an unrecorded name, an identifying affiliation. Only the free text
@@ -356,11 +552,11 @@ export const generateConceptGraph = async (conversationId: string, caller: IBase
     .sort('createdAt')
     .exec()
 
-  const note = `Generated from ${chunks.length} chunk${chunks.length === 1 ? '' : 's'} of the event record`
+  const note = `Generated from ${texts.length} message${texts.length === 1 ? '' : 's'} in the event record`
 
   if (existing) {
     const version = await artifactService.appendVersion(existing._id!.toString(), { payload, note }, caller)
-    return { artifact: existing, version, report, results, knownIdentities, texts }
+    return { artifact: existing, version, report, results, knownIdentities, texts, pollRefs }
   }
 
   const { artifact, version } = await artifactService.createArtifact(
@@ -376,7 +572,7 @@ export const generateConceptGraph = async (conversationId: string, caller: IBase
   )
   /* The raw extraction rides along so a topic refinement triggered by the same event can
      merge it without paying for the transcript to be read a second time. */
-  return { artifact, version, report, results, knownIdentities, texts }
+  return { artifact, version, report, results, knownIdentities, texts, pollRefs }
 }
 
 /**
@@ -393,12 +589,30 @@ export const generateConceptGraph = async (conversationId: string, caller: IBase
  * @param incoming Extraction already paid for by a conversation-level run, plus the source
  *   texts it was checked against. Omit to read every conversation in the topic from
  *   scratch, which is how a series that predates this feature gets backfilled.
+ * @param options.reset Recompute from the raw transcripts alone, ignoring the graph's current
+ *   version as a merge source. An ordinary re-run still folds the current version in — see
+ *   `prior` below — which is right for redoing a bad extraction but means a past fold or a
+ *   too-low CONCEPT_CAP can never be undone by just raising the cap and re-running: the
+ *   folded concept's own node is gone, and only its label survives, on its survivor's
+ *   `foldedFrom`. Reset exists for that one case, is never sent by the client, and is not
+ *   meant to be routine — every conversation gets re-read and re-merged from nothing, so it
+ *   costs what a full backfill costs. The pre-reset graph is never lost either way: this
+ *   still writes through `appendVersion`, so it stays in the artifact's version history.
  */
 export const refineTopicGraph = async (
   topicId: string,
   caller: IBaseUser,
-  incoming?: { results: ExtractionResult[]; texts: string[]; knownIdentities: string[]; conversationId?: string }
+  incoming?: {
+    results: ExtractionResult[]
+    texts: string[]
+    knownIdentities: string[]
+    conversationId?: string
+    pollRefs?: PollRefMap
+  },
+  options?: { reset?: boolean }
 ) => {
+  const reset = options?.reset ?? false
+  if (reset) logger.info(`conceptGraph: topic ${topicId} resetting — recomputing from the raw transcripts alone`)
   const topic = await Topic.findOne({ _id: topicId, isDeleted: { $ne: true } })
     .select('name')
     .lean()
@@ -414,8 +628,11 @@ export const refineTopicGraph = async (
 
   /* Backfill path: no event handed us an extraction, so read the whole series. Deliberately
      the slow path — it exists for a topic whose events all predate this feature, not for the
-     steady state, where each event contributes its own extraction as it ends. */
-  if (results.length === 0) {
+     steady state, where each event contributes its own extraction as it ends. A reset always
+     takes this path too, even on the (currently theoretical) chance it was called alongside
+     an `incoming` extraction — resetting from anything less than the whole series would defeat
+     the point of it. */
+  if (reset || results.length === 0) {
     /* Walked in order, carrying the vocabulary forward: each conversation is offered what the
        earlier ones established, so a backfill builds the same crossings the incremental path
        would have built had the feature existed at the time. */
@@ -424,6 +641,20 @@ export const refineTopicGraph = async (
       const sources = await loadSources(conversation, knownIdentities)
       if (sources.texts.length === 0) continue
       texts = [...texts, ...sources.texts]
+      /* Guarantees each conversation's poll questions become origin prompts even where the
+         model doesn't restate them — see the identical seed in generateConceptGraph. Carries
+         provenance directly rather than a sourceRefs tag: each conversation's loadSources call
+         has its own locally-scoped tag namespace (poll tags restart at "p1" every time), so
+         merging every conversation's pollRefs into one map for this backfill's single
+         assembleGraph call would collide across conversations. The pollId is already known
+         here, so provenanceFor's carried-provenance fast path sidesteps that entirely. */
+      if (sources.polls.length > 0) {
+        results.push({
+          concepts: [],
+          contributions: [],
+          originPrompts: sources.polls.map((p) => ({ text: p.question, provenance: { pollId: p.pollId } }))
+        })
+      }
       for (const [index, chunk] of chunkSources(sources.taggedLines).entries()) {
         try {
           const extracted = await extractFromChunk(
@@ -447,8 +678,10 @@ export const refineTopicGraph = async (
   const { artifact: existing, payload: priorPayload } = await currentTopicGraph(topicId)
 
   /* The graph so far becomes just another extraction to merge, so one code path merges two
-     chunks of a transcript and six sessions of a series. */
-  const prior = priorPayload ? payloadToExtraction(priorPayload) : undefined
+     chunks of a transcript and six sessions of a series. A reset deliberately leaves it out:
+     `existing` is still carried through to `appendVersion` below, so the pre-reset graph
+     survives as the previous version, but nothing about it feeds the recompute. */
+  const prior = !reset && priorPayload ? payloadToExtraction(priorPayload) : undefined
   if (prior) results = [prior, ...results]
 
   if (results.length === 0) {
@@ -485,9 +718,9 @@ export const refineTopicGraph = async (
   const assembled = assembleGraph(
     results,
     { sourceTexts: texts, knownIdentities },
-    { aliases, conversationId: incoming?.conversationId }
+    { aliases, conversationId: incoming?.conversationId, pollRefs: incoming?.pollRefs }
   )
-  const { payload, report } = await applyIdentityScreen(llm, assembled.payload, topicId, assembled.report)
+  let { payload, report } = await applyIdentityScreen(llm, assembled.payload, topicId, assembled.report)
 
   logger.info(
     `conceptGraph: topic ${topicId} -> ${payload.concepts.length} concepts, ${payload.contributions.length} ` +
@@ -500,9 +733,71 @@ export const refineTopicGraph = async (
     return null
   }
 
-  const note = priorPayload
-    ? `Refined with one further conversation; ${conversations.length} in the series`
-    : `Built from ${conversations.length} conversation${conversations.length === 1 ? '' : 's'}`
+  /*
+   * The graph is a picture someone looks at, not just a store of everything ever said, and a
+   * series that runs long enough outgrows what a reader can take in on one canvas. Folding
+   * runs here, on the finished payload, rather than earlier alongside alias resolution: it
+   * needs the real, final degree of every concept — how many contributions actually touch it
+   * — which only exists once assembly and the identity screen are both done.
+   */
+  if (payload.concepts.length > CONCEPT_CAP) {
+    const degree = new Map<string, number>()
+    for (const contribution of payload.contributions) {
+      for (const id of contribution.concepts) degree.set(id, (degree.get(id) ?? 0) + 1)
+    }
+    const byDegreeAsc = [...payload.concepts].sort((a, b) => (degree.get(a.id) ?? 0) - (degree.get(b.id) ?? 0))
+    const overBy = payload.concepts.length - CONCEPT_CAP
+    const toCandidate = (c: (typeof payload.concepts)[number]): ConsolidationCandidate => ({
+      label: c.label,
+      gloss: c.gloss,
+      degree: degree.get(c.id) ?? 0
+    })
+    const candidates = byDegreeAsc.slice(0, overBy).map(toCandidate)
+    const central = byDegreeAsc.slice(overBy).map(toCandidate)
+
+    const foldedGroups = await proposeConsolidations(llm, candidates, central, topicId)
+    if (foldedGroups.length > 0) {
+      /* The whole current payload becomes just another extraction to merge, the same trick
+         `prior` already plays above — one code path folds concepts the same way it merges
+         chunks of a transcript or sessions of a series. `aliases` is left empty: alias
+         resolution has already run for this refinement, and this second pass exists only to
+         apply the folds just proposed. */
+      const folded = assembleGraph([payloadToExtraction(payload)], { sourceTexts: texts, knownIdentities }, { foldedGroups })
+      payload = folded.payload
+      report = {
+        ...report,
+        droppedConcepts: report.droppedConcepts + folded.report.droppedConcepts,
+        droppedContributions: report.droppedContributions + folded.report.droppedContributions,
+        droppedStatements: report.droppedStatements + folded.report.droppedStatements,
+        droppedGlosses: report.droppedGlosses + folded.report.droppedGlosses,
+        droppedOriginPrompts: report.droppedOriginPrompts + folded.report.droppedOriginPrompts,
+        foldedConcepts: report.foldedConcepts + folded.report.foldedConcepts,
+        mergedConcepts: report.mergedConcepts + folded.report.mergedConcepts
+      }
+      logger.info(
+        `conceptGraph: topic ${topicId} folded ${folded.report.foldedConcepts} concept(s) into related ones, ` +
+          `now ${payload.concepts.length}/${CONCEPT_CAP}`
+      )
+    }
+  }
+
+  const foldNote =
+    report.foldedConcepts > 0
+      ? ` — folded ${report.foldedConcepts} concept${report.foldedConcepts === 1 ? '' : 's'} into related ones to stay ` +
+        `readable; see the previous version for each on its own`
+      : ''
+  const conversationCount = `${conversations.length} conversation${conversations.length === 1 ? '' : 's'}`
+  let noteBody: string
+  if (reset) {
+    noteBody =
+      `Recomputed from scratch across ${conversationCount}, ignoring the previous version's ` +
+      `accumulated state — see it for the pre-reset graph`
+  } else if (priorPayload) {
+    noteBody = `Refined with one further conversation; ${conversations.length} in the series`
+  } else {
+    noteBody = `Built from ${conversationCount}`
+  }
+  const note = noteBody + foldNote
 
   if (existing) {
     const version = await artifactService.appendVersion(existing._id!.toString(), { payload, note }, caller)

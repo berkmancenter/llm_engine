@@ -6,7 +6,7 @@ flowchart TD
     Adapter --> |"for each configured channel"| Recall
     Adapter --> |"for each configured channel"| Slack
     Recall --> Zoom
-    WebSocketBroadcaster --> |"for each configured channel"| Nextspace
+    WebSocketBroadcaster --> |"for each configured channel"| NextSpace
     WebSocketBroadcaster --> Nymspace
 
     Agent["Agent: create response message with channels"]
@@ -16,6 +16,6 @@ flowchart TD
     Recall["Recall"]
     Zoom["Zoom"]
     Slack["Slack"]
-    Nextspace["Nextspace"]
+    NextSpace["NextSpace"]
     Nymspace["Nymspace"]
 ```

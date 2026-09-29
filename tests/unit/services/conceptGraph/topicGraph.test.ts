@@ -53,6 +53,17 @@ describe('reading a stored graph back for merging', () => {
 
     expect(payloadToExtraction(broken).contributions).toHaveLength(0)
   })
+
+  it('carries a concept’s gloss and prior foldedFrom across, so a fold stays recorded across versions', () => {
+    const withFold = graph()
+    withFold.concepts[0].gloss = 'A registry participants check.'
+    withFold.concepts[0].foldedFrom = ['Registry Interop']
+
+    const extraction = payloadToExtraction(withFold)
+
+    expect(extraction.concepts[0].gloss).toBe('A registry participants check.')
+    expect(extraction.concepts[0].foldedFrom).toEqual(['Registry Interop'])
+  })
 })
 
 describe('round-tripping a graph through a merge', () => {

@@ -17,6 +17,8 @@ import tokenTypes from '../../src/config/tokens.js'
 import { userOne, admin, participant, insertUsers, registeredUser } from '../fixtures/user.fixture.js'
 import { userOneAccessToken, adminAccessToken, participantAccessToken } from '../fixtures/token.fixture.js'
 
+const hashToken = (token: string) => tokenService.hashToken(token)
+
 setupIntTest()
 
 describe('Auth routes', () => {
@@ -47,6 +49,18 @@ describe('Auth routes', () => {
         access: { token: expect.anything(), expires: expect.anything() },
         refresh: { token: expect.anything(), expires: expect.anything() }
       })
+    })
+
+    // systemAccount gates ensureSystemUsers' collision guard (see user.service.ts) — it must
+    // never be settable through registration, regardless of what the request body carries.
+    test('should reject a systemAccount flag on the registration body, creating no such account', async () => {
+      await request(app)
+        .post('/v1/auth/register')
+        .send({ ...newUser, systemAccount: true })
+        .expect(httpStatus.BAD_REQUEST)
+
+      const dbUser = await User.findOne({ username: newUser.username })
+      expect(dbUser).toBeNull()
     })
 
     test('should return 400 error if username is already used', async () => {
@@ -134,7 +148,7 @@ describe('Auth routes', () => {
 
       await request(app).post('/v1/auth/logout').send({ refreshToken }).expect(httpStatus.NO_CONTENT)
 
-      const dbRefreshTokenDoc = await Token.findOne({ token: refreshToken })
+      const dbRefreshTokenDoc = await Token.findOne({ token: hashToken(refreshToken) })
       expect(dbRefreshTokenDoc).toBe(null)
     })
 
@@ -174,7 +188,7 @@ describe('Auth routes', () => {
         refresh: { token: expect.anything(), expires: expect.anything() }
       })
 
-      const dbRefreshTokenDoc = await Token.findOne({ token: res.body.refresh.token })
+      const dbRefreshTokenDoc = await Token.findOne({ token: hashToken(res.body.refresh.token) })
       expect(dbRefreshTokenDoc).toMatchObject({ type: tokenTypes.REFRESH, user: userOne._id, blacklisted: false })
 
       const dbRefreshTokenCount = await Token.countDocuments()
@@ -246,7 +260,7 @@ describe('Auth routes', () => {
 
       expect(sendResetPasswordEmailSpy).toHaveBeenCalledWith(userOne.email, expect.any(String), expect.any(Function))
       const resetPasswordToken = sendResetPasswordEmailSpy.mock.calls[0][1]
-      const dbResetPasswordTokenDoc = await Token.findOne({ token: resetPasswordToken, user: userOne._id })
+      const dbResetPasswordTokenDoc = await Token.findOne({ token: hashToken(resetPasswordToken), user: userOne._id })
       expect(dbResetPasswordTokenDoc).toBeDefined()
     })
 
@@ -299,6 +313,81 @@ describe('Auth routes', () => {
       expect(dbResetPasswordTokenCount).toBe(0)
     })
 
+    test('deletes all outstanding reset tokens for the user, not just the one used', async () => {
+      await insertUsers([registeredUser])
+      const expires = moment().add(config.jwt.resetPasswordExpirationMinutes, 'minutes')
+      const tokenA = tokenService.generateToken(registeredUser._id, expires, tokenTypes.RESET_PASSWORD)
+      const tokenB = tokenService.generateToken(registeredUser._id, expires, tokenTypes.RESET_PASSWORD)
+      await tokenService.saveToken(tokenA, registeredUser._id, expires, tokenTypes.RESET_PASSWORD)
+      await tokenService.saveToken(tokenB, registeredUser._id, expires, tokenTypes.RESET_PASSWORD)
+
+      await request(app)
+        .post('/v1/auth/resetPassword')
+        .send({ password: 'testing123', token: tokenA })
+        .expect(httpStatus.NO_CONTENT)
+
+      const remaining = await Token.countDocuments({ user: registeredUser._id, type: tokenTypes.RESET_PASSWORD })
+      expect(remaining).toBe(0)
+    })
+
+    test('revokes all refresh tokens on password change', async () => {
+      await insertUsers([registeredUser])
+      const resetExpires = moment().add(config.jwt.resetPasswordExpirationMinutes, 'minutes')
+      const resetToken = tokenService.generateToken(registeredUser._id, resetExpires, tokenTypes.RESET_PASSWORD)
+      await tokenService.saveToken(resetToken, registeredUser._id, resetExpires, tokenTypes.RESET_PASSWORD)
+      // Simulate two active sessions
+      const refreshExpires = moment().add(config.jwt.refreshExpirationDays, 'days')
+      const refreshA = tokenService.generateToken(registeredUser._id, refreshExpires, tokenTypes.REFRESH)
+      const refreshB = tokenService.generateToken(registeredUser._id, refreshExpires, tokenTypes.REFRESH)
+      await tokenService.saveToken(refreshA, registeredUser._id, refreshExpires, tokenTypes.REFRESH)
+      await tokenService.saveToken(refreshB, registeredUser._id, refreshExpires, tokenTypes.REFRESH)
+
+      await request(app)
+        .post('/v1/auth/resetPassword')
+        .send({ password: 'testing123', token: resetToken })
+        .expect(httpStatus.NO_CONTENT)
+
+      const refreshCount = await Token.countDocuments({ user: registeredUser._id, type: tokenTypes.REFRESH })
+      expect(refreshCount).toBe(0)
+    })
+
+    test('the consumed reset token cannot be used again', async () => {
+      await insertUsers([registeredUser])
+      const expires = moment().add(config.jwt.resetPasswordExpirationMinutes, 'minutes')
+      const resetToken = tokenService.generateToken(registeredUser._id, expires, tokenTypes.RESET_PASSWORD)
+      await tokenService.saveToken(resetToken, registeredUser._id, expires, tokenTypes.RESET_PASSWORD)
+
+      await request(app)
+        .post('/v1/auth/resetPassword')
+        .send({ password: 'testing123', token: resetToken })
+        .expect(httpStatus.NO_CONTENT)
+
+      await request(app)
+        .post('/v1/auth/resetPassword')
+        .send({ password: 'newpassword1', token: resetToken })
+        .expect(httpStatus.UNAUTHORIZED)
+    })
+
+    test('a refresh token from before the reset is rejected afterwards', async () => {
+      await insertUsers([registeredUser])
+      const resetExpires = moment().add(config.jwt.resetPasswordExpirationMinutes, 'minutes')
+      const resetToken = tokenService.generateToken(registeredUser._id, resetExpires, tokenTypes.RESET_PASSWORD)
+      await tokenService.saveToken(resetToken, registeredUser._id, resetExpires, tokenTypes.RESET_PASSWORD)
+      const refreshExpires = moment().add(config.jwt.refreshExpirationDays, 'days')
+      const oldRefreshToken = tokenService.generateToken(registeredUser._id, refreshExpires, tokenTypes.REFRESH)
+      await tokenService.saveToken(oldRefreshToken, registeredUser._id, refreshExpires, tokenTypes.REFRESH)
+
+      await request(app)
+        .post('/v1/auth/resetPassword')
+        .send({ password: 'testing123', token: resetToken })
+        .expect(httpStatus.NO_CONTENT)
+
+      await request(app)
+        .post('/v1/auth/refresh-tokens')
+        .send({ refreshToken: oldRefreshToken })
+        .expect(httpStatus.UNAUTHORIZED)
+    })
+
     test('should return 400 if reset password token is missing', async () => {
       await insertUsers([userOne])
 
@@ -329,22 +418,6 @@ describe('Auth routes', () => {
         .expect(httpStatus.UNAUTHORIZED)
     })
 
-    test('should return 401 if reset password token has already been used', async () => {
-      await insertUsers([userOne])
-      const expires = moment().add(config.jwt.resetPasswordExpirationMinutes, 'minutes')
-      const resetPasswordToken = tokenService.generateToken(userOne._id, expires, tokenTypes.RESET_PASSWORD)
-      await tokenService.saveToken(resetPasswordToken, userOne._id, expires, tokenTypes.RESET_PASSWORD)
-      await request(app)
-        .post('/v1/auth/resetPassword')
-        .send({ password: 'testing123', token: resetPasswordToken })
-        .expect(httpStatus.NO_CONTENT)
-
-      await request(app)
-        .post('/v1/auth/resetPassword')
-        .send({ password: 'testing456', token: resetPasswordToken })
-        .expect(httpStatus.UNAUTHORIZED)
-    })
-
     test('should return 401 if reset password token is malformed', async () => {
       await request(app)
         .post('/v1/auth/resetPassword')
@@ -365,7 +438,7 @@ describe('Auth routes', () => {
         .expect(httpStatus.INTERNAL_SERVER_ERROR)
 
       findOneSpy.mockRestore()
-      const dbResetPasswordTokenDoc = await Token.findOne({ token: resetPasswordToken })
+      const dbResetPasswordTokenDoc = await Token.findOne({ token: hashToken(resetPasswordToken) })
       expect(dbResetPasswordTokenDoc).not.toBeNull()
     })
 

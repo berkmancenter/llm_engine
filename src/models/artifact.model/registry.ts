@@ -35,7 +35,10 @@ export interface ArtifactKind {
 const PROVENANCE = Joi.object().keys({
   conversationId: Joi.string(),
   messageId: Joi.string(),
-  pseudonym: Joi.string()
+  pseudonym: Joi.string(),
+  /* The poll a node was seeded or cited from — see PollRefMap / provenanceFor in
+     services/conceptGraph/assemble.ts. */
+  pollId: Joi.string()
 })
 
 /* An idea or entity. `id` is opaque and stable so renaming a concept stays an edit to one
@@ -45,6 +48,12 @@ const CONCEPT = Joi.object().keys({
   id: Joi.string().required(),
   label: Joi.string().required(),
   origin: Joi.string(),
+  /* One plain sentence saying what this concept means in this discussion. */
+  gloss: Joi.string(),
+  /* Labels of concepts folded into this one because the series graph outgrew its size cap —
+     see AssemblyReport.foldedConcepts (assemble.ts) for why this is kept distinct from an
+     ordinary cross-session merge, which leaves no trace here. */
+  foldedFrom: Joi.array().items(Joi.string()),
   provenance: PROVENANCE
 })
 

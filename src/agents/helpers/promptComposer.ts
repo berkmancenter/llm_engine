@@ -1,6 +1,8 @@
 import { BehaviorPolicy, GroupChatPolicy, ConversationContext, ConversationGoal } from '../../types/index.types.js'
 import { loadGoals, getDmGoals, getGroupChatGoals } from '../../goals/loader.js'
 import { getPersonalityByName } from './agentPersonality.js'
+import { allPlatformConfigs } from '../../adapters/config.js'
+import config from '../../config/config.js'
 
 const TONE_LINES = {
   clearNeutral: '- Voice: clear and neutral — precise, even-handed, no editorializing',
@@ -293,8 +295,45 @@ function buildGoalInstructions(
 }
 
 /**
+ * Returns the operator context section if OPERATOR_CONTEXT is set in the environment.
+ * This is deployment-wide context (who built this, org identity, etc.) that applies
+ * regardless of which platform a conversation is running on.
+ */
+function buildOperatorContextSection(): string {
+  const ctx = config.operatorContext?.trim()
+  if (!ctx) return ''
+  return `## Operator Context\n${ctx}`
+}
+
+/**
+ * Builds a platform context section from the active platform names on a conversation.
+ * Looks up each platform by name in the static adapter config and collects descriptions.
+ * Returns an empty string if no platforms have descriptions.
+ */
+function buildPlatformContextSection(platforms: string[] | undefined): string {
+  if (!platforms || platforms.length === 0) return ''
+  const entries = platforms
+    .map((name) => {
+      const p = allPlatformConfigs.find((c) => c.name === name)
+      return p?.description ? { label: p.label, description: p.description } : null
+    })
+    .filter(Boolean) as { label: string; description: string }[]
+  if (entries.length === 0) return ''
+  if (entries.length > 1) {
+    const header =
+      `**This deployment spans multiple platforms simultaneously** (${entries.map((e) => e.label).join(' and ')}). ` +
+      'You cannot determine which platform a given participant is on. ' +
+      'When asked about the platform, what participants can do, or how to interact: ' +
+      '**name and describe every platform below — never describe only one.**'
+    const body = entries.map((e) => `**${e.label}:** ${e.description}`).join('\n\n')
+    return `## Platform Context\n${header}\n\n${body}`
+  }
+  return `## Platform Context\n${entries[0].description}`
+}
+
+/**
  * Composes a full system prompt from its parts in the canonical order:
- *   base → behavioral policy section → goal instructions → personality
+ *   base → operator context → platform context → model identity → behavioral policy → goal instructions → personality
  *
  * Any combination of optional parts may be omitted.
  */
@@ -308,10 +347,27 @@ function composeSystemPrompt(
     personalityName?: string | null
     goalPriorities?: Record<string, number>
     goalContext?: Record<string, string>
+    platforms?: string[]
+    modelInfo?: { llmModel?: string; llmPlatform?: string }
   } = {}
 ): string {
-  const { conversationContext, behaviorPolicy, goals, channelType, personalityName, goalPriorities, goalContext } = options
+  const { conversationContext, behaviorPolicy, goals, channelType, personalityName, goalPriorities, goalContext, platforms, modelInfo } = options
   const parts: string[] = [basePrompt]
+
+  const operatorSection = buildOperatorContextSection()
+  if (operatorSection) parts.push(operatorSection)
+
+  const platformSection = buildPlatformContextSection(platforms)
+  if (platformSection) parts.push(platformSection)
+
+  if (modelInfo?.llmModel && modelInfo?.llmPlatform) {
+    parts.push(`## Model Identity\nYou are powered by the ${modelInfo.llmModel} model (${modelInfo.llmPlatform}).`)
+  }
+
+  /* Universal rule: proper nouns named in this system prompt (platform names, tool names,
+     the assistant's own name) are authoritative. Transcripts are speech-to-text and
+     frequently garble proper nouns — never echo a transcript misspelling back to the user. */
+  parts.push('**Proper noun spelling:** Names of platforms, tools, and the assistant defined in this system prompt are authoritative. Transcripts are speech-to-text and may garble proper nouns — always use the system prompt spelling, never a transcript misspelling.')
 
   const contextSection = buildConversationContextSection(conversationContext)
   if (contextSection) parts.push(contextSection)
@@ -342,5 +398,7 @@ export {
   buildConversationContextSection,
   buildBehaviorPolicySection,
   buildGoalInstructions,
+  buildOperatorContextSection,
+  buildPlatformContextSection,
   composeSystemPrompt
 }

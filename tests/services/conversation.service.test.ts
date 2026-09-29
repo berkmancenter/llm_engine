@@ -19,6 +19,7 @@ import schedule from '../../src/jobs/schedule.js'
 import defineJob from '../../src/jobs/define.js'
 import transcript from '../../src/agents/helpers/transcript.js'
 import agentDispatcher from '../../src/jobs/agentDispatcher.js'
+import userService from '../../src/services/user.service.js'
 import analyticsSources from '../../src/services/analyticsSources/index.js'
 
 jest.mock('agenda')
@@ -2723,6 +2724,132 @@ describe('Conversation service methods', () => {
 
       expect(dispatchSpy).not.toHaveBeenCalled()
       dispatchSpy.mockRestore()
+    })
+
+    it('does not introduce an admin with no membership record on their first visit to a members-only room', async () => {
+      const { User } = await import('../../src/models/index.js')
+      const admin = await User.findById(registeredUser._id)
+      joinConversation.useRealNames = true
+      joinConversation.enforceMembership = true
+      await joinConversation.save()
+      const dispatchSpy = jest.spyOn(agentDispatcher, 'dispatch')
+
+      await conversationService.joinConversation(joinConversation._id.toString(), admin)
+
+      expect(dispatchSpy).not.toHaveBeenCalled()
+      dispatchSpy.mockRestore()
+    })
+
+    // The membership record, not the new DM channel, is what marks a member's first visit, so
+    // narrowing the channel fallback must not cost an ordinary member their welcome.
+    it('introduces a member on their first visit to a members-only room', async () => {
+      const { User } = await import('../../src/models/index.js')
+      const memberUser = await User.create({
+        username: 'joining-member',
+        email: 'joining-member@example.com',
+        role: 'participant',
+        pseudonyms: [{ token: 'joining-member-token', pseudonym: 'Bold Aardvark', active: true }]
+      })
+      joinConversation.enforceMembership = true
+      await joinConversation.save()
+      await ConversationMembership.create({
+        conversation: joinConversation._id,
+        email: memberUser.email,
+        userAccount: memberUser._id,
+        name: 'Bold Aardvark'
+      })
+      const dispatchSpy = jest.spyOn(agentDispatcher, 'dispatch')
+
+      await conversationService.joinConversation(joinConversation._id.toString(), memberUser)
+
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'participantJoined', userId: memberUser._id.toString() }),
+        expect.objectContaining({ type: 'conversation', id: joinConversation._id.toString() })
+      )
+      dispatchSpy.mockRestore()
+    })
+  })
+
+  describe('an admin entering a second real-name room', () => {
+    let roomOne
+    let roomTwo
+
+    const makeRoom = async (name: string) =>
+      Conversation.create({
+        name,
+        slug: name.toLowerCase().replace(/\s+/g, '-'),
+        owner: registeredUser._id,
+        topic: topicOne._id,
+        useRealNames: true,
+        enforceMembership: true,
+        enableDMs: [],
+        agents: [],
+        channels: []
+      })
+
+    beforeEach(async () => {
+      await insertUsers([registeredUser])
+      await insertTopics([topicOne])
+      roomOne = await makeRoom('Room One')
+      roomTwo = await makeRoom('Room Two')
+      jest.spyOn(agentDispatcher, 'dispatch').mockResolvedValue(undefined)
+    })
+
+    const realNameEntries = (user) => user.pseudonyms.filter((p) => p.isRealName)
+
+    // One real name covers every room, so entering a new one extends the entry the admin
+    // already holds instead of asking them for the same name again.
+    it('carries the name they already claimed into the new room', async () => {
+      const { User } = await import('../../src/models/index.js')
+      let admin = await User.findById(registeredUser._id)
+      await userService.registerRealName(admin, roomOne._id.toString(), 'Alex Admin')
+
+      admin = await User.findById(registeredUser._id)
+      await conversationService.joinConversation(roomTwo._id.toString(), admin)
+
+      const saved = await User.findById(registeredUser._id)
+      expect(realNameEntries(saved!)).toHaveLength(1)
+      expect(realNameEntries(saved!)[0].conversations).toEqual([roomOne._id.toString(), roomTwo._id.toString()])
+    })
+
+    // Someone else holds that name here, so the admin is left without one and the frontend
+    // asks them for a name specific to this room.
+    it('leaves the entry alone when that name is taken in the new room', async () => {
+      const { User } = await import('../../src/models/index.js')
+      let admin = await User.findById(registeredUser._id)
+      await userService.registerRealName(admin, roomOne._id.toString(), 'Alex Admin')
+      const member = await User.create({
+        username: 'member-two',
+        pseudonyms: [{ token: 'tok', pseudonym: 'Bold Aardvark', active: true }]
+      })
+      await userService.registerRealName(member, roomTwo._id.toString(), 'Alex Admin')
+
+      admin = await User.findById(registeredUser._id)
+      await expect(conversationService.joinConversation(roomTwo._id.toString(), admin)).resolves.not.toThrow()
+
+      const saved = await User.findById(registeredUser._id)
+      expect(realNameEntries(saved!)[0].conversations).toEqual([roomOne._id.toString()])
+    })
+
+    it('does nothing for a conversation that does not use real names', async () => {
+      const { User } = await import('../../src/models/index.js')
+      const event = await Conversation.create({
+        name: 'An Event',
+        slug: 'an-event',
+        owner: registeredUser._id,
+        topic: topicOne._id,
+        enableDMs: [],
+        agents: [],
+        channels: []
+      })
+      let admin = await User.findById(registeredUser._id)
+      await userService.registerRealName(admin, roomOne._id.toString(), 'Alex Admin')
+
+      admin = await User.findById(registeredUser._id)
+      await conversationService.joinConversation(event._id.toString(), admin)
+
+      const saved = await User.findById(registeredUser._id)
+      expect(realNameEntries(saved!)[0].conversations).toEqual([roomOne._id.toString()])
     })
   })
 

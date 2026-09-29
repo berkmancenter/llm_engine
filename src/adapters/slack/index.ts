@@ -259,6 +259,8 @@ function markdownToMrkdwn(text: string): string {
 export default {
   name: 'slack',
   label: 'Slack',
+  description:
+    'This conversation is taking place in Slack. Participants interact through Slack channels and possibly direct messages.',
   /* Maps conversation property keys to the adapter config keys they should write.
      The conversation service reads this at update time to push changed properties
      to Slack adapter documents without needing to know which keys Slack cares about. */

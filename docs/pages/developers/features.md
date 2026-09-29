@@ -1,23 +1,23 @@
 ## Adding a feature to the Quick Guide
 
-Features are the capabilities listed in the participant-facing Quick Guide. Each maps to a platform area in the Nextspace UI ("Berkie", "Group Chat", "Resources") and shows up in one of three tiers: slash commands, user-controlled settings, or always-on features.
+Features are the capabilities listed in the participant-facing Quick Guide. Each maps to a platform area in the NextSpace UI ("Berkie", "Group Chat", "Resources") and shows up in one of three tiers: slash commands, user-controlled settings, or always-on features.
 
 ### Define the feature
 
 Add your feature to the `features` array in the relevant conversation type file, e.g. `src/conversations/eventAssistant.ts`. Each feature is a `FeatureConfig` object:
 
-| Field | Required | Description |
-|---|---|---|
-| `name` | Yes | Unique camelCase identifier. |
-| `label` | Yes | Display name shown in organizer-facing UIs. |
-| `description` | Yes | What the feature does. Shown in both the event creation form and the Quick Guide. |
-| `category` | Yes | Which guide section to put it in: `"assistant"`, `"group-chat"`, `"transcript"`, or `"resources"`. |
-| `default` | Yes | Whether the feature is on by default. Also used as a fallback for conversations that predate this feature. |
-| `userControlled` | Yes | `true` if the participant can toggle or activate it; `false` if it runs automatically. |
-| `agents` | Yes | Backend agents to start when the feature is enabled. Use `[]` for user-triggered features that don't need an agent. |
-| `slashCommand` | No | The command participants type, without the `/`. Omit for passive features. |
-| `prerequisite` | No | Setup instruction shown as a hint in the Quick Guide (e.g. "Enable it by turning on X in your settings"). |
-| `properties` | No | Sub-properties shown in the event creation form. |
+| Field            | Required | Description                                                                                                         |
+| ---------------- | -------- | ------------------------------------------------------------------------------------------------------------------- |
+| `name`           | Yes      | Unique camelCase identifier.                                                                                        |
+| `label`          | Yes      | Display name shown in organizer-facing UIs.                                                                         |
+| `description`    | Yes      | What the feature does. Shown in both the event creation form and the Quick Guide.                                   |
+| `category`       | Yes      | Which guide section to put it in: `"assistant"`, `"group-chat"`, `"transcript"`, or `"resources"`.                  |
+| `default`        | Yes      | Whether the feature is on by default. Also used as a fallback for conversations that predate this feature.          |
+| `userControlled` | Yes      | `true` if the participant can toggle or activate it; `false` if it runs automatically.                              |
+| `agents`         | Yes      | Backend agents to start when the feature is enabled. Use `[]` for user-triggered features that don't need an agent. |
+| `slashCommand`   | No       | The command participants type, without the `/`. Omit for passive features.                                          |
+| `prerequisite`   | No       | Setup instruction shown as a hint in the Quick Guide (e.g. "Enable it by turning on X in your settings").           |
+| `properties`     | No       | Sub-properties shown in the event creation form.                                                                    |
 
 Example:
 

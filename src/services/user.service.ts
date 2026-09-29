@@ -1,16 +1,28 @@
 /* eslint-disable no-param-reassign */
 import httpStatus from 'http-status'
+import Joi from 'joi'
 import crypto from 'crypto'
 import { uniqueNamesGenerator } from 'unique-names-generator'
 import bcrypt from 'bcryptjs'
 import { uid } from 'uid'
-import { User, Message, RealNameAudit, RealNameRegistry, ConversationMembership, Conversation } from '../models/index.js'
+import {
+  User,
+  Token,
+  Message,
+  RealNameAudit,
+  RealNameRegistry,
+  ConversationMembership,
+  Conversation
+} from '../models/index.js'
 import ApiError from '../utils/ApiError.js'
 import { pseudonymAdjectives, pseudonymNouns } from '../config/pseudonym-dictionaries.js'
 import logger from '../config/logger.js'
 import config from '../config/config.js'
+import { roles } from '../config/roles.js'
+import tokenTypes from '../config/tokens.js'
 import { getModelChat, coreLLMPlatform, coreLLMModel } from '../agents/helpers/getModelChat.js'
 import { getChatPromptResponse } from '../agents/helpers/llmChain.js'
+import { password as passwordStrength } from '../validations/custom.validation.js'
 
 const funFactSystemTemplate = `You create short, fun facts about pseudonyms. The pseudonym is in the form "adjective noun". Create a 1 sentence fun fact that is factual about the noun, but can be playful about the adjective part. Makes sure your answers are safe for work.
 Output only the fun fact sentence itself — no headings, labels, pseudonym names, or additional commentary.`
@@ -65,7 +77,15 @@ const newToken = () => {
 // Trim/collapse-whitespace/lower-case a real name for comparison and storage in
 // normalizedPseudonym, so "Jane Doe" and "jane  doe" are recognized as the same
 // person instead of coexisting as two roster rows for one conversation.
-const normalizeRealName = (name: string): string => name.trim().replace(/\s+/g, ' ').toLowerCase()
+// Zero-width characters are dropped and compatibility forms folded first: both render
+// as a name someone already holds while comparing as a different one.
+const normalizeRealName = (name: string): string =>
+  name
+    .normalize('NFKC')
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
 
 const DUPLICATE_KEY_ERROR_CODE = 11000
 
@@ -95,6 +115,61 @@ const recordRealNameAudit = async (userId, conversationId, action): Promise<void
   } catch (err) {
     logger.warn(`Failed to record real-name audit entry (action: ${action}): ${err.message}`)
   }
+}
+
+/**
+ * Claim `name` as the caller's real name in one conversation.
+ *
+ * A guest's entry is created during registration from their guest list row (see createUser).
+ * An admin has no such row, so this is how they get one. The same reservation and audit
+ * machinery runs either way, which keeps an admin inside the per-conversation uniqueness
+ * guarantee rather than beside it.
+ *
+ * One real name usually covers every room, so a matching entry is extended instead of
+ * duplicated. A room where that name is already taken gets an entry of its own. A
+ * conversation may never appear in two entries: resolveDisplayName takes the first match, so
+ * a second one would leave the displayed name depending on entry order.
+ */
+const registerRealName = async (user, conversationId: string, name: string) => {
+  const conversation = await Conversation.findById(conversationId).select('useRealNames').lean()
+  if (!conversation) throw new ApiError(httpStatus.NOT_FOUND, `Conversation with ID ${conversationId} not found`)
+  if (!conversation.useRealNames) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'This conversation does not use real names.')
+  }
+  // An id is valid in either case, but conversations holds plain strings and resolveDisplayName
+  // compares against the lowercase form, so take the id back from the conversation itself.
+  const roomId = conversation._id.toString()
+  if (user.pseudonyms.some((p) => p.isRealName && p.conversations.includes(roomId))) {
+    throw new ApiError(httpStatus.CONFLICT, 'A real name is already set for this conversation.')
+  }
+
+  const reservation = await reserveRealName(name, roomId)
+  if (!reservation) {
+    await recordRealNameAudit(user._id, roomId, 'uniqueness_rejected')
+    throw new ApiError(httpStatus.CONFLICT, 'That name is already registered for this conversation.')
+  }
+
+  const normalized = normalizeRealName(name)
+  const existing = user.pseudonyms.find((p) => p.isRealName && p.normalizedPseudonym === normalized)
+  if (existing) {
+    existing.conversations.push(roomId)
+  } else {
+    user.pseudonyms.push({
+      token: newToken(),
+      pseudonym: name,
+      normalizedPseudonym: normalized,
+      // Never active - a real name can never be the pseudonym stamped on a message.
+      active: false,
+      isRealName: true,
+      conversations: [roomId]
+    })
+  }
+  user.markModified('pseudonyms')
+  await user.save()
+
+  await RealNameRegistry.updateOne({ _id: reservation._id }, { userId: user._id })
+  await recordRealNameAudit(user._id, roomId, 'created')
+  return user.pseudonyms
 }
 
 // Looks up the membership record for this email + conversation. Throws 403 if no record exists.
@@ -399,7 +474,10 @@ const getUserById = async (id) => User.findById(id)
  */
 const getUserByUsernamePassword = async (username, password) => {
   const user = await getUserByUsername(username)
-  if (user) {
+  // An account with no password set has no password to match — bcrypt.compare requires a
+  // real hash string and throws on undefined, so this must be checked before calling it,
+  // not just left to fail through: an account without a password can never log in with one.
+  if (user?.password) {
     const match = await bcrypt.compare(password, user.password)
     if (match) return user
   }
@@ -530,19 +608,102 @@ const updatePreferences = async (userId, updateBody) => {
 }
 
 /**
- * Find-or-create all system accounts listed in the SYSTEM_USERS env var.
- * Safe to call on every startup; skips accounts that already exist.
+ * Find-or-create all system accounts listed in the SYSTEM_USERS env var, and keep an
+ * existing account's role and password in sync with config on every restart.
+ *
+ * Password sync: no configured password means the account must not have one (and so can't
+ * log in with one, enforced separately in getUserByUsernamePassword); a configured password
+ * is compared against the stored hash and only rehashed/written when it no longer matches,
+ * so rotating a system account's password in the environment takes effect on next restart.
+ * A rotated or cleared password also deletes the account's outstanding refresh tokens, so a
+ * credential leak isn't still usable via a token issued before the rotation.
+ *
+ * systemAccount marks the document as bot/service-owned (vs. a human participant/admin) so
+ * other code — user lists, analytics, moderation — can cheaply exclude it. It's set here
+ * only; createUser/updateUser never expose it to a client-supplied request body.
  */
 const ensureSystemUsers = async (): Promise<void> => {
-  for (const { username, role } of config.systemUsers) {
+  // Validated in a pass of its own, before any account is touched, so a bad SYSTEM_USERS
+  // entry fails startup loudly and atomically — never leaves some accounts synced and
+  // others not because a later entry in the list turned out to be invalid. Passwords are
+  // real login credentials on the same /v1/auth/login endpoint as everyone else, so hold
+  // them to the same floor human registration/reset enforce (see custom.validation.ts); role
+  // is checked against the same enum the User schema itself validates against, so a typo'd
+  // or stale role fails here with a clean message instead of surfacing later as a raw
+  // Mongoose ValidationError partway through the batch.
+  for (const { username, role, password } of config.systemUsers) {
+    if (role && !roles.includes(role)) {
+      throw new Error(`SYSTEM_USERS: role "${role}" for "${username}" is invalid — must be one of ${roles.join(', ')}`)
+    }
+    if (password) {
+      const { error } = Joi.string().custom(passwordStrength).validate(password)
+      if (error) {
+        throw new Error(`SYSTEM_USERS: password for "${username}" is invalid — ${error.message}`)
+      }
+    }
+  }
+
+  for (const { username, role, password } of config.systemUsers) {
+    // Explicit null (not undefined) for "no role" — Mongoose only applies the schema's
+    // 'participant' default when a path is undefined, so undefined here would silently
+    // re-default a system account that's meant to have no role at all.
+    const desiredRole = role || null
     let user = await User.findOne({ username })
+
     if (!user) {
+      const hash = password ? await hashPassword(password) : undefined
       user = await User.create({
         username,
-        role,
+        role: desiredRole,
+        systemAccount: true,
+        password: hash,
         pseudonyms: [{ token: newToken(), pseudonym: username, active: true }]
       })
-      logger.info(`Created system user: ${username} (${role})`)
+      logger.info(`Created system user: ${username}${desiredRole ? ` (${desiredRole})` : ''}`)
+      continue
+    }
+
+    // Never adopt a pre-existing account this sync didn't create — otherwise a username
+    // collision (typo, or a bot name someone already registered as a human) would silently
+    // overwrite that person's real password/role on the next restart. Refuse and move on;
+    // this is never auto-backfilled (a human-created account never becomes a system one).
+    if (!user.systemAccount) {
+      logger.error(
+        `ensureSystemUsers: "${username}" already exists and is not a system account — refusing to sync its ` +
+          'password/role. Pick a different SYSTEM_USERS username, or investigate the collision.'
+      )
+      continue
+    }
+
+    let changed = false
+    let passwordChanged = false
+
+    if (desiredRole !== (user.role ?? null)) {
+      user.role = desiredRole
+      changed = true
+    }
+
+    if (!password) {
+      if (user.password) {
+        user.password = undefined
+        changed = true
+        passwordChanged = true
+      }
+    } else if (!(await bcrypt.compare(password, user.password || ''))) {
+      user.password = await hashPassword(password)
+      changed = true
+      passwordChanged = true
+    }
+
+    if (changed) {
+      await user.save()
+      // A rotated or cleared password is meant to invalidate the leaked/retired credential
+      // immediately — leaving an already-issued refresh token usable would let it keep
+      // minting new access tokens until it naturally expires, undermining the rotation.
+      if (passwordChanged) {
+        await Token.deleteMany({ user: user._id, type: tokenTypes.REFRESH })
+      }
+      logger.info(`Updated system user: ${username}`)
     }
   }
 }
@@ -563,15 +724,21 @@ const ensureSystemUsers = async (): Promise<void> => {
  * `user` may also be an Agent — agents have their own pseudonym (bot name) but are
  * never registered room members, so the real-name lookup only applies to human
  * posters. `agentType` is Agent-only (required on Agent documents, absent on User).
+ *
+ * An admin can enter any conversation without registering (see assertMembership), so they
+ * reach this with no entry until they claim a name through registerRealName. Telling them to
+ * do that is more use than calling them unregistered, which is true of a member but not of
+ * someone let in by role.
  */
 export const resolveDisplayName = (user, conversation) => {
   if (!user.agentType && conversation.useRealNames) {
     const conversationId = conversation._id.toString()
-    const realName = user.pseudonyms.find((p) => p.isRealName && p.conversations.includes(conversationId))
-    if (!realName) {
-      throw new ApiError(httpStatus.FORBIDDEN, 'You are not registered for this conversation')
+    const registeredName = user.pseudonyms.find((p) => p.isRealName && p.conversations.includes(conversationId))
+    if (registeredName) return registeredName
+    if (user.role === 'admin') {
+      throw new ApiError(httpStatus.BAD_REQUEST, 'Set your real name for this conversation before posting.')
     }
-    return realName
+    throw new ApiError(httpStatus.FORBIDDEN, 'You are not registered for this conversation')
   }
   const activeName = user.pseudonyms.find((p) => p.active && !p.isRealName)
   if (!activeName) {
@@ -600,6 +767,7 @@ const userService = {
   hashPassword,
   getPreferences,
   updatePreferences,
-  ensureSystemUsers
+  ensureSystemUsers,
+  registerRealName
 }
 export default userService

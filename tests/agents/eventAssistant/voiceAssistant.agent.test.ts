@@ -9,6 +9,7 @@ import {
   createConversation
 } from '../../utils/agentTestHelpers.js'
 import { Agent, Channel, Message } from '../../../src/models/index.js'
+import websocketGateway from '../../../src/websockets/websocketGateway.js'
 
 import { QuestionClassification } from '../../../src/agents/eventAssistant/eventQuestionHandler.js'
 
@@ -122,13 +123,14 @@ describe('voice assistant CI tests', () => {
       }
       const responses = await defaultAgentTypes.voiceAssistant.respond.call(agent, { messages: [] }, msg)
       expect(responses).toHaveLength(1)
+      expect(responses[0].channels[0].name).toBe('chat')
       expect(responses[0].message.source).toBe('voice')
       expect(responses[0].message.sourceMessage).toBe('What is part-time work?')
     },
     testTimeout
   )
-
 })
+
 
 describe('voiceAssistant parseOutput', () => {
   function makeVoiceMessage(text: string, sourceMessage: string, sourcePseudonym?: string) {

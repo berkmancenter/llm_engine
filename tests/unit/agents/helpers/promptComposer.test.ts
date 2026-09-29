@@ -7,9 +7,12 @@ import {
   buildConversationContextSection,
   buildBehaviorPolicySection,
   buildGoalInstructions,
+  buildOperatorContextSection,
+  buildPlatformContextSection,
   composeSystemPrompt
-} from '../../../src/agents/helpers/promptComposer.js'
-import type { BehaviorPolicy, ConversationContext, ConversationGoal } from '../../../src/types/index.types.js'
+} from '../../../../src/agents/helpers/promptComposer.js'
+import config from '../../../../src/config/config.js'
+import type { BehaviorPolicy, ConversationContext, ConversationGoal } from '../../../../src/types/index.types.js'
 
 const FIXTURE_GROUP_GOAL: ConversationGoal = {
   id: 'provoke_participation',
@@ -570,12 +573,18 @@ describe('getEffectiveMinConfidence', () => {
   })
 
   test('clamps result at 0 when modifier would go below 0', () => {
-    const veryLowBase: ConversationGoal = { ...FIXTURE_GROUP_GOAL, triggers: { ...FIXTURE_GROUP_GOAL.triggers, minConfidence: 5 } }
+    const veryLowBase: ConversationGoal = {
+      ...FIXTURE_GROUP_GOAL,
+      triggers: { ...FIXTURE_GROUP_GOAL.triggers, minConfidence: 5 }
+    }
     expect(getEffectiveMinConfidence(veryLowBase, { provoke_participation: 100 })).toBe(0)
   })
 
   test('clamps result at 100 when modifier would exceed 100', () => {
-    const veryHighBase: ConversationGoal = { ...FIXTURE_GROUP_GOAL, triggers: { ...FIXTURE_GROUP_GOAL.triggers, minConfidence: 95 } }
+    const veryHighBase: ConversationGoal = {
+      ...FIXTURE_GROUP_GOAL,
+      triggers: { ...FIXTURE_GROUP_GOAL.triggers, minConfidence: 95 }
+    }
     expect(getEffectiveMinConfidence(veryHighBase, { provoke_participation: 0 })).toBe(100)
   })
 })
@@ -619,11 +628,10 @@ describe('filterAndSortGoalsByPriority', () => {
 
 describe('buildGoalInstructions with goalPriorities', () => {
   test('renders ranked preference list when priorities differ from default', () => {
-    const result = buildGoalInstructions(
-      [FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL],
-      'groupChat',
-      { provoke_participation: 80, bridge_topics: 30 }
-    )
+    const result = buildGoalInstructions([FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL], 'groupChat', {
+      provoke_participation: 80,
+      bridge_topics: 30
+    })
     expect(result).toContain('When multiple patterns apply simultaneously')
     expect(result).toContain('1. Provoke participation')
     expect(result).toContain('2. Bridge topics')
@@ -635,11 +643,10 @@ describe('buildGoalInstructions with goalPriorities', () => {
   })
 
   test('does not render ranked list when all priorities are default (50)', () => {
-    const result = buildGoalInstructions(
-      [FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL],
-      'groupChat',
-      { provoke_participation: 50, bridge_topics: 50 }
-    )
+    const result = buildGoalInstructions([FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL], 'groupChat', {
+      provoke_participation: 50,
+      bridge_topics: 50
+    })
     expect(result).not.toContain('When multiple patterns apply simultaneously')
   })
 
@@ -665,11 +672,10 @@ describe('buildGoalInstructions with goalPriorities', () => {
   })
 
   test('ranked list reflects priority order, not input order', () => {
-    const result = buildGoalInstructions(
-      [FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL],
-      'groupChat',
-      { provoke_participation: 30, bridge_topics: 70 }
-    )
+    const result = buildGoalInstructions([FIXTURE_GROUP_GOAL, FIXTURE_BRIDGE_GOAL], 'groupChat', {
+      provoke_participation: 30,
+      bridge_topics: 70
+    })
     const bridgePos = result.indexOf('Bridge topics')
     const provokePos = result.indexOf('Provoke participation')
     expect(bridgePos).toBeLessThan(provokePos)
@@ -744,8 +750,9 @@ describe('composeSystemPrompt with goalPriorities', () => {
 })
 
 describe('composeSystemPrompt', () => {
-  test('returns base prompt alone when no options provided', () => {
-    expect(composeSystemPrompt('You are an assistant.')).toBe('You are an assistant.')
+  test('always injects the proper noun spelling rule', () => {
+    const result = composeSystemPrompt('You are an assistant.')
+    expect(result).toContain('**Proper noun spelling:**')
   })
 
   test('appends context section when conversationContext provided', () => {
@@ -775,9 +782,11 @@ describe('composeSystemPrompt', () => {
     expect(result).toContain('RUTHLESS BREVITY')
   })
 
-  test('unknown personalityName does not append anything', () => {
+  test('unknown personalityName does not append a personality section', () => {
     const result = composeSystemPrompt('Base.', { personalityName: 'nonexistent-personality' })
-    expect(result).toBe('Base.')
+    expect(result).toContain('Base.')
+    // A nonexistent name should not add any personality content
+    expect(result).not.toContain('RUTHLESS BREVITY')
   })
 
   test('sections are separated by double newlines', () => {
@@ -786,7 +795,7 @@ describe('composeSystemPrompt', () => {
     expect(result).toContain('Base.\n\n')
   })
 
-  test('composes all parts in canonical order: base → context → policy → goals → personality', () => {
+  test('composes all parts in canonical order: base → platform → model identity → proper noun → context → policy → goals → personality', () => {
     const ctx: ConversationContext = { conversationType: 'summit' }
     const policy: BehaviorPolicy = { globalPolicy: { ...BASE_GLOBAL_POLICY } }
     const result = composeSystemPrompt('Base.', {
@@ -794,15 +803,139 @@ describe('composeSystemPrompt', () => {
       behaviorPolicy: policy,
       goals: [FIXTURE_GROUP_GOAL],
       channelType: 'groupChat',
-      personalityName: 'sarcastic-expert'
+      personalityName: 'sarcastic-expert',
+      platforms: ['nextspace'],
+      modelInfo: { llmModel: 'TestModel', llmPlatform: 'TestPlatform' }
     })
+    const platformIdx = result.indexOf('## Platform Context')
+    const modelIdx = result.indexOf('## Model Identity')
+    const properNounIdx = result.indexOf('**Proper noun spelling:**')
     const ctxIdx = result.indexOf('## Event Context')
     const policyIdx = result.indexOf('## Behavioral Guidelines')
     const goalIdx = result.indexOf('## Active Behavioral Patterns')
     const personalityIdx = result.indexOf('RUTHLESS BREVITY')
-    expect(result.indexOf('Base.')).toBeLessThan(ctxIdx)
+    expect(result.indexOf('Base.')).toBeLessThan(platformIdx)
+    expect(platformIdx).toBeLessThan(modelIdx)
+    expect(modelIdx).toBeLessThan(properNounIdx)
+    expect(properNounIdx).toBeLessThan(ctxIdx)
     expect(ctxIdx).toBeLessThan(policyIdx)
     expect(policyIdx).toBeLessThan(goalIdx)
     expect(goalIdx).toBeLessThan(personalityIdx)
+  })
+
+  test('injects model identity when modelInfo is provided', () => {
+    const result = composeSystemPrompt('Base.', { modelInfo: { llmModel: 'claude-3', llmPlatform: 'Anthropic' } })
+    expect(result).toContain('## Model Identity')
+    expect(result).toContain('claude-3')
+    expect(result).toContain('Anthropic')
+  })
+
+  test('does not inject model identity when modelInfo is absent', () => {
+    const result = composeSystemPrompt('Base.')
+    expect(result).not.toContain('## Model Identity')
+  })
+
+  test('does not inject model identity when only one of llmModel/llmPlatform is set', () => {
+    const result = composeSystemPrompt('Base.', { modelInfo: { llmModel: 'claude-3' } })
+    expect(result).not.toContain('## Model Identity')
+  })
+
+  test('injects platform section when platforms is provided', () => {
+    const result = composeSystemPrompt('Base.', { platforms: ['nextspace'] })
+    expect(result).toContain('## Platform Context')
+    expect(result).toContain('NextSpace')
+  })
+
+  test('does not inject platform section when platforms is empty', () => {
+    const result = composeSystemPrompt('Base.', { platforms: [] })
+    expect(result).not.toContain('## Platform Context')
+  })
+})
+
+describe('buildOperatorContextSection', () => {
+  const originalValue = config.operatorContext
+
+  afterEach(() => {
+    config.operatorContext = originalValue
+  })
+
+  test('returns empty string when operatorContext is not set', () => {
+    config.operatorContext = undefined
+    expect(buildOperatorContextSection()).toBe('')
+  })
+
+  test('returns empty string when operatorContext is blank', () => {
+    config.operatorContext = '   '
+    expect(buildOperatorContextSection()).toBe('')
+  })
+
+  test('returns section with header when operatorContext is set', () => {
+    config.operatorContext = 'Built by Acme Corp for internal use.'
+    const result = buildOperatorContextSection()
+    expect(result).toContain('## Operator Context')
+    expect(result).toContain('Built by Acme Corp for internal use.')
+  })
+
+  test('trims whitespace from operatorContext value', () => {
+    config.operatorContext = '  trimmed content  '
+    const result = buildOperatorContextSection()
+    expect(result).toContain('trimmed content')
+  })
+})
+
+describe('buildPlatformContextSection', () => {
+  test('returns empty string when platforms is undefined', () => {
+    expect(buildPlatformContextSection(undefined)).toBe('')
+  })
+
+  test('returns empty string when platforms is empty', () => {
+    expect(buildPlatformContextSection([])).toBe('')
+  })
+
+  test('returns empty string when no platform in the list has a description', () => {
+    expect(buildPlatformContextSection(['unknown_platform_xyz'])).toBe('')
+  })
+
+  test('returns section for a single known platform', () => {
+    const result = buildPlatformContextSection(['nextspace'])
+    expect(result).toContain('## Platform Context')
+    expect(result).toContain('NextSpace')
+  })
+
+  test('does not add multi-platform note for a single platform', () => {
+    const result = buildPlatformContextSection(['nextspace'])
+    expect(result).not.toContain('multiple platforms')
+  })
+
+  test('includes labelled descriptions for all known platforms', () => {
+    const result = buildPlatformContextSection(['nextspace', 'zoom'])
+    expect(result).toContain('**NextSpace:**')
+    expect(result).toContain('**Zoom:**')
+  })
+
+  test('names all platforms explicitly in the header', () => {
+    const result = buildPlatformContextSection(['nextspace', 'zoom'])
+    expect(result).toContain('NextSpace and Zoom')
+  })
+
+  test('adds must-cover-all-platforms instruction in header when multiple platforms present', () => {
+    const result = buildPlatformContextSection(['nextspace', 'zoom'])
+    expect(result).toContain('multiple platforms')
+    expect(result).toContain('name and describe every platform below')
+  })
+
+  test('multi-platform header appears before the first platform description', () => {
+    const result = buildPlatformContextSection(['nextspace', 'zoom'])
+    const headerIdx = result.indexOf('multiple platforms')
+    const nextspaceIdx = result.indexOf('**NextSpace:**')
+    expect(headerIdx).toBeLessThan(nextspaceIdx)
+  })
+
+  test('skips platforms with no description without failing', () => {
+    const result = buildPlatformContextSection(['nextspace', 'unknown_platform_xyz'])
+    expect(result).toContain('NextSpace')
+    expect(result).not.toContain('unknown_platform_xyz')
+    // Only one description resolved — no multi-platform note
+    expect(result).not.toContain('multiple platforms')
   })
 })

@@ -174,7 +174,7 @@ Source: `deriveEventPlatform`.
 
 | Metric          | Meaning                                                   | How it is calculated                                                                  | Known limitations                                   |
 | --------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| `eventPlatform` | Which platform the event ran on: Nextspace, Zoom, or both | "both" when the event lists both Nextspace and Zoom, otherwise whichever one it lists | Defaults to Nextspace when no platform was recorded |
+| `eventPlatform` | Which platform the event ran on: NextSpace, Zoom, or both | "both" when the event lists both NextSpace and Zoom, otherwise whichever one it lists | Defaults to NextSpace when no platform was recorded |
 
 ## Receptions (exact quotes, model-selected)
 
@@ -186,7 +186,7 @@ Source: `annotateReceptions`, filled in by the agent from the messages it is all
 
 ## What we cannot track on the backend
 
-Some signals only the browser sees. When a client like Nextspace tracks the action and sends it
+Some signals only the browser sees. When a client like NextSpace tracks the action and sends it
 to the analytics provider, the engine reads it through the `actionBreakdown` allowlist above
 (assistant commands, tab switches, transcript open/close/scroll already flow through). Those are
 estimates, so they carry the may-undercount caveat.

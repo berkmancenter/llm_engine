@@ -18,6 +18,12 @@ const updateUser = {
     email: Joi.string()
   })
 }
+const registerRealName = {
+  body: Joi.object().keys({
+    conversationId: Joi.string().custom(objectId).required(),
+    realName: Joi.string().trim().min(1).required()
+  })
+}
 const addPseudonym = {
   body: Joi.object().keys({
     pseudonym: Joi.string().required(),
@@ -78,6 +84,7 @@ const userValidation = {
   getUser,
   deleteUser,
   addPseudonym,
+  registerRealName,
   getPreferences,
   updatePreferences
 }

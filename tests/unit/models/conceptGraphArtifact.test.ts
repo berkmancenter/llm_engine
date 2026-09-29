@@ -126,6 +126,19 @@ describe('concept graph node shape', () => {
     expect(error).toBeDefined()
   })
 
+  it('accepts a gloss and a foldedFrom list on a concept', () => {
+    const { error, value } = validate(
+      graph({
+        concepts: [{ id: 'c1', label: 'Trust Registry', gloss: 'A registry participants check.', foldedFrom: ['Registry Interop'] }],
+        contributions: []
+      })
+    )
+
+    expect(error).toBeUndefined()
+    expect(value.concepts[0].gloss).toBe('A registry participants check.')
+    expect(value.concepts[0].foldedFrom).toEqual(['Registry Interop'])
+  })
+
   it('accepts optional provenance on any node kind', () => {
     const { error } = validate({
       concepts: [

@@ -3,6 +3,7 @@
   "label": "Bring in missing perspective",
   "description": "Surfaces a substantive view or counterargument that the panelists themselves have not represented, once their positions on the topic are reasonably well understood. Delivered as one explicitly-framed perspective being brought into the room, not as the AI pretending to be a real attendee.",
   "channel": "groupChat",
+  "silenceCompatible": true,
   "triggers": {
     "conditions": [
       {

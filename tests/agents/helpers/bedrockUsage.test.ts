@@ -37,6 +37,59 @@ describe('attachUsageMetadata', () => {
 
     expect((result.generations[0].message as AIMessage).usage_metadata).toBeUndefined()
   })
+
+  it('surfaces cache_read_input_tokens onto input_token_details.cache_read', () => {
+    const message = new AIMessage('hello')
+    const result = attachUsageMetadata({
+      generations: [
+        {
+          text: 'hello',
+          message,
+          generationInfo: { usage: { input_tokens: 30, output_tokens: 10, cache_read_input_tokens: 1200 } }
+        }
+      ]
+    } as never)
+
+    expect((result.generations[0].message as AIMessage).usage_metadata).toEqual({
+      input_tokens: 1230,
+      output_tokens: 10,
+      total_tokens: 1240,
+      input_token_details: { cache_read: 1200 }
+    })
+  })
+
+  it('surfaces cache_creation_input_tokens onto input_token_details.cache_creation', () => {
+    const message = new AIMessage('hello')
+    const result = attachUsageMetadata({
+      generations: [
+        {
+          text: 'hello',
+          message,
+          generationInfo: { usage: { input_tokens: 1850, output_tokens: 10, cache_creation_input_tokens: 1850 } }
+        }
+      ]
+    } as never)
+
+    expect((result.generations[0].message as AIMessage).usage_metadata).toEqual({
+      input_tokens: 3700,
+      output_tokens: 10,
+      total_tokens: 3710,
+      input_token_details: { cache_creation: 1850 }
+    })
+  })
+
+  it('omits input_token_details entirely when there is no cache activity', () => {
+    const message = new AIMessage('hello')
+    const result = attachUsageMetadata({
+      generations: [{ text: 'hello', message, generationInfo: { usage: { input_tokens: 104, output_tokens: 45 } } }]
+    } as never)
+
+    expect((result.generations[0].message as AIMessage).usage_metadata).toEqual({
+      input_tokens: 104,
+      output_tokens: 45,
+      total_tokens: 149
+    })
+  })
 })
 
 describe('normalizeBedrockModelName', () => {

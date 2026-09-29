@@ -63,17 +63,14 @@ const adminOnlyRights = [
 
 const allRoles = {
   participant: participantRights,
-  admin: [...participantRights, ...adminOnlyRights],
-  // Generic role for system/bot accounts, scoped to topic operations only
-  serviceAccount: ['createTopic', 'allTopics', 'followTopic']
+  admin: [...participantRights, ...adminOnlyRights]
 }
 
 const roles = Object.keys(allRoles)
 const roleRights = new Map(Object.entries(allRoles))
 
-/* The roles an admin may assign to a person. serviceAccount is left out because it holds no
-   right the chat needs, so setting it on a person locks them out of every screen. System
-   accounts get it from SYSTEM_USERS at startup instead. */
+/* The roles an admin may assign to a person via the update-role endpoint. System accounts
+   get their role (if any) from SYSTEM_USERS at startup instead — see ensureSystemUsers. */
 const assignableRoles = ['participant', 'admin']
 
 export { roles, roleRights, assignableRoles }

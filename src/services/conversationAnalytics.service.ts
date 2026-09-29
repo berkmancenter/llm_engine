@@ -155,7 +155,7 @@ function average(values: number[]): number {
    so for the rare owner-less message we fall back to pseudonymId, the id of the pseudonym
    that sent it. That id is steadier than the display string (which can differ for the
    same pseudonym), though only owner ties a guest together across a rename. */
-async function computeParticipation(conversationId): Promise<ParticipationMetrics> {
+export async function computeParticipation(conversationId): Promise<ParticipationMetrics> {
   const byPoster: { _id: string; count: number }[] = await Message.aggregate([
     { $match: { conversation: conversationId, ...visibleHumanFilter } },
     { $group: { _id: { $ifNull: ['$owner', '$pseudonymId'] }, count: { $sum: 1 } } },
@@ -823,7 +823,7 @@ function agentIdOf(agent): string {
    conversation's own agents are excluded, since they are the other side of every direct channel,
    never an attendee themselves. Reads the conversation's own channels list (not a database-wide
    Channel query), so a channel belonging to a different conversation can never be counted here. */
-async function countChannelParticipants(conversation): Promise<number> {
+export async function countChannelParticipants(conversation): Promise<number> {
   const agentIds = new Set((conversation.agents ?? []).map(agentIdOf))
   const channelIds = conversation.channels ?? []
   if (channelIds.length === 0) return 0
@@ -853,7 +853,7 @@ async function countChannelParticipants(conversation): Promise<number> {
    rather than launder an unreconciled signal into a confident "0 lurkers, 100%
    participation". When the counts do reconcile, lurkerCount and participationRate are real
    and the flag is false. */
-function computeAudienceEngagement(posterCount: number, participantCount: number): AudienceEngagement {
+export function computeAudienceEngagement(posterCount: number, participantCount: number): AudienceEngagement {
   if (posterCount > participantCount) {
     return {
       participantCount,
@@ -1147,13 +1147,13 @@ export function computeResourceSummary(conversation: {
 }
 
 /* Derives which platform(s) the event ran on from the conversation's platforms list, the
-   source of truth set at creation. 'both' when Nextspace and Zoom ran together. Defaults to
+   source of truth set at creation. 'both' when NextSpace and Zoom ran together. Defaults to
    'nextspace' when nothing is recorded, since that is where the recap is read. */
 export function deriveEventPlatform(conversation: { platforms?: string[] }): EventPlatform {
   const platforms = conversation.platforms ?? []
   const hasZoom = platforms.includes('zoom')
-  const hasNextspace = platforms.includes('nextspace')
-  if (hasZoom && hasNextspace) return 'both'
+  const hasNextSpace = platforms.includes('nextspace')
+  if (hasZoom && hasNextSpace) return 'both'
   if (hasZoom) return 'zoom'
   return 'nextspace'
 }

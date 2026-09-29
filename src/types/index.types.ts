@@ -79,8 +79,11 @@ export interface IUserPreferences {
 
 export interface IUser {
   goodReputation?: boolean
-  role?: string
-  password: string
+  // null (distinct from undefined) is a deliberate "no role" value — see ensureSystemUsers,
+  // which relies on it to bypass the schema's 'participant' default.
+  role?: string | null
+  systemAccount?: boolean
+  password?: string
   email?: string
   username: string
   dataExportOptOut?: boolean
@@ -170,6 +173,9 @@ export interface IMessage {
   createdAt?: Date
   updatedAt?: Date
   replyCount?: number
+  /* Not stored: filled from the author's current role on the way out, and only in a conversation
+     with useRealNames. See withOwnerIsAdmin in message.service.ts. */
+  ownerIsAdmin?: boolean
   prompt?: MessagePrompt
   /* Adapter-specific rich content (e.g. Slack Block Kit). Persisted so the
      Slack adapter can read it when forwarding the message to Slack's API.
@@ -385,6 +391,8 @@ export interface FeatureConfig {
 export interface PlatformConfig {
   name: string
   label?: string
+  /** Plain-language description of this platform, injected into agent system prompts at runtime. */
+  description?: string
 }
 
 export interface AdapterConfig {
@@ -463,6 +471,7 @@ export interface ConversationGoal {
   label: string
   description: string
   channel: 'groupChat' | 'dm'
+  silenceCompatible?: boolean
   triggers: {
     conditions: TriggerCondition[]
     participantRequirements?: { minMessageCount?: number }
@@ -753,6 +762,10 @@ export interface GraphNodeProvenance {
      services/conceptGraph/assemble.ts before widening who can read it. */
   messageId?: string
   pseudonym?: string
+  /* The poll this node came from. Unlike messageId, this can never re-identify a
+     contributor — a poll tally is aggregate by construction, naming no one, so it carries
+     none of messageId's Chatham House caveat above. */
+  pollId?: string
 }
 
 /* An idea or entity in a concept graph. `id` is opaque and stable so a rename stays an
@@ -761,6 +774,17 @@ export interface GraphNodeProvenance {
 export interface GraphConcept {
   id: string
   label: string
+  /* One plain sentence saying what this concept means in this discussion, as the model wrote
+     it. Carried straight through from the extraction; the client doesn't render it today, but
+     concept folding (see services/conceptGraph/consolidate.ts) needs somewhere to append a
+     folded concept's own meaning so it survives losing its node. */
+  gloss?: string
+  /* Labels of concepts folded into this one because the graph outgrew CONCEPT_CAP
+     (topicGraph.ts) — distinct from an ordinary cross-session synonym merge, which leaves no
+     trace here since the two labels really were the same idea. A folded concept was a
+     genuinely distinct idea, consolidated for space, so its label is kept so a reader can
+     still find it. */
+  foldedFrom?: string[]
   /* Id of the GraphOriginPrompt this concept came out of. */
   origin?: string
   provenance?: GraphNodeProvenance
@@ -1225,7 +1249,7 @@ export interface ConversationMetrics {
   receptions: QuoteReception[]
   // The event's readings and references, counted from participant-visible resources only.
   resourceSummary: ResourceSummary
-  // Which platform(s) the event ran on: Nextspace, Zoom, or both.
+  // Which platform(s) the event ran on: NextSpace, Zoom, or both.
   eventPlatform: EventPlatform
   // Computations run over this event's messages to answer one specific question, present only
   // on that path and scoped to that one request. The analytics service never sets it and no
@@ -1312,7 +1336,7 @@ export interface ResourceSummary {
 }
 
 /* Which platform(s) the event ran on, derived from the conversation's platforms list.
-   'both' when it ran on Nextspace and Zoom together. */
+   'both' when it ran on NextSpace and Zoom together. */
 export type EventPlatform = 'nextspace' | 'zoom' | 'both'
 
 /* One persisted snapshot of a conversation's metrics, one document per conversation in its
