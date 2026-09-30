@@ -43,6 +43,13 @@ resource "google_compute_region_backend_service" "web_server_internal" {
 
   backend {
     group = google_compute_region_instance_group_manager.web_server.instance_group
+    # Required, not optional, for an INTERNAL-scheme backend service — GCP
+    # rejects the default (UTILIZATION, meant for external/proxy LBs)
+    # outright: "Balancing mode must be CONNECTION for an INTERNAL backend
+    # service." No max_connections/_per_instance cap set — this fronts the
+    # whole MIG, not a single small VM, so there's no equivalent to the
+    # external backend's own deliberately low max_rate_per_endpoint.
+    balancing_mode = "CONNECTION"
   }
 }
 
