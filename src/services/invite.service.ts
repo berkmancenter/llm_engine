@@ -10,11 +10,20 @@ import MemberInvite from '../models/memberInvite.model.js'
 import ConversationMembership from '../models/conversationMembership.model.js'
 import Conversation from '../models/conversation.model.js'
 import emailService from './email.service.js'
+import userService from './user.service.js'
+import tokenService from './token.service.js'
 
-/* One deliberately vague message for every failure mode: a more specific error
-   ("expired" vs "already used" vs "no such invite") would tell an attacker probing
-   skimmed tokens which ones are worth replaying. */
-const invalidInviteError = () => new ApiError(httpStatus.UNAUTHORIZED, 'Invite link is invalid or has expired')
+/* One deliberately vague message for every dead-invite failure mode: a more specific error
+   ("expired" vs "already used" vs "no such invite") would tell an attacker probing skimmed
+   tokens which ones are worth replaying. 410 Gone: the link itself is what's dead, distinct
+   from a stale nonce (403) or a wrong password (401), so the frontend can tell them apart by
+   status code alone. */
+const invalidInviteError = () => new ApiError(httpStatus.GONE, 'Invite link is invalid or has expired')
+
+/* The nonce (not the invite) is the problem: missing, wrong, expired, or replaced by a
+   fresher page load. The frontend fetches a new one and retries once without the person
+   noticing, rather than showing them the dead-link screen. */
+const staleNonceError = () => new ApiError(httpStatus.FORBIDDEN, 'Invite link is invalid or has expired')
 
 /* Long enough to set one password on a slow connection; short enough that a nonce
    skimmed alongside its token goes stale before it is useful. */
@@ -110,14 +119,33 @@ const issueNonce = async (inviteId) => {
 }
 
 /**
- * Burn the invite: called from the set-password POST and nowhere else. The single atomic
- * claim (filtering on unconsumed + matching live nonce, setting consumedAt) is what makes
- * two concurrent submits resolve to exactly one winner.
+ * Burn the invite and provision the account: called from the set-password POST and nowhere
+ * else. The single atomic claim (filtering on unconsumed + matching live nonce, setting
+ * consumedAt) is what makes two concurrent submits resolve to exactly one winner.
+ *
+ * `password` serves two different roles depending on whether this email already has an
+ * account: for a new one (or an existing passwordless shadow account — see
+ * provisionInvitedMember), it's the password being set for the first time; for an account
+ * that already has one, it's a login credential that must be verified — checked here,
+ * before the invite is claimed, so a wrong password (401 'Incorrect password') leaves the
+ * invite untouched rather than burning the person's one-time link for a failed login.
+ *
+ * After the token is consumed, provisions the account and writes the real-name identity if
+ * the conversation uses real names. Issues auth tokens so the caller lands in the room
+ * without a separate login step.
+ *
+ * If provisioning throws (e.g. a real-name clash with another member in the same room), the
+ * claim is reverted so the person's one-time link still works once the underlying issue is
+ * fixed.
  */
-const consumeInvite = async (token: string, nonce: string) => {
+const consumeInvite = async (token: string, nonce: string, password: string) => {
   const { invite, membership } = await validateInvite(token)
   if (!nonce) {
-    throw invalidInviteError()
+    throw staleNonceError()
+  }
+
+  if (!(await userService.verifyExistingPassword(membership.email, password))) {
+    throw new ApiError(httpStatus.UNAUTHORIZED, 'Incorrect password')
   }
 
   const claimed = await MemberInvite.findOneAndUpdate(
@@ -132,24 +160,44 @@ const consumeInvite = async (token: string, nonce: string) => {
     { new: true }
   ).exec()
   if (!claimed) {
-    throw invalidInviteError()
+    // validateInvite above already ruled out a dead invite (expired, consumed, invalidated,
+    // or no matching record) — this is specifically a wrong/expired nonce, or two submits
+    // racing for the same one, either way a 403 the frontend retries with a fresh nonce.
+    throw staleNonceError()
   }
 
-  return { invite: claimed, membership }
+  const conversation = await Conversation.findById(membership.conversation).exec()
+  let user
+  try {
+    user = await userService.provisionInvitedMember(membership, password, conversation)
+  } catch (err) {
+    await MemberInvite.updateOne({ _id: claimed._id }, { consumedAt: null })
+    throw err
+  }
+  const tokens = await tokenService.generateAuthTokens(user)
+
+  // Matches /auth/login's response shape (see auth.controller.ts) so the set-password page
+  // can start a session the same way login does
+  return { user, tokens, conversationId: membership.conversation.toString() }
 }
 
 /**
- * Everything the set-password screen needs from one GET: who the invite is for, which
- * room it opens, and the nonce the eventual POST must echo back. Validates without
- * consuming (see validateInvite for why).
+ * Everything the set-password screen needs from one GET: who the invite is for, which room
+ * it opens, whether this is a first password set or a login (hasAccount), and the nonce the
+ * eventual POST must echo back. Validates without consuming (see validateInvite for why).
+ *
+ * Deliberately drops the email: this endpoint takes only a token, so anyone with a
+ * forwarded or leaked link can call it — the page only needs the name to greet the person
+ * by, never their email address.
  */
 const describeInvite = async (token: string) => {
   const { invite, membership } = await validateInvite(token)
   const conversation = await Conversation.findById(membership.conversation).exec()
   const nonce = await issueNonce(invite._id)
+  const hasAccount = await userService.hasPasswordAccount(membership.email)
   return {
     nonce,
-    member: { name: membership.name, email: membership.email },
+    member: { name: membership.name, hasAccount },
     conversation: conversation ? { id: conversation._id.toString(), name: conversation.name } : null
   }
 }

@@ -1,3 +1,4 @@
+import mongoose from 'mongoose'
 import jwt from 'jsonwebtoken'
 import moment from 'moment'
 import httpStatus from 'http-status'
@@ -5,7 +6,7 @@ import setupIntTest from '../utils/setupIntTest.js'
 import config from '../../src/config/config.js'
 import tokenTypes from '../../src/config/tokens.js'
 import inviteService from '../../src/services/invite.service.js'
-import { ConversationMembership, MemberInvite } from '../../src/models/index.js'
+import { ConversationMembership, MemberInvite, Conversation, RealNameRegistry, User } from '../../src/models/index.js'
 import { insertConversations, conversationCommunityRoom } from '../fixtures/conversation.fixture.js'
 
 setupIntTest()
@@ -64,7 +65,7 @@ describe('invite service', () => {
       const firstStored = await MemberInvite.findById(first.invite._id).lean()
       expect(firstStored!.invalidatedAt).toBeTruthy()
       await expect(inviteService.validateInvite(first.token)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.GONE
       })
       await expect(inviteService.validateInvite(second.token)).resolves.toBeTruthy()
     })
@@ -104,7 +105,7 @@ describe('invite service', () => {
       )
 
       await expect(inviteService.validateInvite(forged)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.GONE
       })
     })
 
@@ -114,7 +115,7 @@ describe('invite service', () => {
       const tampered = `${token.slice(0, -2)}xx`
 
       await expect(inviteService.validateInvite(tampered)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.GONE
       })
     })
 
@@ -124,7 +125,7 @@ describe('invite service', () => {
       await MemberInvite.deleteMany({ membership: membership._id })
 
       await expect(inviteService.validateInvite(token)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.GONE
       })
     })
 
@@ -134,7 +135,7 @@ describe('invite service', () => {
       await MemberInvite.updateOne({ _id: invite._id }, { expiresAt: moment().subtract(1, 'minute').toDate() })
 
       await expect(inviteService.validateInvite(token)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.GONE
       })
     })
 
@@ -144,7 +145,7 @@ describe('invite service', () => {
       await ConversationMembership.updateOne({ _id: membership._id }, { status: 'removed' })
 
       await expect(inviteService.validateInvite(token)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.GONE
       })
     })
   })
@@ -170,26 +171,39 @@ describe('invite service', () => {
       const oldNonce = await inviteService.issueNonce(invite._id)
       await inviteService.issueNonce(invite._id)
 
-      await expect(inviteService.consumeInvite(token, oldNonce)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+      await expect(inviteService.consumeInvite(token, oldNonce, 'Invite1234')).rejects.toMatchObject({
+        statusCode: httpStatus.FORBIDDEN
       })
     })
   })
 
   describe('consumeInvite', () => {
-    test('consumes with a valid token and nonce, exactly once', async () => {
+    const password = 'Invite1234'
+
+    beforeAll(async () => {
+      // Uniqueness relies on RealNameRegistry's compound unique index, which is not built
+      // automatically by setupIntTest()'s per-test deleteMany wipe.
+      await RealNameRegistry.syncIndexes()
+    })
+
+    test('consumes with token and nonce, creates account, returns auth tokens, exactly once', async () => {
       const membership = await insertMembership()
       const { token, invite } = await inviteService.mintInvite(membership)
       const nonce = await inviteService.issueNonce(invite._id)
 
-      const result = await inviteService.consumeInvite(token, nonce)
-      expect(result.membership._id.toString()).toBe(membership._id.toString())
+      const result = await inviteService.consumeInvite(token, nonce, password)
+      expect(result.user.email).toBe(membership.email)
+      expect(result.tokens).toMatchObject({
+        access: { token: expect.any(String), expires: expect.anything() },
+        refresh: { token: expect.any(String), expires: expect.anything() }
+      })
+      expect(result.conversationId).toBe(membership.conversation.toString())
 
       const stored = await MemberInvite.findById(invite._id).lean()
       expect(stored!.consumedAt).toBeTruthy()
 
-      await expect(inviteService.consumeInvite(token, nonce)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+      await expect(inviteService.consumeInvite(token, nonce, password)).rejects.toMatchObject({
+        statusCode: httpStatus.GONE
       })
     })
 
@@ -197,10 +211,10 @@ describe('invite service', () => {
       const membership = await insertMembership()
       const { token, invite } = await inviteService.mintInvite(membership)
       const nonce = await inviteService.issueNonce(invite._id)
-      await inviteService.consumeInvite(token, nonce)
+      await inviteService.consumeInvite(token, nonce, password)
 
       await expect(inviteService.validateInvite(token)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.GONE
       })
     })
 
@@ -209,11 +223,11 @@ describe('invite service', () => {
       const { token, invite } = await inviteService.mintInvite(membership)
       await inviteService.issueNonce(invite._id)
 
-      await expect(inviteService.consumeInvite(token, 'not-the-nonce')).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+      await expect(inviteService.consumeInvite(token, 'not-the-nonce', password)).rejects.toMatchObject({
+        statusCode: httpStatus.FORBIDDEN
       })
-      await expect(inviteService.consumeInvite(token, '')).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+      await expect(inviteService.consumeInvite(token, '', password)).rejects.toMatchObject({
+        statusCode: httpStatus.FORBIDDEN
       })
 
       const stored = await MemberInvite.findById(invite._id).lean()
@@ -225,8 +239,8 @@ describe('invite service', () => {
       const membership = await insertMembership()
       const { token } = await inviteService.mintInvite(membership)
 
-      await expect(inviteService.consumeInvite(token, 'anything')).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+      await expect(inviteService.consumeInvite(token, 'anything', password)).rejects.toMatchObject({
+        statusCode: httpStatus.FORBIDDEN
       })
     })
 
@@ -236,9 +250,71 @@ describe('invite service', () => {
       const nonce = await inviteService.issueNonce(invite._id)
       await MemberInvite.updateOne({ _id: invite._id }, { nonceExpiresAt: moment().subtract(1, 'minute').toDate() })
 
-      await expect(inviteService.consumeInvite(token, nonce)).rejects.toMatchObject({
+      await expect(inviteService.consumeInvite(token, nonce, password)).rejects.toMatchObject({
+        statusCode: httpStatus.FORBIDDEN
+      })
+    })
+
+    test('reverts the claim when provisioning fails, so a corrected retry with the same link still succeeds', async () => {
+      await Conversation.updateOne({ _id: conversationCommunityRoom._id }, { useRealNames: true })
+      const membershipA = await insertMembership({ email: 'clash.a@example.com', name: 'Same Name' })
+      const membershipB = await insertMembership({ email: 'clash.b@example.com', name: 'Same Name' })
+
+      const { token: tokenA, invite: inviteA } = await inviteService.mintInvite(membershipA)
+      const nonceA = await inviteService.issueNonce(inviteA._id)
+      await inviteService.consumeInvite(tokenA, nonceA, password)
+
+      const { token: tokenB, invite: inviteB } = await inviteService.mintInvite(membershipB)
+      const nonceB = await inviteService.issueNonce(inviteB._id)
+
+      // membershipB's name clashes with the entry membershipA's consume just created —
+      // provisioning fails, but the invite must not be burned for it.
+      await expect(inviteService.consumeInvite(tokenB, nonceB, password)).rejects.toMatchObject({
+        statusCode: httpStatus.CONFLICT
+      })
+      const stored = await MemberInvite.findById(inviteB._id).lean()
+      expect(stored!.consumedAt).toBeFalsy()
+
+      // Once the underlying clash is fixed (an admin renames one of the two), the exact same
+      // link works — the person never had to be re-invited over someone else's data problem.
+      await ConversationMembership.updateOne({ _id: membershipB._id }, { name: 'A Different Name' })
+      const result = await inviteService.consumeInvite(tokenB, nonceB, password)
+      expect(result.tokens.access.token).toEqual(expect.any(String))
+    })
+
+    test('an invite for an already-provisioned email verifies the password before claiming', async () => {
+      const email = 'existing.account@example.com'
+      const membershipA = await insertMembership({ email })
+      const { token: tokenA, invite: inviteA } = await inviteService.mintInvite(membershipA)
+      const nonceA = await inviteService.issueNonce(inviteA._id)
+      await inviteService.consumeInvite(tokenA, nonceA, password)
+
+      // A second room, same person/email — insertMembership's (conversation, email) unique
+      // index means this needs a conversation of its own.
+      const secondRoom = await Conversation.create({
+        name: 'Second Room',
+        owner: new mongoose.Types.ObjectId(),
+        topic: new mongoose.Types.ObjectId(),
+        conversationType: 'communityRoom',
+        messages: [],
+        transcript: { status: 'stopped' }
+      })
+      const membershipB = await insertMembership({ email, conversation: secondRoom._id })
+      const { token: tokenB, invite: inviteB } = await inviteService.mintInvite(membershipB)
+      const nonceB = await inviteService.issueNonce(inviteB._id)
+
+      // Wrong password: rejected, and the invite is left alone — a typo is retryable.
+      await expect(inviteService.consumeInvite(tokenB, nonceB, 'WrongPassword1')).rejects.toMatchObject({
         statusCode: httpStatus.UNAUTHORIZED
       })
+      const stored = await MemberInvite.findById(inviteB._id).lean()
+      expect(stored!.consumedAt).toBeFalsy()
+      expect(await User.countDocuments({ email })).toBe(1)
+
+      // Correct password: succeeds, same account, no duplicate created.
+      const result = await inviteService.consumeInvite(tokenB, nonceB, password)
+      expect(result.user.email).toBe(email)
+      expect(await User.countDocuments({ email })).toBe(1)
     })
   })
 
@@ -251,8 +327,8 @@ describe('invite service', () => {
       const nonceB = await inviteService.issueNonce(inviteB.invite._id)
 
       // Token A with B's nonce must not consume either record.
-      await expect(inviteService.consumeInvite(inviteA.token, nonceB)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+      await expect(inviteService.consumeInvite(inviteA.token, nonceB, 'Invite1234')).rejects.toMatchObject({
+        statusCode: httpStatus.FORBIDDEN
       })
       const storedA = await MemberInvite.findById(inviteA.invite._id).lean()
       const storedB = await MemberInvite.findById(inviteB.invite._id).lean()
@@ -266,7 +342,7 @@ describe('invite service', () => {
       await ConversationMembership.deleteMany({ _id: membership._id })
 
       await expect(inviteService.validateInvite(token)).rejects.toMatchObject({
-        statusCode: httpStatus.UNAUTHORIZED
+        statusCode: httpStatus.GONE
       })
     })
   })

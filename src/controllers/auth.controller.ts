@@ -14,7 +14,10 @@ const register = catchAsync(async (req, res) => {
     }
   }
   if (req.body.email) {
-    const existingUser = await userService.getUserByEmail(req.body.email)
+    // User.email is stored lowercase (schema-level `lowercase: true`) — normalize before
+    // the lookup so a differently-cased resubmission of an already-registered email is
+    // actually found, not silently missed by the exact match.
+    const existingUser = await userService.getUserByEmail(req.body.email.toLowerCase())
     if (existingUser) {
       throw new ApiError(httpStatus.CONFLICT, 'Email address is already registered')
     }

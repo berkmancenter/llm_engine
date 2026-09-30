@@ -1,6 +1,6 @@
 import httpStatus from 'http-status'
 import catchAsync from '../utils/catchAsync.js'
-import { inviteService } from '../services/index.js'
+import { inviteService, userService } from '../services/index.js'
 
 /* The invite screens carry a live token and nonce, so their responses must never be
    cached or send a referrer. Set before any work so error responses carry the headers
@@ -28,10 +28,10 @@ const getInvite = catchAsync(async (req, res) => {
 
 const consumeInvite = catchAsync(async (req, res) => {
   setInviteScreenHeaders(res)
-  await inviteService.consumeInvite(req.body.token, req.body.nonce)
-  /* Account provisioning and session issuance land in the set-password PR, which ships in
-     the same release as this one. Until it merges, consuming only burns the token. */
-  res.status(httpStatus.OK).send({ consumed: true })
+  const result = await inviteService.consumeInvite(req.body.token, req.body.nonce, req.body.password)
+  // Same shape as /auth/login and /auth/register (see auth.controller.ts).
+  result.user.goodReputation = await userService.goodReputation(result.user)
+  res.status(httpStatus.OK).send(result)
 })
 
 export { sendInvites, resendInvite, getInvite, consumeInvite }

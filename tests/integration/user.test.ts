@@ -359,6 +359,36 @@ describe('User routes', () => {
         .expect(httpStatus.CONFLICT)
     })
 
+    test('should return 409 even when the already-used email is submitted in different case', async () => {
+      await insertUsers([userOne])
+      await request(app)
+        .put('/v1/users')
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({
+          userId: registeredUser._id,
+          email: userOne.email.toUpperCase(),
+          username,
+          password
+        })
+        .expect(httpStatus.CONFLICT)
+    })
+
+    test('resubmitting the same email in different case is not a conflict with yourself', async () => {
+      await request(app)
+        .put('/v1/users')
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({
+          userId: registeredUser._id,
+          email: registeredUser.email.toUpperCase(),
+          username,
+          password
+        })
+        .expect(httpStatus.OK)
+
+      const user = await User.findById(registeredUser._id)
+      expect(user!.email).toBe(registeredUser.email.toLowerCase())
+    })
+
     test('should return 409 if username is already in use', async () => {
       await insertUsers([userOne])
       await request(app)

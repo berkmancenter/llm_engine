@@ -84,14 +84,6 @@ router.route('/newPseudonym').get(authController.newPseudonym)
  *               dataExportOptOut:
  *                 type: boolean
  *                 description: Opt out of data export (defaults to false)
- *               conversationId:
- *                 type: string
- *                 description: >
- *                   Optional. When provided along with email, looks up the
- *                   ConversationMembership record for this email + conversation and
- *                   creates a real-name pseudonym scoped to it. The name comes from
- *                   the membership record — the caller does not supply it.
- *                 example: "64a1b2c3d4e5f6a7b8c9d0e1"
  *     responses:
  *       201:
  *         description: User successfully registered
@@ -395,8 +387,8 @@ router.post('/resetPassword', validate(authValidation.resetPassword), authContro
  *           type: string
  *     responses:
  *       200:
- *         description: Member name and email, conversation, and a one-time nonce
- *       401:
+ *         description: Member name and hasAccount, conversation, and a one-time nonce
+ *       410:
  *         description: Invite link is invalid or has expired
  *       400:
  *         description: Token missing
@@ -432,9 +424,13 @@ router.get('/invite', inviteConsumeLimiter, validate(authValidation.getInvite), 
  *       200:
  *         description: Invite consumed
  *       401:
- *         description: Invite link is invalid, expired, already used, or the nonce does not match
+ *         description: Incorrect password
+ *       403:
+ *         description: Nonce is missing, wrong, or expired — fetch a fresh one and retry
+ *       410:
+ *         description: Invite link is invalid or has expired
  *       400:
- *         description: Token or nonce missing
+ *         description: Token, nonce, or password missing
  */
 router.post('/invite/consume', inviteConsumeLimiter, validate(authValidation.consumeInvite), inviteController.consumeInvite)
 
