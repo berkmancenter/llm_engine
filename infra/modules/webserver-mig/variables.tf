@@ -26,18 +26,6 @@ variable "subnet_self_link" {
   type = string
 }
 
-variable "network_self_link" {
-  description = <<-EOT
-    Self link of the VPC network (from the network module). Not needed by
-    anything else in this module — the instance template and the external
-    LB both infer their network from subnet_self_link/the subnet's own
-    parent network — but an INTERNAL-scheme forwarding rule (internal-lb.tf)
-    requires it explicit. Same requirement archive-wiki-vm's module already
-    has for its own (external) NEG, for the same underlying provider reason.
-  EOT
-  type        = string
-}
-
 variable "network_tag" {
   type    = string
   default = "web-server"

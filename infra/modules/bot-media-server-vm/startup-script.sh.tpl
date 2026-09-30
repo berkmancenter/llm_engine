@@ -114,8 +114,8 @@ umask 022
 echo >> "$ENV_FILE"
 {
   echo "PORT=${bot_media_server_port}"
-  echo "LLM_ENGINE_URL=${internal_llm_engine_url}"
-  echo "LLM_ENGINE_WS_URL=${internal_llm_engine_ws_url}"
+  echo "LLM_ENGINE_URL=${llm_engine_url}"
+  echo "LLM_ENGINE_WS_URL=${llm_engine_ws_url}"
 } >> "$ENV_FILE"
 chown $APP_USER:$APP_USER "$ENV_FILE"
 chmod 600 "$ENV_FILE"

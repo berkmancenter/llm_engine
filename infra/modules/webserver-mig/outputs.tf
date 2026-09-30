@@ -35,8 +35,3 @@ output "frontend_backend_service_name" {
   description = "Null when var.frontend_origin is unset (\"\") — no frontend backend/NEG exists in that case."
   value       = one(google_compute_backend_service.frontend[*].name)
 }
-
-output "internal_lb_ip" {
-  description = "Stable internal IP for same-VPC callers (e.g. bot-media-server-vm) to reach the web server MIG directly, bypassing the public LB — see internal-lb.tf."
-  value       = google_compute_address.web_server_internal.address
-}

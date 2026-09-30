@@ -84,12 +84,12 @@ resource "google_compute_instance" "bot_media_server" {
 
   metadata = {
     startup-script = templatefile("${path.module}/startup-script.sh.tpl", {
-      checkout_ref               = var.web_server_image_tag
-      bot_media_server_port      = var.bot_media_server_port
-      app_env_secret_id          = var.app_env_secret_id
-      model_bucket_name          = var.model_bucket_name
-      internal_llm_engine_url    = var.internal_llm_engine_url
-      internal_llm_engine_ws_url = var.internal_llm_engine_ws_url
+      checkout_ref          = var.web_server_image_tag
+      bot_media_server_port = var.bot_media_server_port
+      app_env_secret_id     = var.app_env_secret_id
+      model_bucket_name     = var.model_bucket_name
+      llm_engine_url        = var.llm_engine_url
+      llm_engine_ws_url     = var.llm_engine_ws_url
     })
   }
 

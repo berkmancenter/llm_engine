@@ -112,19 +112,21 @@ variable "model_bucket_name" {
   type        = string
 }
 
-variable "internal_llm_engine_url" {
+variable "llm_engine_url" {
   description = <<-EOT
     llm_engine HTTP base URL this process logs into and drives conversations
-    through — the new internal backend service on webserver-mig
-    (INTERNAL load balancing scheme), not the public domain. Not a secret;
-    templated straight into the startup script, same as webserver-mig's own
-    chroma_url.
+    through — the same public domain any external client uses (not an
+    internal path: a same-VPC internal backend service for this turned out
+    to be structurally incompatible with the MIG's existing external HTTP
+    backends, which require a different, conflicting balancing_mode — see
+    git history if curious). Not a secret; templated straight into the
+    startup script, same as webserver-mig's own chroma_url.
   EOT
   type        = string
 }
 
-variable "internal_llm_engine_ws_url" {
-  description = "llm_engine websocket base URL — same internal backend service as internal_llm_engine_url, different port."
+variable "llm_engine_ws_url" {
+  description = "llm_engine websocket base URL — same public domain as llm_engine_url, wss instead of https."
   type        = string
 }
 

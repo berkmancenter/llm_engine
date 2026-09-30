@@ -172,29 +172,6 @@ resource "google_compute_firewall" "web_server_to_mongo_vm" {
   }
 }
 
-# --- Firewall: bot-media-server-vm -> web server, internal only ---
-# The reverse direction from every other internal rule above: bot-media-
-# server-vm calls llm_engine over webserver-mig's new internal passthrough
-# LB (see that module's internal-lb.tf) instead of the public LB, so it
-# never leaves the VPC or re-terminates TLS. No separate rule needed for
-# that internal LB's own health-check probes — lb_to_web_server above
-# already admits GCP's fixed health-check ranges to web-server on these
-# same ports, and that range is identical for internal and external LBs.
-
-resource "google_compute_firewall" "bot_media_server_to_web_server" {
-  project     = var.project_id
-  name        = "${var.network_name}-bot-media-server-to-web-server"
-  network     = google_compute_network.vpc.id
-  direction   = "INGRESS"
-  priority    = 1000
-  source_tags = ["bot-media-server-vm"]
-  target_tags = ["web-server"]
-  allow {
-    protocol = "tcp"
-    ports    = [tostring(var.web_server_port), tostring(var.websocket_port)]
-  }
-}
-
 # --- Firewall: SSH via IAP tunnel only (no public SSH) ---
 # Google-owned range for Identity-Aware Proxy TCP forwarding; see
 # https://cloud.google.com/iap/docs/using-tcp-forwarding#configuring_firewall_rules
