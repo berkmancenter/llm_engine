@@ -18,21 +18,27 @@ import { defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/ge
 jest.setTimeout(120000)
 
 setupIntTest()
+const testAgentTypeSpec = {
+  name: 'Test Agent',
+  description: 'A test agent',
+  maxTokens: 2000,
+  defaultTriggers: { perMessage: { minNewMessage: 2, directMessages: true } },
+  priority: 100,
+  llmTemplateVars: { contribution: [], voting: [] },
+  defaultLLMTemplates: {
+    contribution: 'You are an agent that does awesome stuff. Be awesome!',
+    voting: 'You should vote on this data {voteData}'
+  },
+  defaultLLMPlatform,
+  defaultLLMModel
+}
 const testAgentTypeSpecification = {
-  test: {
-    name: 'Test Agent',
-    description: 'A test agent',
-    maxTokens: 2000,
-    defaultTriggers: { perMessage: { minNewMessage: 2, directMessages: true } },
-    priority: 100,
-    llmTemplateVars: { contribution: [], voting: [] },
-    defaultLLMTemplates: {
-      contribution: 'You are an agent that does awesome stuff. Be awesome!',
-      voting: 'You should vote on this data {voteData}'
-    },
-    defaultLLMPlatform,
-    defaultLLMModel
-  }
+  test: testAgentTypeSpec,
+  // Registered so an Agent with agentType: 'voiceAssistant' (used by the fromAgent transcript
+  // routing tests below) can sit on conversation.agents without newMessageHandler's
+  // per-agent evaluate() loop hitting an unregistered type — behavior is identical to 'test',
+  // never the real voiceAssistant agent (which would need a live LLM).
+  voiceAssistant: testAgentTypeSpec
 }
 
 // Create mock adapter type
@@ -204,6 +210,99 @@ describe('adapter service tests', () => {
       expect(conversation.messages).toContainEqual(expect.objectContaining(expectedMsg2))
       expect(conversation.messages[0].channels).toHaveLength(1)
       expect(conversation.messages[0].channels[0]).toEqual('transcript')
+    })
+  })
+
+  describe('receiveMessage — fromAgent transcript entries (bot speaking)', () => {
+    async function setUpVoiceAssistant() {
+      const agent = new Agent({ agentType: 'voiceAssistant', conversation })
+      await agent.save()
+      conversation.agents.push(agent)
+
+      const channel = await Channel.create({ name: 'transcript' })
+      conversation.channels.push(channel)
+      await conversation.save()
+      return agent
+    }
+
+    it('attributes a fromAgent transcript entry to the voiceAssistant agent, not a new user account', async () => {
+      const broadcastMsgSpy = jest.spyOn(websocketGateway, 'broadcastNewMessage').mockResolvedValue()
+      await createConversation('Bot Speaking Test')
+      const agent = await setUpVoiceAssistant()
+
+      mockAdapterType.receiveMessage.mockResolvedValue([
+        {
+          user: { username: 'Berkie' },
+          channels: [{ name: 'transcript' }],
+          message: 'Here is what the event is about.',
+          source: { type: 'zoom' },
+          messageType: 'text',
+          fromAgent: true,
+          createdAt: new Date('2025-05-16T19:32:54.522382Z')
+        }
+      ])
+
+      await webhookService.receiveMessage(adapter, { event: 'transcript.data' })
+
+      expect(broadcastMsgSpy).toHaveBeenCalledTimes(1)
+      expect(await User.findOne({ username: 'Berkie' })).toBeNull()
+
+      await conversation.populate('messages')
+      expect(conversation.messages).toHaveLength(1)
+      const [message] = conversation.messages
+      expect(message.fromAgent).toBe(true)
+      expect(message.body).toBe('Here is what the event is about.')
+      expect(message.owner.toString()).toBe(agent._id.toString())
+      expect(message.pseudonym).toBe(agent.pseudonyms[0].pseudonym)
+      expect(message.channels).toEqual(['transcript'])
+    })
+
+    it('skips a fromAgent transcript entry with a warning when no voiceAssistant agent exists', async () => {
+      const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => logger)
+      await createConversation('Bot Speaking No Agent Test')
+      const channel = await Channel.create({ name: 'transcript' })
+      conversation.channels.push(channel)
+      await conversation.save()
+
+      mockAdapterType.receiveMessage.mockResolvedValue([
+        {
+          user: { username: 'Berkie' },
+          channels: [{ name: 'transcript' }],
+          message: 'Here is what the event is about.',
+          source: { type: 'zoom' },
+          messageType: 'text',
+          fromAgent: true,
+          createdAt: new Date('2025-05-16T19:32:54.522382Z')
+        }
+      ])
+
+      await webhookService.receiveMessage(adapter, { event: 'transcript.data' })
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('no voiceAssistant found'))
+      await conversation.populate('messages')
+      expect(conversation.messages).toHaveLength(0)
+    })
+
+    it('silently does nothing for a fromAgent entry whose channel does not exist on the conversation', async () => {
+      await createConversation('Bot Speaking Unknown Channel Test')
+      await setUpVoiceAssistant()
+
+      mockAdapterType.receiveMessage.mockResolvedValue([
+        {
+          user: { username: 'Berkie' },
+          channels: [{ name: 'some-other-channel' }],
+          message: 'Here is what the event is about.',
+          source: { type: 'zoom' },
+          messageType: 'text',
+          fromAgent: true,
+          createdAt: new Date('2025-05-16T19:32:54.522382Z')
+        }
+      ])
+
+      await expect(webhookService.receiveMessage(adapter, { event: 'transcript.data' })).resolves.not.toThrow()
+
+      await conversation.populate('messages')
+      expect(conversation.messages).toHaveLength(0)
     })
   })
 

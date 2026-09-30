@@ -12,9 +12,16 @@ function formatTime(date, timezone = 'UTC') {
 }
 
 function formatTranscriptMessage(message, timezone = 'UTC') {
-  // Surface diarized speaker labels (e.g. "SPEAKER_00") stored on source.speaker
-  // so the LLM can actually distinguish speakers in the transcript when needed.
-  const speaker = message.source?.speaker
+  // Human speakers are deliberately never named here: live transcription attributes every
+  // line to a single Zoom user rather than the actual person talking, so labeling a line with
+  // one participant's pseudonym would misrepresent who said it. The one speaker we're always
+  // certain of is the bot itself (fromAgent is only ever set deliberately, never inferred),
+  // so that's the one line type worth calling out — "Assistant", not the agent's own
+  // pseudonym, matching how every other formatter in this file labels agent messages (see
+  // formatDmHistoryByChannel, formatSingleUserConversationHistory).
+  // Falls back to a diarized speaker label (e.g. "SPEAKER_00") on source.speaker if some
+  // future transcription source ever populates one — nothing does today.
+  const speaker = message.fromAgent ? 'Assistant' : message.source?.speaker
   const speakerPrefix = speaker ? `[${speaker}] ` : ''
   return `[${formatTime(message.createdAt, timezone)}] ${speakerPrefix}${message.body}`
 }

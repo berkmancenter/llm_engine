@@ -180,7 +180,24 @@ async function deployMeetingBot() {
   await this.save()
 }
 
-async function processTranscript(msgChunks, participantName) {
+// Documented Recall behavior: "When using output audio with
+// include_bot_in_recording: {audio: true} and perfect diarization, the bot will transcribe the
+// audio that it's outputting into the meeting. In this situation, the audio will be assigned to
+// the speaker_id 2147483647 which is 2^31 - 1" (Recall's Transcription FAQ, "Who is participant
+// 2147483647?").
+const RECALL_BOT_AUDIO_PARTICIPANT_ID = 2147483647
+
+async function processTranscript(msgChunks, participantName, participantId) {
+  const botNames = [this.config.botName, defaultBotName].filter(Boolean)
+  const isBotAudioSentinel = participantId === RECALL_BOT_AUDIO_PARTICIPANT_ID
+  if (isBotAudioSentinel) {
+    // Distinct from the name-match path so a change in Recall's own behavior here (a
+    // different id, or this sentinel no longer appearing) would show up as a visible drop
+    // in this log line rather than silently misattributing the bot's speech again.
+    logger.debug(`Attributed transcript chunk to bot via Recall's output-audio sentinel id (${participantId})`)
+  }
+  const isBot = isBotAudioSentinel || botNames.includes(participantName)
+
   const msgs: AdapterMessage<string>[] = []
   for (const msgChunk of msgChunks) {
     msgs.push({
@@ -188,7 +205,8 @@ async function processTranscript(msgChunks, participantName) {
       message: msgChunk.text,
       source: { type: 'zoom' },
       createdAt: new Date(msgChunk.end_timestamp.absolute),
-      user: { username: participantName, defaultPreferences }
+      user: { username: participantName, defaultPreferences },
+      ...(isBot && { fromAgent: true })
     })
   }
   return msgs
@@ -402,7 +420,7 @@ export default {
     const { event, data } = message
     let messages = []
     if (event === 'transcript.data') {
-      messages = await processTranscript.call(this, data.data.words, data.data.participant.name)
+      messages = await processTranscript.call(this, data.data.words, data.data.participant.name, data.data.participant.id)
     } else if (event === 'participant_events.chat_message') {
       messages = await receiveChatMessage.call(this, data)
     }
