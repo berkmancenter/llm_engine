@@ -96,6 +96,20 @@ variable "archive_wiki_instance_name" {
   default     = null
 }
 
+variable "bot_media_server_instance_name" {
+  description = <<-EOT
+    gce_instance name for bot-media-server-vm's CPU/memory/disk dashboard
+    widgets and alerts. Null (the default) when this deployment doesn't run
+    bot-media-server-vm at all — same null-means-omit pattern as
+    archive_wiki_instance_name/mongo_instance_name. Unlike archive-wiki-vm,
+    this one also gets a CPU pressure alert, not just a dashboard widget —
+    it runs actual CPU-bound work (Kokoro TTS inference per audio chunk),
+    not archive-wiki-api's lightweight in-memory search index.
+  EOT
+  type        = string
+  default     = null
+}
+
 variable "domain" {
   description = "Public domain the uptime check hits — same value passed to webserver-mig's domain variable."
   type        = string

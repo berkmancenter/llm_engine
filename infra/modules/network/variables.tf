@@ -45,6 +45,12 @@ variable "archive_wiki_vm_port" {
   default     = 4000
 }
 
+variable "bot_media_server_vm_port" {
+  description = "TCP port the bot-media-server-vm module's HTTP+socket.io server listens on inside the VM."
+  type        = number
+  default     = 3100
+}
+
 variable "enable_mongo_vm_firewall" {
   description = <<-EOT
     Whether to open the firewall from the web server tier to a standalone

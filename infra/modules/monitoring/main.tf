@@ -208,6 +208,52 @@ locals {
     }
   ]
 
+  # Same null-means-omit shape as dashboard_widgets_archive_wiki above —
+  # bot-media-server-vm is likewise an optional add-on. Only a boot disk
+  # (no separate data disk), same as archive-wiki-vm, so "disk utilization"
+  # is the boot disk here too.
+  dashboard_widgets_bot_media_server = var.bot_media_server_instance_name == null ? [] : [
+    {
+      title = "Bot Media Server VM — CPU utilization"
+      xyChart = {
+        dataSets = [{
+          timeSeriesQuery = {
+            timeSeriesFilter = {
+              filter      = "resource.type=\"gce_instance\" AND resource.label.\"instance_id\"!=\"\" AND metadata.system_labels.\"name\"=\"${var.bot_media_server_instance_name}\" AND metric.type=\"compute.googleapis.com/instance/cpu/utilization\""
+              aggregation = { alignmentPeriod = "60s", perSeriesAligner = "ALIGN_MEAN" }
+            }
+          }
+        }]
+      }
+    },
+    {
+      title = "Bot Media Server VM — memory utilization (ops agent)"
+      xyChart = {
+        dataSets = [{
+          timeSeriesQuery = {
+            timeSeriesFilter = {
+              filter      = "resource.type=\"gce_instance\" AND metadata.system_labels.\"name\"=\"${var.bot_media_server_instance_name}\" AND metric.type=\"agent.googleapis.com/memory/percent_used\""
+              aggregation = { alignmentPeriod = "60s", perSeriesAligner = "ALIGN_MEAN" }
+            }
+          }
+        }]
+      }
+    },
+    {
+      title = "Bot Media Server VM — disk utilization (ops agent)"
+      xyChart = {
+        dataSets = [{
+          timeSeriesQuery = {
+            timeSeriesFilter = {
+              filter      = "resource.type=\"gce_instance\" AND metadata.system_labels.\"name\"=\"${var.bot_media_server_instance_name}\" AND metric.type=\"agent.googleapis.com/disk/percent_used\" AND metric.label.\"state\"=\"used\""
+              aggregation = { alignmentPeriod = "60s", perSeriesAligner = "ALIGN_MEAN" }
+            }
+          }
+        }]
+      }
+    }
+  ]
+
   # Charts the existing uptime check (google_monitoring_uptime_check_config.site,
   # below) that site_unreachable already alerts on — that alert firing was
   # the only place this signal showed up before; there was no way to see the
@@ -263,6 +309,7 @@ resource "google_monitoring_dashboard" "overview" {
         local.dashboard_widgets_base,
         local.dashboard_widgets_mongo,
         local.dashboard_widgets_archive_wiki,
+        local.dashboard_widgets_bot_media_server,
         local.dashboard_widgets_uptime,
         local.dashboard_widgets_deploy_status,
       )
@@ -444,6 +491,86 @@ resource "google_monitoring_alert_policy" "archive_wiki_disk_pressure" {
       filter          = "resource.type=\"gce_instance\" AND metadata.system_labels.\"name\"=\"${var.archive_wiki_instance_name}\" AND metric.type=\"agent.googleapis.com/disk/percent_used\" AND metric.label.\"state\"=\"used\""
       comparison      = "COMPARISON_GT"
       threshold_value = 85
+      duration        = "300s"
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_MEAN"
+      }
+    }
+  }
+  notification_channels = var.notification_channels
+}
+
+# --- Alert: Bot Media Server VM memory pressure (parity with Archive Wiki's/Chroma's) ---
+# count-gated: bot_media_server_instance_name is null when this deployment
+# doesn't run bot-media-server-vm at all — see its description.
+
+resource "google_monitoring_alert_policy" "bot_media_server_memory_pressure" {
+  count        = var.bot_media_server_instance_name == null ? 0 : 1
+  project      = var.project_id
+  display_name = "llm-engine: Bot Media Server VM memory pressure"
+  combiner     = "OR"
+  conditions {
+    display_name = "Memory utilization > 85% for 5m"
+    condition_threshold {
+      filter          = "resource.type=\"gce_instance\" AND metadata.system_labels.\"name\"=\"${var.bot_media_server_instance_name}\" AND metric.type=\"agent.googleapis.com/memory/percent_used\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 85
+      duration        = "300s"
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_MEAN"
+      }
+    }
+  }
+  notification_channels = var.notification_channels
+}
+
+# --- Alert: Bot Media Server VM disk pressure ---
+
+resource "google_monitoring_alert_policy" "bot_media_server_disk_pressure" {
+  count        = var.bot_media_server_instance_name == null ? 0 : 1
+  project      = var.project_id
+  display_name = "llm-engine: Bot Media Server VM disk pressure"
+  combiner     = "OR"
+  conditions {
+    display_name = "Disk utilization > 85% for 5m"
+    condition_threshold {
+      filter          = "resource.type=\"gce_instance\" AND metadata.system_labels.\"name\"=\"${var.bot_media_server_instance_name}\" AND metric.type=\"agent.googleapis.com/disk/percent_used\" AND metric.label.\"state\"=\"used\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 85
+      duration        = "300s"
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_MEAN"
+      }
+    }
+  }
+  notification_channels = var.notification_channels
+}
+
+# --- Alert: Bot Media Server VM CPU pressure ---
+# No CPU alert exists for Archive Wiki/Chroma/Mongo — none of them run
+# sustained CPU-bound work. This one does: Kokoro TTS inference, per audio
+# chunk, on a machine_type already flagged as provisional (e2-medium, 2
+# vCPU) — a dashboard widget alone would mean nobody's paged while it's
+# actually pegged during a live meeting.
+#
+# threshold_value is 0.85, not 85: compute.googleapis.com/instance/cpu/utilization
+# is a 0-1 fraction (same metric the CPU dashboard widget above uses), unlike
+# the Ops-Agent-sourced memory/disk metrics above, which already report 0-100.
+
+resource "google_monitoring_alert_policy" "bot_media_server_cpu_pressure" {
+  count        = var.bot_media_server_instance_name == null ? 0 : 1
+  project      = var.project_id
+  display_name = "llm-engine: Bot Media Server VM CPU pressure"
+  combiner     = "OR"
+  conditions {
+    display_name = "CPU utilization > 85% for 5m"
+    condition_threshold {
+      filter          = "resource.type=\"gce_instance\" AND resource.label.\"instance_id\"!=\"\" AND metadata.system_labels.\"name\"=\"${var.bot_media_server_instance_name}\" AND metric.type=\"compute.googleapis.com/instance/cpu/utilization\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0.85
       duration        = "300s"
       aggregations {
         alignment_period   = "60s"

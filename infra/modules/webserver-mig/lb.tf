@@ -214,6 +214,28 @@ resource "google_compute_url_map" "web_server" {
       default_service = path_matcher.value.backend_service_id
     }
   }
+
+  # One host_rule + single-service path_matcher per
+  # dedicated_cert_host_backends entry — same "whole domain to one backend,
+  # no path splitting" shape as extra_host_backends' own dynamic blocks
+  # above, just named "dedicated-${index}" to stay unique alongside them.
+  # These entries' certs are NOT part of local.ssl_cert_domains/the shared
+  # cert below — see google_compute_managed_ssl_certificate.dedicated.
+  dynamic "host_rule" {
+    for_each = var.dedicated_cert_host_backends
+    content {
+      hosts        = host_rule.value.domains
+      path_matcher = "dedicated-${host_rule.key}"
+    }
+  }
+
+  dynamic "path_matcher" {
+    for_each = var.dedicated_cert_host_backends
+    content {
+      name            = "dedicated-${path_matcher.key}"
+      default_service = path_matcher.value.backend_service_id
+    }
+  }
 }
 
 # --- Frontend proxy (optional) ---
@@ -429,11 +451,37 @@ resource "google_compute_managed_ssl_certificate" "web_server" {
   }
 }
 
+# One independent managed cert per dedicated_cert_host_backends entry — see
+# that variable's own description for why these are kept off the shared
+# cert above entirely, rather than folded into local.ssl_cert_domains.
+# Content-hashed name for the same create_before_destroy reason as the
+# shared cert: only ITS OWN domain set changing should ever replace it.
+resource "google_compute_managed_ssl_certificate" "dedicated" {
+  for_each = { for idx, eb in var.dedicated_cert_host_backends : tostring(idx) => eb }
+  project  = var.project_id
+  name     = "llm-engine-dedicated-cert-${substr(md5(join(",", sort(distinct(each.value.domains)))), 0, 8)}"
+
+  managed {
+    domains = sort(distinct(each.value.domains))
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
 resource "google_compute_target_https_proxy" "web_server" {
-  project          = var.project_id
-  name             = "llm-engine-https-proxy"
-  url_map          = google_compute_url_map.web_server.id
-  ssl_certificates = [google_compute_managed_ssl_certificate.web_server.id]
+  project = var.project_id
+  name    = "llm-engine-https-proxy"
+  url_map = google_compute_url_map.web_server.id
+  # GCP selects which attached cert to present per connection via SNI (up to
+  # 15 per proxy) — the shared cert first, then one per dedicated_cert_host_backends
+  # entry. Adding/removing a dedicated entry only ever changes this list's
+  # membership, never anything about the shared cert itself.
+  ssl_certificates = concat(
+    [google_compute_managed_ssl_certificate.web_server.id],
+    [for cert in google_compute_managed_ssl_certificate.dedicated : cert.id],
+  )
 }
 
 resource "google_compute_global_address" "web_server" {

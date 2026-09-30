@@ -118,6 +118,25 @@ resource "google_compute_firewall" "lb_to_archive_wiki_vm" {
   }
 }
 
+# --- Firewall: GCP health checks + LB proxy -> bot-media-server-vm ---
+# Same shape as lb_to_archive_wiki_vm above, for bot-media-server-vm's own
+# standalone VM (a direct LB backend via a zonal GCE_VM_IP_PORT NEG, not a
+# MIG) — same health-check/proxy source ranges, its own port and tag.
+
+resource "google_compute_firewall" "lb_to_bot_media_server_vm" {
+  project       = var.project_id
+  name          = "${var.network_name}-lb-to-bot-media-server-vm"
+  network       = google_compute_network.vpc.id
+  direction     = "INGRESS"
+  priority      = 1000
+  source_ranges = distinct(concat(var.health_check_source_ranges, var.lb_proxy_source_ranges))
+  target_tags   = ["bot-media-server-vm"]
+  allow {
+    protocol = "tcp"
+    ports    = [tostring(var.bot_media_server_vm_port)]
+  }
+}
+
 # --- Firewall: web server -> Chroma VM, internal only, Chroma's port only ---
 
 resource "google_compute_firewall" "web_server_to_chroma" {
@@ -150,6 +169,29 @@ resource "google_compute_firewall" "web_server_to_mongo_vm" {
   allow {
     protocol = "tcp"
     ports    = [tostring(var.mongo_vm_port)]
+  }
+}
+
+# --- Firewall: bot-media-server-vm -> web server, internal only ---
+# The reverse direction from every other internal rule above: bot-media-
+# server-vm calls llm_engine over webserver-mig's new internal passthrough
+# LB (see that module's internal-lb.tf) instead of the public LB, so it
+# never leaves the VPC or re-terminates TLS. No separate rule needed for
+# that internal LB's own health-check probes — lb_to_web_server above
+# already admits GCP's fixed health-check ranges to web-server on these
+# same ports, and that range is identical for internal and external LBs.
+
+resource "google_compute_firewall" "bot_media_server_to_web_server" {
+  project     = var.project_id
+  name        = "${var.network_name}-bot-media-server-to-web-server"
+  network     = google_compute_network.vpc.id
+  direction   = "INGRESS"
+  priority    = 1000
+  source_tags = ["bot-media-server-vm"]
+  target_tags = ["web-server"]
+  allow {
+    protocol = "tcp"
+    ports    = [tostring(var.web_server_port), tostring(var.websocket_port)]
   }
 }
 
