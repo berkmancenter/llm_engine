@@ -91,11 +91,51 @@ async function deployMeetingBot() {
   }
   const chatIntroMessage = chatIntroTexts.length > 0 ? chatIntroTexts.join('\n') : null
 
+  const voiceOutputEnabled = Boolean(this.conversation.features?.find((f) => f.name === 'voiceOutput')?.enabled)
+  // A transcription-only adapter (no dmChannels, no chatChannels) never interacts with
+  // participants directly, so a visible camera presence has nothing to show for it even when
+  // voiceOutput is off — only give it a camera when it can either speak or otherwise engage.
+  const hasInteractiveChannels = Boolean(this.dmChannels?.length) || Boolean(this.chatChannels?.length)
+  // Internal rollout control, not a conversation property
+  const outputMediaEnabled = this.config.outputMediaEnabled ?? hasInteractiveChannels
+  const showOutputMedia = Boolean(config.recall.outputMediaUrl) && (voiceOutputEnabled || outputMediaEnabled)
+
   const options = {
     method: 'POST',
     headers: { accept: 'application/json', 'content-type': 'application/json', Authorization: config.recall.key },
     body: JSON.stringify({
       meeting_url: meetingUrl,
+      // voiceOutput controls whether that page's voice pipeline (the `audio` param below) is
+      // on, not whether the camera is shown at all — see bot-media-server/server.ts for what
+      // `audio` gates. But a transcription-only bot with voiceOutput off has no camera either,
+      // per showOutputMedia above.
+      ...(showOutputMedia && {
+        output_media: {
+          camera: {
+            kind: 'webpage',
+            config: {
+              url: (() => {
+                const params = new URLSearchParams({
+                  conversationId: this.conversation._id.toString(),
+                  botName: botName ?? defaultBotName,
+                  audio: String(voiceOutputEnabled)
+                })
+                const transcriptChannel = this.conversation.channels.find((c) => audioChannelNames.includes(c.name))
+                if (transcriptChannel?.passcode) params.set('transcriptPasscode', transcriptChannel.passcode)
+                return `${config.recall.outputMediaUrl}?${params.toString()}`
+              })()
+            }
+          }
+        }
+      }),
+      // 4-core variant gives the headless browser enough CPU to run animation and audio
+      // decoding concurrently without choppiness — only needed once voiceOutput actually
+      // turns audio on; a silent, animation-only bot doesn't need the extra cores.
+      ...(voiceOutputEnabled && {
+        variant: {
+          zoom: 'web_4_core'
+        }
+      }),
       bot_name: botName ?? defaultBotName,
       automatic_leave: {
         bot_detection: {

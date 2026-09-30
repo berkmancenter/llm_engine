@@ -186,6 +186,17 @@ const eventAssistant: ConversationType = {
       userControlled: false,
       agents: [],
       properties: []
+    },
+    {
+      name: 'voiceOutput',
+      label: 'Voice Responses',
+      description:
+        'Speaks the assistant\'s answer aloud when someone asks it a question by voice (e.g. "Hey <botName>, ..."). Chat responses always stay text-only, regardless of this setting.',
+      default: false,
+      category: 'assistant',
+      userControlled: false,
+      agents: [],
+      properties: []
     }
   ],
 
@@ -211,7 +222,12 @@ const eventAssistant: ConversationType = {
     },
     {
       name: 'voiceAssistant',
-      properties: [{ $ref: 'llmModel.llmModel' }, { $ref: 'llmModel.llmPlatform' }]
+      properties: [
+        { $ref: 'llmModel.llmModel' },
+        { $ref: 'llmModel.llmPlatform' },
+        { $ref: 'botName', as: 'agentConfig.botName' },
+        { $ref: 'voiceOutput', as: 'agentConfig.voiceOutput' }
+      ]
     }
   ],
   enableDMs: ['agents'],
