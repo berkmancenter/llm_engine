@@ -21,8 +21,15 @@ set -euo pipefail
 REPO_DIR=/srv/bot-media-server
 APP_USER=bot-media-server
 
+# 22, not archive-wiki-vm's 20 (copied from that module without checking this
+# repo's own requirement): a whole-monorepo `yarn install` pulls in every
+# dependency's own engines constraint, not just bot-media-server's — and
+# @google-cloud/monitoring's current version requires >=22 even though this
+# repo's own package.json still claims "^20 || ^22" is fine. Hit for real on
+# first boot: yarn failed on that incompatible-engine check before ever
+# reaching the systemd unit, leaving bot-media-server.service never created.
 if ! command -v node >/dev/null 2>&1; then
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
   apt-get install -y nodejs git
 fi
 
