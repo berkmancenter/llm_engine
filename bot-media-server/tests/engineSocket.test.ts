@@ -109,7 +109,7 @@ describe('engineSocket', () => {
     await new Promise<void>((resolve) => fakeLlmEngine.httpServer.close(() => resolve()))
   })
 
-  test('joins with the auth token and no channels when no transcript passcode is configured', async () => {
+  test('joins the transcript channel with no passcode when none is configured', async () => {
     const hooks = makeHooks()
     const { auth } = makeAuth(() => 'token-abc')
     makeEngineSocket(
@@ -122,7 +122,7 @@ describe('engineSocket', () => {
       engineSocket,
       'conversation:join'
     )
-    expect(payload).toEqual({ conversationId: 'conv-1', token: 'token-abc', channels: [] })
+    expect(payload).toEqual({ conversationId: 'conv-1', token: 'token-abc', channels: [{ name: 'transcript' }] })
   })
 
   test('includes the transcript channel with its passcode when configured', async () => {

@@ -76,8 +76,15 @@ export function createEngineSocket(config: EngineSocketConfig, hooks: EngineSock
   const JOIN_ACK_TIMEOUT_MS = 5_000
 
   const join = () => {
-    const channels: { name: string; passcode?: string }[] = []
-    if (config.transcriptPasscode) channels.push({ name: 'transcript', passcode: config.transcriptPasscode })
+    // Always join the transcript channel's own socket.io room, passcode or not — llm_engine
+    // only routes message:chunk/message:new to a channel's room (`${conversationId}_transcript`)
+    // for sockets that explicitly joined it, regardless of whether that channel actually
+    // requires a passcode (channel.model.ts documents `passcode: null` as a supported way to
+    // disable one). Omitting this channel whenever no passcode happens to be configured used
+    // to mean silently never receiving anything — no chime, no speaking, no error anywhere.
+    const channels: { name: string; passcode?: string }[] = [
+      { name: 'transcript', ...(config.transcriptPasscode && { passcode: config.transcriptPasscode }) }
+    ]
     log(
       `${conversationId} attempting conversation:join (channels: ${channels.map((c) => c.name).join(', ') || 'none'}${
         config.transcriptPasscode ? ', with transcript passcode' : ''
