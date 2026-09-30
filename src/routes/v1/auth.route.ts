@@ -3,7 +3,7 @@ import validate from '../../middlewares/validate.js'
 import authValidation from '../../validations/auth.validation.js'
 import { authController, inviteController } from '../../controllers/index.js'
 import auth from '../../middlewares/auth.js'
-import { inviteConsumeLimiter } from '../../middlewares/rateLimiter.js'
+import { inviteConsumeLimiter, inviteResendLimiter } from '../../middlewares/rateLimiter.js'
 
 const router = express.Router()
 
@@ -433,5 +433,52 @@ router.get('/invite', inviteConsumeLimiter, validate(authValidation.getInvite), 
  *         description: Token, nonce, or password missing
  */
 router.post('/invite/consume', inviteConsumeLimiter, validate(authValidation.consumeInvite), inviteController.consumeInvite)
+
+/**
+ * @swagger
+ * /auth/invite/resend:
+ *   post:
+ *     summary: Request a fresh invite link from a dead one
+ *     description: >
+ *       Public. Takes the token from an expired or replaced invite link and, if it is a
+ *       genuine invite that has not been used and the membership is still active, queues a
+ *       new invite (killing the old one) to be emailed to the member's address on file, with
+ *       automatic retries if Postmark is temporarily unavailable. It never sends to an address
+ *       from the request. Always answers 202 with the same body,
+ *       whether or not anything was sent, so the response never reveals who was invited.
+ *       Limited per IP and to one send per member every 5 minutes; requests over either
+ *       limit also get the same 202.
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *             properties:
+ *               token:
+ *                 type: string
+ *                 description: Invite token from the dead link
+ *     responses:
+ *       202:
+ *         description: Request accepted; a new link may or may not have been sent
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Token missing, or an unexpected field such as email was supplied
+ */
+router.post(
+  '/invite/resend',
+  inviteResendLimiter,
+  validate(authValidation.resendInvite),
+  inviteController.resendInviteFromDeadLink
+)
 
 export default router

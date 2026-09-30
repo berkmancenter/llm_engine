@@ -1,4 +1,5 @@
 import rateLimit from 'express-rate-limit'
+import logger from '../config/logger.js'
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -30,4 +31,17 @@ const inviteConsumeLimiter = rateLimit({
   max: 20
 })
 
-export { authLimiter, memberImportLimiter, inviteSendLimiter, inviteConsumeLimiter }
+/* Guards the public invite resend endpoint, counting successes like inviteConsumeLimiter.
+   Over the limit it flags the request instead of answering 429: a distinct status would
+   let a caller tell this outcome apart from the others, which must all look the same. */
+const inviteResendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  handler: (req, res, next) => {
+    logger.warn('rateLimiter: public invite resend skipped, per-IP limit reached')
+    res.locals.inviteResendRateLimited = true
+    next()
+  }
+})
+
+export { authLimiter, memberImportLimiter, inviteSendLimiter, inviteConsumeLimiter, inviteResendLimiter }

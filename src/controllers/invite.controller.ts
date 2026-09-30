@@ -10,6 +10,12 @@ const setInviteScreenHeaders = (res) => {
   res.set('Referrer-Policy', 'no-referrer')
 }
 
+/* One body for every outcome, so the response never reveals whether the link belonged to
+   anyone or why nothing was sent. */
+const publicResendAccepted = {
+  message: 'If this invite link was valid, a new one is on its way to the address it came to.'
+}
+
 const sendInvites = catchAsync(async (req, res) => {
   const result = await inviteService.sendInvitesForConversation(req.params.conversationId, req.user)
   res.status(httpStatus.OK).send(result)
@@ -34,4 +40,12 @@ const consumeInvite = catchAsync(async (req, res) => {
   res.status(httpStatus.OK).send(result)
 })
 
-export { sendInvites, resendInvite, getInvite, consumeInvite }
+const resendInviteFromDeadLink = catchAsync(async (req, res) => {
+  setInviteScreenHeaders(res)
+  if (!res.locals.inviteResendRateLimited) {
+    await inviteService.resendInviteFromDeadLink(req.body.token)
+  }
+  res.status(httpStatus.ACCEPTED).send(publicResendAccepted)
+})
+
+export { sendInvites, resendInvite, getInvite, consumeInvite, resendInviteFromDeadLink }

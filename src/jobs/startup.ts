@@ -21,6 +21,7 @@ export async function startJobs() {
     await defineJob.conversationEvent()
     await defineJob.conversationCost()
     await defineJob.pollExpired()
+    await defineJob.publicInviteResend()
   }
 }
 

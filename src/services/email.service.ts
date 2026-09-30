@@ -325,6 +325,13 @@ This link is just for you, so please don't forward it. It expires in ${expiryDay
   return { subject, text, html }
 }
 
+/* Worth retrying: rate limiting, Postmark's own server errors, and network failures, which its
+   client reports as a PostmarkError with no status code. Anything else (bad API key, invalid
+   request, suppressed recipient) fails the same way every time. */
+const isTransientSendError = (error) =>
+  error instanceof postmark.Errors.PostmarkError &&
+  (!error.statusCode || error.statusCode === 429 || error.statusCode >= 500)
+
 // Postmark rejects a batch call carrying more than 500 messages.
 const POSTMARK_BATCH_LIMIT = 500
 
@@ -383,6 +390,7 @@ const emailService = {
   sendOnDemandEventEmail,
   sendOnDemandEventFailedEmail,
   buildMemberInviteEmail,
-  sendMemberInviteBatch
+  sendMemberInviteBatch,
+  isTransientSendError
 }
 export default emailService

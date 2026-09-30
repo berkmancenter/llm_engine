@@ -2,6 +2,7 @@ import agentHandlers from './agent.js'
 import conversationHandlers from './conversation.js'
 import conversationEventHandlers from './conversationEvent.js'
 import conversationCostHandlers from './conversationCost.js'
+import inviteHandlers from './invite.js'
 import pollHandlers from './poll.js'
 import resourceHandlers from './resource.js'
 import topicHandlers from './topic.js'
@@ -18,7 +19,9 @@ const JobHandlers = {
   autoStartConversation: conversationHandlers.autoStartConversation,
   autoStopConversation: conversationHandlers.autoStopConversation,
   conversationEndingSoon: conversationHandlers.conversationEndingSoon,
-  
+
+  // Invite handlers
+  publicInviteResend: inviteHandlers.publicInviteResend,
 
   // Poll handlers
   pollExpired: pollHandlers.pollExpired,
