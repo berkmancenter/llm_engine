@@ -12,6 +12,7 @@ import Conversation from '../models/conversation.model.js'
 import emailService from './email.service.js'
 import userService from './user.service.js'
 import tokenService from './token.service.js'
+import schedule from '../jobs/schedule.js'
 
 /* One deliberately vague message for every dead-invite failure mode: a more specific error
    ("expired" vs "already used" vs "no such invite") would tell an attacker probing skimmed
@@ -28,6 +29,14 @@ const staleNonceError = () => new ApiError(httpStatus.FORBIDDEN, 'Invite link is
 /* Long enough to set one password on a slow connection; short enough that a nonce
    skimmed alongside its token goes stale before it is useful. */
 const NONCE_LIFETIME_MINUTES = 30
+
+/* Long enough that a leaked old link can't flood the member's inbox, short enough that
+   someone whose new link landed in spam can ask again in the same sitting. */
+const PUBLIC_RESEND_COOLDOWN_MS = 5 * 60 * 1000 // 5 minutes
+
+/* Each public resend replaces the member's current link, so an old link someone kept
+   must not work as a way to cancel it forever. */
+const PUBLIC_RESEND_MAX_DAYS_SINCE_EXPIRY = 30
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
 
@@ -229,6 +238,20 @@ const applySendResults = async (results: Array<{ membershipId: string; success: 
   )
 }
 
+/* A throw would skip applySendResults and leave live links that nobody received, so the
+   whole batch is recorded as failed before the error is passed on. */
+const sendInviteBatchAndRecord = async (invites: Parameters<typeof emailService.sendMemberInviteBatch>[0]) => {
+  let results
+  try {
+    results = await emailService.sendMemberInviteBatch(invites)
+  } catch (err) {
+    await applySendResults(invites.map(({ membershipId }) => ({ membershipId, success: false, error: 'send failed' })))
+    throw err
+  }
+  await applySendResults(results)
+  return results
+}
+
 const sendInvitesToPendingMembers = async (conversation, actingUser) => {
   const conversationId = conversation._id
 
@@ -258,8 +281,7 @@ const sendInvitesToPendingMembers = async (conversation, actingUser) => {
     })
   }
 
-  const results = await emailService.sendMemberInviteBatch(invites)
-  await applySendResults(results)
+  const results = await sendInviteBatchAndRecord(invites)
 
   const emailByMembershipId = new Map(invites.map((invite) => [invite.membershipId, invite.to]))
   const failures = results
@@ -305,6 +327,20 @@ const sendInvitesForConversation = async (conversationId, actingUser) => {
   }
 }
 
+const mailFreshInvite = async (membership, conversation) => {
+  const { token } = await mintInvite(membership)
+  const [result] = await sendInviteBatchAndRecord([
+    {
+      membershipId: membership._id.toString(),
+      to: membership.email,
+      name: membership.name,
+      roomName: conversation.name,
+      token
+    }
+  ])
+  return result
+}
+
 /**
  * Re-invite one member: the outstanding link dies (mintInvite invalidates it) and a fresh
  * one is mailed, whatever the current inviteState. Refused once they have joined, because
@@ -323,24 +359,131 @@ const resendInvite = async (membershipId, actingUser) => {
     throw new ApiError(httpStatus.NOT_FOUND, 'Conversation not found')
   }
 
-  const { token } = await mintInvite(membership)
-  const results = await emailService.sendMemberInviteBatch([
-    {
-      membershipId: membership._id.toString(),
-      to: membership.email,
-      name: membership.name,
-      roomName: conversation.name,
-      token
-    }
-  ])
-  await applySendResults(results)
-
-  const [result] = results
+  const result = await mailFreshInvite(membership, conversation)
   logger.info(
     `invite.service: user ${actingUser._id} resent an invite for membership ${membershipId} ` +
       `(${result?.success ? 'sent' : 'failed'})`
   )
   return { sent: result?.success ? 1 : 0, failed: result?.success ? 0 : 1 }
+}
+
+/**
+ * Find the invite behind a token that may be expired or superseded. Only the expiry check
+ * is skipped: the signature and type checks still apply, so a dead link can ask for a new
+ * one while a forged or repurposed token cannot. Returns null instead of throwing.
+ */
+const findInviteIgnoringExpiry = async (token: string) => {
+  let payload: jwt.JwtPayload
+  try {
+    payload = jwt.verify(token, config.jwt.secret, {
+      algorithms: ['HS256'],
+      ignoreExpiration: true
+    }) as jwt.JwtPayload
+  } catch {
+    return null
+  }
+  if (payload.type !== tokenTypes.MEMBER_INVITE) {
+    return null
+  }
+  if (!payload.exp || moment.unix(payload.exp).add(PUBLIC_RESEND_MAX_DAYS_SINCE_EXPIRY, 'days').isBefore(moment())) {
+    return null
+  }
+  return MemberInvite.findOne({ tokenHash: sha256(token) }).exec()
+}
+
+/* A single conditional write, so two simultaneous requests can't both pass the cooldown. */
+const claimPublicResendCooldown = (membershipId) =>
+  ConversationMembership.findOneAndUpdate(
+    {
+      _id: membershipId,
+      $or: [{ lastPublicResendAt: null }, { lastPublicResendAt: { $lte: new Date(Date.now() - PUBLIC_RESEND_COOLDOWN_MS) } }]
+    },
+    { lastPublicResendAt: new Date() }
+  ).exec()
+
+const skipPublicResend = (reason: string) => {
+  logger.info(`invite.service: public invite resend skipped, ${reason}`)
+}
+
+/* Checked when the request arrives and again when the job runs, since an admin can remove
+   the member or the member can sign up in between. */
+const findResendableMembership = async (membershipId: string) => {
+  const membership = await ConversationMembership.findById(membershipId).exec()
+  if (!membership || membership.status !== 'active') {
+    skipPublicResend(`membership ${membershipId} is missing or removed`)
+    return null
+  }
+  /* userAccount is set when any of this member's invites is consumed, which catches a
+     superseded link whose replacement was already used. */
+  if (membership.joined || membership.userAccount) {
+    skipPublicResend(`membership ${membershipId} already has an account`)
+    return null
+  }
+  const conversation = await Conversation.findById(membership.conversation).exec()
+  if (!conversation) {
+    skipPublicResend(`conversation for membership ${membershipId} is missing`)
+    return null
+  }
+  return { membership, conversation }
+}
+
+/* A send that failed on our side shouldn't make the member wait out the cooldown to ask again. */
+const releasePublicResendCooldown = async (membershipId: string) => {
+  await ConversationMembership.updateOne({ _id: membershipId }, { lastPublicResendAt: null }).exec()
+}
+
+const queuePublicResend = async (token: string) => {
+  const invite = await findInviteIgnoringExpiry(token)
+  if (!invite) {
+    return skipPublicResend('token is not a genuine invite, or expired more than 30 days ago')
+  }
+  if (invite.consumedAt) {
+    return skipPublicResend(`invite ${invite._id} was already used`)
+  }
+  const membershipId = invite.membership.toString()
+  if (!(await findResendableMembership(membershipId))) {
+    return undefined
+  }
+  if (!(await claimPublicResendCooldown(membershipId))) {
+    return skipPublicResend(`membership ${membershipId} is inside the resend cooldown`)
+  }
+  try {
+    await schedule.publicInviteResend({ membershipId, attempt: 1 })
+  } catch (err) {
+    await releasePublicResendCooldown(membershipId)
+    throw err
+  }
+  logger.info(`invite.service: public invite resend queued for membership ${membershipId}`)
+  return undefined
+}
+
+/**
+ * Public "send me a new link" for a dead invite link: queues a fresh invite for the member's
+ * address on file. The send runs in a job so the response never waits on Postmark (which would
+ * make a real send noticeably slower than a skip) and so a Postmark outage can be retried. Never throws, because the caller
+ * must answer every outcome identically.
+ */
+const resendInviteFromDeadLink = async (token: string) => {
+  try {
+    await queuePublicResend(token)
+  } catch (err) {
+    logger.error(`invite.service: public invite resend failed to queue: ${err?.name ?? 'unknown error'}`)
+  }
+}
+
+/**
+ * Job side of the public resend. Throws when the send itself throws, so the job can decide
+ * whether to retry; the just-minted link is already cancelled by then (see
+ * sendInviteBatchAndRecord).
+ */
+const deliverPublicResend = async (membershipId: string) => {
+  const resendable = await findResendableMembership(membershipId)
+  if (!resendable) {
+    return
+  }
+  const result = await mailFreshInvite(resendable.membership, resendable.conversation)
+  logger.info(`invite.service: public invite resend for membership ${membershipId} ${result?.success ? 'sent' : 'not sent'}`)
+  return result
 }
 
 const inviteService = {
@@ -350,6 +493,9 @@ const inviteService = {
   consumeInvite,
   describeInvite,
   sendInvitesForConversation,
-  resendInvite
+  resendInvite,
+  resendInviteFromDeadLink,
+  deliverPublicResend,
+  releasePublicResendCooldown
 }
 export default inviteService

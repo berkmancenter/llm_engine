@@ -67,6 +67,9 @@ const defineJob = {
   },
   pollExpired: async () => {
     await agenda.define('poll expired', JobHandlers.pollExpired)
+  },
+  publicInviteResend: async () => {
+    await agenda.define('publicInviteResend', JobHandlers.publicInviteResend)
   }
 }
 

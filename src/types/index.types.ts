@@ -210,6 +210,7 @@ export interface IConversationMembership {
   inviteState: 'pending' | 'invited' | 'failed'
   inviteError?: string | null
   joined: boolean
+  lastPublicResendAt?: Date | null
   status: 'active' | 'removed'
   userAccount?: mongoose.Types.ObjectId
   // Keyed by adapter type (e.g. 'slack', 'zoom') — stores the external platform's user ID

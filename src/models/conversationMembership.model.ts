@@ -50,6 +50,12 @@ const schema = new mongoose.Schema<IConversationMembership>(
       type: Boolean,
       default: false
     },
+    // Cooldown clock for the public "send me a new link" endpoint. It lives on the
+    // membership, not the invite, because every old link for this member shares one clock.
+    lastPublicResendAt: {
+      type: Date,
+      default: null
+    },
     // Set by future membership-management action(s), never by import. A membership missing from
     // a later import file is left in place, not marked removed.
     status: {

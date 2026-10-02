@@ -608,6 +608,55 @@ describe('email.service', () => {
       expect(results[500]).toEqual({ membershipId: 'm500', success: false, error: 'Inactive recipient' })
     })
 
+    describe('when a whole chunk fails', () => {
+      const invites = Array.from({ length: 501 }, (_, i) => ({
+        membershipId: `m${i}`,
+        to: `person${i}@example.com`,
+        name: `Person ${i}`,
+        roomName: 'Room',
+        token: `t${i}`
+      }))
+      let errorSpy
+
+      beforeEach(() => {
+        errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => undefined as never)
+      })
+
+      afterEach(() => {
+        errorSpy.mockRestore()
+      })
+
+      it('keeps the results of chunks that already sent and marks only the failed chunk', async () => {
+        batchSpy
+          .mockResolvedValueOnce(Array.from({ length: 500 }, () => ({ ErrorCode: 0, Message: 'OK' })) as never)
+          .mockRejectedValueOnce(new postmark.Errors.ServiceUnavailablerError('Service unavailable', 0, 503) as never)
+
+        const results = await emailService.sendMemberInviteBatch(invites)
+
+        expect(results).toHaveLength(501)
+        expect(results[0]).toEqual({ membershipId: 'm0', success: true })
+        expect(results[499]).toEqual({ membershipId: 'm499', success: true })
+        expect(results[500]).toMatchObject({ membershipId: 'm500', success: false, retryable: true })
+      })
+
+      it('marks a failure that a retry would not fix as not retryable', async () => {
+        batchSpy.mockRejectedValue(new postmark.Errors.InvalidAPIKeyError('Bad token', 10, 401) as never)
+
+        const results = await emailService.sendMemberInviteBatch(invites.slice(0, 1))
+
+        expect(results).toEqual([expect.objectContaining({ membershipId: 'm0', success: false, retryable: false })])
+      })
+
+      it('logs the failure without any recipient address', async () => {
+        batchSpy.mockRejectedValue(new postmark.Errors.ServiceUnavailablerError('person0@example.com', 0, 503) as never)
+
+        await emailService.sendMemberInviteBatch(invites.slice(0, 1))
+
+        expect(errorSpy).toHaveBeenCalledTimes(1)
+        expect(errorSpy.mock.calls[0][0]).not.toContain('@example.com')
+      })
+    })
+
     it('places the token in the query string of the invite URL, not the fragment', async () => {
       await emailService.sendMemberInviteBatch([
         { membershipId: 'm1', to: 'jane@example.com', name: 'Jane', roomName: 'Room', token: 'mytoken' }

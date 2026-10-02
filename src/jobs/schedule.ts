@@ -84,6 +84,12 @@ const schedule = {
   },
   cancelPollExpired: async (pollId: string) => {
     await agenda.cancel({ name: 'poll expired', 'data.pollId': pollId })
+  },
+  publicInviteResend: async (data: { membershipId: string; attempt: number }) => {
+    await agenda.now('publicInviteResend', data)
+  },
+  retryPublicInviteResend: async (runAt: Date, data: { membershipId: string; attempt: number }) => {
+    await agenda.schedule(runAt, 'publicInviteResend', data)
   }
 }
 
