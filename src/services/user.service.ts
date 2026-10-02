@@ -141,13 +141,17 @@ const registerRealName = async (user, conversationId: string, name: string) => {
   // compares against the lowercase form, so take the id back from the conversation itself.
   const roomId = conversation._id.toString()
   if (user.pseudonyms.some((p) => p.isRealName && p.conversations.includes(roomId))) {
-    throw new ApiError(httpStatus.CONFLICT, 'A real name is already set for this conversation.')
+    throw new ApiError(httpStatus.CONFLICT, 'A real name is already set for this conversation.', {
+      reason: 'real_name_already_set'
+    })
   }
 
   const reservation = await reserveRealName(name, roomId)
   if (!reservation) {
     await recordRealNameAudit(user._id, roomId, 'uniqueness_rejected')
-    throw new ApiError(httpStatus.CONFLICT, 'That name is already registered for this conversation.')
+    throw new ApiError(httpStatus.CONFLICT, 'That name is already registered for this conversation.', {
+      reason: 'real_name_taken'
+    })
   }
 
   const normalized = normalizeRealName(name)
@@ -677,7 +681,9 @@ export const resolveDisplayName = (user, conversation) => {
     const registeredName = user.pseudonyms.find((p) => p.isRealName && p.conversations.includes(conversationId))
     if (registeredName) return registeredName
     if (user.role === 'admin') {
-      throw new ApiError(httpStatus.BAD_REQUEST, 'Set your real name for this conversation before posting.')
+      throw new ApiError(httpStatus.BAD_REQUEST, 'Set your real name for this conversation before posting.', {
+        reason: 'real_name_required'
+      })
     }
     throw new ApiError(httpStatus.FORBIDDEN, 'You are not registered for this conversation')
   }
@@ -785,7 +791,9 @@ const provisionInvitedMember = async (membership, password: string, conversation
       const reservation = await reserveRealName(membership.name, conversationId)
       if (!reservation) {
         await recordRealNameAudit(user._id, conversationId, 'uniqueness_rejected')
-        throw new ApiError(httpStatus.CONFLICT, 'That name is already registered for this conversation.')
+        throw new ApiError(httpStatus.CONFLICT, 'That name is already registered for this conversation.', {
+          reason: 'real_name_taken'
+        })
       }
 
       /* Push directly onto the array — never through addPseudonym, which deactivates

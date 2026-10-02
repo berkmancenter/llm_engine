@@ -341,7 +341,8 @@ describe('User service methods', () => {
 
       await userService.provisionInvitedMember(membershipA, password, conversation)
       await expect(userService.provisionInvitedMember(membershipB, password, conversation)).rejects.toMatchObject({
-        statusCode: httpStatus.CONFLICT
+        statusCode: httpStatus.CONFLICT,
+        reason: 'real_name_taken'
       })
     })
 
@@ -960,7 +961,8 @@ describe('User service methods', () => {
         await userService.registerRealName(member, room._id.toString(), 'Alex Admin')
 
         await expect(userService.registerRealName(admin, room._id.toString(), 'Alex Admin')).rejects.toMatchObject({
-          statusCode: httpStatus.CONFLICT
+          statusCode: httpStatus.CONFLICT,
+          reason: 'real_name_taken'
         })
       })
 
@@ -973,7 +975,8 @@ describe('User service methods', () => {
         await userService.registerRealName(member, room._id.toString(), 'Alex Admin')
 
         await expect(userService.registerRealName(admin, room._id.toString(), 'Alex \u200bAdmin')).rejects.toMatchObject({
-          statusCode: httpStatus.CONFLICT
+          statusCode: httpStatus.CONFLICT,
+          reason: 'real_name_taken'
         })
       })
 
@@ -1002,7 +1005,8 @@ describe('User service methods', () => {
         await userService.registerRealName(admin, room._id.toString(), 'Alex Admin')
 
         await expect(userService.registerRealName(admin, room._id.toString(), 'A. Admin')).rejects.toMatchObject({
-          statusCode: httpStatus.CONFLICT
+          statusCode: httpStatus.CONFLICT,
+          reason: 'real_name_already_set'
         })
 
         const saved = await User.findById(admin._id)
@@ -1039,6 +1043,7 @@ describe('User service methods', () => {
         expect(() => resolveDisplayName(admin, room)).toThrow(
           expect.objectContaining({
             statusCode: httpStatus.BAD_REQUEST,
+            reason: 'real_name_required',
             message: expect.stringMatching(/set your real name/i)
           })
         )
