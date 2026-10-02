@@ -5,7 +5,6 @@ import moment from 'moment'
 import { createHash, randomUUID } from 'node:crypto'
 import httpStatus from 'http-status'
 import mongoose from 'mongoose'
-import postmark from 'postmark'
 import setupIntTest from '../utils/setupIntTest.js'
 import app from '../../src/app.js'
 import config from '../../src/config/config.js'
@@ -36,7 +35,7 @@ const insertMembership = async (overrides = {}) =>
     ...overrides
   })
 
-type BatchResult = Array<{ membershipId: string; success: boolean; error?: string }>
+type BatchResult = Array<{ membershipId: string; success: boolean; error?: string; retryable?: boolean }>
 interface InvitePayload {
   membershipId: string
   to: string
@@ -599,13 +598,18 @@ describe('invite endpoints', () => {
       expect(res.body).toEqual(acceptedBody)
       expect(res.headers['cache-control']).toContain('no-store')
       expect(res.headers['referrer-policy']).toBe('no-referrer')
+      // Rate-limit headers would make a limited response look different from the rest.
+      expect(res.headers['retry-after']).toBeUndefined()
+      expect(res.headers['x-ratelimit-limit']).toBeUndefined()
+      expect(res.headers['ratelimit-limit']).toBeUndefined()
       return res
     }
 
     const expectInviteLive = (token: string) => request(app).get('/v1/auth/invite').query({ token }).expect(httpStatus.OK)
     const expectInviteDead = (token: string) => request(app).get('/v1/auth/invite').query({ token }).expect(httpStatus.GONE)
 
-    const postmarkUnavailable = () => new postmark.Errors.ServiceUnavailablerError('Service unavailable', 0, 503)
+    const failEverySend = (retryable: boolean) => async (invites: InvitePayload[]) =>
+      invites.map((i) => ({ membershipId: i.membershipId, success: false, error: 'send failed', retryable }))
 
     beforeEach(async () => {
       await clearQueuedResends()
@@ -800,7 +804,7 @@ describe('invite endpoints', () => {
       const expiredToken = await insertExpiredInvite(membership)
       batchSpy = jest
         .spyOn(emailService, 'sendMemberInviteBatch')
-        .mockRejectedValueOnce(postmarkUnavailable())
+        .mockImplementationOnce(failEverySend(true))
         .mockImplementation(async (invites: InvitePayload[]) =>
           invites.map((i) => ({ membershipId: i.membershipId, success: true }))
         )
@@ -826,7 +830,7 @@ describe('invite endpoints', () => {
     test('gives up after the last retry and lets the member ask again right away', async () => {
       const membership = await insertMembership({ inviteState: 'invited' })
       const expiredToken = await insertExpiredInvite(membership)
-      batchSpy = jest.spyOn(emailService, 'sendMemberInviteBatch').mockRejectedValue(postmarkUnavailable())
+      batchSpy = jest.spyOn(emailService, 'sendMemberInviteBatch').mockImplementation(failEverySend(true))
 
       await postPublicResend({ token: expiredToken })
       while ((await runQueuedResends()) > 0) {
@@ -836,6 +840,22 @@ describe('invite endpoints', () => {
       expect(batchSpy).toHaveBeenCalledTimes(3)
       const stored = await ConversationMembership.findById(membership._id).lean()
       expect(stored!.inviteState).toBe('failed')
+      await postPublicResend({ token: expiredToken })
+      expect(await agenda.jobs({ name: 'publicInviteResend' })).toHaveLength(1)
+    })
+
+    test('does not retry a recipient Postmark rejects, and lets the member ask again right away', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const expiredToken = await insertExpiredInvite(membership)
+      batchSpy = jest.spyOn(emailService, 'sendMemberInviteBatch').mockImplementation(failEverySend(false))
+
+      await postPublicResend({ token: expiredToken })
+      await runQueuedResends()
+
+      expect(batchSpy).toHaveBeenCalledTimes(1)
+      expect(await agenda.jobs({ name: 'publicInviteResend' })).toHaveLength(0)
+      const [undelivered] = batchSpy.mock.calls[0][0] as InvitePayload[]
+      await expectInviteDead(undelivered.token)
       await postPublicResend({ token: expiredToken })
       expect(await agenda.jobs({ name: 'publicInviteResend' })).toHaveLength(1)
     })

@@ -1,5 +1,4 @@
 import logger from '../../config/logger.js'
-import emailService from '../../services/email.service.js'
 import inviteService from '../../services/invite.service.js'
 import schedule from '../schedule.js'
 
@@ -15,24 +14,29 @@ const RETRY_DELAYS_MS = [30 * 1000, 2 * 60 * 1000] // 30 seconds, then 2 minutes
  */
 const publicInviteResend = async (job) => {
   const { membershipId, attempt = 1 } = job.attrs.data
+  let result
   try {
-    await inviteService.deliverPublicResend(membershipId)
+    result = await inviteService.deliverPublicResend(membershipId)
   } catch (err) {
-    const retryDelayMs = RETRY_DELAYS_MS[attempt - 1]
-    if (emailService.isTransientSendError(err) && retryDelayMs !== undefined) {
-      logger.warn(
-        `invite handler: public invite resend for membership ${membershipId} failed on attempt ${attempt}, retrying`
-      )
-      await schedule.retryPublicInviteResend(new Date(Date.now() + retryDelayMs), { membershipId, attempt: attempt + 1 })
-      return
-    }
     // Name and code only: a mail provider's error message can quote the recipient's address.
     logger.error(
-      `invite handler: public invite resend for membership ${membershipId} gave up on attempt ${attempt}: ` +
+      `invite handler: public invite resend for membership ${membershipId} failed: ` +
         `${err?.name ?? 'unknown error'} (code ${err?.code ?? 'none'})`
     )
     await inviteService.releasePublicResendCooldown(membershipId)
+    return
   }
+  if (!result || result.success) {
+    return
+  }
+  const retryDelayMs = RETRY_DELAYS_MS[attempt - 1]
+  if (result.retryable && retryDelayMs !== undefined) {
+    logger.warn(`invite handler: public invite resend for membership ${membershipId} failed on attempt ${attempt}, retrying`)
+    await schedule.retryPublicInviteResend(new Date(Date.now() + retryDelayMs), { membershipId, attempt: attempt + 1 })
+    return
+  }
+  logger.error(`invite handler: public invite resend for membership ${membershipId} gave up on attempt ${attempt}`)
+  await inviteService.releasePublicResendCooldown(membershipId)
 }
 
 export default { publicInviteResend }

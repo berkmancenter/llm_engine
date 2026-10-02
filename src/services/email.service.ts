@@ -346,7 +346,7 @@ const POSTMARK_BATCH_LIMIT = 500
  */
 const sendMemberInviteBatch = async (
   invites: Array<{ membershipId: string; to: string; name: string; roomName: string; token: string }>
-): Promise<Array<{ membershipId: string; success: boolean; error?: string }>> => {
+): Promise<Array<{ membershipId: string; success: boolean; error?: string; retryable?: boolean }>> => {
   if (!serverToken) {
     throw new Error('Outgoing email is not configured: POSTMARK_SERVER_TOKEN is missing')
   }
@@ -365,16 +365,31 @@ const sendMemberInviteBatch = async (
     }
   })
 
-  const results: postmark.Models.MessageSendingResponse[] = []
+  const results: Array<{ membershipId: string; success: boolean; error?: string; retryable?: boolean }> = []
   for (let start = 0; start < messages.length; start += POSTMARK_BATCH_LIMIT) {
-    results.push(...(await client.sendEmailBatch(messages.slice(start, start + POSTMARK_BATCH_LIMIT))))
+    const chunkInvites = invites.slice(start, start + POSTMARK_BATCH_LIMIT)
+    try {
+      const responses = await client.sendEmailBatch(messages.slice(start, start + POSTMARK_BATCH_LIMIT))
+      chunkInvites.forEach(({ membershipId }, i) => {
+        results.push({
+          membershipId,
+          success: responses[i].ErrorCode === 0,
+          ...(responses[i].ErrorCode !== 0 ? { error: responses[i].Message } : {})
+        })
+      })
+    } catch (err) {
+      // Name and code only: a mail provider's error message can quote a recipient's address.
+      logger.error(
+        `email.service: member invite batch of ${chunkInvites.length} failed: ${err?.name ?? 'unknown error'} ` +
+          `(code ${err?.code ?? 'none'})`
+      )
+      const retryable = isTransientSendError(err)
+      chunkInvites.forEach(({ membershipId }) => {
+        results.push({ membershipId, success: false, error: 'send failed', retryable })
+      })
+    }
   }
-
-  return invites.map(({ membershipId }, i) => ({
-    membershipId,
-    success: results[i].ErrorCode === 0,
-    ...(results[i].ErrorCode !== 0 ? { error: results[i].Message } : {})
-  }))
+  return results
 }
 
 const emailService = {
@@ -390,7 +405,6 @@ const emailService = {
   sendOnDemandEventEmail,
   sendOnDemandEventFailedEmail,
   buildMemberInviteEmail,
-  sendMemberInviteBatch,
-  isTransientSendError
+  sendMemberInviteBatch
 }
 export default emailService

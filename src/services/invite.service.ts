@@ -475,11 +475,8 @@ const deliverPublicResend = async (membershipId: string) => {
     return
   }
   const result = await mailFreshInvite(resendable.membership, resendable.conversation)
-  logger.info(
-    `invite.service: public invite resend for membership ${membershipId} ${
-      result?.success ? 'sent' : 'rejected by Postmark'
-    }`
-  )
+  logger.info(`invite.service: public invite resend for membership ${membershipId} ${result?.success ? 'sent' : 'not sent'}`)
+  return result
 }
 
 const inviteService = {
