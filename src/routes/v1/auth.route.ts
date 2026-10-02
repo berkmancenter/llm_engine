@@ -444,7 +444,8 @@ router.post('/invite/consume', inviteConsumeLimiter, validate(authValidation.con
  *       genuine invite that has not been used and the membership is still active, queues a
  *       new invite (killing the old one) to be emailed to the member's address on file, with
  *       automatic retries if Postmark is temporarily unavailable. It never sends to an address
- *       from the request. Always answers 202 with the same body,
+ *       from the request. A link that expired more than 30 days ago gets nothing sent.
+ *       Always answers 202 with the same body,
  *       whether or not anything was sent, so the response never reveals who was invited.
  *       Limited per IP and to one send per member every 5 minutes; requests over either
  *       limit also get the same 202.

@@ -34,6 +34,10 @@ const NONCE_LIFETIME_MINUTES = 30
    someone whose new link landed in spam can ask again in the same sitting. */
 const PUBLIC_RESEND_COOLDOWN_MS = 5 * 60 * 1000 // 5 minutes
 
+/* Each public resend replaces the member's current link, so an old link someone kept
+   must not work as a way to cancel it forever. */
+const PUBLIC_RESEND_MAX_DAYS_SINCE_EXPIRY = 30
+
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
 
 /**
@@ -381,6 +385,9 @@ const findInviteIgnoringExpiry = async (token: string) => {
   if (payload.type !== tokenTypes.MEMBER_INVITE) {
     return null
   }
+  if (!payload.exp || moment.unix(payload.exp).add(PUBLIC_RESEND_MAX_DAYS_SINCE_EXPIRY, 'days').isBefore(moment())) {
+    return null
+  }
   return MemberInvite.findOne({ tokenHash: sha256(token) }).exec()
 }
 
@@ -428,7 +435,7 @@ const releasePublicResendCooldown = async (membershipId: string) => {
 const queuePublicResend = async (token: string) => {
   const invite = await findInviteIgnoringExpiry(token)
   if (!invite) {
-    return skipPublicResend('token is not a genuine invite')
+    return skipPublicResend('token is not a genuine invite, or expired more than 30 days ago')
   }
   if (invite.consumedAt) {
     return skipPublicResend(`invite ${invite._id} was already used`)

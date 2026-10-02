@@ -582,11 +582,11 @@ describe('invite endpoints', () => {
       )
 
     // mintInvite can only produce a live token, so build the expired one it would have made.
-    const insertExpiredInvite = async (membership) => {
-      const expiredAt = moment().subtract(1, 'day')
+    const insertExpiredInvite = async (membership, daysSinceExpiry = 1) => {
+      const expiredAt = moment().subtract(daysSinceExpiry, 'days')
       const token = signInviteJwt(
         membership._id.toString(),
-        moment().subtract(config.jwt.inviteExpirationDays + 1, 'days'),
+        expiredAt.clone().subtract(config.jwt.inviteExpirationDays, 'days'),
         expiredAt
       )
       await MemberInvite.create({ membership: membership._id, tokenHash: sha256(token), expiresAt: expiredAt.toDate() })
@@ -697,6 +697,46 @@ describe('invite endpoints', () => {
       const spy = mockBatch()
 
       await postPublicResend({ token: expiredToken })
+
+      expect(await runQueuedResends()).toBe(0)
+      expect(spy).not.toHaveBeenCalled()
+    })
+
+    test('still honors a link that expired 29 days ago', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const expiredToken = await insertExpiredInvite(membership, 29)
+      const spy = mockBatch()
+
+      await postPublicResend({ token: expiredToken })
+
+      expect(await runQueuedResends()).toBe(1)
+      expect(spy).toHaveBeenCalledTimes(1)
+    })
+
+    test('sends nothing for a link that expired more than 30 days ago, and leaves the current link alone', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const staleToken = await insertExpiredInvite(membership, 31)
+      const { token: currentToken } = await inviteService.mintInvite(membership)
+      const spy = mockBatch()
+
+      await postPublicResend({ token: staleToken })
+
+      expect(await runQueuedResends()).toBe(0)
+      expect(spy).not.toHaveBeenCalled()
+      await expectInviteLive(currentToken)
+    })
+
+    test('sends nothing for a genuine invite token that carries no expiry', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const token = jwt.sign(
+        { sub: membership._id.toString(), jti: randomUUID(), type: tokenTypes.MEMBER_INVITE, iat: moment().unix() },
+        config.jwt.secret,
+        { algorithm: 'HS256' }
+      )
+      await MemberInvite.create({ membership: membership._id, tokenHash: sha256(token), expiresAt: moment().toDate() })
+      const spy = mockBatch()
+
+      await postPublicResend({ token })
 
       expect(await runQueuedResends()).toBe(0)
       expect(spy).not.toHaveBeenCalled()
