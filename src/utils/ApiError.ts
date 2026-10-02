@@ -1,3 +1,10 @@
+interface ApiErrorOptions {
+  isOperational?: boolean
+  stack?: string
+  /** A fixed string sent to the client, so it can tell apart refusals that share a status code. */
+  reason?: string
+}
+
 class ApiError extends Error {
   public statusCode: number
 
@@ -5,10 +12,13 @@ class ApiError extends Error {
 
   public stack: string
 
-  constructor(statusCode, message, isOperational = true, stack = '') {
+  public reason?: string
+
+  constructor(statusCode, message, { isOperational = true, stack = '', reason }: ApiErrorOptions = {}) {
     super(message)
     this.statusCode = statusCode
     this.isOperational = isOperational
+    this.reason = reason
     if (stack) {
       this.stack = stack
     } else {
