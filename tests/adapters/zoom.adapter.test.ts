@@ -103,8 +103,8 @@ describe('zoom adapter tests', () => {
       {
         chatChannels = [],
         dmChannels = [],
-        outputMediaEnabled
-      }: { chatChannels?: unknown[]; dmChannels?: unknown[]; outputMediaEnabled?: boolean } = {}
+        botMediaMode
+      }: { chatChannels?: unknown[]; dmChannels?: unknown[]; botMediaMode?: 'none' | 'silent' | 'voice' } = {}
     ) {
       await createConversation('Voice Output Test')
       // voiceOutput is a feature (conversation.features), not a plain property.
@@ -113,7 +113,7 @@ describe('zoom adapter tests', () => {
       // No botId, so isBotDeployed short-circuits to false without an extra fetch call.
       adapter.config = {
         meetingUrl: 'http://zoom.meeting.com',
-        ...(outputMediaEnabled !== undefined && { outputMediaEnabled })
+        ...(botMediaMode !== undefined && { botMediaMode })
       }
       adapter.chatChannels = chatChannels
       adapter.dmChannels = dmChannels
@@ -144,6 +144,14 @@ describe('zoom adapter tests', () => {
       expect(body.variant).toBeUndefined()
     })
 
+    it('never requests the pricier variant when RECALL_OUTPUT_MEDIA_URL is unset, even with voiceOutput on', async () => {
+      config.recall.outputMediaUrl = undefined
+      const body = await deployBot(true)
+
+      expect(body.output_media).toBeUndefined()
+      expect(body.variant).toBeUndefined()
+    })
+
     it('includes output_media with audio=false when voiceOutput is off but chatChannels are configured', async () => {
       const body = await deployBot(false, { chatChannels: [{ name: 'chat', direction: Direction.BOTH }] })
 
@@ -162,26 +170,27 @@ describe('zoom adapter tests', () => {
       expect(body.variant).toBeUndefined()
     })
 
-    it('rollout override: omits output_media for a chatty bot when config.outputMediaEnabled is explicitly false', async () => {
+    it('rollout override: omits output_media for a chatty bot when config.botMediaMode is explicitly "none"', async () => {
       const body = await deployBot(false, {
         chatChannels: [{ name: 'chat', direction: Direction.BOTH }],
-        outputMediaEnabled: false
+        botMediaMode: 'none'
       })
 
       expect(body.output_media).toBeUndefined()
       expect(body.variant).toBeUndefined()
     })
 
-    it('rollout override: includes output_media for a transcription-only bot when config.outputMediaEnabled is explicitly true', async () => {
-      const body = await deployBot(false, { outputMediaEnabled: true })
+    it('rollout override: includes output_media for a transcription-only bot when config.botMediaMode is explicitly "silent"', async () => {
+      const body = await deployBot(false, { botMediaMode: 'silent' })
 
       expect(body.output_media.camera.kind).toBe('webpage')
       const url = new URL(body.output_media.camera.config.url)
       expect(url.searchParams.get('audio')).toBe('false')
+      expect(body.variant).toBeUndefined()
     })
 
-    it('rollout override: voiceOutput still forces output_media on even when config.outputMediaEnabled is explicitly false', async () => {
-      const body = await deployBot(true, { outputMediaEnabled: false })
+    it('rollout override: voiceOutput still forces output_media on even when config.botMediaMode is explicitly "none"', async () => {
+      const body = await deployBot(true, { botMediaMode: 'none' })
 
       expect(body.output_media.camera.kind).toBe('webpage')
       const url = new URL(body.output_media.camera.config.url)

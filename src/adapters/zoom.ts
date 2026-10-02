@@ -5,6 +5,11 @@ import { AdapterMessage, AdapterUser } from '../types/adapter.types.js'
 import { Direction } from '../types/index.types.js'
 import Message from '../models/message.model.js'
 
+/* 'none': no bot-media-server camera at all. 'silent': camera shown, idle animation, no audio
+   pipeline. 'voice': camera shown, speaking the voiceAssistant's responses aloud. See
+   deployMeetingBot for how this is derived and how it can be overridden per adapter. */
+type BotMediaMode = 'none' | 'silent' | 'voice'
+
 const defaultBotName = 'LLM Engine'
 const defaultPreferences = { visualResponse: false, jargonClarification: false }
 const defaultRetention = {
@@ -96,20 +101,32 @@ async function deployMeetingBot() {
   // participants directly, so a visible camera presence has nothing to show for it even when
   // voiceOutput is off — only give it a camera when it can either speak or otherwise engage.
   const hasInteractiveChannels = Boolean(this.dmChannels?.length) || Boolean(this.chatChannels?.length)
-  // Internal rollout control, not a conversation property
-  const outputMediaEnabled = this.config.outputMediaEnabled ?? hasInteractiveChannels
-  const showOutputMedia = Boolean(config.recall.outputMediaUrl) && (voiceOutputEnabled || outputMediaEnabled)
+  // Internal rollout control, not a conversation property — settable only via direct DB write.
+  // voiceOutput always wins over this override: it only ever decides 'silent' vs 'none' for a
+  // bot whose feature is off (e.g. an incident kill switch, or holding a camera back
+  // pre-launch). It can't promote a bot to 'voice' on its own, because the agent's own speech
+  // capability is baked in separately, from that same feature, at agent-creation time — a
+  // camera claiming audio is on with no feature-enabled agent behind it would speak to no one.
+  // With no RECALL_OUTPUT_MEDIA_URL configured there's no webpage to run any mode on at all, so
+  // that collapses everything straight to 'none' regardless of what the above would otherwise pick.
+  let mode: BotMediaMode
+  if (!config.recall.outputMediaUrl) {
+    mode = 'none'
+  } else if (voiceOutputEnabled) {
+    mode = 'voice'
+  } else {
+    mode = this.config.botMediaMode ?? (hasInteractiveChannels ? 'silent' : 'none')
+  }
 
   const options = {
     method: 'POST',
     headers: { accept: 'application/json', 'content-type': 'application/json', Authorization: config.recall.key },
     body: JSON.stringify({
       meeting_url: meetingUrl,
-      // voiceOutput controls whether that page's voice pipeline (the `audio` param below) is
-      // on, not whether the camera is shown at all — see bot-media-server/server.ts for what
-      // `audio` gates. But a transcription-only bot with voiceOutput off has no camera either,
-      // per showOutputMedia above.
-      ...(showOutputMedia && {
+      // mode 'none' means no camera at all; 'silent' shows the camera with its voice pipeline
+      // off (the `audio` param below — see bot-media-server/server.ts for what it gates);
+      // 'voice' shows it with that pipeline on.
+      ...(mode !== 'none' && {
         output_media: {
           camera: {
             kind: 'webpage',
@@ -118,7 +135,7 @@ async function deployMeetingBot() {
                 const params = new URLSearchParams({
                   conversationId: this.conversation._id.toString(),
                   botName: botName ?? defaultBotName,
-                  audio: String(voiceOutputEnabled)
+                  audio: String(mode === 'voice')
                 })
                 const transcriptChannel = this.conversation.channels.find((c) => audioChannelNames.includes(c.name))
                 if (transcriptChannel?.passcode) params.set('transcriptPasscode', transcriptChannel.passcode)
@@ -126,15 +143,16 @@ async function deployMeetingBot() {
               })()
             }
           }
-        }
-      }),
-      // 4-core variant gives the headless browser enough CPU to run animation and audio
-      // decoding concurrently without choppiness — only needed once voiceOutput actually
-      // turns audio on; a silent, animation-only bot doesn't need the extra cores.
-      ...(voiceOutputEnabled && {
-        variant: {
-          zoom: 'web_4_core'
-        }
+        },
+        // 4-core variant gives the headless browser enough CPU to run animation and audio
+        // decoding concurrently without choppiness. Nested inside the mode !== 'none' block so
+        // it can never be requested without a webpage to run it on — only mode 'voice' actually
+        // decodes/plays audio; 'silent' just idles, which the base tier handles fine.
+        ...(mode === 'voice' && {
+          variant: {
+            zoom: 'web_4_core'
+          }
+        })
       }),
       bot_name: botName ?? defaultBotName,
       automatic_leave: {
