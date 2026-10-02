@@ -887,6 +887,11 @@ export interface AgentResponse<T> {
      answer a follow-up question from the same numbers. Adapters never render this field. */
   metricsContext?: unknown
   proactive?: boolean
+  /* Set only when the response represents something that was said/happened at a time
+     other than "now" (e.g. a Zoom transcript chunk attributed to the bot) — see
+     webhook.service.ts's fromAgent branch. Omitted everywhere else, so createMessage's
+     own default (the time the message was actually created) still applies normally. */
+  createdAt?: Date
 }
 
 /* The raw counts an analytics source fetcher returns for one event, before we

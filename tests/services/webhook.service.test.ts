@@ -255,6 +255,10 @@ describe('adapter service tests', () => {
       expect(message.owner.toString()).toBe(agent._id.toString())
       expect(message.pseudonym).toBe(agent.pseudonyms[0].pseudonym)
       expect(message.channels).toEqual(['transcript'])
+      // The bot's line keeps the time it was actually spoken (per the transcript chunk), not
+      // whenever our server got around to processing the webhook — otherwise a late-processed
+      // bot line could sort after something a participant said afterward.
+      expect(message.createdAt).toEqual(new Date('2025-05-16T19:32:54.522382Z'))
     })
 
     it('skips a fromAgent transcript entry with a warning when no voiceAssistant agent exists', async () => {
