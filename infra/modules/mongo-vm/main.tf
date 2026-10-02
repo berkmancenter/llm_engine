@@ -209,6 +209,14 @@ resource "google_compute_instance" "mongo" {
   # user only runs once anyway (against an empty data directory), so a
   # reset after the first boot won't touch existing users/data.
   allow_stopping_for_update = true
+
+  # `gcloud compute ssh --tunnel-through-iap` (used to reach this VM for
+  # migrations/admin) writes an ephemeral `ssh-keys` entry into instance
+  # metadata. Don't let Terraform treat that as drift and plan to strip it;
+  # only that one key is ignored, so startup-script changes still apply.
+  lifecycle {
+    ignore_changes = [metadata["ssh-keys"]]
+  }
 }
 
 # --- Scheduled disk snapshot (disk-snapshot-policy module — the same
