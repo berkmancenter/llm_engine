@@ -460,6 +460,7 @@ export const duplicateConversationMessages = async (conversationOrId, duplicateC
 export const agentResponseToMessageData = (response, agent) => ({
   body: response.message,
   ...(response.messageType !== undefined && { bodyType: response.messageType }),
+  ...(response.createdAt !== undefined && { createdAt: response.createdAt }),
   conversation: agent.conversation,
   fromAgent: true,
   visible: response.visible,

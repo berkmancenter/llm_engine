@@ -177,6 +177,9 @@ const envVarsSchema = Joi.object()
     ),
     RECALL_BASE_URL: Joi.string().description('Base URL of Recall.ai server'),
     RECALL_ENDPOINT_BASE_URL: Joi.string().description('Base URL on this server, used by Recall.ai to invoke webhooks'),
+    RECALL_OUTPUT_MEDIA_URL: Joi.string().description(
+      'Base URL of the bot-media-server app served to the Recall.ai bot camera'
+    ),
     ZOOM_SECRET_TOKEN: Joi.string().description('Secret token from LLM Engine Zoom app'),
     ZOOM_WEBINAR_USER_EMAIL: Joi.string().description(
       'Email address to support adding agents to Zoom webinars as additional panelists'
@@ -349,7 +352,8 @@ const config = {
     realtimeSecret: envVars.RECALL_REALTIME_SECRET,
     svixSecret: envVars.RECALL_SVIX_SECRET,
     baseUrl: envVars.RECALL_BASE_URL,
-    endpointBaseUrl: envVars.RECALL_ENDPOINT_BASE_URL
+    endpointBaseUrl: envVars.RECALL_ENDPOINT_BASE_URL,
+    outputMediaUrl: envVars.RECALL_OUTPUT_MEDIA_URL
   },
   zoom: {
     secretToken: envVars.ZOOM_SECRET_TOKEN,

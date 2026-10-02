@@ -86,6 +86,119 @@ describe('zoom adapter tests', () => {
     await expect(adapter.save()).rejects.toThrow('Zoom meeting URL required in adapter config')
   })
 
+  describe('deployMeetingBot', () => {
+    let originalOutputMediaUrl
+
+    beforeEach(() => {
+      originalOutputMediaUrl = config.recall.outputMediaUrl
+      config.recall.outputMediaUrl = 'https://bot-media.test'
+    })
+
+    afterEach(() => {
+      config.recall.outputMediaUrl = originalOutputMediaUrl
+    })
+
+    async function deployBot(
+      voiceOutput,
+      {
+        chatChannels = [],
+        dmChannels = [],
+        botMediaMode
+      }: { chatChannels?: unknown[]; dmChannels?: unknown[]; botMediaMode?: 'none' | 'silent' | 'voice' } = {}
+    ) {
+      await createConversation('Voice Output Test')
+      // voiceOutput is a feature (conversation.features), not a plain property.
+      conversation.features = [{ name: 'voiceOutput', enabled: voiceOutput }]
+      await conversation.save()
+      // No botId, so isBotDeployed short-circuits to false without an extra fetch call.
+      adapter.config = {
+        meetingUrl: 'http://zoom.meeting.com',
+        ...(botMediaMode !== undefined && { botMediaMode })
+      }
+      adapter.chatChannels = chatChannels
+      adapter.dmChannels = dmChannels
+      ;(fetch as jest.Mock).mockResolvedValue({
+        status: httpStatus.CREATED,
+        json: jest.fn().mockResolvedValue({ id: 'new-bot-id' })
+      })
+
+      await adapter.start()
+
+      const [, options] = (fetch as jest.Mock).mock.calls.at(-1)
+      return JSON.parse(options.body)
+    }
+
+    it('includes output_media with audio=true and requests web_4_core when voiceOutput is on', async () => {
+      const body = await deployBot(true)
+
+      expect(body.output_media.camera.kind).toBe('webpage')
+      const url = new URL(body.output_media.camera.config.url)
+      expect(url.searchParams.get('audio')).toBe('true')
+      expect(body.variant).toEqual({ zoom: 'web_4_core' })
+    })
+
+    it('omits output_media entirely for a transcription-only adapter with voiceOutput off', async () => {
+      const body = await deployBot(false)
+
+      expect(body.output_media).toBeUndefined()
+      expect(body.variant).toBeUndefined()
+    })
+
+    it('never requests the pricier variant when RECALL_OUTPUT_MEDIA_URL is unset, even with voiceOutput on', async () => {
+      config.recall.outputMediaUrl = undefined
+      const body = await deployBot(true)
+
+      expect(body.output_media).toBeUndefined()
+      expect(body.variant).toBeUndefined()
+    })
+
+    it('includes output_media with audio=false when voiceOutput is off but chatChannels are configured', async () => {
+      const body = await deployBot(false, { chatChannels: [{ name: 'chat', direction: Direction.BOTH }] })
+
+      expect(body.output_media.camera.kind).toBe('webpage')
+      const url = new URL(body.output_media.camera.config.url)
+      expect(url.searchParams.get('audio')).toBe('false')
+      expect(body.variant).toBeUndefined()
+    })
+
+    it('includes output_media with audio=false when voiceOutput is off but dmChannels are configured', async () => {
+      const body = await deployBot(false, { dmChannels: [{ direct: true, direction: Direction.BOTH }] })
+
+      expect(body.output_media.camera.kind).toBe('webpage')
+      const url = new URL(body.output_media.camera.config.url)
+      expect(url.searchParams.get('audio')).toBe('false')
+      expect(body.variant).toBeUndefined()
+    })
+
+    it('rollout override: omits output_media for a chatty bot when config.botMediaMode is explicitly "none"', async () => {
+      const body = await deployBot(false, {
+        chatChannels: [{ name: 'chat', direction: Direction.BOTH }],
+        botMediaMode: 'none'
+      })
+
+      expect(body.output_media).toBeUndefined()
+      expect(body.variant).toBeUndefined()
+    })
+
+    it('rollout override: includes output_media for a transcription-only bot when config.botMediaMode is explicitly "silent"', async () => {
+      const body = await deployBot(false, { botMediaMode: 'silent' })
+
+      expect(body.output_media.camera.kind).toBe('webpage')
+      const url = new URL(body.output_media.camera.config.url)
+      expect(url.searchParams.get('audio')).toBe('false')
+      expect(body.variant).toBeUndefined()
+    })
+
+    it('rollout override: voiceOutput still forces output_media on even when config.botMediaMode is explicitly "none"', async () => {
+      const body = await deployBot(true, { botMediaMode: 'none' })
+
+      expect(body.output_media.camera.kind).toBe('webpage')
+      const url = new URL(body.output_media.camera.config.url)
+      expect(url.searchParams.get('audio')).toBe('true')
+      expect(body.variant).toEqual({ zoom: 'web_4_core' })
+    })
+  })
+
   describe('receiveAudio', () => {
     it('correctly creates and stores messages from an incoming transcript', async () => {
       await createConversation('The Future of Social Media')
@@ -207,6 +320,163 @@ describe('zoom adapter tests', () => {
       expect(msgs1[1]).toEqual(expectedMsg2)
       expect(msgs2).toEqual([expectedMsg3])
       expect(msgs3).toEqual([expectedMsg4])
+    })
+
+    it("tags transcript chunks spoken by the bot's own configured name as fromAgent", async () => {
+      await createConversation('Bot Speaking Test')
+      adapter.config = {
+        botId: 'test-bot-id-123',
+        meetingUrl: 'http://zoom.meeting.com',
+        botName: 'Berkie'
+      }
+      adapter.audioChannels = [{ name: 'transcript' }]
+      await adapter.save()
+
+      const message = {
+        data: {
+          data: {
+            words: [
+              {
+                text: 'Here is what the event is about.',
+                end_timestamp: { absolute: '2025-05-16T19:32:54.522382Z' }
+              }
+            ],
+            participant: { id: 200, name: 'Berkie', is_host: false, platform: 'unknown', extra_data: null }
+          }
+        },
+        event: 'transcript.data'
+      }
+
+      const msgs = await adapter.receiveMessage(message)
+
+      expect(msgs).toEqual([
+        {
+          message: 'Here is what the event is about.',
+          source: { type: 'zoom' },
+          user: { username: 'Berkie', defaultPreferences: zoomDefaultPreferences },
+          channels: adapter.audioChannels,
+          createdAt: new Date('2025-05-16T19:32:54.522382Z'),
+          fromAgent: true
+        }
+      ])
+    })
+
+    it('tags transcript chunks as fromAgent via Recall\'s output-audio sentinel id, even though the reported name is "Unknown"', async () => {
+      // Real payload observed in production: the bot's spoken audio (via output_media) never
+      // gets attributed to its configured bot_name at all — Recall reports it under speaker_id
+      // 2147483647 (2^31 - 1) with name "Unknown" and is_host null, per Recall's own
+      // Transcription FAQ ("Who is participant 2147483647?"). Name matching alone would miss
+      // this entirely; only the sentinel id catches it.
+      await createConversation('Bot Speaking Sentinel Id Test')
+      adapter.config = {
+        botId: 'test-bot-id-123',
+        meetingUrl: 'http://zoom.meeting.com',
+        botName: 'Berkie'
+      }
+      adapter.audioChannels = [{ name: 'transcript' }]
+      await adapter.save()
+
+      const message = {
+        data: {
+          data: {
+            words: [
+              {
+                text: 'My lane is strictly the Fermi Paradox, SETI, and the Great Filter tonight.',
+                end_timestamp: { absolute: '2026-09-30T20:43:39.168039Z' }
+              }
+            ],
+            participant: { id: 2147483647, name: 'Unknown', is_host: null, platform: 'unknown', extra_data: null }
+          }
+        },
+        event: 'transcript.data'
+      }
+
+      const msgs = await adapter.receiveMessage(message)
+
+      expect(msgs).toEqual([
+        {
+          message: 'My lane is strictly the Fermi Paradox, SETI, and the Great Filter tonight.',
+          source: { type: 'zoom' },
+          user: { username: 'Unknown', defaultPreferences: zoomDefaultPreferences },
+          channels: adapter.audioChannels,
+          createdAt: new Date('2026-09-30T20:43:39.168039Z'),
+          fromAgent: true
+        }
+      ])
+    })
+
+    it('does not tag a real participant as fromAgent merely for having a high but non-sentinel participant id', async () => {
+      await createConversation('Real Participant High Id Test')
+      adapter.config = {
+        botId: 'test-bot-id-123',
+        meetingUrl: 'http://zoom.meeting.com',
+        botName: 'Berkie'
+      }
+      adapter.audioChannels = [{ name: 'transcript' }]
+      await adapter.save()
+
+      const message = {
+        data: {
+          data: {
+            words: [{ text: 'What time does this end?', end_timestamp: { absolute: '2025-05-16T19:32:54.522382Z' } }],
+            participant: { id: 2147483646, name: 'Jane Doe', is_host: false, platform: 'unknown', extra_data: null }
+          }
+        },
+        event: 'transcript.data'
+      }
+
+      const msgs = await adapter.receiveMessage(message)
+
+      expect(msgs[0].fromAgent).toBeUndefined()
+    })
+
+    it('tags transcript chunks spoken under the default bot name as fromAgent when no custom botName is configured', async () => {
+      await createConversation('Bot Speaking Default Name Test')
+      adapter.config = {
+        botId: 'test-bot-id-123',
+        meetingUrl: 'http://zoom.meeting.com'
+      }
+      adapter.audioChannels = [{ name: 'transcript' }]
+      await adapter.save()
+
+      const message = {
+        data: {
+          data: {
+            words: [{ text: 'Happy to help.', end_timestamp: { absolute: '2025-05-16T19:32:54.522382Z' } }],
+            participant: { id: 200, name: 'LLM Engine', is_host: false, platform: 'unknown', extra_data: null }
+          }
+        },
+        event: 'transcript.data'
+      }
+
+      const msgs = await adapter.receiveMessage(message)
+
+      expect(msgs[0].fromAgent).toBe(true)
+    })
+
+    it('does not tag a real participant as fromAgent even when the conversation has a custom botName configured', async () => {
+      await createConversation('Real Participant Alongside Bot Name Test')
+      adapter.config = {
+        botId: 'test-bot-id-123',
+        meetingUrl: 'http://zoom.meeting.com',
+        botName: 'Berkie'
+      }
+      adapter.audioChannels = [{ name: 'transcript' }]
+      await adapter.save()
+
+      const message = {
+        data: {
+          data: {
+            words: [{ text: 'What time does this end?', end_timestamp: { absolute: '2025-05-16T19:32:54.522382Z' } }],
+            participant: { id: 201, name: 'Jane Doe', is_host: false, platform: 'unknown', extra_data: null }
+          }
+        },
+        event: 'transcript.data'
+      }
+
+      const msgs = await adapter.receiveMessage(message)
+
+      expect(msgs[0].fromAgent).toBeUndefined()
     })
   })
 
@@ -2175,8 +2445,20 @@ describe('zoom adapter tests', () => {
   })
 
   describe('start method', () => {
+    let originalOutputMediaUrl
+
     beforeEach(() => {
       ;(fetch as jest.Mock).mockClear()
+      // These tests assert exact deploy payloads that don't include output_media — force this
+      // off regardless of whatever RECALL_OUTPUT_MEDIA_URL a developer's own .env happens to
+      // have set for manual testing (see the dedicated 'deployMeetingBot' describe below for
+      // coverage of the output_media/voiceOutput behavior itself).
+      originalOutputMediaUrl = config.recall.outputMediaUrl
+      config.recall.outputMediaUrl = undefined
+    })
+
+    afterEach(() => {
+      config.recall.outputMediaUrl = originalOutputMediaUrl
     })
 
     it('successfully deploys meeting bot with basic configuration and no audioChannels', async () => {

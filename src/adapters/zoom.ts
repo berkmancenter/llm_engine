@@ -5,6 +5,11 @@ import { AdapterMessage, AdapterUser } from '../types/adapter.types.js'
 import { Direction } from '../types/index.types.js'
 import Message from '../models/message.model.js'
 
+/* 'none': no bot-media-server camera at all. 'silent': camera shown, idle animation, no audio
+   pipeline. 'voice': camera shown, speaking the voiceAssistant's responses aloud. See
+   deployMeetingBot for how this is derived and how it can be overridden per adapter. */
+type BotMediaMode = 'none' | 'silent' | 'voice'
+
 const defaultBotName = 'LLM Engine'
 const defaultPreferences = { visualResponse: false, jargonClarification: false }
 const defaultRetention = {
@@ -91,11 +96,64 @@ async function deployMeetingBot() {
   }
   const chatIntroMessage = chatIntroTexts.length > 0 ? chatIntroTexts.join('\n') : null
 
+  const voiceOutputEnabled = Boolean(this.conversation.features?.find((f) => f.name === 'voiceOutput')?.enabled)
+  // A transcription-only adapter (no dmChannels, no chatChannels) never interacts with
+  // participants directly, so a visible camera presence has nothing to show for it even when
+  // voiceOutput is off — only give it a camera when it can either speak or otherwise engage.
+  const hasInteractiveChannels = Boolean(this.dmChannels?.length) || Boolean(this.chatChannels?.length)
+  // Internal rollout control, not a conversation property — settable only via direct DB write.
+  // voiceOutput always wins over this override: it only ever decides 'silent' vs 'none' for a
+  // bot whose feature is off (e.g. an incident kill switch, or holding a camera back
+  // pre-launch). It can't promote a bot to 'voice' on its own, because the agent's own speech
+  // capability is baked in separately, from that same feature, at agent-creation time — a
+  // camera claiming audio is on with no feature-enabled agent behind it would speak to no one.
+  // With no RECALL_OUTPUT_MEDIA_URL configured there's no webpage to run any mode on at all, so
+  // that collapses everything straight to 'none' regardless of what the above would otherwise pick.
+  let mode: BotMediaMode
+  if (!config.recall.outputMediaUrl) {
+    mode = 'none'
+  } else if (voiceOutputEnabled) {
+    mode = 'voice'
+  } else {
+    mode = this.config.botMediaMode ?? (hasInteractiveChannels ? 'silent' : 'none')
+  }
+
   const options = {
     method: 'POST',
     headers: { accept: 'application/json', 'content-type': 'application/json', Authorization: config.recall.key },
     body: JSON.stringify({
       meeting_url: meetingUrl,
+      // mode 'none' means no camera at all; 'silent' shows the camera with its voice pipeline
+      // off (the `audio` param below — see bot-media-server/server.ts for what it gates);
+      // 'voice' shows it with that pipeline on.
+      ...(mode !== 'none' && {
+        output_media: {
+          camera: {
+            kind: 'webpage',
+            config: {
+              url: (() => {
+                const params = new URLSearchParams({
+                  conversationId: this.conversation._id.toString(),
+                  botName: botName ?? defaultBotName,
+                  audio: String(mode === 'voice')
+                })
+                const transcriptChannel = this.conversation.channels.find((c) => audioChannelNames.includes(c.name))
+                if (transcriptChannel?.passcode) params.set('transcriptPasscode', transcriptChannel.passcode)
+                return `${config.recall.outputMediaUrl}?${params.toString()}`
+              })()
+            }
+          }
+        },
+        // 4-core variant gives the headless browser enough CPU to run animation and audio
+        // decoding concurrently without choppiness. Nested inside the mode !== 'none' block so
+        // it can never be requested without a webpage to run it on — only mode 'voice' actually
+        // decodes/plays audio; 'silent' just idles, which the base tier handles fine.
+        ...(mode === 'voice' && {
+          variant: {
+            zoom: 'web_4_core'
+          }
+        })
+      }),
       bot_name: botName ?? defaultBotName,
       automatic_leave: {
         bot_detection: {
@@ -140,7 +198,24 @@ async function deployMeetingBot() {
   await this.save()
 }
 
-async function processTranscript(msgChunks, participantName) {
+// Documented Recall behavior: "When using output audio with
+// include_bot_in_recording: {audio: true} and perfect diarization, the bot will transcribe the
+// audio that it's outputting into the meeting. In this situation, the audio will be assigned to
+// the speaker_id 2147483647 which is 2^31 - 1" (Recall's Transcription FAQ, "Who is participant
+// 2147483647?").
+const RECALL_BOT_AUDIO_PARTICIPANT_ID = 2147483647
+
+async function processTranscript(msgChunks, participantName, participantId) {
+  const botNames = [this.config.botName, defaultBotName].filter(Boolean)
+  const isBotAudioSentinel = participantId === RECALL_BOT_AUDIO_PARTICIPANT_ID
+  if (isBotAudioSentinel) {
+    // Distinct from the name-match path so a change in Recall's own behavior here (a
+    // different id, or this sentinel no longer appearing) would show up as a visible drop
+    // in this log line rather than silently misattributing the bot's speech again.
+    logger.debug(`Attributed transcript chunk to bot via Recall's output-audio sentinel id (${participantId})`)
+  }
+  const isBot = isBotAudioSentinel || botNames.includes(participantName)
+
   const msgs: AdapterMessage<string>[] = []
   for (const msgChunk of msgChunks) {
     msgs.push({
@@ -148,7 +223,8 @@ async function processTranscript(msgChunks, participantName) {
       message: msgChunk.text,
       source: { type: 'zoom' },
       createdAt: new Date(msgChunk.end_timestamp.absolute),
-      user: { username: participantName, defaultPreferences }
+      user: { username: participantName, defaultPreferences },
+      ...(isBot && { fromAgent: true })
     })
   }
   return msgs
@@ -362,7 +438,7 @@ export default {
     const { event, data } = message
     let messages = []
     if (event === 'transcript.data') {
-      messages = await processTranscript.call(this, data.data.words, data.data.participant.name)
+      messages = await processTranscript.call(this, data.data.words, data.data.participant.name, data.data.participant.id)
     } else if (event === 'participant_events.chat_message') {
       messages = await receiveChatMessage.call(this, data)
     }

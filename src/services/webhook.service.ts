@@ -121,8 +121,36 @@ async function getOrCreateUser(adapter, adapterUser) {
 const receiveMessage = async (adapter, message) => {
   const adapterMsgs: AdapterMessage<string>[] = await adapter.receiveMessage(message)
   for (const adapterMsg of adapterMsgs) {
-    const user = await getOrCreateUser(adapter, adapterMsg.user)
     const channels: Record<string, unknown>[] = []
+
+    if (adapterMsg.fromAgent) {
+      // Transcript entry spoken by the bot — attribute to the matching agent rather than
+      // creating a user account for the bot name.
+      await adapter.conversation.populate('agents')
+      // TODO always assuming voiceAssistant is the agent speaking could become a problem later if we have proactive agent messages
+      const agent = adapter.conversation.agents.find((a) => a.agentType === 'voiceAssistant')
+      if (!agent) {
+        logger.warn(`Received agent transcript from bot "${adapterMsg.user.username}" but no voiceAssistant found, skipping`)
+        continue
+      }
+      for (const msgChannel of adapterMsg.channels) {
+        const channel = adapter.conversation.channels.find((c) => c.name === msgChannel.name)
+        if (channel) channels.push(channel)
+      }
+      if (channels.length > 0) {
+        const response = {
+          message: adapterMsg.message,
+          messageType: adapterMsg.messageType || 'text',
+          visible: true,
+          channels: channels.map((c: Record<string, unknown>) => ({ name: c.name, passcode: c.passcode })),
+          ...(adapterMsg.createdAt !== undefined && { createdAt: adapterMsg.createdAt })
+        }
+        await messageService.newMessageHandler(messageService.agentResponseToMessageData(response, agent), agent)
+      }
+      continue
+    }
+
+    const user = await getOrCreateUser(adapter, adapterMsg.user)
     for (const msgChannel of adapterMsg.channels) {
       const channelName = msgChannel.name ?? `direct-${user._id}-${msgChannel.agent}`
       const channel = adapter.conversation.channels.find((c) => c.name === channelName)

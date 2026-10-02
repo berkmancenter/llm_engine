@@ -19,6 +19,7 @@ export interface AdapterMessage<T> {
   source: { type: string; id?: string; [key: string]: unknown }
   createdAt?: Date
   parentMessage?: string
+  fromAgent?: boolean
   /** Adapter-specific rich content blocks (e.g. Slack Block Kit). Typed as unknown[] to keep this interface platform-agnostic. */
   blocks?: unknown[]
   /** Neutral render instruction. The Slack adapter renders responseKind + renderData into blocks at send time; other adapters ignore them. */

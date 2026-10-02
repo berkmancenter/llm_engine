@@ -224,7 +224,16 @@ describe('LLM Input Formatter Tests', () => {
 
   it('should render poll choices in multi-user conversation history', async () => {
     const pollMsg = await createMessage(
-      { type: 'poll', text: 'Let us find out what you think!', title: 'Best programming language?', choices: ['TypeScript', 'Python', 'Rust'], pollId: 'abc123', multiSelect: false, allowNewChoices: false, whenResultsVisible: 'always' },
+      {
+        type: 'poll',
+        text: 'Let us find out what you think!',
+        title: 'Best programming language?',
+        choices: ['TypeScript', 'Python', 'Rust'],
+        pollId: 'abc123',
+        multiSelect: false,
+        allowNewChoices: false,
+        whenResultsVisible: 'always'
+      },
       'BOT',
       undefined,
       true,
@@ -234,14 +243,27 @@ describe('LLM Input Formatter Tests', () => {
     const convHistory = getConversationHistory([pollMsg, userMsg], { count: 100 })
     const formattedMessages = formatMultiUserConversationHistory(convHistory)
     expect(formattedMessages).toEqual([
-      { role: 'assistant', content: 'Let us find out what you think!\n[Poll: "Best programming language?"]\nChoices:\n- TypeScript\n- Python\n- Rust' },
+      {
+        role: 'assistant',
+        content:
+          'Let us find out what you think!\n[Poll: "Best programming language?"]\nChoices:\n- TypeScript\n- Python\n- Rust'
+      },
       { role: 'user', content: 'Pro AI Urban Woman: Great poll!' }
     ])
   })
 
   it('should render poll choices in single-user conversation history', async () => {
     const pollMsg = await createMessage(
-      { type: 'poll', text: 'Let us find out what you think!', title: 'Best programming language?', choices: ['TypeScript', 'Python', 'Rust'], pollId: 'abc123', multiSelect: false, allowNewChoices: false, whenResultsVisible: 'always' },
+      {
+        type: 'poll',
+        text: 'Let us find out what you think!',
+        title: 'Best programming language?',
+        choices: ['TypeScript', 'Python', 'Rust'],
+        pollId: 'abc123',
+        multiSelect: false,
+        allowNewChoices: false,
+        whenResultsVisible: 'always'
+      },
       'BOT',
       undefined,
       true,
@@ -251,7 +273,11 @@ describe('LLM Input Formatter Tests', () => {
     const convHistory = getConversationHistory([pollMsg, userMsg], { count: 100 })
     const formattedMessages = formatSingleUserConversationHistory(convHistory)
     expect(formattedMessages).toEqual([
-      { role: 'assistant', content: 'Let us find out what you think!\n[Poll: "Best programming language?"]\nChoices:\n- TypeScript\n- Python\n- Rust' },
+      {
+        role: 'assistant',
+        content:
+          'Let us find out what you think!\n[Poll: "Best programming language?"]\nChoices:\n- TypeScript\n- Python\n- Rust'
+      },
       { role: 'user', content: 'Great poll!' }
     ])
   })
@@ -476,6 +502,31 @@ describe('LLM Input Formatter Tests', () => {
       expect(formatted).toBe(
         '[10:00:00 AM] [SPEAKER_00] First\n[10:01:00 AM] [SPEAKER_01] Second\n[10:02:00 AM] [SPEAKER_00] Third'
       )
+    })
+
+    it('labels a fromAgent message as "Assistant", never the agent\'s own pseudonym', async () => {
+      const msg = await createMessage('Here is what the event is about.', 'Berkie', new Date('2024-01-15T10:00:00Z'), true)
+
+      const formatted = formatTranscript([msg])
+
+      expect(formatted).toBe('[10:00:00 AM] [Assistant] Here is what the event is about.')
+    })
+
+    it('prefers the fromAgent label over a diarized source.speaker on the same message', async () => {
+      const msg = await createMessage('Here is what the event is about.', 'Berkie', new Date('2024-01-15T10:00:00Z'), true)
+      msg.source = { speaker: 'SPEAKER_00' } as never
+
+      const formatted = formatTranscript([msg])
+
+      expect(formatted).toBe('[10:00:00 AM] [Assistant] Here is what the event is about.')
+    })
+
+    it('never labels a human transcript line with a name, even when fromAgent is explicitly false', async () => {
+      const msg = await createMessage('What time does this end?', 'User 1', new Date('2024-01-15T10:00:00Z'), false)
+
+      const formatted = formatTranscript([msg])
+
+      expect(formatted).toBe('[10:00:00 AM] What time does this end?')
     })
   })
 
