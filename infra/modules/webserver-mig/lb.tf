@@ -97,6 +97,9 @@ locals {
   )
 }
 
+# The app counts the proxies in front of it (TRUST_PROXY_HOPS) to find each visitor's
+# address for rate limiting. Adding or removing a proxy layer in front of the web servers
+# means updating that setting in the deployment's app environment too.
 resource "google_compute_url_map" "web_server" {
   project         = var.project_id
   name            = "llm-engine-url-map"
