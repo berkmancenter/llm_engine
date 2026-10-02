@@ -57,7 +57,11 @@ const envVarsSchema = Joi.object()
     SENTRY_DSN: Joi.string().allow('').optional(),
     PORT: Joi.number().default(3000),
     WEBSOCKET_BASE_PORT: Joi.number().default(5555),
-    TRUST_PROXY_HOPS: Joi.number().integer().min(0).default(0).description('reverse proxies in front of the app'),
+    TRUST_PROXY_HOPS: Joi.number()
+      .integer()
+      .min(0)
+      .default(0)
+      .description('X-Forwarded-For entries appended by proxies in front of the app'),
     WEBSOCKET_MAX_PARALLELISM: Joi.number().default(availableParallelism()).description('Max parallelism for websocket use'),
     MONGODB_URL: Joi.string().required().description('Mongo DB url'),
     MONGODB_DEBUG: Joi.boolean().description('Enable mongoose debugging'),
