@@ -4,6 +4,7 @@ import httpStatus from 'http-status'
 import mongoose from 'mongoose'
 import setupIntTest from '../utils/setupIntTest.js'
 import app from '../../src/app.js'
+import { applyTrustProxy } from '../../src/middlewares/trustProxy.js'
 import { ConversationMembership, MemberInvite, User, Conversation } from '../../src/models/index.js'
 import emailService from '../../src/services/email.service.js'
 import inviteService from '../../src/services/invite.service.js'
@@ -498,6 +499,57 @@ describe('invite endpoints', () => {
         .expect(httpStatus.OK)
       expect(res.body.user.email).toBe(email)
       expect(await User.countDocuments({ email })).toBe(1)
+    })
+  })
+
+  describe('behind reverse proxies', () => {
+    const proxyIps = ['192.0.2.10', '192.0.2.20']
+    const visitorA = '198.51.100.1'
+    const visitorB = '198.51.100.2'
+    // Each proxy appends the address it received from, after anything the visitor sent.
+    const forwardedFor = (visitorIp: string, visitorSupplied?: string) =>
+      [visitorSupplied, visitorIp, ...proxyIps].filter(Boolean).join(', ')
+    const validateFrom = (forwarded: string) =>
+      request(app).get('/v1/auth/invite').set('X-Forwarded-For', forwarded).query({ token: 'not-a-jwt' })
+    const spendAllowance = async (forwarded: string) => {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await validateFrom(forwarded)
+      }
+    }
+
+    beforeEach(async () => {
+      applyTrustProxy(app, 3)
+      await Promise.all([visitorA, visitorB].map((key) => inviteConsumeLimiter.resetKey(key)))
+    })
+
+    afterEach(() => {
+      app.set('trust proxy', false)
+    })
+
+    test('leaves forwarded headers untrusted when no proxy hops are configured', () => {
+      app.set('trust proxy', false)
+
+      applyTrustProxy(app, 0)
+
+      expect(app.get('trust proxy')).toBe(false)
+    })
+
+    test('gives each visitor their own allowance instead of one shared through the proxies', async () => {
+      await spendAllowance(forwardedFor(visitorA))
+
+      const limited = await validateFrom(forwardedFor(visitorA))
+      const other = await validateFrom(forwardedFor(visitorB))
+
+      expect(limited.status).toBe(httpStatus.TOO_MANY_REQUESTS)
+      expect(other.status).not.toBe(httpStatus.TOO_MANY_REQUESTS)
+    })
+
+    test('ignores addresses a visitor adds to the header to dodge the limit', async () => {
+      await spendAllowance(forwardedFor(visitorA, '203.0.113.1'))
+
+      const res = await validateFrom(forwardedFor(visitorA, '203.0.113.99'))
+
+      expect(res.status).toBe(httpStatus.TOO_MANY_REQUESTS)
     })
   })
 })
