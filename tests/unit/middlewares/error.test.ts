@@ -121,6 +121,38 @@ describe('Error middlewares', () => {
       expect(res.locals.errorMessage).toBe(error.message)
     })
 
+    test("should include the error's reason so a client can tell apart refusals with the same status", () => {
+      const error = new ApiError(httpStatus.CONFLICT, 'That name is taken.', { reason: 'real_name_taken' })
+      const res = httpMocks.createResponse()
+      const sendSpy = jest.spyOn(res, 'send')
+
+      errorHandler(error, httpMocks.createRequest(), res, () => {})
+
+      expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ code: httpStatus.CONFLICT, reason: 'real_name_taken' }))
+    })
+
+    test('should leave the reason out of the response when the error has none', () => {
+      const error = new ApiError(httpStatus.BAD_REQUEST, 'Any error')
+      const res = httpMocks.createResponse()
+      const sendSpy = jest.spyOn(res, 'send')
+
+      errorHandler(error, httpMocks.createRequest(), res, () => {})
+
+      expect(sendSpy.mock.calls[0][0]).not.toHaveProperty('reason')
+    })
+
+    test('should drop the reason when production hides a non-operational error', () => {
+      config.env = 'production'
+      const error = new ApiError(httpStatus.BAD_REQUEST, 'Any error', { isOperational: false, reason: 'real_name_taken' })
+      const res = httpMocks.createResponse()
+      const sendSpy = jest.spyOn(res, 'send')
+
+      errorHandler(error, httpMocks.createRequest(), res, () => {})
+
+      expect(sendSpy.mock.calls[0][0]).not.toHaveProperty('reason')
+      config.env = process.env.NODE_ENV
+    })
+
     test('should put the error stack in the response if in development mode', () => {
       config.env = 'development'
       const error = new ApiError(httpStatus.BAD_REQUEST, 'Any error')
@@ -137,7 +169,7 @@ describe('Error middlewares', () => {
 
     test('should send internal server error status and message if in production mode and error is not operational', () => {
       config.env = 'production'
-      const error = new ApiError(httpStatus.BAD_REQUEST, 'Any error', false)
+      const error = new ApiError(httpStatus.BAD_REQUEST, 'Any error', { isOperational: false })
       const res = httpMocks.createResponse()
       const sendSpy = jest.spyOn(res, 'send')
 
