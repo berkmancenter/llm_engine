@@ -112,6 +112,21 @@ describe('conversation:leave', () => {
   })
 })
 
+/* Same reasoning as conversation:leave, for a client moving between topics — a series'
+   artifacts page navigated to another series should stop hearing the old topic's events. */
+describe('topic:leave', () => {
+  it('leaves the topic room and nothing else', async () => {
+    const { handlers, socket } = registerWithFakeSocket()
+    const topicId = new mongoose.Types.ObjectId()
+
+    await handlers['topic:leave']({ topicId })
+
+    expect(socket.leave).toHaveBeenCalledTimes(1)
+    expect(socket.leave).toHaveBeenCalledWith(topicId.toString())
+    expect(socket.disconnect).not.toHaveBeenCalled()
+  })
+})
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockIntroduce = jest.fn<(...args: any[]) => Promise<any>>()
 

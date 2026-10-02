@@ -1605,6 +1605,18 @@ components:
         locked:
           type: boolean
           description: When true no further versions may be appended; the artifact stays readable
+        generationStatus:
+          type: string
+          enum: [ready, pending, failed]
+          description: >-
+            Tracks a background generation run (see POST /artifacts/generate). `ready` covers
+            both "never generated asynchronously" and "generation succeeded" — an artifact
+            predating this field reads back with this unset, which callers should treat the
+            same as `ready`.
+          example: ready
+        generationError:
+          type: string
+          description: Set alongside generationStatus `failed`; cleared once a new generation starts or succeeds
         createdAt:
           type: string
           format: date-time

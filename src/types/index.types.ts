@@ -678,6 +678,13 @@ export interface ArtifactVersionNotice {
   conversationId?: string
 }
 
+/* What the `artifact:generationFailed` socket event carries: a background generation run
+   errored, or found nothing worth writing (see jobs/handlers/conceptGraph.ts). */
+export interface ArtifactGenerationFailedNotice {
+  artifactId: string
+  reason: string
+}
+
 /* The base of the artifact discriminator hierarchy: a shared object that emerges from one
    or more conversations. Everything a client needs to list and label an artifact lives
    here; everything that differs by kind lives in the version payload, so a new kind is a
@@ -717,6 +724,13 @@ export interface IArtifact {
   createdBy?: IBaseUser | mongoose.Types.ObjectId
   /* No further versions may be appended. The artifact and its history stay readable. */
   locked?: boolean
+  /* Tracks an in-flight or failed background generation run. Undefined on an artifact that
+     predates this field, which callers should treat as 'ready'. See
+     conceptGraph/index.ts's enqueueGeneration and jobs/handlers/conceptGraph.ts. */
+  generationStatus?: 'ready' | 'pending' | 'failed'
+  /* Set alongside generationStatus: 'failed'; cleared whenever a new generation starts or
+     succeeds. */
+  generationError?: string
   isDeleted?: boolean
   createdAt?: Date
   updatedAt?: Date

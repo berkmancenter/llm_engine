@@ -9,6 +9,7 @@ import ArtifactVersion from '../../src/models/artifact.model/version.js'
 import { DOCUMENT_ARTIFACT } from '../../src/models/artifact.model/documentArtifact.js'
 import { CONCEPT_GRAPH_ARTIFACT } from '../../src/models/artifact.model/conceptGraphArtifact.js'
 import websocketGateway from '../../src/websockets/websocketGateway.js'
+import schedule from '../../src/jobs/schedule.js'
 import { insertUsers, userOne, participant } from '../fixtures/user.fixture.js'
 import { userOneAccessToken, participantAccessToken } from '../fixtures/token.fixture.js'
 import { newPublicTopic, insertTopics } from '../fixtures/topic.fixture.js'
@@ -17,6 +18,9 @@ setupIntTest()
 
 /* No socket server in the suite, and the route must not fail because of it. */
 const broadcastSpy = jest.spyOn(websocketGateway, 'broadcastArtifactVersion')
+/* POST /v1/artifacts/generate only claims/creates the artifact and enqueues a job — the
+   pipeline itself is exercised in tests/services/conceptGraph, so the job is spied out here. */
+const scheduleSpy = jest.spyOn(schedule, 'generateConceptGraph')
 
 beforeAll(async () => {
   await ArtifactVersion.syncIndexes()
@@ -28,6 +32,8 @@ let conversation
 beforeEach(async () => {
   broadcastSpy.mockReset()
   broadcastSpy.mockResolvedValue(undefined)
+  scheduleSpy.mockReset()
+  scheduleSpy.mockResolvedValue(undefined)
   await insertUsers([userOne, participant])
   topic = newPublicTopic()
   topic.owner = userOne._id
@@ -42,6 +48,7 @@ beforeEach(async () => {
 
 afterAll(() => {
   broadcastSpy.mockRestore()
+  scheduleSpy.mockRestore()
 })
 
 const createBody = (overrides = {}) => ({
@@ -368,6 +375,56 @@ describe('concept graph artifacts', () => {
       .expect(httpStatus.OK)
 
     expect(res.body.map((a) => a.type).sort()).toEqual([CONCEPT_GRAPH_ARTIFACT, DOCUMENT_ARTIFACT])
+  })
+})
+
+describe('POST /v1/artifacts/generate', () => {
+  /* The pipeline itself never runs in this route anymore — it is enqueued as a job (see
+     jobs/handlers/conceptGraph.ts) precisely so this request can't run long enough to hit
+     the load balancer's backend timeout (infra/modules/webserver-mig/lb.tf). */
+  it('responds 202 immediately with a pending artifact and enqueues a job, without running the pipeline', async () => {
+    const res = await request(app)
+      .post('/v1/artifacts/generate')
+      .set('Authorization', `Bearer ${userOneAccessToken}`)
+      .send({ conversationId: conversation._id.toString() })
+      .expect(httpStatus.ACCEPTED)
+
+    expect(res.body.generated).toBe(true)
+    expect(res.body.status).toBe('pending')
+    expect(res.body.artifact.type).toBe(CONCEPT_GRAPH_ARTIFACT)
+    expect(res.body.artifact.generationStatus).toBe('pending')
+    expect(res.body.artifact.currentVersion).toBeUndefined()
+    expect(scheduleSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ artifactId: res.body.artifact.id, conversationId: conversation._id.toString() })
+    )
+  })
+
+  it('does not enqueue a second job while one is already pending', async () => {
+    const first = await request(app)
+      .post('/v1/artifacts/generate')
+      .set('Authorization', `Bearer ${userOneAccessToken}`)
+      .send({ conversationId: conversation._id.toString() })
+      .expect(httpStatus.ACCEPTED)
+    scheduleSpy.mockClear()
+
+    const second = await request(app)
+      .post('/v1/artifacts/generate')
+      .set('Authorization', `Bearer ${userOneAccessToken}`)
+      .send({ conversationId: conversation._id.toString() })
+      .expect(httpStatus.ACCEPTED)
+
+    expect(second.body.artifact.id).toBe(first.body.artifact.id)
+    expect(second.body.status).toBe('pending')
+    expect(scheduleSpy).not.toHaveBeenCalled()
+  })
+
+  it('refuses a participant, who may read the eventual graph but not trigger generation', async () => {
+    await request(app)
+      .post('/v1/artifacts/generate')
+      .set('Authorization', `Bearer ${participantAccessToken}`)
+      .send({ conversationId: conversation._id.toString() })
+      .expect(httpStatus.FORBIDDEN)
+    expect(scheduleSpy).not.toHaveBeenCalled()
   })
 })
 

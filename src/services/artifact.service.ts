@@ -38,7 +38,7 @@ const idOf = (value): string | undefined => {
  * ids and the read passcode. Both scopes collapse to this shape so the guards below have
  * one thing to reason about rather than a topic branch and a conversation branch.
  */
-interface ArtifactContainer {
+export interface ArtifactContainer {
   scope: ArtifactScope
   topicId: string
   conversationId?: string
@@ -309,7 +309,7 @@ const appendVersion = async (artifactId: string, { payload, note }: VersionInput
 
   await Artifact.updateOne(
     { _id: artifact._id, currentVersionNumber: versionNumber },
-    { $set: { currentVersion: version._id } }
+    { $set: { currentVersion: version._id, generationStatus: 'ready' }, $unset: { generationError: '' } }
   ).exec()
 
   logger.info('Appended version %s to artifact %s (%s)', versionNumber, artifact._id, artifact.__t)
@@ -317,19 +317,24 @@ const appendVersion = async (artifactId: string, { payload, note }: VersionInput
   /* The version is already committed by this point, so a socket layer that is down must not
      turn a successful append into a 500: the client would retry and write a duplicate
      version. Clients reconcile by fetching the artifact, so a missed broadcast costs a
-     delayed re-render, not the edit. */
-  if (container.scope === 'conversation' && container.conversationId) {
-    try {
-      await websocketGateway.broadcastArtifactVersion(container.conversationId, {
-        artifactId: artifact._id!.toString(),
-        versionNumber,
-        scope: container.scope,
-        topicId: container.topicId,
-        conversationId: container.conversationId
-      })
-    } catch (err) {
-      logger.warn(`artifact.service: failed to broadcast version ${versionNumber} of artifact ${artifact._id}: ${err}`)
-    }
+     delayed re-render, not the edit.
+
+     A conversation-scoped artifact is announced to its conversation's room; a topic-scoped
+     one (a series graph, or any future topic-scoped kind) to its topic's room instead — the
+     one a client already joins via topic:join. Either way the notice carries both ids and
+     the scope, so a client that filters by container can tell which is which regardless of
+     which room delivered it. */
+  const room = container.scope === 'conversation' ? container.conversationId! : container.topicId
+  try {
+    await websocketGateway.broadcastArtifactVersion(room, {
+      artifactId: artifact._id!.toString(),
+      versionNumber,
+      scope: container.scope,
+      topicId: container.topicId,
+      conversationId: container.conversationId
+    })
+  } catch (err) {
+    logger.warn(`artifact.service: failed to broadcast version ${versionNumber} of artifact ${artifact._id}: ${err}`)
   }
 
   return version
@@ -463,6 +468,7 @@ const artifactService = {
   getArtifact,
   listVersions,
   getVersion,
+  resolveContainer,
   authorizeArtifactRead,
   authorizeArtifactWrite,
   ensureArtifactPasscode,

@@ -37,6 +37,16 @@ export default (io, socket) => {
     logger.debug('Joining topic via socket. TopicId = %s', data.topicId)
     socket.join(data.topicId.toString())
   })
+  /* Socket.io gives a client no room attribution on a received event, so a client moving
+     between topics — a series' artifacts page navigated to another series — has to leave
+     the old room explicitly to stop hearing its topic-level events (e.g. artifact:version
+     for that series' graph). Mirrors leaveConversation below; topic:disconnect already
+     drops the room on a full disconnect, but that is not the same as navigating away while
+     the socket stays open. */
+  const leaveTopic = catchAsync(async (data) => {
+    logger.debug('Leaving topic via socket. TopicId = %s', data.topicId)
+    socket.leave(data.topicId.toString())
+  })
   const joinChannel = catchAsync(async (data, callback) => {
     const startedAt = Date.now()
     await authChannels([data.channel], data.conversationId.toString(), data.user)
@@ -92,6 +102,7 @@ export default (io, socket) => {
   })
   socket.on('user:join', joinUser)
   socket.on('topic:join', joinTopic)
+  socket.on('topic:leave', leaveTopic)
   socket.on('channel:join', joinChannel)
   socket.on('conversation:join', joinConversation)
   socket.on('conversation:leave', leaveConversation)
