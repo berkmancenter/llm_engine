@@ -4,8 +4,55 @@ import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { eventAssistantLLMTemplates, eventAssistantLlmTemplateVars, answerQuestion } from './eventQuestionHandler.js'
 import logger from '../../config/logger.js'
 import getDefaultEventAssistantToolNames from './eventAssistantDefaultTools.js'
-import { extractVoiceQuestion, evaluateVoiceTrigger } from '../helpers/voiceDirectives.js'
+import { extractVoiceQuestion, evaluateVoiceTrigger, matchAnnouncementTrigger } from '../helpers/voiceDirectives.js'
 import websocketGateway from '../../websockets/websocketGateway.js'
+
+/**
+ * Reads a matched announcement verbatim — no LLM call. Mirrors respond()'s two response
+ * shapes: streamed TTS chunks (one per announcement.segments()-derived segment) when
+ * voiceOutput is on, or a single chat message with the raw, unsegmented body when it's off.
+ */
+async function respondWithAnnouncement(announcement, questionText, userMessage, voiceOutput, conversationId) {
+  if (voiceOutput) {
+    const transcriptChannel = this.conversation.channels.find((channel) => channel.name === 'transcript')
+    if (!transcriptChannel) return []
+
+    const requestId = (userMessage.source?.requestId as string | undefined) ?? userMessage._id?.toString() ?? conversationId
+    try {
+      // No automatic transition phrase or pause insertion — organizers write transition
+      // wording directly into the announcement's body, relying on Kokoro's natural
+      // end-of-sentence cadence between separately-queued clips (see
+      // bot-media-server/engineSocket.ts: one chunk = one TTS call = one queued audio clip).
+      for (const segment of announcement.segments()) {
+        await websocketGateway
+          .broadcastMessageChunk(conversationId, [transcriptChannel.name], { requestId, text: segment, done: false })
+          .catch((err) => logger.warn(`Voice assistant: failed to broadcast announcement chunk: ${err}`))
+      }
+    } finally {
+      await websocketGateway
+        .broadcastMessageChunk(conversationId, [transcriptChannel.name], { requestId, text: '', done: true })
+        .catch((err) => logger.warn(`Voice assistant: failed to broadcast done marker: ${err}`))
+    }
+    return []
+  }
+
+  const chatChannel = this.conversation.channels.find((channel) => channel.name === 'chat')
+  if (!chatChannel) return []
+
+  return [
+    {
+      visible: true,
+      message: {
+        text: announcement.body,
+        source: 'voice',
+        sourceMessage: questionText,
+        sourcePseudonym: userMessage.pseudonym
+      },
+      messageType: 'json',
+      channels: [chatChannel]
+    }
+  ]
+}
 
 export default verify({
   name: 'Voice Assistant',
@@ -56,6 +103,11 @@ export default verify({
 
     const voiceOutput = Boolean(this.agentConfig.voiceOutput)
     const conversationId = this.conversation._id.toString()
+
+    const announcement = matchAnnouncementTrigger(questionText, this.conversation.announcements ?? [])
+    if (announcement) {
+      return respondWithAnnouncement.call(this, announcement, questionText, userMessage, voiceOutput, conversationId)
+    }
 
     if (voiceOutput) {
       // In voice output mode, stream chunks on the transcript channel for clients to consume for TTS.
