@@ -65,6 +65,13 @@ const PAGE = `<!DOCTYPE html>
   let extLevel = null
   let extAt = 0
   const EXT_LEVEL_STALE_MS = 300
+  // Above this gap since real audio last played, stop babbling and let the mouth go still
+  // instead. The synthetic fallback below exists to smooth over the brief, normal transition
+  // between one chunk ending and the next starting — not a multi-second wait while a later
+  // chunk is still being synthesized (e.g. a long, segmented announcement TTS can't keep up
+  // with in real time). Past this point a closed mouth reads as "still thinking", which is
+  // true; continued fake talking does not.
+  const BABBLE_MAX_GAP_MS = 1200
   // state flips to 'speaking' the instant call-upon matches, before the first queued chunk
   // has actually started playing (see audio queue below) — without this, frame() would fall
   // back to the synthetic babble immediately and the mouth would start moving before any
@@ -119,11 +126,12 @@ const PAGE = `<!DOCTYPE html>
     for (const key in cur) cur[key] += (T[key] - cur[key]) * k
 
     const hasFreshExtLevel = extLevel !== null && now - extAt < EXT_LEVEL_STALE_MS
+    const withinBabbleWindow = extAt !== 0 && now - extAt < BABBLE_MAX_GAP_MS
     const raw =
       botState.current === 'speaking'
         ? hasFreshExtLevel
           ? extLevel
-          : hasPlayedAudioThisTurn
+          : hasPlayedAudioThisTurn && withinBabbleWindow
             ? simLevel(now)
             : 0
         : 0
