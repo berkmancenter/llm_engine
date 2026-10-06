@@ -6,9 +6,12 @@ export const CALL_UPON_TTL_MS = 60_000
 // strings, Buffers, or anything else. Defaults to unknown so a caller that doesn't care can
 // still write createPendingQueue(hooks) without picking a type.
 export interface PendingQueueHooks<T = unknown> {
-  /** A response became the sole thing waiting for "go ahead" — signal hand-raised + chime.
-   *  Fired both when a new response first arrives alone, and when a previous one finishes
-   *  playing and this one is still queued behind it (re-announce). */
+  /** The oldest pending response has its first chunk of audio ready — signal hand-raised +
+   *  chime. Deliberately deferred until there's actually something to speak if called upon
+   *  right away, rather than firing as soon as text starts arriving: raising the hand before
+   *  any audio exists just means a long, silent gap the instant someone calls on it. Fired
+   *  both the first time a response becomes ready, and when a previous one finishes playing
+   *  and the next one queued behind it is (or becomes) ready in turn (re-announce). */
   onAnnounce: () => void
   /** A call-upon phrase matched — play these held chunks now (may be empty, if the call-upon
    *  arrived before any chunk had finished converting to audio — see onChunkReady). */
@@ -74,6 +77,9 @@ interface HeldResponse<T> {
    *  or chunkFailed). The response isn't fully delivered while this is above zero, even if
    *  the text stream itself (done) has already finished. */
   outstandingChunks: number
+  /** Whether onAnnounce has already fired for this response — each response announces at
+   *  most once, whenever its first chunk becomes ready while it's at the front of the queue. */
+  announced: boolean
 }
 
 /**
@@ -99,6 +105,19 @@ export function createPendingQueue<T = unknown>(
     if (idx !== -1) order.splice(idx, 1)
   }
 
+  /** Announces the front-of-queue response once (and only once) it actually has a chunk
+   *  ready to speak. A no-op if it's already been announced, if there's nothing queued, or
+   *  if the front response hasn't produced any audio yet — in that last case, whichever of
+   *  addAudio/the TTL discard runs next re-checks this, so it still happens as soon as
+   *  there's something real to announce. */
+  function maybeAnnounceFront() {
+    if (order.length === 0) return
+    const entry = held.get(order[0])
+    if (!entry || entry.announced || entry.chunks.length === 0) return
+    entry.announced = true
+    hooks.onAnnounce()
+  }
+
   function isFullyDelivered(entry: HeldResponse<T>) {
     return entry.done && entry.outstandingChunks === 0
   }
@@ -113,16 +132,18 @@ export function createPendingQueue<T = unknown>(
 
   function startResponse(requestId: string) {
     if (held.has(requestId)) return
-    held.set(requestId, { chunks: [], done: false, ttlTimer: null, outstandingChunks: 0 })
+    held.set(requestId, { chunks: [], done: false, ttlTimer: null, outstandingChunks: 0, announced: false })
     order.push(requestId)
-
-    if (order.length === 1) hooks.onAnnounce()
+    // Not announced here — see maybeAnnounceFront, which fires once this response's first
+    // chunk actually lands (addAudio below), so the hand only raises once there's something
+    // ready to speak as soon as it's called upon.
 
     const entry = held.get(requestId)!
     entry.ttlTimer = setTimeout(() => {
       clearOne(requestId)
       hooks.onDiscard?.(requestId)
       if (order.length === 0) hooks.onIdle()
+      else maybeAnnounceFront() // whatever's next in line might already have audio ready
     }, ttlMs)
   }
 
@@ -139,6 +160,7 @@ export function createPendingQueue<T = unknown>(
       hooks.onChunkReady(chunk)
     } else {
       entry.chunks.push(chunk)
+      maybeAnnounceFront()
     }
     retireIfFullyDelivered(requestId, entry)
   }
@@ -188,7 +210,7 @@ export function createPendingQueue<T = unknown>(
     }
 
     if (order.length > 0) {
-      hooks.onAnnounce()
+      maybeAnnounceFront()
     } else {
       hooks.onIdle()
     }
