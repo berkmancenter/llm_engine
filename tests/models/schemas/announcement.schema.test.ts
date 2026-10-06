@@ -20,8 +20,19 @@ describe('announcementSchema.methods.segments', () => {
   })
 
   it('splits a single-paragraph bulleted list into one segment per item', () => {
-    const body = '- Jane did great\n* Bob did great\n• Alex did great'
-    expect(segmentsOf(body)).toEqual(['- Jane did great', '* Bob did great', '• Alex did great'])
+    const body = '* Jane did great\n• Bob did great'
+    expect(segmentsOf(body)).toEqual(['* Jane did great', '• Bob did great'])
+  })
+
+  it('does not treat a hyphen-led line as a bullet, since a hyphen is also an ordinary dash/minus sign', () => {
+    // A bare "-" is deliberately NOT a recognized bullet marker (unlike "*"/"•"): it's also an
+    // ordinary dash or negative sign, so treating it as one would garble ordinary prose by
+    // splitting mid-sentence.
+    const negativeNumber = 'Revenue was strong this quarter.\n- 5% below forecast, still a solid result.'
+    expect(segmentsOf(negativeNumber)).toEqual([negativeNumber])
+
+    const dashLedAside = 'Congratulations to the whole team.\n- Especially impressive given the tight deadline.'
+    expect(segmentsOf(dashLedAside)).toEqual([dashLedAside])
   })
 
   it('handles a prose paragraph followed by a numbered list', () => {

@@ -23,8 +23,11 @@ announcementSchema.plugin(toJSON)
  *
  * Splits on, in order:
  *   1. Blank-line paragraph breaks — the default boundary for ordinary prose.
- *   2. Numbered ("1.", "2)") or bulleted ("-", "*", "•") list item starts, so a list written as
+ *   2. Numbered ("1.", "2)") or bulleted ("*", "•") list item starts, so a list written as
  *      one paragraph with single newlines between items still gets one segment per item.
+ *      Deliberately NOT a plain hyphen "-": unlike "*"/"•", a hyphen is also an ordinary
+ *      dash/minus sign, so a line like "- 5% below forecast." or a dash-led aside would get
+ *      wrongly split mid-sentence, garbling the read-aloud output.
  */
 announcementSchema.method('segments', function () {
   const normalized = this.body.replace(/\r\n/g, '\n').trim()
@@ -33,7 +36,7 @@ announcementSchema.method('segments', function () {
   const paragraphs = normalized.split(/\n\s*\n+/)
   return paragraphs.flatMap((paragraph) =>
     paragraph
-      .split(/\n(?=\s*(?:\d+[.)]|[-*•])\s+)/)
+      .split(/\n(?=\s*(?:\d+[.)]|[*•])\s+)/)
       .map((segment) => segment.trim())
       .filter(Boolean)
   )
