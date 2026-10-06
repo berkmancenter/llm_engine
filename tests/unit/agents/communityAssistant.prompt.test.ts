@@ -1,5 +1,6 @@
 import { jest } from '@jest/globals'
 import setupIntTest from '../../utils/setupIntTest.js'
+import { easternIsoDate } from '../../../src/utils/eventDateLabel.js'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockGetAgentStructuredResponse = jest.fn<(...args: any[]) => Promise<any>>()
@@ -55,5 +56,14 @@ describe('communityAssistant participation note in system prompt', () => {
   test('omits the proactive behavior clause entirely when both are disabled', async () => {
     const systemPrompt = await getSystemPrompt(buildContext([], false))
     expect(systemPrompt).not.toMatch(/You also/)
+  })
+})
+
+describe('communityAssistant date awareness in system prompt', () => {
+  test("appends today's Eastern-time ISO date as the trailing line, for cache-prefix stability", async () => {
+    const systemPrompt = await getSystemPrompt(buildContext([], false))
+    const today = easternIsoDate(new Date())
+
+    expect(systemPrompt.trimEnd().endsWith(`Today's date is ${today}.`)).toBe(true)
   })
 })

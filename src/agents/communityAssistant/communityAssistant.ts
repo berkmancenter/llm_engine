@@ -16,6 +16,7 @@ import { evaluateVoiceTrigger, extractVoiceQuestion, VOICE_OUTPUT_RULES } from '
 import type { IMessage } from '../../types/index.types.js'
 import websocketGateway from '../../websockets/websocketGateway.js'
 import logger from '../../config/logger.js'
+import { easternIsoDate } from '../../utils/eventDateLabel.js'
 
 const MEMBER_GROUP_INTRO_SYSTEM_TEMPLATE = `You are a community assistant who periodically spots interesting connections between members and shares them with the group.
 
@@ -225,14 +226,24 @@ export default verify({
         .replace('{participationNote}', participationNote) +
       channelNote +
       pseudonymNote
-    const systemPrompt =
-      composeSystemPrompt(systemPromptBase, {
-        personalityName,
-        behaviorPolicy: this.conversation.behaviorPolicy,
-        channelType: isDM ? 'dm' : 'groupChat',
-        platforms: this.conversation.platforms,
-        modelInfo: { llmModel: this.llmModel, llmPlatform: this.llmPlatform }
-      }) + (isVoice ? VOICE_OUTPUT_RULES : '')
+    // Appended after composeSystemPrompt (not interpolated into BASE_SYSTEM_PROMPT) so the date
+    // is the only thing that changes daily: everything before it — tool guidance, personality,
+    // behavior policy, goals — is otherwise identical prompt-to-prompt, and a trailing-line
+    // change invalidates far less of the cached prefix than one earlier in the prompt would.
+    // Mirrors eventAssistant's identical rationale (buildEventAssistantToolSystemPrompt.ts).
+    // Eastern rather than UTC: UTC's midnight falls in the early evening US-Eastern, so a plain
+    // toISOString() already reads as "tomorrow" for an evening question like "what's on tonight?"
+    // — exactly the kind of question this prompt needs to get right. Same zone as this file's own
+    // cron trigger above. This is an organization-anchor approximation, not a per-asker or per-community
+    // timezone resolution — members elsewhere still get Eastern's "today", there's no per-user tz to draw on.
+    const today = easternIsoDate(new Date())
+    const systemPrompt = `${composeSystemPrompt(systemPromptBase, {
+      personalityName,
+      behaviorPolicy: this.conversation.behaviorPolicy,
+      channelType: isDM ? 'dm' : 'groupChat',
+      platforms: this.conversation.platforms,
+      modelInfo: { llmModel: this.llmModel, llmPlatform: this.llmPlatform }
+    })}${isVoice ? VOICE_OUTPUT_RULES : ''}\n\nToday's date is ${today}.`
 
     // When answering a DM or voice message, the agent framework narrows conversationHistory
     // to just that channel. Fetch the shared chat separately so the assistant knows what the
