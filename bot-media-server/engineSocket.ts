@@ -64,6 +64,9 @@ export function createEngineSocket(config: EngineSocketConfig, hooks: EngineSock
       hooks.onStateChange('speaking')
       for (const chunk of chunks) hooks.onAudioChunk(chunk)
     },
+    // Already speaking by the time this chunk's TTS finished (no new state change needed) —
+    // this is what makes it safe to call upon a response before every chunk has converted.
+    onChunkReady: (chunk) => hooks.onAudioChunk(chunk),
     onIdle: () => hooks.onStateChange('idle'),
     onDiscard: (requestId) => log(`${conversationId}/${requestId} TTL expired — discarding`)
   })
@@ -131,6 +134,11 @@ export function createEngineSocket(config: EngineSocketConfig, hooks: EngineSock
     log(`${conversationId}/${requestId} received message:chunk (${text?.length ?? 0} chars, done: ${done})`)
     if (!done && text) {
       queue.startResponse(requestId)
+      // Registered synchronously, before the async conversion below — so the queue knows to
+      // keep waiting for this chunk even if a call-upon phrase flushes the response before
+      // TTS for it finishes (a longer chunk can easily take longer to convert than it takes
+      // someone to say "go ahead").
+      queue.expectChunk(requestId)
       config
         .tts(text)
         .then((audio) => {
@@ -145,7 +153,13 @@ export function createEngineSocket(config: EngineSocketConfig, hooks: EngineSock
           }
           queue.addAudio(requestId, { audio, envelope, envelopeWindowMs: ENVELOPE_WINDOW_MS })
         })
-        .catch((err) => log(`${conversationId}/${requestId} TTS error: ${err}`))
+        .catch((err) => {
+          log(`${conversationId}/${requestId} TTS error: ${err}`)
+          // Still counts against expectChunk even though nothing will ever be delivered for
+          // it — otherwise one failed chunk would permanently stop this response from ever
+          // being considered fully delivered.
+          queue.chunkFailed(requestId)
+        })
     }
     if (done) queue.markResponseDone(requestId)
   })
@@ -160,8 +174,11 @@ export function createEngineSocket(config: EngineSocketConfig, hooks: EngineSock
       log(`${conversationId} transcript message received, but no call-upon phrase + "${botName}" match: "${body}"`)
       return
     }
-    log(`${conversationId} call-upon matched — flushing held response`)
-    queue.callUpon()
+    if (queue.callUpon()) {
+      log(`${conversationId} call-upon matched — flushing held response`)
+    } else {
+      log(`${conversationId} call-upon matched, but already speaking — ignoring`)
+    }
   })
 
   return { socket, queue }

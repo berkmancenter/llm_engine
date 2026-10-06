@@ -289,6 +289,41 @@ describe('engineSocket', () => {
     expect(onLog).toHaveBeenCalledWith(expect.stringContaining('TTS error'))
   })
 
+  test('a call-upon before TTS finishes still speaks the audio once it does, instead of losing it', async () => {
+    const hooks = makeHooks()
+    const { auth } = makeAuth()
+    let resolveTts: (buf: Buffer) => void
+    const slowTts = (text: string) =>
+      new Promise<Buffer>((resolve) => {
+        resolveTts = () => resolve(Buffer.from(text))
+      })
+    makeEngineSocket(
+      { llmEngineWsUrl: fakeLlmEngine.url, conversationId: 'conv-1', botName: 'TestBot', auth, tts: slowTts },
+      hooks
+    )
+
+    const engineSocket = await engineServerSocketPromise
+    await waitForServerEvent(engineSocket, 'conversation:join')
+
+    engineSocket.emit('message:chunk', { requestId: 'r1', text: 'Hello there', done: false })
+    engineSocket.emit('message:chunk', { requestId: 'r1', text: '', done: true })
+    await wait(20)
+
+    // Called upon before the (still-pending) TTS conversion has resolved.
+    engineSocket.emit('message:new', { channels: ['transcript'], body: 'go ahead TestBot' })
+    await wait(20)
+
+    expect(hooks.onStateChange).toHaveBeenCalledWith('speaking')
+    expect(hooks.onAudioChunk).not.toHaveBeenCalled() // nothing to send yet — not lost, just not ready
+
+    resolveTts!(Buffer.from('Hello there'))
+    await wait(20)
+
+    // Delivered once it's ready, with no further call-upon needed — this is the fix: a slow
+    // chunk no longer gets silently dropped just because it wasn't ready at call-upon time.
+    expect(hooks.onAudioChunk).toHaveBeenCalledWith(expect.objectContaining({ audio: Buffer.from('Hello there') }))
+  })
+
   test('the server disconnecting resets the queue and goes idle', async () => {
     const hooks = makeHooks()
     const { auth } = makeAuth()
