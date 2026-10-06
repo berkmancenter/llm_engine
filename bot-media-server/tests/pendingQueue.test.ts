@@ -23,24 +23,38 @@ describe('pendingQueue', () => {
     jest.useRealTimers()
   })
 
-  test('announces on the first response, not on a second arriving while the first is still pending', () => {
+  test('does not announce until the response actually has a chunk ready to speak', () => {
     const hooks = makeHooks()
     const queue = createPendingQueue(hooks, 60_000)
 
     queue.startResponse('req-1')
+    expect(hooks.onAnnounce).not.toHaveBeenCalled()
+
+    queue.expectChunk('req-1') // TTS started, not resolved yet — still nothing to announce
+    expect(hooks.onAnnounce).not.toHaveBeenCalled()
+
+    queue.addAudio('req-1', 'chunk-1')
     expect(hooks.onAnnounce).toHaveBeenCalledTimes(1)
+  })
 
+  test('a second response is not announced early just because its chunk arrives first', () => {
+    const hooks = makeHooks()
+    const queue = createPendingQueue(hooks, 60_000)
+
+    queue.startResponse('req-1') // still at the front, no chunk yet
     queue.startResponse('req-2')
-    expect(hooks.onAnnounce).toHaveBeenCalledTimes(1) // still just once
+    deliverChunk(queue, 'req-2', 'chunk-2') // ready, but req-1 is still ahead of it in line
 
+    expect(hooks.onAnnounce).not.toHaveBeenCalled()
     expect(queue.hasPending()).toBe(true)
   })
 
-  test('re-registering the same requestId is a no-op', () => {
+  test('re-registering the same requestId is a no-op (does not double-announce)', () => {
     const hooks = makeHooks()
     const queue = createPendingQueue(hooks, 60_000)
     queue.startResponse('req-1')
     queue.startResponse('req-1')
+    deliverChunk(queue, 'req-1', 'chunk-1')
     expect(hooks.onAnnounce).toHaveBeenCalledTimes(1)
   })
 
@@ -131,7 +145,6 @@ describe('pendingQueue', () => {
     queue.callUpon()
     queue.markResponseDone('req-1') // text stream done, but that one chunk hasn't resolved
 
-    hooks.onAnnounce.mockClear() // startResponse('req-1') already called this once, on arrival
     queue.audioFinished() // browser ran out of buffered audio before the next chunk was ready
     expect(hooks.onIdle).not.toHaveBeenCalled()
     expect(hooks.onAnnounce).not.toHaveBeenCalled()
@@ -143,19 +156,21 @@ describe('pendingQueue', () => {
     expect(hooks.onIdle).toHaveBeenCalledTimes(1)
   })
 
-  test('audioFinished re-announces when something is still queued, otherwise goes idle', () => {
+  test('audioFinished re-announces when the next queued response is ready, otherwise goes idle', () => {
     const hooks = makeHooks()
     const queue = createPendingQueue(hooks, 60_000)
 
     queue.startResponse('req-1')
+    deliverChunk(queue, 'req-1', 'chunk-1')
     queue.markResponseDone('req-1')
     queue.startResponse('req-2')
+    deliverChunk(queue, 'req-2', 'chunk-2')
     queue.markResponseDone('req-2')
     queue.callUpon() // flushes req-1 (fully delivered already — done, nothing outstanding)
 
     hooks.onAnnounce.mockClear()
     queue.audioFinished()
-    expect(hooks.onAnnounce).toHaveBeenCalledTimes(1)
+    expect(hooks.onAnnounce).toHaveBeenCalledTimes(1) // req-2 was already ready
     expect(hooks.onIdle).not.toHaveBeenCalled()
 
     queue.callUpon() // flushes req-2, nothing left
@@ -175,7 +190,7 @@ describe('pendingQueue', () => {
     expect(queue.hasPending()).toBe(false)
   })
 
-  test('TTL discarding one response does not go idle if another is still pending', () => {
+  test('TTL discarding one response announces the next if it is already ready', () => {
     jest.useFakeTimers()
     const hooks = makeHooks()
     const queue = createPendingQueue(hooks, 1_000)
@@ -183,11 +198,15 @@ describe('pendingQueue', () => {
     queue.startResponse('req-1')
     jest.advanceTimersByTime(500)
     queue.startResponse('req-2') // starts its own independent TTL from now
+    deliverChunk(queue, 'req-2', 'chunk-2') // ready — but req-1 is still ahead of it
+
+    expect(hooks.onAnnounce).not.toHaveBeenCalled() // req-1 (unready) is still the front
 
     jest.advanceTimersByTime(500) // req-1's TTL fires (1000ms since its own start)
     expect(hooks.onDiscard).toHaveBeenCalledWith('req-1')
     expect(hooks.onIdle).not.toHaveBeenCalled() // req-2 still pending
     expect(queue.hasPending()).toBe(true)
+    expect(hooks.onAnnounce).toHaveBeenCalledTimes(1) // req-2 is now the front, and already ready
   })
 
   test('calling upon a response clears its TTL — it cannot be discarded once active', () => {
@@ -212,7 +231,6 @@ describe('pendingQueue', () => {
     queue.expectChunk('req-1')
     queue.callUpon() // active, not yet fully delivered
     queue.startResponse('req-2')
-    hooks.onAnnounce.mockClear()
 
     queue.reset()
     expect(queue.hasPending()).toBe(false)
