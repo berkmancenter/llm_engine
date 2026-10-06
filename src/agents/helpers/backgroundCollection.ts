@@ -7,7 +7,7 @@ import { Resource } from '../../types/index.types.js'
 
 export const BACKGROUND_DOCS_BASE = path.join(config.ragDocumentsPath, 'background')
 
-const conversationCollectionName = (conversationId: string) => `background-${conversationId}`
+export const conversationCollectionName = (conversationId: string) => `background-${conversationId}`
 
 const pdfPath = (conversationId: string, fileName: string) => path.join(BACKGROUND_DOCS_BASE, conversationId, fileName)
 

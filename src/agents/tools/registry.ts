@@ -6,6 +6,7 @@ import createEventHistoryTools, { TopicRef, buildEventHistoryToolsPrompt } from 
 import Topic from '../../models/topic.model.js'
 import { bkcArchiveWikiTools, buildArchiveWikiToolsPrompt } from './bkcArchiveWiki.js'
 import createMemberBioTools, { buildMemberBioToolsPrompt } from './memberBios.js'
+import createResourceSearchTools, { buildResourceSearchToolsPrompt } from './resourceSearch.js'
 
 /**
  * A factory that returns one or more LangChain tools, optionally async.
@@ -149,3 +150,13 @@ registerTool('member_bios', (context) => {
   return createMemberBioTools({ conversationId })
 })
 registerToolPrompt('member_bios', () => buildMemberBioToolsPrompt())
+
+registerTool('resource_search', (context) => {
+  const conversationId = typeof context?.activeConversationId === 'string' ? context.activeConversationId : undefined
+  if (!conversationId) {
+    logger.warn('Tool registry: resource_search requested but no activeConversationId in context')
+    return []
+  }
+  return createResourceSearchTools({ conversationId })
+})
+registerToolPrompt('resource_search', (context) => buildResourceSearchToolsPrompt(context))

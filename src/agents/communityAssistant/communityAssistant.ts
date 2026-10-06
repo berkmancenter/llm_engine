@@ -8,6 +8,7 @@ import { composeSystemPrompt } from '../helpers/promptComposer.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
 import { getTools, buildToolsGuidance } from '../tools/registry.js'
+import { getBackgroundContextForQuestion } from '../tools/resourceSearch.js'
 import Conversation from '../../models/conversation.model.js'
 import ConversationMembership from '../../models/conversationMembership.model.js'
 import config from '../../config/config.js'
@@ -129,7 +130,7 @@ export default verify({
   },
   agentConfig: {
     enablePersonality: config.enableAgentPersonality,
-    tools: ['event_history', 'bkc_archive_wiki', 'web_search', 'member_bios'] as string[],
+    tools: ['event_history', 'bkc_archive_wiki', 'member_bios', 'resource_search', 'web_search'] as string[],
     topicIds: [] as string[],
     notifications: [] as string[],
     streaming: undefined as boolean | undefined,
@@ -261,6 +262,16 @@ export default verify({
 
     const tools: StructuredToolInterface[] = await getTools(toolNames, toolContext)
 
+    // Skip the paid embedding call (and the Chroma collection it would create on first touch)
+    // for rooms with no uploaded PDFs — mirrors eventQuestionHandler.ts's hasBackground check,
+    // but keys on fileName rather than source==='speaker' since that's what actually determines
+    // whether anything was indexed right now (see backgroundCollection.ts's loadPdfIntoChroma).
+    const hasSearchableResources = this.conversation.resources?.some((r) => r.fileName)
+    const backgroundContext =
+      toolNames.includes('resource_search') && hasSearchableResources
+        ? await getBackgroundContextForQuestion(conversationId, question)
+        : ''
+
     const inputChannelNames = userMessage?.channels ?? ['chat']
 
     // Stream sentences via websocket when enabled (or when in voice mode by default) so the
@@ -285,9 +296,10 @@ export default verify({
       isDM && sharedChatContext
         ? `Note: the prior conversation is your private DM thread with this user. You also actively participate and respond in ${groupChatLabel}. When answering DMs you are given that channel's recent history as context (below), so you can reference what has been discussed there — but the group channel does not have visibility into this DM thread.\n\n`
         : ''
+    const backgroundSection = backgroundContext ? `## Background Reading:\n${backgroundContext}\n\n` : ''
     const userPrompt = sharedChatContext
-      ? `${dmContextNote}## Shared Chat History:\n${sharedChatContext}\n\n${questionHeader}\n${question}`
-      : `${questionHeader}\n${question}`
+      ? `${backgroundSection}${dmContextNote}## Shared Chat History:\n${sharedChatContext}\n\n${questionHeader}\n${question}`
+      : `${backgroundSection}${questionHeader}\n${question}`
 
     const response = await getAgentStructuredResponse(
       llm,

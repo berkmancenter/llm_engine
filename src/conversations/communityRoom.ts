@@ -49,7 +49,7 @@ const communityRoom: ConversationType = {
       name: 'tools',
       label: 'Enabled Tools',
       description:
-        'Tool names the assistant can use. Available: web_search, event_history, bkc_archive_wiki. Defaults to all.',
+        'Tool names the assistant can use. Available: web_search, event_history, bkc_archive_wiki, member_bio, resource_search. Defaults to all.',
       required: false,
       type: 'object'
     },
