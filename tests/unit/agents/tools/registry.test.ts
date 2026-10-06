@@ -7,6 +7,10 @@ import {
   listRegisteredTools
 } from '../../../../src/agents/tools/registry.js'
 import { buildWebSearchPrompt } from '../../../../src/agents/tools/webSearch.js'
+import setupIntTest from '../../../utils/setupIntTest.js'
+import { createUser, createPublicTopic, createConversation } from '../../../utils/agentTestHelpers.js'
+
+setupIntTest()
 
 describe('Tool Registry', () => {
   test('should have built-in tools registered', () => {
@@ -18,6 +22,7 @@ describe('Tool Registry', () => {
     expect(registered).toContain('event_history')
     expect(registered).toContain('bkc_archive_wiki')
     expect(registered).toContain('member_bios')
+    expect(registered).toContain('resource_search')
   })
 
   test('should resolve web_search to tool instance', async () => {
@@ -133,5 +138,91 @@ describe('Tool Registry', () => {
     expect(guidance).toContain('search_members')
     expect(guidance).toContain('get_member')
     expect(guidance).toContain('untrusted user-supplied text')
+  })
+
+  test('resource_search factory returns search_resources when activeConversationId is provided', async () => {
+    const tools = await getTools(['resource_search'], { activeConversationId: '507f1f77bcf86cd799439012' })
+    expect(tools.map((t) => t.name)).toEqual(['search_resources'])
+  })
+
+  test('resource_search factory returns empty array without activeConversationId in context', async () => {
+    const tools = await getTools(['resource_search'], {})
+    expect(tools).toHaveLength(0)
+  })
+
+  test('buildToolsGuidance lists uploaded resource titles so the model can judge relevance', async () => {
+    const user = await createUser('Guidance Tester')
+    const topic = await createPublicTopic()
+    const conversation = await createConversation(
+      {
+        name: 'Guidance Test Conversation',
+        resources: [
+          {
+            source: 'speaker',
+            category: 'required',
+            title: 'The public domain: Enclosing the commons of the mind',
+            authors: ['James Boyle'],
+            year: '2008'
+          }
+        ]
+      },
+      user,
+      topic
+    )
+
+    const guidance = await buildToolsGuidance(['resource_search'], {
+      activeConversationId: conversation._id.toString()
+    })
+    expect(guidance).toContain('search_resources')
+    expect(guidance).toContain('The public domain: Enclosing the commons of the mind')
+    expect(guidance).toContain('James Boyle, 2008')
+  })
+
+  test('buildToolsGuidance includes a topic hint from description, falling back to summary', async () => {
+    const user = await createUser('Topic Hint Tester')
+    const topic = await createPublicTopic()
+    const conversation = await createConversation(
+      {
+        name: 'Topic Hint Conversation',
+        resources: [
+          {
+            source: 'speaker',
+            category: 'required',
+            title: 'Resource With Description',
+            description: 'A short organizer-authored blurb about this reading.'
+          },
+          {
+            source: 'speaker',
+            category: 'required',
+            title: 'Resource With Only Summary',
+            summary: '**Main Thesis**\n- AI-generated summary content goes here.'
+          }
+        ]
+      },
+      user,
+      topic
+    )
+
+    const guidance = await buildToolsGuidance(['resource_search'], {
+      activeConversationId: conversation._id.toString()
+    })
+    expect(guidance).toContain('A short organizer-authored blurb about this reading.')
+    expect(guidance).toContain('AI-generated summary content goes here.')
+  })
+
+  test('buildToolsGuidance omits the resource_search section when the conversation has no resources', async () => {
+    const user = await createUser('No Resources Tester')
+    const topic = await createPublicTopic()
+    const conversation = await createConversation({ name: 'No Resources Conversation' }, user, topic)
+
+    const guidance = await buildToolsGuidance(['resource_search'], {
+      activeConversationId: conversation._id.toString()
+    })
+    expect(guidance).toBe('')
+  })
+
+  test('buildToolsGuidance omits the resource_search section without activeConversationId in context', async () => {
+    const guidance = await buildToolsGuidance(['resource_search'])
+    expect(guidance).toBe('')
   })
 })
