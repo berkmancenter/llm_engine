@@ -24,6 +24,12 @@ const updateResourceSchema = resourceSchema.keys({
   id: Joi.string().optional()
 })
 
+const announcementSchema = Joi.object().keys({
+  name: Joi.string().required(),
+  title: Joi.string().allow('', null),
+  body: Joi.string().required()
+})
+
 const updateConversation = {
   body: Joi.object().keys({
     id: Joi.string().required(),
@@ -58,6 +64,7 @@ const updateConversation = {
       })
     ),
     resources: Joi.array().items(updateResourceSchema),
+    announcements: Joi.array().items(announcementSchema),
     analyticsRefs: Joi.object().pattern(Joi.string(), Joi.string()),
     goals: goalsSchema
   })
@@ -89,6 +96,7 @@ const createConversation = {
       })
     ),
     resources: Joi.array().items(resourceSchema),
+    announcements: Joi.array().items(announcementSchema),
     // Opt the event into analytics sources by name, each with that source's ref
     // (e.g. { matomo: 'dimension7' }). Stored opaquely; each adapter interprets its own ref.
     analyticsRefs: Joi.object().pattern(Joi.string(), Joi.string()),

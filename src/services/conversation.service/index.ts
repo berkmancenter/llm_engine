@@ -221,6 +221,7 @@ const createConversation = async (conversationBody, user, { allowDraft = false }
     ...(conversationBody.behaviorPolicy !== undefined && { behaviorPolicy: conversationBody.behaviorPolicy }),
     ...(conversationBody.autoStop !== undefined && { autoStop: conversationBody.autoStop }),
     ...(conversationBody.resources !== undefined && { resources: conversationBody.resources }),
+    ...(conversationBody.announcements !== undefined && { announcements: conversationBody.announcements }),
     agents: [],
     transcript: {
       status: 'stopped',
@@ -673,7 +674,7 @@ const findById = async (id) => {
 
 const findByIdFull = async (id, user) => {
   const conversation = await Conversation.findOne({ _id: id })
-    .select(`${returnFields} resources topic`)
+    .select(`${returnFields} resources announcements topic`)
     .populate('agents')
     .populate('channels')
     .populate('adapters')

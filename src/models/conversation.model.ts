@@ -5,6 +5,7 @@ import { toJSON, paginate, lock, hasPdf } from './plugins/index.js'
 import { IConversation, Profile, Resource } from '../types/index.types.js'
 import Message from './message.model.js'
 import transcriptSchema from './schemas/transcript.schema.js'
+import announcementSchema from './schemas/announcement.schema.js'
 
 interface ConversationMethods {
   messageCount(): number
@@ -195,6 +196,10 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
     },
     resources: {
       type: [resourceSchema],
+      default: []
+    },
+    announcements: {
+      type: [announcementSchema],
       default: []
     },
     summary: {
