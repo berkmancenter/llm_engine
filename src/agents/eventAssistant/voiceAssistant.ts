@@ -7,6 +7,43 @@ import getDefaultEventAssistantToolNames from './eventAssistantDefaultTools.js'
 import { extractVoiceQuestion, evaluateVoiceTrigger, matchAnnouncementTrigger } from '../helpers/voiceDirectives.js'
 import websocketGateway from '../../websockets/websocketGateway.js'
 
+function findChannel(conversation, name) {
+  return conversation.channels.find((channel) => channel.name === name)
+}
+
+/**
+ * Resolves the (transcriptChannel, requestId) pair every voice-output streaming path needs.
+ * Returns null when there's no transcript channel to stream onto.
+ */
+function resolveVoiceStreamTarget(conversation, userMessage, conversationId) {
+  const transcriptChannel = findChannel(conversation, 'transcript')
+  if (!transcriptChannel) return null
+  const requestId = (userMessage.source?.requestId as string | undefined) ?? userMessage._id?.toString() ?? conversationId
+  return { transcriptChannel, requestId }
+}
+
+/** One `message:chunk` broadcast, with the same warn-and-swallow failure handling every call site needs. */
+function broadcastChunk(conversationId, channelName, requestId, text, done, errorContext) {
+  return websocketGateway
+    .broadcastMessageChunk(conversationId, [channelName], { requestId, text, done })
+    .catch((err) => logger.warn(`Voice assistant: failed to broadcast ${errorContext}: ${err}`))
+}
+
+/** Attaches the "this is a voice-triggered reply" envelope every chat-channel response needs. */
+function wrapVoiceSourceMessage(response, questionText, userMessage, chatChannel) {
+  return {
+    ...response,
+    channels: [chatChannel],
+    parent: undefined,
+    message: {
+      ...response.message,
+      source: 'voice',
+      sourceMessage: questionText,
+      sourcePseudonym: userMessage.pseudonym
+    }
+  }
+}
+
 /**
  * Reads a matched announcement verbatim — no LLM call. Mirrors respond()'s two response
  * shapes: streamed TTS chunks (one per announcement.segments()-derived segment) when
@@ -14,43 +51,34 @@ import websocketGateway from '../../websockets/websocketGateway.js'
  */
 async function respondWithAnnouncement(announcement, questionText, userMessage, voiceOutput, conversationId) {
   if (voiceOutput) {
-    const transcriptChannel = this.conversation.channels.find((channel) => channel.name === 'transcript')
-    if (!transcriptChannel) return []
+    const target = resolveVoiceStreamTarget(this.conversation, userMessage, conversationId)
+    if (!target) return []
+    const { transcriptChannel, requestId } = target
 
-    const requestId = (userMessage.source?.requestId as string | undefined) ?? userMessage._id?.toString() ?? conversationId
     try {
       // No automatic transition phrase or pause insertion — organizers write transition
       // wording directly into the announcement's body, relying on Kokoro's natural
       // end-of-sentence cadence between separately-queued clips (see
       // bot-media-server/engineSocket.ts: one chunk = one TTS call = one queued audio clip).
       for (const segment of announcement.segments()) {
-        await websocketGateway
-          .broadcastMessageChunk(conversationId, [transcriptChannel.name], { requestId, text: segment, done: false })
-          .catch((err) => logger.warn(`Voice assistant: failed to broadcast announcement chunk: ${err}`))
+        await broadcastChunk(conversationId, transcriptChannel.name, requestId, segment, false, 'announcement chunk')
       }
     } finally {
-      await websocketGateway
-        .broadcastMessageChunk(conversationId, [transcriptChannel.name], { requestId, text: '', done: true })
-        .catch((err) => logger.warn(`Voice assistant: failed to broadcast done marker: ${err}`))
+      await broadcastChunk(conversationId, transcriptChannel.name, requestId, '', true, 'done marker')
     }
     return []
   }
 
-  const chatChannel = this.conversation.channels.find((channel) => channel.name === 'chat')
+  const chatChannel = findChannel(this.conversation, 'chat')
   if (!chatChannel) return []
 
   return [
-    {
-      visible: true,
-      message: {
-        text: announcement.body,
-        source: 'voice',
-        sourceMessage: questionText,
-        sourcePseudonym: userMessage.pseudonym
-      },
-      messageType: 'json',
-      channels: [chatChannel]
-    }
+    wrapVoiceSourceMessage(
+      { visible: true, message: { text: announcement.body }, messageType: 'json' },
+      questionText,
+      userMessage,
+      chatChannel
+    )
   ]
 }
 
@@ -113,17 +141,14 @@ export default verify({
       // In voice output mode, stream chunks on the transcript channel for clients to consume for TTS.
       // No message is saved or broadcast — the durable record of
       // what the bot said comes from transcribing the spoken audio back.
-      const transcriptChannel = this.conversation.channels.find((channel) => channel.name === 'transcript')
-      if (!transcriptChannel) return []
+      const target = resolveVoiceStreamTarget(this.conversation, userMessage, conversationId)
+      if (!target) return []
+      const { transcriptChannel, requestId } = target
 
-      const requestId =
-        (userMessage.source?.requestId as string | undefined) ?? userMessage._id?.toString() ?? conversationId
       let chunkStreamed = false
       const onChunk = (text: string) => {
         chunkStreamed = true
-        websocketGateway
-          .broadcastMessageChunk(conversationId, [transcriptChannel.name], { requestId, text, done: false })
-          .catch((err) => logger.warn(`Voice assistant: failed to broadcast chunk: ${err}`))
+        broadcastChunk(conversationId, transcriptChannel.name, requestId, text, false, 'chunk')
       }
 
       try {
@@ -138,40 +163,26 @@ export default verify({
         if (!chunkStreamed) {
           const fullText = responses[0]?.message?.text
           if (fullText) {
-            await websocketGateway
-              .broadcastMessageChunk(conversationId, [transcriptChannel.name], { requestId, text: fullText, done: false })
-              .catch((err) => logger.warn(`Voice assistant: failed to broadcast fallback chunk: ${err}`))
+            await broadcastChunk(conversationId, transcriptChannel.name, requestId, fullText, false, 'fallback chunk')
           }
         }
       } finally {
         // Always send the done marker, even if answerQuestion threw partway through (LLM/tool
         // calls, the RAG lookup) — chunks may already be streaming by then, and a client that's
         // received done:false chunks for this requestId must still learn the stream ended.
-        await websocketGateway
-          .broadcastMessageChunk(conversationId, [transcriptChannel.name], { requestId, text: '', done: true })
-          .catch((err) => logger.warn(`Voice assistant: failed to broadcast done marker: ${err}`))
+        await broadcastChunk(conversationId, transcriptChannel.name, requestId, '', true, 'done marker')
       }
 
       return []
     }
 
-    const chatChannel = this.conversation.channels.find((channel) => channel.name === 'chat')
+    const chatChannel = findChannel(this.conversation, 'chat')
     if (!chatChannel) return []
 
     // answerQuestion expects chat/DM history; transcript is handled internally via RAG
     const responses = await answerQuestion.call(this, questionMessage, { messages: [] })
 
-    return responses.map((r) => ({
-      ...r,
-      channels: [chatChannel],
-      parent: undefined,
-      message: {
-        ...r.message,
-        source: 'voice',
-        sourceMessage: questionText,
-        sourcePseudonym: userMessage.pseudonym
-      }
-    }))
+    return responses.map((r) => wrapVoiceSourceMessage(r, questionText, userMessage, chatChannel))
   },
 
   async start() {
