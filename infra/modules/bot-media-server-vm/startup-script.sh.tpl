@@ -177,12 +177,50 @@ systemctl enable --now bot-media-server
 # webserver-mig's gcplogs-docker-driver logName isolating that app's lines
 # from instance noise, just enforced in the query instead of at the source.
 #
-# Written unconditionally (every boot) and the agent restarted whenever
-# already installed, so a startup-script change (e.g. after a fresh
-# terraform apply -replace) actually takes effect — install alone only
-# picks up config.yaml on its own first start.
+# A custom config.yaml REPLACES Ops Agent's default configuration wholesale,
+# not just the section you name — the metrics pipeline (hostmetrics, which
+# is what actually produces agent.googleapis.com/memory|disk/percent_used)
+# gets dropped too unless this file restates it. Confirmed live: the
+# dashboard's Bot Media Server memory/disk widgets had zero data the entire
+# time this file only had a logging: section (2026-09-30 through at least
+# 2026-10-06, when this was found).
+#
+# Install BEFORE writing this file, not after: the package ships its own
+# default config.yaml, and a file already sitting at this path when dpkg
+# first installs it gets treated as a locally-modified conffile — dpkg
+# stops to prompt (Y/I/N/O/D/Z) interactively, which has no stdin/TTY here
+# and fails outright. Confirmed live: this is exactly what happened
+# 2026-09-30 (`dpkg: error processing package google-cloud-ops-agent
+# (--configure): end of file on stdin at conffile prompt`), which failed
+# the ENTIRE startup script (exit 1) and left Ops Agent never successfully
+# installed — explaining both the metrics gap above and a total absence of
+# forwarded app logs, together. Writing our own config.yaml only after
+# install means the package lays down its own default untouched, then we
+# overwrite it — no pre-existing file for dpkg to treat as a conflict.
+#
+# Restarted unconditionally every boot (not just "already installed"), so a
+# startup-script change (e.g. after a fresh terraform apply -replace) always
+# takes effect — a fresh install's own postinst only starts the agent with
+# whatever config.yaml existed at that moment (the package default, since
+# ours isn't written yet), so it still needs this restart to pick up ours.
+if ! dpkg -s google-cloud-ops-agent >/dev/null 2>&1; then
+  curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh
+  bash add-google-cloud-ops-agent-repo.sh --also-install
+  rm -f add-google-cloud-ops-agent-repo.sh
+fi
+
 mkdir -p /etc/google-cloud-ops-agent
 cat > /etc/google-cloud-ops-agent/config.yaml <<'EOF'
+metrics:
+  receivers:
+    hostmetrics:
+      type: hostmetrics
+      collection_interval: 60s
+  service:
+    pipelines:
+      default_pipeline:
+        receivers: [hostmetrics]
+
 logging:
   receivers:
     bot_media_server_journal:
@@ -193,10 +231,4 @@ logging:
         receivers: [bot_media_server_journal]
 EOF
 
-if ! dpkg -s google-cloud-ops-agent >/dev/null 2>&1; then
-  curl -sSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh
-  bash add-google-cloud-ops-agent-repo.sh --also-install
-  rm -f add-google-cloud-ops-agent-repo.sh
-else
-  systemctl restart google-cloud-ops-agent
-fi
+systemctl restart google-cloud-ops-agent
