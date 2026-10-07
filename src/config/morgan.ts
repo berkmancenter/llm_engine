@@ -1,11 +1,10 @@
 import morgan from 'morgan'
-import config from './config.js'
 import logger from './logger.js'
 
 morgan.token('message', (req, res) => res.locals.errorMessage || '')
-const getIpFormat = () => (config.env === 'production' ? ':remote-addr - ' : '')
-const successResponseFormat = `${getIpFormat()}:method :url :status - :response-time ms`
-const errorResponseFormat = `${getIpFormat()}:method :url :status - :response-time ms - message: :message`
+// No client IP: these lines are forwarded to Sentry, and a visitor's address is personal data.
+const successResponseFormat = ':method :url :status - :response-time ms'
+const errorResponseFormat = ':method :url :status - :response-time ms - message: :message'
 const morganSuccessHandler = morgan(successResponseFormat, {
   skip: (req, res) => res.statusCode >= 400 || req.originalUrl === '/v1/health',
   stream: { write: (message) => logger.info(message.trim()) }

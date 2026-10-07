@@ -12,12 +12,18 @@ import config from './config/config.js'
 import { morganSuccessHandler, morganErrorHandler } from './config/morgan.js'
 import jwtStrategy from './config/passport.js'
 import { authLimiter } from './middlewares/rateLimiter.js'
+import { applyTrustProxy, warnOnShortForwardedChain } from './middlewares/trustProxy.js'
 import routes from './routes/v1/index.js'
 import { errorConverter, errorHandler } from './middlewares/error.js'
 import ApiError from './utils/ApiError.js'
 import './websockets/index.js'
 
 const app = express()
+applyTrustProxy(app, config.trustProxyHops)
+if (config.trustProxyHops > 0) {
+  app.use(warnOnShortForwardedChain(config.trustProxyHops))
+}
+
 if (config.env !== 'test') {
   app.use(morganSuccessHandler)
   app.use(morganErrorHandler)
