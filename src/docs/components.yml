@@ -885,6 +885,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Resource'
+        announcements:
+          type: array
+          items:
+            $ref: '#/components/schemas/Announcement'
         goals:
           type: array
           items:
@@ -1062,6 +1066,33 @@ components:
         participantVisible:
           type: boolean
         addedAt:
+          type: string
+          format: date-time
+
+    Announcement:
+      type: object
+      required:
+        - name
+        - body
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          description: Short label spoken to trigger it, e.g. "kudos" — matched fuzzily against what's said after the wake word.
+        title:
+          type: string
+          description: Optional organizer-facing display label.
+        body:
+          type: string
+          description: >
+            Read aloud verbatim (never summarized/paraphrased) — organizers author ordinary
+            prose/lists; it's split into natural read-aloud segments at speech time, not stored
+            pre-split.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
           type: string
           format: date-time
 

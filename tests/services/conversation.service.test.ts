@@ -428,7 +428,8 @@ describe('Conversation service methods', () => {
           presenters: [
             { name: 'Sam Speaker', bio: 'Speaks' },
             { name: 'Jim Speaker', bio: 'Also Speaks' }
-          ]
+          ],
+          announcements: [{ name: 'kudos', body: 'Jane did great.' }]
         }
 
         const conversation = await conversationService.createConversationFromType(params, registeredUser)
@@ -439,6 +440,8 @@ describe('Conversation service methods', () => {
         expect(conversation.presenters).toHaveLength(2)
         expect(conversation.presenters![0]).toMatchObject(params.presenters[0])
         expect(conversation.presenters![1]).toMatchObject(params.presenters[1])
+        expect(conversation.announcements).toHaveLength(1)
+        expect(conversation.announcements[0]).toMatchObject(params.announcements[0])
       })
 
       test('should persist and retrieve custom properties', async () => {
@@ -1805,6 +1808,19 @@ describe('Conversation service methods', () => {
       expect(result!.presenters![0].name).toBe('New Speaker')
     })
 
+    test('should save changes to announcements', async () => {
+      const result = await conversationService.updateConversation(
+        {
+          id: conversation._id.toString(),
+          announcements: [{ name: 'kudos', body: 'Jane did great.\n\nBob did great too.' }]
+        },
+        registeredUser
+      )
+      expect(result!.announcements).toHaveLength(1)
+      expect(result!.announcements![0].name).toBe('kudos')
+      expect(result!.announcements![0].body).toBe('Jane did great.\n\nBob did great too.')
+    })
+
     test('should move the event to a different topic', async () => {
       const result = await conversationService.updateConversation(
         { id: conversation._id.toString(), topicId: topicTwo._id.toString() },
@@ -2628,6 +2644,22 @@ describe('Conversation service methods', () => {
 
       expect(resource.hasPdf).toBe(true)
       expect(resource.fileName).toBeUndefined()
+    })
+
+    /* findByIdFull's .select() is an explicit field list, so a field missing from it is
+       silently absent from the result regardless of the schema default — this caught
+       announcements being left out when the field was first added. */
+    test('includes announcements', async () => {
+      await Conversation.updateOne(
+        { _id: conversation._id },
+        { $push: { announcements: { name: 'kudos', body: 'Jane did great.' } } }
+      )
+
+      const result = await conversationService.findByIdFull(conversation._id.toString(), registeredUser)
+
+      expect(result.announcements).toHaveLength(1)
+      expect(result.announcements![0].name).toBe('kudos')
+      expect(result.announcements![0].body).toBe('Jane did great.')
     })
   })
 

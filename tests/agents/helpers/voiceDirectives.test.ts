@@ -1,5 +1,14 @@
-import { AgentMessageActions } from '../../../src/types/index.types.js'
-import { evaluateVoiceTrigger, extractVoiceQuestion, VOICE_OUTPUT_RULES } from '../../../src/agents/helpers/voiceDirectives.js'
+import { AgentMessageActions, Announcement } from '../../../src/types/index.types.js'
+import {
+  evaluateVoiceTrigger,
+  extractVoiceQuestion,
+  matchAnnouncementTrigger,
+  VOICE_OUTPUT_RULES
+} from '../../../src/agents/helpers/voiceDirectives.js'
+
+function announcement(name: string): Announcement {
+  return { name, body: 'placeholder body' } as Announcement
+}
 
 function msg(body: string, channels = ['transcript']) {
   return { body, bodyType: 'text', channels } as never
@@ -136,9 +145,7 @@ describe('extractVoiceQuestion', () => {
   })
 
   it('returns the inline question text', () => {
-    expect(extractVoiceQuestion(msg(`hey ${botName} what is part-time work?`), [], botName)).toBe(
-      'What is part-time work?'
-    )
+    expect(extractVoiceQuestion(msg(`hey ${botName} what is part-time work?`), [], botName)).toBe('What is part-time work?')
   })
 
   it('capitalizes the first letter of the extracted question', () => {
@@ -162,5 +169,39 @@ describe('extractVoiceQuestion', () => {
     const currMsg = msg('what did Jessica say?')
     // non-transcript messages should not act as a bare trigger
     expect(extractVoiceQuestion(currMsg, [nonTranscriptMsg], botName)).toBeNull()
+  })
+})
+
+describe('matchAnnouncementTrigger', () => {
+  it('matches when the question text names an announcement exactly', () => {
+    const kudos = announcement('kudos')
+    expect(matchAnnouncementTrigger('read the kudos', [kudos])).toBe(kudos)
+  })
+
+  it('matches on a natural phrasing variant, not just a fixed "read <name>" verb', () => {
+    const kudos = announcement('kudos')
+    expect(matchAnnouncementTrigger('can you give us the kudos', [kudos])).toBe(kudos)
+    expect(matchAnnouncementTrigger('share kudos please', [kudos])).toBe(kudos)
+  })
+
+  it('tolerates ASR-style mis-transcription of the announcement name', () => {
+    const kudos = announcement('kudos')
+    expect(matchAnnouncementTrigger('read the cuedos', [kudos])).toBe(kudos)
+  })
+
+  it('returns undefined when nothing matches', () => {
+    const kudos = announcement('kudos')
+    expect(matchAnnouncementTrigger('what time does the keynote start', [kudos])).toBeUndefined()
+  })
+
+  it('returns undefined for an empty announcements list', () => {
+    expect(matchAnnouncementTrigger('read the kudos', [])).toBeUndefined()
+  })
+
+  it('picks the best-scoring match when multiple announcements are present', () => {
+    const kudos = announcement('kudos')
+    const sponsors = announcement('sponsors')
+    expect(matchAnnouncementTrigger('read the sponsors', [kudos, sponsors])).toBe(sponsors)
+    expect(matchAnnouncementTrigger('read the kudos', [kudos, sponsors])).toBe(kudos)
   })
 })

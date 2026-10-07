@@ -1,7 +1,11 @@
+import * as fuzzball from 'fuzzball'
 import { AgentMessageActions } from '../../types/index.types.js'
-import type { IMessage } from '../../types/index.types.js'
+import type { Announcement, IMessage } from '../../types/index.types.js'
 import { extractMessageText } from './slashCommandParser.js'
 import { matchBotMention, normalizeBotMention } from './intentChecks.js'
+
+// Same threshold convention as matchBotMention in intentChecks.ts.
+const ANNOUNCEMENT_NAME_MATCH_THRESHOLD = 70
 
 /**
  * Checks whether a text message contains a "hey <botName>" wake-word directive anywhere
@@ -67,6 +71,28 @@ export function extractVoiceQuestion(
   }
 
   return null
+}
+
+/**
+ * Checks whether the text following a wake-word trigger (e.g. "read the kudos") names one of
+ * the conversation's announcements, so voiceAssistant can read it verbatim instead of asking
+ * the LLM. `questionText` has already passed through the wake-word check by the time this
+ * runs, so there's no need to also require a specific command verb like "read" — fuzzy-matching
+ * each announcement's `name` against the whole question text is enough, and tolerates ASR
+ * mis-transcription the same way bot-name matching already does.
+ *
+ * Returns the single best-matching announcement, or undefined if none clear the threshold.
+ */
+export function matchAnnouncementTrigger(questionText: string, announcements: Announcement[]): Announcement | undefined {
+  const lowerQuestion = questionText.toLowerCase()
+  let best: { announcement: Announcement; score: number } | undefined
+  for (const announcement of announcements) {
+    const score = fuzzball.partial_ratio(lowerQuestion, announcement.name.toLowerCase())
+    if (score >= ANNOUNCEMENT_NAME_MATCH_THRESHOLD && (!best || score > best.score)) {
+      best = { announcement, score }
+    }
+  }
+  return best?.announcement
 }
 
 /**

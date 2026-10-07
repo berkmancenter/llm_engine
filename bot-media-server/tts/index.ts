@@ -1,5 +1,6 @@
 import sayTextToAudio from './say.js'
-import { createKokoroTts, KokoroTtsOptions } from './kokoro.js'
+import { KokoroTtsOptions } from './kokoro.js'
+import { createKokoroTtsWorker } from './kokoroWorkerClient.js'
 
 export type TtsEngine = 'say' | 'kokoro'
 
@@ -14,9 +15,12 @@ export interface CreateTtsOptions {
 
 export interface TtsDeps {
   say: typeof sayTextToAudio
-  createKokoroTts: typeof createKokoroTts
+  /* The 'kokoro' engine runs in a worker thread (kokoroWorkerClient.ts), not in-process — see
+     its own doc comment for why: Kokoro's CPU inference blocks the event loop long enough to
+     trip socket.io's ping-timeout on both the llm_engine and browser connections at once. */
+  createKokoroTts: typeof createKokoroTtsWorker
 }
-const defaultDeps: TtsDeps = { say: sayTextToAudio, createKokoroTts }
+const defaultDeps: TtsDeps = { say: sayTextToAudio, createKokoroTts: createKokoroTtsWorker }
 
 /**
  * Builds the (text) => Promise<WAV Buffer> function bot-media-server actually calls per

@@ -266,7 +266,7 @@ describe('engineSocket', () => {
     expect(queue.hasPending()).toBe(true)
   })
 
-  test('a TTS failure for one chunk is logged and does not crash the connection', async () => {
+  test('a TTS failure for the only chunk so far is logged and never raises the hand for nothing', async () => {
     const hooks = makeHooks()
     const { auth } = makeAuth()
     const onLog = jest.fn<(message: string) => void>()
@@ -284,9 +284,74 @@ describe('engineSocket', () => {
     engineSocket.emit('message:chunk', { requestId: 'r1', text: 'Hello there', done: false })
     await wait(50)
 
-    expect(hooks.onChime).toHaveBeenCalledTimes(1) // the hold is announced before conversion even fails
+    // The hand only raises once a chunk actually has audio ready — a chunk that failed to
+    // synthesize is nothing to announce, not just a delayed one.
+    expect(hooks.onChime).not.toHaveBeenCalled()
+    expect(hooks.onStateChange).not.toHaveBeenCalledWith('hand-raised')
     expect(hooks.onAudioChunk).not.toHaveBeenCalled()
     expect(onLog).toHaveBeenCalledWith(expect.stringContaining('TTS error'))
+  })
+
+  test('a later chunk still announces normally after an earlier one in the same response failed', async () => {
+    const hooks = makeHooks()
+    const { auth } = makeAuth()
+    let callCount = 0
+    const flakyTts = async (text: string): Promise<Buffer> => {
+      callCount += 1
+      if (callCount === 1) throw new Error('tts boom')
+      return Buffer.from(text)
+    }
+    makeEngineSocket(
+      { llmEngineWsUrl: fakeLlmEngine.url, conversationId: 'conv-1', botName: 'TestBot', auth, tts: flakyTts },
+      hooks
+    )
+
+    const engineSocket = await engineServerSocketPromise
+    await waitForServerEvent(engineSocket, 'conversation:join')
+
+    engineSocket.emit('message:chunk', { requestId: 'r1', text: 'first chunk fails', done: false })
+    await wait(50)
+    expect(hooks.onChime).not.toHaveBeenCalled()
+
+    engineSocket.emit('message:chunk', { requestId: 'r1', text: 'second chunk succeeds', done: false })
+    await wait(50)
+    expect(hooks.onChime).toHaveBeenCalledTimes(1)
+    expect(hooks.onStateChange).toHaveBeenCalledWith('hand-raised')
+  })
+
+  test('a call-upon before TTS finishes still speaks the audio once it does, instead of losing it', async () => {
+    const hooks = makeHooks()
+    const { auth } = makeAuth()
+    let resolveTts: (buf: Buffer) => void
+    const slowTts = (text: string) =>
+      new Promise<Buffer>((resolve) => {
+        resolveTts = () => resolve(Buffer.from(text))
+      })
+    makeEngineSocket(
+      { llmEngineWsUrl: fakeLlmEngine.url, conversationId: 'conv-1', botName: 'TestBot', auth, tts: slowTts },
+      hooks
+    )
+
+    const engineSocket = await engineServerSocketPromise
+    await waitForServerEvent(engineSocket, 'conversation:join')
+
+    engineSocket.emit('message:chunk', { requestId: 'r1', text: 'Hello there', done: false })
+    engineSocket.emit('message:chunk', { requestId: 'r1', text: '', done: true })
+    await wait(20)
+
+    // Called upon before the (still-pending) TTS conversion has resolved.
+    engineSocket.emit('message:new', { channels: ['transcript'], body: 'go ahead TestBot' })
+    await wait(20)
+
+    expect(hooks.onStateChange).toHaveBeenCalledWith('speaking')
+    expect(hooks.onAudioChunk).not.toHaveBeenCalled() // nothing to send yet — not lost, just not ready
+
+    resolveTts!(Buffer.from('Hello there'))
+    await wait(20)
+
+    // Delivered once it's ready, with no further call-upon needed — this is the fix: a slow
+    // chunk no longer gets silently dropped just because it wasn't ready at call-upon time.
+    expect(hooks.onAudioChunk).toHaveBeenCalledWith(expect.objectContaining({ audio: Buffer.from('Hello there') }))
   })
 
   test('the server disconnecting resets the queue and goes idle', async () => {

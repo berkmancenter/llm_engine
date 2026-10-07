@@ -53,6 +53,12 @@ const consumeInvite = {
   })
 }
 
+const resendInvite = {
+  body: Joi.object().keys({
+    token: Joi.string().required()
+  })
+}
+
 const authValidation = {
   register,
   login,
@@ -61,6 +67,7 @@ const authValidation = {
   sendPasswordReset,
   resetPassword,
   getInvite,
-  consumeInvite
+  consumeInvite,
+  resendInvite
 }
 export default authValidation

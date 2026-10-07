@@ -210,6 +210,7 @@ export interface IConversationMembership {
   inviteState: 'pending' | 'invited' | 'failed'
   inviteError?: string | null
   joined: boolean
+  lastPublicResendAt?: Date | null
   status: 'active' | 'removed'
   userAccount?: mongoose.Types.ObjectId
   // Keyed by adapter type (e.g. 'slack', 'zoom') — stores the external platform's user ID
@@ -461,6 +462,21 @@ export interface Resource {
   addedAt?: Date
 }
 
+/* Organizer-authored, exact-wording event content to be displayed in full, rather than retrieved by relevance. See
+   src/models/schemas/announcement.schema.ts and src/agents/helpers/voiceDirectives.ts. */
+export interface Announcement {
+  _id?: mongoose.Types.ObjectId
+  name: string // short label, spoken to trigger it, e.g. "kudos"
+  title?: string // optional organizer-facing display label
+  body: string
+  createdAt?: Date
+  updatedAt?: Date
+  // Schema method (see announcement.schema.ts) — splits `body` into read-aloud segments.
+  // Declared here since Announcement describes the hydrated subdocument shape wherever it's
+  // accessed (e.g. conversation.announcements), not just data.
+  segments(): string[]
+}
+
 export interface TriggerCondition {
   scope: 'event' | 'participant'
   condition: string
@@ -601,6 +617,7 @@ export interface IConversation {
   transcript?: ITranscript
   followed?: boolean
   resources: Resource[]
+  announcements: Announcement[]
   createdAt?: Date
   updatedAt?: Date
   messageCount(): number

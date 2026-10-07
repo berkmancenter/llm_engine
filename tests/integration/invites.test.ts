@@ -1,14 +1,22 @@
 import { jest } from '@jest/globals'
 import request from 'supertest'
+import jwt from 'jsonwebtoken'
+import moment from 'moment'
+import { createHash, randomUUID } from 'node:crypto'
 import httpStatus from 'http-status'
 import mongoose from 'mongoose'
 import setupIntTest from '../utils/setupIntTest.js'
 import app from '../../src/app.js'
+import config from '../../src/config/config.js'
+import tokenTypes from '../../src/config/tokens.js'
 import { applyTrustProxy } from '../../src/middlewares/trustProxy.js'
 import { ConversationMembership, MemberInvite, User, Conversation } from '../../src/models/index.js'
 import emailService from '../../src/services/email.service.js'
 import inviteService from '../../src/services/invite.service.js'
-import { inviteSendLimiter, inviteConsumeLimiter } from '../../src/middlewares/rateLimiter.js'
+import tokenService from '../../src/services/token.service.js'
+import agenda from '../../src/jobs/index.js'
+import inviteHandlers from '../../src/jobs/handlers/invite.js'
+import { inviteSendLimiter, inviteConsumeLimiter, inviteResendLimiter } from '../../src/middlewares/rateLimiter.js'
 import { insertUsers, admin, participant } from '../fixtures/user.fixture.js'
 import { adminAccessToken, participantAccessToken } from '../fixtures/token.fixture.js'
 import { insertConversations, conversationCommunityRoom } from '../fixtures/conversation.fixture.js'
@@ -28,7 +36,7 @@ const insertMembership = async (overrides = {}) =>
     ...overrides
   })
 
-type BatchResult = Array<{ membershipId: string; success: boolean; error?: string }>
+type BatchResult = Array<{ membershipId: string; success: boolean; error?: string; retryable?: boolean }>
 interface InvitePayload {
   membershipId: string
   to: string
@@ -47,7 +55,8 @@ describe('invite endpoints', () => {
     await Promise.all(
       ['::1', '127.0.0.1', '::ffff:127.0.0.1'].flatMap((key) => [
         inviteSendLimiter.resetKey(key),
-        inviteConsumeLimiter.resetKey(key)
+        inviteConsumeLimiter.resetKey(key),
+        inviteResendLimiter.resetKey(key)
       ])
     )
   })
@@ -212,6 +221,27 @@ describe('invite endpoints', () => {
       expect(bounced!.inviteError).toBe('hard bounce')
     })
 
+    test('leaves no live link and marks everyone failed when the send throws', async () => {
+      const janeM = await insertMembership()
+      const otherM = await insertMembership({ email: 'other@example.com', name: 'Other Person' })
+      batchSpy = jest.spyOn(emailService, 'sendMemberInviteBatch').mockRejectedValue(new Error('smtp down'))
+
+      await request(app)
+        .post(sendUrl(conversationCommunityRoom._id))
+        .set('Authorization', `Bearer ${adminAccessToken}`)
+        .expect(httpStatus.INTERNAL_SERVER_ERROR)
+
+      const undelivered = batchSpy.mock.calls[0][0] as InvitePayload[]
+      expect(undelivered).toHaveLength(2)
+      await Promise.all(
+        undelivered.map(({ token }) => request(app).get('/v1/auth/invite').query({ token }).expect(httpStatus.GONE))
+      )
+      const jane = await ConversationMembership.findById(janeM._id).lean()
+      const other = await ConversationMembership.findById(otherM._id).lean()
+      expect(jane!.inviteState).toBe('failed')
+      expect(other!.inviteState).toBe('failed')
+    })
+
     test('a later batch retries failed members but not invited ones', async () => {
       await insertMembership({ inviteState: 'invited' })
       const failedM = await insertMembership({
@@ -304,6 +334,21 @@ describe('invite endpoints', () => {
       await expect(inviteService.validateInvite(invites[0].token)).resolves.toBeTruthy()
       const stored = await ConversationMembership.findById(membership._id).lean()
       expect(stored!.inviteState).toBe('invited')
+    })
+
+    test('leaves no live link and marks the member failed when the send throws', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      batchSpy = jest.spyOn(emailService, 'sendMemberInviteBatch').mockRejectedValue(new Error('smtp down'))
+
+      await request(app)
+        .post(resendUrl(membership._id))
+        .set('Authorization', `Bearer ${adminAccessToken}`)
+        .expect(httpStatus.INTERNAL_SERVER_ERROR)
+
+      const [undelivered] = batchSpy.mock.calls[0][0] as InvitePayload[]
+      await request(app).get('/v1/auth/invite').query({ token: undelivered.token }).expect(httpStatus.GONE)
+      const stored = await ConversationMembership.findById(membership._id).lean()
+      expect(stored!.inviteState).toBe('failed')
     })
   })
 
@@ -550,6 +595,393 @@ describe('invite endpoints', () => {
       const res = await validateFrom(forwardedFor(visitorA, '203.0.113.99'))
 
       expect(res.status).toBe(httpStatus.TOO_MANY_REQUESTS)
+    })
+  })
+
+  describe('POST /v1/auth/invite/resend (public "send me a new link")', () => {
+    const publicResendUrl = '/v1/auth/invite/resend'
+    const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
+    let acceptedBody: unknown
+
+    const resetResendLimiter = () =>
+      Promise.all(['::1', '127.0.0.1', '::ffff:127.0.0.1'].map((key) => inviteResendLimiter.resetKey(key)))
+
+    // setupIntTest only wipes collections with a Mongoose model, so queued jobs need clearing by hand.
+    const clearQueuedResends = () => agenda.cancel({ name: 'publicInviteResend' })
+
+    /* Agenda isn't polling under test, so run whatever the endpoint queued by hand, whatever
+       its scheduled time. Returns how many jobs ran. */
+    const runQueuedResends = async () => {
+      const jobs = await agenda.jobs({ name: 'publicInviteResend' })
+      await clearQueuedResends()
+      for (const job of jobs) {
+        await inviteHandlers.publicInviteResend(job)
+      }
+      return jobs.length
+    }
+
+    const signInviteJwt = (membershipId: string, issuedAt: moment.Moment, expiresAt: moment.Moment) =>
+      jwt.sign(
+        {
+          sub: membershipId,
+          jti: randomUUID(),
+          type: tokenTypes.MEMBER_INVITE,
+          iat: issuedAt.unix(),
+          exp: expiresAt.unix()
+        },
+        config.jwt.secret,
+        { algorithm: 'HS256' }
+      )
+
+    // mintInvite can only produce a live token, so build the expired one it would have made.
+    const insertExpiredInvite = async (membership, daysSinceExpiry = 1) => {
+      const expiredAt = moment().subtract(daysSinceExpiry, 'days')
+      const token = signInviteJwt(
+        membership._id.toString(),
+        expiredAt.clone().subtract(config.jwt.inviteExpirationDays, 'days'),
+        expiredAt
+      )
+      await MemberInvite.create({ membership: membership._id, tokenHash: sha256(token), expiresAt: expiredAt.toDate() })
+      return token
+    }
+
+    const postPublicResend = async (body: object) => {
+      const res = await request(app).post(publicResendUrl).send(body).expect(httpStatus.ACCEPTED)
+      expect(res.body).toEqual(acceptedBody)
+      expect(res.headers['cache-control']).toContain('no-store')
+      expect(res.headers['referrer-policy']).toBe('no-referrer')
+      // Rate-limit headers would make a limited response look different from the rest.
+      expect(res.headers['retry-after']).toBeUndefined()
+      expect(res.headers['x-ratelimit-limit']).toBeUndefined()
+      expect(res.headers['ratelimit-limit']).toBeUndefined()
+      return res
+    }
+
+    const expectInviteLive = (token: string) => request(app).get('/v1/auth/invite').query({ token }).expect(httpStatus.OK)
+    const expectInviteDead = (token: string) => request(app).get('/v1/auth/invite').query({ token }).expect(httpStatus.GONE)
+
+    const failEverySend = (retryable: boolean) => async (invites: InvitePayload[]) =>
+      invites.map((i) => ({ membershipId: i.membershipId, success: false, error: 'send failed', retryable }))
+
+    beforeEach(async () => {
+      await clearQueuedResends()
+      // Every outcome must return this same body, so take it from the least informative one.
+      const res = await request(app).post(publicResendUrl).send({ token: 'not-a-jwt' }).expect(httpStatus.ACCEPTED)
+      acceptedBody = res.body
+      await resetResendLimiter()
+    })
+
+    afterAll(clearQueuedResends)
+
+    test('queues and then mails a fresh invite for an expired one, to the address on file', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const expiredToken = await insertExpiredInvite(membership)
+      const spy = mockBatch()
+
+      await postPublicResend({ token: expiredToken })
+      expect(spy).not.toHaveBeenCalled()
+      expect(await runQueuedResends()).toBe(1)
+
+      expect(spy).toHaveBeenCalledTimes(1)
+      const invites = spy.mock.calls[0][0] as InvitePayload[]
+      expect(invites).toHaveLength(1)
+      expect(invites[0]).toMatchObject({ membershipId: membership._id.toString(), to: 'jane.doe@example.com' })
+      await expectInviteLive(invites[0].token)
+      await expectInviteDead(expiredToken)
+      expect(await MemberInvite.countDocuments({ membership: membership._id, invalidatedAt: null })).toBe(1)
+    })
+
+    test('mints and mails a fresh invite for one an admin resend replaced, killing the replacement', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const { token: supersededToken } = await inviteService.mintInvite(membership)
+      const spy = mockBatch()
+      await request(app)
+        .post(resendUrl(membership._id))
+        .set('Authorization', `Bearer ${adminAccessToken}`)
+        .expect(httpStatus.OK)
+      const adminToken = (spy.mock.calls[0][0] as InvitePayload[])[0].token
+
+      await postPublicResend({ token: supersededToken })
+      await runQueuedResends()
+
+      expect(spy).toHaveBeenCalledTimes(2)
+      const invites = spy.mock.calls[1][0] as InvitePayload[]
+      expect(invites).toHaveLength(1)
+      expect(invites[0].to).toBe('jane.doe@example.com')
+      await expectInviteLive(invites[0].token)
+      await expectInviteDead(adminToken)
+      await expectInviteDead(supersededToken)
+    })
+
+    test('sends nothing for an invite that was already used', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const { token } = await inviteService.mintInvite(membership)
+      const { nonce } = (await expectInviteLive(token)).body
+      await request(app).post('/v1/auth/invite/consume').send({ token, nonce, password: 'Invite1234' }).expect(httpStatus.OK)
+      const spy = mockBatch()
+
+      await postPublicResend({ token })
+
+      expect(await runQueuedResends()).toBe(0)
+      expect(spy).not.toHaveBeenCalled()
+    })
+
+    test('sends nothing for a superseded invite once the member has used its replacement', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const { token: supersededToken } = await inviteService.mintInvite(membership)
+      const { token: replacementToken } = await inviteService.mintInvite(membership)
+      const { nonce } = (await expectInviteLive(replacementToken)).body
+      await request(app)
+        .post('/v1/auth/invite/consume')
+        .send({ token: replacementToken, nonce, password: 'Invite1234' })
+        .expect(httpStatus.OK)
+      const spy = mockBatch()
+
+      await postPublicResend({ token: supersededToken })
+
+      expect(await runQueuedResends()).toBe(0)
+      expect(spy).not.toHaveBeenCalled()
+    })
+
+    test('sends nothing for a member who already joined through another channel', async () => {
+      const membership = await insertMembership({ inviteState: 'invited', joined: true })
+      const expiredToken = await insertExpiredInvite(membership)
+      const spy = mockBatch()
+
+      await postPublicResend({ token: expiredToken })
+
+      expect(await runQueuedResends()).toBe(0)
+      expect(spy).not.toHaveBeenCalled()
+    })
+
+    test('still honors a link that expired 29 days ago', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const expiredToken = await insertExpiredInvite(membership, 29)
+      const spy = mockBatch()
+
+      await postPublicResend({ token: expiredToken })
+
+      expect(await runQueuedResends()).toBe(1)
+      expect(spy).toHaveBeenCalledTimes(1)
+    })
+
+    test('sends nothing for a link that expired more than 30 days ago, and leaves the current link alone', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const staleToken = await insertExpiredInvite(membership, 31)
+      const { token: currentToken } = await inviteService.mintInvite(membership)
+      const spy = mockBatch()
+
+      await postPublicResend({ token: staleToken })
+
+      expect(await runQueuedResends()).toBe(0)
+      expect(spy).not.toHaveBeenCalled()
+      await expectInviteLive(currentToken)
+    })
+
+    test('sends nothing for a genuine invite token that carries no expiry', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const token = jwt.sign(
+        { sub: membership._id.toString(), jti: randomUUID(), type: tokenTypes.MEMBER_INVITE, iat: moment().unix() },
+        config.jwt.secret,
+        { algorithm: 'HS256' }
+      )
+      await MemberInvite.create({ membership: membership._id, tokenHash: sha256(token), expiresAt: moment().toDate() })
+      const spy = mockBatch()
+
+      await postPublicResend({ token })
+
+      expect(await runQueuedResends()).toBe(0)
+      expect(spy).not.toHaveBeenCalled()
+    })
+
+    test('sends nothing and mints nothing for a tampered token', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const { token } = await inviteService.mintInvite(membership)
+      // Flip a character mid-signature: the last one partly holds padding bits the decoder ignores.
+      const [header, payload, signature] = token.split('.')
+      const flipped = signature[10] === 'A' ? 'B' : 'A'
+      const tampered = `${header}.${payload}.${signature.slice(0, 10)}${flipped}${signature.slice(11)}`
+      const spy = mockBatch()
+
+      await postPublicResend({ token: tampered })
+
+      expect(await runQueuedResends()).toBe(0)
+      expect(spy).not.toHaveBeenCalled()
+      await expectInviteLive(token)
+    })
+
+    test('sends nothing for a token of a different type, even one with a matching record', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const resetToken = tokenService.generateToken(
+        membership._id.toString(),
+        moment().add(1, 'day'),
+        tokenTypes.RESET_PASSWORD
+      )
+      await MemberInvite.create({
+        membership: membership._id,
+        tokenHash: sha256(resetToken),
+        expiresAt: moment().add(1, 'day').toDate()
+      })
+      const spy = mockBatch()
+
+      await postPublicResend({ token: resetToken })
+
+      expect(await runQueuedResends()).toBe(0)
+      expect(spy).not.toHaveBeenCalled()
+    })
+
+    test('sends nothing for a genuine invite token with no matching record', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const orphanToken = signInviteJwt(membership._id.toString(), moment(), moment().add(1, 'day'))
+      const spy = mockBatch()
+
+      await postPublicResend({ token: orphanToken })
+
+      expect(await runQueuedResends()).toBe(0)
+      expect(spy).not.toHaveBeenCalled()
+    })
+
+    test('sends nothing once the membership has been removed', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const expiredToken = await insertExpiredInvite(membership)
+      await ConversationMembership.updateOne({ _id: membership._id }, { status: 'removed' })
+      const spy = mockBatch()
+
+      await postPublicResend({ token: expiredToken })
+
+      expect(await runQueuedResends()).toBe(0)
+      expect(spy).not.toHaveBeenCalled()
+    })
+
+    test('sends nothing when the membership is removed after the request was queued', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const expiredToken = await insertExpiredInvite(membership)
+      const spy = mockBatch()
+
+      await postPublicResend({ token: expiredToken })
+      await ConversationMembership.updateOne({ _id: membership._id }, { status: 'removed' })
+      await runQueuedResends()
+
+      expect(spy).not.toHaveBeenCalled()
+    })
+
+    test('sends only once when asked again inside the cooldown', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const expiredToken = await insertExpiredInvite(membership)
+      const spy = mockBatch()
+
+      await postPublicResend({ token: expiredToken })
+      await postPublicResend({ token: expiredToken })
+      expect(await runQueuedResends()).toBe(1)
+
+      expect(spy).toHaveBeenCalledTimes(1)
+    })
+
+    test('never sends to an email address supplied in the request', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const expiredToken = await insertExpiredInvite(membership)
+      const spy = mockBatch()
+
+      await request(app)
+        .post(publicResendUrl)
+        .send({ token: expiredToken, email: 'intruder@example.com' })
+        .expect(httpStatus.BAD_REQUEST)
+
+      expect(await runQueuedResends()).toBe(0)
+      expect(spy).not.toHaveBeenCalled()
+    })
+
+    test('retries a temporary Postmark failure and delivers on the next attempt', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const expiredToken = await insertExpiredInvite(membership)
+      batchSpy = jest
+        .spyOn(emailService, 'sendMemberInviteBatch')
+        .mockImplementationOnce(failEverySend(true))
+        .mockImplementation(async (invites: InvitePayload[]) =>
+          invites.map((i) => ({ membershipId: i.membershipId, success: true }))
+        )
+
+      await postPublicResend({ token: expiredToken })
+      await runQueuedResends()
+
+      const [retry] = await agenda.jobs({ name: 'publicInviteResend' })
+      expect(retry.attrs.data).toEqual({ membershipId: membership._id.toString(), attempt: 2 })
+      expect(retry.attrs.nextRunAt!.getTime()).toBeGreaterThan(Date.now())
+      const [firstAttempt] = batchSpy.mock.calls[0][0] as InvitePayload[]
+      await expectInviteDead(firstAttempt.token)
+
+      await runQueuedResends()
+
+      expect(batchSpy).toHaveBeenCalledTimes(2)
+      const [delivered] = batchSpy.mock.calls[1][0] as InvitePayload[]
+      await expectInviteLive(delivered.token)
+      const stored = await ConversationMembership.findById(membership._id).lean()
+      expect(stored!.inviteState).toBe('invited')
+    })
+
+    test('gives up after the last retry and lets the member ask again right away', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const expiredToken = await insertExpiredInvite(membership)
+      batchSpy = jest.spyOn(emailService, 'sendMemberInviteBatch').mockImplementation(failEverySend(true))
+
+      await postPublicResend({ token: expiredToken })
+      while ((await runQueuedResends()) > 0) {
+        // Each run either queues the next retry or gives up.
+      }
+
+      expect(batchSpy).toHaveBeenCalledTimes(3)
+      const stored = await ConversationMembership.findById(membership._id).lean()
+      expect(stored!.inviteState).toBe('failed')
+      await postPublicResend({ token: expiredToken })
+      expect(await agenda.jobs({ name: 'publicInviteResend' })).toHaveLength(1)
+    })
+
+    test('does not retry a recipient Postmark rejects, and lets the member ask again right away', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const expiredToken = await insertExpiredInvite(membership)
+      batchSpy = jest.spyOn(emailService, 'sendMemberInviteBatch').mockImplementation(failEverySend(false))
+
+      await postPublicResend({ token: expiredToken })
+      await runQueuedResends()
+
+      expect(batchSpy).toHaveBeenCalledTimes(1)
+      expect(await agenda.jobs({ name: 'publicInviteResend' })).toHaveLength(0)
+      const [undelivered] = batchSpy.mock.calls[0][0] as InvitePayload[]
+      await expectInviteDead(undelivered.token)
+      await postPublicResend({ token: expiredToken })
+      expect(await agenda.jobs({ name: 'publicInviteResend' })).toHaveLength(1)
+    })
+
+    test('does not retry a failure on our side, and leaves no undelivered live link', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const expiredToken = await insertExpiredInvite(membership)
+      batchSpy = jest
+        .spyOn(emailService, 'sendMemberInviteBatch')
+        .mockRejectedValue(new Error('Outgoing email is not configured'))
+
+      await postPublicResend({ token: expiredToken })
+      await runQueuedResends()
+
+      expect(batchSpy).toHaveBeenCalledTimes(1)
+      expect(await agenda.jobs({ name: 'publicInviteResend' })).toHaveLength(0)
+      const [undelivered] = batchSpy.mock.calls[0][0] as InvitePayload[]
+      await expectInviteDead(undelivered.token)
+      const stored = await ConversationMembership.findById(membership._id).lean()
+      expect(stored!.inviteState).toBe('failed')
+    })
+
+    test('answers the same without queuing once the per-IP limit is spent', async () => {
+      const membership = await insertMembership({ inviteState: 'invited' })
+      const expiredToken = await insertExpiredInvite(membership)
+      const spy = mockBatch()
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        await postPublicResend({ token: 'not-a-jwt' })
+      }
+
+      await postPublicResend({ token: expiredToken })
+
+      expect(await runQueuedResends()).toBe(0)
+      expect(spy).not.toHaveBeenCalled()
     })
   })
 })
