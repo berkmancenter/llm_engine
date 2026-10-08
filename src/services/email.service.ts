@@ -231,10 +231,9 @@ We received your calendar invite, but ran into a problem creating your event. Pl
 }
 
 /**
- * Notify an organizer that their emailed Zoom link turned into an on-demand event. Leads with the
- * moderator and participant links, since those are the ones that open straight into the room
- * without signing in (unlike the event page link, which requires an account); the event page
- * link comes last as the place to edit the event or find these links again.
+ * Notify an organizer that their emailed Zoom link turned into an on-demand event. Lists the
+ * passcode links first because they open the room without signing in; the event page link
+ * comes last because it needs an account.
  * @param {string} to
  * @param {Object} urls - { eventPageUrl, moderatorUrl?, participantUrl, presentationUrl } from eventUrls.service
  * @param {Object} [options]
