@@ -86,6 +86,15 @@ describe('eventUrls.service', () => {
       expect(url).toContain('channel=chat%2Ccccccccc')
     })
 
+    it('carries exactly the participant link query, so it opens the same room', () => {
+      const conversation = conversationWith(allChannels)
+
+      const presentationQuery = eventUrls.presentationUrl(conversation).split('?')[1]
+      const participantQuery = eventUrls.participantUrl(conversation).split('?')[1]
+
+      expect(presentationQuery).toBe(participantQuery)
+    })
+
     it('never exposes the moderator channel, since the screen is shown to the whole room', () => {
       const url = eventUrls.presentationUrl(conversationWith(allChannels))
 
