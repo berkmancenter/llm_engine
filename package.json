@@ -94,7 +94,7 @@
     "fuzzball": "^2.2.2",
     "gcp-metadata": "^9.0.3",
     "googleapis": "^144.0.0",
-    "handlebars": "^4.7.9",
+    "handlebars": "^4.7.10",
     "helmet": "^8.0.0",
     "http-status": "^1",
     "ical.js": "^2.2.1",
@@ -205,7 +205,7 @@
     "fast-xml-parser": ">=5.3.5",
     "basic-ftp": ">=5.2.0",
     "convict": ">=6.2.5",
-    "handlebars": ">=4.7.9",
+    "handlebars": ">=4.7.10",
     "axios": "1.15.0",
     "protobufjs": ">=7.5.5",
     "proxy-addr": ">=2.0.8"
