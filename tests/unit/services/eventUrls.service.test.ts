@@ -76,6 +76,23 @@ describe('eventUrls.service', () => {
     })
   })
 
+  describe('presentationUrl', () => {
+    it('points at the presentation path with the same channels as the participant link', () => {
+      const url = eventUrls.presentationUrl(conversationWith(allChannels))
+
+      expect(url).toContain(`${config.appHost}/present/?`)
+      expect(url).toContain('conversationId=65f0000000000000000000aa')
+      expect(url).toContain('channel=transcript%2Ctttttttt')
+      expect(url).toContain('channel=chat%2Ccccccccc')
+    })
+
+    it('never exposes the moderator channel, since the screen is shown to the whole room', () => {
+      const url = eventUrls.presentationUrl(conversationWith(allChannels))
+
+      expect(url).not.toContain('moderator')
+    })
+  })
+
   describe('eventPageUrl', () => {
     it('deep links through login into the admin view for the conversation type', () => {
       const url = eventUrls.eventPageUrl(conversationWith(allChannels))
@@ -92,6 +109,7 @@ describe('eventUrls.service', () => {
     afterEach(() => {
       config.eventUrlPaths.participant = originalPaths.participant
       config.eventUrlPaths.moderator = originalPaths.moderator
+      config.eventUrlPaths.presentation = originalPaths.presentation
     })
 
     it('honors a configured participant path', () => {
@@ -104,6 +122,12 @@ describe('eventUrls.service', () => {
       config.eventUrlPaths.moderator = '/host/'
 
       expect(eventUrls.moderatorUrl(conversationWith(allChannels))).toContain(`${config.appHost}/host/?`)
+    })
+
+    it('honors a configured presentation path', () => {
+      config.eventUrlPaths.presentation = '/screen/'
+
+      expect(eventUrls.presentationUrl(conversationWith(allChannels))).toContain(`${config.appHost}/screen/?`)
     })
   })
 })

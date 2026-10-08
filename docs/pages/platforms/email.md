@@ -42,6 +42,7 @@ Both paths are gated by `ALLOWED_ORGANIZER_EMAIL_DOMAINS` (see below): a sender 
 | `ON_DEMAND_EVENT_DURATION_MINUTES` | no       | Default length, in minutes, for an on-demand event whose email states no duration. Defaults to 60.                                                                                                     |
 | `EVENT_PARTICIPANT_PATH`           | no       | Path appended to `APP_HOST` for the participant link emailed to the organizer. Defaults to `/assistant/`.                                                                                              |
 | `EVENT_MODERATOR_PATH`             | no       | Path appended to `APP_HOST` for the moderator link emailed to the organizer. Defaults to `/moderator/`.                                                                                                |
+| `EVENT_PRESENTATION_PATH`          | no       | Path appended to `APP_HOST` for the presentation link emailed to the organizer, for the shared-screen view. Defaults to `/present/`.                                                                   |
 
 `POSTMARK_WEBHOOK_AUTH_USER` and `POSTMARK_WEBHOOK_AUTH_SECRET` are required to use this endpoint, but neither is required to boot the server. If either is unset, the handler rejects every request rather than accepting unverified ones, and logs that it is not configured.
 

@@ -1,10 +1,12 @@
 /*
  * The client-facing URLs for an event: where a participant joins, where a moderator
- * watches the back channel, and where the organizer edits the event.
+ * watches the back channel, what goes on the shared screen, and where the organizer edits
+ * the event.
  *
  * This is the only place the server assumes anything about the frontend's routing, so the
- * two view paths come from config (EVENT_PARTICIPANT_PATH, EVENT_MODERATOR_PATH) and a
- * client that routes differently overrides them without a code change. Everything after
+ * view paths come from config (EVENT_PARTICIPANT_PATH, EVENT_MODERATOR_PATH,
+ * EVENT_PRESENTATION_PATH) and a client that routes differently overrides them without a
+ * code change. Everything after
  * the path is llm_engine's own API convention: `conversationId` plus a repeated
  * `channel=<name>,<passcode>` pair, the same shape message.controller.ts parses on the way
  * back in.
@@ -54,6 +56,16 @@ const participantUrl = (conversation: LinkableConversation): string =>
   `${config.appHost}${config.eventUrlPaths.participant}?${channelParams(conversation, [TRANSCRIPT_CHANNEL, CHAT_CHANNEL])}`
 
 /**
+ * The participant view enlarged for a projector or shared screen. It carries the same
+ * channels as the participant link, so it is just as safe to share and never reaches the
+ * back channel.
+ * @param {LinkableConversation} conversation
+ * @returns {string}
+ */
+const presentationUrl = (conversation: LinkableConversation): string =>
+  `${config.appHost}${config.eventUrlPaths.presentation}?${channelParams(conversation, [TRANSCRIPT_CHANNEL, CHAT_CHANNEL])}`
+
+/**
  * Where the moderator watches the back channel. Undefined when the conversation has no
  * moderator passcode, which happens when moderator support is off: the URL would render
  * without the token that grants access, and a link that silently fails is worse than none.
@@ -69,7 +81,7 @@ const moderatorUrl = (conversation: LinkableConversation): string | undefined =>
 }
 
 /**
- * Where the organizer confirms and edits the event. Unlike the other two, this one requires
+ * Where the organizer confirms and edits the event. Unlike the others, this one requires
  * an account: it routes through the login screen and lands on the admin view afterwards.
  * @param {LinkableConversation} conversation
  * @returns {string}
@@ -77,5 +89,5 @@ const moderatorUrl = (conversation: LinkableConversation): string | undefined =>
 const eventPageUrl = (conversation: LinkableConversation): string =>
   `${config.appHost}/login?redirectTo=/admin/${conversation.conversationType}/view/${conversationId(conversation)}`
 
-const eventUrls = { participantUrl, moderatorUrl, eventPageUrl }
+const eventUrls = { participantUrl, presentationUrl, moderatorUrl, eventPageUrl }
 export default eventUrls
