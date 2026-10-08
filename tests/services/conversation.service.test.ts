@@ -2800,6 +2800,45 @@ describe('Conversation service methods', () => {
       )
       dispatchSpy.mockRestore()
     })
+
+    describe('from a shared presentation screen', () => {
+      it('creates no direct channel, so the screen is not counted as an attendee', async () => {
+        const { User } = await import('../../src/models/index.js')
+        const user = await User.findById(registeredUser._id)
+
+        await conversationService.joinConversation(joinConversation._id.toString(), user, { presentation: true })
+
+        const directChannels = await Channel.countDocuments({ direct: true, participants: registeredUser._id })
+        expect(directChannels).toBe(0)
+      })
+
+      it('does not welcome the screen as a new participant', async () => {
+        const { User } = await import('../../src/models/index.js')
+        const user = await User.findById(registeredUser._id)
+        const dispatchSpy = jest.spyOn(agentDispatcher, 'dispatch')
+
+        await conversationService.joinConversation(joinConversation._id.toString(), user, { presentation: true })
+
+        expect(dispatchSpy).not.toHaveBeenCalled()
+        dispatchSpy.mockRestore()
+      })
+
+      it('leaves the membership unjoined, so the member is still welcomed on their own first visit', async () => {
+        const { User } = await import('../../src/models/index.js')
+        const user = await User.findById(registeredUser._id)
+        await ConversationMembership.create({
+          conversation: joinConversation._id,
+          email: registeredUser.email,
+          userAccount: registeredUser._id,
+          name: 'Test Member'
+        })
+
+        await conversationService.joinConversation(joinConversation._id.toString(), user, { presentation: true })
+
+        const membership = await ConversationMembership.findOne({ conversation: joinConversation._id })
+        expect(membership!.joined).not.toBe(true)
+      })
+    })
   })
 
   describe('an admin entering a second real-name room', () => {

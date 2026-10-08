@@ -4,6 +4,7 @@ import setupIntTest from '../../utils/setupIntTest.js'
 import logger from '../../../src/config/logger.js'
 import registerConversationHandlers, { collectChannelIntros } from '../../../src/websockets/handlers/conversationHandlers.js'
 import { getRoomId } from '../../../src/websockets/utils.js'
+import conversationService from '../../../src/services/conversation.service/index.js'
 import { Agent, AgentIntroduction, Channel, Conversation } from '../../../src/models/index.js'
 import { setAgentTypes } from '../../../src/models/user.model/agent.model/index.js'
 import defaultAgentTypes from '../../../src/agents/index.js'
@@ -94,6 +95,28 @@ describe('conversation:join logging', () => {
     expect(lines).toHaveLength(1)
     expect(lines[0]).toContain(`room ${conversation._id}_general`)
     expect(lines[0]).toMatch(/ in \d+ms$/)
+  })
+
+  it('passes a presentation join through, so the service can leave the screen out of the headcount', async () => {
+    const joinSpy = jest.spyOn(conversationService, 'joinConversation')
+    const { handlers } = registerWithFakeSocket()
+
+    await joinAndWaitForCallback(handlers['conversation:join'], {
+      conversationId: conversation._id,
+      user,
+      presentation: true
+    })
+
+    expect(joinSpy).toHaveBeenCalledWith(conversation._id.toString(), user, { presentation: true })
+  })
+
+  it('treats a join without the flag as an ordinary participant', async () => {
+    const joinSpy = jest.spyOn(conversationService, 'joinConversation')
+    const { handlers } = registerWithFakeSocket()
+
+    await joinAndWaitForCallback(handlers['conversation:join'], { conversationId: conversation._id, user })
+
+    expect(joinSpy).toHaveBeenCalledWith(conversation._id.toString(), user, { presentation: false })
   })
 })
 
