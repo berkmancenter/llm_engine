@@ -1,7 +1,7 @@
 import buildAppHomeData from '../../../../src/agents/communityAssistant/appHomeContent.js'
 import config from '../../../../src/config/config.js'
 
-const allTools = ['event_history', 'bkc_archive_wiki', 'web_search']
+const allTools = ['event_history', 'bkc_archive_wiki', 'member_bios', 'resource_search', 'web_search']
 
 function keysOf(features: { key: string }[]): string[] {
   return features.map((feature) => feature.key)
@@ -59,7 +59,7 @@ describe('buildAppHomeData', () => {
     const data = buildAppHomeData({ botName: 'Athena', tools: allTools }, {})
 
     expect(keysOf(data.features)).not.toContain('bkc_archive_wiki')
-    expect(keysOf(data.features)).toEqual(['event_history', 'web_search'])
+    expect(keysOf(data.features)).toEqual(['event_history', 'member_bios', 'resource_search', 'web_search'])
 
     config.bkcArchive.apiUrl = 'https://archive.example.com'
   })

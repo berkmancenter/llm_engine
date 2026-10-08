@@ -34,6 +34,19 @@ const FEATURE_COPY: Record<string, FeatureCopy> = {
     ],
     available: () => Boolean(config.bkcArchive.apiUrl)
   },
+  member_bios: {
+    label: 'Member directory',
+    description: "Look up who's in the community by topic or expertise, or find what's known about a specific member.",
+    starterQuestions: ['Who here works on AI policy?', 'What do you know about Charles Smith?']
+  },
+  resource_search: {
+    label: 'Uploaded readings and resources',
+    description: 'Search the readings and resources organizers have uploaded to this room to pull up specifics from them.',
+    starterQuestions: [
+      'What does our assigned reading say about algorithmic accountability?',
+      "Can you summarize this week's readings?"
+    ]
+  },
   web_search: {
     label: 'Live web search with sources',
     description: 'Search the broader web for recent information, complete with cited links.',
