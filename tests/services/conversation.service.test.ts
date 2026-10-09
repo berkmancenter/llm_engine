@@ -2922,6 +2922,18 @@ describe('Conversation service methods', () => {
       const saved = await User.findById(registeredUser._id)
       expect(realNameEntries(saved!)[0].conversations).toEqual([roomOne._id.toString()])
     })
+
+    it('does not carry the name into a room the admin only subscribes to, such as from a shared screen', async () => {
+      const { User } = await import('../../src/models/index.js')
+      let admin = await User.findById(registeredUser._id)
+      await userService.registerRealName(admin, roomOne._id.toString(), 'Alex Admin')
+
+      admin = await User.findById(registeredUser._id)
+      await conversationService.joinConversation(roomTwo._id.toString(), admin, { subscribeOnly: true })
+
+      const saved = await User.findById(registeredUser._id)
+      expect(realNameEntries(saved!)[0].conversations).toEqual([roomOne._id.toString()])
+    })
   })
 
   describe('admin ownership bypass', () => {

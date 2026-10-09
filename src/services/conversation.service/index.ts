@@ -892,8 +892,8 @@ const joinConversation = async (conversationOrId, user, { subscribeOnly = false 
     }
   }
   await assertMembership(user, conversation)
-  await carryAdminRealName(user, conversation)
   if (subscribeOnly) return conversation
+  await carryAdminRealName(user, conversation)
 
   // Primary signal: atomically mark membership as joined on first visit.
   // Returns the pre-update doc when a record existed and wasn't yet joined; null otherwise.
