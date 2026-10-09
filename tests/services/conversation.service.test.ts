@@ -2801,12 +2801,12 @@ describe('Conversation service methods', () => {
       dispatchSpy.mockRestore()
     })
 
-    describe('subscribing only, as a shared presentation screen does', () => {
+    describe('joining as an observer, as a shared presentation screen does', () => {
       it('creates no direct channel, so the screen is not counted as an attendee', async () => {
         const { User } = await import('../../src/models/index.js')
         const user = await User.findById(registeredUser._id)
 
-        await conversationService.joinConversation(joinConversation._id.toString(), user, { subscribeOnly: true })
+        await conversationService.joinConversation(joinConversation._id.toString(), user, { observer: true })
 
         const directChannels = await Channel.countDocuments({ direct: true, participants: registeredUser._id })
         expect(directChannels).toBe(0)
@@ -2817,7 +2817,7 @@ describe('Conversation service methods', () => {
         const user = await User.findById(registeredUser._id)
         const dispatchSpy = jest.spyOn(agentDispatcher, 'dispatch')
 
-        await conversationService.joinConversation(joinConversation._id.toString(), user, { subscribeOnly: true })
+        await conversationService.joinConversation(joinConversation._id.toString(), user, { observer: true })
 
         expect(dispatchSpy).not.toHaveBeenCalled()
         dispatchSpy.mockRestore()
@@ -2833,7 +2833,7 @@ describe('Conversation service methods', () => {
           name: 'Test Member'
         })
 
-        await conversationService.joinConversation(joinConversation._id.toString(), user, { subscribeOnly: true })
+        await conversationService.joinConversation(joinConversation._id.toString(), user, { observer: true })
 
         const membership = await ConversationMembership.findOne({ conversation: joinConversation._id })
         expect(membership!.joined).not.toBe(true)
@@ -2923,13 +2923,13 @@ describe('Conversation service methods', () => {
       expect(realNameEntries(saved!)[0].conversations).toEqual([roomOne._id.toString()])
     })
 
-    it('does not carry the name into a room the admin only subscribes to, such as from a shared screen', async () => {
+    it('does not carry the name into a room the admin only observes, such as from a shared screen', async () => {
       const { User } = await import('../../src/models/index.js')
       let admin = await User.findById(registeredUser._id)
       await userService.registerRealName(admin, roomOne._id.toString(), 'Alex Admin')
 
       admin = await User.findById(registeredUser._id)
-      await conversationService.joinConversation(roomTwo._id.toString(), admin, { subscribeOnly: true })
+      await conversationService.joinConversation(roomTwo._id.toString(), admin, { observer: true })
 
       const saved = await User.findById(registeredUser._id)
       expect(realNameEntries(saved!)[0].conversations).toEqual([roomOne._id.toString()])

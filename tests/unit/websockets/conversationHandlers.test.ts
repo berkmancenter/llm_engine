@@ -97,17 +97,17 @@ describe('conversation:join logging', () => {
     expect(lines[0]).toMatch(/ in \d+ms$/)
   })
 
-  it('passes a subscribe-only join through, so the service can leave a shared screen out of the headcount', async () => {
+  it('passes an observer join through, so the service can leave a shared screen out of the headcount', async () => {
     const joinSpy = jest.spyOn(conversationService, 'joinConversation')
     const { handlers } = registerWithFakeSocket()
 
     await joinAndWaitForCallback(handlers['conversation:join'], {
       conversationId: conversation._id,
       user,
-      subscribeOnly: true
+      observer: true
     })
 
-    expect(joinSpy).toHaveBeenCalledWith(conversation._id.toString(), user, { subscribeOnly: true })
+    expect(joinSpy).toHaveBeenCalledWith(conversation._id.toString(), user, { observer: true })
   })
 
   it('treats a join without the flag as an ordinary participant', async () => {
@@ -116,7 +116,7 @@ describe('conversation:join logging', () => {
 
     await joinAndWaitForCallback(handlers['conversation:join'], { conversationId: conversation._id, user })
 
-    expect(joinSpy).toHaveBeenCalledWith(conversation._id.toString(), user, { subscribeOnly: false })
+    expect(joinSpy).toHaveBeenCalledWith(conversation._id.toString(), user, { observer: false })
   })
 })
 
