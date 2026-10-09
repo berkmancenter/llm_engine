@@ -25,6 +25,9 @@ const mockWebClient = {
   users: {
     info: jest.fn(),
     list: jest.fn()
+  },
+  conversations: {
+    members: jest.fn()
   }
 }
 
@@ -1106,6 +1109,150 @@ describe('slack adapter tests', () => {
         externalId: 'U123456'
       })
     })
+
+    describe('trackChannelMembership — creating a membership from scratch', () => {
+      beforeEach(async () => {
+        adapter.config.trackChannelMembership = true
+        adapter.markModified('config')
+        await adapter.save()
+      })
+
+      it('creates a bare membership from Slack profile data when none exists yet', async () => {
+        mockWebClient.users.info.mockResolvedValue({
+          ok: true,
+          user: { id: 'U123456', real_name: 'Jane Smith', profile: { email: 'jane@example.com' } }
+        })
+
+        await adapter.participantJoined({ user: 'U123456', team: 'T123456789' })
+
+        const created = await ConversationMembership.findOne({ conversation: conversation._id }).lean()
+        expect(created).toMatchObject({
+          email: 'jane@example.com',
+          name: 'Jane Smith',
+          status: 'active',
+          introduced: false,
+          externalIds: { slack: 'U123456' }
+        })
+      })
+
+      it('falls back to display_name when real_name is absent', async () => {
+        mockWebClient.users.info.mockResolvedValue({
+          ok: true,
+          user: { id: 'U123456', profile: { email: 'jane@example.com', display_name: 'janesmith' } }
+        })
+
+        await adapter.participantJoined({ user: 'U123456', team: 'T123456789' })
+
+        const created = await ConversationMembership.findOne({ conversation: conversation._id }).lean()
+        expect(created?.name).toBe('janesmith')
+      })
+
+      it('does not create a membership for a bot user', async () => {
+        mockWebClient.users.info.mockResolvedValue({
+          ok: true,
+          user: { id: 'U_BOT', is_bot: true, real_name: 'Some Bot', profile: { email: 'bot@example.com' } }
+        })
+
+        await adapter.participantJoined({ user: 'U_BOT', team: 'T123456789' })
+
+        expect(await ConversationMembership.exists({ conversation: conversation._id })).toBeNull()
+      })
+
+      it('does not create a membership when Slack has no email on file', async () => {
+        mockWebClient.users.info.mockResolvedValue({
+          ok: true,
+          user: { id: 'U123456', real_name: 'Jane Smith', profile: {} }
+        })
+
+        await adapter.participantJoined({ user: 'U123456', team: 'T123456789' })
+
+        expect(await ConversationMembership.exists({ conversation: conversation._id })).toBeNull()
+      })
+
+      it('does not create a membership when Slack has no usable name on file', async () => {
+        mockWebClient.users.info.mockResolvedValue({
+          ok: true,
+          user: { id: 'U123456', profile: { email: 'jane@example.com' } }
+        })
+
+        await adapter.participantJoined({ user: 'U123456', team: 'T123456789' })
+
+        expect(await ConversationMembership.exists({ conversation: conversation._id })).toBeNull()
+      })
+
+      it("creates a membership for a joiner who doesn't match anyone already on the roster", async () => {
+        // A roster already exists (someone else), but this specific joiner's email isn't on
+        // it — trackChannelMembership means we still add them, not silently do nothing.
+        await ConversationMembership.create({
+          conversation: conversation._id,
+          email: 'someone-else@example.com',
+          name: 'Someone Else'
+        })
+        mockWebClient.users.info.mockResolvedValue({
+          ok: true,
+          user: { id: 'U123456', real_name: 'Jane Smith', profile: { email: 'jane@example.com' } }
+        })
+
+        await adapter.participantJoined({ user: 'U123456', team: 'T123456789' })
+
+        const created = await ConversationMembership.findOne({
+          conversation: conversation._id,
+          email: 'jane@example.com'
+        }).lean()
+        expect(created).toMatchObject({ name: 'Jane Smith', status: 'active', externalIds: { slack: 'U123456' } })
+      })
+
+      it('links the Slack ID to an existing membership instead of failing when create() races a duplicate email', async () => {
+        const existing = await ConversationMembership.create({
+          conversation: conversation._id,
+          email: 'jane@example.com',
+          name: 'Jane Smith (pre-existing)'
+        })
+        // Simulate the race the duplicate-key catch guards against: exists() checks that ran
+        // before a concurrent insert landed, so the code still reaches create() believing
+        // there's nothing there yet — create() itself then hits the real unique index.
+        const existsSpy = jest.spyOn(ConversationMembership, 'exists').mockResolvedValue(null)
+        mockWebClient.users.info.mockResolvedValue({
+          ok: true,
+          user: { id: 'U123456', real_name: 'Jane Smith', profile: { email: 'jane@example.com' } }
+        })
+
+        await adapter.participantJoined({ user: 'U123456', team: 'T123456789' })
+        existsSpy.mockRestore()
+
+        const members = await ConversationMembership.find({ conversation: conversation._id }).lean()
+        expect(members).toHaveLength(1)
+        expect(members[0]._id.toString()).toBe(existing._id.toString())
+        expect(members[0].externalIds?.slack).toBe('U123456')
+      })
+    })
+
+    it('does not create a membership from scratch when trackChannelMembership is off', async () => {
+      mockWebClient.users.info.mockResolvedValue({
+        ok: true,
+        user: { id: 'U123456', real_name: 'Jane Smith', profile: { email: 'jane@example.com' } }
+      })
+
+      await adapter.participantJoined({ user: 'U123456', team: 'T123456789' })
+
+      expect(await ConversationMembership.exists({ conversation: conversation._id })).toBeNull()
+    })
+
+    it('does not create a membership for an unmatched joiner when a roster exists but trackChannelMembership is off', async () => {
+      await ConversationMembership.create({
+        conversation: conversation._id,
+        email: 'someone-else@example.com',
+        name: 'Someone Else'
+      })
+      mockWebClient.users.info.mockResolvedValue({
+        ok: true,
+        user: { id: 'U123456', real_name: 'Jane Smith', profile: { email: 'jane@example.com' } }
+      })
+
+      await adapter.participantJoined({ user: 'U123456', team: 'T123456789' })
+
+      expect(await ConversationMembership.exists({ conversation: conversation._id, email: 'jane@example.com' })).toBeNull()
+    })
   })
 
   describe('start — syncSlackExternalIds', () => {
@@ -1207,9 +1354,217 @@ describe('slack adapter tests', () => {
       await adapter.start()
       expect(mockWebClient.users.list).not.toHaveBeenCalled()
     })
+
+    describe('trackChannelMembership — backfilling from channel membership', () => {
+      beforeEach(async () => {
+        await createConversation('syncSlackExternalIds trackChannelMembership Test')
+        adapter.config.trackChannelMembership = true
+        adapter.markModified('config')
+        await adapter.save()
+      })
+
+      it('runs even when no memberships exist yet, unlike the default early return', async () => {
+        mockWebClient.conversations.members.mockResolvedValue({
+          ok: true,
+          members: ['UNEW'],
+          response_metadata: { next_cursor: '' }
+        })
+        mockWebClient.users.list.mockResolvedValue({
+          ok: true,
+          members: [{ id: 'UNEW', real_name: 'New Person', profile: { email: 'new@example.com' }, is_bot: false }],
+          response_metadata: { next_cursor: '' }
+        })
+
+        await adapter.start()
+
+        const created = await ConversationMembership.findOne({ conversation: conversation._id }).lean()
+        expect(created).toMatchObject({ email: 'new@example.com', name: 'New Person', externalIds: { slack: 'UNEW' } })
+      })
+
+      it('backfills a membership for a channel member not already on the roster', async () => {
+        await ConversationMembership.create({
+          conversation: conversation._id,
+          email: 'existing@example.com',
+          name: 'Existing Member'
+        })
+        mockWebClient.conversations.members.mockResolvedValue({
+          ok: true,
+          members: ['U_EXISTING', 'U_NEW'],
+          response_metadata: { next_cursor: '' }
+        })
+        mockWebClient.users.list.mockResolvedValue({
+          ok: true,
+          members: [
+            { id: 'U_EXISTING', real_name: 'Existing Member', profile: { email: 'existing@example.com' }, is_bot: false },
+            { id: 'U_NEW', real_name: 'New Member', profile: { email: 'new@example.com' }, is_bot: false }
+          ],
+          response_metadata: { next_cursor: '' }
+        })
+
+        await adapter.start()
+
+        const created = await ConversationMembership.findOne({
+          conversation: conversation._id,
+          email: 'new@example.com'
+        }).lean()
+        expect(created).toMatchObject({ name: 'New Member', status: 'active', externalIds: { slack: 'U_NEW' } })
+        // introduced is left at its default — these are real members eligible for periodicMemberIntro.
+        expect(created?.introduced).toBe(false)
+      })
+
+      it('does not backfill a workspace member who is not actually in the channel', async () => {
+        mockWebClient.conversations.members.mockResolvedValue({
+          ok: true,
+          members: ['U_IN_CHANNEL'],
+          response_metadata: { next_cursor: '' }
+        })
+        mockWebClient.users.list.mockResolvedValue({
+          ok: true,
+          members: [
+            { id: 'U_IN_CHANNEL', real_name: 'In Channel', profile: { email: 'in@example.com' }, is_bot: false },
+            { id: 'U_ELSEWHERE', real_name: 'Elsewhere', profile: { email: 'elsewhere@example.com' }, is_bot: false }
+          ],
+          response_metadata: { next_cursor: '' }
+        })
+
+        await adapter.start()
+
+        expect(
+          await ConversationMembership.exists({ conversation: conversation._id, email: 'in@example.com' })
+        ).not.toBeNull()
+        expect(
+          await ConversationMembership.exists({ conversation: conversation._id, email: 'elsewhere@example.com' })
+        ).toBeNull()
+      })
+
+      it('does not backfill a bot even if it shows up in the channel member list', async () => {
+        mockWebClient.conversations.members.mockResolvedValue({
+          ok: true,
+          members: ['U_BOT'],
+          response_metadata: { next_cursor: '' }
+        })
+        mockWebClient.users.list.mockResolvedValue({
+          ok: true,
+          members: [{ id: 'U_BOT', real_name: 'Some Bot', profile: { email: 'bot@example.com' }, is_bot: true }],
+          response_metadata: { next_cursor: '' }
+        })
+
+        await adapter.start()
+
+        expect(await ConversationMembership.exists({ conversation: conversation._id })).toBeNull()
+      })
+
+      it('paginates conversations.members and backfills members found across multiple pages', async () => {
+        mockWebClient.conversations.members
+          .mockResolvedValueOnce({
+            ok: true,
+            members: ['U_CHAN_PAGE1'],
+            response_metadata: { next_cursor: 'channel_cursor_2' }
+          })
+          .mockResolvedValueOnce({
+            ok: true,
+            members: ['U_CHAN_PAGE2'],
+            response_metadata: { next_cursor: '' }
+          })
+        mockWebClient.users.list.mockResolvedValue({
+          ok: true,
+          members: [
+            { id: 'U_CHAN_PAGE1', real_name: 'Channel Page One', profile: { email: 'chanpage1@example.com' } },
+            { id: 'U_CHAN_PAGE2', real_name: 'Channel Page Two', profile: { email: 'chanpage2@example.com' } }
+          ],
+          response_metadata: { next_cursor: '' }
+        })
+
+        await adapter.start()
+
+        expect(mockWebClient.conversations.members).toHaveBeenCalledTimes(2)
+        expect(mockWebClient.conversations.members).toHaveBeenNthCalledWith(2, {
+          channel: adapter.config.channel,
+          limit: 200,
+          cursor: 'channel_cursor_2'
+        })
+        const page1 = await ConversationMembership.findOne({
+          conversation: conversation._id,
+          email: 'chanpage1@example.com'
+        }).lean()
+        const page2 = await ConversationMembership.findOne({
+          conversation: conversation._id,
+          email: 'chanpage2@example.com'
+        }).lean()
+        expect(page1).toMatchObject({ name: 'Channel Page One', externalIds: { slack: 'U_CHAN_PAGE1' } })
+        expect(page2).toMatchObject({ name: 'Channel Page Two', externalIds: { slack: 'U_CHAN_PAGE2' } })
+      })
+
+      it('updates rather than duplicates a channel member who already matches an existing roster row by email', async () => {
+        const existing = await ConversationMembership.create({
+          conversation: conversation._id,
+          email: 'already-rostered@example.com',
+          name: 'Already Rostered'
+        })
+        mockWebClient.conversations.members.mockResolvedValue({
+          ok: true,
+          members: ['U_ROSTERED'],
+          response_metadata: { next_cursor: '' }
+        })
+        mockWebClient.users.list.mockResolvedValue({
+          ok: true,
+          members: [
+            {
+              id: 'U_ROSTERED',
+              real_name: 'Already Rostered',
+              profile: { email: 'already-rostered@example.com' },
+              is_bot: false
+            }
+          ],
+          response_metadata: { next_cursor: '' }
+        })
+
+        await adapter.start()
+
+        const rows = await ConversationMembership.find({
+          conversation: conversation._id,
+          email: 'already-rostered@example.com'
+        }).lean()
+        expect(rows).toHaveLength(1)
+        expect(rows[0]._id).toEqual(existing._id)
+        expect(rows[0].externalIds?.slack).toBe('U_ROSTERED')
+      })
+
+      it('backfills channel members found across multiple users.list pages', async () => {
+        mockWebClient.conversations.members.mockResolvedValue({
+          ok: true,
+          members: ['U_LIST_PAGE1', 'U_LIST_PAGE2'],
+          response_metadata: { next_cursor: '' }
+        })
+        mockWebClient.users.list
+          .mockResolvedValueOnce({
+            ok: true,
+            members: [{ id: 'U_LIST_PAGE1', real_name: 'List Page One', profile: { email: 'listpage1@example.com' } }],
+            response_metadata: { next_cursor: 'users_cursor_2' }
+          })
+          .mockResolvedValueOnce({
+            ok: true,
+            members: [{ id: 'U_LIST_PAGE2', real_name: 'List Page Two', profile: { email: 'listpage2@example.com' } }],
+            response_metadata: { next_cursor: '' }
+          })
+
+        await adapter.start()
+
+        const page1 = await ConversationMembership.findOne({
+          conversation: conversation._id,
+          email: 'listpage1@example.com'
+        }).lean()
+        const page2 = await ConversationMembership.findOne({
+          conversation: conversation._id,
+          email: 'listpage2@example.com'
+        }).lean()
+        expect(page1).toMatchObject({ name: 'List Page One', externalIds: { slack: 'U_LIST_PAGE1' } })
+        expect(page2).toMatchObject({ name: 'List Page Two', externalIds: { slack: 'U_LIST_PAGE2' } })
+      })
+    })
   })
 
-  describe('validateBeforeUpdate — DM uniqueness', () => {
+  describe('validateBeforeUpdate — dmChannels no longer gated by workspace/appKey uniqueness', () => {
     async function makeConversation() {
       const conv = new Conversation({
         name: faker.lorem.words(3),
@@ -1234,22 +1589,25 @@ describe('slack adapter tests', () => {
       })
     }
 
-    it('throws when a second adapter in the same workspace also has dmChannels (no appKeys)', async () => {
+    // DM routing now disambiguates multiple candidates by Slack channel membership
+    // (resolveSlackDmAdapter) instead of this being blocked at save time — these cases all
+    // used to throw.
+    it('allows a second adapter in the same workspace to also have dmChannels (no appKeys)', async () => {
       const conv1 = await makeConversation()
       const conv2 = await makeConversation()
       await makeSlackAdapter(conv1, { channel: 'C_A' }, [{ direct: true, direction: Direction.BOTH }])
       await expect(
         makeSlackAdapter(conv2, { channel: 'C_B' }, [{ direct: true, direction: Direction.BOTH }])
-      ).rejects.toThrow('Another Slack adapter for this workspace')
+      ).resolves.toBeDefined()
     })
 
-    it('throws when a second adapter with the same appKey+workspace also has dmChannels', async () => {
+    it('allows a second adapter with the same appKey+workspace to also have dmChannels', async () => {
       const conv1 = await makeConversation()
       const conv2 = await makeConversation()
       await makeSlackAdapter(conv1, { channel: 'C_A', appKey: 'myapp' }, [{ direct: true, direction: Direction.BOTH }])
       await expect(
         makeSlackAdapter(conv2, { channel: 'C_B', appKey: 'myapp' }, [{ direct: true, direction: Direction.BOTH }])
-      ).rejects.toThrow('Another Slack adapter for this workspace/appKey')
+      ).resolves.toBeDefined()
     })
 
     it('allows a second DM adapter in the same workspace when it has a different appKey', async () => {
@@ -1261,36 +1619,11 @@ describe('slack adapter tests', () => {
       ).resolves.toBeDefined()
     })
 
-    it('allows saving the same adapter again without self-conflicting', async () => {
-      const conv = await makeConversation()
-      const a = await makeSlackAdapter(conv, { channel: 'C_A' }, [{ direct: true, direction: Direction.BOTH }])
-      a.config.botName = 'Updated Name'
-      await expect(a.save()).resolves.toBeDefined()
-    })
-
     it('allows an adapter without dmChannels to coexist with a DM adapter in the same workspace', async () => {
       const conv1 = await makeConversation()
       const conv2 = await makeConversation()
       await makeSlackAdapter(conv1, { channel: 'C_A' }, [{ direct: true, direction: Direction.BOTH }])
       await expect(makeSlackAdapter(conv2, { channel: 'C_B' })).resolves.toBeDefined()
-    })
-
-    it('does not allow a keyed DM adapter to coexist with an unkeyed DM adapter in the same workspace', async () => {
-      const conv1 = await makeConversation()
-      const conv2 = await makeConversation()
-      await makeSlackAdapter(conv1, { channel: 'C_A' }, [{ direct: true, direction: Direction.BOTH }])
-      await expect(
-        makeSlackAdapter(conv2, { channel: 'C_B', appKey: 'myapp' }, [{ direct: true, direction: Direction.BOTH }])
-      ).resolves.toBeDefined()
-    })
-
-    it('does not allow an unkeyed DM adapter to coexist with another unkeyed DM adapter in the same workspace', async () => {
-      const conv1 = await makeConversation()
-      const conv2 = await makeConversation()
-      await makeSlackAdapter(conv1, { channel: 'C_A' }, [{ direct: true, direction: Direction.BOTH }])
-      await expect(
-        makeSlackAdapter(conv2, { channel: 'C_B' }, [{ direct: true, direction: Direction.BOTH }])
-      ).rejects.toThrow('Another Slack adapter for this workspace')
     })
   })
 })

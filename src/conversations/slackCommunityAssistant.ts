@@ -156,7 +156,10 @@ const slackCommunityAssistant: ConversationType = {
         botName: '{{{properties.botName}}}',
         signingSecret: '{{{properties.slackSigningSecret}}}',
         appKey: '{{{properties.slackAppKey}}}',
-        showOnAppHome: '{{#if properties.showOnAppHome}}true{{/if}}'
+        // Lets Slack channel membership double as this conversation's ConversationMembership
+        // roster (see participantJoined in adapters/slack/index.ts) — the data DM/App Home
+        // routing matches against once a workspace runs more than one community.
+        trackChannelMembership: true
       },
       chatChannels: [
         {
