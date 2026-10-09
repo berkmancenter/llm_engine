@@ -27,23 +27,22 @@ const listArtifacts = catchAsync(async (req, res) => {
   res.status(httpStatus.OK).send(artifacts)
 })
 
-/* 202 rather than 201: the caller is asking for the graph to be rebuilt, and what comes
-   back is whichever artifact version that produced — a new artifact on the first run, a new
-   version of the existing one after that. A run that finds too little to map is a success
-   with nothing to show, not an error, so it answers 200 with a reason. */
+/* 202: generation runs in a background job (see jobs/handlers/conceptGraph.ts), not inline
+   in this request — the pipeline can run long enough to exceed the load balancer's backend
+   timeout (infra/modules/webserver-mig/lb.tf), so this route only claims/creates the target
+   artifact and enqueues the job before responding. The caller polls GET /:artifactId (or
+   listens for the artifact:version / artifact:generationFailed socket events) to see the
+   claim resolve to a new version or a failure. A generation already in flight for this
+   artifact is a no-op: the same, still-pending artifact comes back rather than a second job. */
 const generateConceptGraph = catchAsync(async (req, res) => {
-  const result = req.body.topicId
-    ? await conceptGraphService.refineTopicGraph(req.body.topicId, req.user, undefined, { reset: req.body.reset })
-    : await conceptGraphService.generateConceptGraph(req.body.conversationId, req.user)
-  if (!result) {
-    res.status(httpStatus.OK).send({ generated: false, reason: 'Not enough of the record to map' })
-    return
-  }
+  const artifact = await conceptGraphService.enqueueGeneration(
+    { conversationId: req.body.conversationId, topicId: req.body.topicId, reset: req.body.reset },
+    req.user
+  )
   res.status(httpStatus.ACCEPTED).send({
     generated: true,
-    artifact: result.artifact!.toJSON(),
-    version: result.version.toJSON(),
-    report: result.report
+    artifact: artifact.toJSON(),
+    status: artifact.generationStatus
   })
 })
 

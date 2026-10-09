@@ -228,6 +228,17 @@ describe('appendVersion', () => {
     })
   })
 
+  it('flips generationStatus to ready and clears generationError on a successful append', async () => {
+    const { artifact } = await artifactService.createArtifact(conversationBody(), userTwo)
+    await Artifact.updateOne({ _id: artifact!._id }, { $set: { generationStatus: 'pending' } })
+
+    await artifactService.appendVersion(artifact!._id!.toString(), { payload: { body: 'Ready now.' } }, userTwo)
+
+    const reloaded = await Artifact.findById(artifact!._id)
+    expect(reloaded!.generationStatus).toBe('ready')
+    expect(reloaded!.generationError).toBeUndefined()
+  })
+
   it('does not lose the append when the broadcast fails', async () => {
     const { artifact } = await artifactService.createArtifact(conversationBody(), userTwo)
     broadcastSpy.mockRejectedValueOnce(new Error('no socket server'))
@@ -241,13 +252,19 @@ describe('appendVersion', () => {
     expect(second.versionNumber).toBe(2)
   })
 
-  it('does not broadcast a topic-scoped artifact, which has no conversation room', async () => {
+  it('announces a topic-scoped artifact to the topic room, not a conversation room', async () => {
     const { artifact } = await artifactService.createArtifact(topicBody(), userOne)
     broadcastSpy.mockClear()
 
     await artifactService.appendVersion(artifact!._id!.toString(), { payload: { body: 'Revised.' } }, userOne)
 
-    expect(broadcastSpy).not.toHaveBeenCalled()
+    expect(broadcastSpy).toHaveBeenCalledWith(topic._id.toString(), {
+      artifactId: artifact!._id!.toString(),
+      versionNumber: 2,
+      scope: 'topic',
+      topicId: topic._id.toString(),
+      conversationId: undefined
+    })
   })
 
   it('refuses a caller holding only the read passcode, which must never authorize a write', async () => {
