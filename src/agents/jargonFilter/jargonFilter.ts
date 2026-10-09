@@ -5,13 +5,16 @@ import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import logger from '../../config/logger.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { formatTranscript, formatSingleUserConversationHistory } from '../helpers/llmInputFormatters.js'
-import User from '../../models/user.model/user.model.js'
+
+export type JargonTerm = {
+  term: string // short label only, e.g. "SLO" — not a sentence
+  text: string // plain-language explanation of this term only
+  sourceText?: string // verbatim transcript quote for this specific term, when one exists
+}
 
 export type JargonFilterResponse = {
   type: 'jargon_clarification'
-  text: string // the clarified text
-  sourceText: string // original transcript excerpt
-  terms: string[] // flat list of jargon term names explained in this response
+  terms: JargonTerm[] // one entry per distinct jargon term explained in this response
   transcriptWindow: {
     // Unix start and end times for the transcript window
     start: number
@@ -32,16 +35,17 @@ export const JARGON_FILTER_SYSTEM_PROMPT = `You are an assistant monitoring a li
 - Common words used in a technical context (e.g. "framework", "model", "process")
 - Terms that were already explained earlier in the transcript
 - Proper nouns (names of people, companies, products)
+- Anything you are not confident was spoken clearly and legibly — if a stretch of transcript is garbled, mumbled, or ambiguous, skip it rather than guessing what the term might have been. Only clarify terms that were actually said; never invent or infer a term/label for a concept that was merely discussed around without being named outright
 
-**How to write the clarification:**
-- Cover all jargon found in the window in a single, consolidated response
-- Write each jargon term as its own bullet point on a new line
-- Bold the jargon term or phrase at the start of each bullet (e.g. **SLO** — ...)
+**How to write each clarification:**
+- Cover all jargon found in the window — return one entry per distinct term, each with its own explanation
 - Explain each term as if to a high school student with no background in the field — use everyday analogies and avoid assuming any prior knowledge
-- Be concise: one or two sentences per term is enough
-- Do not repeat jargon terms in the clarification without immediately defining them
-- Never imply the terms are obvious or easy, or that the reader should already know them
+- Be extremely concise: one sentence, two at the absolute most — not two long or compound sentences
+- Do not repeat a term in its own explanation without immediately defining it
+- Never imply a term is obvious or easy, or that the reader should already know it
 - Avoid phrases like "simply", "just", "basically", "obviously", or "of course"
+- For each term's sourceText, use a short verbatim snippet from the transcript — about 5-6 words centered on the term, framed with "..." on both sides (e.g. "...we track our SLOs closely..."), never a full sentence
+- Since a term is only ever flagged when it was clearly spoken, a quotable snippet should almost always be available — only omit sourceText when cross-talk or transcript formatting makes it genuinely impossible to extract a clean, contiguous short quote, never because you're unsure what the term was (in that case, don't flag the term at all). Don't omit it just because trimming to a short quote takes more effort, and never fabricate one or reuse another term's quote
 
 ## Output Format
 
@@ -49,22 +53,26 @@ Return a JSON object with the following fields:
 
 {{
   "jargonFound": boolean,
-  "text": "A bullet-point list clarifying each jargon term found, with each bullet on its own line (null if jargonFound is false)",
-  "sourceText": "Verbatim quote from the transcript that contains the jargon (null if jargonFound is false)",
-  "terms": "Flat array of jargon term names explained in this response, matching exactly the bolded terms in the text field. Must be a non-empty array when jargonFound is true, or an empty array [] when jargonFound is false. Example: [\\"SLO\\", \\"MTTR\\"]"
+  "terms": "Array of jargon term objects found in this window, or [] if jargonFound is false. Each object has: \\"term\\" (short label only, e.g. \\"SLO\\" — not a sentence), \\"text\\" (plain-language explanation of this term only — one sentence, two at most), and optionally \\"sourceText\\" (a short, ~5-6 word verbatim transcript snippet for this specific term, framed with \\"...\\" on both sides — omit the field entirely, do not use null, in the rare case no clean quote exists)."
 }}
 
-Example text field value:
-- **SLO** — A target for how reliable a system should be.
-- **MTTR** — How long it takes to fix something after it breaks.
+Example terms value:
+[
+  { "term": "SLO", "text": "A target for how reliable a system should be.", "sourceText": "...we track our SLOs closely..." },
+  { "term": "MTTR", "text": "How long it takes to fix something after it breaks." }
+]
 
 Return ONLY raw JSON. No markdown, no backticks, no explanation.`
 
+const jargonTermSchema = z.object({
+  term: z.string(),
+  text: z.string(),
+  sourceText: z.string().nullable().optional()
+})
+
 const jargonFilterSchema = z.object({
   jargonFound: z.boolean(),
-  text: z.string().nullable(),
-  sourceText: z.string().nullable(),
-  terms: z.array(z.string()).nullable()
+  terms: z.array(jargonTermSchema).nullable()
 })
 
 const USER_TEMPLATE = `## Event Topic:
@@ -247,11 +255,17 @@ export default verify({
 
     const transcript = formatTranscript(conversationHistory.messages)
 
-    // Collect terms already explained in prior invocations from saved jargon messages
+    // Collect terms already explained in prior invocations from saved jargon messages.
+    // Historical messages may still carry the old flat `terms: string[]` shape (never
+    // backfilled), so each entry is normalized to its term name regardless of shape.
     const priorMessages = (this.conversation.messages ?? []) as Array<{ fromAgent: boolean; body: unknown }>
     const alreadyExplained: string[] = priorMessages
       .filter((m) => m.fromAgent && (m.body as JargonFilterResponse)?.type === 'jargon_clarification')
-      .flatMap((m) => (m.body as JargonFilterResponse).terms ?? [])
+      .flatMap((m) => {
+        const { terms } = m.body as { terms?: unknown }
+        if (!Array.isArray(terms)) return []
+        return terms.map((t) => (typeof t === 'string' ? t : (t as JargonTerm).term))
+      })
 
     const seenTermsCheck =
       alreadyExplained.length > 0
@@ -274,38 +288,32 @@ export default verify({
     )
     if (!response.jargonFound) return []
 
-    // We will still post clarifications if terms array missing, there will just be duplicates
+    // Unlike the old shared text/sourceText fields, there's nothing left to post once terms
+    // is missing or empty — skip rather than sending an empty message.
     if (!Array.isArray(response.terms) || response.terms.length === 0) {
-      logger.warn(
-        `${this.name}: jargon found but LLM returned invalid or empty terms array — deduplication will not apply for this response`
-      )
+      logger.warn(`${this.name}: jargonFound was true but terms array was empty or invalid — skipping`)
+      return []
     }
 
-    // Find direct channels where this agent is a participant and the user has opted in.
-    const directChannels = this.conversation.channels.filter(
-      (c: IChannel) => c.direct && c.participants?.some((p) => p._id?.toString() === this._id.toString())
-    )
-    const optedInChannels: IChannel[] = []
+    // Post to the shared jargon channel rather than fanning out across opted-in users' own
+    // DM channels — jargonClarification is a global per-user preference that now only decides
+    // whether a viewer's own client surfaces this channel, not whether the agent posts here.
+    const jargonChannel = this.conversation.channels.find((c: IChannel) => c.name === 'jargon')
+    if (!jargonChannel) return []
 
-    for (const channel of directChannels) {
-      for (const participant of channel.participants ?? []) {
-        const user = await User.findById(participant._id)
-        if (user?.preferences?.jargonClarification) {
-          optedInChannels.push(channel)
-          break
-        }
-      }
-    }
+    logger.info(`${this.name}: jargon detected, posting to the jargon channel`)
 
-    if (optedInChannels.length === 0) return []
-
-    logger.info(`${this.name}: jargon detected, posting to ${optedInChannels.length} opted-in channel(s)`)
+    // Omit sourceText entirely (rather than sending null) when the LLM didn't provide one,
+    // per-term — the frontend treats an omitted field differently from an explicit null.
+    const terms: JargonTerm[] = response.terms.map((t) => ({
+      term: t.term,
+      text: t.text,
+      ...(t.sourceText ? { sourceText: t.sourceText } : {})
+    }))
 
     const message: JargonFilterResponse = {
       type: 'jargon_clarification',
-      text: response.text!,
-      sourceText: response.sourceText!,
-      terms: response.terms!,
+      terms,
       transcriptWindow: {
         start: conversationHistory.start.getTime(),
         end: conversationHistory.end.getTime()
@@ -314,10 +322,10 @@ export default verify({
 
     return [
       {
-        visible: true, // message is sent to opted-in participant only
+        visible: true,
         message,
         messageType: 'json',
-        channels: optedInChannels
+        channels: [jargonChannel]
       }
     ]
   },

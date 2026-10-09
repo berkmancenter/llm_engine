@@ -10,6 +10,7 @@ export const PARTICIPANT_CHANNEL = 'participant' as const
 export const MODERATOR_CHANNEL = 'moderator' as const
 export const CHAT_CHANNEL = 'chat' as const
 export const IMAGE_GEN_CHANNEL = 'image-gen' as const
+export const JARGON_CHANNEL = 'jargon' as const
 
 const eventAssistant: ConversationType = {
   // user-facing
@@ -236,7 +237,8 @@ const eventAssistant: ConversationType = {
     { name: PARTICIPANT_CHANNEL },
     { name: MODERATOR_CHANNEL },
     { name: CHAT_CHANNEL },
-    { name: IMAGE_GEN_CHANNEL }
+    { name: IMAGE_GEN_CHANNEL },
+    { name: JARGON_CHANNEL }
   ],
   adapters: {
     // Fully remote: Zoom only — moderator DMs sent via Zoom
