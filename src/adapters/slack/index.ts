@@ -7,6 +7,56 @@ import Message from '../../models/message.model.js'
 import ConversationMembership from '../../models/conversationMembership.model.js'
 import renderResponseBlocks from './blocks/index.js'
 
+// Mongo/Mongoose duplicate-key error code — same constant used in user.service.ts's
+// reserveRealName for the same reason (racing writes into a unique index).
+const SLACK_MEMBERSHIP_DUPLICATE_KEY_ERROR_CODE = 11000
+
+/**
+ * Creates a ConversationMembership row from a known-good Slack identity (bot/email/name
+ * already validated by the caller), or — if a concurrent write means one already exists for
+ * this email by the time the insert lands — links the Slack ID to that existing row instead
+ * of failing on the unique index. Shared between participantJoined (one person at a time) and
+ * syncSlackExternalIds (bulk, on adapter start).
+ */
+async function createOrLinkMembership(
+  conversationId: string,
+  slackUserId: string,
+  email: string,
+  name: string
+): Promise<void> {
+  try {
+    await ConversationMembership.create({
+      conversation: conversationId,
+      email,
+      name,
+      status: 'active',
+      externalIds: { slack: slackUserId }
+    })
+  } catch (err) {
+    if (err.code === SLACK_MEMBERSHIP_DUPLICATE_KEY_ERROR_CODE) {
+      await ConversationMembership.updateOne(
+        { conversation: conversationId, email },
+        { $set: { 'externalIds.slack': slackUserId } }
+      )
+    } else {
+      throw err
+    }
+  }
+}
+
+/** Paginates conversations.members into a flat set of Slack user IDs currently in `channel`. */
+async function fetchChannelMemberIds(slackWebClient, channel: string): Promise<Set<string>> {
+  const ids = new Set<string>()
+  let cursor: string | undefined
+  do {
+    const result = await slackWebClient.conversations.members({ channel, limit: 200, cursor })
+    if (!result.ok || !result.members) break
+    for (const id of result.members) ids.add(id)
+    cursor = result.response_metadata?.next_cursor || undefined
+  } while (cursor)
+  return ids
+}
+
 function normalizeBotMention(text: string, botUserId: string, botName: string): string {
   if (!botUserId || !botName) return text
   // Slack HTML-encodes angle brackets in event payloads: &lt;@USER_ID&gt;
@@ -98,18 +148,34 @@ async function resolveOutboundMentions(text: string, conversationId: string, bot
 
 async function syncSlackExternalIds() {
   const conversationId = this.conversation._id
+  const trackChannelMembership = Boolean(this.config.trackChannelMembership)
 
   const hasMemberships = await ConversationMembership.exists({ conversation: conversationId })
-  if (!hasMemberships) {
+  // Conversations that don't track channel membership never had a roster, and never wanted
+  // Slack to grow one — keep skipping entirely, same as participantJoined. Conversations that
+  // do fall through even with zero existing rows, so a brand-new community pointed at an
+  // already-populated channel gets backfilled on its very first start() rather than only ever
+  // picking up members who join afterward.
+  if (!hasMemberships && !trackChannelMembership) {
     logger.debug(`Slack externalIds sync: no memberships for conversation ${conversationId}, skipping`)
     return
   }
 
   logger.info(`Slack externalIds sync: starting for conversation ${conversationId}`)
   const slackWebClient = slackClientPool.getClient(this.config.botToken)
+
+  // Fetched once up front: just the set of member IDs actually in this channel, cheap
+  // compared to resolving each one's profile individually. Cross-referenced below against
+  // the users.list page data we're already fetching, rather than calling users.info per
+  // member (which would mean one extra Slack API call per channel member on every start()).
+  const channelMemberIds = trackChannelMembership
+    ? await fetchChannelMemberIds(slackWebClient, this.config.channel)
+    : new Set<string>()
+
   let cursor: string | undefined
   let pageCount = 0
   let totalUpdated = 0
+  let totalCreated = 0
   do {
     const result = await slackWebClient.users.list({ limit: 200, cursor })
     if (!result.ok || !result.members) {
@@ -119,14 +185,23 @@ async function syncSlackExternalIds() {
     pageCount++
 
     const emailToSlackId: Record<string, string> = {}
+    const channelMembersThisPage: { id: string; email: string; name?: string }[] = []
     for (const member of result.members) {
       const email = member.profile?.email
       if (email && member.id && !member.deleted && !member.is_bot) {
         emailToSlackId[email.toLowerCase()] = member.id
+        if (trackChannelMembership && channelMemberIds.has(member.id)) {
+          channelMembersThisPage.push({
+            id: member.id,
+            email: email.toLowerCase(),
+            name: member.real_name || member.profile?.display_name
+          })
+        }
       }
     }
 
     const emails = Object.keys(emailToSlackId)
+    const existingByEmail = new Map<string, { _id: unknown; externalIds?: { slack?: string } }>()
     if (emails.length > 0) {
       const memberships = await ConversationMembership.find({
         conversation: conversationId,
@@ -134,6 +209,7 @@ async function syncSlackExternalIds() {
       })
         .select('_id email externalIds')
         .lean()
+      for (const m of memberships) existingByEmail.set(m.email, m)
 
       const updates = memberships
         .filter((m) => emailToSlackId[m.email] && m.externalIds?.slack !== emailToSlackId[m.email])
@@ -151,10 +227,20 @@ async function syncSlackExternalIds() {
       }
     }
 
+    // Anyone actually in the channel who isn't already on the roster by email gets a row,
+    // same creation logic (and the same introduced-left-at-default reasoning) as
+    // participantJoined uses for a live join.
+    for (const member of channelMembersThisPage) {
+      if (existingByEmail.has(member.email) || !member.name) continue
+      await createOrLinkMembership(conversationId, member.id, member.email, member.name)
+      totalCreated++
+    }
+
     cursor = result.response_metadata?.next_cursor || undefined
   } while (cursor)
   logger.info(
-    `Slack externalIds sync: done for conversation ${conversationId} — ${totalUpdated} memberships updated across ${pageCount} page(s)`
+    `Slack externalIds sync: done for conversation ${conversationId} — ${totalUpdated} updated, ` +
+      `${totalCreated} created across ${pageCount} page(s)`
   )
 }
 
@@ -317,10 +403,12 @@ export default {
   },
 
   async start() {
-    // Sync workspace members to ConversationMembership.externalIds.slack so agents
-    // can @mention people by Slack user ID without per-message users.info calls.
-    // Runs best-effort: a missing users:read scope or Slack API error logs and continues
-    // rather than failing the whole adapter start.
+    // Syncs workspace members to ConversationMembership.externalIds.slack so agents can
+    // @mention people by Slack user ID without per-message users.info calls, and — when
+    // trackChannelMembership is on — backfills a membership row for anyone already in the
+    // channel who isn't on the roster yet, so a brand-new community doesn't have to wait for
+    // everyone to leave and rejoin to be tracked. Runs best-effort: a missing scope or Slack
+    // API error logs and continues rather than failing the whole adapter start.
     try {
       await syncSlackExternalIds.call(this)
     } catch (err) {
@@ -380,7 +468,11 @@ export default {
     }
 
     const hasMemberships = await ConversationMembership.exists({ conversation: this.conversation._id })
-    if (!hasMemberships) {
+    // Conversations that don't track channel membership never had a roster, and never wanted
+    // Slack to grow one — keep skipping entirely. Conversations that do fall through below to
+    // create a membership from Slack's own channel membership, whether this is the very first
+    // row or simply the next person who doesn't match anyone already on the roster.
+    if (!hasMemberships && !this.config.trackChannelMembership) {
       logger.debug(`participantJoined: no memberships for conversation ${this.conversation._id}, skipping users.info`)
       return adapterUser
     }
@@ -404,19 +496,48 @@ export default {
       logger.warn(`participantJoined: users.info failed for ${participant.user}, proceeding without email`)
       return adapterUser
     }
+    if (result.user.is_bot) {
+      logger.debug(`participantJoined: ${participant.user} is a bot, skipping membership tracking`)
+      return adapterUser
+    }
 
     const email = result.user.profile?.email
-    if (email) {
+    if (!email) {
+      logger.debug(`participantJoined: ${participant.user} has no email in Slack profile, skipping membership update`)
+      return adapterUser
+    }
+
+    if (hasMemberships) {
       // Write the Slack user ID to the membership record so getOrCreateUser can find
       // the right account by externalId rather than creating a Slack-keyed duplicate.
-      await ConversationMembership.updateOne(
+      const { matchedCount } = await ConversationMembership.updateOne(
         { conversation: this.conversation._id, email },
         { $set: { 'externalIds.slack': participant.user } }
       )
-      logger.info(`participantJoined: wrote externalIds.slack for ${participant.user} (${email})`)
-    } else {
-      logger.debug(`participantJoined: ${participant.user} has no email in Slack profile, skipping membership update`)
+      if (matchedCount > 0) {
+        logger.info(`participantJoined: wrote externalIds.slack for ${participant.user} (${email})`)
+        return adapterUser
+      }
+      if (!this.config.trackChannelMembership) {
+        logger.debug(
+          `participantJoined: ${participant.user} (${email}) not on the roster, trackChannelMembership is off, skipping`
+        )
+        return adapterUser
+      }
+      // Falls through: trackChannelMembership is on, and this person doesn't match anyone
+      // already on the roster — create a row for them the same as the no-roster-yet case below.
     }
+
+    // trackChannelMembership is on here (the early return above only fires when it's off) and
+    // this person has no existing membership row — create one directly from what Slack already
+    // knows about them, so channel presence becomes roster presence.
+    const name = result.user.real_name || result.user.profile?.display_name
+    if (!name) {
+      logger.debug(`participantJoined: ${participant.user} has no usable name, skipping membership creation`)
+      return adapterUser
+    }
+    await createOrLinkMembership(this.conversation._id, participant.user, email, name)
+    logger.info(`participantJoined: created or linked membership for ${participant.user} (${email})`)
 
     return adapterUser
   },
