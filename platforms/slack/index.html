@@ -667,6 +667,7 @@
 <li>chat:write</li>
 <li>chat:write.public (if using in public channels)</li>
 <li>channels:read</li>
+<li>groups:read (required for private channels when member identity sync tracks channel membership — see <a href="#member-identity-sync">Member identity sync</a> below)</li>
 <li>users:read (required for member identity sync — see <a href="#member-identity-sync">Member identity sync</a> below)</li>
 <li>users:read.email (required alongside <code>users:read</code> to access profile email addresses)</li>
 </ul>
@@ -872,7 +873,8 @@
 <span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"description":"AI ethics roundtable next Thursday at 3pm ET, online via Zoom"}'</span>
 </code></pre></div>
 <h3 id="member-identity-sync">Member identity sync</h3>
-<p>When a Slack adapter starts, LLM Engine checks whether the conversation has any <code>ConversationMembership</code> records (created when you import a member list via CSV invite). If memberships exist, it paginates through the Slack workspace's user list (<code>users.list</code>) and writes each member's Slack user ID into <code>ConversationMembership.externalIds.slack</code>, matched by email address.</p>
+<p>When a Slack adapter starts, LLM Engine checks whether the conversation has any <code>ConversationMembership</code> records (created when you import a member list via CSV invite, or by Slack itself — see below). If memberships exist (or the adapter tracks channel membership), it paginates through the Slack workspace's user list (<code>users.list</code>) and writes each member's Slack user ID into <code>ConversationMembership.externalIds.slack</code>, matched by email address.</p>
+<p>Some conversation types (e.g. <code>slackCommunityAssistant</code>) set an adapter config flag, <code>trackChannelMembership</code>, that also lets Slack channel membership populate the roster directly: on every adapter start, LLM Engine calls <code>conversations.members</code> to list who's actually in the channel and creates a <code>ConversationMembership</code> row for any member not already on the roster (matched by email). The same thing happens live as people join the channel afterward.</p>
 <p>This mapping is used in two ways:</p>
 <ol>
 <li>
@@ -884,13 +886,14 @@
 </ol>
 <p>When a <code>member_joined_channel</code> event fires, the adapter checks whether the joining user's Slack user ID is already in their membership record. If the initial sync already wrote it, the <code>users.info</code> API call is skipped entirely — this matters during bulk workspace invites where many <code>member_joined_channel</code> events arrive in quick succession and the Slack API rate limit for <code>users.info</code> is tight.</p>
 <h4 id="required-oauth-scopes">Required OAuth scopes</h4>
-<p>The sync requires two additional bot token scopes beyond the baseline:</p>
+<p>The sync requires additional bot token scopes beyond the baseline:</p>
 <ul>
 <li><code>users:read</code> — allows calling <code>users.list</code> and <code>users.info</code></li>
 <li><code>users:read.email</code> — allows reading profile email addresses from those calls</li>
+<li><code>groups:read</code> — allows calling <code>conversations.members</code> on a <strong>private</strong> channel, needed only when <code>trackChannelMembership</code> is tracking channel-based backfill (public channels work with <code>channels:read</code> alone)</li>
 </ul>
-<p>Add both under <em>OAuth &amp; Permissions → Bot Token Scopes</em> in your Slack app configuration, then reinstall the app to your workspace so the new scopes take effect.</p>
-<p>If these scopes are missing, the adapter will start but log a <code>slack_webapi_platform_error</code> on the first sync attempt. The adapter otherwise continues normally; only the identity mapping is affected.</p>
+<p>Add these under <em>OAuth &amp; Permissions → Bot Token Scopes</em> in your Slack app configuration, then reinstall the app to your workspace so the new scopes take effect.</p>
+<p>If <code>users:read</code>/<code>users:read.email</code> are missing, the adapter will start but log a <code>slack_webapi_platform_error</code> on the first sync attempt; the adapter otherwise continues normally and only the identity mapping is affected. If <code>groups:read</code> is missing for a private channel, <code>conversations.members</code> fails the same way, but it's caught separately: the channel-membership backfill is skipped for that run (logged as a warning) while the rest of the sync — linking existing members by email via <code>users.list</code> — still runs normally.</p>
 <h3 id="direct-messages">Direct messages</h3>
 <p>To support DMs between users and an agent, add <code>dmChannels</code> to the same adapter that handles group chat — no separate Conversation is needed. Set <code>enableDMs: ["agents"]</code> on the Conversation so the engine accepts inbound DMs.</p>
 <p>LLM Engine routes DMs by finding the adapter for the workspace that has <code>dmChannels</code> configured. Because DM channel IDs are per-user and change with each conversation, you do not specify a channel ID for DMs. Only one adapter per workspace (or per <code>appKey</code> + workspace, if you use the app-key webhook path) may have <code>dmChannels</code> — LLM Engine enforces this at save time.</p>
