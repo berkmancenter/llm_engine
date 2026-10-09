@@ -15,6 +15,7 @@ Follow Step 2 `Requesting Scopes` to request the following Bot Token Scopes:
 - chat:write
 - chat:write.public (if using in public channels)
 - channels:read
+- groups:read (required for private channels when member identity sync tracks channel membership — see [Member identity sync](#member-identity-sync) below)
 - users:read (required for member identity sync — see [Member identity sync](#member-identity-sync) below)
 - users:read.email (required alongside `users:read` to access profile email addresses)
 
@@ -209,7 +210,9 @@ curl -X POST http://localhost:3000/v1/event-setup/plan \
 
 ### Member identity sync
 
-When a Slack adapter starts, LLM Engine checks whether the conversation has any `ConversationMembership` records (created when you import a member list via CSV invite). If memberships exist, it paginates through the Slack workspace's user list (`users.list`) and writes each member's Slack user ID into `ConversationMembership.externalIds.slack`, matched by email address.
+When a Slack adapter starts, LLM Engine checks whether the conversation has any `ConversationMembership` records (created when you import a member list via CSV invite, or by Slack itself — see below). If memberships exist (or the adapter tracks channel membership), it paginates through the Slack workspace's user list (`users.list`) and writes each member's Slack user ID into `ConversationMembership.externalIds.slack`, matched by email address.
+
+Some conversation types (e.g. `slackCommunityAssistant`) set an adapter config flag, `trackChannelMembership`, that also lets Slack channel membership populate the roster directly: on every adapter start, LLM Engine calls `conversations.members` to list who's actually in the channel and creates a `ConversationMembership` row for any member not already on the roster (matched by email). The same thing happens live as people join the channel afterward.
 
 This mapping is used in two ways:
 
@@ -221,14 +224,15 @@ When a `member_joined_channel` event fires, the adapter checks whether the joini
 
 #### Required OAuth scopes
 
-The sync requires two additional bot token scopes beyond the baseline:
+The sync requires additional bot token scopes beyond the baseline:
 
 - `users:read` — allows calling `users.list` and `users.info`
 - `users:read.email` — allows reading profile email addresses from those calls
+- `groups:read` — allows calling `conversations.members` on a **private** channel, needed only when `trackChannelMembership` is tracking channel-based backfill (public channels work with `channels:read` alone)
 
-Add both under _OAuth & Permissions → Bot Token Scopes_ in your Slack app configuration, then reinstall the app to your workspace so the new scopes take effect.
+Add these under _OAuth & Permissions → Bot Token Scopes_ in your Slack app configuration, then reinstall the app to your workspace so the new scopes take effect.
 
-If these scopes are missing, the adapter will start but log a `slack_webapi_platform_error` on the first sync attempt. The adapter otherwise continues normally; only the identity mapping is affected.
+If `users:read`/`users:read.email` are missing, the adapter will start but log a `slack_webapi_platform_error` on the first sync attempt; the adapter otherwise continues normally and only the identity mapping is affected. If `groups:read` is missing for a private channel, `conversations.members` fails the same way, but it's caught separately: the channel-membership backfill is skipped for that run (logged as a warning) while the rest of the sync — linking existing members by email via `users.list` — still runs normally.
 
 ### Direct messages
 

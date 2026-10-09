@@ -1381,6 +1381,29 @@ describe('slack adapter tests', () => {
         expect(created).toMatchObject({ email: 'new@example.com', name: 'New Person', externalIds: { slack: 'UNEW' } })
       })
 
+      it('falls back to no channel backfill and still links by email when conversations.members throws (e.g. missing groups:read on a private channel)', async () => {
+        const existing = await ConversationMembership.create({
+          conversation: conversation._id,
+          email: 'already@example.com',
+          name: 'Already Rostered'
+        })
+        mockWebClient.conversations.members.mockRejectedValue(
+          Object.assign(new Error('missing_scope'), { code: 'slack_webapi_platform_error' })
+        )
+        mockWebClient.users.list.mockResolvedValue({
+          ok: true,
+          members: [{ id: 'U_ALREADY', profile: { email: 'already@example.com' }, is_bot: false }],
+          response_metadata: { next_cursor: '' }
+        })
+
+        await adapter.start() // must not throw — see the comment on channelMemberIds above
+
+        const updated = await ConversationMembership.findById(existing._id).lean()
+        expect(updated?.externalIds?.slack).toBe('U_ALREADY')
+        // No channel members were ever resolved, so nothing gets created from channel presence.
+        expect(await ConversationMembership.countDocuments({ conversation: conversation._id })).toBe(1)
+      })
+
       it('backfills a membership for a channel member not already on the roster', async () => {
         await ConversationMembership.create({
           conversation: conversation._id,

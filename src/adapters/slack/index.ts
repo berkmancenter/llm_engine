@@ -168,9 +168,23 @@ async function syncSlackExternalIds() {
   // compared to resolving each one's profile individually. Cross-referenced below against
   // the users.list page data we're already fetching, rather than calling users.info per
   // member (which would mean one extra Slack API call per channel member on every start()).
-  const channelMemberIds = trackChannelMembership
-    ? await fetchChannelMemberIds(slackWebClient, this.config.channel)
-    : new Set<string>()
+  //
+  // Caught separately from the users.list loop below: the Slack client throws on an API
+  // error (e.g. missing_scope — conversations.members needs groups:read for a private
+  // channel, which users.list/users.info don't) rather than returning ok: false, and an
+  // uncaught throw here would also skip the unrelated email-linking sync below, which
+  // worked fine without this scope before trackChannelMembership existed.
+  let channelMemberIds = new Set<string>()
+  if (trackChannelMembership) {
+    try {
+      channelMemberIds = await fetchChannelMemberIds(slackWebClient, this.config.channel)
+    } catch (err) {
+      logger.warn(
+        `Slack externalIds sync: conversations.members failed for conversation ${conversationId} ` +
+          `(channel ${this.config.channel}), skipping channel-membership backfill this run: ${err.message}`
+      )
+    }
+  }
 
   let cursor: string | undefined
   let pageCount = 0
