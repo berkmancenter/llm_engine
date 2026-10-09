@@ -3,7 +3,7 @@ import socketIO from './socketIO.js'
 import logger from '../config/logger.js'
 import { getRoomIds } from './utils.js'
 import serializeMessage from '../utils/serializeMessage.js'
-import { ArtifactVersionNotice } from '../types/index.types.js'
+import { ArtifactVersionNotice, IUserPreferences } from '../types/index.types.js'
 
 const isSubdocument = (value) => value !== null && typeof value === 'object' && value.constructor === Object
 
@@ -168,6 +168,16 @@ class WebsocketGateway {
     payload: { requestId: string; text: string; done: boolean }
   ) {
     await this.broadcast(conversationId, 'message:chunk', payload, channels)
+  }
+
+  /**
+   * Tells a user's own connected clients their preferences changed, so e.g. a client can
+   * decide whether to surface the jargon channel without a page refresh. Targets the
+   * per-user room joined via `user:join` (see conversationHandlers.ts's joinUser), not any
+   * conversation room — preferences are global to the account, not scoped to one conversation.
+   */
+  async broadcastPreferencesUpdated(userId: string, preferences: IUserPreferences) {
+    await this.broadcast(userId.toString(), 'preferences:updated', { userId: userId.toString(), preferences })
   }
 
   async broadcastTranscriptStatusChange(conversation, status) {
