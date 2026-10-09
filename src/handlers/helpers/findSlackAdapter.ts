@@ -56,10 +56,16 @@ export interface SlackDmResolution {
 
 /**
  * Finds the Slack adapter that should handle a direct message from `slackUserId` in this
- * workspace. A workspace running a single community (the common case, and every case before
- * multiple communities could share one Slack app) is resolved with no membership lookup at
- * all — zero behavior or cost change there. Only once there's more than one DM-capable
- * adapter in this `(workspace, appKey)` bucket does it fall back to
+ * workspace. A workspace that truly runs only one community (the common case, and every case
+ * before multiple communities could share one Slack app) is resolved with no membership lookup
+ * at all — zero behavior or cost change there.
+ *
+ * The lone-candidate case still has to check for *other* communities sharing this bucket before
+ * trusting that shortcut, though: a single DM-capable adapter doesn't mean a single community —
+ * a second community that never turned DMs on is invisible to the `dmChannels` filter, and its
+ * members must not be silently routed to the one adapter that does have DMs just because it's
+ * the only candidate the query found. Only once there's more than one DM-capable adapter (or a
+ * channel-only community lurking alongside the lone one) does it fall back to
  * {@link matchMemberConversation}, and even then only to disambiguate.
  *
  * `unresolved: true` means "this is a legitimate DM from somewhere in the workspace, just not
@@ -75,17 +81,29 @@ export async function resolveSlackDmAdapter({
   slackUserId?: string
   appKey?: string
 }): Promise<SlackDmResolution> {
-  const query: Record<string, unknown> = {
+  const baseQuery: Record<string, unknown> = {
     type: 'slack',
     'config.workspace': workspaceId,
-    dmChannels: { $exists: true, $not: { $size: 0 } },
     active: true
   }
-  if (appKey) query['config.appKey'] = appKey
+  if (appKey) baseQuery['config.appKey'] = appKey
 
-  const candidates = await Adapter.find(query)
+  const candidates = await Adapter.find({
+    ...baseQuery,
+    dmChannels: { $exists: true, $not: { $size: 0 } }
+  })
   if (candidates.length === 0) return { adapter: null }
-  if (candidates.length === 1) return { adapter: candidates[0] }
+
+  if (candidates.length === 1) {
+    // Cheap, indexed, and only runs for the lone-candidate case — the common zero-candidate and
+    // already-ambiguous (>1) cases never pay for it.
+    const otherChannelConversations = await Adapter.distinct('conversation', {
+      ...baseQuery,
+      conversation: { $ne: candidates[0].conversation },
+      'config.channel': { $ne: DIRECT_CHANNEL }
+    })
+    if (otherChannelConversations.length === 0) return { adapter: candidates[0] }
+  }
   if (!slackUserId) return { adapter: candidates[0], unresolved: true }
 
   const matchedConversationId = await matchMemberConversation(
@@ -295,24 +313,34 @@ export async function findSlackAppHomeTarget({
   // candidate set. A single community legitimately splits its channel and its own
   // always-on direct conversation across two Conversation records (see
   // slack.handler.test.ts's addDirectConversation) — that's exactly one distinct
-  // conversation per role, so it's never ambiguous and never touches membership. Ambiguity
-  // only arises when more than one DISTINCT conversation competes for the SAME role, which
-  // is what actually happens once multiple communities share one Slack app.
+  // conversation per role, so it's never ambiguous and never touches membership.
+  //
+  // Whether a role's own candidate count is safe to trust, though, depends on the OTHER role
+  // too — not just itself. If A has DMs on and B doesn't, the direct role only ever sees A (one
+  // candidate), but the channel role sees both A and B: the workspace plainly runs more than one
+  // community, so a B member must not be resolved into A's direct-message settings just because
+  // the direct role, in isolation, looked unambiguous. So both roles only skip membership when
+  // *neither* role, on its own, found more than one distinct conversation — the split-single-
+  // community case above is still free (1 and 1), but "1 direct / 2 channel" (or the reverse) now
+  // requires membership for both roles, even the one that looked unambiguous by itself.
+  const directCandidates = eligible.filter(
+    (candidate) => candidate.config?.channel === DIRECT_CHANNEL || (candidate.dmChannels?.length ?? 0) > 0
+  )
+  const channelCandidates = eligible.filter((candidate) => candidate.config?.channel !== DIRECT_CHANNEL)
+  const directIds = [...new Set(directCandidates.map((candidate) => candidate.conversation.toString()))]
+  const channelIds = [...new Set(channelCandidates.map((candidate) => candidate.conversation.toString()))]
+  const singleCommunityWorkspace = directIds.length <= 1 && channelIds.length <= 1
+
   const slackUserId = payload?.event?.user
-  const resolveRole = async (roleCandidates: AdapterDocument[]): Promise<AdapterDocument[]> => {
-    const ids = [...new Set(roleCandidates.map((candidate) => candidate.conversation.toString()))]
-    if (ids.length <= 1) return roleCandidates
+  const resolveRole = async (roleCandidates: AdapterDocument[], ids: string[]): Promise<AdapterDocument[]> => {
+    if (singleCommunityWorkspace) return roleCandidates
     const matchedConversationId = slackUserId ? await matchMemberConversation(ids, slackUserId) : undefined
     if (!matchedConversationId) return []
     return roleCandidates.filter((candidate) => candidate.conversation.toString() === matchedConversationId)
   }
 
-  const directRoleCandidates = await resolveRole(
-    eligible.filter((candidate) => candidate.config?.channel === DIRECT_CHANNEL || (candidate.dmChannels?.length ?? 0) > 0)
-  )
-  const channelRoleCandidates = await resolveRole(
-    eligible.filter((candidate) => candidate.config?.channel !== DIRECT_CHANNEL)
-  )
+  const directRoleCandidates = await resolveRole(directCandidates, directIds)
+  const channelRoleCandidates = await resolveRole(channelCandidates, channelIds)
 
   if (directRoleCandidates.length === 0 && channelRoleCandidates.length === 0) {
     // Both roles had more than one competing community and the viewer couldn't be matched to

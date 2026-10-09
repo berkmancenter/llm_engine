@@ -117,10 +117,43 @@ describe('findSlackAdapter', () => {
   it('resolves the workspace DM adapter when the event is an im', async () => {
     await makeAdapter({ channel: 'C123', workspace: 'T1' })
     const dm = await makeAdapter({ channel: 'C123', workspace: 'T1', dmChannels: [{ direct: true, direction: 'both' }] })
+    // A channel-only adapter also shares the workspace, so the lone DM candidate is only
+    // trusted once this sender is confirmed as an actual member of it.
+    await addMembership(dm.conversation, 'U_MEMBER')
 
     const found = await findSlackAdapter({
-      payload: { event: { type: 'message', channel_type: 'im', channel: 'D_USER123', team: 'T1' } }
+      payload: { event: { type: 'message', channel_type: 'im', channel: 'D_USER123', team: 'T1', user: 'U_MEMBER' } }
     })
+    expect(found.adapter?._id.toString()).toBe(dm._id.toString())
+    expect(found.unresolved).toBeUndefined()
+  })
+
+  it('does not shortcut a lone DM-capable adapter when a channel-only community also shares the workspace', async () => {
+    const channelOnly = await makeAdapter({ channel: 'C_CHANNEL_ONLY', workspace: 'T1' })
+    const dm = await makeAdapter({ channel: 'C_DM', workspace: 'T1', dmChannels: [{ direct: true, direction: 'both' }] })
+    await addMembership(channelOnly.conversation, 'U_OTHER_COMMUNITY')
+
+    const found = await findSlackAdapter({
+      payload: {
+        event: { type: 'message', channel_type: 'im', channel: 'D_USER123', team: 'T1', user: 'U_OTHER_COMMUNITY' }
+      }
+    })
+
+    // Not routed to dm just because it's the only adapter with dmChannels — this sender belongs
+    // to the other (channel-only, DM-less) community, not dm's.
+    expect(found.unresolved).toBe(true)
+    expect(found.adapter?._id.toString()).toBe(dm._id.toString())
+  })
+
+  it('resolves a lone DM-capable adapter normally when the sender actually belongs to it, even with a channel-only community present', async () => {
+    await makeAdapter({ channel: 'C_CHANNEL_ONLY', workspace: 'T1' })
+    const dm = await makeAdapter({ channel: 'C_DM', workspace: 'T1', dmChannels: [{ direct: true, direction: 'both' }] })
+    await addMembership(dm.conversation, 'U_DM_MEMBER')
+
+    const found = await findSlackAdapter({
+      payload: { event: { type: 'message', channel_type: 'im', channel: 'D_USER123', team: 'T1', user: 'U_DM_MEMBER' } }
+    })
+
     expect(found.adapter?._id.toString()).toBe(dm._id.toString())
     expect(found.unresolved).toBeUndefined()
   })
@@ -401,10 +434,11 @@ describe('findSlackAppHomeTarget', () => {
   })
 
   it('prefers the direct conversation, which is the one sitting in the Messages tab', async () => {
+    // One channel conversation + one direct conversation is the legitimate single-community
+    // split (see the comment on singleCommunityWorkspace), so this resolves with no membership
+    // lookup at all, same as if both lived on a single adapter.
     await makeAppHomeAdapter({ channel: 'C_ASSISTANT', workspace: 'T1' })
     const dm = await makeAppHomeAdapter({ channel: 'direct', workspace: 'T1' })
-    // Two distinct communities now need membership to disambiguate which one this viewer gets.
-    await addMembership(dm.conversation, 'U_HUMAN')
 
     const found = await findSlackAppHomeTarget({ payload: appHomePayload() })
     expect(found?.adapter._id.toString()).toBe(dm._id.toString())
@@ -487,11 +521,12 @@ describe('findSlackAppHomeTarget', () => {
     expect(found?.unresolved).toBeUndefined()
   })
 
-  it('reports the one DM-capable community for direct messages even when the channel role is ambiguous', async () => {
-    // Only one of the two communities answers DMs — that role isn't ambiguous (only one
-    // candidate exists for it), so it resolves unconditionally. The channel role still needs
-    // membership, since both communities have their own channel.
-    await makeAppHomeAdapter(
+  it('does not leak the one DM-capable community into a viewer who belongs to a different, DM-less community', async () => {
+    // Only one of the two communities answers DMs, but the channel role is ambiguous (both
+    // communities have their own channel) — that ambiguity means the workspace runs more than
+    // one community overall, so the direct role's own single candidate can no longer be trusted
+    // without a membership check either, even though it looks unambiguous in isolation.
+    const dmCommunity = await makeAppHomeAdapter(
       { channel: 'C_DM', workspace: 'T1', dmChannels: [{ direct: true, direction: 'both' }] },
       { agentConfig: { notifications: ['event_ended'] } }
     )
@@ -504,6 +539,22 @@ describe('findSlackAppHomeTarget', () => {
     const found = await findSlackAppHomeTarget({ payload: appHomePayload() })
 
     expect(found?.channelAgentConfig?.notifications).toEqual([])
+    // Not dmCommunity's settings — this viewer belongs to channelOnly, not dmCommunity, and
+    // channelOnly offers no direct messages of its own.
+    expect(found?.directAgentConfig).toBeUndefined()
+    expect(found?.adapter._id.toString()).not.toBe(dmCommunity._id.toString())
+  })
+
+  it('still reports the one DM-capable community for a viewer who actually belongs to it, despite an ambiguous channel role', async () => {
+    const dmCommunity = await makeAppHomeAdapter(
+      { channel: 'C_DM', workspace: 'T1', dmChannels: [{ direct: true, direction: 'both' }] },
+      { agentConfig: { notifications: ['event_ended'] } }
+    )
+    await makeAppHomeAdapter({ channel: 'C_CHANNEL_ONLY', workspace: 'T1' }, { agentConfig: { notifications: [] } })
+    await addMembership(dmCommunity.conversation, 'U_HUMAN')
+
+    const found = await findSlackAppHomeTarget({ payload: appHomePayload() })
+
     expect(found?.directAgentConfig?.notifications).toEqual(['event_ended'])
   })
 
