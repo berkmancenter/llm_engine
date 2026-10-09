@@ -2801,12 +2801,12 @@ describe('Conversation service methods', () => {
       dispatchSpy.mockRestore()
     })
 
-    describe('from a shared presentation screen', () => {
+    describe('subscribing only, as a shared presentation screen does', () => {
       it('creates no direct channel, so the screen is not counted as an attendee', async () => {
         const { User } = await import('../../src/models/index.js')
         const user = await User.findById(registeredUser._id)
 
-        await conversationService.joinConversation(joinConversation._id.toString(), user, { presentation: true })
+        await conversationService.joinConversation(joinConversation._id.toString(), user, { subscribeOnly: true })
 
         const directChannels = await Channel.countDocuments({ direct: true, participants: registeredUser._id })
         expect(directChannels).toBe(0)
@@ -2817,7 +2817,7 @@ describe('Conversation service methods', () => {
         const user = await User.findById(registeredUser._id)
         const dispatchSpy = jest.spyOn(agentDispatcher, 'dispatch')
 
-        await conversationService.joinConversation(joinConversation._id.toString(), user, { presentation: true })
+        await conversationService.joinConversation(joinConversation._id.toString(), user, { subscribeOnly: true })
 
         expect(dispatchSpy).not.toHaveBeenCalled()
         dispatchSpy.mockRestore()
@@ -2833,7 +2833,7 @@ describe('Conversation service methods', () => {
           name: 'Test Member'
         })
 
-        await conversationService.joinConversation(joinConversation._id.toString(), user, { presentation: true })
+        await conversationService.joinConversation(joinConversation._id.toString(), user, { subscribeOnly: true })
 
         const membership = await ConversationMembership.findOne({ conversation: joinConversation._id })
         expect(membership!.joined).not.toBe(true)
