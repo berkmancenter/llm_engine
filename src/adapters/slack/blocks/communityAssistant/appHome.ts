@@ -46,6 +46,21 @@ function section(text: string): KnownBlock {
 }
 
 /**
+ * A minimal page for a workspace running more than one community assistant on this Slack
+ * app, when the viewer couldn't be matched to any of them by Slack channel membership — no
+ * features, no starter questions, just enough to tell them what to do next.
+ */
+export function renderJoinPrompt(): KnownBlock[] {
+  return [
+    { type: 'header', text: { type: 'plain_text', text: "I couldn't tell which room this is for you", emoji: true } },
+    section(
+      "I wasn't able to match you to one of this workspace's community rooms. Join one of the " +
+        'Slack channels this app is connected to, then reopen this tab.'
+    )
+  ]
+}
+
+/**
  * Lays out the Slack App Home page for a community assistant deployment.
  *
  * Pure layout: every string arrives finished from

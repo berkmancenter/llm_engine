@@ -1,5 +1,7 @@
 import type { ActionsBlock, Button as ButtonElement, KnownBlock } from '@slack/types'
-import renderAppHomePage from '../../../../../../src/adapters/slack/blocks/communityAssistant/appHome.js'
+import renderAppHomePage, {
+  renderJoinPrompt
+} from '../../../../../../src/adapters/slack/blocks/communityAssistant/appHome.js'
 import { AppHomeData } from '../../../../../../src/types/index.types.js'
 
 function makeData(overrides: Partial<AppHomeData> = {}): AppHomeData {
@@ -98,7 +100,9 @@ describe('renderAppHomePage', () => {
   })
 
   it('formats the channel ID in reach lines as a Slack mrkdwn channel link', () => {
-    const blocks = renderAppHomePage(makeData({ reachLines: ['Find me in C0123456789 to get started.'], channelId: 'C0123456789' }))
+    const blocks = renderAppHomePage(
+      makeData({ reachLines: ['Find me in C0123456789 to get started.'], channelId: 'C0123456789' })
+    )
     expect(textOf(blocks)).toContain('<#C0123456789>')
     expect(textOf(blocks)).not.toContain(' C0123456789')
   })
@@ -161,5 +165,16 @@ describe('renderAppHomePage', () => {
     expect(renderAppHomePage(makeData({ features })).length).toBeLessThanOrEqual(100)
     // Buttons add an actions block per feature, so the cap has to hold in both modes.
     expect(renderAppHomePage(makeData({ features, questionsAreClickable: true })).length).toBeLessThanOrEqual(100)
+  })
+})
+
+describe('renderJoinPrompt', () => {
+  it('renders no features, no starter questions — just an explanation', () => {
+    const blocks = renderJoinPrompt()
+    const text = blocks.map((block) => JSON.stringify(block)).join('\n')
+
+    expect(blocks.some((block) => block.type === 'header')).toBe(true)
+    expect(blocks.some((block) => block.type === 'actions')).toBe(false)
+    expect(text).toContain('Join one of the')
   })
 })
