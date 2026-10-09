@@ -74,7 +74,7 @@ describe('jargon filter agent tests', () => {
 
   describe('jargon detection', () => {
     it(
-      'detects jargon and posts clarification to opted-in channels only',
+      'detects jargon and posts clarification to the shared jargon channel',
       async () => {
         await loadTestTranscript(conversation, jargonTranscript)
 
@@ -91,13 +91,10 @@ describe('jargon filter agent tests', () => {
         const response = responses[0]
         expect(response.visible).toBe(true)
         expect(response.messageType).toBe('json')
-        expect(response.message.text).toBeTruthy()
+        expect(Array.isArray(response.message.terms)).toBe(true)
+        expect(response.message.terms.length).toBeGreaterThan(0)
 
-        // text contains bullet points but no summary section
-        expect(response.message.text).not.toMatch(/\*\*Summary:\*\*/)
-        expect(response.message.text).toMatch(/- \*\*.+\*\*/)
-
-        // sourceText is a verbatim quote from the transcript — assert it contains a known jargon term
+        // Each term is its own object with a short label and its own explanation
         const knownJargonTerms = [
           'SLO',
           'mTLS',
@@ -108,16 +105,26 @@ describe('jargon filter agent tests', () => {
           'thundering herd',
           'exponential backoff'
         ]
-        expect(knownJargonTerms.some((term) => response.message.sourceText.includes(term))).toBe(true)
+        for (const term of response.message.terms) {
+          expect(typeof term.term).toBe('string')
+          expect(term.text).toBeTruthy()
+          // term should be the short label only, not a sentence
+          expect(term.term.length).toBeLessThan(40)
+        }
+
+        // At least one term's sourceText (when present) should be a verbatim quote containing a known jargon term
+        const termsWithSourceText = response.message.terms.filter((t) => t.sourceText)
+        if (termsWithSourceText.length > 0) {
+          expect(termsWithSourceText.some((t) => knownJargonTerms.some((known) => t.sourceText.includes(known)))).toBe(true)
+        }
 
         // transcriptWindow reflects the conversationHistory boundaries passed to respond()
         expect(response.message.transcriptWindow.start).toBe(conversationHistory.start.getTime())
         expect(response.message.transcriptWindow.end).toBe(conversationHistory.end.getTime())
 
-        // Only the opted-in user's direct channel should be targeted
+        // The shared jargon channel should be targeted, not any individual user's DM channel
         const channelNames = response.channels.map((c) => c.name)
-        expect(channelNames).toContain(`direct-agents-${userOptedIn._id}`)
-        expect(channelNames).not.toContain(`direct-agents-${userOptedOut._id}`)
+        expect(channelNames).toEqual(['jargon'])
       },
       testTimeout
     )
@@ -163,9 +170,10 @@ describe('jargon filter agent tests', () => {
     )
 
     it(
-      'returns no response when jargon is found but no users have opted in',
+      'posts to the jargon channel even when no individual user has the preference enabled',
       async () => {
-        // Remove the opted-in preference
+        // jargonClarification is now purely a client-side display concern — the shared jargon
+        // channel is always posted to regardless of any individual user's preference.
         await User.findByIdAndUpdate(userOptedIn._id, { preferences: { jargonClarification: false } })
 
         await loadTestTranscript(conversation, jargonTranscript)
@@ -177,7 +185,8 @@ describe('jargon filter agent tests', () => {
 
         const responses = await defaultAgentTypes.jargonFilterAgent.respond.call(jargonFilterAgent, conversationHistory)
 
-        expect(responses).toHaveLength(0)
+        expect(responses.length).toBeGreaterThan(0)
+        expect(responses[0].channels.map((c) => c.name)).toEqual(['jargon'])
       },
       testTimeout
     )
@@ -185,7 +194,7 @@ describe('jargon filter agent tests', () => {
 
   describe('posting clarification messages', () => {
     it(
-      'targets direct channels where the jargon filter agent is authorized to post',
+      'targets the shared jargon channel, not a per-user direct channel',
       async () => {
         await loadTestTranscript(conversation, jargonTranscript)
 
@@ -197,14 +206,8 @@ describe('jargon filter agent tests', () => {
         const responses = await defaultAgentTypes.jargonFilterAgent.respond.call(jargonFilterAgent, conversationHistory)
         expect(responses.length).toBeGreaterThan(0)
 
-        // The jargon filter posts via newMessageHandler(response, jargonFilterAgent).
-        // authChannels checks that the posting agent is a participant in each direct channel.
-        // All targeted channels must include the jargon filter agent as a participant.
         for (const response of responses) {
-          for (const channel of response.channels) {
-            const participantIds = channel.participants?.map((p) => p._id.toString()) ?? []
-            expect(participantIds).toContain(jargonFilterAgent._id.toString())
-          }
+          expect(response.channels.map((c) => c.name)).toEqual(['jargon'])
         }
       },
       testTimeout
@@ -213,14 +216,8 @@ describe('jargon filter agent tests', () => {
 
   describe('malformed LLM output handling', () => {
     it.each([
-      [
-        'missing',
-        '{"jargonFound":true,"text":"- **SLO** — A target for reliability.","sourceText":"We need to hit our SLO."}'
-      ],
-      [
-        'empty array',
-        '{"jargonFound":true,"text":"- **SLO** — A target for reliability.","sourceText":"We need to hit our SLO.","terms":[]}'
-      ]
+      ['missing', '{"jargonFound":true}'],
+      ['empty array', '{"jargonFound":true,"terms":[]}']
     ])('jargon schema accepts a response where terms is %s', (_label, jsonStr) => {
       const parsed = JSON.parse(jsonStr)
       expect(parsed.jargonFound).toBe(true)
@@ -245,7 +242,10 @@ describe('jargon filter agent tests', () => {
         const { terms } = responses[0].message
         expect(Array.isArray(terms)).toBe(true)
         expect(terms.length).toBeGreaterThan(0)
-        terms.forEach((term) => expect(typeof term).toBe('string'))
+        terms.forEach((term) => {
+          expect(typeof term.term).toBe('string')
+          expect(typeof term.text).toBe('string')
+        })
       },
       testTimeout
     )

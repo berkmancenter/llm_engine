@@ -1330,7 +1330,7 @@ export async function createJargonFilterConversation(
     participants: [user, agent]
   }))
 
-  const channels = await Channel.create([{ name: 'transcript' }, { name: 'chat' }, ...directChannels])
+  const channels = await Channel.create([{ name: 'transcript' }, { name: 'chat' }, { name: 'jargon' }, ...directChannels])
   conversation.channels.push(...channels)
   await agent.save()
   conversation.agents.push(agent)
