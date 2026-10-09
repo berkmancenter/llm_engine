@@ -49,7 +49,9 @@ export default (io, socket) => {
   })
   const joinConversation = catchAsync(async (data, callback) => {
     const startedAt = Date.now()
-    const conversation = await conversationService.joinConversation(data.conversationId.toString(), data.user)
+    const conversation = await conversationService.joinConversation(data.conversationId.toString(), data.user, {
+      observer: data.observer === true
+    })
 
     // Support both single channel and array of channels
     const channels: IChannel[] = data.channels || []

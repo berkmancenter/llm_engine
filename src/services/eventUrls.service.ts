@@ -1,17 +1,7 @@
 /*
- * The client-facing URLs for an event: where a participant joins, where a moderator
- * watches the back channel, and where the organizer edits the event.
- *
- * This is the only place the server assumes anything about the frontend's routing, so the
- * two view paths come from config (EVENT_PARTICIPANT_PATH, EVENT_MODERATOR_PATH) and a
- * client that routes differently overrides them without a code change. Everything after
- * the path is llm_engine's own API convention: `conversationId` plus a repeated
- * `channel=<name>,<passcode>` pair, the same shape message.controller.ts parses on the way
- * back in.
- *
- * Access is by channel passcode, not by account. A participant or moderator link works for
- * someone who has never signed in; the event page link does not, because it deep links
- * through the login screen into the admin view.
+ * The client-facing URLs for an event. View paths come from config, so a frontend that routes
+ * differently moves them without a code change. Participant, presentation, and moderator links
+ * open by channel passcode without sign-in; the event page link goes through the login screen.
  */
 import config from '../config/config.js'
 import { CHAT_CHANNEL, MODERATOR_CHANNEL, TRANSCRIPT_CHANNEL } from '../conversations/eventAssistant.js'
@@ -44,6 +34,8 @@ const channelParams = (conversation: LinkableConversation, channelNames: string[
   return params
 }
 
+const PARTICIPANT_CHANNELS = [TRANSCRIPT_CHANNEL, CHAT_CHANNEL]
+
 /**
  * Where a participant joins the event. Safe to share with everyone invited to the meeting:
  * it carries no moderator passcode, so it cannot reach the back channel.
@@ -51,7 +43,16 @@ const channelParams = (conversation: LinkableConversation, channelNames: string[
  * @returns {string}
  */
 const participantUrl = (conversation: LinkableConversation): string =>
-  `${config.appHost}${config.eventUrlPaths.participant}?${channelParams(conversation, [TRANSCRIPT_CHANNEL, CHAT_CHANNEL])}`
+  `${config.appHost}${config.eventUrlPaths.participant}?${channelParams(conversation, PARTICIPANT_CHANNELS)}`
+
+/**
+ * The participant view enlarged for a projector or shared screen. Uses the participant's
+ * channels, so it carries no moderator passcode.
+ * @param {LinkableConversation} conversation
+ * @returns {string}
+ */
+const presentationUrl = (conversation: LinkableConversation): string =>
+  `${config.appHost}${config.eventUrlPaths.presentation}?${channelParams(conversation, PARTICIPANT_CHANNELS)}`
 
 /**
  * Where the moderator watches the back channel. Undefined when the conversation has no
@@ -69,7 +70,7 @@ const moderatorUrl = (conversation: LinkableConversation): string | undefined =>
 }
 
 /**
- * Where the organizer confirms and edits the event. Unlike the other two, this one requires
+ * Where the organizer confirms and edits the event. Unlike the others, this one requires
  * an account: it routes through the login screen and lands on the admin view afterwards.
  * @param {LinkableConversation} conversation
  * @returns {string}
@@ -77,5 +78,5 @@ const moderatorUrl = (conversation: LinkableConversation): string | undefined =>
 const eventPageUrl = (conversation: LinkableConversation): string =>
   `${config.appHost}/login?redirectTo=/admin/${conversation.conversationType}/view/${conversationId(conversation)}`
 
-const eventUrls = { participantUrl, moderatorUrl, eventPageUrl }
+const eventUrls = { participantUrl, presentationUrl, moderatorUrl, eventPageUrl }
 export default eventUrls

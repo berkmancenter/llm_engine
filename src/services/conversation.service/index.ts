@@ -874,7 +874,13 @@ const carryAdminRealName = async (user, conversation) => {
   }
 }
 
-const joinConversation = async (conversationOrId, user) => {
+/**
+ * @param {Object} [options]
+ * @param {boolean} [options.observer] - the caller only wants the room's updates, as a shared
+ *   presentation screen does, and is not joining as a participant. It gets no direct channel and no
+ *   welcome, because attendee counts are built from direct channels.
+ */
+const joinConversation = async (conversationOrId, user, { observer = false } = {}) => {
   let conversation = conversationOrId
   if (typeof conversationOrId === 'string' || conversationOrId instanceof mongoose.Types.ObjectId) {
     conversation = await Conversation.findOne({ _id: conversationOrId })
@@ -886,6 +892,7 @@ const joinConversation = async (conversationOrId, user) => {
     }
   }
   await assertMembership(user, conversation)
+  if (observer) return conversation
   await carryAdminRealName(user, conversation)
 
   // Primary signal: atomically mark membership as joined on first visit.

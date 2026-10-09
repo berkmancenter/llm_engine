@@ -231,12 +231,11 @@ We received your calendar invite, but ran into a problem creating your event. Pl
 }
 
 /**
- * Notify an organizer that their emailed Zoom link turned into an on-demand event. Leads with the
- * moderator and participant links, since those are the ones that open straight into the room
- * without signing in (unlike the event page link, which requires an account); the event page
- * link comes last as the place to edit the event or find these links again.
+ * Notify an organizer that their emailed Zoom link turned into an on-demand event. Lists the
+ * passcode links first because they open the room without signing in; the event page link
+ * comes last because it needs an account.
  * @param {string} to
- * @param {Object} urls - { eventPageUrl, moderatorUrl?, participantUrl } from eventUrls.service
+ * @param {Object} urls - { eventPageUrl, moderatorUrl?, participantUrl, presentationUrl } from eventUrls.service
  * @param {Object} [options]
  * @param {Date} [options.joinAt] - when the email describes a scheduled join rather than an immediate one
  * @returns {Promise}
@@ -256,11 +255,13 @@ const sendOnDemandEventEmail = async (to, urls, { joinAt }: { joinAt?: Date } = 
   const text = `Hello,
 ${whenLine}
 ${moderatorLine}Participant link (share with anyone joining): ${urls.participantUrl}
+Presentation link (open on the shared screen): ${urls.presentationUrl}
 Edit the event, or find these links again: ${urls.eventPageUrl}`
   const html = `<p>Hello,</p>
 <p>${whenLine}</p>
 ${moderatorHtml}
 <p>Participant link (share with anyone joining): <a href="${urls.participantUrl}">${urls.participantUrl}</a></p>
+<p>Presentation link (open on the shared screen): <a href="${urls.presentationUrl}">${urls.presentationUrl}</a></p>
 <p>Edit the event, or find these links again: <a href="${urls.eventPageUrl}">${urls.eventPageUrl}</a></p>`
   await sendEmailAsync(to, subject, text, html, 'on-demand-event')
 }

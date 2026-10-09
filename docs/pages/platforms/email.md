@@ -7,7 +7,7 @@ Email integration requires the use of [Postmark](https://postmarkapp.com), a thi
 ### The two paths
 
 - **Calendar invite.** An organizer adds the event setup bot as an attendee on a meeting invite. The webhook parses the attached `.ics` file for the title, time, and location, matches the invite title against a `Prefix:` in one of the organizer's existing Topics, and creates a draft event on that schedule.
-- **Plain email, on demand.** An organizer emails the bot directly with a Zoom link and no calendar invite. An LLM call reads the email for the Zoom link, speakers, and, if stated, a start time. With no stated time, the Event Assistant joins the call right away; with a future time, the event is scheduled instead. Either way the organizer gets a reply with direct links to the event, the moderator view, and the participant view, and the bot leaves the call automatically once it ends.
+- **Plain email, on demand.** An organizer emails the bot directly with a Zoom link and no calendar invite. An LLM call reads the email for the Zoom link, speakers, and, if stated, a start time. With no stated time, the Event Assistant joins the call right away; with a future time, the event is scheduled instead. Either way the organizer gets a reply with direct links to the event, the moderator view, the participant view, and the presentation view for a shared screen, and the bot leaves the call automatically once it ends.
 
 Both paths are gated by `ALLOWED_ORGANIZER_EMAIL_DOMAINS` (see below): a sender outside the allowlist gets no event and no reply of any kind, not even an error.
 
@@ -42,6 +42,7 @@ Both paths are gated by `ALLOWED_ORGANIZER_EMAIL_DOMAINS` (see below): a sender 
 | `ON_DEMAND_EVENT_DURATION_MINUTES` | no       | Default length, in minutes, for an on-demand event whose email states no duration. Defaults to 60.                                                                                                     |
 | `EVENT_PARTICIPANT_PATH`           | no       | Path appended to `APP_HOST` for the participant link emailed to the organizer. Defaults to `/assistant/`.                                                                                              |
 | `EVENT_MODERATOR_PATH`             | no       | Path appended to `APP_HOST` for the moderator link emailed to the organizer. Defaults to `/moderator/`.                                                                                                |
+| `EVENT_PRESENTATION_PATH`          | no       | Path appended to `APP_HOST` for the presentation link emailed to the organizer, for the shared-screen view. Defaults to `/present/`.                                                                   |
 
 `POSTMARK_WEBHOOK_AUTH_USER` and `POSTMARK_WEBHOOK_AUTH_SECRET` are required to use this endpoint, but neither is required to boot the server. If either is unset, the handler rejects every request rather than accepting unverified ones, and logs that it is not configured.
 

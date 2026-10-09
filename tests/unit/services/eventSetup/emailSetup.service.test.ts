@@ -846,7 +846,7 @@ describe('emailSetup.service', () => {
       expect(sendOnDemandEventSpy).not.toHaveBeenCalled()
     })
 
-    it('emails the organizer the participant, moderator, and event links on success', async () => {
+    it('emails the organizer the participant, moderator, presentation, and event links on success', async () => {
       const [organizer] = await insertUsers([newUser(`org@${allowedDomain}`)])
 
       const conversation = await createConversationFromEmail(buildEmail({}, `org@${allowedDomain}`))
@@ -856,7 +856,8 @@ describe('emailSetup.service', () => {
         expect.objectContaining({
           eventPageUrl: expect.stringContaining(conversation!._id.toString()),
           moderatorUrl: expect.stringContaining(conversation!._id.toString()),
-          participantUrl: expect.stringContaining(conversation!._id.toString())
+          participantUrl: expect.stringContaining(conversation!._id.toString()),
+          presentationUrl: expect.stringContaining(conversation!._id.toString())
         }),
         expect.anything()
       )

@@ -384,7 +384,8 @@ describe('email.service', () => {
     const urls = {
       eventPageUrl: 'https://app.example.com/login?redirectTo=/admin/eventAssistant/view/conv-123',
       moderatorUrl: 'https://app.example.com/moderator/?conversationId=conv-123&channel=moderator%2Cabc',
-      participantUrl: 'https://app.example.com/assistant/?conversationId=conv-123&channel=chat%2Cxyz'
+      participantUrl: 'https://app.example.com/assistant/?conversationId=conv-123&channel=chat%2Cxyz',
+      presentationUrl: 'https://app.example.com/present/?conversationId=conv-123&channel=chat%2Cxyz'
     }
 
     it('sends to the given address', async () => {
@@ -438,7 +439,17 @@ describe('email.service', () => {
     it('omits the moderator link entirely when the conversation has no moderator passcode', async () => {
       await emailService.sendOnDemandEventEmail('organizer@cyber.harvard.edu', { ...urls, moderatorUrl: undefined })
 
-      expect(sentMessage().HtmlBody.match(/href="/g)).toHaveLength(2)
+      expect(sentMessage().HtmlBody.match(/href="/g)).toHaveLength(3)
+    })
+
+    it('lists the presentation link after the participant link, labeled for the shared screen', async () => {
+      await emailService.sendOnDemandEventEmail('organizer@cyber.harvard.edu', urls)
+
+      const msg = sentMessage()
+      expect(msg.TextBody).toMatch(/Presentation link \(.*screen.*\): /i)
+      expect(msg.HtmlBody).toContain(`<a href="${urls.presentationUrl}">`)
+      expect(msg.TextBody.indexOf(urls.presentationUrl)).toBeGreaterThan(msg.TextBody.indexOf(urls.participantUrl))
+      expect(msg.TextBody.indexOf(urls.presentationUrl)).toBeLessThan(msg.TextBody.indexOf(urls.eventPageUrl))
     })
 
     it('includes the event page link last, labeled as where to edit the event', async () => {
