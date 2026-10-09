@@ -10,7 +10,8 @@ setupIntTest()
 const mockAdapter = {
   _id: new mongoose.Types.ObjectId(),
   type: 'slack',
-  config: { channel: 'C1234567890', workspace: '123456' }
+  config: { channel: 'C1234567890', workspace: '123456' },
+  conversation: new mongoose.Types.ObjectId()
 }
 
 // Builds a minimal valid block_actions payload. Override any field to test edge cases.
@@ -29,11 +30,17 @@ function makePayload(overrides: Record<string, unknown> = {}) {
 
 describe('slackInteraction handler — receiveInteraction()', () => {
   let findOneSpy
+  let findSpy
   let receiveMessageSpy
 
   beforeEach(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     findOneSpy = jest.spyOn(Adapter, 'findOne').mockResolvedValue(mockAdapter as any)
+    // resolveSlackDmAdapter (used for the "im" channel-type path) queries with .find(), not
+    // .findOne() — a single result short-circuits its membership lookup and returns directly,
+    // matching mockAdapter being the one and only DM-capable adapter in these tests.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    findSpy = jest.spyOn(Adapter, 'find').mockResolvedValue([mockAdapter] as any)
     receiveMessageSpy = jest.spyOn(webhookService, 'receiveMessage').mockResolvedValue()
   })
 
@@ -98,7 +105,7 @@ describe('slackInteraction handler — receiveInteraction()', () => {
     const payload = makePayload({ channel: { id: 'D1234567890' } })
     await slackInteractionHandler.receiveInteraction(payload)
 
-    expect(findOneSpy).toHaveBeenCalledWith(expect.objectContaining({ dmChannels: { $exists: true, $not: { $size: 0 } } }))
+    expect(findSpy).toHaveBeenCalledWith(expect.objectContaining({ dmChannels: { $exists: true, $not: { $size: 0 } } }))
     expect(receiveMessageSpy).toHaveBeenCalledWith(mockAdapter, expect.objectContaining({ channel_type: 'im' }))
   })
 
@@ -121,7 +128,7 @@ describe('slackInteraction handler — receiveInteraction()', () => {
     })
     await slackInteractionHandler.receiveInteraction(payload)
 
-    expect(findOneSpy).toHaveBeenCalledWith(expect.objectContaining({ dmChannels: { $exists: true, $not: { $size: 0 } } }))
+    expect(findSpy).toHaveBeenCalledWith(expect.objectContaining({ dmChannels: { $exists: true, $not: { $size: 0 } } }))
     expect(receiveMessageSpy).toHaveBeenCalledWith(
       mockAdapter,
       expect.objectContaining({ channel: 'D1234567890', channel_type: 'im' })
@@ -159,6 +166,22 @@ describe('slackInteraction handler — receiveInteraction()', () => {
   it('throws a 404 error when no Slack adapter matches the workspace and channel', async () => {
     findOneSpy.mockResolvedValue(null)
     await expect(slackInteractionHandler.receiveInteraction(makePayload())).rejects.toThrow('Slack adapter not found')
+  })
+
+  it('acknowledges rather than throwing for a DM click from a sender unmatched to any of several communities', async () => {
+    // Two DM-capable communities and no ConversationMembership for this sender in either —
+    // resolveSlackDmAdapter returns unresolved rather than a match, same as the Events API path.
+    const otherCommunityAdapter = {
+      ...mockAdapter,
+      _id: new mongoose.Types.ObjectId(),
+      conversation: new mongoose.Types.ObjectId()
+    }
+    findSpy.mockResolvedValue([mockAdapter, otherCommunityAdapter])
+
+    const payload = makePayload({ channel: { id: 'D1234567890' } })
+    await expect(slackInteractionHandler.receiveInteraction(payload)).resolves.toBeUndefined()
+
+    expect(receiveMessageSpy).not.toHaveBeenCalled()
   })
 
   it('omits thread_ts on the synthetic event when the original message timestamp is not in the payload', async () => {

@@ -9,7 +9,7 @@ import resolveSlackSigningSecret from './helpers/resolveSlackSigningSecret.js'
 import webhookService from '../services/webhook.service.js'
 import slackInteractionHandler from './slackInteraction.js'
 import buildAppHomeData from '../agents/communityAssistant/appHomeContent.js'
-import renderAppHomePage from '../adapters/slack/blocks/communityAssistant/appHome.js'
+import renderAppHomePage, { renderJoinPrompt } from '../adapters/slack/blocks/communityAssistant/appHome.js'
 import { publishHomeView } from '../adapters/slack/index.js'
 
 // Slack retries webhook delivery if it doesn't get a 200 fast enough (common through ngrok).
@@ -41,6 +41,12 @@ const publishAppHome = async (req, payload) => {
 
   const target = req.slackAppHome ?? (await findSlackAppHomeTarget({ appKey: req.params?.appKey, payload }))
   if (!target) return
+
+  if (target.unresolved) {
+    await publishHomeView(target.adapter.config.botToken, event.user, renderJoinPrompt(), event.channel)
+    return
+  }
+
   const { adapter, sharedChannelId, channelAgentConfig, directAgentConfig } = target
 
   /* The bot's name and the list of things it can look up come from whichever assistant the
@@ -116,8 +122,14 @@ const handleEvent = async (req, res) => {
   // Skip bot messages to prevent loops and skip messages with subtypes, which are not user messages (they represent events like user joining a channel, etc)
   // The middleware already resolved and validated the adapter for this workspace/channel.
   if (event.type === 'message' && !event.bot_id && !event.subtype) {
-    // TODO limit same Slack channel to one active Conversation
-    await webhookService.receiveMessage(req.slackAdapter, event)
+    if (req.slackDmUnresolved) {
+      // A legitimate, correctly-signed DM from a sender the middleware couldn't place in any
+      // community — see resolveSlackDmAdapter. Acknowledge only; nowhere to deliver this.
+      logger.debug('Slack DM sender could not be matched to a community in this workspace, acknowledging only')
+    } else {
+      // TODO limit same Slack channel to one active Conversation
+      await webhookService.receiveMessage(req.slackAdapter, event)
+    }
   }
 
   if (event.type === 'member_joined_channel') {
@@ -187,6 +199,7 @@ const middleware = async (req, res, next) => {
     // Interaction payloads have no event channel to route by — find any adapter in the workspace.
     // The interaction handler doesn't use req.slackAdapter; this lookup is only for the secret.
     let slackAdapter
+    let slackDmUnresolved = false
     if (isAppHome) {
       slackAdapter = appHomeTarget?.adapter
     } else if (interactionWorkspaceId) {
@@ -197,7 +210,9 @@ const middleware = async (req, res, next) => {
         active: true
       })
     } else {
-      slackAdapter = await findSlackAdapter({ appKey, payload: req.body })
+      const resolution = await findSlackAdapter({ appKey, payload: req.body })
+      slackAdapter = resolution.adapter
+      slackDmUnresolved = Boolean(resolution.unresolved)
     }
     if (!slackAdapter) {
       /* An App Home notice arrives whenever anyone clicks the app in their sidebar, including
@@ -221,6 +236,10 @@ const middleware = async (req, res, next) => {
     req.slackAdapter = slackAdapter
     // Carried through so drawing the page doesn't repeat the lookup the signature check just did.
     req.slackAppHome = appHomeTarget
+    /* A DM whose sender couldn't be matched to any community: the signature above still
+       validated against a real adapter's secret, so this is a legitimate webhook, not a forged
+       one — the handler acks it without delivering the message anywhere. */
+    req.slackDmUnresolved = slackDmUnresolved
     next()
   } catch (err) {
     next(err)

@@ -453,6 +453,54 @@ describe('POST /v1/webhooks/slack', () => {
     })
   })
 
+  describe('Direct messages across multiple communities sharing a workspace', () => {
+    test('acknowledges with 200 (not 401) a DM from a sender unmatched to any community, so Slack does not retry it', async () => {
+      // Two DM-capable communities in the same workspace — a sender who isn't on either
+      // roster resolves to resolveSlackDmAdapter's "unresolved" case rather than a hard null.
+      const commA = new Conversation({ ...conversationAgentsEnabled, _id: new mongoose.Types.ObjectId() })
+      await commA.save()
+      await Adapter.create({
+        type: 'slack',
+        config: { channel: 'C_MULTI_A', workspace: 'T_MULTI' },
+        dmChannels: [{ direct: true, direction: 'both' }],
+        conversation: commA._id,
+        active: true
+      })
+
+      const commB = new Conversation({ ...conversationAgentsEnabled, _id: new mongoose.Types.ObjectId() })
+      await commB.save()
+      await Adapter.create({
+        type: 'slack',
+        config: { channel: 'C_MULTI_B', workspace: 'T_MULTI' },
+        dmChannels: [{ direct: true, direction: 'both' }],
+        conversation: commB._id,
+        active: true
+      })
+
+      const dmEvent = {
+        type: 'message',
+        text: 'Hi!',
+        channel_type: 'im',
+        channel: 'D_STRANGER',
+        team: 'T_MULTI',
+        user: 'U_STRANGER',
+        ts: '1234567890.123456'
+      }
+      const payload = { event: dmEvent }
+      const timestamp = Math.floor(Date.now() / 1000).toString()
+      const signature = generateSlackSignature(timestamp, JSON.stringify(payload))
+
+      await request(app)
+        .post('/v1/webhooks/slack')
+        .set('x-slack-signature', signature)
+        .set('x-slack-request-timestamp', timestamp)
+        .send(payload)
+        .expect(httpStatus.OK)
+
+      expect(receiveMessageSpy).not.toHaveBeenCalled()
+    })
+  })
+
   describe('Per-bot URL routing (:appKey)', () => {
     test('routes a request at /v1/webhooks/slack/:appKey to the matching bot', async () => {
       // A second bot in the same workspace on a different channel. Both the appKey in the URL

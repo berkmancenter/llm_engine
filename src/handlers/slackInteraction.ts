@@ -9,6 +9,7 @@ import Adapter from '../models/adapter.model.js'
 import webhookService from '../services/webhook.service.js'
 import logger from '../config/logger.js'
 import ApiError from '../utils/ApiError.js'
+import { resolveSlackDmAdapter } from './helpers/findSlackAdapter.js'
 
 /**
  * Fields present on Slack block_actions action elements. Different interactive
@@ -111,16 +112,29 @@ async function receiveInteraction(rawPayload: unknown): Promise<void> {
 
   const isIM = resolvedChannelId.startsWith(DM_CHANNEL_PREFIX)
 
-  const slackAdapter = await Adapter.findOne(
-    isIM
-      ? {
-          type: 'slack',
-          dmChannels: { $exists: true, $not: { $size: 0 } },
-          'config.workspace': payload.team.id,
-          active: true
-        }
-      : { type: 'slack', 'config.channel': resolvedChannelId, 'config.workspace': payload.team.id, active: true }
-  )
+  // No appKey available here (interaction payloads don't carry one the way webhook event
+  // payloads can via the URL route), so this can't yet distinguish multiple apps/appKeys
+  // sharing one workspace the way engineSocket-originated DMs can — not a gap for a single
+  // app's own multiple communities, which is what resolveSlackDmAdapter's membership
+  // disambiguation handles here.
+  const dmResolution = isIM
+    ? await resolveSlackDmAdapter({ workspaceId: payload.team.id, slackUserId: payload.user.id })
+    : null
+  const slackAdapter = isIM
+    ? dmResolution?.adapter
+    : await Adapter.findOne({
+        type: 'slack',
+        'config.channel': resolvedChannelId,
+        'config.workspace': payload.team.id,
+        active: true
+      })
+
+  // A legitimate click from a DM sender who couldn't be matched to any community — same
+  // reasoning as the Events API handler's slackDmUnresolved check: acknowledge, don't error.
+  if (isIM && dmResolution?.unresolved) {
+    logger.debug(`Slack block_actions: DM sender ${payload.user.id} could not be matched to a community, ignoring`)
+    return
+  }
 
   if (!slackAdapter) {
     throw new ApiError(

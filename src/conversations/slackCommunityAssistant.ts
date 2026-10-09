@@ -96,7 +96,7 @@ const slackCommunityAssistant: ConversationType = {
       name: 'agentDMs',
       label: 'Enable Agent DMs',
       description:
-        'Allow users to DM the community assistant directly. Only one conversation per workspace (or per app key, if set) can have this enabled.',
+        'Allow users to DM the community assistant directly. Multiple conversations in the same workspace/app may enable this — a DM is routed to whichever community the sender is a member of.',
       required: false,
       type: 'boolean',
       default: false
@@ -116,15 +116,6 @@ const slackCommunityAssistant: ConversationType = {
         'The human-readable name of the group channel (e.g. #community-chat). When set, the assistant uses this name in context so it can correctly identify the channel when users refer to it by name.',
       required: false,
       type: 'string'
-    },
-    {
-      name: 'showOnAppHome',
-      label: 'Advertise on App Home',
-      description:
-        'Show the Slack channel on the App Home page as where members can find the assistant. Only one Slack channel per workspace should have this enabled.',
-      required: false,
-      type: 'boolean',
-      default: false
     }
   ],
   // internal
@@ -169,7 +160,7 @@ const slackCommunityAssistant: ConversationType = {
       ],
       // Handlebars conditional: resolves to the dmChannels array when agentDMs is true,
       // empty string when false. removeEmptyValues strips the empty string so the adapter
-      // is created without dmChannels, bypassing the per-workspace uniqueness constraint.
+      // is created without dmChannels at all when DMs aren't wanted for this community.
       dmChannels:
         '{{#if properties.agentDMs}}[{"direct":true,"agent":"communityAssistant","direction":"both"}]{{/if}}' as unknown as AdapterChannelConfig[]
     }
