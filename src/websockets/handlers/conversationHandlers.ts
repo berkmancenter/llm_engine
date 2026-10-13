@@ -38,7 +38,7 @@ export async function collectChannelIntros(conversation, channelNames, user, { o
 export default (io, socket) => {
   const joinUser = catchAsync(async (data) => {
     logger.debug('Joining user via socket. UserId = %s', data.user._id)
-    socket.join(data.userId.toString())
+    socket.join(data.user._id.toString())
   })
   const joinTopic = catchAsync(async (data) => {
     logger.debug('Joining topic via socket. TopicId = %s', data.topicId)
