@@ -1,12 +1,19 @@
 import io from 'socket.io-client'
+import { Server } from 'socket.io'
 import { createServer } from 'http'
+import request from 'supertest'
+import httpStatus from 'http-status'
 import setupIntTest from '../utils/setupIntTest.js'
 import app from '../../src/app.js'
-import { insertUsers, userOne, userTwo } from '../fixtures/user.fixture.js'
-import { userOneAccessToken } from '../fixtures/token.fixture.js'
+import { insertUsers, registeredUser, userOne, userTwo } from '../fixtures/user.fixture.js'
+import { registeredUserAccessToken, userOneAccessToken } from '../fixtures/token.fixture.js'
 import { insertTopics } from '../fixtures/topic.fixture.js'
 import { conversationOne, conversationTwo, insertConversations, publicTopic } from '../fixtures/conversation.fixture.js'
 import websocketGateway from '../../src/websockets/websocketGateway.js'
+import SocketIO from '../../src/websockets/socketIO.js'
+import registerConversationHandlers from '../../src/websockets/handlers/conversationHandlers.js'
+import logger from '../../src/config/logger.js'
+import waitFor from '../utils/waitFor.js'
 
 describe('WebsocketGateway.broadcastMessageChunk', () => {
   const conversationId = conversationOne._id.toString()
@@ -109,6 +116,81 @@ describe('WebSocket Integration - Conversation Terminology', () => {
     server.close()
     clientSocket1.close()
     clientSocket2.close()
+  })
+
+  /* The app only starts Socket.IO in cluster workers, which tests never fork, so this builds its own
+     server with the real conversation handlers and points the gateway's emits at it. */
+  describe('preferences:updated delivery', () => {
+    let socketServer
+    let httpServer
+    let victim
+    let attacker
+    let warnSpy
+
+    const connectClient = (port) =>
+      new Promise<ReturnType<typeof io>>((resolve) => {
+        const client = io(`http://localhost:${port}`, { forceNew: true })
+        client.on('connect', () => resolve(client))
+      })
+    const isInRoom = async (room, client) => (await socketServer.in(room).fetchSockets()).some((s) => s.id === client.id)
+
+    beforeEach(async () => {
+      httpServer = createServer()
+      socketServer = new Server(httpServer)
+      socketServer.on('connection', (socket) => registerConversationHandlers(socketServer, socket))
+      await new Promise<void>((resolve) => {
+        httpServer.listen(0, resolve)
+      })
+      jest.spyOn(SocketIO, 'getConnection').mockReturnValue({
+        emitMultiple: (rooms, event, data) => socketServer.in(rooms).emit(event, data)
+      } as never)
+      warnSpy = jest.spyOn(logger, 'warn')
+      const { port } = httpServer.address()
+      victim = await connectClient(port)
+      attacker = await connectClient(port)
+    })
+
+    afterEach(async () => {
+      victim.close()
+      attacker.close()
+      jest.restoreAllMocks()
+      await socketServer.close()
+    })
+
+    test("reaches the user's own socket and not another user's who asked to join their room", async () => {
+      await insertUsers([registeredUser])
+      const victimId = registeredUser._id.toString()
+      const attackerId = userOne._id.toString()
+      const attackerEvents: unknown[] = []
+      attacker.on('preferences:updated', (payload) => attackerEvents.push(payload))
+      const victimReceived = new Promise((resolve) => {
+        victim.once('preferences:updated', resolve)
+      })
+
+      victim.emit('user:join', { token: registeredUserAccessToken, userId: victimId })
+      attacker.emit('user:join', { token: userOneAccessToken, userId: victimId })
+      attacker.emit('topic:join', { token: userOneAccessToken, topicId: victimId })
+      await waitFor(async () => {
+        const attackerInVictimRoom = await isInRoom(victimId, attacker)
+        const topicJoinHandled =
+          attackerInVictimRoom || warnSpy.mock.calls.some(([msg]) => String(msg).startsWith('topic:join refused'))
+        const attackerUserJoinHandled = attackerInVictimRoom || (await isInRoom(attackerId, attacker))
+        if (!(await isInRoom(victimId, victim)) || !topicJoinHandled || !attackerUserJoinHandled) {
+          throw new Error('joins not processed yet')
+        }
+      })
+
+      await request(app)
+        .put(`/v1/users/user/${victimId}/preferences`)
+        .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+        .send({ jargonClarification: true })
+        .expect(httpStatus.OK)
+
+      expect(await victimReceived).toMatchObject({ userId: victimId, preferences: { jargonClarification: true } })
+      // Both sockets would receive the same emit, so a short wait is enough to catch a leak
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      expect(attackerEvents).toEqual([])
+    })
   })
 
   describe('Conversation Room Management', () => {
