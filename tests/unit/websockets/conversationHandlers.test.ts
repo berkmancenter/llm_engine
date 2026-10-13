@@ -150,6 +150,21 @@ describe('conversation:leave', () => {
   })
 })
 
+/* The per-user room receives preferences:updated, so a client must not be able to join
+   another account's room by sending that account's id. */
+describe('user:join', () => {
+  it('joins the room for the authenticated user, ignoring the userId the client sent', async () => {
+    const { handlers, socket } = registerWithFakeSocket()
+    const authenticatedUserId = new mongoose.Types.ObjectId()
+    const otherUserId = new mongoose.Types.ObjectId()
+
+    await handlers['user:join']({ user: { _id: authenticatedUserId }, userId: otherUserId })
+
+    expect(socket.join).toHaveBeenCalledTimes(1)
+    expect(socket.join).toHaveBeenCalledWith(authenticatedUserId.toString())
+  })
+})
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockIntroduce = jest.fn<(...args: any[]) => Promise<any>>()
 
