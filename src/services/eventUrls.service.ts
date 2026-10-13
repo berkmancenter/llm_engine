@@ -14,7 +14,7 @@
  * through the login screen into the admin view.
  */
 import config from '../config/config.js'
-import { CHAT_CHANNEL, MODERATOR_CHANNEL, TRANSCRIPT_CHANNEL } from '../conversations/eventAssistant.js'
+import { CHAT_CHANNEL, JARGON_CHANNEL, MODERATOR_CHANNEL, TRANSCRIPT_CHANNEL } from '../conversations/eventAssistant.js'
 
 /** Just enough of a Conversation to build its links; accepts a document or a plain object. */
 export interface LinkableConversation {
@@ -51,7 +51,11 @@ const channelParams = (conversation: LinkableConversation, channelNames: string[
  * @returns {string}
  */
 const participantUrl = (conversation: LinkableConversation): string =>
-  `${config.appHost}${config.eventUrlPaths.participant}?${channelParams(conversation, [TRANSCRIPT_CHANNEL, CHAT_CHANNEL])}`
+  `${config.appHost}${config.eventUrlPaths.participant}?${channelParams(conversation, [
+    TRANSCRIPT_CHANNEL,
+    CHAT_CHANNEL,
+    JARGON_CHANNEL
+  ])}`
 
 /**
  * Where the moderator watches the back channel. Undefined when the conversation has no
