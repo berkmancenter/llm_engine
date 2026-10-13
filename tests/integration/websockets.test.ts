@@ -61,6 +61,23 @@ describe('WebsocketGateway.broadcastMessageChunk', () => {
   })
 })
 
+describe('WebsocketGateway.broadcastPreferencesUpdated', () => {
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it("sends preferences:updated only to the room named after the user's id", async () => {
+    const spy = jest.spyOn(websocketGateway, 'broadcast').mockResolvedValue(undefined)
+    const userId = userOne._id.toString()
+    const preferences = { jargonClarification: true, visualResponse: false }
+
+    await websocketGateway.broadcastPreferencesUpdated(userId, preferences)
+
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(spy).toHaveBeenCalledWith(userId, 'preferences:updated', { userId, preferences })
+  })
+})
+
 /**
  * Verifies that the websocket handles the renaming from "thread" to "conversation". It does not test edge cases or proper error handling.
  */
