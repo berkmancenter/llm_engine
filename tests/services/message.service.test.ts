@@ -811,6 +811,54 @@ describe('Message service methods', () => {
     })
   })
 
+  describe('newMessageHandler() - jargon channel', () => {
+    let jargonChannel
+    const clarification = { type: 'jargon_clarification', terms: [{ term: 'SLO', text: 'A reliability target.' }] }
+
+    beforeAll(() => {
+      setAgentTypes(testAgentTypes)
+    })
+
+    beforeEach(async () => {
+      jargonChannel = await Channel.create({ name: 'jargon', passcode: 'jargon_code' })
+      testConversation.channels.push(jargonChannel)
+      await testConversation.save()
+    })
+
+    afterAll(() => {
+      setAgentTypes(defaultAgentTypes)
+    })
+
+    test('rejects a participant post with 403, even with the right passcode and fromAgent set', async () => {
+      const forged = {
+        ...testMessage,
+        body: clarification,
+        bodyType: 'json',
+        fromAgent: true,
+        channels: [{ name: 'jargon', passcode: 'jargon_code' }]
+      }
+
+      await expect(messageService.newMessageHandler(forged, testUser)).rejects.toMatchObject({ statusCode: 403 })
+      expect(await Message.countDocuments({ channels: 'jargon' })).toBe(0)
+    })
+
+    test('accepts a post from an agent', async () => {
+      const agent = new Agent({ agentType: 'perMessage', conversation: testConversation, active: true })
+      await agent.save()
+      agent.conversation = testConversation
+      const agentPost = messageService.agentResponseToMessageData(
+        { visible: true, message: clarification, messageType: 'json', channels: [jargonChannel] },
+        agent
+      )
+
+      const result = await messageService.newMessageHandler(agentPost, agent)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].fromAgent).toBe(true)
+      expect(result[0].channels).toEqual(['jargon'])
+    })
+  })
+
   describe('newMessageHandler() - message properties', () => {
     test('should set message prompt on created message', async () => {
       const prompt = {

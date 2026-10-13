@@ -10,6 +10,7 @@ import authChannels from '../utils/authChannels.js'
 import assertMembership from '../utils/assertMembership.js'
 import channelService from './channel.service.js'
 import { resolveDisplayName } from './user.service.js'
+import { JARGON_CHANNEL } from '../conversations/eventAssistant.js'
 
 /**
  * Check if we can create a message and fetch conversation
@@ -331,6 +332,10 @@ const handleFeedbackMessage = async (message, user, conversation) => {
 const newMessageHandler = async (message, user, request = null) => {
   if (!user.agentType) {
     await assertMembership(user, message.conversation)
+    // Participant links carry this channel's passcode, and clients can set fromAgent themselves
+    if (message.channels?.some((c) => c.name === JARGON_CHANNEL)) {
+      throw new ApiError(httpStatus.FORBIDDEN, 'Only agents can post to the jargon channel.')
+    }
   }
 
   // Check if this is a feedback message
