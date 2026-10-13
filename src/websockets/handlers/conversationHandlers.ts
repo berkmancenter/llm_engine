@@ -1,10 +1,11 @@
+import mongoose from 'mongoose'
 import catchAsync from '../../utils/catchAsync.js'
 import { checkAuth, getRoomId, getRoomIds } from '../utils.js'
 import logger from '../../config/logger.js'
 import authChannels from '../../utils/authChannels.js'
 import { conversationService } from '../../services/index.js'
 import { agentResponseToMessageData } from '../../services/message.service.js'
-import { Conversation } from '../../models/index.js'
+import { Conversation, Topic } from '../../models/index.js'
 import { IChannel } from '../../types/index.types.js'
 import introduceOnce from '../../services/agentIntroduction.service.js'
 
@@ -42,6 +43,11 @@ export default (io, socket) => {
   })
   const joinTopic = catchAsync(async (data) => {
     logger.debug('Joining topic via socket. TopicId = %s', data.topicId)
+    // Room names are bare ids, so joining any id the client sends would reach other users' rooms too
+    if (!mongoose.isValidObjectId(data.topicId) || !(await Topic.exists({ _id: data.topicId }))) {
+      logger.warn(`topic:join refused: ${data.topicId} is not a topic (user ${data.user._id})`)
+      return
+    }
     socket.join(data.topicId.toString())
   })
   const joinChannel = catchAsync(async (data, callback) => {
