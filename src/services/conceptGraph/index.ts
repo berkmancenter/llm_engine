@@ -23,6 +23,9 @@ import { screenForIdentities } from './nameScreen.js'
 import {
   knownConceptLabels,
   payloadToExtraction,
+  payloadConversationIds,
+  buildSessions,
+  SessionConversation,
   resolveConceptAliases,
   KNOWN_CONCEPT_LIMIT,
   CONCEPT_CAP
@@ -223,7 +226,10 @@ const collectKnownIdentities = async (conversations): Promise<string[]> => {
 /* Every conversation under a topic, with just the fields the identity union and loadSources'
    poll lookup need. */
 const topicConversations = async (topicId) =>
-  Conversation.find({ topic: topicId }).select('name presenters moderators topic agents channels').lean().exec()
+  Conversation.find({ topic: topicId })
+    .select('name presenters moderators topic agents channels startTime scheduledTime')
+    .lean()
+    .exec()
 
 /* One message or poll, ordered and tagged together. Pure and DB-free — see
    interleaveSources — so the ordering and tagging can be tested directly against synthetic
@@ -648,11 +654,15 @@ export const refineTopicGraph = async (
          merging every conversation's pollRefs into one map for this backfill's single
          assembleGraph call would collide across conversations. The pollId is already known
          here, so provenanceFor's carried-provenance fast path sidesteps that entirely. */
+      const conversationId = conversation._id.toString()
       if (sources.polls.length > 0) {
         results.push({
           concepts: [],
           contributions: [],
-          originPrompts: sources.polls.map((p) => ({ text: p.question, provenance: { pollId: p.pollId } }))
+          originPrompts: sources.polls.map((p) => ({
+            text: p.question,
+            provenance: { conversationId, pollId: p.pollId }
+          }))
         })
       }
       for (const [index, chunk] of chunkSources(sources.taggedLines).entries()) {
@@ -660,11 +670,20 @@ export const refineTopicGraph = async (
           const extracted = await extractFromChunk(
             llm,
             chunk,
-            conversation._id.toString(),
+            conversationId,
             index,
             accumulated.slice(0, KNOWN_CONCEPT_LIMIT)
           )
-          results.push(extracted)
+          /* Stamped here, as with the poll seed above: this single assembleGraph call spans
+             every conversation, so no one `conversationId` option could say which a node
+             belongs to. messageId is deliberately not resolved on this path (tag namespaces
+             restart per conversation), so nothing below conversation level is exposed. */
+          const stamp = { conversationId }
+          results.push({
+            concepts: (extracted.concepts ?? []).map((c) => ({ ...c, provenance: stamp })),
+            contributions: (extracted.contributions ?? []).map((k) => ({ ...k, provenance: stamp })),
+            originPrompts: (extracted.originPrompts ?? []).map((p) => ({ ...p, provenance: stamp }))
+          })
           for (const concept of extracted.concepts ?? []) {
             if (concept.label && !accumulated.includes(concept.label)) accumulated.push(concept.label)
           }
@@ -778,6 +797,27 @@ export const refineTopicGraph = async (
         `conceptGraph: topic ${topicId} folded ${folded.report.foldedConcepts} concept(s) into related ones, ` +
           `now ${payload.concepts.length}/${CONCEPT_CAP}`
       )
+    }
+  }
+
+  /* Every conversation the graph now draws on, resolved to title and date. Computed on the
+     finished payload — after the identity screen and any fold — so it matches exactly the
+     nodes being written. */
+  const sessionIds = payloadConversationIds(payload)
+  if (sessionIds.length > 0) {
+    /* A session no longer in the topic (moved or since removed) is looked up directly; one
+       that still cannot be loaded keeps its id and place in the order, minus title and date. */
+    const inTopic = new Set(conversations.map((c) => c._id.toString()))
+    const elsewhere = sessionIds.filter((id) => !inTopic.has(id))
+    const extra = elsewhere.length
+      ? await Conversation.find({ _id: { $in: elsewhere.filter((id) => mongoose.isValidObjectId(id)) } })
+          .select('name startTime scheduledTime')
+          .lean()
+          .exec()
+      : []
+    payload = {
+      ...payload,
+      sessions: buildSessions(sessionIds, [...conversations, ...extra] as unknown as SessionConversation[])
     }
   }
 

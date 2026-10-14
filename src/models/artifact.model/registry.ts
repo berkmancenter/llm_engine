@@ -54,7 +54,18 @@ const CONCEPT = Joi.object().keys({
      see AssemblyReport.foldedConcepts (assemble.ts) for why this is kept distinct from an
      ordinary cross-session merge, which leaves no trace here. */
   foldedFrom: Joi.array().items(Joi.string()),
+  /* Every conversation the concept came up in — see GraphConcept.conversationIds. */
+  conversationIds: Joi.array().items(Joi.string()),
   provenance: PROVENANCE
+})
+
+/* One conversation behind a series graph, ordered by event date. Ids and the event's own
+   name and date only — nothing that identifies a participant. */
+const SESSION = Joi.object().keys({
+  conversationId: Joi.string().required(),
+  order: Joi.number().integer().min(1).required(),
+  title: Joi.string(),
+  date: Joi.string().isoDate()
 })
 
 /* A relationship, reified as a node so it can join more than the two concepts an edge
@@ -132,7 +143,8 @@ const CONCEPT_GRAPH_PAYLOAD = Joi.object()
   .keys({
     concepts: Joi.array().items(CONCEPT).default([]),
     contributions: Joi.array().items(CONTRIBUTION).default([]),
-    originPrompts: Joi.array().items(ORIGIN_PROMPT).default([])
+    originPrompts: Joi.array().items(ORIGIN_PROMPT).default([]),
+    sessions: Joi.array().items(SESSION)
   })
   .required()
   .custom(graphIntegrity)

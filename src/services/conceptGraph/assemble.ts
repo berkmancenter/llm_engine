@@ -37,6 +37,9 @@ export interface ExtractionResult {
     // folded — the model never produces this, the same way it never produces a contribution's
     // carried `id` below.
     foldedFrom?: string[]
+    // Carried over from a stored graph, like foldedFrom: the conversations the concept has
+    // already been seen in. Assembly unions it with the entry's own provenance.conversationId.
+    conversationIds?: string[]
     sourceRefs?: string[]
     provenance?: GraphNodeProvenance
   }[]
@@ -305,6 +308,22 @@ export const assembleGraph = (
     }
   }
 
+  /* Every conversation a concept entry stands for: whatever a stored graph already recorded
+     plus the one this entry is stamped with (carried provenance, else the session being
+     assembled). Seeds GraphConcept.conversationIds, so a stored concept written before that
+     field existed still starts from its origin session. */
+  const sessionsOf = (concept: ExtractionResult['concepts'][number]): string[] => {
+    const stamped = provenanceFor(concept.sourceRefs, concept.provenance).provenance?.conversationId
+    return [...new Set([...(concept.conversationIds ?? []), ...(stamped ? [stamped] : [])])]
+  }
+  /* Order-preserving, de-duplicated union onto a node: the node's own sessions stay first, so
+     the first entry is still the one it originated in. */
+  const addSessions = (node: GraphConcept, ids: string[]) => {
+    const union = [...new Set([...(node.conversationIds ?? []), ...ids])]
+    // eslint-disable-next-line no-param-reassign
+    if (union.length > 0) node.conversationIds = union
+  }
+
   /* Origin prompts first: contributions reference them, and one may be dropped for naming
      someone, in which case the references have to fall away with it. */
   const promptIdByText = new Map<string, string>()
@@ -344,7 +363,7 @@ export const assembleGraph = (
   const conceptIdByLabel = new Map<string, string>()
   const concepts: GraphConcept[] = []
   const conceptById = new Map<string, GraphConcept>()
-  const pendingFolds = new Map<string, { label: string; gloss?: string }[]>()
+  const pendingFolds = new Map<string, { label: string; gloss?: string; conversationIds: string[] }[]>()
   /* Keys whose node so far exists only as a placeholder created by a folded-away member that
      happened to be processed before its own survivor — see isFoldedAway below. Removed the
      moment the survivor's real entry arrives and claims it. */
@@ -378,7 +397,7 @@ export const assembleGraph = (
         continue
       }
       if (!pendingFolds.has(key)) pendingFolds.set(key, [])
-      pendingFolds.get(key)!.push({ label, gloss: concept.gloss })
+      pendingFolds.get(key)!.push({ label, gloss: concept.gloss, conversationIds: sessionsOf(concept) })
       report.foldedConcepts += 1
       if (!conceptIdByLabel.has(key)) {
         /* No survivor slot yet — create a placeholder so contributions can still resolve
@@ -395,6 +414,7 @@ export const assembleGraph = (
           label: foldLeaderLabel.get(key) ?? leaderLabel.get(key) ?? label,
           ...provenanceFor(concept.sourceRefs, concept.provenance)
         }
+        addSessions(node, sessionsOf(concept))
         concepts.push(node)
         conceptById.set(id, node)
       }
@@ -412,6 +432,11 @@ export const assembleGraph = (
         const gloss = safeGloss(concept.gloss)
         if (gloss) node.gloss = gloss
         Object.assign(node, provenanceFor(concept.sourceRefs, concept.provenance))
+        /* The survivor's own sessions lead, ahead of the placeholder's (a folded member's). */
+        const memberSessions = node.conversationIds
+        delete node.conversationIds
+        addSessions(node, sessionsOf(concept))
+        addSessions(node, memberSessions ?? [])
         /* Carry the survivor's own fold history (from an earlier version of this graph) onto
            the node too — lost otherwise, since only gloss/provenance were copied above. Merge
            rather than overwrite: pendingFolds may already have queued this session's own
@@ -424,6 +449,8 @@ export const assembleGraph = (
         continue
       }
       report.mergedConcepts += 1
+      /* The duplicate's spelling and provenance lose, but the session it came up in does not. */
+      addSessions(conceptById.get(conceptIdByLabel.get(key)!)!, sessionsOf(concept))
       continue
     }
     /* A label naming a person cannot be made safe by trimming part of it, so the concept
@@ -442,6 +469,7 @@ export const assembleGraph = (
       ...(concept.foldedFrom?.length && { foldedFrom: [...concept.foldedFrom] }),
       ...provenanceFor(concept.sourceRefs, concept.provenance)
     }
+    addSessions(node, sessionsOf(concept))
     concepts.push(node)
     conceptById.set(id, node)
   }
@@ -454,6 +482,7 @@ export const assembleGraph = (
     if (!survivor) continue
     const seenGlosses = new Set(survivor.gloss ? [survivor.gloss] : [])
     for (const member of members) {
+      addSessions(survivor, member.conversationIds)
       survivor.foldedFrom = survivor.foldedFrom ?? []
       if (!survivor.foldedFrom.includes(member.label)) survivor.foldedFrom.push(member.label)
       const gloss = safeGloss(member.gloss)

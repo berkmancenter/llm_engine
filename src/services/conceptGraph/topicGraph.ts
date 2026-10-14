@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { traceable } from 'langsmith/traceable'
 import logger from '../../config/logger.js'
 import { getChatPromptResponse } from '../../agents/helpers/llmChain.js'
-import { ConceptGraphPayload } from '../../types/index.types.js'
+import { ConceptGraphPayload, GraphSession } from '../../types/index.types.js'
 import { ExtractionResult } from './assemble.js'
 
 /*
@@ -68,6 +68,7 @@ export const payloadToExtraction = (payload: ConceptGraphPayload): ExtractionRes
       label: c.label,
       gloss: c.gloss,
       foldedFrom: c.foldedFrom,
+      conversationIds: c.conversationIds,
       provenance: c.provenance
     })),
     contributions: payload.contributions
@@ -85,6 +86,67 @@ export const payloadToExtraction = (payload: ConceptGraphPayload): ExtractionRes
       .filter((k) => k.concepts.length > 0),
     originPrompts: payload.originPrompts.map((p) => ({ text: p.text, provenance: p.provenance }))
   }
+}
+
+/* Every conversation a payload draws on, in first-seen order: the sessions its concepts list
+   plus any single conversation a node's provenance names (contributions and prompts carry
+   only that). Read off the finished payload rather than tracked alongside assembly, so a
+   session that only survives on carried nodes is still counted and one whose every node was
+   dropped is not. */
+export const payloadConversationIds = (payload: ConceptGraphPayload): string[] => {
+  const ids = new Set<string>()
+  for (const concept of payload.concepts) {
+    if (concept.provenance?.conversationId) ids.add(concept.provenance.conversationId)
+    for (const id of concept.conversationIds ?? []) ids.add(id)
+  }
+  for (const node of [...payload.contributions, ...payload.originPrompts]) {
+    if (node.provenance?.conversationId) ids.add(node.provenance.conversationId)
+  }
+  return [...ids]
+}
+
+export interface SessionConversation {
+  _id: unknown
+  name?: string
+  startTime?: Date
+  scheduledTime?: Date
+}
+
+/*
+ * The payload-level `sessions` list: one entry per conversation, ordered by event date
+ * ascending (`order` is 1-based).
+ *
+ * Only the event's own name and date are exposed, since this is readable by everyone who can
+ * read the graph — never a participant name or pseudonym. The date is the start time, or the
+ * scheduled time for an event that never started. A conversation that cannot be loaded (since
+ * deleted, or moved out of the topic) still gets its id and place in the order; one with no
+ * known date sorts after the dated ones, in the order the graph first met it.
+ */
+export const buildSessions = (conversationIds: string[], conversations: SessionConversation[]): GraphSession[] => {
+  const byId = new Map(conversations.map((c) => [String(c._id), c]))
+  const entries = conversationIds.map((conversationId, index) => {
+    const conversation = byId.get(conversationId)
+    const when = conversation?.startTime ?? conversation?.scheduledTime
+    const time = when ? new Date(when).getTime() : NaN
+    return {
+      index,
+      time: Number.isNaN(time) ? undefined : time,
+      conversationId,
+      ...(conversation?.name && { title: conversation.name }),
+      ...(time !== undefined && !Number.isNaN(time) && { date: new Date(time).toISOString() })
+    }
+  })
+  entries.sort((a, b) => {
+    if (a.time !== undefined && b.time !== undefined && a.time !== b.time) return a.time - b.time
+    if ((a.time === undefined) !== (b.time === undefined)) return a.time === undefined ? 1 : -1
+    return a.index - b.index
+  })
+  return entries.map(({ conversationId, title, date }, i) => ({
+    conversationId,
+    order: i + 1,
+    ...(title && { title }),
+    ...(date && { date })
+  }))
 }
 
 const ALIAS_SCHEMA = z.object({
@@ -171,4 +233,12 @@ export const resolveConceptAliases = async (llm, labels: string[], topicId?: str
   }
 }
 
-export default { payloadToExtraction, resolveConceptAliases, knownConceptLabels, KNOWN_CONCEPT_LIMIT, CONCEPT_CAP }
+export default {
+  payloadToExtraction,
+  payloadConversationIds,
+  buildSessions,
+  resolveConceptAliases,
+  knownConceptLabels,
+  KNOWN_CONCEPT_LIMIT,
+  CONCEPT_CAP
+}

@@ -580,3 +580,101 @@ describe('contributions naming a single concept', () => {
     expect(report.droppedContributions).toBe(0)
   })
 })
+
+describe('sessions a concept came up in', () => {
+  const concept = (label: string, conversationId?: string, extra = {}) => ({
+    label,
+    ...(conversationId && { provenance: { conversationId } }),
+    ...extra
+  })
+  const one = (concepts: ExtractionResult['concepts'], contribConcepts = ['Trust Registry', 'Verifier']) =>
+    result({ concepts, contributions: [{ kind: 'checked by', concepts: contribConcepts }] })
+  const registryOf = (payload) => payload.concepts.find((c) => c.label === 'Trust Registry')
+
+  it('seeds conversationIds from the session being assembled, and stamps every node kind', () => {
+    const { payload } = assembleGraph(
+      [
+        result({
+          originPrompts: [{ text: 'What matters?' }],
+          contributions: [{ kind: 'k', concepts: ['Trust Registry', 'Verifier'], originPrompt: 'What matters?' }]
+        })
+      ],
+      safety,
+      { conversationId: 'conv2' }
+    )
+
+    expect(payload.concepts.every((c) => c.conversationIds?.join() === 'conv2')).toBe(true)
+    expect(payload.concepts.every((c) => c.provenance?.conversationId === 'conv2')).toBe(true)
+    expect(payload.contributions[0].provenance).toEqual({ conversationId: 'conv2' })
+    expect(payload.originPrompts[0].provenance).toEqual({ conversationId: 'conv2' })
+  })
+
+  it('never overwrites carried provenance with the session being assembled', () => {
+    const { payload } = assembleGraph(
+      [
+        one([concept('Trust Registry', 'conv1'), concept('Verifier', 'conv1')]),
+        { concepts: [], contributions: [], originPrompts: [{ text: 'Old?', provenance: { conversationId: 'conv1' } }] }
+      ],
+      safety,
+      { conversationId: 'conv2' }
+    )
+
+    expect(registryOf(payload).provenance).toEqual({ conversationId: 'conv1' })
+    expect(registryOf(payload).conversationIds).toEqual(['conv1'])
+  })
+
+  it('unions the sessions of a same-label merge, keeping the first as the origin', () => {
+    const { payload } = assembleGraph(
+      [
+        one([concept('Trust Registry', 'conv1'), concept('Verifier', 'conv1')]),
+        one([concept('trust registries', 'conv2', {}), concept('Verifier', 'conv1')]),
+        one([concept('Trust Registry', 'conv1', { conversationIds: ['conv3', 'conv1'] }), concept('Verifier', 'conv1')])
+      ],
+      safety
+    )
+
+    expect(registryOf(payload).provenance?.conversationId).toBe('conv1')
+    expect(registryOf(payload).conversationIds).toEqual(['conv1', 'conv2', 'conv3'])
+  })
+
+  it('starts a stored concept with no conversationIds from its origin session', () => {
+    const { payload } = assembleGraph([one([concept('Trust Registry', 'conv1'), concept('Verifier')])], safety)
+
+    expect(registryOf(payload).conversationIds).toEqual(['conv1'])
+  })
+
+  it('leaves conversationIds off a concept with no session information at all', () => {
+    const { payload } = assembleGraph([result()], safety)
+
+    expect(payload.concepts[0].conversationIds).toBeUndefined()
+  })
+
+  it('has a fold survivor union the folded concept’s sessions, whichever is listed first', () => {
+    const survivor = concept('Trust Registry', 'conv1')
+    const member = concept('Revocation Latency', 'conv2')
+    const verifier = concept('Verifier', 'conv1')
+    for (const concepts of [
+      [survivor, member, verifier],
+      [member, survivor, verifier]
+    ]) {
+      const { payload } = assembleGraph(
+        [
+          one(concepts),
+          { concepts: [], contributions: [{ kind: 'k', concepts: ['Revocation Latency', 'Verifier'] }], originPrompts: [] }
+        ],
+        safety,
+        { foldedGroups: [['Trust Registry', 'Revocation Latency']] }
+      )
+
+      expect(payload.concepts.find((c) => c.label === 'Revocation Latency')).toBeUndefined()
+      expect(registryOf(payload).provenance?.conversationId).toBe('conv1')
+      expect(registryOf(payload).conversationIds).toEqual(['conv1', 'conv2'])
+    }
+  })
+
+  it('produces a payload the artifact validator accepts', () => {
+    const { payload } = assembleGraph([result()], safety, { conversationId: 'conv1' })
+
+    expect(artifactKind(CONCEPT_GRAPH_ARTIFACT)!.payloadSchema.validate(payload).error).toBeUndefined()
+  })
+})

@@ -802,6 +802,11 @@ export interface GraphConcept {
      genuinely distinct idea, consolidated for space, so its label is kept so a reader can
      still find it. */
   foldedFrom?: string[]
+  /* Every conversation this concept came up in: the de-duplicated, order-preserving union of
+     the conversations behind it, kept through same-label merges and CONCEPT_CAP folds.
+     `provenance.conversationId` stays the first one (where the concept originated); this is
+     what lets a concept raised in several sessions say so. Ids only — nothing identifying. */
+  conversationIds?: string[]
   /* Id of the GraphOriginPrompt this concept came out of. */
   origin?: string
   provenance?: GraphNodeProvenance
@@ -844,6 +849,22 @@ export interface ConceptGraphPayload {
   concepts: GraphConcept[]
   contributions: GraphContribution[]
   originPrompts: GraphOriginPrompt[]
+  /* Every conversation that contributed to the graph, oldest event first. Written by the
+     series (topic) refinement, which is the only graph that draws on more than one
+     conversation; a single-conversation graph omits it. */
+  sessions?: GraphSession[]
+}
+
+/* One conversation (session) behind a concept graph. Only fields safe to show every reader
+   of the graph: never a participant name or pseudonym. */
+export interface GraphSession {
+  conversationId: string
+  /* 1-based position when the sessions are ordered by event date, ascending. */
+  order: number
+  /* The conversation's name. Omitted when the conversation could not be loaded. */
+  title?: string
+  /* ISO 8601 start of the event (scheduled time when it never started). Omitted when unknown. */
+  date?: string
 }
 
 /**
