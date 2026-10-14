@@ -16,6 +16,7 @@ import {
 import { insertMessages, messageOne } from '../fixtures/message.fixture.js'
 import userService from '../../src/services/user.service.js'
 import config from '../../src/config/config.js'
+import websocketGateway from '../../src/websockets/websocketGateway.js'
 
 const createPseudo = () => ({
   _id: new mongoose.Types.ObjectId(),
@@ -555,6 +556,26 @@ describe('User routes', () => {
       const user = await User.findById(registeredUser._id)
       expect(user!.preferences!.jargonClarification).toBe(true)
       expect(user!.preferences!.visualResponse).toBe(true)
+    })
+
+    test('should broadcast a preferences:updated websocket event with the full updated preferences', async () => {
+      const broadcastSpy = jest.spyOn(websocketGateway, 'broadcastPreferencesUpdated').mockResolvedValue(undefined)
+
+      try {
+        await request(app)
+          .put(`/v1/users/user/${registeredUser._id}/preferences`)
+          .set('Authorization', `Bearer ${registeredUserAccessToken}`)
+          .send({ jargonClarification: true, visualResponse: false })
+          .expect(httpStatus.OK)
+
+        expect(broadcastSpy).toHaveBeenCalledTimes(1)
+        const [calledUserId, calledPreferences] = broadcastSpy.mock.calls[0]
+        expect(calledUserId).toBe(registeredUser._id.toString())
+        expect(calledPreferences.jargonClarification).toBe(true)
+        expect(calledPreferences.visualResponse).toBe(false)
+      } finally {
+        broadcastSpy.mockRestore()
+      }
     })
   })
 })

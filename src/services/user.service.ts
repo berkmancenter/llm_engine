@@ -22,6 +22,7 @@ import { roles } from '../config/roles.js'
 import tokenTypes from '../config/tokens.js'
 import { getModelChat, coreLLMPlatform, coreLLMModel } from '../agents/helpers/getModelChat.js'
 import { getChatPromptResponse } from '../agents/helpers/llmChain.js'
+import websocketGateway from '../websockets/websocketGateway.js'
 import { password as passwordStrength } from '../validations/custom.validation.js'
 
 const funFactSystemTemplate = `You create short, fun facts about pseudonyms. The pseudonym is in the form "adjective noun". Create a 1 sentence fun fact that is factual about the noun, but can be playful about the adjective part. Makes sure your answers are safe for work.
@@ -549,6 +550,11 @@ const updatePreferences = async (userId, updateBody) => {
   }
   user.markModified('preferences')
   await user.save()
+  try {
+    await websocketGateway.broadcastPreferencesUpdated(userId, user.preferences)
+  } catch (err) {
+    logger.warn(`updatePreferences: failed to broadcast preferences:updated for user ${userId}: ${err}`)
+  }
   return user.preferences
 }
 

@@ -16,7 +16,8 @@ const allChannels = [
   { name: 'chat', passcode: 'cccccccc' },
   { name: 'moderator', passcode: 'mmmmmmmm' },
   { name: 'participant', passcode: 'pppppppp' },
-  { name: 'image-gen', passcode: 'iiiiiiii' }
+  { name: 'image-gen', passcode: 'iiiiiiii' },
+  { name: 'jargon', passcode: 'jjjjjjjj' }
 ]
 
 describe('eventUrls.service', () => {
@@ -33,6 +34,12 @@ describe('eventUrls.service', () => {
 
       expect(url).toContain('channel=transcript%2Ctttttttt')
       expect(url).toContain('channel=chat%2Ccccccccc')
+    })
+
+    it('carries the jargon channel so participants can read shared term clarifications', () => {
+      const url = eventUrls.participantUrl(conversationWith(allChannels))
+
+      expect(url).toContain('channel=jargon%2Cjjjjjjjj')
     })
 
     it('never exposes the moderator channel', () => {
