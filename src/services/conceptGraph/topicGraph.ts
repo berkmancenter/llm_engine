@@ -26,7 +26,7 @@ export const KNOWN_CONCEPT_LIMIT = 60
    long-running series approaches it than to have let an unreadable graph accumulate first.
    Below KNOWN_CONCEPT_LIMIT for now as a result — once real graphs approach this cap, revisit
    both together. */
-export const CONCEPT_CAP = 42
+export const CONCEPT_CAP = 24
 
 /*
  * The concepts a series has already established, most connected first.

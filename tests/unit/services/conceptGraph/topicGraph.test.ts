@@ -1,5 +1,6 @@
 import {
   buildSessions,
+  CONCEPT_CAP,
   knownConceptLabels,
   payloadConversationIds,
   payloadToExtraction,
@@ -294,5 +295,13 @@ describe('building the payload-level sessions list', () => {
     const loaded = { ...conv('c1', '2026-01-01T10:00:00Z', 'Session'), presenters: [{ name: 'Rosa Klein' }], owner: 'u1' }
 
     expect(Object.keys(buildSessions(['c1'], [loaded])[0]).sort()).toEqual(['conversationId', 'date', 'order', 'title'])
+  })
+})
+
+describe('CONCEPT_CAP', () => {
+  /* The series graph cap is a deliberate product choice (a graph past this many concepts is
+     too crowded to read). Changing it is a conscious decision: update this test with it. */
+  it('is 24', () => {
+    expect(CONCEPT_CAP).toBe(24)
   })
 })
