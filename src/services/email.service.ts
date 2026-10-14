@@ -4,6 +4,7 @@ import logger from '../config/logger.js'
 import eventUrls from './eventUrls.service.js'
 import SuppressedRecipientError from '../utils/SuppressedRecipientError.js'
 import EmailSendError from '../utils/EmailSendError.js'
+import { OnDemandEventUrls } from '../types/index.types.js'
 
 // POSTMARK_API_TEST makes Postmark validate each request without sending, so the test
 // suite exercises the real client with no token configured. Outside tests a missing
@@ -235,12 +236,12 @@ We received your calendar invite, but ran into a problem creating your event. Pl
  * passcode links first because they open the room without signing in; the event page link
  * comes last because it needs an account.
  * @param {string} to
- * @param {Object} urls - { eventPageUrl, moderatorUrl?, participantUrl, presentationUrl } from eventUrls.service
+ * @param {OnDemandEventUrls} urls - from eventUrls.service; moderatorUrl is absent when moderator support is off
  * @param {Object} [options]
  * @param {Date} [options.joinAt] - when the email describes a scheduled join rather than an immediate one
  * @returns {Promise}
  */
-const sendOnDemandEventEmail = async (to, urls, { joinAt }: { joinAt?: Date } = {}) => {
+const sendOnDemandEventEmail = async (to, urls: OnDemandEventUrls, { joinAt }: { joinAt?: Date } = {}) => {
   const botName = config.conversationBotName
   const subject = joinAt ? `${botName} will join your Zoom meeting` : `${botName} is joining your Zoom meeting`
   const whenLine = joinAt

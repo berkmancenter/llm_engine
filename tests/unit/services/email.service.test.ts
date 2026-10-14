@@ -388,6 +388,19 @@ describe('email.service', () => {
       presentationUrl: 'https://app.example.com/present/?conversationId=conv-123&channel=chat%2Cxyz'
     }
 
+    it('requires the presentation link, so the email never prints "undefined" in its place', () => {
+      const urlsWithoutPresentation = {
+        eventPageUrl: urls.eventPageUrl,
+        moderatorUrl: urls.moderatorUrl,
+        participantUrl: urls.participantUrl
+      }
+
+      // @ts-expect-error presentationUrl is required
+      const send = () => emailService.sendOnDemandEventEmail('organizer@cyber.harvard.edu', urlsWithoutPresentation)
+
+      expect(typeof send).toBe('function')
+    })
+
     it('sends to the given address', async () => {
       await emailService.sendOnDemandEventEmail('organizer@cyber.harvard.edu', urls)
 
