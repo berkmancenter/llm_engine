@@ -58,8 +58,8 @@ Return a JSON object with the following fields:
 
 Example terms value:
 [
-  { "term": "SLO", "text": "A target for how reliable a system should be.", "sourceText": "...we track our SLOs closely..." },
-  { "term": "MTTR", "text": "How long it takes to fix something after it breaks." }
+  {{ "term": "SLO", "text": "A target for how reliable a system should be.", "sourceText": "...we track our SLOs closely..." }},
+  {{ "term": "MTTR", "text": "How long it takes to fix something after it breaks." }}
 ]
 
 Return ONLY raw JSON. No markdown, no backticks, no explanation.`
