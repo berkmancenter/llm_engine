@@ -21,9 +21,9 @@ const passcodeFor = (conversation: LinkableConversation, channelName: string): s
   conversation.channels?.find((channel) => channel.name === channelName)?.passcode ?? undefined
 
 /**
- * Query string naming the conversation and every requested channel the caller can actually
- * open. A channel with no passcode gets dropped, because its name on its own grants no
- * access and would only imply otherwise.
+ * `conversationId` plus a repeated `channel=<name>,<passcode>`: the shape utils/channelParams.ts
+ * parses on the way back in, so change both together. A channel with no passcode is dropped,
+ * because its name alone grants no access and would only imply otherwise.
  */
 const channelParams = (conversation: LinkableConversation, channelNames: string[]): URLSearchParams => {
   const params = new URLSearchParams({ conversationId: conversationId(conversation) })

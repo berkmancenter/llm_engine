@@ -141,6 +141,8 @@ OpenAPI documentation is available when running the app locally at the route `v1
 
 In particular, see the examples in the `POST` `Conversations` endpoint for how to create conversations with certain agent types.
 
+Live updates use Socket.IO on `WEBSOCKET_BASE_PORT`, which is separate from the REST port. A client enters an event with `conversation:join`, sending `{ conversationId, token, channels }`, where `token` is the user's access token. A client that only displays the event, such as NextSpace's presentation view on a shared screen, also sends `observer: true`. It still receives the event's updates, but it gets no private assistant channel and no welcome message, so it isn't counted as an attendee.
+
 ## Understanding Message Control Flow
 
 It can be very helpful to understand the Message routing and control flow to and from Agents and different platforms through Adapters.
