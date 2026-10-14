@@ -371,6 +371,73 @@ describe('concept graph artifacts', () => {
   })
 })
 
+/* A series graph: topic-scoped, with the optional fields that carry per-concept session
+   coverage and the ordered session list. Deliberately carries no participant attribution,
+   which is how the series path assembles it. */
+describe('topic-scoped series concept graph', () => {
+  const seriesPayload = {
+    originPrompts: [],
+    concepts: [
+      { id: 'c-issuer', label: 'Issuer', conversationIds: ['conv-a', 'conv-b'], provenance: { conversationId: 'conv-a' } },
+      { id: 'c-verifier', label: 'Verifier', conversationIds: ['conv-b'] }
+    ],
+    contributions: [{ id: 'k1', kind: 'checks', concepts: ['c-issuer', 'c-verifier'] }],
+    sessions: [
+      { conversationId: 'conv-a', order: 1, title: 'Opening session', date: '2026-01-15T18:00:00.000Z' },
+      { conversationId: 'conv-b', order: 2 }
+    ]
+  }
+
+  const expectIntact = (payload) => {
+    expect(payload.concepts.find((c) => c.id === 'c-issuer').conversationIds).toEqual(['conv-a', 'conv-b'])
+    expect(payload.concepts.find((c) => c.id === 'c-verifier').conversationIds).toEqual(['conv-b'])
+    expect(payload.sessions).toEqual(seriesPayload.sessions)
+  }
+
+  const expectNoAttribution = (body) => {
+    const text = JSON.stringify(body)
+    expect(text).not.toContain('"pseudonym"')
+    expect(text).not.toContain('"messageId"')
+  }
+
+  const createSeriesGraph = async () => {
+    const res = await request(app)
+      .post('/v1/artifacts')
+      .set('Authorization', `Bearer ${userOneAccessToken}`)
+      .send({ type: CONCEPT_GRAPH_ARTIFACT, topicId: topic._id.toString(), title: 'Series graph', payload: seriesPayload })
+      .expect(httpStatus.CREATED)
+    return res.body
+  }
+
+  it('lists to a passcode reader with conversationIds and sessions intact and no attribution', async () => {
+    const { artifactPasscode } = await createSeriesGraph()
+
+    const res = await request(app)
+      .get('/v1/artifacts')
+      .query({ topicId: topic._id.toString(), artifactPasscode })
+      .set('Authorization', `Bearer ${participantAccessToken}`)
+      .expect(httpStatus.OK)
+
+    expect(res.body).toHaveLength(1)
+    expect(res.body[0].type).toBe(CONCEPT_GRAPH_ARTIFACT)
+    expectIntact(res.body[0].currentVersion.payload)
+    expectNoAttribution(res.body)
+  })
+
+  it('returns the same fields from GET /v1/artifacts/:id', async () => {
+    const { id, artifactPasscode } = await createSeriesGraph()
+
+    const res = await request(app)
+      .get(`/v1/artifacts/${id}`)
+      .query({ artifactPasscode })
+      .set('Authorization', `Bearer ${participantAccessToken}`)
+      .expect(httpStatus.OK)
+
+    expectIntact(res.body.currentVersion.payload)
+    expectNoAttribution(res.body)
+  })
+})
+
 describe('GET /v1/artifacts/passcode', () => {
   it('is routed as the passcode endpoint rather than an artifact id', async () => {
     const res = await request(app)
