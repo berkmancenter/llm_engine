@@ -269,6 +269,21 @@ describe('collectChannelIntros', () => {
     expect(mockIntroduce.mock.calls[0][0].name).toEqual('chat')
   })
 
+  test('greets no one when a shared screen joins as an observer', async () => {
+    const { handlers } = registerWithFakeSocket()
+
+    const reply = await joinAndWaitForCallback(handlers['conversation:join'], {
+      conversationId: conversationOne._id,
+      user: { _id: userOne._id, email: userOne.email },
+      channels: [{ name: 'chat', passcode: null }],
+      observer: true
+    })
+
+    expect(reply).toEqual({ intros: [] })
+    expect(mockIntroduce).not.toHaveBeenCalled()
+    expect(await AgentIntroduction.countDocuments({ user: userOne._id })).toBe(0)
+  })
+
   test('skips only the channels a participant has already been introduced on', async () => {
     await collectChannelIntros(conversation, ['chat'], userOne)
     mockIntroduce.mockClear()

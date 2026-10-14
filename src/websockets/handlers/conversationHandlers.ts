@@ -49,8 +49,9 @@ export default (io, socket) => {
   })
   const joinConversation = catchAsync(async (data, callback) => {
     const startedAt = Date.now()
+    const observer = data.observer === true
     const conversation = await conversationService.joinConversation(data.conversationId.toString(), data.user, {
-      observer: data.observer === true
+      observer
     })
 
     // Support both single channel and array of channels
@@ -69,8 +70,10 @@ export default (io, socket) => {
       const channelNames = channels.map((ch) => ch.name)
       const roomIds = getRoomIds(data.conversationId.toString(), channelNames) as string[]
       roomIds.forEach((roomId) => socket.join(roomId))
-      await conversation.populate(['agents', 'channels'])
-      intros = await collectChannelIntros(conversation, channelNames, data.user)
+      if (!observer) {
+        await conversation.populate(['agents', 'channels'])
+        intros = await collectChannelIntros(conversation, channelNames, data.user)
+      }
     }
     // Timed through the agent intros: those LLM calls are the slow part of a join, not the room membership
     logger.info(
