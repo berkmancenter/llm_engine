@@ -2812,6 +2812,19 @@ describe('Conversation service methods', () => {
         expect(directChannels).toBe(0)
       })
 
+      it("leaves the conversation's existing channels as they were", async () => {
+        const { User } = await import('../../src/models/index.js')
+        const user = await User.findById(registeredUser._id)
+        const chat = await Channel.create({ name: 'chat', passcode: 'chat-pass', conversation: joinConversation._id })
+        joinConversation.channels.push(chat._id)
+        await joinConversation.save()
+
+        await conversationService.joinConversation(joinConversation._id.toString(), user, { observer: true })
+
+        const saved = await Conversation.findById(joinConversation._id)
+        expect(saved!.channels.map(String)).toEqual([chat._id.toString()])
+      })
+
       it('does not welcome the screen as a new participant', async () => {
         const { User } = await import('../../src/models/index.js')
         const user = await User.findById(registeredUser._id)

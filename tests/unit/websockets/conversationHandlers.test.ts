@@ -118,6 +118,21 @@ describe('conversation:join logging', () => {
 
     expect(joinSpy).toHaveBeenCalledWith(conversation._id.toString(), user, { observer: false })
   })
+
+  it('still subscribes an observer to the conversation room and its channel rooms', async () => {
+    const { handlers, socket } = registerWithFakeSocket()
+
+    const reply = await joinAndWaitForCallback(handlers['conversation:join'], {
+      conversationId: conversation._id,
+      user,
+      channels: [{ name: channel.name, passcode: channel.passcode }],
+      observer: true
+    })
+
+    expect(socket.join).toHaveBeenCalledWith(getRoomId(conversation._id.toString()))
+    expect(socket.join).toHaveBeenCalledWith(getRoomId(conversation._id.toString(), channel.name))
+    expect(reply).toEqual({ intros: expect.any(Array) })
+  })
 })
 
 /* Socket.io gives a client no room attribution on a received event, so a client moving
