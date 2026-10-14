@@ -269,19 +269,34 @@ describe('collectChannelIntros', () => {
     expect(mockIntroduce.mock.calls[0][0].name).toEqual('chat')
   })
 
-  test('greets no one when a shared screen joins as an observer', async () => {
-    const { handlers } = registerWithFakeSocket()
+  describe('when a shared screen joins as an observer', () => {
+    const joinAsObserver = () => {
+      const { handlers } = registerWithFakeSocket()
+      return joinAndWaitForCallback(handlers['conversation:join'], {
+        conversationId: conversationOne._id,
+        user: { _id: userOne._id, email: userOne.email },
+        channels: [{ name: 'chat', passcode: null }],
+        observer: true
+      })
+    }
 
-    const reply = await joinAndWaitForCallback(handlers['conversation:join'], {
-      conversationId: conversationOne._id,
-      user: { _id: userOne._id, email: userOne.email },
-      channels: [{ name: 'chat', passcode: null }],
-      observer: true
+    test('greets it with the presentation version and saves nothing', async () => {
+      const reply = (await joinAsObserver()) as { intros: unknown[] }
+
+      expect(reply.intros).toHaveLength(2)
+      expect(mockIntroduce).toHaveBeenCalledTimes(2)
+      expect(mockIntroduce.mock.calls.map((call) => call[1])).toEqual(['presentation', 'presentation'])
+      expect(await AgentIntroduction.countDocuments({ user: userOne._id })).toBe(0)
     })
 
-    expect(reply).toEqual({ intros: [] })
-    expect(mockIntroduce).not.toHaveBeenCalled()
-    expect(await AgentIntroduction.countDocuments({ user: userOne._id })).toBe(0)
+    test('does not replay the greeting saved when the same user joined as a participant', async () => {
+      await collectChannelIntros(conversation, ['chat'], userOne)
+      mockIntroduce.mockClear()
+
+      await joinAsObserver()
+
+      expect(mockIntroduce.mock.calls.map((call) => call[1])).toEqual(['presentation', 'presentation'])
+    })
   })
 
   test('skips only the channels a participant has already been introduced on', async () => {

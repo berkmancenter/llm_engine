@@ -163,6 +163,8 @@ export default verify({
     enablePersonality: config.enableAgentPersonality,
     zoomChatIntroMessage:
       "Welcome! I'm {{agentConfig.botName}}, your AI event assistant. You can ask me questions in the chat with an @{{agentConfig.botName}} mention. Or send me a DM if you want to talk privately.",
+    presentationChatIntroMessage:
+      "Welcome! I'm {{agentConfig.botName}}, your AI event assistant. This is the event's group chat, shown here for everyone in the room. Join the event on your own device to chat with other participants and ask me questions with an @{{agentConfig.botName}} mention.",
     tools: getDefaultEventAssistantToolNames(),
     seriesHistory: false, // when true, gives the assistant access to other past events in the same series
     minInterval: 10, // minimum minutes between check-ins per participant
@@ -321,7 +323,11 @@ export default verify({
       }
     }
     if (channel.name === 'chat') {
-      const templateStr = adapterType === 'zoom' ? this.agentConfig.zoomChatIntroMessage : this.agentConfig.chatIntroMessage
+      const templateByAdapter = {
+        zoom: this.agentConfig.zoomChatIntroMessage,
+        presentation: this.agentConfig.presentationChatIntroMessage
+      }
+      const templateStr = templateByAdapter[adapterType] ?? this.agentConfig.chatIntroMessage
       return [
         {
           message: {

@@ -877,8 +877,8 @@ const carryAdminRealName = async (user, conversation) => {
 /**
  * @param {Object} [options]
  * @param {boolean} [options.observer] - the caller only wants the room's updates, as a shared
- *   presentation screen does, and is not joining as a participant. It gets no direct channel and no
- *   welcome, because attendee counts are built from direct channels.
+ *   presentation screen does, and is not joining as a participant. It gets no direct channel, because
+ *   attendee counts are built from direct channels, and agents never hear it joined as a new member.
  */
 const joinConversation = async (conversationOrId, user, { observer = false } = {}) => {
   let conversation = conversationOrId
