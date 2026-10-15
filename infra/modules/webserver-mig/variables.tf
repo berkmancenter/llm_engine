@@ -7,19 +7,30 @@ variable "region" {
   default = "us-central1"
 }
 
-variable "zone" {
+variable "zones" {
   description = <<-EOT
-    Single zone the regional MIG's instances are pinned to
-    (distribution_policy_zones). Not really an HA choice at this scale (see
-    max_replicas) — it's here because GCP requires a *fixed* max_surge/
-    max_unavailable on a regional MIG to be either 0 or >= the number of
-    zones the group spans; defaulting to every zone in the region (the
-    behavior with no distribution_policy_zones at all) means max_surge=1
-    fails outright. Revisit alongside max_replicas once real multi-zone HA
-    is actually a goal.
+    Which zones the web server group may create VMs in. A zone is one of
+    the data centers inside the region, and each has its own stock of
+    machines. On 2026-10-15 us-central1-a had no n2d-standard-4 or
+    n2-standard-4 machines left for 9+ hours, so a deploy that needed a
+    new VM in that zone hung. Listing several zones lets the group create
+    the VM in another one with the BALANCED target shape set in main.tf.
+    Two things to know before editing this list:
+    - GCP does not allow changing a group's zones after it is created, so
+      Terraform creates a new group (the zone list is part of its name),
+      points the load balancer at it, then deletes the old one. Expect a
+      minute or two of errors while the new VM boots.
+    - GCP requires the rollout settings max_surge (extra VMs a deploy may
+      add at once) and max_unavailable (VMs it may take down at once) to be
+      0 or at least the number of zones. main.tf sets max_surge to the
+      length of this list; max_unavailable stays 0.
   EOT
-  type        = string
-  default     = "us-central1-a"
+  type        = list(string)
+  default     = ["us-central1-a", "us-central1-b", "us-central1-c"]
+  validation {
+    condition     = length(var.zones) >= 1
+    error_message = "zones must list at least one zone."
+  }
 }
 
 variable "subnet_self_link" {
@@ -168,14 +179,10 @@ variable "cpu_utilization_target" {
   default     = 0.6
 }
 
-variable "max_surge" {
-  type    = number
-  default = 1
-}
-
 variable "max_unavailable" {
-  type    = number
-  default = 0
+  description = "VMs a rollout may take down at once. GCP requires 0 or at least the number of zones in var.zones."
+  type        = number
+  default     = 0
 }
 
 variable "connection_draining_timeout_sec" {
