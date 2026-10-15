@@ -54,6 +54,27 @@ export const supportedModels: LlmModelDetails[] = [
     description: "Anthropic's fast model, next generation after Sonnet 4.6"
   },
   {
+    // Confirmed reachable on the HUIT Bedrock gateway (2026-10-14) via the bare
+    // `us.anthropic.claude-opus-5-5` ID (the -v1 / -v1:0 forms are rejected as invalid). Not
+    // the default — see the opus-5 note above; the same "needs eval verification" caveat
+    // applies. This only makes the model selectable.
+    name: 'opus-5-5',
+    label: 'AWS Bedrock Claude Opus 5.5',
+    llmPlatform: 'bedrock',
+    llmModel: 'us.anthropic.claude-opus-5-5',
+    description: "Anthropic's most capable model, next generation after Opus 5"
+  },
+  {
+    // Confirmed reachable on the HUIT Bedrock gateway (2026-10-14) via the bare
+    // `us.anthropic.claude-sonnet-5-5` ID (the -v1 / -v1:0 forms are rejected as invalid). Not
+    // the default — same "needs eval verification" caveat as opus-5-5 above.
+    name: 'sonnet-5-5',
+    label: 'AWS Bedrock Claude Sonnet 5.5',
+    llmPlatform: 'bedrock',
+    llmModel: 'us.anthropic.claude-sonnet-5-5',
+    description: "Anthropic's fast model, next generation after Sonnet 5"
+  },
+  {
     name: 'gpt-5.2',
     label: 'OpenAI GPT-5.2',
     llmPlatform: 'openai',
@@ -93,13 +114,15 @@ export const { imageGenerationLLMModel } = config
 //
 // `opus`/`sonnet` deliberately still point at the 4.6 generation, not opus-5/sonnet-5 —
 // switching the default is a decision for later (needs eval verification first, see the
-// prompt-caching investigation's model-choice analysis). `opus-5`/`sonnet-5` are separate,
+// prompt-caching investigation's model-choice analysis). `opus-5`/`sonnet-5` (and `opus-5-5`/`sonnet-5-5`) are separate,
 // explicit keys so a call site can opt in ahead of that decision.
 const modelFamilies: Record<string, string> = {
   opus: 'us.anthropic.claude-opus-4-6-v1',
   'opus-5': 'us.anthropic.claude-opus-5',
   sonnet: 'us.anthropic.claude-sonnet-4-6',
   'sonnet-5': 'us.anthropic.claude-sonnet-5',
+  'opus-5-5': 'us.anthropic.claude-opus-5-5',
+  'sonnet-5-5': 'us.anthropic.claude-sonnet-5-5',
   gpt: 'gpt-5.2-2025-12-11',
   gemini: 'gemini-3-pro-preview'
 }
