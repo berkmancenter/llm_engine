@@ -692,6 +692,7 @@
 <h2 id="api-documentation">API documentation</h2>
 <p>OpenAPI documentation is available when running the app locally at the route <code>v1/docs</code>.</p>
 <p>In particular, see the examples in the <code>POST</code> <code>Conversations</code> endpoint for how to create conversations with certain agent types.</p>
+<p>Live updates use Socket.IO on <code>WEBSOCKET_BASE_PORT</code>, which is separate from the REST port. A client enters an event with <code>conversation:join</code>, sending <code>{ conversationId, token, channels }</code>, where <code>token</code> is the user's access token. A client that only displays the event, such as NextSpace's presentation view on a shared screen, also sends <code>observer: true</code>. It still receives the event's updates, but it gets no private assistant channel and no welcome message, so it isn't counted as an attendee.</p>
 <h2 id="understanding-message-control-flow">Understanding Message Control Flow</h2>
 <p>It can be very helpful to understand the Message routing and control flow to and from Agents and different platforms through Adapters.</p>
 <h4 id="diagrams">Diagrams</h4>
