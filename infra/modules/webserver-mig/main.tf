@@ -172,9 +172,13 @@ resource "google_compute_health_check" "web_server_ws" {
 
 # --- Regional Managed Instance Group ---
 
+# The zone list is part of the group's name because GCP forbids changing a
+# group's zones and refuses to delete a group a backend service still points
+# at. A new name plus create_before_destroy lets Terraform build the new group,
+# repoint the backends, then delete the old one, instead of failing mid-apply.
 resource "google_compute_region_instance_group_manager" "web_server" {
   project                   = var.project_id
-  name                      = "llm-engine-web-mig"
+  name                      = "llm-engine-web-mig-${substr(sha1(join(",", sort(var.zones))), 0, 6)}"
   region                    = var.region
   distribution_policy_zones = var.zones
   # Not the default shape, EVEN: when a zone has no machines left, EVEN keeps
@@ -210,7 +214,7 @@ resource "google_compute_region_instance_group_manager" "web_server" {
   update_policy {
     type                  = "PROACTIVE"
     minimal_action        = "REPLACE"
-    max_surge_fixed       = length(var.zones) # GCP requires 0 or at least the zone count
+    max_surge_fixed       = length(var.zones) # GCP requires 0 or at least the zone count, same for max_unavailable
     max_unavailable_fixed = var.max_unavailable
   }
 
@@ -231,6 +235,7 @@ resource "google_compute_region_instance_group_manager" "web_server" {
   # it flows through the autoscaler's own minNumReplicas (autoscaler.tf),
   # which is the thing that actually enforces a floor at runtime.
   lifecycle {
-    ignore_changes = [target_size]
+    ignore_changes        = [target_size]
+    create_before_destroy = true # see the comment above this resource
   }
 }

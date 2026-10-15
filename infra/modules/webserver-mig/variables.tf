@@ -17,11 +17,13 @@ variable "zones" {
     the VM in another one with the BALANCED target shape set in main.tf.
     Two things to know before editing this list:
     - GCP does not allow changing a group's zones after it is created, so
-      Terraform deletes the group and creates a new one. The site is down
-      for a few minutes while the new VM boots.
-    - GCP requires the rollout setting max_surge (how many extra VMs a
-      deploy may add at once) to be 0 or at least the number of zones, so
-      main.tf sets it to the length of this list.
+      Terraform creates a new group (the zone list is part of its name),
+      points the load balancer at it, then deletes the old one. Expect a
+      minute or two of errors while the new VM boots.
+    - GCP requires the rollout settings max_surge (extra VMs a deploy may
+      add at once) and max_unavailable (VMs it may take down at once) to be
+      0 or at least the number of zones. main.tf sets max_surge to the
+      length of this list; max_unavailable stays 0.
   EOT
   type        = list(string)
   default     = ["us-central1-a", "us-central1-b", "us-central1-c"]
@@ -178,8 +180,9 @@ variable "cpu_utilization_target" {
 }
 
 variable "max_unavailable" {
-  type    = number
-  default = 0
+  description = "VMs a rollout may take down at once. GCP requires 0 or at least the number of zones in var.zones."
+  type        = number
+  default     = 0
 }
 
 variable "connection_draining_timeout_sec" {
