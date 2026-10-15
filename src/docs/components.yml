@@ -1407,6 +1407,36 @@ components:
         pseudonym:
           type: string
           description: Display name of whoever contributed it
+        pollId:
+          type: string
+          description: The poll this node was seeded or cited from
+
+    GraphSession:
+      type: object
+      description: >-
+        One conversation (session) behind a series concept graph. Carries only what is safe
+        to show every reader: the conversation's id, its position in date order, and the
+        event's own name and date. Never a participant name or pseudonym.
+      required:
+        - conversationId
+        - order
+      properties:
+        conversationId:
+          type: string
+        order:
+          type: integer
+          minimum: 1
+          description: 1-based position when the sessions are ordered by event date, ascending.
+          example: 2
+        title:
+          type: string
+          description: The conversation's name. Omitted when the conversation could not be loaded.
+        date:
+          type: string
+          format: date-time
+          description: >-
+            Start of the event (its scheduled time when it never started). Omitted when
+            unknown.
 
     GraphConcept:
       type: object
@@ -1444,6 +1474,15 @@ components:
             distinct idea, consolidated for space, so its label is kept so a reader can still
             find it.
           example: ['Registry Interop']
+        conversationIds:
+          type: array
+          items:
+            type: string
+          description: >-
+            Every conversation this concept came up in — the de-duplicated, order-preserving
+            union of the conversations behind it, kept through same-label merges and size-cap
+            folds. `provenance.conversationId` stays the first of them (where the concept
+            originated). Ids only; resolve them against the payload's `sessions`.
         provenance:
           $ref: '#/components/schemas/GraphNodeProvenance'
 
@@ -1529,6 +1568,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/GraphOriginPrompt'
+        sessions:
+          type: array
+          description: >-
+            Every conversation that contributed to the graph, ordered by event date
+            ascending. Written by a series (topic) graph; omitted on a single-conversation
+            graph, which has only the one session.
+          items:
+            $ref: '#/components/schemas/GraphSession'
 
     ArtifactVersion:
       type: object

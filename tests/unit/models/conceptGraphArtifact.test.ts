@@ -139,6 +139,34 @@ describe('concept graph node shape', () => {
     expect(value.concepts[0].foldedFrom).toEqual(['Registry Interop'])
   })
 
+  it('accepts optional conversationIds on a concept and sessions on the payload, and omits both fine', () => {
+    const base = { concepts: [{ id: 'c1', label: 'A' }], contributions: [] }
+    expect(validate(graph(base)).error).toBeUndefined()
+
+    const { error, value } = validate(
+      graph({
+        concepts: [{ id: 'c1', label: 'A', conversationIds: ['conv1', 'conv2'] }],
+        contributions: [],
+        sessions: [
+          { conversationId: 'conv1', order: 1, title: 'Opening', date: '2026-01-01T10:00:00.000Z' },
+          { conversationId: 'conv2', order: 2 }
+        ]
+      })
+    )
+
+    expect(error).toBeUndefined()
+    expect(value.concepts[0].conversationIds).toEqual(['conv1', 'conv2'])
+    expect(value.sessions).toHaveLength(2)
+  })
+
+  it('rejects a malformed session, and any identifying key on one', () => {
+    const withSession = (session) => validate(graph({ concepts: [], contributions: [], sessions: [session] })).error
+    expect(withSession({ order: 1 })).toBeDefined()
+    expect(withSession({ conversationId: 'c', order: 0 })).toBeDefined()
+    expect(withSession({ conversationId: 'c', order: 1, date: 'yesterday' })).toBeDefined()
+    expect(withSession({ conversationId: 'c', order: 1, pseudonym: 'Bold Aardvark' })).toBeDefined()
+  })
+
   it('accepts optional provenance on any node kind', () => {
     const { error } = validate({
       concepts: [

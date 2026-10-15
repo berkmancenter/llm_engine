@@ -145,7 +145,7 @@ export const piiPatternIn = (text: string): string | null => {
 /* Word-boundary match on the normalized forms, so "Bold Aardvark" is caught inside a
    sentence but "Sam" does not fire on "same". A very short identity is skipped: matching it
    would delete far more real content than it protects. */
-const identityIn = (text: string, knownIdentities: string[]): string | null => {
+export const identityIn = (text: string, knownIdentities: string[]): string | null => {
   const haystack = ` ${normalize(text)} `
   for (const identity of knownIdentities) {
     const needle = normalize(identity)

@@ -1,5 +1,8 @@
 import {
+  buildSessions,
+  CONCEPT_CAP,
   knownConceptLabels,
+  payloadConversationIds,
   payloadToExtraction,
   resolveConceptAliases
 } from '../../../../src/services/conceptGraph/topicGraph.js'
@@ -234,5 +237,71 @@ describe('an extended statement, end to end', () => {
        later saw what it reached. */
     expect(statement.provenance).toEqual({ conversationId: 'session1' })
     expect(revocation.provenance).toEqual({ conversationId: 'session4' })
+  })
+})
+
+describe('carrying sessions through a stored graph', () => {
+  it('carries a concept’s conversationIds across', () => {
+    const stored = graph()
+    stored.concepts[0].conversationIds = ['conv1', 'conv2']
+
+    expect(payloadToExtraction(stored).concepts[0].conversationIds).toEqual(['conv1', 'conv2'])
+  })
+
+  it('lists every conversation a payload draws on once, in first-seen order', () => {
+    const stored = graph()
+    stored.concepts[1].conversationIds = ['conv2', 'conv1']
+    stored.contributions[0].provenance = { conversationId: 'conv3' }
+
+    expect(payloadConversationIds(stored)).toEqual(['conv1', 'conv2', 'conv3'])
+  })
+})
+
+describe('building the payload-level sessions list', () => {
+  const conv = (id: string, startTime?: string, name?: string, scheduledTime?: string) => ({
+    _id: id,
+    name,
+    startTime: startTime ? new Date(startTime) : undefined,
+    scheduledTime: scheduledTime ? new Date(scheduledTime) : undefined
+  })
+
+  it('orders by event date ascending with 1-based order, whatever order they were met in', () => {
+    const sessions = buildSessions(
+      ['late', 'early', 'mid'],
+      [
+        conv('late', '2026-03-01T10:00:00Z', 'March'),
+        conv('early', '2026-01-01T10:00:00Z', 'January'),
+        conv('mid', undefined, 'February', '2026-02-01T10:00:00Z')
+      ]
+    )
+
+    expect(sessions).toEqual([
+      { conversationId: 'early', order: 1, title: 'January', date: '2026-01-01T10:00:00.000Z' },
+      { conversationId: 'mid', order: 2, title: 'February', date: '2026-02-01T10:00:00.000Z' },
+      { conversationId: 'late', order: 3, title: 'March', date: '2026-03-01T10:00:00.000Z' }
+    ])
+  })
+
+  it('still lists a conversation that could not be loaded, after the dated ones, with just its id and order', () => {
+    const sessions = buildSessions(['gone', 'here'], [conv('here', '2026-01-01T10:00:00Z', 'Here')])
+
+    expect(sessions).toEqual([
+      { conversationId: 'here', order: 1, title: 'Here', date: '2026-01-01T10:00:00.000Z' },
+      { conversationId: 'gone', order: 2 }
+    ])
+  })
+
+  it('exposes only id, order, title and date, even if the loaded document carries more', () => {
+    const loaded = { ...conv('c1', '2026-01-01T10:00:00Z', 'Session'), presenters: [{ name: 'Rosa Klein' }], owner: 'u1' }
+
+    expect(Object.keys(buildSessions(['c1'], [loaded])[0]).sort()).toEqual(['conversationId', 'date', 'order', 'title'])
+  })
+})
+
+describe('CONCEPT_CAP', () => {
+  /* The series graph cap is a deliberate product choice (a graph past this many concepts is
+     too crowded to read). Changing it is a conscious decision: update this test with it. */
+  it('is 24', () => {
+    expect(CONCEPT_CAP).toBe(24)
   })
 })
