@@ -306,7 +306,8 @@ const sendOnDemandReply = async (
     {
       eventPageUrl: eventUrls.eventPageUrl(populated),
       moderatorUrl: eventUrls.moderatorUrl(populated),
-      participantUrl: eventUrls.participantUrl(populated)
+      participantUrl: eventUrls.participantUrl(populated),
+      presentationUrl: eventUrls.presentationUrl(populated)
     },
     { joinAt: conversation.scheduledTime }
   )

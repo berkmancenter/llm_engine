@@ -8,7 +8,12 @@ import { Conversation } from '../../models/index.js'
 import { IChannel } from '../../types/index.types.js'
 import introduceOnce from '../../services/agentIntroduction.service.js'
 
-export async function collectChannelIntros(conversation, channelNames, user) {
+/**
+ * @param {boolean} [options.observer] - a shared screen gets the presentation greeting, built fresh
+ *   and never saved: saved greetings are keyed by user, and the screen usually runs as the organizer,
+ *   so saving would swap greetings between their participant view and the screen.
+ */
+export async function collectChannelIntros(conversation, channelNames, user, { observer = false } = {}) {
   const intros: ReturnType<typeof agentResponseToMessageData>[] = []
   if (!conversation.active) return intros
   for (const channelName of channelNames) {
@@ -16,7 +21,9 @@ export async function collectChannelIntros(conversation, channelNames, user) {
     if (!channel) continue
     for (const agent of conversation.agents) {
       agent.conversation = conversation
-      const agentIntros = await introduceOnce({ conversation, agent, channel, user })
+      const agentIntros = observer
+        ? await agent.introduce(channel, 'presentation')
+        : await introduceOnce({ conversation, agent, channel, user })
       for (const intro of agentIntros) {
         intros.push(agentResponseToMessageData(intro, agent))
       }
@@ -49,7 +56,10 @@ export default (io, socket) => {
   })
   const joinConversation = catchAsync(async (data, callback) => {
     const startedAt = Date.now()
-    const conversation = await conversationService.joinConversation(data.conversationId.toString(), data.user)
+    const observer = data.observer === true
+    const conversation = await conversationService.joinConversation(data.conversationId.toString(), data.user, {
+      observer
+    })
 
     // Support both single channel and array of channels
     const channels: IChannel[] = data.channels || []
@@ -68,7 +78,7 @@ export default (io, socket) => {
       const roomIds = getRoomIds(data.conversationId.toString(), channelNames) as string[]
       roomIds.forEach((roomId) => socket.join(roomId))
       await conversation.populate(['agents', 'channels'])
-      intros = await collectChannelIntros(conversation, channelNames, data.user)
+      intros = await collectChannelIntros(conversation, channelNames, data.user, { observer })
     }
     // Timed through the agent intros: those LLM calls are the slow part of a join, not the room membership
     logger.info(

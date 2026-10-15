@@ -39,6 +39,13 @@ export interface InboundEmail {
   messageId?: string
 }
 
+export interface OnDemandEventUrls {
+  eventPageUrl: string
+  moderatorUrl?: string
+  participantUrl: string
+  presentationUrl: string
+}
+
 export interface PaginateResults<T> {
   results: Array<T>
   page: number

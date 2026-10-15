@@ -138,6 +138,11 @@ const envVarsSchema = Joi.object()
     EVENT_MODERATOR_PATH: Joi.string()
       .default('/moderator/')
       .description("Path on APP_HOST for a moderator's view of an event; override for a frontend that routes differently"),
+    EVENT_PRESENTATION_PATH: Joi.string()
+      .default('/present/')
+      .description(
+        'Path on APP_HOST for the presentation view of an event shown on a shared screen; override for a frontend that routes differently'
+      ),
     INVITE_PATH: Joi.string()
       .default('/invite')
       .description(
@@ -380,12 +385,13 @@ const config = {
   transcriptRetentionPeriod: envVars.TRANSCRIPT_RETENTION_PERIOD,
   appHost: envVars.APP_HOST,
   nextspaceUrl: envVars.NEXTSPACE_URL,
-  /* Paths appended to appHost when building an event's participant and moderator links.
-     The query string is llm_engine's own convention, so these two paths are the only
-     part of those URLs a different frontend needs to change. */
+  /* Paths appended to appHost when building an event's participant, moderator and
+     presentation links. The query string is llm_engine's own convention, so these paths
+     are the only part of those URLs a different frontend needs to change. */
   eventUrlPaths: {
     participant: envVars.EVENT_PARTICIPANT_PATH,
-    moderator: envVars.EVENT_MODERATOR_PATH
+    moderator: envVars.EVENT_MODERATOR_PATH,
+    presentation: envVars.EVENT_PRESENTATION_PATH
   },
   invitePath: envVars.INVITE_PATH,
   trulyRandomPseudonyms: envVars.TRULY_RANDOM_PSEUDONYMS,

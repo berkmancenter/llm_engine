@@ -585,6 +585,17 @@ describe(`event assistant CI tests`, () => {
       expect(msgs[0].message.text).not.toContain('{{agentConfig.botName}}')
       expect(msgs[0].message.text).toContain('send me a DM')
     })
+
+    it('uses presentationChatIntroMessage for a shared screen, which has no private tab', async () => {
+      const [chatChannel] = await Channel.create([{ name: 'chat' }])
+      const msgs = await agent.introduce(chatChannel, 'presentation')
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].message.type).toBe('intro')
+      expect(msgs[0].message.text).toContain('shown here for everyone in the room')
+      expect(msgs[0].message.text).toContain(`@${agent.agentConfig.botName}`)
+      expect(msgs[0].message.text).not.toContain('{{agentConfig.botName}}')
+      expect(msgs[0].message.text).not.toContain('talk privately')
+    })
   })
 
   it('does not respond to messages not intended for the assistant (may be unanswerable)', async () => {

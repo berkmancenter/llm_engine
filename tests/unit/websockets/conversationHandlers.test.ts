@@ -4,6 +4,7 @@ import setupIntTest from '../../utils/setupIntTest.js'
 import logger from '../../../src/config/logger.js'
 import registerConversationHandlers, { collectChannelIntros } from '../../../src/websockets/handlers/conversationHandlers.js'
 import { getRoomId } from '../../../src/websockets/utils.js'
+import conversationService from '../../../src/services/conversation.service/index.js'
 import { Agent, AgentIntroduction, Channel, Conversation } from '../../../src/models/index.js'
 import { setAgentTypes } from '../../../src/models/user.model/agent.model/index.js'
 import defaultAgentTypes from '../../../src/agents/index.js'
@@ -94,6 +95,43 @@ describe('conversation:join logging', () => {
     expect(lines).toHaveLength(1)
     expect(lines[0]).toContain(`room ${conversation._id}_general`)
     expect(lines[0]).toMatch(/ in \d+ms$/)
+  })
+
+  it('passes an observer join through, so the service can leave a shared screen out of the headcount', async () => {
+    const joinSpy = jest.spyOn(conversationService, 'joinConversation')
+    const { handlers } = registerWithFakeSocket()
+
+    await joinAndWaitForCallback(handlers['conversation:join'], {
+      conversationId: conversation._id,
+      user,
+      observer: true
+    })
+
+    expect(joinSpy).toHaveBeenCalledWith(conversation._id.toString(), user, { observer: true })
+  })
+
+  it('treats a join without the flag as an ordinary participant', async () => {
+    const joinSpy = jest.spyOn(conversationService, 'joinConversation')
+    const { handlers } = registerWithFakeSocket()
+
+    await joinAndWaitForCallback(handlers['conversation:join'], { conversationId: conversation._id, user })
+
+    expect(joinSpy).toHaveBeenCalledWith(conversation._id.toString(), user, { observer: false })
+  })
+
+  it('still subscribes an observer to the conversation room and its channel rooms', async () => {
+    const { handlers, socket } = registerWithFakeSocket()
+
+    const reply = await joinAndWaitForCallback(handlers['conversation:join'], {
+      conversationId: conversation._id,
+      user,
+      channels: [{ name: channel.name, passcode: channel.passcode }],
+      observer: true
+    })
+
+    expect(socket.join).toHaveBeenCalledWith(getRoomId(conversation._id.toString()))
+    expect(socket.join).toHaveBeenCalledWith(getRoomId(conversation._id.toString(), channel.name))
+    expect(reply).toEqual({ intros: expect.any(Array) })
   })
 })
 
@@ -229,6 +267,36 @@ describe('collectChannelIntros', () => {
 
     expect(mockIntroduce).toHaveBeenCalledTimes(1)
     expect(mockIntroduce.mock.calls[0][0].name).toEqual('chat')
+  })
+
+  describe('when a shared screen joins as an observer', () => {
+    const joinAsObserver = () => {
+      const { handlers } = registerWithFakeSocket()
+      return joinAndWaitForCallback(handlers['conversation:join'], {
+        conversationId: conversationOne._id,
+        user: { _id: userOne._id, email: userOne.email },
+        channels: [{ name: 'chat', passcode: null }],
+        observer: true
+      })
+    }
+
+    test('greets it with the presentation version and saves nothing', async () => {
+      const reply = (await joinAsObserver()) as { intros: unknown[] }
+
+      expect(reply.intros).toHaveLength(2)
+      expect(mockIntroduce).toHaveBeenCalledTimes(2)
+      expect(mockIntroduce.mock.calls.map((call) => call[1])).toEqual(['presentation', 'presentation'])
+      expect(await AgentIntroduction.countDocuments({ user: userOne._id })).toBe(0)
+    })
+
+    test('does not replay the greeting saved when the same user joined as a participant', async () => {
+      await collectChannelIntros(conversation, ['chat'], userOne)
+      mockIntroduce.mockClear()
+
+      await joinAsObserver()
+
+      expect(mockIntroduce.mock.calls.map((call) => call[1])).toEqual(['presentation', 'presentation'])
+    })
   })
 
   test('skips only the channels a participant has already been introduced on', async () => {

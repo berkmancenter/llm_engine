@@ -4,6 +4,7 @@ import logger from '../config/logger.js'
 import eventUrls from './eventUrls.service.js'
 import SuppressedRecipientError from '../utils/SuppressedRecipientError.js'
 import EmailSendError from '../utils/EmailSendError.js'
+import { OnDemandEventUrls } from '../types/index.types.js'
 
 // POSTMARK_API_TEST makes Postmark validate each request without sending, so the test
 // suite exercises the real client with no token configured. Outside tests a missing
@@ -231,17 +232,16 @@ We received your calendar invite, but ran into a problem creating your event. Pl
 }
 
 /**
- * Notify an organizer that their emailed Zoom link turned into an on-demand event. Leads with the
- * moderator and participant links, since those are the ones that open straight into the room
- * without signing in (unlike the event page link, which requires an account); the event page
- * link comes last as the place to edit the event or find these links again.
+ * Notify an organizer that their emailed Zoom link turned into an on-demand event. Lists the
+ * passcode links first because they open the room without signing in; the event page link
+ * comes last because it needs an account.
  * @param {string} to
- * @param {Object} urls - { eventPageUrl, moderatorUrl?, participantUrl } from eventUrls.service
+ * @param {OnDemandEventUrls} urls - from eventUrls.service; moderatorUrl is absent when moderator support is off
  * @param {Object} [options]
  * @param {Date} [options.joinAt] - when the email describes a scheduled join rather than an immediate one
  * @returns {Promise}
  */
-const sendOnDemandEventEmail = async (to, urls, { joinAt }: { joinAt?: Date } = {}) => {
+const sendOnDemandEventEmail = async (to, urls: OnDemandEventUrls, { joinAt }: { joinAt?: Date } = {}) => {
   const botName = config.conversationBotName
   const subject = joinAt ? `${botName} will join your Zoom meeting` : `${botName} is joining your Zoom meeting`
   const whenLine = joinAt
@@ -256,11 +256,13 @@ const sendOnDemandEventEmail = async (to, urls, { joinAt }: { joinAt?: Date } = 
   const text = `Hello,
 ${whenLine}
 ${moderatorLine}Participant link (share with anyone joining): ${urls.participantUrl}
+Presentation link (open on the shared screen): ${urls.presentationUrl}
 Edit the event, or find these links again: ${urls.eventPageUrl}`
   const html = `<p>Hello,</p>
 <p>${whenLine}</p>
 ${moderatorHtml}
 <p>Participant link (share with anyone joining): <a href="${urls.participantUrl}">${urls.participantUrl}</a></p>
+<p>Presentation link (open on the shared screen): <a href="${urls.presentationUrl}">${urls.presentationUrl}</a></p>
 <p>Edit the event, or find these links again: <a href="${urls.eventPageUrl}">${urls.eventPageUrl}</a></p>`
   await sendEmailAsync(to, subject, text, html, 'on-demand-event')
 }
