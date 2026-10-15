@@ -163,6 +163,70 @@ describe('refineTopicGraph, stamping sessions on a series graph', () => {
     expect(payload.sessions.map((s) => s.order)).toEqual([1, 2, 3])
   })
 
+  it('omits a session title that names a known presenter, keeping its id, order and date', async () => {
+    await Conversation.updateOne(
+      { _id: first._id },
+      { name: 'Workshop with Dana Whitfield', presenters: [{ name: 'Dana Whitfield' }] }
+    )
+    const result = await conceptGraphService.refineTopicGraph(topicId, agent)
+    const { sessions } = result!.version.payload
+
+    expect(sessions[0]).toEqual({
+      conversationId: first._id.toString(),
+      order: 1,
+      date: '2026-01-01T10:00:00.000Z'
+    })
+    expect(sessions[1].title).toBe('Second session')
+    expect(JSON.stringify(result!.version.payload)).not.toContain('Dana Whitfield')
+  })
+
+  it('does not look up a conversation outside the topic, leaving only its id and order', async () => {
+    const otherTopic = newPublicTopic()
+    otherTopic.owner = userOne._id
+    await insertTopics([otherTopic])
+    const moved = await Conversation.create({
+      name: 'Private strategy call',
+      slug: 'private-strategy-call',
+      owner: userOne._id,
+      topic: otherTopic._id,
+      startTime: new Date('2025-06-01T10:00:00Z')
+    })
+    const movedId = moved._id.toString()
+    await conceptGraphService.refineTopicGraph(topicId, agent)
+    const findSpy = jest.spyOn(Conversation, 'find')
+
+    const result = await conceptGraphService.refineTopicGraph(topicId, agent, {
+      results: [
+        {
+          concepts: [{ label: 'Zeta' }, { label: 'Eta' }],
+          contributions: [{ kind: 'relates to', concepts: ['Zeta', 'Eta'] }],
+          originPrompts: []
+        }
+      ],
+      texts: ['x'],
+      knownIdentities: [],
+      conversationId: movedId
+    })
+    const { sessions } = result!.version.payload
+
+    const entry = sessions.find((x) => x.conversationId === movedId)
+    expect(entry).toEqual({ conversationId: movedId, order: 3 })
+    expect(JSON.stringify(result!.version.payload)).not.toContain('Private strategy call')
+    const queriedIds = findSpy.mock.calls.map((call) => JSON.stringify(call[0]))
+    expect(queriedIds.some((q) => q.includes(movedId))).toBe(false)
+    findSpy.mockRestore()
+  })
+
+  it('gives every conversation id on any concept a matching sessions entry', async () => {
+    const result = await conceptGraphService.refineTopicGraph(topicId, agent)
+    const { concepts, sessions } = result!.version.payload
+    const sessionIds = new Set(sessions.map((x) => x.conversationId))
+    const referenced = concepts.flatMap((c) => c.conversationIds ?? [])
+
+    expect(referenced.length).toBeGreaterThan(0)
+    for (const id of referenced) expect(sessionIds.has(id)).toBe(true)
+  })
+
   it('stamps a reset recompute, the supported way to regenerate a graph that lost its provenance', async () => {
     await conceptGraphService.refineTopicGraph(topicId, agent)
     const reset = await conceptGraphService.refineTopicGraph(topicId, agent, undefined, { reset: true })

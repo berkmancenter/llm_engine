@@ -130,10 +130,10 @@ export const buildSessions = (conversationIds: string[], conversations: SessionC
     const time = when ? new Date(when).getTime() : NaN
     return {
       index,
-      time: Number.isNaN(time) ? undefined : time,
+      time: Number.isFinite(time) ? time : undefined,
       conversationId,
       ...(conversation?.name && { title: conversation.name }),
-      ...(time !== undefined && !Number.isNaN(time) && { date: new Date(time).toISOString() })
+      ...(Number.isFinite(time) && { date: new Date(time).toISOString() })
     }
   })
   entries.sort((a, b) => {

@@ -20,6 +20,7 @@ import artifactService from '../artifact.service.js'
 import { EXTRACTION_PROMPT, EXTRACTION_SCHEMA } from './prompt.js'
 import { aliasedKey, assembleGraph, AssemblyReport, ExtractionResult, PollRefMap, SourceRefMap } from './assemble.js'
 import { screenForIdentities } from './nameScreen.js'
+import { identityIn } from './quoteSafety.js'
 import {
   knownConceptLabels,
   payloadToExtraction,
@@ -805,19 +806,24 @@ export const refineTopicGraph = async (
      nodes being written. */
   const sessionIds = payloadConversationIds(payload)
   if (sessionIds.length > 0) {
-    /* A session no longer in the topic (moved or since removed) is looked up directly; one
-       that still cannot be loaded keeps its id and place in the order, minus title and date. */
-    const inTopic = new Set(conversations.map((c) => c._id.toString()))
-    const elsewhere = sessionIds.filter((id) => !inTopic.has(id))
-    const extra = elsewhere.length
-      ? await Conversation.find({ _id: { $in: elsewhere.filter((id) => mongoose.isValidObjectId(id)) } })
-          .select('name startTime scheduledTime')
-          .lean()
-          .exec()
-      : []
+    /* Only conversations still in this topic are resolved to a title and date. One that has
+       been moved elsewhere (possibly to a private topic) or removed is deliberately not looked
+       up: it keeps its id and place in the order, minus title and date. */
+    const sessions = buildSessions(sessionIds, conversations as unknown as SessionConversation[])
+
+    /* A title is free text someone typed, so it gets the same identity screen as the rest of
+       the prose: the exact-match check against every known name, then the model screen. A
+       title that trips either is dropped; the session keeps its id, order and date. */
+    const candidates = sessions.filter((s) => s.title && !identityIn(s.title, knownIdentities))
+    const flagged = await screenForIdentities(
+      llm,
+      candidates.map((s) => s.title as string),
+      topicId
+    )
+    const safe = new Set(candidates.filter((_, i) => !flagged.has(i)).map((s) => s.conversationId))
     payload = {
       ...payload,
-      sessions: buildSessions(sessionIds, [...conversations, ...extra] as unknown as SessionConversation[])
+      sessions: sessions.map(({ title, ...rest }) => (title && safe.has(rest.conversationId) ? { ...rest, title } : rest))
     }
   }
 
