@@ -176,8 +176,12 @@ resource "google_compute_region_instance_group_manager" "web_server" {
   project                   = var.project_id
   name                      = "llm-engine-web-mig"
   region                    = var.region
-  distribution_policy_zones = [var.zone] # see var.zone for why this is pinned to one zone
-  base_instance_name        = "llm-engine-web"
+  distribution_policy_zones = var.zones
+  # Not the default shape, EVEN: when a zone has no machines left, EVEN keeps
+  # retrying that zone forever. BALANCED creates the VM in any listed zone
+  # that has machines, and still spreads VMs evenly when it can.
+  distribution_policy_target_shape = "BALANCED"
+  base_instance_name               = "llm-engine-web"
 
   # Seeds the group's initial size only. From then on the autoscaler owns
   # it, so ignore_changes below stops Terraform taking it back — see the
@@ -206,7 +210,7 @@ resource "google_compute_region_instance_group_manager" "web_server" {
   update_policy {
     type                  = "PROACTIVE"
     minimal_action        = "REPLACE"
-    max_surge_fixed       = var.max_surge
+    max_surge_fixed       = length(var.zones) # GCP requires 0 or at least the zone count
     max_unavailable_fixed = var.max_unavailable
   }
 
