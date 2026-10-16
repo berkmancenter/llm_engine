@@ -150,6 +150,56 @@ describe('conversation:leave', () => {
   })
 })
 
+/* The per-user room receives preferences:updated, so a client must not be able to join
+   another account's room by sending that account's id. */
+describe('user:join', () => {
+  it('joins the room for the authenticated user, ignoring the userId the client sent', async () => {
+    const { handlers, socket } = registerWithFakeSocket()
+    const authenticatedUserId = new mongoose.Types.ObjectId()
+    const otherUserId = new mongoose.Types.ObjectId()
+
+    await handlers['user:join']({ user: { _id: authenticatedUserId }, userId: otherUserId })
+
+    expect(socket.join).toHaveBeenCalledTimes(1)
+    expect(socket.join).toHaveBeenCalledWith(authenticatedUserId.toString())
+  })
+})
+
+/* Room names are bare ids, so a topicId that is really someone's user id would land the
+   caller in that user's per-user room. */
+describe('topic:join', () => {
+  it('joins the room for a topic that exists', async () => {
+    const { handlers, socket } = registerWithFakeSocket()
+    const topic = newPublicTopic()
+    await insertTopics([topic])
+    const joinedRoom = new Promise((resolve) => {
+      socket.join.mockImplementation(resolve)
+    })
+
+    handlers['topic:join']({ user: { _id: userOne._id }, topicId: topic._id })
+
+    expect(await joinedRoom).toBe(topic._id.toString())
+  })
+
+  it("refuses an id that isn't a topic, such as another user's id", async () => {
+    const { handlers, socket } = registerWithFakeSocket()
+    const otherUserId = new mongoose.Types.ObjectId()
+    let warnSpy
+    const refused = new Promise((resolve) => {
+      warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => {
+        resolve(undefined)
+        return logger
+      })
+    })
+
+    handlers['topic:join']({ user: { _id: userOne._id }, topicId: otherUserId })
+    await Promise.race([refused, new Promise((resolve) => setTimeout(resolve, 2000))])
+    warnSpy.mockRestore()
+
+    expect(socket.join).not.toHaveBeenCalled()
+  })
+})
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockIntroduce = jest.fn<(...args: any[]) => Promise<any>>()
 
