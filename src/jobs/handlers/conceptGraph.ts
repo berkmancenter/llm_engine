@@ -6,6 +6,11 @@ import websocketGateway from '../../websockets/websocketGateway.js'
 
 const NOT_ENOUGH_TO_MAP = 'Not enough of the record to map'
 
+/* generationError is shown to passcode readers and broadcast to a topic room that needs no
+   auth to join, so an unexpected failure must never put raw error text (LLM provider or
+   Mongo messages) in it. The full error is logged server-side instead. */
+const GENERIC_GENERATION_FAILURE = 'Generation failed. Try again, or check the server logs.'
+
 /* A successful run already flips generationStatus to 'ready' and broadcasts artifact:version
    via artifactService.appendVersion, so only the failure/skip path needs to touch the
    artifact here. Mirrors appendVersion's own broadcast-is-best-effort handling: the status
@@ -58,7 +63,7 @@ const generateConceptGraph = async (job) => {
     }
   } catch (err) {
     logger.error(`conceptGraph handler: failed to generate concept graph for artifact ${artifactId}`, err)
-    await failGeneration(artifactId, room, err instanceof Error ? err.message : String(err))
+    await failGeneration(artifactId, room, GENERIC_GENERATION_FAILURE)
   }
 }
 
