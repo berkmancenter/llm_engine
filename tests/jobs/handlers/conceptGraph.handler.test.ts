@@ -8,6 +8,7 @@ import { CONCEPT_GRAPH_ARTIFACT } from '../../../src/models/artifact.model/conce
 import Conversation from '../../../src/models/conversation.model.js'
 import { insertUsers, userTwo } from '../../fixtures/user.fixture.js'
 import { newPublicTopic, insertTopics } from '../../fixtures/topic.fixture.js'
+import logger from '../../../src/config/logger.js'
 import setupIntTest from '../../utils/setupIntTest.js'
 
 setupIntTest()
@@ -113,17 +114,23 @@ describe('generateConceptGraph handler', () => {
     })
   })
 
-  it('marks the artifact failed with the error message when generation throws', async () => {
-    generateSpy.mockRejectedValue(new Error('model call failed'))
+  it('marks the artifact failed with a fixed message, not the raw error, when generation throws', async () => {
+    const loggerErrorSpy = jest.spyOn(logger, 'error').mockImplementation(() => logger)
+    const rawError = new Error('model call failed')
+    generateSpy.mockRejectedValue(rawError)
 
     await expect(handlers.generateConceptGraph(makeJob())).resolves.not.toThrow()
 
+    // the real error is kept for diagnostics, server-side only
+    expect(loggerErrorSpy).toHaveBeenCalledWith(expect.stringContaining(artifact._id.toString()), rawError)
+    loggerErrorSpy.mockRestore()
+
     const reloaded = await Artifact.findById(artifact._id)
     expect(reloaded!.generationStatus).toBe('failed')
-    expect(reloaded!.generationError).toBe('model call failed')
+    expect(reloaded!.generationError).toBe('Generation failed. Try again, or check the server logs.')
     expect(broadcastFailedSpy).toHaveBeenCalledWith(conversation._id.toString(), {
       artifactId: artifact._id.toString(),
-      reason: 'model call failed'
+      reason: 'Generation failed. Try again, or check the server logs.'
     })
   })
 
@@ -147,10 +154,10 @@ describe('generateConceptGraph handler', () => {
 
     const reloaded = await Artifact.findById(artifact._id)
     expect(reloaded!.generationStatus).toBe('failed')
-    expect(reloaded!.generationError).toBe('model call failed')
+    expect(reloaded!.generationError).toBe('Generation failed. Try again, or check the server logs.')
     expect(broadcastFailedSpy).toHaveBeenCalledWith(topic._id.toString(), {
       artifactId: artifact._id.toString(),
-      reason: 'model call failed'
+      reason: 'Generation failed. Try again, or check the server logs.'
     })
   })
 
