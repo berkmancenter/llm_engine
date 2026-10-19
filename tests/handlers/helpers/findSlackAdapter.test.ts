@@ -158,6 +158,35 @@ describe('findSlackAdapter', () => {
     expect(found.unresolved).toBeUndefined()
   })
 
+  it('resolves a lone DM-capable adapter normally for a sender nobody tracks, even with an unrelated channel-only adapter present', async () => {
+    // Neither conversation tracks any roster at all (no ConversationMembership rows anywhere)
+    // — the realistic "non-membership" deployment. A coexisting channel-only adapter must not
+    // block routing just by existing, since there's no actual member of it to confuse with.
+    await makeAdapter({ channel: 'C_UNRELATED', workspace: 'T1' })
+    const dm = await makeAdapter({ channel: 'C_DM', workspace: 'T1', dmChannels: [{ direct: true, direction: 'both' }] })
+
+    const found = await findSlackAdapter({
+      payload: { event: { type: 'message', channel_type: 'im', channel: 'D_USER123', team: 'T1', user: 'U_UNKNOWN' } }
+    })
+
+    expect(found.adapter?._id.toString()).toBe(dm._id.toString())
+    expect(found.unresolved).toBeUndefined()
+  })
+
+  it('returns unresolved for a lone DM-capable adapter when the payload has no sender id at all and another community shares the workspace', async () => {
+    await makeAdapter({ channel: 'C_CHANNEL_ONLY', workspace: 'T1' })
+    const dm = await makeAdapter({ channel: 'C_DM', workspace: 'T1', dmChannels: [{ direct: true, direction: 'both' }] })
+
+    const found = await findSlackAdapter({
+      payload: { event: { type: 'message', channel_type: 'im', channel: 'D_USER123', team: 'T1' } }
+    })
+
+    // No id to check membership against at all — stay conservative rather than default to the
+    // lone candidate the way an identified-but-untracked sender does (see the test above).
+    expect(found.unresolved).toBe(true)
+    expect(found.adapter?._id.toString()).toBe(dm._id.toString())
+  })
+
   it('resolves DM adapter by appKey+workspace when appKey is present', async () => {
     await makeAdapter({ channel: 'C_A', workspace: 'T1', appKey: 'app1' })
     const dm = await makeAdapter({
