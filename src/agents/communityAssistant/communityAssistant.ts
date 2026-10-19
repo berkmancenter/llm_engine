@@ -208,6 +208,9 @@ export default verify({
       personalityName = 'sarcastic-expert'
     }
 
+    const communityNote = this.conversation.description
+      ? `\n\n**About this community:** ${this.conversation.description}`
+      : ''
     const channelNote =
       !isDM && !isVoice && this.agentConfig?.groupChatName
         ? `\n\n**Channel:** You are participating in ${this.agentConfig.groupChatName}.`
@@ -225,6 +228,7 @@ export default verify({
       BASE_SYSTEM_PROMPT.replace('{botName}', this.agentConfig.botName)
         .replace('{toolGuidance}', await buildToolsGuidance(toolNames, toolContext))
         .replace('{participationNote}', participationNote) +
+      communityNote +
       channelNote +
       pseudonymNote
     // Appended after composeSystemPrompt (not interpolated into BASE_SYSTEM_PROMPT) so the date
