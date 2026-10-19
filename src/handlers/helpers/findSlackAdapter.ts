@@ -66,7 +66,10 @@ export interface SlackDmResolution {
  * members must not be silently routed to the one adapter that does have DMs just because it's
  * the only candidate the query found. Only once there's more than one DM-capable adapter (or a
  * channel-only community lurking alongside the lone one) does it fall back to
- * {@link matchMemberConversation}, and even then only to disambiguate.
+ * {@link matchMemberConversation}, and even then only to disambiguate. A payload with no
+ * `slackUserId` at all can never be disambiguated — that case stays `unresolved` whenever
+ * another community shares the bucket, rather than defaulting to the lone candidate the way an
+ * identified-but-untracked sender does.
  *
  * `unresolved: true` means "this is a legitimate DM from somewhere in the workspace, just not
  * from anyone we can place" — not "this request looks forged." Callers must still acknowledge
@@ -95,14 +98,25 @@ export async function resolveSlackDmAdapter({
   if (candidates.length === 0) return { adapter: null }
 
   if (candidates.length === 1) {
-    // Cheap, indexed, and only runs for the lone-candidate case — the common zero-candidate and
-    // already-ambiguous (>1) cases never pay for it.
     const otherChannelConversations = await Adapter.distinct('conversation', {
       ...baseQuery,
       conversation: { $ne: candidates[0].conversation },
       'config.channel': { $ne: DIRECT_CHANNEL }
     })
-    if (otherChannelConversations.length === 0) return { adapter: candidates[0] }
+    if (otherChannelConversations.length > 0) {
+      // No id at all to check membership against — stay conservative rather than risk
+      // silently routing an unidentified DM into the lone candidate when another community
+      // shares this bucket. This is a different situation from "checked and found no track
+      // of this sender anywhere" below: there, the absence of a match is itself a (weak)
+      // signal; here there's no signal to read at all.
+      if (!slackUserId) return { adapter: candidates[0], unresolved: true }
+      const matchedElsewhere = await matchMemberConversation(
+        otherChannelConversations.map((id) => id.toString()),
+        slackUserId
+      )
+      if (matchedElsewhere) return { adapter: candidates[0], unresolved: true }
+    }
+    return { adapter: candidates[0] }
   }
   if (!slackUserId) return { adapter: candidates[0], unresolved: true }
 
