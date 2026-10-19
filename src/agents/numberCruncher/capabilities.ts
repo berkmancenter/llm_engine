@@ -11,7 +11,11 @@ import { AgentCapabilities } from '../../types/index.types.js'
  */
 export default function (): AgentCapabilities {
   return {
-    read: [{ type: 'allTopics' as const }],
+    // Scoped to conversationStopped: this agent's own onConversationEvent handler only ever
+    // acts on that event type anyway, so an unrestricted topic-wide grant would still let
+    // agentDispatcher schedule (and trace) a job for every participantJoined system-wide, each
+    // one immediately no-op'd by the handler's own early return — wasted work for nothing.
+    read: [{ type: 'allTopics' as const, events: ['conversationStopped'] }],
     write: [{ type: 'ownConversation' as const }]
   }
 }

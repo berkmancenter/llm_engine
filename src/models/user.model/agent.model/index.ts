@@ -295,7 +295,12 @@ agentSchema.method('evaluate', async function (userMessage = null) {
 
   // do not process if no new messages
   // Skip this check for perMessage triggers (when userMessage is defined) or proactive periodic agents
-  if (!userMessage && !this.triggers?.periodic?.proactive && !this.triggers?.cron && messageCount === this.lastActiveMessageCount) {
+  if (
+    !userMessage &&
+    !this.triggers?.periodic?.proactive &&
+    !this.triggers?.cron &&
+    messageCount === this.lastActiveMessageCount
+  ) {
     logger.debug(`No new messages to respond to ${this.agentType} ${this._id}`)
     return { action: AgentMessageActions.OK, userContributionVisible: true }
   }
@@ -395,7 +400,12 @@ agentSchema.method('respond', async function (userMessage = null) {
       directChannels,
       agentTypes[this.agentType].parseInput
     )
-    if (conversationHistory.messages.length === 0 && !userMessage && !this.triggers?.periodic?.proactive && !this.triggers?.cron) {
+    if (
+      conversationHistory.messages.length === 0 &&
+      !userMessage &&
+      !this.triggers?.periodic?.proactive &&
+      !this.triggers?.cron
+    ) {
       logger.debug(`No new messages to respond to ${this.agentType} ${this._id}`)
       return []
     }
@@ -594,21 +604,26 @@ agentSchema.method('onConversationEvent', async function (evt: ConversationEvent
   await (this.conversation as HydratedDocument<IConversation>).populate('channels')
 
   /* Wrapped in traceable so LLM calls an event handler makes (e.g. the Vibes
-     Analyst recap) land under a root tagged with the STOPPED conversation's id —
+     Analyst recap) land under a root tagged with the event's own conversation id —
      the event being priced — not the agent's own admin conversation. Mirrors the
      respond wrapper (same root name, the agentType, so per-agent cost grouping is
-     uniform); a no-op passthrough when tracing is disabled. Tagged costPhase
-     'postEvent': this only ever runs after the conversation has stopped. */
-  const tracedHandler = traceable(async () => agentType.onConversationEvent.call(this, evt), {
+     uniform); a no-op passthrough when tracing is disabled. costPhase is only
+     'postEvent' for conversationStopped (post-stop work like the Vibes Analyst
+     recap or conversation summary); other event types (e.g. participantJoined)
+     fire while the conversation is still live. Passing evt through to the traced
+     call (rather than relying on closure alone) is what makes it show up as the
+     run's input. */
+  const costPhase: 'liveEvent' | 'postEvent' = evt.type === 'conversationStopped' ? 'postEvent' : 'liveEvent'
+  const tracedHandler = traceable(async (event: ConversationEvent) => agentType.onConversationEvent.call(this, event), {
     name: this.agentType,
     metadata: {
       llmModel: this.llmModel,
       llmPlatform: this.llmPlatform,
       conversationId: evt.conversationId,
-      costPhase: 'postEvent' as const
+      costPhase
     }
   })
-  return tracedHandler()
+  return tracedHandler(evt)
 })
 
 agentSchema.method('introduce', async function (channel, adapterType?) {

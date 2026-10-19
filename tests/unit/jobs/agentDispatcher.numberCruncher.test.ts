@@ -74,4 +74,17 @@ describe('agentDispatcher routes conversationStopped to numberCruncher via its r
       event: { type: 'conversationStopped', conversationId: 'stopped-conv-id', topicId: privateTopic._id.toString() }
     })
   })
+
+  /* numberCruncher's own onConversationEvent handler already no-ops on anything but
+     conversationStopped, but without this grant restriction agentDispatcher would still
+     schedule (and trace) a wasted job for every participant joining every conversation in
+     every topic, system-wide — the same shape of bug fixed for communityAssistant. */
+  it('does NOT notify numberCruncher when any conversation gets a participant join', async () => {
+    await agentDispatcher.dispatch(
+      { type: 'participantJoined', conversationId: 'other-conv-id', userId: 'user-1', name: 'Alex' },
+      { type: 'conversation', id: 'other-conv-id', topicId: publicTopic._id.toString(), topicIsPrivate: false }
+    )
+
+    expect(scheduleSpy).not.toHaveBeenCalled()
+  })
 })

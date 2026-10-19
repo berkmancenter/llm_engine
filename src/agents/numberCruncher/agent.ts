@@ -337,12 +337,16 @@ export default verify({
     // explicit `private: false` counts as private.
     const topic = conversation.topic as { _id?: { toString(): string }; private?: boolean } | undefined
     const topicIsPrivate = topic?.private !== false
-    access.assertCanRead(this, {
-      type: 'conversation',
-      id: evt.conversationId,
-      topicId: topic?._id?.toString(),
-      topicIsPrivate
-    })
+    access.assertCanRead(
+      this,
+      {
+        type: 'conversation',
+        id: evt.conversationId,
+        topicId: topic?._id?.toString(),
+        topicIsPrivate
+      },
+      evt.type
+    )
 
     // Private topics: liveEvent cost is still priced below (real spend happened
     // regardless of privacy), but postEvent will always come back empty — no other

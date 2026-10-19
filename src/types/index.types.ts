@@ -1809,7 +1809,13 @@ export interface EmbeddingsModelDetails {
 export type ReadScope =
   | { type: 'topic'; id: string; topicIsPrivate?: boolean }
   | { type: 'conversation'; id: string; topicId?: string; topicIsPrivate?: boolean }
-export type ReadGrant = ReadScope | { type: 'allPublicTopics' } | { type: 'allTopics' } | { type: 'ownConversation' }
+/* `events`, when present, limits a grant to only those conversation-event types — e.g. a
+   topic-wide grant can cover `conversationStopped` (announce to everyone once an event ends)
+   without also matching `participantJoined` (which should stay scoped to the agent's own
+   conversation). Omitting `events` keeps the grant unrestricted, as before. */
+export type ReadGrant = (ReadScope | { type: 'allPublicTopics' } | { type: 'allTopics' } | { type: 'ownConversation' }) & {
+  events?: ConversationEvent['type'][]
+}
 export type WriteScope = { type: 'conversation'; id: string }
 export type WriteGrant = { type: 'ownConversation' }
 

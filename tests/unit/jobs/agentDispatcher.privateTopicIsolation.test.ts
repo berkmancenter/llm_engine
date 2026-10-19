@@ -74,4 +74,23 @@ describe('agentDispatcher does not route private-topic events to allPublicTopics
       })
     }
   )
+
+  /* All three of these agents' own onConversationEvent handlers only ever act on
+     conversationStopped — their topic-wide grants are now restricted to that event type, so
+     none of them should get dispatched (and traced) for a participant joining some other
+     conversation entirely. Without that restriction, each would be scheduled a wasted job for
+     every participant joining every public (or, for numberCruncher, every) conversation. */
+  it.each(['vibesAnalyst', 'numberCruncher', 'communityAssistant'])(
+    'does not notify %s when a DIFFERENT conversation gets a participant join',
+    async (agentType) => {
+      await createAgent(agentType)
+
+      await agentDispatcher.dispatch(
+        { type: 'participantJoined', conversationId: 'other-conv-id', userId: 'user-1', name: 'Alex' },
+        { type: 'conversation', id: 'other-conv-id', topicId: publicTopic._id.toString(), topicIsPrivate: false }
+      )
+
+      expect(scheduleSpy).not.toHaveBeenCalled()
+    }
+  )
 })
