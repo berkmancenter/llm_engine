@@ -16,11 +16,11 @@ setupIntTest()
 
 const BOT_NAME = 'Berkie'
 
-function buildContext(notifications: string[], periodicMemberIntros: boolean) {
+function buildContext(notifications: string[], periodicMemberIntros: boolean, description?: string) {
   return {
     _id: 'agent-1',
     agentConfig: { botName: BOT_NAME, tools: [], topicIds: [] as string[], notifications, periodicMemberIntros },
-    conversation: { _id: 'conv-1', channels: [{ name: 'chat' }], messages: [], behaviorPolicy: undefined },
+    conversation: { _id: 'conv-1', channels: [{ name: 'chat' }], messages: [], behaviorPolicy: undefined, description },
     getLLM: async () => ({ fakeLlm: true })
   }
 }
@@ -56,6 +56,22 @@ describe('communityAssistant participation note in system prompt', () => {
   test('omits the proactive behavior clause entirely when both are disabled', async () => {
     const systemPrompt = await getSystemPrompt(buildContext([], false))
     expect(systemPrompt).not.toMatch(/You also/)
+  })
+})
+
+describe('communityAssistant community description in system prompt', () => {
+  test('includes the conversation description under an "About this community" heading when set', async () => {
+    const systemPrompt = await getSystemPrompt(
+      buildContext([], false, 'A weekly reading group. The syllabus resource lists readings by session date.')
+    )
+    expect(systemPrompt).toContain(
+      '**About this community:** A weekly reading group. The syllabus resource lists readings by session date.'
+    )
+  })
+
+  test('omits the heading entirely when the conversation has no description', async () => {
+    const systemPrompt = await getSystemPrompt(buildContext([], false))
+    expect(systemPrompt).not.toContain('**About this community:**')
   })
 })
 
