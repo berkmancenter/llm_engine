@@ -87,6 +87,96 @@ components:
           format: date-time
         replyCount:
           type: integer
+        hidden:
+          type: boolean
+          description: >-
+            Present (always true) only when an admin is shown a message that an admin hid, so it can be
+            marked as hidden to everyone else. Never present for non-admins, nor for the message's own
+            author, who keeps seeing it normally. With the `placeholder` hidden-display policy, non-admins
+            instead get a stub of just `id`, `createdAt`, `parentMessage`, `hidden: true` and `body: null`.
+
+    HideReason:
+      type: string
+      enum: [pii, harassment, off-topic, other]
+      description: Why an admin hid something. Optional on hide; unhide also accepts short free text.
+
+    ModerationEvent:
+      type: object
+      required: [id, conversation, actor, action, scope, messageIds, createdAt]
+      properties:
+        id:
+          type: string
+        conversation:
+          type: string
+        actor:
+          type: object
+          required: [id]
+          properties:
+            id:
+              type: string
+            username:
+              type: string
+        action:
+          type: string
+          enum: [hide, unhide]
+        scope:
+          type: string
+          enum: [message, user]
+        targetMessage:
+          type: string
+          description: Present when scope is message.
+        targetUser:
+          type: string
+          description: The author whose messages were targeted (user id only).
+        messageIds:
+          type: array
+          items:
+            type: string
+          description: Ids whose hidden state actually changed, as the REST call returned them.
+        reason:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    ModerationEventPage:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModerationEvent'
+        page:
+          type: integer
+        limit:
+          type: integer
+        totalPages:
+          type: integer
+        totalResults:
+          type: integer
+
+    HideMessagesResult:
+      type: object
+      required:
+        - conversationId
+        - messageIds
+        - hidden
+      properties:
+        conversationId:
+          type: string
+        userId:
+          type: string
+          description: Only for the hide-all-by-user endpoints.
+        messageIds:
+          type: array
+          items:
+            type: string
+          description: >-
+            Concrete ids whose hidden state changed, with hide-all and reply cascades already resolved.
+            Empty when nothing changed.
+        hidden:
+          type: boolean
+          description: The state the ids moved to.
 
     MessagePrompt:
       type: object

@@ -1,6 +1,6 @@
 import express from 'express'
 import { messageController } from '../../controllers/index.js'
-import messageValidation from '../../validations/message.validation.js'
+import messageValidation, * as hideValidation from '../../validations/message.validation.js'
 import validate from '../../middlewares/validate.js'
 import auth from '../../middlewares/auth.js'
 
@@ -203,5 +203,99 @@ router.route('/:messageId/vote').post(auth('vote'), messageController.vote)
  *         $ref: '#/components/responses/NotFound'
  */
 router.route('/:messageId/replies').get(auth('getConversation'), messageController.messageReplies)
+
+/**
+ * @swagger
+ * /messages/{messageId}/hide:
+ *   post:
+ *     summary: Hide a message from non-admins
+ *     description: >-
+ *       Admin only. Hides one message, and its replies, from everyone except admins (who still see it
+ *       flagged `hidden: true`) and its author (who keeps seeing it normally). Scoped to the message's
+ *       conversation and to the group `chat` channel: a message in any other channel is rejected with 400.
+ *       Reversible with DELETE. A message already forwarded to an external adapter (Slack,
+ *       Zoom, ...) cannot be recalled and stays visible there. Idempotent.
+ *     tags: [Message]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: messageId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reason:
+ *                 $ref: '#/components/schemas/HideReason'
+ *     responses:
+ *       200:
+ *         description: >-
+ *           Concrete ids that became hidden (the message plus any replies that cascaded; ids that were
+ *           already hidden are not repeated).
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/HideMessagesResult'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       400:
+ *         description: The message is not in the `chat` channel, or the id is malformed.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *   delete:
+ *     summary: Unhide a message
+ *     description: >-
+ *       Admin only. Reverses POST. Messages that remain hidden for another reason (their author is hidden,
+ *       or an ancestor is still hidden) are not unhidden and are not listed in the result.
+ *     tags: [Message]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: messageId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reason:
+ *                 type: string
+ *                 maxLength: 200
+ *                 description: One of the hide reasons, or a short free-text note.
+ *     responses:
+ *       200:
+ *         description: Concrete ids that became visible again.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/HideMessagesResult'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ */
+router
+  .route('/:messageId/hide')
+  .post(auth('moderateMessages'), validate(hideValidation.hideMessage), messageController.hideMessage)
+  .delete(auth('moderateMessages'), validate(hideValidation.unhideMessage), messageController.unhideMessage)
 
 export default router

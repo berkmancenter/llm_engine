@@ -10,6 +10,14 @@ import authChannels from '../utils/authChannels.js'
 import assertMembership from '../utils/assertMembership.js'
 import channelService from './channel.service.js'
 import { resolveDisplayName } from './user.service.js'
+import {
+  hiddenMessagesMatch,
+  isMessageHidden,
+  loadHideContext,
+  renderMessageView,
+  viewMessageFor,
+  viewerOf
+} from '../utils/messageVisibility.js'
 
 /**
  * Check if we can create a message and fetch conversation
@@ -40,7 +48,8 @@ const fetchConversation = async (messageBody, user) => {
     { path: 'agents' },
     { path: 'channels' },
     { path: 'adapters' },
-    { path: 'messages', match: { visible: true } }
+    // hidden messages never enter the conversation context handed to agents
+    { path: 'messages', match: { visible: true, ...(await hiddenMessagesMatch(conversation._id, 'model')) } }
   ])
 
   if (conversation.locked) {
@@ -165,20 +174,36 @@ const conversationMessages = async (id, channels, user) => {
     $or: [{ channels: { $size: 0 } }, { channels: { $in: (channels || []).map((c) => c.name) } }]
   }
 
+  const viewer = viewerOf(user)
+  const hideCtx = await loadHideContext(id)
+
   const messages = await Message.find(query)
     .select(
-      'body bodyType owner upVotes downVotes pseudonym pseudonymId createdAt fromAgent source channels prompt answersPrompt'
+      'body bodyType owner upVotes downVotes pseudonym pseudonymId createdAt fromAgent source channels prompt answersPrompt hiddenByAdmin'
     )
     .sort({ createdAt: 1 })
     .exec()
 
+  // What this viewer may see of each message; replies counted below follow the same rule.
+  const visibleMessages = messages
+    .map((msg) => ({ msg, kind: viewMessageFor(msg, viewer, hideCtx) }))
+    .filter(({ kind }) => kind !== 'omit')
+
   // fetch reply counts
-  const messageIds = messages.map((msg) => msg._id)
+  const messageIds = visibleMessages.map(({ msg }) => msg._id)
+  const hidesFromViewer = !viewer.isAdmin && hideCtx.display === 'omit' && hideCtx.hiddenIds.size > 0
   const replyCounts = await Message.aggregate([
     {
       $match: {
         parentMessage: { $in: messageIds },
-        visible: true
+        visible: true,
+        // Non-admins don't count hidden replies, except the ones they wrote themselves (they still see those).
+        ...(hidesFromViewer && {
+          $or: [
+            { _id: { $nin: [...hideCtx.hiddenIds].map((hid) => new mongoose.Types.ObjectId(hid)) } },
+            ...(viewer.id ? [{ owner: new mongoose.Types.ObjectId(viewer.id) }] : [])
+          ]
+        })
       }
     },
     {
@@ -194,12 +219,13 @@ const conversationMessages = async (id, channels, user) => {
     replyCountMap[item._id.toString()] = item.count
   })
 
-  const annotatedMessages = messages.map((msg) => {
+  const annotatedMessages = visibleMessages.map(({ msg }) => {
     const mId = msg._id
     const msgObj = msg.toObject({
       transform: (doc, ret) => {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { _id, ...cleanRet } = ret
+        const { _id, ...cleanRet } = ret as typeof ret & { hiddenByAdmin?: boolean }
+        delete cleanRet.hiddenByAdmin
 
         return {
           ...cleanRet,
@@ -212,7 +238,8 @@ const conversationMessages = async (id, channels, user) => {
   })
 
   const conversation = await Conversation.findById(id).select('useRealNames').lean()
-  return withOwnerIsAdmin(annotatedMessages, conversation)
+  const withAdminLabel = await withOwnerIsAdmin(annotatedMessages, conversation)
+  return withAdminLabel.map((m, i) => renderMessageView(m, visibleMessages[i].kind))
 }
 
 /**
@@ -231,6 +258,11 @@ const vote = async (messageId, direction, status, requestUser) => {
     throw new ApiError(httpStatus.BAD_REQUEST, `Message with ID ${messageId} not found`)
   }
   await assertMembership(user, message.conversation)
+  // A message the voter cannot see is as good as absent to them.
+  const hideKind = viewMessageFor(message, viewerOf(user), await loadHideContext(message.conversation._id!))
+  if (hideKind === 'omit' || hideKind === 'stub') {
+    throw new ApiError(httpStatus.NOT_FOUND, `Message with ID ${messageId} not found`)
+  }
   if (message.owner?.toString() === user!._id.toString()) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Users cannot vote for their own messages.')
   }
@@ -328,7 +360,7 @@ const handleFeedbackMessage = async (message, user, conversation) => {
  * @param {User} user
  * @returns {Promise<[Message]>}
  */
-const newMessageHandler = async (message, user, request = null) => {
+const newMessageHandler = async (message, user, request: string | null = null) => {
   if (!user.agentType) {
     await assertMembership(user, message.conversation)
   }
@@ -347,6 +379,12 @@ const newMessageHandler = async (message, user, request = null) => {
   const conversation = await fetchConversation(message, user)
   let userContributionVisible = true
   const respondingAgents: Array<IAgent> = []
+  // A post by a hidden author, or a reply under a hidden message, is hidden from the moment it exists.
+  const hideContext = await loadHideContext(conversation._id)
+  const hiddenOnArrival = isMessageHidden(
+    { owner: user._id, parentMessage: message.parentMessage, channels: message.channels?.map((c) => c.name) },
+    hideContext
+  )
 
   let modifiedMessage = {
     ...message,
@@ -354,7 +392,8 @@ const newMessageHandler = async (message, user, request = null) => {
     channels: message.channels?.map((c) => c.name),
     owner: user._id
   }
-  if (conversation.enableAgents) {
+  // Hidden messages stay out of every model's context, so agents neither evaluate nor answer them.
+  if (conversation.enableAgents && !hiddenOnArrival) {
     // process evaluations and check for any rejections. Process in priority order
     const sortedAgents = conversation.agents.sort((a, b) => a.priority - b.priority)
     for (const agent of sortedAgents) {
@@ -393,7 +432,13 @@ const newMessageHandler = async (message, user, request = null) => {
     messages.push(sentMessage)
     sentMessage.owner = user._id
 
-    for (const adapter of conversation.adapters) {
+    /* Adapters (Slack, Zoom, ...) are one-way: once a message has been forwarded to an external
+       platform, hiding it here cannot recall it, and it stays visible there. The only protection we
+       can offer is to never forward a message that is already hidden when it is created (a hidden
+       author's chat post, or a chat reply under a hidden message; hiding never applies outside the
+       chat channel, so other channels are forwarded as always). Anything forwarded before it was hidden
+       remains out there. See messageHide.service.ts. */
+    for (const adapter of isMessageHidden(sentMessage, hideContext) ? [] : conversation.adapters) {
       try {
         const adapterMsg = sentMessage.parseOutput ? sentMessage.parseOutput(sentMessage) : sentMessage
         await adapter.sendMessage(adapterMsg)
@@ -402,7 +447,7 @@ const newMessageHandler = async (message, user, request = null) => {
       }
     }
     // TODO websocket should be an adapter, keeping here for now until we require messages to have channels
-    websocketGateway.broadcastNewMessage(sentMessage, request)
+    websocketGateway.broadcastNewMessage(sentMessage, request, hideContext)
   }
 
   for (const respondingAgent of respondingAgents) {
@@ -424,13 +469,18 @@ const getMessageReplies = async (messageId, user, messageQuery = {}) => {
     .sort({ createdAt: 1 })
     .exec()
 
+  const viewer = viewerOf(user)
+  const hideCtx = parentMessage ? await loadHideContext(parentMessage.conversation._id!) : null
+  const kinds = replies.map((reply) => (hideCtx ? viewMessageFor(reply, viewer, hideCtx) : 'full'))
   /* toJSON rather than lean(): the query has to return documents so the toJSON plugin runs and
      renames _id to id, which is the shape every other message route already returns. */
-  const serializedReplies = replies.map((reply) => reply.toJSON())
-  if (!parentMessage) return serializedReplies
+  const serializedReplies = replies.map((reply) => reply.toJSON()).filter((_, i) => kinds[i] !== 'omit')
+  const shownKinds = kinds.filter((kind) => kind !== 'omit')
+  const render = (list) => list.map((m, i) => renderMessageView(m, shownKinds[i]))
+  if (!parentMessage) return render(serializedReplies)
   const conversation = await Conversation.findById(parentMessage.conversation).select('useRealNames').lean()
-  if (!conversation?.useRealNames) return serializedReplies
-  return withOwnerIsAdmin(serializedReplies, conversation)
+  if (!conversation?.useRealNames) return render(serializedReplies)
+  return render(await withOwnerIsAdmin(serializedReplies, conversation))
 }
 
 // duplicate messages from one conversation to another
@@ -440,7 +490,12 @@ export const duplicateConversationMessages = async (conversationOrId, duplicateC
     conversation = await Conversation.findOne({ _id: conversationOrId })
   }
 
-  const messages = await Message.find({ ...messageQuery, conversation: conversation._id })
+  // Hidden messages are not copied into another conversation (the copies feed experiments' model context).
+  const messages = await Message.find({
+    ...messageQuery,
+    ...(await hiddenMessagesMatch(conversation._id, 'model')),
+    conversation: conversation._id
+  })
 
   const duplicateConversationId = duplicateConversationOrId._id || duplicateConversationOrId
 
@@ -483,6 +538,7 @@ export const agentResponseToMessageData = (response, agent) => ({
   /* Sibling of renderData: the scalar metrics a curatedVibesSummary card was built from, so a
      later thread reply can answer a follow-up question about the same numbers. */
   ...(response.metricsContext !== undefined && { metricsContext: response.metricsContext }),
+  ...(response.provenance !== undefined && { provenance: response.provenance }),
   source: { type: 'agent', ...(response.proactive === true && { proactive: true }) }
 })
 
