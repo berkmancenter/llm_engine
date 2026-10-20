@@ -309,7 +309,10 @@ const appendVersion = async (artifactId: string, { payload, note }: VersionInput
 
   await Artifact.updateOne(
     { _id: artifact._id, currentVersionNumber: versionNumber },
-    { $set: { currentVersion: version._id, generationStatus: 'ready' }, $unset: { generationError: '' } }
+    {
+      $set: { currentVersion: version._id, generationStatus: 'ready' },
+      $unset: { generationError: '', generationStartedAt: '' }
+    }
   ).exec()
 
   logger.info('Appended version %s to artifact %s (%s)', versionNumber, artifact._id, artifact.__t)
