@@ -52,6 +52,10 @@ export interface BotMediaAppConfig {
   // response's own TTL timer keeps running whether or not a browser is connected, so there's
   // no benefit to a shorter grace period.
   reconnectGraceMs?: number
+  // How long 'thinking' may sit with no message:chunk before giving up — see
+  // engineSocket.ts's THINKING_TIMEOUT_MS for the default and rationale. Overridable here so
+  // tests don't have to wait for the real default.
+  thinkingTimeoutMs?: number
   onLog?: (message: string) => void
 }
 
@@ -108,8 +112,15 @@ export async function startBotMediaApp(config: BotMediaAppConfig): Promise<BotMe
 
   const browserIO = new SocketIOServer(httpServer, { cors: { origin: '*' } })
 
-  function pushState(conversationId: string, state: 'idle' | 'hand-raised' | 'speaking') {
+  // Tracked so a reconnecting browser (see 'connection' below) can be caught back up to
+  // 'thinking' — unlike hand-raised, that state isn't reflected in the pending queue (nothing
+  // is queued yet; the agent is still generating), so pendingQueues.hasPending() alone can't
+  // tell a reconnecting browser it's mid-thought the way it already does for hand-raised.
+  const lastStates = new Map<string, 'idle' | 'hand-raised' | 'thinking' | 'speaking'>()
+
+  function pushState(conversationId: string, state: 'idle' | 'hand-raised' | 'thinking' | 'speaking') {
     log(`${conversationId} state → ${state}`)
+    lastStates.set(conversationId, state)
     browserIO.to(conversationId).emit('state', { state })
   }
 
@@ -126,11 +137,13 @@ export async function startBotMediaApp(config: BotMediaAppConfig): Promise<BotMe
         transcriptPasscode: passcodes.transcriptPasscode,
         auth: config.auth,
         tts,
-        onLog: log
+        onLog: log,
+        thinkingTimeoutMs: config.thinkingTimeoutMs
       },
       {
         onStateChange: (state) => pushState(conversationId, state),
         onChime: () => browserIO.to(conversationId).emit('audio:chime'),
+        onThinkingChime: () => browserIO.to(conversationId).emit('audio:chime:thinking'),
         onAudioChunk: (chunk) => browserIO.to(conversationId).emit('audio:chunk', chunk)
       }
     )
@@ -168,6 +181,11 @@ export async function startBotMediaApp(config: BotMediaAppConfig): Promise<BotMe
       // a previous browser instance (state 'speaking') has no audio left to resync to, so only
       // hand-raised is worth replaying here.
       socket.emit('state', { state: 'hand-raised' })
+    } else if (lastStates.get(conversationId) === 'thinking') {
+      // Mid-generation, before anything reached the pending queue — the branch above can't see
+      // this. Still worth replaying: like hand-raised, nothing time-sensitive to resync, just a
+      // "still working on it" placeholder.
+      socket.emit('state', { state: 'thinking' })
     }
 
     // Browser signals when its audio queue is empty. If another response is still queued
@@ -194,6 +212,7 @@ export async function startBotMediaApp(config: BotMediaAppConfig): Promise<BotMe
         engineSockets.get(conversationId)?.disconnect()
         engineSockets.delete(conversationId)
         pendingQueues.delete(conversationId)
+        lastStates.delete(conversationId)
         // queue.reset()/idle is already triggered via the engine socket's own disconnect handler
         log(`${conversationId} no reconnect within the grace period, engine socket closed`)
       }, reconnectGraceMs)

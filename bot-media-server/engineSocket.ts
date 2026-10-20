@@ -24,10 +24,18 @@ export interface AudioChunk {
 }
 
 export interface EngineSocketHooks {
-  onStateChange: (state: 'idle' | 'hand-raised' | 'speaking') => void
+  onStateChange: (state: 'idle' | 'hand-raised' | 'thinking' | 'speaking') => void
   onChime: () => void
+  onThinkingChime: () => void
   onAudioChunk: (chunk: AudioChunk) => void
 }
+
+// How long 'thinking' is allowed to sit with no message:chunk before giving up and going back
+// to idle — covers an LLM call that errors or times out. A tool-using agent's LLM call has been observed taking a couple of minutes, so
+// this is set well above that — the cost of guessing too short is a visible "never mind" blip
+// while the agent is still legitimately working, which is worse than a rare, genuine hang
+// sitting in 'thinking' a bit longer than it has to.
+export const THINKING_TIMEOUT_MS = 5 * 60_000
 
 export interface EngineSocketConfig {
   llmEngineWsUrl: string
@@ -37,6 +45,8 @@ export interface EngineSocketConfig {
   auth: AuthManager
   tts: (text: string) => Promise<Buffer>
   onLog?: (message: string) => void
+  // Overridable so tests don't have to wait THINKING_TIMEOUT_MS for real.
+  thinkingTimeoutMs?: number
 }
 
 export interface EngineSocket {
@@ -55,19 +65,31 @@ export function createEngineSocket(config: EngineSocketConfig, hooks: EngineSock
     reconnectionDelayMax: 10000
   })
 
+  // Cleared the moment a real chunk shows up (see message:chunk below) — only ever fires if
+  // 'thinking' was entered and genuinely nothing followed it.
+  let thinkingTimeout: ReturnType<typeof setTimeout> | undefined
+
+  // Tracked locally (rather than asking the queue) so agent:responding below can tell whether
+  // it's safe to show 'thinking' — see there for why.
+  let currentState: 'idle' | 'hand-raised' | 'thinking' | 'speaking' = 'idle'
+  function setState(state: typeof currentState) {
+    currentState = state
+    hooks.onStateChange(state)
+  }
+
   const queue = createPendingQueue<AudioChunk>({
     onAnnounce: () => {
-      hooks.onStateChange('hand-raised')
+      setState('hand-raised')
       hooks.onChime()
     },
     onFlush: (chunks) => {
-      hooks.onStateChange('speaking')
+      setState('speaking')
       for (const chunk of chunks) hooks.onAudioChunk(chunk)
     },
     // Already speaking by the time this chunk's TTS finished (no new state change needed) —
     // this is what makes it safe to call upon a response before every chunk has converted.
     onChunkReady: (chunk) => hooks.onAudioChunk(chunk),
-    onIdle: () => hooks.onStateChange('idle'),
+    onIdle: () => setState('idle'),
     onDiscard: (requestId) => log(`${conversationId}/${requestId} TTL expired — discarding`)
   })
 
@@ -126,13 +148,16 @@ export function createEngineSocket(config: EngineSocketConfig, hooks: EngineSock
   })
   socket.on('disconnect', (reason) => {
     log(`${conversationId} disconnected: ${reason}`)
+    clearTimeout(thinkingTimeout)
     queue.reset()
-    hooks.onStateChange('idle')
+    setState('idle')
   })
 
   socket.on('message:chunk', ({ requestId, text, done }: { requestId: string; text: string; done: boolean }) => {
     log(`${conversationId}/${requestId} received message:chunk (${text?.length ?? 0} chars, done: ${done})`)
     if (!done && text) {
+      // A real chunk arrived — 'thinking' was correct, not abandoned.
+      clearTimeout(thinkingTimeout)
       queue.startResponse(requestId)
       // Registered synchronously, before the async conversion below — so the queue knows to
       // keep waiting for this chunk even if a call-upon phrase flushes the response before
@@ -162,6 +187,37 @@ export function createEngineSocket(config: EngineSocketConfig, hooks: EngineSock
         })
     }
     if (done) queue.markResponseDone(requestId)
+  })
+
+  // llm_engine's generic "an agent is working on a response" signal (see
+  // src/websockets/websocketGateway.ts's broadcastAgentResponding) — fires well before
+  // message:chunk, as soon as an agent commits to answering. hand-raised is a separate,
+  // later moment (a moderator's live "go ahead" flushing the held response via call-upon), so
+  // this only ever moves the state to 'thinking', never ahead of where call-upon/flush already
+  // took it.
+  socket.on('agent:responding', () => {
+    // Only meaningful from idle. A second question can trigger its own respond() call (and
+    // its own agent:responding) while the first response is still hand-raised or speaking —
+    // pendingQueue happily queues that up, but visually dropping back to 'thinking' would
+    // wrongly interrupt whatever's currently showing (and chime over audio still playing).
+    // The queued response still gets its own hand-raised announcement once it reaches the
+    // front of the queue with audio ready — it just skips the 'thinking' cue for itself.
+    if (currentState !== 'idle') {
+      log(`${conversationId} agent:responding received while already ${currentState} — ignoring`)
+      return
+    }
+    log(`${conversationId} agent:responding — thinking`)
+    setState('thinking')
+    hooks.onThinkingChime()
+    clearTimeout(thinkingTimeout)
+    thinkingTimeout = setTimeout(() => {
+      log(
+        `${conversationId} no message:chunk within ${
+          config.thinkingTimeoutMs ?? THINKING_TIMEOUT_MS
+        }ms of agent:responding — giving up, back to idle`
+      )
+      setState('idle')
+    }, config.thinkingTimeoutMs ?? THINKING_TIMEOUT_MS)
   })
 
   socket.on('message:new', ({ channels, body }: { channels?: string[]; body?: string }) => {

@@ -58,7 +58,11 @@ describe('bot-media-server app (integration)', () => {
     })
   }
 
-  beforeEach(async () => {
+  // Starts a fresh fake llm_engine + real bot-media-server app and connects a browser to it.
+  // Shared by beforeEach (the common case, default config) and any test that needs a
+  // non-default config (e.g. a short thinkingTimeoutMs) — those call it again after closing
+  // what beforeEach already set up.
+  async function setup(overrides: Partial<Parameters<typeof startBotMediaApp>[0]> = {}) {
     fakeLlmEngine = await startFakeLlmEngine()
     engineConnectionCount = 0
     let resolveEngineConnected: (socket: ServerSocket) => void
@@ -78,12 +82,15 @@ describe('bot-media-server app (integration)', () => {
       // Fast, deterministic, and doesn't depend on macOS's `say` — the real say.ts/kokoro.ts
       // are only exercised by their own dedicated tests.
       tts: async (text) => Buffer.from(text),
-      reconnectGraceMs: RECONNECT_GRACE_MS
+      reconnectGraceMs: RECONNECT_GRACE_MS,
+      ...overrides
     })
 
     const { port } = app.httpServer.address() as AddressInfo
     browser = connectBrowser(port)
-  })
+  }
+
+  beforeEach(setup)
 
   afterEach(async () => {
     browser.close()
@@ -163,6 +170,33 @@ describe('bot-media-server app (integration)', () => {
     expect((await idleStatePromise).state).toBe('idle')
   })
 
+  test('agent:responding from llm_engine sets state to thinking and plays the thinking chime', async () => {
+    const engineSideSocket = await engineConnected
+
+    const thinkingStatePromise = waitForEvent<{ state: string }>(browser, 'state')
+    const thinkingChimePromise = waitForEvent(browser, 'audio:chime:thinking')
+    engineSideSocket.emit('agent:responding', {})
+
+    expect((await thinkingStatePromise).state).toBe('thinking')
+    await thinkingChimePromise
+  })
+
+  test('gives up and goes idle if no message:chunk arrives within the thinking timeout', async () => {
+    // A short override so this test doesn't wait for the real THINKING_TIMEOUT_MS default —
+    // needs a fresh app/engine connection since that's only configurable at startup.
+    await app.stop()
+    await new Promise<void>((resolve) => fakeLlmEngine.httpServer.close(() => resolve()))
+    await setup({ thinkingTimeoutMs: 30 })
+    const engineSideSocket = await engineConnected
+
+    const thinkingStatePromise = waitForEvent<{ state: string }>(browser, 'state')
+    engineSideSocket.emit('agent:responding', {})
+    await thinkingStatePromise
+
+    const idleStatePromise = waitForEvent<{ state: string }>(browser, 'state')
+    expect((await idleStatePromise).state).toBe('idle')
+  })
+
   describe('reconnecting within the grace period (e.g. a page refresh)', () => {
     test('reuses the existing engine socket and held audio instead of starting over', async () => {
       const engineSideSocket = await engineConnected
@@ -206,6 +240,22 @@ describe('bot-media-server app (integration)', () => {
       const reconnected = connectBrowser(port)
 
       expect((await waitForEvent<{ state: string }>(reconnected, 'state')).state).toBe('hand-raised')
+
+      reconnected.close()
+    })
+
+    test('resyncs a reconnecting client into thinking when the agent is still generating (nothing queued yet)', async () => {
+      const engineSideSocket = await engineConnected
+      const { port } = app.httpServer.address() as AddressInfo
+
+      const thinkingStatePromise = waitForEvent<{ state: string }>(browser, 'state')
+      engineSideSocket.emit('agent:responding', {})
+      await thinkingStatePromise
+
+      browser.close()
+      const reconnected = connectBrowser(port)
+
+      expect((await waitForEvent<{ state: string }>(reconnected, 'state')).state).toBe('thinking')
 
       reconnected.close()
     })
