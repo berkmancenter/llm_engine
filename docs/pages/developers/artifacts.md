@@ -78,7 +78,7 @@ When a version is appended to an artifact, the server emits `artifact:version` t
 
 The notice carries no content on purpose. A client re-reads the artifact over REST, presenting its passcode as usual, so the socket never becomes a second path to the payload. A client joins the conversation room with `conversation:join` and an empty `channels` list, which needs no channel passcode, and leaves with `conversation:leave`; a client joins the topic room with `topic:join` and leaves with `topic:leave`. Joining either room proves nothing about read access; the REST read still applies the guard.
 
-If a background generation run errors, or finds too little to map, the server emits `artifact:generationFailed` to the same room (conversation or topic, following the same rule as `artifact:version`):
+If a background generation run errors, or finds too little to map, the server emits `artifact:generationFailed` to the same room (conversation or topic, following the same rule as `artifact:version`). A first-ever run that fails is soft-deleted, so no empty "failed" artifact is left behind; an artifact that already has a version is marked `failed` and keeps it:
 
 ```json
 {

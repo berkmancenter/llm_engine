@@ -57,6 +57,16 @@ afterAll(() => {
   broadcastFailedSpy.mockRestore()
 })
 
+/* Gives the shell a graph to fall back to, i.e. a re-run rather than a first-ever run. */
+const withVersion = async () => {
+  await Artifact.updateOne(
+    { _id: artifact._id },
+    { $set: { currentVersion: new mongoose.Types.ObjectId(), currentVersionNumber: 1 } }
+  )
+}
+
+const rawArtifact = () => Artifact.collection.findOne({ _id: artifact._id })
+
 const makeJob = (overrides: Record<string, unknown> = {}) => ({
   attrs: {
     data: {
@@ -91,16 +101,14 @@ describe('generateConceptGraph handler', () => {
 
     await handlers.generateConceptGraph(makeJob({ conversationId: undefined, topicId: topic._id.toString() }))
 
-    expect(refineSpy).toHaveBeenCalledWith(
-      topic._id.toString(),
-      expect.objectContaining({ _id: userTwo._id }),
-      undefined,
-      { reset: undefined }
-    )
+    expect(refineSpy).toHaveBeenCalledWith(topic._id.toString(), expect.objectContaining({ _id: userTwo._id }), undefined, {
+      reset: undefined
+    })
     expect(generateSpy).not.toHaveBeenCalled()
   })
 
   it('marks the artifact failed and broadcasts when there was too little to map', async () => {
+    await withVersion()
     generateSpy.mockResolvedValue(null)
 
     await handlers.generateConceptGraph(makeJob())
@@ -115,6 +123,7 @@ describe('generateConceptGraph handler', () => {
   })
 
   it('marks the artifact failed with a fixed message, not the raw error, when generation throws', async () => {
+    await withVersion()
     const loggerErrorSpy = jest.spyOn(logger, 'error').mockImplementation(() => logger)
     const rawError = new Error('model call failed')
     generateSpy.mockRejectedValue(rawError)
@@ -135,6 +144,7 @@ describe('generateConceptGraph handler', () => {
   })
 
   it('broadcasts a topic-scoped failure to the topic room, not a conversation room', async () => {
+    await withVersion()
     refineSpy.mockResolvedValue(null)
 
     await handlers.generateConceptGraph(makeJob({ conversationId: undefined, topicId: topic._id.toString() }))
@@ -148,6 +158,7 @@ describe('generateConceptGraph handler', () => {
   })
 
   it('broadcasts a topic-scoped thrown error to the topic room, not a conversation room', async () => {
+    await withVersion()
     refineSpy.mockRejectedValue(new Error('model call failed'))
 
     await handlers.generateConceptGraph(makeJob({ conversationId: undefined, topicId: topic._id.toString() }))
@@ -158,6 +169,54 @@ describe('generateConceptGraph handler', () => {
     expect(broadcastFailedSpy).toHaveBeenCalledWith(topic._id.toString(), {
       artifactId: artifact._id.toString(),
       reason: 'Generation failed. Try again, or check the server logs.'
+    })
+  })
+
+  describe('a first-ever run with no version to fall back to', () => {
+    it.each([
+      ['finds too little to map', () => generateSpy.mockResolvedValue(null), 'Not enough of the record to map'],
+      [
+        'throws',
+        () => generateSpy.mockRejectedValue(new Error('model call failed')),
+        'Generation failed. Try again, or check the server logs.'
+      ]
+    ])('soft-deletes the shell and still broadcasts when it %s', async (_label, arrange, reason) => {
+      arrange()
+
+      await handlers.generateConceptGraph(makeJob())
+
+      expect((await rawArtifact())!.isDeleted).toBe(true)
+      expect(broadcastFailedSpy).toHaveBeenCalledWith(conversation._id.toString(), {
+        artifactId: artifact._id.toString(),
+        reason
+      })
+    })
+
+    it('soft-deletes a topic-scoped shell and broadcasts to the topic room', async () => {
+      refineSpy.mockResolvedValue(null)
+
+      await handlers.generateConceptGraph(makeJob({ conversationId: undefined, topicId: topic._id.toString() }))
+
+      expect((await rawArtifact())!.isDeleted).toBe(true)
+      expect(broadcastFailedSpy).toHaveBeenCalledWith(
+        topic._id.toString(),
+        expect.objectContaining({ artifactId: artifact._id.toString() })
+      )
+    })
+
+    it('soft-deletes the shell when the caller no longer exists', async () => {
+      await handlers.generateConceptGraph(makeJob({ callerId: new mongoose.Types.ObjectId().toString() }))
+
+      expect((await rawArtifact())!.isDeleted).toBe(true)
+    })
+
+    it('does not soft-delete an artifact that has a version', async () => {
+      await withVersion()
+      generateSpy.mockRejectedValue(new Error('model call failed'))
+
+      await handlers.generateConceptGraph(makeJob())
+
+      expect((await rawArtifact())!.isDeleted).toBe(false)
     })
   })
 
@@ -173,6 +232,7 @@ describe('generateConceptGraph handler', () => {
   })
 
   it('fails gracefully when the caller no longer exists, without calling the pipeline', async () => {
+    await withVersion()
     await handlers.generateConceptGraph(makeJob({ callerId: new mongoose.Types.ObjectId().toString() }))
 
     const reloaded = await Artifact.findById(artifact._id)

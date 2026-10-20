@@ -19,11 +19,21 @@ const GENERIC_GENERATION_FAILURE = 'Generation failed. Try again, or check the s
 
    `room` is whichever container the job was run for — the conversation for a
    conversation-scoped run, the topic for a topic-scoped one — the same room
-   appendVersion's own broadcast would have targeted on success. */
+   appendVersion's own broadcast would have targeted on success.
+
+   enqueueGeneration creates the artifact shell before this job runs, so a first-ever run that
+   fails would otherwise leave an empty "Generation failed" artifact visible to every reader of
+   the container for good. With no currentVersion there is nothing to show, so the shell is
+   soft-deleted (isDeleted, as everywhere else) and the next Generate starts from scratch. An
+   artifact that already has a version keeps it and is marked failed. Either way the broadcast
+   still goes out, so a waiting client can stop waiting. */
 const failGeneration = async (artifactId: string, room: string, reason: string) => {
+  const artifact = await Artifact.findById(artifactId).select('currentVersion').lean().exec()
   await Artifact.updateOne(
     { _id: artifactId },
-    { $set: { generationStatus: 'failed', generationError: reason } }
+    artifact?.currentVersion
+      ? { $set: { generationStatus: 'failed', generationError: reason } }
+      : { $set: { isDeleted: true } }
   ).exec()
   try {
     await websocketGateway.broadcastArtifactGenerationFailed(room, { artifactId, reason })
