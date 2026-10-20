@@ -107,15 +107,17 @@ describe('generateConceptGraph handler', () => {
     expect(generateSpy).not.toHaveBeenCalled()
   })
 
-  it('marks the artifact failed and broadcasts when there was too little to map', async () => {
+  it('returns an artifact with a version to ready, and still broadcasts, when there was too little to map', async () => {
     await withVersion()
+    await Artifact.updateOne({ _id: artifact._id }, { $set: { generationError: 'stale' } })
     generateSpy.mockResolvedValue(null)
 
     await handlers.generateConceptGraph(makeJob())
 
-    const reloaded = await Artifact.findById(artifact._id)
-    expect(reloaded!.generationStatus).toBe('failed')
-    expect(reloaded!.generationError).toBe('Not enough of the record to map')
+    const doc = await rawArtifact()
+    expect(doc!.generationStatus).toBe('ready')
+    expect(doc!.generationError).toBeUndefined()
+    expect(doc!.isDeleted).toBe(false)
     expect(broadcastFailedSpy).toHaveBeenCalledWith(conversation._id.toString(), {
       artifactId: artifact._id.toString(),
       reason: 'Not enough of the record to map'
@@ -143,14 +145,14 @@ describe('generateConceptGraph handler', () => {
     })
   })
 
-  it('broadcasts a topic-scoped failure to the topic room, not a conversation room', async () => {
+  it('broadcasts a topic-scoped too-little-to-map notice to the topic room, not a conversation room', async () => {
     await withVersion()
     refineSpy.mockResolvedValue(null)
 
     await handlers.generateConceptGraph(makeJob({ conversationId: undefined, topicId: topic._id.toString() }))
 
     const reloaded = await Artifact.findById(artifact._id)
-    expect(reloaded!.generationStatus).toBe('failed')
+    expect(reloaded!.generationStatus).toBe('ready')
     expect(broadcastFailedSpy).toHaveBeenCalledWith(topic._id.toString(), {
       artifactId: artifact._id.toString(),
       reason: 'Not enough of the record to map'
