@@ -83,12 +83,19 @@ if (cluster.isPrimary) {
 
   // receive messages from the rest of the app and pass them on to every
   // child process' socket io instance
-  process.on('message', (message: { conversation: string; event: string; message: string; channels?: string[] }) => {
-    if (message.conversation) {
-      const roomIds = getRoomIds(message.conversation, message.channels)
-      io.emitMultiple(roomIds, message.event, message.message)
+  process.on(
+    'message',
+    (message: { conversation: string; event: string; message: string; channels?: string[]; extraRooms?: string[] }) => {
+      if (message.conversation) {
+        const roomIds = getRoomIds(message.conversation, message.channels)
+        io.emitMultiple(
+          message.extraRooms?.length ? [roomIds, ...message.extraRooms].flat() : roomIds,
+          message.event,
+          message.message
+        )
+      }
     }
-  })
+  )
 
   if (config.env !== 'test' && config.enableGcpConnectionMetrics) {
     setInterval(() => {

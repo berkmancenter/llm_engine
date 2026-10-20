@@ -15,6 +15,14 @@ export function getRoomId(conversation: string, channel?: string) {
   return `${conversation}${channel ? `_${channel}` : ''}`
 }
 
+/* Admin-only room for a conversation: `admin:<conversation>`. Channel names are free text, so no
+   separator can be kept out of them; the prefix does the work instead. Every other room name (bare
+   conversation, `<conversation>_<channel>`, a user id, a topic id) starts with a 24-hex ObjectId, and
+   "admin:" is not hex, so no channel name or id can ever produce this room name. */
+export function getAdminRoomId(conversation: string) {
+  return `admin:${conversation}`
+}
+
 export function getRoomIds(conversation: string, channels?: string[]) {
   if (channels) {
     return channels.map((channel) => getRoomId(conversation, channel))
@@ -25,5 +33,6 @@ export function getRoomIds(conversation: string, channels?: string[]) {
 export default {
   checkAuth,
   getRoomId,
-  getRoomIds
+  getRoomIds,
+  getAdminRoomId
 }

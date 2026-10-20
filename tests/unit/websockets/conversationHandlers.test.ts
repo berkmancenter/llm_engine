@@ -3,7 +3,7 @@ import mongoose from 'mongoose'
 import setupIntTest from '../../utils/setupIntTest.js'
 import logger from '../../../src/config/logger.js'
 import registerConversationHandlers, { collectChannelIntros } from '../../../src/websockets/handlers/conversationHandlers.js'
-import { getRoomId } from '../../../src/websockets/utils.js'
+import { getRoomId, getAdminRoomId } from '../../../src/websockets/utils.js'
 import conversationService from '../../../src/services/conversation.service/index.js'
 import { Agent, AgentIntroduction, Channel, Conversation } from '../../../src/models/index.js'
 import { setAgentTypes } from '../../../src/models/user.model/agent.model/index.js'
@@ -138,14 +138,15 @@ describe('conversation:join logging', () => {
 /* Socket.io gives a client no room attribution on a received event, so a client moving
    between conversations leaves the old bare room to stop hearing its events. */
 describe('conversation:leave', () => {
-  it('leaves the bare conversation room and nothing else', async () => {
+  it('leaves the bare conversation room and its admin room, and nothing else', async () => {
     const { handlers, socket } = registerWithFakeSocket()
     const conversationId = new mongoose.Types.ObjectId()
 
     await handlers['conversation:leave']({ conversationId })
 
-    expect(socket.leave).toHaveBeenCalledTimes(1)
+    expect(socket.leave).toHaveBeenCalledTimes(2)
     expect(socket.leave).toHaveBeenCalledWith(getRoomId(conversationId.toString()))
+    expect(socket.leave).toHaveBeenCalledWith(getAdminRoomId(conversationId.toString()))
     expect(socket.disconnect).not.toHaveBeenCalled()
   })
 })
@@ -382,5 +383,124 @@ describe('collectChannelIntros', () => {
 
     expect(intros).toEqual([])
     expect(introsAfterReactivation).toHaveLength(3)
+  })
+})
+
+describe('admin room membership', () => {
+  let conversation
+  let topic
+
+  beforeEach(async () => {
+    await insertUsers([userOne])
+    topic = newPublicTopic()
+    await insertTopics([topic])
+    conversation = await Conversation.create({
+      name: 'Admin room',
+      owner: userOne._id,
+      topic: topic._id,
+      enableDMs: [],
+      enableAgents: false
+    })
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  const adminRoom = () => `admin:${conversation._id}`
+
+  it('joins the admin room on conversation:join only when the current role is admin', async () => {
+    const asAdmin = registerWithFakeSocket()
+    await joinAndWaitForCallback(asAdmin.handlers['conversation:join'], {
+      conversationId: conversation._id,
+      user: { _id: userOne._id, email: userOne.email, role: 'admin' }
+    })
+    expect(asAdmin.socket.join).toHaveBeenCalledWith(adminRoom())
+
+    const asParticipant = registerWithFakeSocket()
+    await joinAndWaitForCallback(asParticipant.handlers['conversation:join'], {
+      conversationId: conversation._id,
+      user: { _id: userOne._id, email: userOne.email, role: 'participant' }
+    })
+    expect(asParticipant.socket.join).not.toHaveBeenCalledWith(adminRoom())
+  })
+
+  it('joins the admin room on channel:join for an admin and not for a participant', async () => {
+    const channel = await Channel.create({ name: 'general', passcode: null })
+    await Conversation.updateOne({ _id: conversation._id }, { channels: [channel._id] })
+
+    const asAdmin = registerWithFakeSocket()
+    await joinAndWaitForCallback(asAdmin.handlers['channel:join'], {
+      conversationId: conversation._id,
+      channel: { name: 'general' },
+      user: { _id: userOne._id, role: 'admin' }
+    })
+    expect(asAdmin.socket.join).toHaveBeenCalledWith(adminRoom())
+
+    const asParticipant = registerWithFakeSocket()
+    await joinAndWaitForCallback(asParticipant.handlers['channel:join'], {
+      conversationId: conversation._id,
+      channel: { name: 'general' },
+      user: { _id: userOne._id, role: 'participant' }
+    })
+    expect(asParticipant.socket.join).not.toHaveBeenCalledWith(adminRoom())
+  })
+
+  it('leaves the admin room along with the conversation room on conversation:leave', async () => {
+    const { handlers, socket } = registerWithFakeSocket()
+    await handlers['conversation:leave']({ conversationId: conversation._id })
+    expect(socket.leave).toHaveBeenCalledWith(String(conversation._id))
+    expect(socket.leave).toHaveBeenCalledWith(adminRoom())
+  })
+
+  it('lets a participant join a channel named admin as an ordinary channel, not the admin room', async () => {
+    const adminNamed = await Channel.create({ name: 'admin', passcode: null })
+    await Conversation.updateOne({ _id: conversation._id }, { channels: [adminNamed._id] })
+    const { handlers, socket } = registerWithFakeSocket()
+
+    await joinAndWaitForCallback(handlers['channel:join'], {
+      conversationId: conversation._id,
+      channel: { name: 'admin' },
+      user: { _id: userOne._id, role: 'participant' }
+    })
+
+    expect(socket.join).toHaveBeenCalledWith(`${conversation._id}_admin`)
+    expect(socket.join).not.toHaveBeenCalledWith(adminRoom())
+  })
+
+  /* Current behavior, documented rather than endorsed: the admin room is decided from the user's role
+     at join time and nothing re-checks it. A demoted admin keeps receiving flagged hidden messages on an
+     already-joined socket until it leaves or disconnects, and a newly promoted admin only gets the room
+     on their next join. Closing this would need the role-change path to evict sockets. */
+  describe('role changes after joining', () => {
+    const adminData = () => ({
+      conversationId: conversation._id,
+      user: { _id: userOne._id, email: userOne.email, role: 'admin' }
+    })
+    const participantData = () => ({
+      conversationId: conversation._id,
+      user: { _id: userOne._id, email: userOne.email, role: 'participant' }
+    })
+
+    it('does not evict a demoted admin from the admin room on an existing socket', async () => {
+      const { handlers, socket } = registerWithFakeSocket()
+      await joinAndWaitForCallback(handlers['conversation:join'], adminData())
+      expect(socket.join).toHaveBeenCalledWith(adminRoom())
+
+      // the same socket joins again after the user was demoted
+      await joinAndWaitForCallback(handlers['conversation:join'], participantData())
+
+      expect(socket.leave).not.toHaveBeenCalledWith(adminRoom())
+    })
+
+    it('puts a promoted user in the admin room only on their next join', async () => {
+      const { handlers, socket } = registerWithFakeSocket()
+      await joinAndWaitForCallback(handlers['conversation:join'], participantData())
+      expect(socket.join).not.toHaveBeenCalledWith(adminRoom())
+
+      await joinAndWaitForCallback(handlers['conversation:join'], adminData())
+
+      expect(socket.join).toHaveBeenCalledWith(adminRoom())
+    })
   })
 })
