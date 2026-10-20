@@ -1,5 +1,6 @@
 import mongoose, { HydratedDocument, Model } from 'mongoose'
 import { toJSON, paginate } from '../plugins/index.js'
+import provenanceSchema from '../schemas/provenance.schema.js'
 import { IArtifactVersion, PaginateResults } from '../../types/index.types.js'
 
 interface ArtifactVersionStatics {
@@ -51,6 +52,13 @@ const artifactVersionSchema = new mongoose.Schema<IArtifactVersion, ArtifactVers
     note: {
       type: String,
       trim: true
+    },
+    /* What a generated payload was built from, written by the generator through appendVersion. Absent on
+       versions that predate it and on ones a person wrote: unknown, not clean. */
+    provenance: {
+      type: provenanceSchema,
+      default: undefined,
+      private: true
     }
   },
   {

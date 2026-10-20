@@ -21,6 +21,7 @@ import {
   AgentResponse,
   ConversationEvent
 } from '../../../types/index.types.js'
+import { hiddenMessagesMatch } from '../../../utils/messageVisibility.js'
 import { ConversationDocument } from '../../conversation.model.js'
 import { pingLLM } from '../../../agents/helpers/llmChain.js'
 import getConversationHistory from '../../../agents/helpers/getConversationHistory.js'
@@ -284,7 +285,10 @@ agentSchema.method('evaluate', async function (userMessage = null) {
   if (!this.conversation) throw new Error(`Missing conversation for agent ${this._id}`)
 
   // ensure messages are populated for owner comparison
-  await (this.conversation as HydratedDocument<IConversation>).populate(['messages', 'channels'])
+  await (this.conversation as HydratedDocument<IConversation>).populate([
+    { path: 'messages', match: await hiddenMessagesMatch(this.conversation._id!, 'model') },
+    'channels'
+  ])
 
   // exclude messages from this agent in count, but not other agents on the conversation
   const messageCount =
@@ -330,7 +334,10 @@ agentSchema.method('evaluate', async function (userMessage = null) {
 
 agentSchema.method('respond', async function (userMessage = null) {
   if (!this.active) return []
-  await (this.conversation as ConversationDocument).populate(['messages', 'channels'])
+  await (this.conversation as ConversationDocument).populate([
+    { path: 'messages', match: await hiddenMessagesMatch(this.conversation._id!, 'model') },
+    'channels'
+  ])
   const agentType = agentTypes[this.agentType]
   let conversationHistory
   const conversationHistorySettings = userMessage

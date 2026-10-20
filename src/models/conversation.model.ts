@@ -6,6 +6,7 @@ import { IConversation, Profile, Resource } from '../types/index.types.js'
 import Message from './message.model.js'
 import transcriptSchema from './schemas/transcript.schema.js'
 import announcementSchema from './schemas/announcement.schema.js'
+import provenanceSchema from './schemas/provenance.schema.js'
 
 interface ConversationMethods {
   messageCount(): number
@@ -123,6 +124,17 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
       type: Boolean,
       default: false
     },
+    /* Authors an admin has hidden in this conversation (hide-all). Kept on the conversation
+       rather than ConversationMembership: a membership row only exists for enforceMembership
+       conversations and is keyed by email, while this is keyed on the message `owner` id for any
+       conversation, and the conversation is already read on every hidden-state lookup. `private`
+       keeps the list out of every toJSON. */
+    hiddenAuthors: {
+      type: [mongoose.SchemaTypes.ObjectId],
+      ref: 'BaseUser',
+      default: [],
+      private: true
+    },
     /* Read key for this conversation's artifacts, the conversation-scoped twin of
        Topic.artifactPasscode. Minted on first artifact creation, so no existing
        conversation needed a migration. `private: true` keeps it out of every toJSON
@@ -205,6 +217,12 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
     summary: {
       type: String,
       default: ''
+    },
+    /* What `summary` was generated from. Absent on summaries written before this existed: unknown, not clean. */
+    summaryProvenance: {
+      type: provenanceSchema,
+      default: undefined,
+      private: true
     },
     goals: {
       type: [String],
