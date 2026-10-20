@@ -4,6 +4,7 @@ import Message from '../../models/message.model.js'
 import messageService, { agentResponseToMessageData } from '../../services/message.service.js'
 import resourceService from '../../services/resource.service.js'
 import schedule from '../schedule.js'
+import { isMessageHiddenFromModel } from '../../utils/messageVisibility.js'
 import { AgentMessageActions, AgentResponseZodSchema } from '../../types/index.types.js'
 
 /* Proactive periodic agents have no natural per-tick trigger id to claim (agenda reuses one
@@ -38,6 +39,13 @@ const agentResponse = async (job) => {
     await agent.populate('conversation')
 
     logger.debug(`agentResponse handler ${agent._id} - ${agent.conversation._id!.toString()}`)
+
+    /* The job carries the message as it was when posted. It may have been hidden since (the queue can be
+       backlogged), so re-check against the database before any LLM call, intent classifier included. */
+    if (message?._id && (await isMessageHiddenFromModel(message._id))) {
+      logger.debug(`agentResponse handler ${agent._id} - message ${message._id} is hidden, skipping`)
+      return
+    }
 
     // Trigger-less calls (agentService.startAgent) all share one key per conversation, since
     // they only ever fire once, at conversation start.

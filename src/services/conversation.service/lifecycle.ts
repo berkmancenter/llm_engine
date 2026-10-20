@@ -14,6 +14,8 @@ import { coreLLMModel, coreLLMPlatform, getModelChat } from '../../agents/helper
 import { Channel, Conversation, User } from '../../models/index.js'
 import { formatTranscript, formatMultiUserConversationHistory } from '../../agents/helpers/llmInputFormatters.js'
 import getConversationHistory from '../../agents/helpers/getConversationHistory.js'
+import { findMessages } from '../../utils/messageVisibility.js'
+import buildProvenance from '../../utils/provenance.js'
 import Poll from '../../models/poll.model/poll.js'
 import { getConversationType } from '../../conversations/index.js'
 import { isValidPropertyFormat } from '../../conversations/propertyFormats.js'
@@ -201,15 +203,13 @@ export async function doStopConversation(conversation) {
     if (owner && config.disablePostEventAnalysis) {
       logger.info(`Post-event analysis disabled — skipping stop-time summary for conversation ${doc._id}`)
     } else if (owner) {
-      const conversationDoc = await Conversation.findOne({ _id: conversation._id })
-        .populate('channels')
-        .populate({ path: 'messages', match: { channels: { $in: ['transcript', 'chat'] } } })
+      const conversationDoc = await Conversation.findOne({ _id: conversation._id }).populate('channels')
 
       if (conversationDoc) {
         const llm = await getModelChat(coreLLMPlatform, coreLLMModel, { maxTokens: 2000 })
-        const sortedMessages = conversationDoc.messages.sort(
-          (a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0)
-        )
+        // 'model' audience: hidden chat (flagged, hidden author, reply under hidden) never reaches the summary
+        const summarySources = await findMessages(conversation._id, 'model', { channels: { $in: ['transcript', 'chat'] } })
+        const sortedMessages = summarySources.sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0))
         const transcriptMessages = sortedMessages.filter((m) => m.channels?.includes('transcript'))
 
         if (transcriptMessages.length < MIN_TRANSCRIPT_MESSAGES_TO_SUMMARIZE) {
@@ -255,6 +255,11 @@ export async function doStopConversation(conversation) {
           logger.info(`Conversation summary generated for conversation ${doc._id}`)
 
           doc.summary = structuredSummary
+          doc.summaryProvenance = await buildProvenance(
+            'conversationSummary',
+            [doc._id],
+            [...transcriptMessages, ...chatHistory.messages]
+          )
         }
       } else logger.warn(`No conversation document found for conversation ${doc._id}`)
     } else logger.warn(`No owner found for conversation ${doc._id}`)

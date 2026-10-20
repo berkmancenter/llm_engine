@@ -140,7 +140,7 @@ export default verify({
     // including the maxTokens cap above, the same way the summon path builds its model.
     const llm = await this.getLLM()
     const fastLlm = await resolveFastLlm(this.agentConfig)
-    const { renderData, metrics } = await buildVibesSummary(conversation, llm, fastLlm)
+    const { renderData, metrics, provenance } = await buildVibesSummary(conversation, llm, fastLlm)
 
     /* Persist this conversation's metrics as a snapshot so every metric can be trended
        over time, not just the few the baseline re-derives. Best-effort, like the analytics
@@ -164,6 +164,7 @@ export default verify({
         messageType: 'text' as const,
         responseKind: 'curatedVibesSummary' as const,
         renderData,
+        provenance,
         channels: this.conversation.channels
       }
     ]

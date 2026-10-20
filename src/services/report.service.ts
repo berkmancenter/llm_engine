@@ -2,9 +2,10 @@ import httpStatus from 'http-status'
 import fs from 'fs/promises'
 import path from 'path'
 import handlebars from 'handlebars'
-import { Message, Conversation, Channel } from '../models/index.js'
+import { Conversation, Channel } from '../models/index.js'
 import ApiError from '../utils/ApiError.js'
 import logger from '../config/logger.js'
+import { findMessages, hiddenMessagesMatch } from '../utils/messageVisibility.js'
 import { IConversation } from '../types/index.types.js'
 
 interface FeedbackReport {
@@ -72,7 +73,9 @@ async function findComments(createdAtQuery, conversationId) {
   const matchQuery = {
     createdAt: createdAtQuery,
     fromAgent: false,
-    channels: { $ne: 'transcript' }
+    channels: { $ne: 'transcript' },
+    // hidden comments never feed a generated report
+    ...(await hiddenMessagesMatch(conversationId, 'model'))
   }
   const conversation = await Conversation.findById(conversationId)
     .populate({
@@ -141,9 +144,8 @@ async function generateUserMetricsData(
 
   // Also collect from additional channels (using messages since they don't have participants)
   for (const channelName of additionalChannelNames) {
-    const channelMessages = await Message.find({
-      channels: channelName,
-      conversation: conversation._id
+    const channelMessages = await findMessages(conversation._id, 'model', {
+      channels: channelName
     })
     for (const msg of channelMessages) {
       if (msg.pseudonym && !msg.fromAgent) {
@@ -161,9 +163,8 @@ async function generateUserMetricsData(
 
   // Count messages in direct channels
   for (const channel of directChannels) {
-    const directMessages = await Message.find({
+    const directMessages = await findMessages(conversation._id, 'model', {
       channels: channel.name,
-      conversation: conversation._id,
       fromAgent: false
     })
 
@@ -186,9 +187,8 @@ async function generateUserMetricsData(
         }
       }
 
-      const channelMessages = await Message.find({
+      const channelMessages = await findMessages(conversation._id, 'model', {
         channels: channelName,
-        conversation: conversation._id,
         fromAgent: false
       })
 
@@ -238,15 +238,18 @@ async function generateDirectMessageAgentsData(
     })
     const totalUsers = directChannels.length
     for (const channel of directChannels) {
-      const directMessages = await Message.find({
-        channels: channel.name,
-        conversation: conversation._id
-      }).sort({ createdAt: 1 })
+      const directMessages = await findMessages(
+        conversation._id,
+        'model',
+        {
+          channels: channel.name
+        },
+        { sort: { createdAt: 1 } }
+      )
 
       // Fetch all feedback messages for this conversation
-      const feedbackMessages = await Message.find({
-        channels: 'feedback',
-        conversation: conversation._id
+      const feedbackMessages = await findMessages(conversation._id, 'model', {
+        channels: 'feedback'
       })
 
       // Create a map of messageId -> feedback[] for quick lookup
@@ -299,10 +302,14 @@ async function generateDirectMessageAgentsData(
     // Process additional channels
     const additionalChannels: AdditionalChannelReport[] = []
     for (const channelName of additionalChannelNames) {
-      const channelMessages = await Message.find({
-        channels: channelName,
-        conversation: conversation._id
-      }).sort({ createdAt: 1 })
+      const channelMessages = await findMessages(
+        conversation._id,
+        'model',
+        {
+          channels: channelName
+        },
+        { sort: { createdAt: 1 } }
+      )
 
       if (channelMessages.length > 0) {
         const comments: CommentReport[] = channelMessages.map((msg) => {
@@ -354,9 +361,8 @@ async function generateDirectMessageAgentsData(
 
       // Also collect from additional channels (using messages since they don't have participants)
       for (const channelName of additionalChannelNames) {
-        const channelMessages = await Message.find({
-          channels: channelName,
-          conversation: conversation._id
+        const channelMessages = await findMessages(conversation._id, 'model', {
+          channels: channelName
         })
         for (const msg of channelMessages) {
           if (msg.pseudonym && !msg.fromAgent) {
@@ -453,13 +459,15 @@ async function generatePeriodicAgentsData(conversation, metadata?: ReportMetadat
     let startTime
     let endTime
 
-    const agentMessages = await Message.find({
-      conversation: conversationId,
-      fromAgent: true,
-      pseudonymId: agent.pseudonyms[0]._id
-    })
-      .sort({ createdAt: 1 })
-      .lean()
+    const agentMessages = await findMessages(
+      conversationId,
+      'model',
+      {
+        fromAgent: true,
+        pseudonymId: agent.pseudonyms[0]._id
+      },
+      { sort: { createdAt: 1 }, lean: true }
+    )
 
     const messages: MessageReport[] = []
     for (const message of agentMessages) {

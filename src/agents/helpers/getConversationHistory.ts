@@ -1,4 +1,5 @@
 import Message from '../../models/message.model.js'
+import { filterForAudience } from '../../utils/messageVisibility.js'
 import { ConversationHistorySettings } from '../../types/index.types.js'
 
 export default function getConversationHistory(
@@ -11,13 +12,16 @@ export default function getConversationHistory(
   const { count, timeWindow, endTime } = settings
   const end = endTime ?? new Date(Date.now())
   let start
-  let filteredMessages = [...messages]
+  /* Backstop for the 'model' audience: callers populate `messages` without hidden ones (see hiddenMessagesMatch),
+     and this drops any that got through: flagged, by a hidden author (when `settings.hideContext` is given) or a reply
+     under a hidden message in the list. */
+  let filteredMessages = filterForAudience(messages, 'model', settings.hideContext)
   if (settings.channels || (directChannels && settings.directMessages)) {
     const channels = settings.channels || []
     if (directChannels && settings.directMessages) {
       channels.push(...directChannels)
     }
-    filteredMessages = messages.filter((message) => message.channels?.some((channel) => channels.includes(channel)))
+    filteredMessages = filteredMessages.filter((message) => message.channels?.some((channel) => channels.includes(channel)))
   }
   if (timeWindow) {
     start = new Date(end.getTime() - timeWindow * 1000)
