@@ -813,6 +813,9 @@ export interface IArtifact {
   /* Set alongside generationStatus: 'failed'; cleared whenever a new generation starts or
      succeeds. */
   generationError?: string
+  /* When the current 'pending' claim was taken; a claim older than the job lock lifetime is
+     treated as abandoned. */
+  generationStartedAt?: Date
   isDeleted?: boolean
   createdAt?: Date
   updatedAt?: Date

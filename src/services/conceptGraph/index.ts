@@ -18,6 +18,7 @@ import { getChatPromptResponse } from '../../agents/helpers/llmChain.js'
 import { computeParticipation, countChannelParticipants, computeAudienceEngagement } from '../conversationAnalytics.service.js'
 import artifactService from '../artifact.service.js'
 import buildProvenance from '../../utils/provenance.js'
+import { LLM_JOB_LOCK_LIFETIME } from '../../jobs/lockLifetime.js'
 import { EXTRACTION_PROMPT, EXTRACTION_SCHEMA } from './prompt.js'
 import { aliasedKey, assembleGraph, AssemblyReport, ExtractionResult, PollRefMap, SourceRefMap } from './assemble.js'
 import { screenForIdentities } from './nameScreen.js'
@@ -918,6 +919,12 @@ export const refineTopicGraph = async (
  * both starting a generation run and paying for the LLM calls twice. A generation already
  * in flight is a no-op: the caller gets the same, still-pending artifact back rather than a
  * second job.
+ *
+ * `pending` is only trusted for as long as the job's own lock could still be held: a claim
+ * older than LLM_JOB_LOCK_LIFETIME (or one with no generationStartedAt at all) is treated as
+ * abandoned and can be taken over, since agenda would have handed the job to another worker by
+ * then anyway. Without this, a failure between the claim and the job landing in the queue would
+ * leave the artifact `pending` for good and every later request would return early.
  */
 export const enqueueGeneration = async (
   { conversationId, topicId, reset }: { conversationId?: string; topicId?: string; reset?: boolean },
@@ -946,17 +953,39 @@ export const enqueueGeneration = async (
 
   const callerId = caller._id!.toString()
 
+  /* The generic message a failed enqueue leaves on the artifact, which reaches every reader
+     of it. The real error is logged, not stored. */
+  const ENQUEUE_FAILED = 'Generation could not be started. Try again, or check the server logs.'
+
   if (existing) {
+    const staleBefore = new Date(Date.now() - LLM_JOB_LOCK_LIFETIME)
     const claimed = await Artifact.findOneAndUpdate(
-      { _id: existing._id, generationStatus: { $ne: 'pending' } },
-      { $set: { generationStatus: 'pending' }, $unset: { generationError: '' } },
+      {
+        _id: existing._id,
+        // `$not: { $gte }` also matches a missing generationStartedAt, which counts as stale.
+        $or: [{ generationStatus: { $ne: 'pending' } }, { generationStartedAt: { $not: { $gte: staleBefore } } }]
+      },
+      { $set: { generationStatus: 'pending', generationStartedAt: new Date() }, $unset: { generationError: '' } },
       { new: true }
     ).exec()
     if (!claimed) {
       // Already generating — hand back the in-flight artifact rather than starting a duplicate.
       return existing
     }
-    await schedule.generateConceptGraph({ artifactId: claimed._id!.toString(), conversationId, topicId, callerId, reset })
+    try {
+      await schedule.generateConceptGraph({ artifactId: claimed._id!.toString(), conversationId, topicId, callerId, reset })
+    } catch (err) {
+      logger.error(`conceptGraph: failed to enqueue generation for artifact ${claimed._id}`, err)
+      /* A shell with no version has nothing to show, so it goes away like a first run that
+         failed in the handler; one with a version goes back to showing it, marked failed. */
+      await Artifact.updateOne(
+        { _id: claimed._id },
+        claimed.currentVersion
+          ? { $set: { generationStatus: 'failed', generationError: ENQUEUE_FAILED } }
+          : { $set: { isDeleted: true } }
+      ).exec()
+      throw err
+    }
     return claimed
   }
 
@@ -971,10 +1000,18 @@ export const enqueueGeneration = async (
     ...(container.scope === 'conversation' && { conversation: container.conversationId }),
     title: `Concept map — ${name ?? (conversationId ? 'event' : 'series')}`,
     createdBy: caller?._id,
-    generationStatus: 'pending'
+    generationStatus: 'pending',
+    generationStartedAt: new Date()
   })
 
-  await schedule.generateConceptGraph({ artifactId: artifact._id!.toString(), conversationId, topicId, callerId, reset })
+  try {
+    await schedule.generateConceptGraph({ artifactId: artifact._id!.toString(), conversationId, topicId, callerId, reset })
+  } catch (err) {
+    logger.error(`conceptGraph: failed to enqueue generation for new artifact ${artifact._id}`, err)
+    // Freshly created, so it has no version: soft-delete the shell rather than leave an empty failed one.
+    await Artifact.updateOne({ _id: artifact._id }, { $set: { isDeleted: true } }).exec()
+    throw err
+  }
 
   return artifact
 }

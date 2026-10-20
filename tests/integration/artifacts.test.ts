@@ -3,8 +3,10 @@ import request from 'supertest'
 import httpStatus from 'http-status'
 import mongoose from 'mongoose'
 import app from '../../src/app.js'
+import config from '../../src/config/config.js'
 import setupIntTest from '../utils/setupIntTest.js'
 import Conversation from '../../src/models/conversation.model.js'
+import Artifact from '../../src/models/artifact.model/artifact.js'
 import ArtifactVersion from '../../src/models/artifact.model/version.js'
 import { DOCUMENT_ARTIFACT } from '../../src/models/artifact.model/documentArtifact.js'
 import { CONCEPT_GRAPH_ARTIFACT } from '../../src/models/artifact.model/conceptGraphArtifact.js'
@@ -466,6 +468,47 @@ describe('POST /v1/artifacts/generate', () => {
     )
   })
 
+  it('does not return generationStartedAt, though it is stored on create', async () => {
+    const res = await request(app)
+      .post('/v1/artifacts/generate')
+      .set('Authorization', `Bearer ${userOneAccessToken}`)
+      .send({ conversationId: conversation._id.toString() })
+      .expect(httpStatus.ACCEPTED)
+
+    expect(res.body.artifact).not.toHaveProperty('generationStartedAt')
+    const doc = await Artifact.collection.findOne({ _id: new mongoose.Types.ObjectId(res.body.artifact.id) })
+    expect(doc!.generationStartedAt).toBeInstanceOf(Date)
+
+    const fetched = await request(app)
+      .get(`/v1/artifacts/${res.body.artifact.id}`)
+      .set('Authorization', `Bearer ${userOneAccessToken}`)
+      .expect(httpStatus.OK)
+    expect(fetched.body).not.toHaveProperty('generationStartedAt')
+  })
+
+  /* The leak guard is the global error handler's production masking of non-operational
+     errors (middlewares/error.ts), so the test runs the route under that mode. */
+  it('responds 500 without the underlying message when enqueueing fails, and leaves no shell behind', async () => {
+    scheduleSpy.mockRejectedValue(new Error('mongo blip at db.internal:27017'))
+    const originalEnv = config.env
+    config.env = 'production'
+    let res
+    try {
+      res = await request(app)
+        .post('/v1/artifacts/generate')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({ conversationId: conversation._id.toString() })
+    } finally {
+      config.env = originalEnv
+    }
+
+    expect(res.status).toBe(httpStatus.INTERNAL_SERVER_ERROR)
+    expect(JSON.stringify(res.body)).not.toContain('db.internal')
+    const docs = await Artifact.collection.find({ conversation: conversation._id }).toArray()
+    expect(docs).toHaveLength(1)
+    expect(docs[0].isDeleted).toBe(true)
+  })
+
   it('does not enqueue a second job while one is already pending', async () => {
     const first = await request(app)
       .post('/v1/artifacts/generate')
@@ -492,6 +535,27 @@ describe('POST /v1/artifacts/generate', () => {
       .send({ conversationId: conversation._id.toString() })
       .expect(httpStatus.FORBIDDEN)
     expect(scheduleSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('appendVersion after a generation claim', () => {
+  it('flips a taken-over pending artifact to ready and clears the claim fields', async () => {
+    const created = await createArtifact()
+    await Artifact.updateOne(
+      { _id: created.id },
+      { $set: { generationStatus: 'pending', generationStartedAt: new Date(0), generationError: 'old' } }
+    )
+
+    await request(app)
+      .post(`/v1/artifacts/${created.id}/versions`)
+      .set('Authorization', `Bearer ${userOneAccessToken}`)
+      .send({ payload: { body: 'A revised summary.' } })
+      .expect(httpStatus.CREATED)
+
+    const doc = await Artifact.collection.findOne({ _id: new mongoose.Types.ObjectId(created.id) })
+    expect(doc!.generationStatus).toBe('ready')
+    expect(doc!.generationStartedAt).toBeUndefined()
+    expect(doc!.generationError).toBeUndefined()
   })
 })
 

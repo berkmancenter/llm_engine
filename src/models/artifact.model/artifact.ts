@@ -96,6 +96,12 @@ const artifactSchema = new mongoose.Schema<IArtifact, ArtifactModel>(
     generationError: {
       type: String
     },
+    /* When the current `pending` claim was taken, so a claim older than the job lock lifetime
+       can be told apart from a run still in flight. See enqueueGeneration. */
+    generationStartedAt: {
+      type: Date,
+      private: true
+    },
     isDeleted: {
       type: Boolean,
       default: false,

@@ -7,6 +7,7 @@ import Artifact from '../../../src/models/artifact.model/artifact.js'
 import { CONCEPT_GRAPH_ARTIFACT } from '../../../src/models/artifact.model/conceptGraphArtifact.js'
 import Conversation from '../../../src/models/conversation.model.js'
 import { insertUsers, userOne, userTwo, participant } from '../../fixtures/user.fixture.js'
+import { LLM_JOB_LOCK_LIFETIME } from '../../../src/jobs/lockLifetime.js'
 import { newPublicTopic, insertTopics } from '../../fixtures/topic.fixture.js'
 
 /*
@@ -48,6 +49,7 @@ describe('enqueueGeneration', () => {
     const artifact = await conceptGraphService.enqueueGeneration({ conversationId: conversation._id.toString() }, userTwo)
 
     expect(artifact!.generationStatus).toBe('pending')
+    expect(artifact!.generationStartedAt).toBeInstanceOf(Date)
     expect(artifact!.currentVersion).toBeUndefined()
     expect(artifact!.currentVersionNumber).toBe(0)
     expect(await Artifact.countDocuments({ conversation: conversation._id, __t: CONCEPT_GRAPH_ARTIFACT })).toBe(1)
@@ -85,6 +87,7 @@ describe('enqueueGeneration', () => {
     expect(claimed!._id!.toString()).toBe(existing._id!.toString())
     expect(claimed!.generationStatus).toBe('pending')
     expect(claimed!.generationError).toBeUndefined()
+    expect(claimed!.generationStartedAt).toBeInstanceOf(Date)
     expect(scheduleSpy).toHaveBeenCalledTimes(1)
     expect(await Artifact.countDocuments({ conversation: conversation._id, __t: CONCEPT_GRAPH_ARTIFACT })).toBe(1)
   })
@@ -97,7 +100,8 @@ describe('enqueueGeneration', () => {
       conversation: conversation._id,
       title: 'Concept map — Session one',
       createdBy: userTwo._id,
-      generationStatus: 'pending'
+      generationStatus: 'pending',
+      generationStartedAt: new Date()
     })
 
     const result = await conceptGraphService.enqueueGeneration({ conversationId: conversation._id.toString() }, userTwo)
@@ -105,6 +109,105 @@ describe('enqueueGeneration', () => {
     expect(result!._id!.toString()).toBe(existing._id!.toString())
     expect(result!.generationStatus).toBe('pending')
     expect(scheduleSpy).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['older than the job lock lifetime', () => new Date(Date.now() - LLM_JOB_LOCK_LIFETIME - 60_000)],
+    ['missing a start time', () => undefined]
+  ])('takes over a pending claim %s', async (_label, startedAt) => {
+    const existing = await Artifact.create({
+      __t: CONCEPT_GRAPH_ARTIFACT,
+      scope: 'conversation',
+      topic: topic._id,
+      conversation: conversation._id,
+      title: 'Concept map — Session one',
+      createdBy: userTwo._id,
+      generationStatus: 'pending',
+      generationStartedAt: startedAt()
+    })
+
+    const claimed = await conceptGraphService.enqueueGeneration({ conversationId: conversation._id.toString() }, userTwo)
+
+    expect(claimed!._id!.toString()).toBe(existing._id!.toString())
+    expect(claimed!.generationStartedAt!.getTime()).toBeGreaterThan(Date.now() - LLM_JOB_LOCK_LIFETIME)
+    expect(scheduleSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['just inside', -5_000, false],
+    ['just outside', 5_000, true]
+  ])('treats a pending claim %s the lock lifetime as %s', async (_label, offsetMs, takenOver) => {
+    const existing = await Artifact.create({
+      __t: CONCEPT_GRAPH_ARTIFACT,
+      scope: 'conversation',
+      topic: topic._id,
+      conversation: conversation._id,
+      title: 'Concept map — Session one',
+      createdBy: userTwo._id,
+      generationStatus: 'pending',
+      generationStartedAt: new Date(Date.now() - LLM_JOB_LOCK_LIFETIME - offsetMs)
+    })
+
+    await conceptGraphService.enqueueGeneration({ conversationId: conversation._id.toString() }, userTwo)
+
+    expect(scheduleSpy).toHaveBeenCalledTimes(takenOver ? 1 : 0)
+    const doc = await Artifact.collection.findOne({ _id: existing._id })
+    expect(doc!.generationStartedAt.getTime() > Date.now() - 60_000).toBe(takenOver)
+  })
+
+  it('soft-deletes a freshly created shell and rethrows when enqueueing fails', async () => {
+    scheduleSpy.mockRejectedValue(new Error('mongo blip'))
+
+    await expect(
+      conceptGraphService.enqueueGeneration({ conversationId: conversation._id.toString() }, userTwo)
+    ).rejects.toThrow('mongo blip')
+
+    const docs = await Artifact.collection.find({ conversation: conversation._id }).toArray()
+    expect(docs).toHaveLength(1)
+    expect(docs[0].isDeleted).toBe(true)
+  })
+
+  it('marks an existing artifact with a version failed, generically, when enqueueing fails', async () => {
+    const existing = await Artifact.create({
+      __t: CONCEPT_GRAPH_ARTIFACT,
+      scope: 'conversation',
+      topic: topic._id,
+      conversation: conversation._id,
+      title: 'Concept map — Session one',
+      createdBy: userTwo._id,
+      currentVersion: new mongoose.Types.ObjectId(),
+      currentVersionNumber: 1
+    })
+    scheduleSpy.mockRejectedValue(new Error('mongo blip at db.internal'))
+
+    await expect(
+      conceptGraphService.enqueueGeneration({ conversationId: conversation._id.toString() }, userTwo)
+    ).rejects.toThrow('mongo blip')
+
+    const reloaded = await Artifact.findById(existing._id)
+    expect(reloaded!.generationStatus).toBe('failed')
+    expect(reloaded!.generationError).toBe('Generation could not be started. Try again, or check the server logs.')
+    expect(reloaded!.isDeleted).toBe(false)
+  })
+
+  it('soft-deletes an existing shell with no version when enqueueing fails', async () => {
+    const existing = await Artifact.create({
+      __t: CONCEPT_GRAPH_ARTIFACT,
+      scope: 'conversation',
+      topic: topic._id,
+      conversation: conversation._id,
+      title: 'Concept map — Session one',
+      createdBy: userTwo._id,
+      generationStatus: 'failed'
+    })
+    scheduleSpy.mockRejectedValue(new Error('mongo blip'))
+
+    await expect(
+      conceptGraphService.enqueueGeneration({ conversationId: conversation._id.toString() }, userTwo)
+    ).rejects.toThrow('mongo blip')
+
+    const doc = await Artifact.collection.findOne({ _id: existing._id })
+    expect(doc!.isDeleted).toBe(true)
   })
 
   it('requires exactly one container', async () => {
