@@ -21,6 +21,8 @@ const generateSpy = jest.spyOn(conceptGraphService, 'generateConceptGraph')
 const refineSpy = jest.spyOn(conceptGraphService, 'refineTopicGraph')
 const broadcastFailedSpy = jest.spyOn(websocketGateway, 'broadcastArtifactGenerationFailed')
 
+const mockTouch = jest.fn<() => Promise<void>>()
+
 let topic
 let conversation
 let artifact
@@ -29,6 +31,8 @@ beforeEach(async () => {
   generateSpy.mockReset()
   refineSpy.mockReset()
   broadcastFailedSpy.mockReset()
+  mockTouch.mockReset()
+  mockTouch.mockResolvedValue(undefined)
   broadcastFailedSpy.mockResolvedValue(undefined)
   await insertUsers([userTwo])
   topic = newPublicTopic()
@@ -68,6 +72,7 @@ const withVersion = async () => {
 const rawArtifact = () => Artifact.collection.findOne({ _id: artifact._id })
 
 const makeJob = (overrides: Record<string, unknown> = {}) => ({
+  touch: mockTouch,
   attrs: {
     data: {
       artifactId: artifact._id.toString(),
@@ -102,9 +107,28 @@ describe('generateConceptGraph handler', () => {
     await handlers.generateConceptGraph(makeJob({ conversationId: undefined, topicId: topic._id.toString() }))
 
     expect(refineSpy).toHaveBeenCalledWith(topic._id.toString(), expect.objectContaining({ _id: userTwo._id }), undefined, {
-      reset: undefined
+      reset: undefined,
+      onConversation: expect.any(Function)
     })
     expect(generateSpy).not.toHaveBeenCalled()
+  })
+
+  it('renews the job lock and the claim time each time the backfill reports a conversation', async () => {
+    const staleStart = new Date(Date.now() - 10 * 60 * 1000)
+    await Artifact.updateOne({ _id: artifact._id }, { $set: { generationStartedAt: staleStart } })
+    refineSpy.mockImplementation(async (_topicId, _caller, _incoming, options) => {
+      await options!.onConversation!()
+      await options!.onConversation!()
+      return null
+    })
+
+    await handlers.generateConceptGraph(makeJob({ conversationId: undefined, topicId: topic._id.toString() }))
+
+    expect(mockTouch).toHaveBeenCalledTimes(2)
+    // the run ended with nothing to map, which soft-deletes this version-less shell; the claim
+    // time must have been bumped before that, so read it from the raw document
+    const doc = await rawArtifact()
+    expect(doc!.generationStartedAt.getTime()).toBeGreaterThan(staleStart.getTime())
   })
 
   it('returns an artifact with a version to ready, and still broadcasts, when there was too little to map', async () => {

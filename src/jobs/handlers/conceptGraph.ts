@@ -52,6 +52,21 @@ const failGeneration = async (
   }
 }
 
+/* A series backfill reads every conversation in order and can run for several minutes, well
+   past what one LLM call takes, so the job's Agenda lock (LLM_JOB_LOCK_LIFETIME) can expire
+   mid-run. Agenda would then hand the job to a second worker, whose `pending` check below
+   still passes, paying for the LLM calls twice and writing two versions. Renewing the lock once
+   per conversation keeps the first worker the owner. The artifact's generationStartedAt is
+   renewed with it, since enqueueGeneration treats a claim older than the lock lifetime as
+   abandoned and would otherwise let a new Generate take over a run that is still going. */
+const renewClaim = async (job, artifactId: string) => {
+  await job.touch()
+  await Artifact.updateOne(
+    { _id: artifactId, generationStatus: 'pending' },
+    { $set: { generationStartedAt: new Date() } }
+  ).exec()
+}
+
 const generateConceptGraph = async (job) => {
   const { artifactId, conversationId, topicId, callerId, reset } = job.attrs.data
   const room = conversationId ?? topicId
@@ -75,7 +90,10 @@ const generateConceptGraph = async (job) => {
     }
 
     const result = topicId
-      ? await conceptGraphService.refineTopicGraph(topicId, caller, undefined, { reset })
+      ? await conceptGraphService.refineTopicGraph(topicId, caller, undefined, {
+          reset,
+          onConversation: () => renewClaim(job, artifactId)
+        })
       : await conceptGraphService.generateConceptGraph(conversationId, caller)
 
     if (!result) {

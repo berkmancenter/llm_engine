@@ -611,7 +611,10 @@ export const refineTopicGraph = async (
     conversationId?: string
     pollRefs?: PollRefMap
   },
-  options?: { reset?: boolean }
+  /* `onConversation` is called once per conversation the backfill reads, so a caller running
+     this inside a locked job can renew its lock as it goes: a long series can outlast the
+     lock otherwise. A failure in it is logged, never allowed to fail the run. */
+  options?: { reset?: boolean; onConversation?: () => void | Promise<void> }
 ) => {
   const reset = options?.reset ?? false
   if (reset) logger.info(`conceptGraph: topic ${topicId} resetting — recomputing from the raw transcripts alone`)
@@ -640,6 +643,11 @@ export const refineTopicGraph = async (
        would have built had the feature existed at the time. */
     const accumulated: string[] = []
     for (const conversation of conversations) {
+      try {
+        await options?.onConversation?.()
+      } catch (error) {
+        logger.warn(`conceptGraph: topic ${topicId} onConversation callback failed: ${error}`)
+      }
       const sources = await loadSources(conversation, knownIdentities)
       if (sources.texts.length === 0) continue
       texts = [...texts, ...sources.texts]
