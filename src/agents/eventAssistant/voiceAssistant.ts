@@ -126,11 +126,17 @@ export default verify({
     const questionText = extractVoiceQuestion(userMessage, conversationHistory.messages, botName)
     if (!questionText) return []
 
+    const conversationId = this.conversation._id.toString()
+    // Past this point we're committed to producing a real response (LLM-generated or a
+    // verbatim announcement read)
+    websocketGateway
+      .broadcastAgentResponding(conversationId, this._id.toString())
+      .catch((err) => logger.warn(`Voice assistant: failed to broadcast agent:responding: ${err}`))
+
     logger.debug(`Voice assistant answering question: "${questionText}"`)
     const questionMessage = { ...userMessage, body: questionText }
 
     const voiceOutput = Boolean(this.agentConfig.voiceOutput)
-    const conversationId = this.conversation._id.toString()
 
     const announcement = matchAnnouncementTrigger(questionText, this.conversation.announcements ?? [])
     if (announcement) {
