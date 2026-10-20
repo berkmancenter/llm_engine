@@ -145,6 +145,17 @@ class WebsocketGateway {
   }
 
   /**
+   * Tells clients an agent has started working on a response, before anything about that
+   * response (text, audio) exists yet — distinct from message:chunk/message:new, which only
+   * fire once there's actual content. Deliberately generic (not tied to voice, Slack, or any
+   * one client): any client in the conversation's room can use this as a "the agent noticed
+   * and is processing" cue, e.g. bot-media-server's "thinking" animation.
+   */
+  async broadcastAgentResponding(conversationId: string, agentId: string) {
+    await this.broadcast(conversationId, 'agent:responding', { conversationId, agentId })
+  }
+
+  /**
    * Tells clients a new version exists so they can refetch it over HTTP. Only ids go out:
    * the conversation room is joined without any passcode, while reading an artifact needs
    * the artifact passcode, so the content must come from the route that checks it.

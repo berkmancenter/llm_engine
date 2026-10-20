@@ -24,6 +24,7 @@ function fakeAnnouncement(name: string, body: string) {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function buildContext({ voiceOutput = false, channels = [] as any[], announcements = [] as any[] } = {}) {
   return {
+    _id: 'agent-1',
     agentConfig: { botName: 'Berkie', voiceOutput },
     conversation: { _id: 'conv-1', channels, announcements }
   }
