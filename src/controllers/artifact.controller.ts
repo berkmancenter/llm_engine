@@ -3,6 +3,7 @@ import catchAsync from '../utils/catchAsync.js'
 import pick from '../utils/pick.js'
 import { artifactService } from '../services/index.js'
 import conceptGraphService from '../services/conceptGraph/index.js'
+import { serializeArtifactResponse, serializeWithAnalyticsIds } from '../services/conceptGraph/analyticsId.js'
 
 /* The created artifact plus the container's read passcode, so the creator can build the
    link a client loads it with without a second request. GET /artifacts/passcode is the
@@ -10,12 +11,12 @@ import conceptGraphService from '../services/conceptGraph/index.js'
    conversation. */
 const createArtifact = catchAsync(async (req, res) => {
   const { artifact, passcode } = await artifactService.createArtifact(req.body, req.user)
-  res.status(httpStatus.CREATED).send({ ...artifact!.toJSON(), artifactPasscode: passcode })
+  res.status(httpStatus.CREATED).send({ ...serializeWithAnalyticsIds(artifact), artifactPasscode: passcode })
 })
 
 const appendVersion = catchAsync(async (req, res) => {
   const version = await artifactService.appendVersion(req.params.artifactId, req.body, req.user)
-  res.status(httpStatus.CREATED).send(version.toJSON())
+  res.status(httpStatus.CREATED).send(serializeWithAnalyticsIds(version))
 })
 
 const listArtifacts = catchAsync(async (req, res) => {
@@ -24,7 +25,7 @@ const listArtifacts = catchAsync(async (req, res) => {
     req.user,
     req.query.artifactPasscode
   )
-  res.status(httpStatus.OK).send(artifacts)
+  res.status(httpStatus.OK).send(serializeArtifactResponse(artifacts))
 })
 
 /* 202 rather than 201: the caller is asking for the graph to be rebuilt, and what comes
@@ -41,8 +42,8 @@ const generateConceptGraph = catchAsync(async (req, res) => {
   }
   res.status(httpStatus.ACCEPTED).send({
     generated: true,
-    artifact: result.artifact!.toJSON(),
-    version: result.version.toJSON(),
+    artifact: serializeWithAnalyticsIds(result.artifact),
+    version: serializeWithAnalyticsIds(result.version),
     report: result.report
   })
 })
@@ -57,13 +58,13 @@ const getContainerPasscode = catchAsync(async (req, res) => {
 
 const getArtifact = catchAsync(async (req, res) => {
   const artifact = await artifactService.getArtifact(req.params.artifactId, req.user, req.query.artifactPasscode)
-  res.status(httpStatus.OK).send(artifact)
+  res.status(httpStatus.OK).send(serializeArtifactResponse(artifact))
 })
 
 const listVersions = catchAsync(async (req, res) => {
   const options = pick(req.query, ['sortBy', 'limit', 'page'])
   const versions = await artifactService.listVersions(req.params.artifactId, req.user, req.query.artifactPasscode, options)
-  res.status(httpStatus.OK).send(versions)
+  res.status(httpStatus.OK).send(serializeArtifactResponse(versions))
 })
 
 const getVersion = catchAsync(async (req, res) => {
@@ -73,7 +74,7 @@ const getVersion = catchAsync(async (req, res) => {
     req.user,
     req.query.artifactPasscode
   )
-  res.status(httpStatus.OK).send(version)
+  res.status(httpStatus.OK).send(serializeArtifactResponse(version))
 })
 
 export {

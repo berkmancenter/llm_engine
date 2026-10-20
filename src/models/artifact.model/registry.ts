@@ -56,6 +56,9 @@ const CONCEPT = Joi.object().keys({
   foldedFrom: Joi.array().items(Joi.string()),
   /* Every conversation the concept came up in — see GraphConcept.conversationIds. */
   conversationIds: Joi.array().items(Joi.string()),
+  /* Computed on read, never stored (see conceptGraph/analyticsId.ts). Accepted and dropped so
+     a client that echoes a fetched payload back is not rejected. */
+  analyticsId: Joi.any().strip(),
   provenance: PROVENANCE
 })
 
@@ -88,6 +91,8 @@ const CONTRIBUTION = Joi.object().keys({
 const ORIGIN_PROMPT = Joi.object().keys({
   id: Joi.string().required(),
   text: Joi.string().required(),
+  /* Computed on read, never stored: accepted and dropped, as on a concept. */
+  analyticsId: Joi.any().strip(),
   provenance: PROVENANCE
 })
 
