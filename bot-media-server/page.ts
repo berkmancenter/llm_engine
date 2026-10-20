@@ -16,6 +16,11 @@ const PAGE = `<!DOCTYPE html>
 <svg id="bot" viewBox="-583 -299 2400 1350" role="img" aria-label="Bot">
   <defs>
     <clipPath id="visorClip"><rect x="153" y="153" width="929" height="447" rx="223"/></clipPath>
+    <linearGradient id="shimmerGrad" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#fff" stop-opacity="0"/>
+      <stop offset=".5" stop-color="#fff" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
   </defs>
   <g id="rig">
     <g id="hand" transform="translate(0 380) rotate(0 1065 300)">
@@ -27,10 +32,16 @@ const PAGE = `<!DOCTYPE html>
     <rect x="153" y="153" width="929" height="447" rx="223" fill="#A8B2F5"/>
     <g clip-path="url(#visorClip)">
       <rect id="glow" x="153" y="153" width="929" height="447" fill="#fff" opacity="0"/>
+      <rect id="shimmer" x="-300" y="153" width="300" height="447" fill="url(#shimmerGrad)" opacity="0"/>
     </g>
     <g id="eyeL"><circle cx="380" cy="377" r="113"/><circle cx="337" cy="332" r="23" fill="#fff"/></g>
     <g id="eyeR"><circle cx="878" cy="377" r="113"/><circle cx="834" cy="332" r="23" fill="#fff"/></g>
     <rect id="mouth" x="569" y="515" width="120" height="10" rx="5" fill="#000" opacity="0"/>
+    <g id="dots">
+      <circle cx="579" cy="525" r="16" opacity="0"/>
+      <circle cx="629" cy="525" r="16" opacity="0"/>
+      <circle cx="679" cy="525" r="16" opacity="0"/>
+    </g>
   </g>
 </svg>
 
@@ -46,9 +57,11 @@ const PAGE = `<!DOCTYPE html>
   const eyeR = document.getElementById('eyeR')
   const mouth = document.getElementById('mouth')
   const glow = document.getElementById('glow')
+  const shimmer = document.getElementById('shimmer')
+  const dotEls = [...document.getElementById('dots').children]
 
   const botState = { current: 'idle', handRaisedAt: 0 }
-  const cur = { lx: 0, ly: 0, eyeS: 1, tilt: 0, hand: 0, mouth: 0, glow: 0 }
+  const cur = { lx: 0, ly: 0, eyeS: 1, tilt: 0, hand: 0, mouth: 0, glow: 0, shimmer: 0, dots: 0 }
   let level = 0
   let last = performance.now()
   let blinkAt = last + 1800
@@ -102,10 +115,15 @@ const PAGE = `<!DOCTYPE html>
     return syl.amp * Math.pow(Math.sin(Math.PI * p), 0.8)
   }
 
-  function targets() {
-    const T = { lx: wander.x, ly: wander.y, eyeS: 1, tilt: 0, hand: 0, mouth: 0, glow: 0 }
+  function targets(t) {
+    const T = { lx: wander.x, ly: wander.y, eyeS: 1, tilt: 0, hand: 0, mouth: 0, glow: 0, shimmer: 0, dots: 0 }
     if (botState.current === 'hand-raised') {
       T.lx = 22; T.ly = -20; T.eyeS = 1.08; T.tilt = 3; T.hand = 1
+    } else if (botState.current === 'thinking') {
+      // Eyes drift up and gently side to side, a soft light sweeps the visor, and three dots
+      // pulse near the mouth — covers the gap between "the agent noticed" (hand-raised hasn't
+      // fired yet — that's still gated on a moderator's live "go ahead") and real audio.
+      T.lx = 20 + Math.sin(t * 1.3) * 12; T.ly = -26; T.eyeS = 0.97; T.dots = 1; T.shimmer = 1
     } else if (botState.current === 'speaking') {
       T.lx = wander.x * 0.3; T.ly = 0; T.mouth = 1; T.glow = 0.4
     }
@@ -122,7 +140,7 @@ const PAGE = `<!DOCTYPE html>
       wander = { x: (Math.random() * 2 - 1) * 18, y: (Math.random() * 2 - 1) * 10 }
       nextWander = now + 3500 + Math.random() * 4500
     }
-    const T = targets()
+    const T = targets(t)
     for (const key in cur) cur[key] += (T[key] - cur[key]) * k
 
     const hasFreshExtLevel = extLevel !== null && now - extAt < EXT_LEVEL_STALE_MS
@@ -145,7 +163,7 @@ const PAGE = `<!DOCTYPE html>
       const p = (now - blinkStart) / 170
       if (p >= 1) {
         blinkStart = -1
-        blinkAt = now + 2200 + Math.random() * 3500
+        blinkAt = now + (botState.current === 'thinking' ? 3500 : 2200) + Math.random() * 3500
       } else {
         blink = 1 - 0.92 * Math.sin(Math.PI * p)
       }
@@ -186,6 +204,17 @@ const PAGE = `<!DOCTYPE html>
 
     // a faint visor glow that pulses with the level while speaking
     glow.setAttribute('opacity', (cur.glow * 0.38 * level).toFixed(3))
+
+    // a soft light sweeping across the visor while thinking
+    shimmer.setAttribute('x', (-300 + ((t % 2.4) / 2.4) * 1700).toFixed(1))
+    shimmer.setAttribute('opacity', (cur.shimmer * 0.45).toFixed(3))
+
+    // three dots near the mouth pulse and bounce while thinking
+    dotEls.forEach((d, i) => {
+      const a = 0.3 + 0.7 * Math.max(0, Math.sin(t * 4.2 - i * 0.9))
+      d.setAttribute('opacity', (cur.dots * a).toFixed(3))
+      d.setAttribute('transform', \`translate(0 \${(-8 * cur.dots * Math.max(0, Math.sin(t * 4.2 - i * 0.9))).toFixed(2)})\`)
+    })
 
     // hand: pops up and gives a short wave, then holds raised
     const since = now - botState.handRaisedAt
@@ -259,19 +288,29 @@ const PAGE = `<!DOCTYPE html>
     socket.on('audio:chunk', (chunk) => {
       audioQueue.push(chunk)
     })
-    socket.on('audio:chime', () => {
+    // A single short sine tone. Shared by both chimes below — same construction, different
+    // pitch/loudness/length — so the two read as a related pair rather than unrelated effects.
+    function playChime(frequencyHz, peakGain, durationSec) {
       const ctx = new AudioContext()
       const osc = ctx.createOscillator()
       const gain = ctx.createGain()
       osc.connect(gain)
       gain.connect(ctx.destination)
       osc.type = 'sine'
-      osc.frequency.value = 880
-      gain.gain.setValueAtTime(0.25, ctx.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6)
+      osc.frequency.value = frequencyHz
+      gain.gain.setValueAtTime(peakGain, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + durationSec)
       osc.start(ctx.currentTime)
-      osc.stop(ctx.currentTime + 0.6)
-    })
+      osc.stop(ctx.currentTime + durationSec)
+    }
+
+    // The "go ahead, I'm about to speak" cue — a moderator's call-upon was just flushed.
+    socket.on('audio:chime', () => playChime(880, 0.25, 0.6))
+    // A quieter, lower cue for "I noticed and I'm working on it" — one octave down and
+    // shorter/softer than the hand-raise chime above, so it reads as a related but lesser
+    // event: present for whoever's watching the UI, without competing for the room's
+    // attention the way the hand-raise chime deliberately does.
+    socket.on('audio:chime:thinking', () => playChime(440, 0.12, 0.3))
   }
 </script>
 </body>

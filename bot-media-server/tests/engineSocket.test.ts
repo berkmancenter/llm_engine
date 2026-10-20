@@ -52,13 +52,15 @@ function makeAuth(getAccessToken: () => string = () => 'token-1') {
 }
 
 function makeHooks(): EngineSocketHooks & {
-  onStateChange: jest.Mock<(state: 'idle' | 'hand-raised' | 'speaking') => void>
+  onStateChange: jest.Mock<(state: 'idle' | 'hand-raised' | 'thinking' | 'speaking') => void>
   onChime: jest.Mock<() => void>
+  onThinkingChime: jest.Mock<() => void>
   onAudioChunk: jest.Mock<(chunk: AudioChunk) => void>
 } {
   return {
-    onStateChange: jest.fn<(state: 'idle' | 'hand-raised' | 'speaking') => void>(),
+    onStateChange: jest.fn<(state: 'idle' | 'hand-raised' | 'thinking' | 'speaking') => void>(),
     onChime: jest.fn<() => void>(),
+    onThinkingChime: jest.fn<() => void>(),
     onAudioChunk: jest.fn<(chunk: AudioChunk) => void>()
   }
 }
@@ -146,6 +148,105 @@ describe('engineSocket', () => {
       'conversation:join'
     )
     expect(payload.channels).toEqual([{ name: 'transcript', passcode: 'secret-pass' }])
+  })
+
+  test('agent:responding sets state to thinking and plays the thinking chime', async () => {
+    const hooks = makeHooks()
+    const { auth } = makeAuth()
+    makeEngineSocket(
+      { llmEngineWsUrl: fakeLlmEngine.url, conversationId: 'conv-1', botName: 'TestBot', auth, tts: fakeTts },
+      hooks
+    )
+
+    const engineSocket = await engineServerSocketPromise
+    engineSocket.emit('agent:responding', {})
+    await wait(20)
+
+    expect(hooks.onStateChange).toHaveBeenCalledWith('thinking')
+    expect(hooks.onThinkingChime).toHaveBeenCalledTimes(1)
+  })
+
+  test('gives up and goes idle if no message:chunk arrives within the thinking timeout', async () => {
+    const hooks = makeHooks()
+    const { auth } = makeAuth()
+    makeEngineSocket(
+      {
+        llmEngineWsUrl: fakeLlmEngine.url,
+        conversationId: 'conv-1',
+        botName: 'TestBot',
+        auth,
+        tts: fakeTts,
+        thinkingTimeoutMs: 30
+      },
+      hooks
+    )
+
+    const engineSocket = await engineServerSocketPromise
+    engineSocket.emit('agent:responding', {})
+    await wait(20)
+    hooks.onStateChange.mockClear()
+
+    await wait(40)
+
+    expect(hooks.onStateChange).toHaveBeenCalledWith('idle')
+  })
+
+  test('does not give up on thinking once a real message:chunk arrives in time', async () => {
+    const hooks = makeHooks()
+    const { auth } = makeAuth()
+    makeEngineSocket(
+      {
+        llmEngineWsUrl: fakeLlmEngine.url,
+        conversationId: 'conv-1',
+        botName: 'TestBot',
+        auth,
+        tts: fakeTts,
+        thinkingTimeoutMs: 30
+      },
+      hooks
+    )
+
+    const engineSocket = await engineServerSocketPromise
+    engineSocket.emit('agent:responding', {})
+    await wait(10)
+    engineSocket.emit('message:chunk', { requestId: 'r1', text: 'Hello there', done: false })
+    await wait(10)
+    hooks.onStateChange.mockClear()
+
+    await wait(40)
+
+    expect(hooks.onStateChange).not.toHaveBeenCalledWith('idle')
+  })
+
+  test('a second agent:responding while already hand-raised does not revert the state to thinking', async () => {
+    const hooks = makeHooks()
+    const { auth } = makeAuth()
+    makeEngineSocket(
+      { llmEngineWsUrl: fakeLlmEngine.url, conversationId: 'conv-1', botName: 'TestBot', auth, tts: fakeTts },
+      hooks
+    )
+
+    const engineSocket = await engineServerSocketPromise
+    await waitForServerEvent(engineSocket, 'conversation:join')
+
+    // First question's own agent:responding, then its chunk raises the hand.
+    engineSocket.emit('agent:responding', {})
+    await wait(10)
+    engineSocket.emit('message:chunk', { requestId: 'r1', text: 'Hello there', done: false })
+    await wait(50)
+    expect(hooks.onStateChange).toHaveBeenCalledWith('hand-raised')
+
+    hooks.onStateChange.mockClear()
+    hooks.onThinkingChime.mockClear()
+
+    // A second question (its own respond() call) can fire its own agent:responding while the
+    // first is still hand-raised, not yet called upon — must not drop the UI back to
+    // 'thinking' mid-first-response, or chime over it.
+    engineSocket.emit('agent:responding', {})
+    await wait(20)
+
+    expect(hooks.onStateChange).not.toHaveBeenCalledWith('thinking')
+    expect(hooks.onThinkingChime).not.toHaveBeenCalled()
   })
 
   test('a message chunk announces hand-raised + chime, and a call-upon flushes it as speaking audio', async () => {
