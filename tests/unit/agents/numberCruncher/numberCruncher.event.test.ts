@@ -13,12 +13,16 @@ const { default: Conversation } = await import('../../../../src/models/conversat
 
 const adminChannel = { name: 'number-cruncher-admin' }
 
-// A fake agent context: __t marks it as an Agent for the access check, and the
-// allTopics read grant matches every conversationStopped event, public or private.
+// A fake agent context: __t marks it as an Agent for the access check, and the allTopics
+// read grant (scoped to conversationStopped, matching the real capabilities.ts) matches
+// every conversationStopped event, public or private.
 function buildContext() {
   return {
     __t: 'Agent',
-    capabilities: { read: [{ type: 'allTopics' }], write: [{ type: 'ownConversation' }] },
+    capabilities: {
+      read: [{ type: 'allTopics', events: ['conversationStopped'] }],
+      write: [{ type: 'ownConversation' }]
+    },
     conversation: { _id: 'nc-conv-id', channels: [adminChannel] }
   }
 }
@@ -84,10 +88,9 @@ describe('numberCruncher onConversationEvent', () => {
       conversationId: 'c1'
     })
 
-    expect(mockTrackConversationCost).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'The Future of Work' }),
-      { topicIsPrivate: false }
-    )
+    expect(mockTrackConversationCost).toHaveBeenCalledWith(expect.objectContaining({ name: 'The Future of Work' }), {
+      topicIsPrivate: false
+    })
     expect(responses).toHaveLength(1)
     expect(responses[0].responseKind).toBe('conversationCostSummary')
     expect(responses[0].visible).toBe(true)
