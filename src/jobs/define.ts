@@ -11,6 +11,9 @@ import JobHandlers from './handlers/index.js'
 const LLM_JOB_LOCK_LIFETIME = 15 * 60 * 1000 // 15 minutes
 
 const defineJob = {
+  archiveEvent: async () => {
+    await agenda.define('archiveEvent', { lockLifetime: 60000 }, JobHandlers.archiveEvent)
+  },
   /* One definition per job TYPE, not per agent. agenda only ever processes a job name that
      some live process has define()'d (see jobs/CLAUDE.md and agent.service's boot-vs-
      reschedule note) - naming these per-agent would mean re-establishing the definition for
