@@ -71,7 +71,7 @@ export default verify({
 
     /* Re-checked at the read site even though the dispatcher already gated it, the same
        way the Vibes Analyst does — least privilege stays visible where the read happens. */
-    access.assertCanRead(this, { type: 'conversation', id: evt.conversationId })
+    access.assertCanRead(this, { type: 'conversation', id: evt.conversationId }, evt.type)
 
     try {
       const result = await conceptGraphService.generateConceptGraph(evt.conversationId, this)

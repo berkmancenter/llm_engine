@@ -7,7 +7,13 @@ import { AgentCapabilities, IMessage } from '../../types/index.types.js'
  */
 export default function (): AgentCapabilities {
   return {
-    read: [{ type: 'allPublicTopics' as const }],
+    // Scoped to conversationStopped: this agent's own onConversationEvent handler only ever
+    // acts on that event type anyway, so an unrestricted topic-wide grant would still let
+    // agentDispatcher schedule (and trace) a job for every participantJoined system-wide, each
+    // one immediately no-op'd by the handler's own early return — wasted work for nothing.
+    // Unaffected: summon.ts's on-demand recap re-check, a non-event read with no event type to
+    // pass — see grantAppliesToEvent's handling of an omitted eventType in access.ts.
+    read: [{ type: 'allPublicTopics' as const, events: ['conversationStopped'] }],
     write: [{ type: 'ownConversation' as const }]
   }
 }

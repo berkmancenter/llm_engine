@@ -1,5 +1,5 @@
 import Conversation from '../models/conversation.model.js'
-import { IAgent, IBaseUser, ReadGrant, ReadScope, WriteGrant, WriteScope } from '../types/index.types.js'
+import { ConversationEvent, IAgent, IBaseUser, ReadGrant, ReadScope, WriteGrant, WriteScope } from '../types/index.types.js'
 import AccessDeniedError from '../utils/AccessDeniedError.js'
 
 export { AccessDeniedError }
@@ -8,7 +8,18 @@ function isAgent(caller: IBaseUser): caller is IAgent {
   return caller.__t === 'Agent'
 }
 
-function assertCanRead(caller: IBaseUser, scope: ReadScope) {
+/* `events` only restricts a grant for the conversation-EVENT dispatch path (agentDispatcher,
+   and an agent's own re-check inside onConversationEvent) — both always pass the event's type.
+   A caller doing a general, non-event-driven read check (e.g. the Vibes Analyst's on-demand
+   summon command, which re-checks access before answering a direct question about an event)
+   has no event type to pass and isn't part of dispatch at all, so an `events`-restricted grant
+   must not block it just because eventType was omitted. */
+function grantAppliesToEvent(grant: ReadGrant, eventType?: ConversationEvent['type']) {
+  if (!grant.events || eventType === undefined) return true
+  return grant.events.includes(eventType)
+}
+
+function assertCanRead(caller: IBaseUser, scope: ReadScope, eventType?: ConversationEvent['type']) {
   if (!isAgent(caller)) {
     // User read checks are not yet centralised here — fall through for now
     return
@@ -16,6 +27,7 @@ function assertCanRead(caller: IBaseUser, scope: ReadScope) {
 
   const grants: ReadGrant[] = caller.capabilities?.read ?? []
   const allowed = grants.some((g) => {
+    if (!grantAppliesToEvent(g, eventType)) return false
     if (g.type === 'allTopics') return true
     if (g.type === 'allPublicTopics') return scope.topicIsPrivate !== true
     if (g.type === 'ownConversation')

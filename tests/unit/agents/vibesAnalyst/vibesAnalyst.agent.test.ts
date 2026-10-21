@@ -114,14 +114,19 @@ describe('vibesAnalyst agent', () => {
   describe('onConversationEvent', () => {
     const adminChannel = { name: 'va-admin' }
 
-    // A fake agent context: __t marks it as an Agent for the access check, and
-    // the allPublicTopics read grant matches any non-private event. getLLM stands in for the
-    // real agent document's model builder, which carries the agent's configured model options
-    // (the token cap among them); the recap passes must run on that model, not a bare default.
+    // A fake agent context: __t marks it as an Agent for the access check, and the
+    // allPublicTopics read grant (scoped to conversationStopped, matching the real
+    // capabilities.ts) matches any non-private conversationStopped event. getLLM stands in for
+    // the real agent document's model builder, which carries the agent's configured model
+    // options (the token cap among them); the recap passes must run on that model, not a bare
+    // default.
     function buildContext() {
       return {
         __t: 'Agent',
-        capabilities: { read: [{ type: 'allPublicTopics' }], write: [{ type: 'ownConversation' }] },
+        capabilities: {
+          read: [{ type: 'allPublicTopics', events: ['conversationStopped'] }],
+          write: [{ type: 'ownConversation' }]
+        },
         conversation: { _id: 'va-conv-id', channels: [adminChannel] },
         getLLM: jest.fn<() => Promise<unknown>>().mockResolvedValue({ agentLlm: true })
       }

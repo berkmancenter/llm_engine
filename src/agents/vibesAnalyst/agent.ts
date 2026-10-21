@@ -109,12 +109,16 @@ export default verify({
     // an explicit `private: false` counts as private, so an unpopulated or deleted
     // topic is never read as public.
     const topic = conversation.topic as { _id?: { toString(): string }; private?: boolean } | undefined
-    access.assertCanRead(this, {
-      type: 'conversation',
-      id: evt.conversationId,
-      topicId: topic?._id?.toString(),
-      topicIsPrivate: topic?.private !== false
-    })
+    access.assertCanRead(
+      this,
+      {
+        type: 'conversation',
+        id: evt.conversationId,
+        topicId: topic?._id?.toString(),
+        topicIsPrivate: topic?.private !== false
+      },
+      evt.type
+    )
 
     /* Pull external tracked-session snapshots (e.g. Matomo) now, from inside this
        dispatched job rather than on the event-stop request. Matomo may not have

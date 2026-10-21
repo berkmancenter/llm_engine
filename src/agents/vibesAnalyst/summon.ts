@@ -224,6 +224,9 @@ export async function smallTalkReply(
 function accessDeniedMessage(context, conversation): string | null {
   const topic = conversation.topic as { _id?: { toString(): string }; private?: boolean } | undefined
   try {
+    // No event type passed deliberately: this is a general, on-demand access check (a summon
+    // command, not conversation-event dispatch), so an `events`-restricted grant must not treat
+    // it as the wrong event type — see grantAppliesToEvent's handling of an omitted eventType.
     access.assertCanRead(context, {
       type: 'conversation',
       id: conversation._id.toString(),

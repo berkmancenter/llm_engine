@@ -35,9 +35,9 @@ async function seedMessage(
 }
 
 describe('vibesAnalyst capabilities', () => {
-  it('reads all public topics so it can react to every public event', () => {
+  it('reads all public topics so it can react to every public event, scoped to conversationStopped', () => {
     const result = capabilities()
-    expect(result.read).toEqual([{ type: 'allPublicTopics' }])
+    expect(result.read).toEqual([{ type: 'allPublicTopics', events: ['conversationStopped'] }])
   })
 
   it('writes only to its own conversation', () => {

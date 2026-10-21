@@ -75,7 +75,9 @@ const verifyToken = async (token, type) => {
 const generateAuthTokens = async (user) => {
   const accessTokenExpires = moment().add(config.jwt.accessExpirationMinutes, 'minutes')
   const accessToken = generateToken(user.id, accessTokenExpires, tokenTypes.ACCESS)
-  const refreshTokenExpires = moment().add(config.jwt.refreshExpirationDays, 'days')
+  // .utc() avoids moment's local-time, DST-aware calendar-day arithmetic, which otherwise
+  // makes a refresh token expire an hour early or late whenever the window crosses a DST transition.
+  const refreshTokenExpires = moment.utc().add(config.jwt.refreshExpirationDays, 'days')
   const refreshToken = generateToken(user.id, refreshTokenExpires, tokenTypes.REFRESH)
   await saveToken(refreshToken, user.id, refreshTokenExpires, tokenTypes.REFRESH)
   return {
@@ -117,7 +119,9 @@ const generatePasswordResetToken = async (user) => {
  * @returns {Promise<string>}
  */
 const generateArchiveTopicToken = async (user) => {
-  const expires = moment().add(7, 'days')
+  // .utc() avoids moment's local-time, DST-aware calendar-day arithmetic — see
+  // generateAuthTokens' refreshTokenExpires above for why.
+  const expires = moment.utc().add(7, 'days')
   const archiveTopicToken = await generateToken(user.id, expires, tokenTypes.ARCHIVE_TOPIC)
   await saveToken(archiveTopicToken, user.id, expires, tokenTypes.ARCHIVE_TOPIC)
   return archiveTopicToken
