@@ -554,10 +554,41 @@ describe('WebSocket events for hidden messages', () => {
       await websocketGateway.broadcastNewVote((await Message.findById(s.authorMsg._id))!)
 
       const voteCalls = calls('vote:new')
-      expect(voteCalls).toHaveLength(1)
+      // the admin room (flagged) and the author's own room (below); nothing to the shared rooms
+      expect(voteCalls).toHaveLength(2)
       expect(toAdminRoom(voteCalls[0])).toBe(true)
       expect(voteCalls[0][2]).toMatchObject({ hidden: true })
       expect(voteCalls.some(toSharedRooms)).toBe(false)
+    })
+
+    test('the author still gets votes on their own hidden message, in their user room only', async () => {
+      await messageHideService.hideMessage(s.authorMsg._id, s.admin)
+      broadcastSpy.mockClear()
+
+      await websocketGateway.broadcastNewVote((await Message.findById(s.authorMsg._id))!)
+
+      const ownerCall = calls('vote:new').find((call) => call[4]?.includes(s.author._id.toString()))
+      expect(ownerCall).toBeDefined()
+      expect(ownerCall![3]).toEqual([])
+      expect(ownerCall![4]).toEqual([s.author._id.toString()])
+      // unflagged, like their own message:new, so the hide is not revealed to them
+      expect(ownerCall![2]).not.toHaveProperty('hidden')
+      expect(ownerCall![2]).toMatchObject({ body: s.authorMsg.body })
+      // nobody else is sent the body: only the admin room (flagged) and the owner's room get this event
+      const others = calls('vote:new').filter((call) => call !== ownerCall)
+      expect(others.every(toAdminRoom)).toBe(true)
+      expect(calls('vote:new').some(toSharedRooms)).toBe(false)
+    })
+
+    test('a vote on a hidden author’s message goes to the author, not to other participants', async () => {
+      await messageHideService.hideUserMessages(conversationId, s.author._id, s.admin)
+      broadcastSpy.mockClear()
+
+      await websocketGateway.broadcastNewVote((await Message.findById(s.authorMsg._id))!)
+
+      const rooms = calls('vote:new').flatMap((call) => call[4] ?? [])
+      expect(rooms).toContain(s.author._id.toString())
+      expect(rooms).not.toContain(s.other._id.toString())
     })
 
     test('a visible message votes through the shared rooms as before', async () => {

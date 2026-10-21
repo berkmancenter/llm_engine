@@ -182,10 +182,11 @@ describe('admin hide message', () => {
         .expect(httpStatus.OK)
       expect(voted.body.upVotes).toHaveLength(1)
       // vote() does not await the broadcast, so wait for it before the mocks are restored
-      await waitFor(() => expect(broadcastSpy.mock.calls.filter((c) => c[1] === 'vote:new')).toHaveLength(1))
-      const [voteCall] = broadcastSpy.mock.calls.filter((c) => c[1] === 'vote:new')
-      expect(voteCall[4]).toEqual([`admin:${conversationOne._id}`])
-      expect(voteCall[3]).toEqual([])
+      // two sends: the flagged copy to the admin room, and the author's own unflagged copy to their user room
+      await waitFor(() => expect(broadcastSpy.mock.calls.filter((c) => c[1] === 'vote:new')).toHaveLength(2))
+      const voteCalls = broadcastSpy.mock.calls.filter((c) => c[1] === 'vote:new')
+      expect(voteCalls.map((c) => c[4])).toEqual([[`admin:${conversationOne._id}`], [s.author._id.toString()]])
+      expect(voteCalls.every((c) => c[3]?.length === 0)).toBe(true)
     })
 
     test('voting on a visible message is unaffected by hiding another one', async () => {

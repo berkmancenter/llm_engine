@@ -206,6 +206,11 @@ class WebsocketGateway {
       [],
       [getAdminRoomId(conversationId)]
     )
+    // The author still sees votes on their own hidden message (shadow-hide), unflagged, in their own user room only.
+    const ownerId = ownerIdOf(message.owner)
+    if (ownerId && viewMessageFor(message, viewerOf({ _id: ownerId }), ctx) === 'full') {
+      await this.broadcast(conversationId, 'vote:new', serialized, [], [ownerId])
+    }
   }
 
   async broadcastNewConversation(conversation) {

@@ -119,7 +119,8 @@ describe('placeholder policy', () => {
       .set('Authorization', `Bearer ${s.adminToken}`)
       .send({ status: true, direction: 'up' })
       .expect(200)
-    await waitFor(() => expect(calls('vote:new')).toHaveLength(2))
+    // stub to the shared rooms, flagged to the admin room, and the author's own copy to their user room
+    await waitFor(() => expect(calls('vote:new')).toHaveLength(3))
 
     const votes = calls('vote:new')
     const shared = votes.find(toShared)!
