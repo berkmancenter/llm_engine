@@ -13,6 +13,7 @@ import { resolveDisplayName } from './user.service.js'
 import {
   hiddenMessagesMatch,
   isMessageHidden,
+  populateMessagesForModel,
   loadHideContext,
   renderMessageView,
   viewMessageFor,
@@ -44,13 +45,10 @@ const fetchConversation = async (messageBody, user) => {
     // reload the conversation within the lock to update version
     conversation = await Conversation.findOne({ _id: conversation._id })
   }
-  await conversation.populate([
-    { path: 'agents' },
-    { path: 'channels' },
-    { path: 'adapters' },
-    // hidden messages never enter the conversation context handed to agents
-    { path: 'messages', match: { visible: true, ...(await hiddenMessagesMatch(conversation._id, 'model')) } }
-  ])
+  // hidden messages never enter the conversation context handed to agents
+  await populateMessagesForModel(conversation, [{ path: 'agents' }, { path: 'channels' }, { path: 'adapters' }], {
+    visible: true
+  })
 
   if (conversation.locked) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'This conversation is locked and cannot receive messages.')

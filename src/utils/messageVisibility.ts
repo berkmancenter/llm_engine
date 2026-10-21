@@ -175,6 +175,9 @@ export async function isMessageHiddenFromModel(messageId: string | mongoose.Type
  */
 export type MessageAudience = 'participant' | 'admin' | 'model'
 
+const matchFromContext = (ctx: HideContext): { _id?: { $nin: string[] } } =>
+  ctx.hiddenIds.size ? { _id: { $nin: [...ctx.hiddenIds] } } : {}
+
 /**
  * Mongo match for one audience: leaves hidden messages out for `participant` and `model`, nothing for `admin`.
  * For populated `messages` and direct queries; applies to the chat channel only (see `loadHideContext`).
@@ -184,8 +187,32 @@ export async function hiddenMessagesMatch(
   audience: MessageAudience
 ): Promise<{ _id?: { $nin: string[] } }> {
   if (audience === 'admin') return {}
-  const ctx = await loadHideContext(conversationId)
-  return ctx.hiddenIds.size ? { _id: { $nin: [...ctx.hiddenIds] } } : {}
+  return matchFromContext(await loadHideContext(conversationId))
+}
+
+/* The hide context a populated message list was loaded under, keyed by the list itself. Lets
+   getConversationHistory apply hidden authors and ids to `conversation.messages` without every agent
+   passing the context through its history settings. */
+const contextByList = new WeakMap<object, HideContext>()
+
+/** The hide context `populateMessagesForModel` loaded a message list under, if it was loaded that way. */
+export const hideContextOf = (messages: unknown): HideContext | undefined =>
+  messages && typeof messages === 'object' ? contextByList.get(messages) : undefined
+
+/**
+ * Populate a conversation's `messages` for the model audience (hidden ones left out, plus `extraMatch`) and
+ * remember the hide context used, so the history backstop can apply the same rules (see `hideContextOf`).
+ * `extraPaths` are populated in the same call.
+ */
+export async function populateMessagesForModel(
+  conversation: any,
+  extraPaths: any[] = [],
+  extraMatch: Record<string, unknown> = {}
+): Promise<HideContext> {
+  const ctx = await loadHideContext(conversation._id)
+  await conversation.populate([{ path: 'messages', match: { ...extraMatch, ...matchFromContext(ctx) } }, ...extraPaths])
+  if (conversation.messages) contextByList.set(conversation.messages, ctx)
+  return ctx
 }
 
 export interface FindMessagesOptions {
