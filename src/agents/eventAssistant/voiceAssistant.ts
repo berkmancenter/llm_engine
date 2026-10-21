@@ -45,9 +45,10 @@ function wrapVoiceSourceMessage(response, questionText, userMessage, chatChannel
 }
 
 /**
- * Reads a matched announcement verbatim — no LLM call. Mirrors respond()'s two response
- * shapes: streamed TTS chunks (one per announcement.segments()-derived segment) when
- * voiceOutput is on, or a single chat message with the raw, unsegmented body when it's off.
+ * Reads a matched announcement verbatim — no LLM call. When voiceOutput is on, additionally
+ * streams the announcement as TTS chunks (one per announcement.segments()-derived segment)
+ * before posting it to chat; either way, the chat channel gets the same single message with
+ * the raw, unsegmented body.
  */
 async function respondWithAnnouncement(announcement, questionText, userMessage, voiceOutput, conversationId) {
   if (voiceOutput) {
@@ -66,7 +67,6 @@ async function respondWithAnnouncement(announcement, questionText, userMessage, 
     } finally {
       await broadcastChunk(conversationId, transcriptChannel.name, requestId, '', true, 'done marker')
     }
-    return []
   }
 
   const chatChannel = findChannel(this.conversation, 'chat')
@@ -144,9 +144,10 @@ export default verify({
     }
 
     if (voiceOutput) {
-      // In voice output mode, stream chunks on the transcript channel for clients to consume for TTS.
-      // No message is saved or broadcast — the durable record of
-      // what the bot said comes from transcribing the spoken audio back.
+      // In voice output mode, stream chunks on the transcript channel for clients to consume
+      // for TTS, live as they're generated — in addition to (below) posting the same answer
+      // to chat once it's done, same as the non-voice path, so there's still a durable,
+      // visible chat record of what the bot said.
       const target = resolveVoiceStreamTarget(this.conversation, userMessage, conversationId)
       if (!target) return []
       const { transcriptChannel, requestId } = target
@@ -157,15 +158,16 @@ export default verify({
         broadcastChunk(conversationId, transcriptChannel.name, requestId, text, false, 'chunk')
       }
 
+      let responses
       try {
         // answerQuestion expects chat/DM history; transcript is handled internally via RAG
-        const responses = await answerQuestion.call(this, questionMessage, { messages: [] }, { voiceOutput, onChunk })
+        responses = await answerQuestion.call(this, questionMessage, { messages: [] }, { voiceOutput, onChunk })
 
         // Not every path inside answerQuestion streams via onChunk — e.g. the no-tools branch
         // resolves the full answer in one shot with no chunk callback at all. Without this
-        // fallback that answer is silently dropped: never streamed, never persisted, the
-        // client only ever sees an empty done:true marker. Covers any other future path that
-        // resolves without streaming too, with no changes needed there.
+        // fallback that answer is silently dropped from the transcript/TTS stream (it's still
+        // posted to chat below either way). Covers any other future path that resolves without
+        // streaming too, with no changes needed there.
         if (!chunkStreamed) {
           const fullText = responses[0]?.message?.text
           if (fullText) {
@@ -179,7 +181,9 @@ export default verify({
         await broadcastChunk(conversationId, transcriptChannel.name, requestId, '', true, 'done marker')
       }
 
-      return []
+      const voiceChatChannel = findChannel(this.conversation, 'chat')
+      if (!voiceChatChannel) return []
+      return responses.map((r) => wrapVoiceSourceMessage(r, questionText, userMessage, voiceChatChannel))
     }
 
     const chatChannel = findChannel(this.conversation, 'chat')

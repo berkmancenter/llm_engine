@@ -16,12 +16,14 @@ const { default: voiceAssistant } = await import('../../../../src/agents/eventAs
 const { default: websocketGateway } = await import('../../../../src/websockets/websocketGateway.js')
 
 const chatChannel = { name: 'chat' }
+const transcriptChannel = { name: 'transcript' }
 
-function buildContext() {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildContext({ voiceOutput = false, channels = [chatChannel] as any[] } = {}) {
   return {
     _id: 'agent-1',
-    agentConfig: { botName: 'Berkie', voiceOutput: false },
-    conversation: { _id: 'conv-1', channels: [chatChannel], announcements: [] }
+    agentConfig: { botName: 'Berkie', voiceOutput },
+    conversation: { _id: 'conv-1', channels, announcements: [] }
   }
 }
 
@@ -57,5 +59,44 @@ describe('voiceAssistant.respond — agent:responding broadcast', () => {
     expect(responses).toEqual([])
     expect(mockAnswerQuestion).not.toHaveBeenCalled()
     expect(broadcastSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('voiceAssistant.respond — voice output also posts to chat', () => {
+  afterEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('posts the answer to chat in addition to streaming it, once answerQuestion resolves', async () => {
+    jest.spyOn(websocketGateway, 'broadcastAgentResponding').mockResolvedValue()
+    const chunkSpy = jest.spyOn(websocketGateway, 'broadcastMessageChunk').mockResolvedValue()
+    mockAnswerQuestion.mockResolvedValue([
+      { visible: true, message: { text: 'Lunch is at noon.' }, messageType: 'json', channels: [] }
+    ])
+    const context = buildContext({ voiceOutput: true, channels: [transcriptChannel, chatChannel] })
+
+    const responses = await voiceAssistant.respond.call(context, { messages: [] }, msg('hey Berkie what time is lunch'))
+
+    // Still streamed on the transcript channel for TTS...
+    expect(chunkSpy).toHaveBeenCalled()
+    // ...but now also posted to chat, same as the non-voice path.
+    expect(responses).toHaveLength(1)
+    expect(responses[0].channels).toEqual([chatChannel])
+    expect(responses[0].message.text).toBe('Lunch is at noon.')
+    expect(responses[0].message.source).toBe('voice')
+  })
+
+  it('does not post to chat when there is no chat channel, but still streams', async () => {
+    jest.spyOn(websocketGateway, 'broadcastAgentResponding').mockResolvedValue()
+    const chunkSpy = jest.spyOn(websocketGateway, 'broadcastMessageChunk').mockResolvedValue()
+    mockAnswerQuestion.mockResolvedValue([
+      { visible: true, message: { text: 'Lunch is at noon.' }, messageType: 'json', channels: [] }
+    ])
+    const context = buildContext({ voiceOutput: true, channels: [transcriptChannel] })
+
+    const responses = await voiceAssistant.respond.call(context, { messages: [] }, msg('hey Berkie what time is lunch'))
+
+    expect(chunkSpy).toHaveBeenCalled()
+    expect(responses).toEqual([])
   })
 })
