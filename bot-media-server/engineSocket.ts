@@ -186,7 +186,17 @@ export function createEngineSocket(config: EngineSocketConfig, hooks: EngineSock
           queue.chunkFailed(requestId)
         })
     }
-    if (done) queue.markResponseDone(requestId)
+    if (done) {
+      queue.markResponseDone(requestId)
+      // A done:true with no preceding real chunk (text was always empty/falsy, so the branch
+      // above never ran queue.startResponse for this requestId) means nothing was ever
+      // registered for this response — answerQuestion threw/returned nothing, or there was no
+      // transcript channel to stream onto at all (see voiceAssistant.ts's respond()).
+      if (currentState === 'thinking' && !queue.hasPending()) {
+        clearTimeout(thinkingTimeout)
+        setState('idle')
+      }
+    }
   })
 
   // llm_engine's generic "an agent is working on a response" signal (see

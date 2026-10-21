@@ -218,6 +218,62 @@ describe('engineSocket', () => {
     expect(hooks.onStateChange).not.toHaveBeenCalledWith('idle')
   })
 
+  test('an empty done:true chunk with nothing pending clears thinking immediately, without waiting for the timeout', async () => {
+    const hooks = makeHooks()
+    const { auth } = makeAuth()
+    makeEngineSocket(
+      { llmEngineWsUrl: fakeLlmEngine.url, conversationId: 'conv-1', botName: 'TestBot', auth, tts: fakeTts },
+      hooks
+    )
+
+    const engineSocket = await engineServerSocketPromise
+    engineSocket.emit('agent:responding', {})
+    await wait(20)
+    expect(hooks.onStateChange).toHaveBeenCalledWith('thinking')
+    hooks.onStateChange.mockClear()
+
+    // answerQuestion threw/returned nothing, or there was no transcript channel to stream onto
+    // at all (see voiceAssistant.ts's respond()) — either way, only the empty done marker ever
+    // arrives, with no preceding real chunk ever registered for this requestId.
+    engineSocket.emit('message:chunk', { requestId: 'r1', text: '', done: true })
+    await wait(20)
+
+    expect(hooks.onStateChange).toHaveBeenCalledWith('idle')
+  })
+
+  test('an empty done:true marker does not force idle while its own chunk is still converting to audio', async () => {
+    const hooks = makeHooks()
+    const { auth } = makeAuth()
+    let resolveTts: (buf: Buffer) => void
+    const slowTts = (text: string) =>
+      new Promise<Buffer>((resolve) => {
+        resolveTts = () => resolve(Buffer.from(text))
+      })
+    makeEngineSocket(
+      { llmEngineWsUrl: fakeLlmEngine.url, conversationId: 'conv-1', botName: 'TestBot', auth, tts: slowTts },
+      hooks
+    )
+
+    const engineSocket = await engineServerSocketPromise
+    engineSocket.emit('agent:responding', {})
+    await wait(20)
+    expect(hooks.onStateChange).toHaveBeenCalledWith('thinking')
+
+    // The text stream finishes (done:true) before this chunk's TTS conversion resolves —
+    // queue.hasPending() is still true (registered via startResponse), so this must not force
+    // a premature idle: the response is still genuinely on its way to hand-raised.
+    engineSocket.emit('message:chunk', { requestId: 'r1', text: 'Hello there', done: false })
+    engineSocket.emit('message:chunk', { requestId: 'r1', text: '', done: true })
+    await wait(20)
+
+    expect(hooks.onStateChange).not.toHaveBeenCalledWith('idle')
+
+    resolveTts!(Buffer.from('Hello there'))
+    await wait(20)
+
+    expect(hooks.onStateChange).toHaveBeenCalledWith('hand-raised')
+  })
+
   test('a second agent:responding while already hand-raised does not revert the state to thinking', async () => {
     const hooks = makeHooks()
     const { auth } = makeAuth()
