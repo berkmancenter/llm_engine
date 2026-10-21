@@ -28,6 +28,10 @@ describe('isCalledUpon', () => {
     expect(isCalledUpon('go ahead Burkie', botName)).toBe(true)
   })
 
+  test('fuzzy-matches a looser misspelling of the bot name', () => {
+    expect(isCalledUpon('go ahead, burkey', botName)).toBe(true)
+  })
+
   test('does not match an unrelated name', () => {
     expect(isCalledUpon('go ahead Waldo', botName)).toBe(false)
   })
