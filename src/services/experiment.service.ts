@@ -184,7 +184,9 @@ const createExperiment = async (experimentBody, user) => {
   if (!experimentBody.executedAt) {
     // clone base conversation into a new conversation that can be used for simulation
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { _id, createdAt, updatedAt, ...resultConversationData } = baseConversation.toObject()
+    const { _id, createdAt, updatedAt, hiddenAuthors, ...resultConversationData } = baseConversation.toObject()
+    // hiddenAuthors is moderation state of the base conversation: its hidden messages are not copied (see
+    // duplicateConversationMessages), so the copy must not keep hiding those authors' new simulated posts either
 
     resultConversationData.experimental = true
     resultConversation = new Conversation(resultConversationData)

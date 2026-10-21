@@ -18,15 +18,16 @@ const ALLOWED: Record<string, string> = {
   'services/messageHide.service.ts': 'admin moderation path: hides, unhides and audits messages',
   'services/message.service.ts':
     'REST list, replies, votes: each message goes through viewMessageFor; LLM copies use hiddenMessagesMatch',
-  'models/user.model/agent.model/index.ts': 'agent context populate carries hiddenMessagesMatch(…, model)',
   'agents/helpers/getThreadMessages.ts': 'thread reads carry hiddenMessagesMatch(…, model)',
   'services/report.service.ts': 'comment populate carries hiddenMessagesMatch(…, model); every other read is findMessages',
-  'models/conversation.model.ts': 'messageCount: a count, no text',
+  'models/conversation.model.ts': 'messageCount: a count, no text, with the participant hidden-message match',
   'services/conversationAnalytics.service.ts':
-    'counts and timing; no message text leaves the service (known follow-up: hidden messages are counted)',
-  'services/topic.service.ts': 'populates ids and timestamps only',
+    'counts and timing with the model-audience match (humanMessageMatch); no message text leaves the service',
+  'services/topic.service.ts':
+    'topic list populates ids and timestamps with the participant match; the archive jobs treat hidden posts as activity',
   'services/conversation.service/index.ts': 'populates ids and visibility flags only',
-  'services/experiment.service.ts': 'experiment copies; respond() re-populates with the hidden-message match',
+  'services/experiment.service.ts':
+    'experiment copies, which never include hidden messages (duplicateConversationMessages); respond() re-populates with the match',
   'services/user.service.ts': "a user's own messages and reputation votes; no model or report input",
   'services/conceptGraph/index.ts':
     'distinct owner ids for the identity screen (over-inclusive on purpose); text is read through findMessages',
@@ -36,7 +37,6 @@ const ALLOWED: Record<string, string> = {
   'jobs/handlers/agent.ts': "the agent's own last message",
   'agents/helpers/transcript.ts': 'transcript channel only; not hideable',
   'agents/eventAssistant/eventAssistant.ts': 'escalation lookup of one message by id (known follow-up)',
-  'agents/vibesAnalyst/thread.ts': "threads in the analyst's own admin conversation",
   'adapters/slack/index.ts': 'adapter bookkeeping: thread ids, source ids',
   'adapters/zoom.ts': 'adapter bookkeeping: ids and parents only'
 }
@@ -77,7 +77,8 @@ describe('raw Message reads', () => {
     const moved = [
       'services/conversation.service/lifecycle.ts',
       'agents/vibesAnalyst/capabilities.ts',
-      'agents/vibesAnalyst/buildSummary.ts'
+      'agents/vibesAnalyst/buildSummary.ts',
+      'agents/vibesAnalyst/thread.ts'
     ]
     expect(offenders.filter(({ rel }) => moved.includes(rel))).toEqual([])
   })

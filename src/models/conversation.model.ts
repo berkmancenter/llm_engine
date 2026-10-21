@@ -4,6 +4,8 @@ import slugify from 'slugify'
 import { toJSON, paginate, lock, hasPdf } from './plugins/index.js'
 import { IConversation, Profile, Resource } from '../types/index.types.js'
 import Message from './message.model.js'
+// circular with this model (messageVisibility reads Conversation); only used inside methods, so safe
+import { hiddenMessagesMatch } from '../utils/messageVisibility.js'
 import transcriptSchema from './schemas/transcript.schema.js'
 import announcementSchema from './schemas/announcement.schema.js'
 import provenanceSchema from './schemas/provenance.schema.js'
@@ -252,9 +254,16 @@ conversationSchema.virtual('messages', {
 })
 
 // count related messages when desired
-// default to visible, no replies
+// default to visible, no replies, and not admin-hidden (participant audience: a count is not per viewer,
+// so it never includes what any non-admin could not see)
 conversationSchema.method('messageCount', async function (query) {
-  return Message.countDocuments({ visible: true, parentMessage: null, ...query, conversation: this._id }).exec()
+  return Message.countDocuments({
+    visible: true,
+    parentMessage: null,
+    ...query,
+    ...(await hiddenMessagesMatch(this._id, 'participant')),
+    conversation: this._id
+  }).exec()
 })
 
 // add plugin that converts mongoose to json

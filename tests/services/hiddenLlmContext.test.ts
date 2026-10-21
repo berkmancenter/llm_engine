@@ -1,11 +1,21 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import mongoose from 'mongoose'
 import setupIntTest from '../utils/setupIntTest.js'
-import { Conversation, Message } from '../../src/models/index.js'
+import { Conversation, Message, Topic } from '../../src/models/index.js'
 import getConversationHistory from '../../src/agents/helpers/getConversationHistory.js'
 import getThreadMessages from '../../src/agents/helpers/getThreadMessages.js'
 import conceptGraphService from '../../src/services/conceptGraph/index.js'
-import { findMessages, hiddenMessagesMatch, loadHideContext } from '../../src/utils/messageVisibility.js'
+import { duplicateConversationMessages } from '../../src/services/message.service.js'
+import topicService from '../../src/services/topic.service.js'
+import { fetchThread } from '../../src/agents/vibesAnalyst/thread.js'
+import {
+  findMessages,
+  hiddenMessagesMatch,
+  loadHideContext,
+  populateMessagesForModel
+} from '../../src/utils/messageVisibility.js'
 import { insertMessage, seedHideScenario, conversationOne } from '../fixtures/messageHide.fixture.js'
+import { publicTopic } from '../fixtures/conversation.fixture.js'
 
 /**
  * Hidden messages must never reach a model, whoever the reply is for. Each case seeds the same three
@@ -246,5 +256,133 @@ describe('messages outside the chat channel are never filtered out of model cont
     const conversation = await Conversation.findById(conversationOne._id)
     const { texts } = await conceptGraphService.loadSources(conversation, [])
     expect(texts).toEqual(expect.arrayContaining(['transcript words']))
+  })
+})
+
+describe('getThreadMessages with a hidden parent that has to be fetched', () => {
+  it('does not return a hidden parent', async () => {
+    const hiddenParent = await insertMessage(s.other, conversationOne, { body: 'hidden parent', hiddenByAdmin: true })
+    const trigger = await insertMessage(s.other, conversationOne, { parentMessage: hiddenParent._id, body: 'trigger' })
+
+    // allMessages lacks the parent, which sends getThreadMessages down its fetch-the-parent branch
+    const thread = await getThreadMessages([s.otherMsg] as any, trigger as any, conversationOne._id.toString())
+
+    expect(thread).toEqual([])
+  })
+
+  it('still returns a visible parent fetched that way', async () => {
+    const trigger = await insertMessage(s.other, conversationOne, { parentMessage: s.otherMsg._id, body: 'trigger' })
+    const thread = await getThreadMessages([trigger] as any, trigger as any, conversationOne._id.toString())
+    expect(bodies(thread)).toEqual([s.otherMsg.body])
+  })
+})
+
+describe('vibesAnalyst fetchThread', () => {
+  it('leaves out a hidden thread root and everything under it', async () => {
+    await hideSingle()
+    const trigger = await insertMessage(s.other, conversationOne, { parentMessage: s.authorMsg._id, body: 'trigger' })
+    expect(await fetchThread(trigger as any, conversationOne._id.toString())).toEqual([])
+  })
+
+  it('returns a visible thread newest first', async () => {
+    const later = await insertMessage(s.other, conversationOne, { parentMessage: s.otherMsg._id, body: 'later' })
+    const thread = await fetchThread(later as any, conversationOne._id.toString())
+    expect(bodies(thread)).toEqual(bodies([s.otherMsg, later]))
+  })
+})
+
+describe('duplicateConversationMessages', () => {
+  const copiesOf = async (target) => Message.find({ conversation: target._id }).lean()
+
+  it('copies every message when nothing is hidden', async () => {
+    const target = new mongoose.Types.ObjectId()
+    await duplicateConversationMessages(conversationOne._id, target)
+    expect(await copiesOf({ _id: target })).toHaveLength(3)
+  })
+
+  it.each([
+    ['hidden on its own', hideSingle],
+    ['a hidden author', hideAuthor]
+  ])('does not copy %s, nor the reply under it', async (_name, hide) => {
+    await hide()
+    const target = new mongoose.Types.ObjectId()
+    await duplicateConversationMessages(conversationOne._id, target)
+    const copies = await copiesOf({ _id: target })
+    expect(copies.map((m: any) => m.body)).toEqual([s.otherMsg.body])
+  })
+
+  it('does not carry the hidden flag onto a copy', async () => {
+    // a flagged message outside chat is never hidden, so it is copied, but without the moderation flag
+    await insertMessage(s.author, conversationOne, { channels: ['assistant'], hiddenByAdmin: true, body: 'elsewhere' })
+    const target = new mongoose.Types.ObjectId()
+    await duplicateConversationMessages(conversationOne._id, target)
+    const copy: any = (await copiesOf({ _id: target })).find((m: any) => m.body === 'elsewhere')
+    expect(copy).toBeDefined()
+    expect(copy.hiddenByAdmin).toBeFalsy()
+  })
+})
+
+describe('participant-facing counts', () => {
+  it('Conversation.messageCount counts top-level messages without hidden ones', async () => {
+    const conversation: any = await Conversation.findById(conversationOne._id)
+    // authorMsg + otherMsg are top level; the reply is not
+    expect(await conversation.messageCount()).toBe(2)
+    await hideSingle()
+    expect(await conversation.messageCount()).toBe(1)
+  })
+
+  it('messageCount drops a hidden author’s top-level messages too', async () => {
+    const conversation: any = await Conversation.findById(conversationOne._id)
+    await hideAuthor()
+    expect(await conversation.messageCount()).toBe(1)
+  })
+
+  it('a topic list counts and dates activity without hidden messages', async () => {
+    await Topic.updateOne({ _id: publicTopic._id }, { conversations: [conversationOne._id] })
+    const find = async () => (await topicService.allPublicTopics()).find((t: any) => t.id === publicTopic._id.toString())
+    const before: any = await find()
+    expect(before.messageCount).toBe(2)
+    const stamp = (
+      id,
+      iso // createdAt is immutable through mongoose, so write it natively
+    ) => Message.collection.updateOne({ _id: id }, { $set: { createdAt: new Date(iso) } })
+    await stamp(s.otherMsg._id, '2020-01-01T00:00:00Z')
+    await stamp(s.authorMsg._id, '2021-01-01T00:00:00Z')
+    await stamp(s.reply._id, '2019-01-01T00:00:00Z')
+
+    await hideSingle()
+    const after: any = await find()
+
+    expect(after.messageCount).toBe(1)
+    // the newest remaining message is the older one: hiding authorMsg moves the topic's recency back
+    expect(new Date(after.latestMessageCreatedAt).getTime()).toBe(new Date('2020-01-01T00:00:00Z').getTime())
+  })
+})
+
+describe('history backstop applies the hide context the messages were populated under', () => {
+  it('drops a hidden author’s message that appears after the list was populated', async () => {
+    await hideAuthor()
+    const conversation: any = await Conversation.findById(conversationOne._id)
+    await populateMessagesForModel(conversation)
+    expect(bodies(conversation.messages)).toEqual([s.otherMsg.body])
+
+    // as createMessage does: the new post is pushed into the in-memory list, unseen by the populate match
+    const late = await insertMessage(s.author, conversationOne, { body: 'late post by hidden author' })
+    conversation.messages.push(late)
+
+    expect(bodies(getConversationHistory(conversation.messages, { count: 10, channels: ['chat'] }).messages)).toEqual([
+      s.otherMsg.body
+    ])
+  })
+
+  it('an explicit settings.hideContext wins over the one the list was loaded under', async () => {
+    const conversation: any = await Conversation.findById(conversationOne._id)
+    await populateMessagesForModel(conversation)
+    const ctx = await loadHideContext(conversationOne._id)
+    ctx.hiddenAuthors.add(s.other._id.toString())
+
+    const history = getConversationHistory(conversation.messages, { count: 10, channels: ['chat'], hideContext: ctx })
+
+    expect(bodies(history.messages)).toEqual([s.authorMsg.body])
   })
 })

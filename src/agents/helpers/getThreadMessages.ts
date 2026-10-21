@@ -43,8 +43,12 @@ export default async function getThreadMessages(
       return [parentMessage, ...replies].sort((a, b) => a.createdAt!.getTime() - b.createdAt!.getTime())
     }
 
-    // Parent not found in current messages, fetch it separately
-    const fetchedParent = await Message.findById(userMessage.parentMessage).exec()
+    // Parent not found in current messages, fetch it separately. A hidden parent is not returned:
+    // the thread is then empty, the same as a parent that does not exist.
+    const fetchedParent = await Message.findOne({
+      _id: { $eq: userMessage.parentMessage, ...hiddenMatch._id },
+      conversation: conversationId
+    }).exec()
 
     if (fetchedParent) {
       const replies = await Message.find({

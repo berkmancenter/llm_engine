@@ -488,7 +488,9 @@ export const duplicateConversationMessages = async (conversationOrId, duplicateC
     conversation = await Conversation.findOne({ _id: conversationOrId })
   }
 
-  // Hidden messages are not copied into another conversation (the copies feed experiments' model context).
+  /* Hidden messages are not copied into another conversation: the copies feed experiments' model context, and the
+     copy has no moderation log or admin to explain or undo a hide. The model audience also drops a hidden author's
+     messages and replies under a hidden one, so a copied reply never points at a missing parent. */
   const messages = await Message.find({
     ...messageQuery,
     ...(await hiddenMessagesMatch(conversation._id, 'model')),
@@ -498,8 +500,9 @@ export const duplicateConversationMessages = async (conversationOrId, duplicateC
   const duplicateConversationId = duplicateConversationOrId._id || duplicateConversationOrId
 
   const duplicatedMessages = messages.map((msg) => {
+    // hiddenByAdmin is moderation state of the source conversation; a copy starts unflagged
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { _id, ...msgData } = msg.toObject()
+    const { _id, hiddenByAdmin, ...msgData } = msg.toObject()
     const obj = {
       ...msgData,
       conversation: duplicateConversationId

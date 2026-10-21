@@ -12,6 +12,7 @@ import User from '../models/user.model/user.model.js'
 import { ITopic } from '../types/index.types.js'
 import { ConversationDocument } from '../models/conversation.model.js'
 import { TopicDocument } from '../models/topic.model.js'
+import { hiddenMessagesMatch } from '../utils/messageVisibility.js'
 
 /**
  * Query topics and add sorting properties
@@ -20,14 +21,25 @@ import { TopicDocument } from '../models/topic.model.js'
  */
 const topicsWithSortData = async (topicQuery) => {
   const dbtopics = await Topic.find(topicQuery)
-    // Populate conversations and messages for calculation of sorting properties
-    .populate({
-      path: 'conversations',
-      select: 'id',
-      populate: [{ path: 'messages', select: ['id', 'createdAt'], match: { visible: true } }]
-    })
+    // Populate conversations for calculation of sorting properties; messages follow, per conversation
+    .populate({ path: 'conversations', select: 'id' })
     .select('name slug description private votingAllowed conversationCreationAllowed archiveEmail owner archived')
     .exec()
+
+  // A topic list is for participants, so admin-hidden messages count toward neither activity nor
+  // recency. The hidden set is per conversation (and async), so the match cannot sit in a single
+  // populate option the way `visible: true` could.
+  await Promise.all(
+    dbtopics.flatMap((t) =>
+      t.conversations.map(async (c) =>
+        (c as ConversationDocument).populate({
+          path: 'messages',
+          select: ['id', 'createdAt'],
+          match: { visible: true, ...(await hiddenMessagesMatch(c._id!, 'participant')) }
+        })
+      )
+    )
+  )
 
   const topics: Array<ITopic> = await Promise.all(
     dbtopics.map(async (t) => {

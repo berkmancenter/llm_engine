@@ -1,4 +1,4 @@
-import Message from '../../models/message.model.js'
+import { findMessages } from '../../utils/messageVisibility.js'
 import { IMessage } from '../../types/index.types.js'
 
 /**
@@ -8,10 +8,13 @@ import { IMessage } from '../../types/index.types.js'
  */
 export async function fetchThread(userMessage: IMessage, conversationId: string): Promise<IMessage[]> {
   if (!userMessage.parentMessage) return []
-  return Message.find({
-    conversation: conversationId,
-    $or: [{ _id: userMessage.parentMessage }, { parentMessage: userMessage.parentMessage }]
-  }).sort({ createdAt: -1 })
+  // model audience: a hidden thread (or hidden message in it) is not read by any VA check
+  return findMessages(
+    conversationId,
+    'model',
+    { $or: [{ _id: userMessage.parentMessage }, { parentMessage: userMessage.parentMessage }] },
+    { sort: { createdAt: -1 } }
+  )
 }
 
 /**
@@ -22,7 +25,11 @@ export async function fetchThread(userMessage: IMessage, conversationId: string)
  * does not keep intercepting a thread indefinitely after it has stopped being the one waiting on
  * an answer.
  */
-export async function threadContinuesFromAgent(userMessage: IMessage, conversationId: string, agentId: string): Promise<boolean> {
+export async function threadContinuesFromAgent(
+  userMessage: IMessage,
+  conversationId: string,
+  agentId: string
+): Promise<boolean> {
   const thread = await fetchThread(userMessage, conversationId)
   const previous = thread.find((message) => message._id?.toString() !== userMessage._id?.toString())
   if (!previous?.fromAgent) return false
