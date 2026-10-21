@@ -30,6 +30,8 @@ const { publicTopic } = await import('../../fixtures/conversation.fixture.js')
 const { insertTopics } = await import('../../fixtures/topic.fixture.js')
 const { Conversation, Message } = await import('../../../src/models/index.js')
 const { doStopConversation } = await import('../../../src/services/conversation.service/lifecycle.js')
+const { default: config } = await import('../../../src/config/config.js')
+const { default: schedule } = await import('../../../src/jobs/schedule.js')
 const { default: logger } = await import('../../../src/config/logger.js')
 
 setupIntTest()
@@ -79,6 +81,24 @@ describe('doStopConversation summary generation', () => {
     const updated = await Conversation.findById(conversation._id)
     expect(mockGetChatPromptResponse).toHaveBeenCalled()
     expect(updated!.summary).toBe('Mock summary')
+  })
+
+  test('queues archive delivery after persisting the summary when enabled', async () => {
+    const conversation = await makeConversation()
+    await seedTranscriptMessages(conversation._id, 20)
+    const previous = config.bkcArchive.exportEnabled
+    config.bkcArchive.exportEnabled = true
+    const queued = jest.spyOn(schedule, 'archiveEvent').mockImplementation(async (id) => {
+      const saved = await Conversation.findById(id)
+      expect(saved!.summary).toBe('Mock summary')
+    })
+    try {
+      await doStopConversation(conversation)
+      expect(queued).toHaveBeenCalledWith(conversation._id.toString())
+    } finally {
+      config.bkcArchive.exportEnabled = previous
+      queued.mockRestore()
+    }
   })
 
   test('skips summary generation when there are fewer than 20 transcript messages', async () => {
