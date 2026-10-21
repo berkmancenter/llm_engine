@@ -90,4 +90,15 @@ describe('websocketGateway conversation broadcasts', () => {
       expect(broadcastSpy).toHaveBeenCalledWith('conv-1', eventName, { conversationId: 'conv-1' })
     })
   })
+
+  describe('agent:responding', () => {
+    test('broadcasts to the conversation room with the conversation and agent id', async () => {
+      await websocketGateway.broadcastAgentResponding('conv-1', 'agent-1')
+
+      expect(broadcastSpy).toHaveBeenCalledWith('conv-1', 'agent:responding', {
+        conversationId: 'conv-1',
+        agentId: 'agent-1'
+      })
+    })
+  })
 })
