@@ -36,10 +36,10 @@ describe('voiceAssistant.respond — agent:responding broadcast', () => {
     jest.clearAllMocks()
   })
 
-  it('broadcasts agent:responding once a real question is extracted, before producing the response', async () => {
+  it('broadcasts agent:responding once a real question is extracted and there is somewhere to stream to', async () => {
     const broadcastSpy = jest.spyOn(websocketGateway, 'broadcastAgentResponding').mockResolvedValue()
     mockAnswerQuestion.mockResolvedValue([])
-    const context = buildContext()
+    const context = buildContext({ voiceOutput: true, channels: [transcriptChannel, chatChannel] })
 
     await voiceAssistant.respond.call(context, { messages: [] }, msg('hey Berkie what time is lunch'))
 
@@ -48,7 +48,7 @@ describe('voiceAssistant.respond — agent:responding broadcast', () => {
 
   it('does not broadcast when the message has no voice trigger at all', async () => {
     const broadcastSpy = jest.spyOn(websocketGateway, 'broadcastAgentResponding').mockResolvedValue()
-    const context = buildContext()
+    const context = buildContext({ voiceOutput: true, channels: [transcriptChannel, chatChannel] })
 
     const responses = await voiceAssistant.respond.call(
       context,
@@ -59,6 +59,33 @@ describe('voiceAssistant.respond — agent:responding broadcast', () => {
     expect(responses).toEqual([])
     expect(mockAnswerQuestion).not.toHaveBeenCalled()
     expect(broadcastSpy).not.toHaveBeenCalled()
+  })
+
+  // Broadcasting unconditionally left a bot-media client stuck showing a "thinking" pose and
+  // chime for an answer that was never going to stream it any chunks to clear it with — see
+  // bot-media-server/engineSocket.ts's THINKING_TIMEOUT_MS and the PR review that flagged this.
+  it('does not broadcast when voiceOutput is off, even though the answer still goes to chat', async () => {
+    const broadcastSpy = jest.spyOn(websocketGateway, 'broadcastAgentResponding').mockResolvedValue()
+    mockAnswerQuestion.mockResolvedValue([
+      { visible: true, message: { text: 'Lunch is at noon.' }, messageType: 'json', channels: [] }
+    ])
+    const context = buildContext({ voiceOutput: false, channels: [chatChannel] })
+
+    const responses = await voiceAssistant.respond.call(context, { messages: [] }, msg('hey Berkie what time is lunch'))
+
+    expect(broadcastSpy).not.toHaveBeenCalled()
+    expect(responses).toHaveLength(1)
+  })
+
+  it('does not broadcast when voiceOutput is on but there is no transcript channel to stream onto', async () => {
+    const broadcastSpy = jest.spyOn(websocketGateway, 'broadcastAgentResponding').mockResolvedValue()
+    mockAnswerQuestion.mockResolvedValue([])
+    const context = buildContext({ voiceOutput: true, channels: [chatChannel] })
+
+    const responses = await voiceAssistant.respond.call(context, { messages: [] }, msg('hey Berkie what time is lunch'))
+
+    expect(broadcastSpy).not.toHaveBeenCalled()
+    expect(responses).toEqual([])
   })
 })
 
