@@ -9,11 +9,23 @@ const PAGE = `<!DOCTYPE html>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { width: 100vw; height: 100vh; background: #E9EBFF; overflow: hidden; position: relative; }
-  #bot { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  /* Idle keeps the character out of the way in a small corner tile so it doesn't dominate
+     the room's attention when it has nothing to say; every other state takes over the full
+     frame as before. Both states size #bot in vw units for width AND height (not percentages
+     of the container, and not vh) so the 16:9 tile keeps its aspect ratio — matching the
+     viewBox's own 2400:1350 ratio, so the SVG scales down with no letterboxing — regardless
+     of the surrounding frame's own aspect ratio. */
+  #bot {
+    position: absolute;
+    display: block;
+    transition: width .5s ease, height .5s ease, left .5s ease, top .5s ease;
+  }
+  #bot.state-idle { width: 44vw; height: 24.75vw; left: calc(100% - 44vw - 3vw); top: calc(100% - 24.75vw - 3vw); }
+  #bot.state-full { width: 100%; height: 100%; left: 0; top: 0; }
 </style>
 </head>
 <body>
-<svg id="bot" viewBox="-583 -299 2400 1350" role="img" aria-label="Bot">
+<svg id="bot" class="state-idle" viewBox="-583 -299 2400 1350" role="img" aria-label="Bot">
   <defs>
     <clipPath id="visorClip"><rect x="153" y="153" width="929" height="447" rx="223"/></clipPath>
     <linearGradient id="shimmerGrad" x1="0" x2="1" y1="0" y2="0">
@@ -51,6 +63,7 @@ const PAGE = `<!DOCTYPE html>
 
   // ── Bot animation: idle / hand-raised / speaking ────────────────────
   // Runs continuously (idle included) so the character always reads as alive, not frozen.
+  const bot = document.getElementById('bot')
   const rig = document.getElementById('rig')
   const hand = document.getElementById('hand')
   const eyeL = document.getElementById('eyeL')
@@ -231,6 +244,8 @@ const PAGE = `<!DOCTYPE html>
     if (state === 'hand-raised' && botState.current !== 'hand-raised') botState.handRaisedAt = performance.now()
     if (state === 'speaking' && botState.current !== 'speaking') hasPlayedAudioThisTurn = false
     botState.current = state
+    bot.classList.toggle('state-idle', state === 'idle')
+    bot.classList.toggle('state-full', state !== 'idle')
   }
 
   const params = new URLSearchParams(location.search)
