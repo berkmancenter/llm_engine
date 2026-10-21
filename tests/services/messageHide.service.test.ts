@@ -4,6 +4,7 @@ import setupIntTest from '../utils/setupIntTest.js'
 import websocketGateway from '../../src/websockets/websocketGateway.js'
 import { messageHideService } from '../../src/services/index.js'
 import { Conversation, Message, ModerationEvent } from '../../src/models/index.js'
+import { roleRights } from '../../src/config/roles.js'
 import { insertMessage, seedHideScenario, conversationOne, conversationTwo } from '../fixtures/messageHide.fixture.js'
 
 setupIntTest()
@@ -187,6 +188,48 @@ describe('listModerationEvents', () => {
     await expect(messageHideService.listModerationEvents(conversationId, s.other)).rejects.toMatchObject({ statusCode: 403 })
     await expect(messageHideService.listModerationEvents('000000000000000000000000', s.admin)).rejects.toMatchObject({
       statusCode: 404
+    })
+  })
+})
+
+describe('who may moderate', () => {
+  const withRights = async (role: string, rights: string[], run: () => Promise<void>) => {
+    const original = roleRights.get(role)!
+    roleRights.set(role, rights)
+    try {
+      await run()
+    } finally {
+      roleRights.set(role, original)
+    }
+  }
+
+  it('follows the moderateMessages right in the role table, not the literal admin role', async () => {
+    await withRights('participant', [...roleRights.get('participant')!, 'moderateMessages'], async () => {
+      await expect(messageHideService.hideMessage(s.authorMsg._id, s.other)).resolves.toMatchObject({ hidden: true })
+      await expect(messageHideService.listModerationEvents(conversationId, s.other)).resolves.toBeDefined()
+    })
+  })
+
+  it('refuses a role that no longer carries the right, even the admin role', async () => {
+    await withRights(
+      'admin',
+      roleRights.get('admin')!.filter((right) => right !== 'moderateMessages'),
+      async () => {
+        await expect(messageHideService.hideMessage(s.authorMsg._id, s.admin)).rejects.toMatchObject({ statusCode: 403 })
+        await expect(messageHideService.hideUserMessages(conversationId, s.author._id, s.admin)).rejects.toMatchObject({
+          statusCode: 403
+        })
+        await expect(messageHideService.listModerationEvents(conversationId, s.admin)).rejects.toMatchObject({
+          statusCode: 403
+        })
+      }
+    )
+    expect((await Message.findById(s.authorMsg._id))!.hiddenByAdmin).toBeFalsy()
+  })
+
+  it('refuses a requester with no role', async () => {
+    await expect(messageHideService.hideMessage(s.authorMsg._id, { _id: s.admin._id })).rejects.toMatchObject({
+      statusCode: 403
     })
   })
 })

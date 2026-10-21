@@ -3,6 +3,7 @@ import mongoose from 'mongoose'
 import logger from '../config/logger.js'
 import { Conversation, Message, ModerationEvent, User } from '../models/index.js'
 import ApiError from '../utils/ApiError.js'
+import { roleRights } from '../config/roles.js'
 import websocketGateway from '../websockets/websocketGateway.js'
 import { HIDEABLE_CHANNEL, HideContext, inHideableChannel, loadHideContext } from '../utils/messageVisibility.js'
 
@@ -22,9 +23,13 @@ import { HIDEABLE_CHANNEL, HideContext, inHideableChannel, loadHideContext } fro
  * already happened. Callers and moderators should treat hiding as "hidden in the app", not "deleted".
  */
 
-const assertAdmin = (requester) => {
-  // Current role, not the token's: `requester` is loaded fresh from the database on every request.
-  if (requester?.role !== 'admin') throw new ApiError(httpStatus.FORBIDDEN, 'Forbidden')
+const MODERATE_RIGHT = 'moderateMessages'
+
+/* The same right the routes require (auth('moderateMessages')), checked again here so a caller that skips the route
+   (a job, another service) is held to it. Current role, not the token's: `requester` is loaded fresh from the
+   database on every request. */
+const assertModerator = (requester) => {
+  if (!roleRights.get(requester?.role)?.includes(MODERATE_RIGHT)) throw new ApiError(httpStatus.FORBIDDEN, 'Forbidden')
 }
 
 const diff = (from: Set<string>, to: Set<string>) => [...to].filter((id) => !from.has(id))
@@ -85,7 +90,7 @@ const recordEvent = async (event, revert: () => Promise<unknown>) => {
 }
 
 const setMessageHidden = async (messageId, requester, hidden: boolean, reason?: string) => {
-  assertAdmin(requester)
+  assertModerator(requester)
   const message = await loadMessage(messageId)
   // Hiding is a group chat feature: refuse rather than silently doing nothing for another channel.
   if (hidden && !inHideableChannel(message)) {
@@ -128,7 +133,7 @@ const setMessageHidden = async (messageId, requester, hidden: boolean, reason?: 
 }
 
 const setAuthorHidden = async (conversationId, userId, requester, hidden: boolean, reason?: string) => {
-  assertAdmin(requester)
+  assertModerator(requester)
   if (!mongoose.isValidObjectId(conversationId) || !(await Conversation.exists({ _id: conversationId }))) {
     throw new ApiError(httpStatus.NOT_FOUND, 'Conversation not found')
   }
@@ -184,7 +189,7 @@ type ActorSummary = { id: string; username?: string }
 
 /** Newest first. Ids and the actor's username only: no bodies, no pseudonyms, no email. */
 const listModerationEvents = async (conversationId, requester, options: { limit?: number; page?: number } = {}) => {
-  assertAdmin(requester)
+  assertModerator(requester)
   if (!mongoose.isValidObjectId(conversationId) || !(await Conversation.exists({ _id: conversationId }))) {
     throw new ApiError(httpStatus.NOT_FOUND, 'Conversation not found')
   }
