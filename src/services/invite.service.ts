@@ -51,7 +51,9 @@ const mintInvite = async (membership) => {
     { invalidatedAt: new Date() }
   )
 
-  const expires = moment().add(config.jwt.inviteExpirationDays, 'days')
+  // .utc() avoids moment's local-time, DST-aware calendar-day arithmetic, which otherwise
+  // makes an invite expire an hour early or late whenever the window crosses a DST transition.
+  const expires = moment.utc().add(config.jwt.inviteExpirationDays, 'days')
   const payload = {
     sub: membership._id.toString(),
     jti: randomUUID(),
@@ -385,7 +387,7 @@ const findInviteIgnoringExpiry = async (token: string) => {
   if (payload.type !== tokenTypes.MEMBER_INVITE) {
     return null
   }
-  if (!payload.exp || moment.unix(payload.exp).add(PUBLIC_RESEND_MAX_DAYS_SINCE_EXPIRY, 'days').isBefore(moment())) {
+  if (!payload.exp || moment.unix(payload.exp).utc().add(PUBLIC_RESEND_MAX_DAYS_SINCE_EXPIRY, 'days').isBefore(moment())) {
     return null
   }
   return MemberInvite.findOne({ tokenHash: sha256(token) }).exec()
