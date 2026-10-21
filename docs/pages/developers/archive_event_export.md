@@ -17,6 +17,7 @@ review decisions. Delivery creates a private draft; public event eligibility is
 not automatic publication approval. A curator approves/rejects the draft in the
 wiki before it enters the source corpus and entity synthesis. The paired wiki
 PRD is `docs/event-ingestion-prd.md` in `berkmancenter/bkc-archive-wiki`.
+Paired implementation: https://github.com/berkmancenter/bkc-archive-wiki/pull/2.
 
 Agenda stores job data (`conversationId`, `attempts`, `status`, `reason`, `path`).
 Each event has one logical queue identity. Its API identity also protects against
