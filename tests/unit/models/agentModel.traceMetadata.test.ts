@@ -123,6 +123,42 @@ describe('agent model LangSmith trace metadata (conversationId, costPhase)', () 
     )
   })
 
+  it('onConversationEvent() tags a non-stopped event (e.g. participantJoined) with costPhase liveEvent', async () => {
+    const mockOnConversationEvent = jest.fn<(...args: unknown[]) => Promise<unknown[]>>().mockResolvedValue([])
+    setAgentTypes({
+      traceMetadataTestType: { ...TEST_AGENT_TYPE, onConversationEvent: mockOnConversationEvent }
+    })
+
+    const agent = new Agent({
+      agentType: 'traceMetadataTestType',
+      conversation,
+      llmModel: 'gpt-4',
+      llmPlatform: 'openai',
+      active: true
+    })
+    await agent.save()
+
+    const evt = {
+      type: 'participantJoined' as const,
+      conversationId: conversation._id.toString(),
+      userId: 'user-1',
+      name: 'Alex'
+    }
+    await agent.onConversationEvent(evt)
+
+    expect(mockOnConversationEvent).toHaveBeenCalledWith(evt)
+    expect(mockTraceable).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({
+        name: 'traceMetadataTestType',
+        metadata: expect.objectContaining({
+          conversationId: conversation._id.toString(),
+          costPhase: 'liveEvent'
+        })
+      })
+    )
+  })
+
   it('does not tag onConversationEvent trace when the agent type has no handler', async () => {
     setAgentTypes({ traceMetadataTestType: TEST_AGENT_TYPE })
 

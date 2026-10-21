@@ -66,7 +66,9 @@ describe('access', () => {
 
     test('agent with topic grant throws when conversation scope carries a different topicId', () => {
       const agent = makeAgent({ capabilities: { read: [{ type: 'topic', id: 'topic-1' }], write: [] } })
-      expect(() => access.assertCanRead(agent, { type: 'conversation', id: 'conv-1', topicId: 'topic-2' })).toThrow(AccessDeniedError)
+      expect(() => access.assertCanRead(agent, { type: 'conversation', id: 'conv-1', topicId: 'topic-2' })).toThrow(
+        AccessDeniedError
+      )
     })
 
     test('agent with topic grant throws when conversation scope has no topicId', () => {
@@ -78,7 +80,9 @@ describe('access', () => {
       const agent = makeAgent({ capabilities: { read: [{ type: 'allPublicTopics' }], write: [] } })
 
       test('passes for a conversation scope on a public topic', () => {
-        expect(() => access.assertCanRead(agent, { type: 'conversation', id: 'conv-1', topicIsPrivate: false })).not.toThrow()
+        expect(() =>
+          access.assertCanRead(agent, { type: 'conversation', id: 'conv-1', topicIsPrivate: false })
+        ).not.toThrow()
       })
 
       test('passes when topicIsPrivate is not set', () => {
@@ -86,7 +90,9 @@ describe('access', () => {
       })
 
       test('throws for a conversation scope on a private topic', () => {
-        expect(() => access.assertCanRead(agent, { type: 'conversation', id: 'conv-1', topicIsPrivate: true })).toThrow(AccessDeniedError)
+        expect(() => access.assertCanRead(agent, { type: 'conversation', id: 'conv-1', topicIsPrivate: true })).toThrow(
+          AccessDeniedError
+        )
       })
 
       test('passes for a public topic scope', () => {
@@ -94,7 +100,9 @@ describe('access', () => {
       })
 
       test('throws for a private topic scope', () => {
-        expect(() => access.assertCanRead(agent, { type: 'topic', id: 'topic-1', topicIsPrivate: true })).toThrow(AccessDeniedError)
+        expect(() => access.assertCanRead(agent, { type: 'topic', id: 'topic-1', topicIsPrivate: true })).toThrow(
+          AccessDeniedError
+        )
       })
     })
 
@@ -106,7 +114,9 @@ describe('access', () => {
       })
 
       test('passes for a conversation scope on a public topic', () => {
-        expect(() => access.assertCanRead(agent, { type: 'conversation', id: 'conv-1', topicIsPrivate: false })).not.toThrow()
+        expect(() =>
+          access.assertCanRead(agent, { type: 'conversation', id: 'conv-1', topicIsPrivate: false })
+        ).not.toThrow()
       })
 
       test('passes when topicIsPrivate is not set', () => {
@@ -146,11 +156,46 @@ describe('access', () => {
     test('agent with multiple grants passes when any match', () => {
       const agent = makeAgent({
         capabilities: {
-          read: [{ type: 'topic', id: 'topic-1' }, { type: 'topic', id: 'topic-2' }],
+          read: [
+            { type: 'topic', id: 'topic-1' },
+            { type: 'topic', id: 'topic-2' }
+          ],
           write: []
         }
       })
       expect(() => access.assertCanRead(agent, { type: 'topic', id: 'topic-2' })).not.toThrow()
+    })
+
+    describe('events-restricted grant', () => {
+      test("passes when the scope event type is in the grant's events list", () => {
+        const agent = makeAgent({
+          capabilities: { read: [{ type: 'allPublicTopics', events: ['conversationStopped'] }], write: [] }
+        })
+        expect(() =>
+          access.assertCanRead(agent, { type: 'conversation', id: 'conv-1', topicIsPrivate: false }, 'conversationStopped')
+        ).not.toThrow()
+      })
+
+      test("throws when the scope event type is not in the grant's events list", () => {
+        const agent = makeAgent({
+          capabilities: { read: [{ type: 'allPublicTopics', events: ['conversationStopped'] }], write: [] }
+        })
+        expect(() =>
+          access.assertCanRead(agent, { type: 'conversation', id: 'conv-1', topicIsPrivate: false }, 'participantJoined')
+        ).toThrow(AccessDeniedError)
+      })
+
+      // Pins the summon/on-demand-check behavior: a caller with no event type to report (not
+      // part of conversation-event dispatch) must not be blocked by an events-restricted grant
+      // just because it didn't pass one. See grantAppliesToEvent in access.ts.
+      test('passes when eventType is omitted entirely, even though the grant has an events restriction', () => {
+        const agent = makeAgent({
+          capabilities: { read: [{ type: 'allPublicTopics', events: ['conversationStopped'] }], write: [] }
+        })
+        expect(() =>
+          access.assertCanRead(agent, { type: 'conversation', id: 'conv-1', topicIsPrivate: false })
+        ).not.toThrow()
+      })
     })
   })
 
@@ -220,7 +265,9 @@ describe('access', () => {
     let findSpy: jest.SpyInstance
 
     beforeEach(() => {
-      findSpy = jest.spyOn(Conversation, 'find').mockReturnValue({ exec: jest.fn().mockResolvedValue([]) } as unknown as ReturnType<typeof Conversation.find>)
+      findSpy = jest
+        .spyOn(Conversation, 'find')
+        .mockReturnValue({ exec: jest.fn().mockResolvedValue([]) } as unknown as ReturnType<typeof Conversation.find>)
     })
 
     afterEach(() => {
@@ -229,7 +276,9 @@ describe('access', () => {
 
     test('throws before querying when agent lacks read grant', async () => {
       const agent = makeAgent({ capabilities: { read: [], write: [] } })
-      await expect(access.listReadableConversations(agent, { type: 'topic', id: 'topic-1' })).rejects.toThrow(AccessDeniedError)
+      await expect(access.listReadableConversations(agent, { type: 'topic', id: 'topic-1' })).rejects.toThrow(
+        AccessDeniedError
+      )
       expect(findSpy).not.toHaveBeenCalled()
     })
 

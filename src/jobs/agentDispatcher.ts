@@ -19,7 +19,7 @@ async function dispatch(event: ConversationEvent, scope: ReadScope, { alsoNotify
   let notified = 0
   for (const agent of candidates) {
     try {
-      access.assertCanRead(agent, scope)
+      access.assertCanRead(agent, scope, event.type)
       const agentId = agent._id.toString()
       await schedule.conversationEvent({ agentId, event })
       notified++
