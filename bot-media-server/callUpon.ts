@@ -1,7 +1,7 @@
 import * as fuzzball from 'fuzzball'
 
-// Bot name fuzzy-match threshold — same as intentChecks.ts
-export const BOT_NAME_MATCH_THRESHOLD = 70
+// Bot name fuzzy-match threshold.
+export const BOT_NAME_MATCH_THRESHOLD = 65
 
 // Phrases that signal the moderator is calling on the bot. Matched case-insensitively
 // anywhere in the transcript line, in combination with the bot name. These are all
