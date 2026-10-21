@@ -184,3 +184,27 @@ if ! dpkg -s google-cloud-ops-agent >/dev/null 2>&1; then
   bash add-google-cloud-ops-agent-repo.sh --also-install
   rm -f add-google-cloud-ops-agent-repo.sh
 fi
+
+mkdir -p /etc/google-cloud-ops-agent
+cat > /etc/google-cloud-ops-agent/config.yaml <<'EOF'
+metrics:
+  receivers:
+    hostmetrics:
+      type: hostmetrics
+      collection_interval: 60s
+  service:
+    pipelines:
+      default_pipeline:
+        receivers: [hostmetrics]
+
+logging:
+  receivers:
+    archive_wiki_journal:
+      type: systemd_journald
+  service:
+    pipelines:
+      archive_wiki_pipeline:
+        receivers: [archive_wiki_journal]
+EOF
+
+systemctl restart google-cloud-ops-agent
