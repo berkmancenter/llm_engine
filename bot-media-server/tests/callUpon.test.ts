@@ -32,6 +32,10 @@ describe('isCalledUpon', () => {
     expect(isCalledUpon('go ahead, burkey', botName)).toBe(true)
   })
 
+  test('matches a call-upon phrase prefaced with the "hey <botName>" wake word', () => {
+    expect(isCalledUpon('hey Berkie, go ahead', botName)).toBe(true)
+  })
+
   test('does not match an unrelated name', () => {
     expect(isCalledUpon('go ahead Waldo', botName)).toBe(false)
   })
