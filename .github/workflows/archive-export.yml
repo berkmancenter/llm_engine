@@ -16,7 +16,8 @@ permissions:
   contents: read
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Match the main CI runner: MongoDB 8.0 rejects newer 6.19+ kernels.
+    runs-on: ubuntu-22.04
     services:
       mongodb:
         image: mongo:8.0
