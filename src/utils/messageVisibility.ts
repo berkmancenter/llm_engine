@@ -18,7 +18,7 @@ import Message from '../models/message.model.js'
  * hidden author's private assistant channel, say) is never hidden, whatever the rules above say.
  *
  * Hiding is scoped to one conversation and is NOT a recall: a message already forwarded to an
- * external adapter (Slack, Zoom, ...) stays there. See the hide service.
+ * external adapter (Slack, Zoom, ...) stays there. See the moderation service.
  */
 
 /** The only channel hiding applies to: the group chat. Messages in any other channel are never hidden. */

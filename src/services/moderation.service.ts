@@ -223,5 +223,5 @@ const hideUserMessages = (conversationId, userId, requester, reason?: string) =>
 const unhideUserMessages = (conversationId, userId, requester, reason?: string) =>
   setAuthorHidden(conversationId, userId, requester, false, reason)
 
-const messageHideService = { hideMessage, unhideMessage, hideUserMessages, unhideUserMessages, listModerationEvents }
-export default messageHideService
+const moderationService = { hideMessage, unhideMessage, hideUserMessages, unhideUserMessages, listModerationEvents }
+export default moderationService

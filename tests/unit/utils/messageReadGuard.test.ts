@@ -15,7 +15,7 @@ const RAW_READ =
 
 const ALLOWED: Record<string, string> = {
   'utils/messageVisibility.ts': 'the repo: findMessages and the hide-context lookups themselves',
-  'services/messageHide.service.ts': 'admin moderation path: hides, unhides and audits messages',
+  'services/moderation.service.ts': 'admin moderation path: hides, unhides and audits messages',
   'services/message.service.ts':
     'REST list, replies, votes: each message goes through viewMessageFor; LLM copies use hiddenMessagesMatch',
   'agents/helpers/getThreadMessages.ts': 'thread reads carry hiddenMessagesMatch(…, model)',

@@ -8,7 +8,7 @@ import { insertTopics } from '../fixtures/topic.fixture.js'
 import { conversationOne, conversationTwo, insertConversations, publicTopic } from '../fixtures/conversation.fixture.js'
 import websocketGateway from '../../src/websockets/websocketGateway.js'
 import { getAdminRoomId } from '../../src/websockets/utils.js'
-import { messageHideService, messageService } from '../../src/services/index.js'
+import { moderationService, messageService } from '../../src/services/index.js'
 import { Message, User } from '../../src/models/index.js'
 import { loadHideContext } from '../../src/utils/messageVisibility.js'
 import waitFor from '../utils/waitFor.js'
@@ -369,7 +369,7 @@ describe('WebSocket events for hidden messages', () => {
 
   describe('hiding a message', () => {
     test('message:hidden carries ids only, resolves the reply cascade, and goes to the conversation room', async () => {
-      await messageHideService.hideMessage(s.authorMsg._id, s.admin)
+      await moderationService.hideMessage(s.authorMsg._id, s.admin)
 
       const [hiddenCall] = calls('message:hidden')
       expect(hiddenCall[0]).toBe(conversationId)
@@ -387,7 +387,7 @@ describe('WebSocket events for hidden messages', () => {
     })
 
     test('sends the hidden author a toast-trigger notice in their own user room', async () => {
-      await messageHideService.hideMessage(s.authorMsg._id, s.admin)
+      await moderationService.hideMessage(s.authorMsg._id, s.admin)
 
       const notices = calls('message:hidden-notice')
       expect(notices).toHaveLength(1)
@@ -397,7 +397,7 @@ describe('WebSocket events for hidden messages', () => {
     })
 
     test('hide-all resolves past messages into ids, and only the author gets the notice', async () => {
-      await messageHideService.hideUserMessages(conversationId, s.author._id, s.admin)
+      await moderationService.hideUserMessages(conversationId, s.author._id, s.admin)
 
       const [hiddenCall] = calls('message:hidden')
       expect(hiddenCall[2].messageIds.sort()).toEqual([s.authorMsg._id.toString(), s.reply._id.toString()].sort())
@@ -407,16 +407,16 @@ describe('WebSocket events for hidden messages', () => {
     })
 
     test('a hide that changes nothing sends nothing', async () => {
-      await messageHideService.hideMessage(s.authorMsg._id, s.admin)
+      await moderationService.hideMessage(s.authorMsg._id, s.admin)
       broadcastSpy.mockClear()
-      await messageHideService.hideMessage(s.authorMsg._id, s.admin)
+      await moderationService.hideMessage(s.authorMsg._id, s.admin)
       expect(broadcastSpy).not.toHaveBeenCalled()
     })
   })
 
   describe('conversation scoping', () => {
     test('hide-all announces only this conversation, with only its message ids, to its own rooms', async () => {
-      await messageHideService.hideUserMessages(conversationId, s.author._id, s.admin)
+      await moderationService.hideUserMessages(conversationId, s.author._id, s.admin)
 
       expect(broadcastSpy.mock.calls.length).toBeGreaterThan(0)
       broadcastSpy.mock.calls.forEach((c) => {
@@ -427,7 +427,7 @@ describe('WebSocket events for hidden messages', () => {
 
     test('hiding a message elsewhere announces to that conversation only', async () => {
       const otherConversationId = s.authorMsgElsewhere.conversation.toString()
-      await messageHideService.hideMessage(s.authorMsgElsewhere._id, s.admin)
+      await moderationService.hideMessage(s.authorMsgElsewhere._id, s.admin)
 
       const [hiddenCall] = calls('message:hidden')
       expect(hiddenCall[0]).toBe(otherConversationId)
@@ -436,24 +436,24 @@ describe('WebSocket events for hidden messages', () => {
     })
 
     test('repeating hide-all or unhide-all sends nothing', async () => {
-      await messageHideService.hideUserMessages(conversationId, s.author._id, s.admin)
+      await moderationService.hideUserMessages(conversationId, s.author._id, s.admin)
       broadcastSpy.mockClear()
-      await messageHideService.hideUserMessages(conversationId, s.author._id, s.admin)
+      await moderationService.hideUserMessages(conversationId, s.author._id, s.admin)
       expect(broadcastSpy).not.toHaveBeenCalled()
 
-      await messageHideService.unhideUserMessages(conversationId, s.author._id, s.admin)
+      await moderationService.unhideUserMessages(conversationId, s.author._id, s.admin)
       broadcastSpy.mockClear()
-      await messageHideService.unhideUserMessages(conversationId, s.author._id, s.admin)
+      await moderationService.unhideUserMessages(conversationId, s.author._id, s.admin)
       expect(broadcastSpy).not.toHaveBeenCalled()
     })
   })
 
   describe('unhiding', () => {
     test('admins get message:hidden with hidden:false in the admin room; everyone else gets message:new', async () => {
-      await messageHideService.hideMessage(s.authorMsg._id, s.admin)
+      await moderationService.hideMessage(s.authorMsg._id, s.admin)
       broadcastSpy.mockClear()
 
-      await messageHideService.unhideMessage(s.authorMsg._id, s.admin)
+      await moderationService.unhideMessage(s.authorMsg._id, s.admin)
 
       const [hiddenCall] = calls('message:hidden')
       expect(hiddenCall[2]).toEqual({ messageIds: expect.any(Array), hidden: false, display: 'omit' })
@@ -470,18 +470,18 @@ describe('WebSocket events for hidden messages', () => {
     })
 
     test('does not send a notice to the author', async () => {
-      await messageHideService.hideMessage(s.authorMsg._id, s.admin)
+      await moderationService.hideMessage(s.authorMsg._id, s.admin)
       broadcastSpy.mockClear()
-      await messageHideService.unhideMessage(s.authorMsg._id, s.admin)
+      await moderationService.unhideMessage(s.authorMsg._id, s.admin)
       expect(calls('message:hidden-notice')).toHaveLength(0)
     })
 
     test('an id that is still hidden for another reason is not announced as unhidden', async () => {
-      await messageHideService.hideMessage(s.authorMsg._id, s.admin)
-      await messageHideService.hideUserMessages(conversationId, s.author._id, s.admin)
+      await moderationService.hideMessage(s.authorMsg._id, s.admin)
+      await moderationService.hideUserMessages(conversationId, s.author._id, s.admin)
       broadcastSpy.mockClear()
 
-      await messageHideService.unhideMessage(s.authorMsg._id, s.admin)
+      await moderationService.unhideMessage(s.authorMsg._id, s.admin)
 
       expect(broadcastSpy).not.toHaveBeenCalled()
     })
@@ -489,7 +489,7 @@ describe('WebSocket events for hidden messages', () => {
 
   describe('a new message from a hidden author', () => {
     const hiddenPost = async () => {
-      await messageHideService.hideUserMessages(conversationId, s.author._id, s.admin)
+      await moderationService.hideUserMessages(conversationId, s.author._id, s.admin)
       broadcastSpy.mockClear()
       const [created] = await messageService.newMessageHandler(
         { body: 'posted while hidden', conversation: conversationId, channels: [{ name: 'chat' }] },
@@ -548,7 +548,7 @@ describe('WebSocket events for hidden messages', () => {
 
   describe('vote:new', () => {
     test('does not leak a hidden message body to the shared rooms; admins get it flagged', async () => {
-      await messageHideService.hideMessage(s.authorMsg._id, s.admin)
+      await moderationService.hideMessage(s.authorMsg._id, s.admin)
       broadcastSpy.mockClear()
 
       await websocketGateway.broadcastNewVote((await Message.findById(s.authorMsg._id))!)
@@ -562,7 +562,7 @@ describe('WebSocket events for hidden messages', () => {
     })
 
     test('the author still gets votes on their own hidden message, in their user room only', async () => {
-      await messageHideService.hideMessage(s.authorMsg._id, s.admin)
+      await moderationService.hideMessage(s.authorMsg._id, s.admin)
       broadcastSpy.mockClear()
 
       await websocketGateway.broadcastNewVote((await Message.findById(s.authorMsg._id))!)
@@ -581,7 +581,7 @@ describe('WebSocket events for hidden messages', () => {
     })
 
     test('a vote on a hidden author’s message goes to the author, not to other participants', async () => {
-      await messageHideService.hideUserMessages(conversationId, s.author._id, s.admin)
+      await moderationService.hideUserMessages(conversationId, s.author._id, s.admin)
       broadcastSpy.mockClear()
 
       await websocketGateway.broadcastNewVote((await Message.findById(s.authorMsg._id))!)

@@ -435,7 +435,7 @@ const newMessageHandler = async (message, user, request: string | null = null) =
        can offer is to never forward a message that is already hidden when it is created (a hidden
        author's chat post, or a chat reply under a hidden message; hiding never applies outside the
        chat channel, so other channels are forwarded as always). Anything forwarded before it was hidden
-       remains out there. See messageHide.service.ts. */
+       remains out there. See moderation.service.ts. */
     for (const adapter of isMessageHidden(sentMessage, hideContext) ? [] : conversation.adapters) {
       try {
         const adapterMsg = sentMessage.parseOutput ? sentMessage.parseOutput(sentMessage) : sentMessage

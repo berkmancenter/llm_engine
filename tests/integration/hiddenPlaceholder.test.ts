@@ -18,7 +18,7 @@ const { default: request } = await import('supertest')
 const { default: setupIntTest } = await import('../utils/setupIntTest.js')
 const { default: app } = await import('../../src/app.js')
 const { default: websocketGateway } = await import('../../src/websockets/websocketGateway.js')
-const { messageHideService, messageService } = await import('../../src/services/index.js')
+const { moderationService, messageService } = await import('../../src/services/index.js')
 const { User } = await import('../../src/models/index.js')
 const { default: waitFor } = await import('../utils/waitFor.js')
 const { seedHideScenario, conversationOne } = await import('../fixtures/messageHide.fixture.js')
@@ -46,12 +46,12 @@ afterEach(() => {
 
 describe('placeholder policy', () => {
   it('reports the placeholder display in message:hidden', async () => {
-    await messageHideService.hideMessage(s.authorMsg._id, s.admin)
+    await moderationService.hideMessage(s.authorMsg._id, s.admin)
     expect(calls('message:hidden')[0][2].display).toBe('placeholder')
   })
 
   it('history: participants get body-less stubs, admins get flagged messages, the author gets their own unflagged', async () => {
-    await messageHideService.hideMessage(s.authorMsg._id, s.admin)
+    await moderationService.hideMessage(s.authorMsg._id, s.admin)
 
     const other = (await get(`/v1/messages/${conversationId}`, s.otherToken)).body
     const stub = other.find((m) => m.id === s.authorMsg._id.toString())
@@ -73,7 +73,7 @@ describe('placeholder policy', () => {
   })
 
   it('replies: a cascaded reply is a stub that keeps its parent id, and carries no author', async () => {
-    await messageHideService.hideMessage(s.authorMsg._id, s.admin)
+    await moderationService.hideMessage(s.authorMsg._id, s.admin)
 
     const replies = (await get(`/v1/messages/${s.authorMsg._id}/replies`, s.authorToken)).body
     expect(replies).toHaveLength(1)
@@ -87,7 +87,7 @@ describe('placeholder policy', () => {
   })
 
   it('a new message from a hidden author: stub to shared rooms, flagged to admins, full to the author', async () => {
-    await messageHideService.hideUserMessages(conversationId, s.author._id, s.admin)
+    await moderationService.hideUserMessages(conversationId, s.author._id, s.admin)
     broadcastSpy.mockClear()
 
     const author = (await User.findById(s.author._id))!
@@ -111,7 +111,7 @@ describe('placeholder policy', () => {
   })
 
   it('vote:new on a hidden message sends a stub to shared rooms and the flagged message to admins only', async () => {
-    await messageHideService.hideMessage(s.authorMsg._id, s.admin)
+    await moderationService.hideMessage(s.authorMsg._id, s.admin)
     broadcastSpy.mockClear()
 
     await request(app)
@@ -130,7 +130,7 @@ describe('placeholder policy', () => {
   })
 
   it('a participant still cannot vote on a stub', async () => {
-    await messageHideService.hideMessage(s.authorMsg._id, s.admin)
+    await moderationService.hideMessage(s.authorMsg._id, s.admin)
     await request(app)
       .post(`/v1/messages/${s.authorMsg._id}/vote`)
       .set('Authorization', `Bearer ${s.otherToken}`)

@@ -2,7 +2,7 @@
 import mongoose from 'mongoose'
 import setupIntTest from '../utils/setupIntTest.js'
 import websocketGateway from '../../src/websockets/websocketGateway.js'
-import { messageHideService } from '../../src/services/index.js'
+import { moderationService } from '../../src/services/index.js'
 import { Conversation, Message, ModerationEvent } from '../../src/models/index.js'
 import { roleRights } from '../../src/config/roles.js'
 import { insertMessage, seedHideScenario, conversationOne, conversationTwo } from '../fixtures/messageHide.fixture.js'
@@ -27,7 +27,7 @@ afterEach(() => {
 describe('moderation event log', () => {
   describe('hiding one message', () => {
     it('writes one event with the actor, target, concrete ids and reason', async () => {
-      const result = await messageHideService.hideMessage(s.authorMsg._id, s.admin, 'harassment')
+      const result = await moderationService.hideMessage(s.authorMsg._id, s.admin, 'harassment')
 
       const [event] = await events()
       expect(await events()).toHaveLength(1)
@@ -42,20 +42,20 @@ describe('moderation event log', () => {
     })
 
     it('stores no message body anywhere in the event', async () => {
-      await messageHideService.hideMessage(s.authorMsg._id, s.admin, 'pii')
+      await moderationService.hideMessage(s.authorMsg._id, s.admin, 'pii')
       const raw = JSON.stringify(await ModerationEvent.collection.find({}).toArray())
       expect(raw).not.toContain(s.authorMsg.body as string)
       expect(raw).not.toContain(s.reply.body as string)
     })
 
     it('works without a reason', async () => {
-      await messageHideService.hideMessage(s.authorMsg._id, s.admin)
+      await moderationService.hideMessage(s.authorMsg._id, s.admin)
       expect((await events())[0].reason).toBeUndefined()
     })
 
     it('logs the unhide as its own event, with its own free-text reason', async () => {
-      await messageHideService.hideMessage(s.authorMsg._id, s.admin, 'off-topic')
-      await messageHideService.unhideMessage(s.authorMsg._id, s.admin, 'hidden by mistake')
+      await moderationService.hideMessage(s.authorMsg._id, s.admin, 'off-topic')
+      await moderationService.unhideMessage(s.authorMsg._id, s.admin, 'hidden by mistake')
 
       const all = await events()
       expect(all.map((e) => e.action)).toEqual(['hide', 'unhide'])
@@ -64,22 +64,22 @@ describe('moderation event log', () => {
     })
 
     it('writes nothing for a no-op, and nothing for a rejected call', async () => {
-      await messageHideService.hideMessage(s.authorMsg._id, s.admin)
-      await messageHideService.hideMessage(s.authorMsg._id, s.admin)
-      await messageHideService.unhideMessage(s.otherMsg._id, s.admin) // never hidden
+      await moderationService.hideMessage(s.authorMsg._id, s.admin)
+      await moderationService.hideMessage(s.authorMsg._id, s.admin)
+      await moderationService.unhideMessage(s.otherMsg._id, s.admin) // never hidden
       expect(await events()).toHaveLength(1)
 
       const inAssistant = await insertMessage(s.author, conversationOne, { channels: ['assistant'] })
-      await expect(messageHideService.hideMessage(inAssistant._id, s.admin)).rejects.toMatchObject({ statusCode: 400 })
-      await expect(messageHideService.hideMessage(s.otherMsg._id, s.other)).rejects.toMatchObject({ statusCode: 403 })
-      await expect(messageHideService.hideMessage(new mongoose.Types.ObjectId().toString(), s.admin)).rejects.toBeDefined()
+      await expect(moderationService.hideMessage(inAssistant._id, s.admin)).rejects.toMatchObject({ statusCode: 400 })
+      await expect(moderationService.hideMessage(s.otherMsg._id, s.other)).rejects.toMatchObject({ statusCode: 403 })
+      await expect(moderationService.hideMessage(new mongoose.Types.ObjectId().toString(), s.admin)).rejects.toBeDefined()
       expect(await events()).toHaveLength(1)
     })
   })
 
   describe('hiding all of a user', () => {
     it('writes one event with the cascaded ids, and logs the unhide', async () => {
-      const result = await messageHideService.hideUserMessages(conversationId, s.author._id, s.admin, 'harassment')
+      const result = await moderationService.hideUserMessages(conversationId, s.author._id, s.admin, 'harassment')
 
       const [event] = await events()
       expect(await events()).toHaveLength(1)
@@ -89,24 +89,24 @@ describe('moderation event log', () => {
       expect(sorted(event.messageIds)).toEqual(sorted(result.messageIds))
       expect(sorted(event.messageIds)).toEqual(sorted([s.authorMsg._id, s.reply._id]))
 
-      await messageHideService.unhideUserMessages(conversationId, s.author._id, s.admin)
+      await moderationService.unhideUserMessages(conversationId, s.author._id, s.admin)
       expect((await events()).map((e) => e.action)).toEqual(['hide', 'unhide'])
     })
 
     it('writes nothing for a repeat, and logs a first hide of a user with no chat messages', async () => {
-      await messageHideService.hideUserMessages(conversationId, s.author._id, s.admin)
-      await messageHideService.hideUserMessages(conversationId, s.author._id, s.admin)
+      await moderationService.hideUserMessages(conversationId, s.author._id, s.admin)
+      await moderationService.hideUserMessages(conversationId, s.author._id, s.admin)
       expect(await events()).toHaveLength(1)
 
-      await messageHideService.hideUserMessages(conversationId, s.admin._id, s.admin)
+      await moderationService.hideUserMessages(conversationId, s.admin._id, s.admin)
       const last = (await events()).pop()!
       expect(last.messageIds).toHaveLength(0)
       expect(await events()).toHaveLength(2)
     })
 
     it('keeps conversations apart: events and state belong to the conversation they were made in', async () => {
-      await messageHideService.hideUserMessages(conversationId, s.author._id, s.admin)
-      await messageHideService.hideMessage(s.authorMsgElsewhere._id, s.admin)
+      await moderationService.hideUserMessages(conversationId, s.author._id, s.admin)
+      await moderationService.hideMessage(s.authorMsgElsewhere._id, s.admin)
 
       expect(await events()).toHaveLength(1)
       const other = await ModerationEvent.find({ conversation: conversationTwo._id })
@@ -119,7 +119,7 @@ describe('moderation event log', () => {
     it('reverts a single hide, writes nothing, and tells no client', async () => {
       jest.spyOn(ModerationEvent, 'create').mockRejectedValueOnce(new Error('disk full') as never)
 
-      await expect(messageHideService.hideMessage(s.authorMsg._id, s.admin)).rejects.toThrow('disk full')
+      await expect(moderationService.hideMessage(s.authorMsg._id, s.admin)).rejects.toThrow('disk full')
 
       expect((await Message.findById(s.authorMsg._id))!.hiddenByAdmin).toBe(false)
       expect(await ModerationEvent.countDocuments()).toBe(0)
@@ -127,11 +127,11 @@ describe('moderation event log', () => {
     })
 
     it('reverts an unhide back to hidden', async () => {
-      await messageHideService.hideMessage(s.authorMsg._id, s.admin)
+      await moderationService.hideMessage(s.authorMsg._id, s.admin)
       broadcastSpy.mockClear()
       jest.spyOn(ModerationEvent, 'create').mockRejectedValueOnce(new Error('disk full') as never)
 
-      await expect(messageHideService.unhideMessage(s.authorMsg._id, s.admin)).rejects.toThrow('disk full')
+      await expect(moderationService.unhideMessage(s.authorMsg._id, s.admin)).rejects.toThrow('disk full')
 
       expect((await Message.findById(s.authorMsg._id))!.hiddenByAdmin).toBe(true)
       expect(await ModerationEvent.countDocuments()).toBe(1)
@@ -140,12 +140,12 @@ describe('moderation event log', () => {
 
     it('reverts hide-all and unhide-all', async () => {
       jest.spyOn(ModerationEvent, 'create').mockRejectedValueOnce(new Error('disk full') as never)
-      await expect(messageHideService.hideUserMessages(conversationId, s.author._id, s.admin)).rejects.toThrow('disk full')
+      await expect(moderationService.hideUserMessages(conversationId, s.author._id, s.admin)).rejects.toThrow('disk full')
       expect((await Conversation.findById(conversationOne._id))!.hiddenAuthors).toHaveLength(0)
 
-      await messageHideService.hideUserMessages(conversationId, s.author._id, s.admin)
+      await moderationService.hideUserMessages(conversationId, s.author._id, s.admin)
       jest.spyOn(ModerationEvent, 'create').mockRejectedValueOnce(new Error('disk full') as never)
-      await expect(messageHideService.unhideUserMessages(conversationId, s.author._id, s.admin)).rejects.toThrow('disk full')
+      await expect(moderationService.unhideUserMessages(conversationId, s.author._id, s.admin)).rejects.toThrow('disk full')
       expect((await Conversation.findById(conversationOne._id))!.hiddenAuthors).toHaveLength(1)
     })
   })
@@ -153,11 +153,11 @@ describe('moderation event log', () => {
 
 describe('listModerationEvents', () => {
   it('returns newest first with a paginated envelope, and the actor as id and username only', async () => {
-    await messageHideService.hideMessage(s.authorMsg._id, s.admin, 'pii')
-    await messageHideService.hideUserMessages(conversationId, s.other._id, s.admin)
-    await messageHideService.unhideMessage(s.authorMsg._id, s.admin)
+    await moderationService.hideMessage(s.authorMsg._id, s.admin, 'pii')
+    await moderationService.hideUserMessages(conversationId, s.other._id, s.admin)
+    await moderationService.unhideMessage(s.authorMsg._id, s.admin)
 
-    const page = await messageHideService.listModerationEvents(conversationId, s.admin)
+    const page = await moderationService.listModerationEvents(conversationId, s.admin)
 
     expect(page).toMatchObject({ page: 1, limit: 10, totalPages: 1, totalResults: 3 })
     expect(page.results.map((e: any) => `${e.action}:${e.scope}`)).toEqual(['unhide:message', 'hide:user', 'hide:message'])
@@ -168,11 +168,11 @@ describe('listModerationEvents', () => {
 
   it('paginates, and keeps the order across pages', async () => {
     for (let i = 0; i < 5; i += 1) {
-      await messageHideService.hideMessage(s.authorMsg._id, s.admin)
-      await messageHideService.unhideMessage(s.authorMsg._id, s.admin)
+      await moderationService.hideMessage(s.authorMsg._id, s.admin)
+      await moderationService.unhideMessage(s.authorMsg._id, s.admin)
     }
-    const first = await messageHideService.listModerationEvents(conversationId, s.admin, { limit: 4, page: 1 })
-    const second = await messageHideService.listModerationEvents(conversationId, s.admin, { limit: 4, page: 3 })
+    const first = await moderationService.listModerationEvents(conversationId, s.admin, { limit: 4, page: 1 })
+    const second = await moderationService.listModerationEvents(conversationId, s.admin, { limit: 4, page: 3 })
 
     expect(first.totalResults).toBe(10)
     expect(first.totalPages).toBe(3)
@@ -183,10 +183,10 @@ describe('listModerationEvents', () => {
   })
 
   it('is scoped to the conversation and admin only', async () => {
-    await messageHideService.hideMessage(s.authorMsgElsewhere._id, s.admin)
-    expect((await messageHideService.listModerationEvents(conversationId, s.admin)).results).toHaveLength(0)
-    await expect(messageHideService.listModerationEvents(conversationId, s.other)).rejects.toMatchObject({ statusCode: 403 })
-    await expect(messageHideService.listModerationEvents('000000000000000000000000', s.admin)).rejects.toMatchObject({
+    await moderationService.hideMessage(s.authorMsgElsewhere._id, s.admin)
+    expect((await moderationService.listModerationEvents(conversationId, s.admin)).results).toHaveLength(0)
+    await expect(moderationService.listModerationEvents(conversationId, s.other)).rejects.toMatchObject({ statusCode: 403 })
+    await expect(moderationService.listModerationEvents('000000000000000000000000', s.admin)).rejects.toMatchObject({
       statusCode: 404
     })
   })
@@ -205,8 +205,8 @@ describe('who may moderate', () => {
 
   it('follows the moderateMessages right in the role table, not the literal admin role', async () => {
     await withRights('participant', [...roleRights.get('participant')!, 'moderateMessages'], async () => {
-      await expect(messageHideService.hideMessage(s.authorMsg._id, s.other)).resolves.toMatchObject({ hidden: true })
-      await expect(messageHideService.listModerationEvents(conversationId, s.other)).resolves.toBeDefined()
+      await expect(moderationService.hideMessage(s.authorMsg._id, s.other)).resolves.toMatchObject({ hidden: true })
+      await expect(moderationService.listModerationEvents(conversationId, s.other)).resolves.toBeDefined()
     })
   })
 
@@ -215,11 +215,11 @@ describe('who may moderate', () => {
       'admin',
       roleRights.get('admin')!.filter((right) => right !== 'moderateMessages'),
       async () => {
-        await expect(messageHideService.hideMessage(s.authorMsg._id, s.admin)).rejects.toMatchObject({ statusCode: 403 })
-        await expect(messageHideService.hideUserMessages(conversationId, s.author._id, s.admin)).rejects.toMatchObject({
+        await expect(moderationService.hideMessage(s.authorMsg._id, s.admin)).rejects.toMatchObject({ statusCode: 403 })
+        await expect(moderationService.hideUserMessages(conversationId, s.author._id, s.admin)).rejects.toMatchObject({
           statusCode: 403
         })
-        await expect(messageHideService.listModerationEvents(conversationId, s.admin)).rejects.toMatchObject({
+        await expect(moderationService.listModerationEvents(conversationId, s.admin)).rejects.toMatchObject({
           statusCode: 403
         })
       }
@@ -228,7 +228,7 @@ describe('who may moderate', () => {
   })
 
   it('refuses a requester with no role', async () => {
-    await expect(messageHideService.hideMessage(s.authorMsg._id, { _id: s.admin._id })).rejects.toMatchObject({
+    await expect(moderationService.hideMessage(s.authorMsg._id, { _id: s.admin._id })).rejects.toMatchObject({
       statusCode: 403
     })
   })
