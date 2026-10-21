@@ -102,6 +102,45 @@ describe('voiceAssistant.respond — voice output also posts to chat', () => {
     expect(responses[0].message.text).toBe('**Lunch** is at *noon*.')
   })
 
+  it('strips tilde and hash as well as asterisks, since Kokoro speaks those literally too', async () => {
+    jest.spyOn(websocketGateway, 'broadcastAgentResponding').mockResolvedValue()
+    const chunkSpy = jest.spyOn(websocketGateway, 'broadcastMessageChunk').mockResolvedValue()
+    mockAnswerQuestion.mockResolvedValue([
+      { visible: true, message: { text: '# Agenda\n~~old item~~ new item' }, messageType: 'json', channels: [] }
+    ])
+    const context = buildContext({ voiceOutput: true, channels: [transcriptChannel, chatChannel] })
+
+    await voiceAssistant.respond.call(context, { messages: [] }, msg('hey Berkie what is the agenda'))
+
+    const fallbackChunkCall = chunkSpy.mock.calls.find((call) => call[2].text)
+    expect(fallbackChunkCall?.[2].text).not.toMatch(/[*~#]/)
+  })
+
+  it('cleans a Markdown span split across two streamed chunks, with no cross-chunk buffering', async () => {
+    jest.spyOn(websocketGateway, 'broadcastAgentResponding').mockResolvedValue()
+    const chunkSpy = jest.spyOn(websocketGateway, 'broadcastMessageChunk').mockResolvedValue()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockAnswerQuestion.mockImplementation(async (_userMessage: any, _history: any, options: any) => {
+      // A bold span split mid-word across two separately-streamed chunks — the kind of split
+      // that can happen when a sentence boundary falls mid-emphasis (see the PR review
+      // discussion). removeMarkdown alone can't strip either half on its own since neither
+      // contains a full delimiter pair, so this only works because the stray-symbol strip is
+      // unconditional, not reliant on finding a matching pair.
+      options.onChunk('This is **bo')
+      options.onChunk('ld** text.')
+      return [{ visible: true, message: { text: 'This is **bold** text.' }, messageType: 'json', channels: [] }]
+    })
+    const context = buildContext({ voiceOutput: true, channels: [transcriptChannel, chatChannel] })
+
+    const responses = await voiceAssistant.respond.call(context, { messages: [] }, msg('hey Berkie tell me something'))
+
+    const streamedTexts = chunkSpy.mock.calls.map((call) => call[2].text)
+    expect(streamedTexts.some((text) => text.includes('*'))).toBe(false)
+    expect(streamedTexts.join('')).toContain('This is bold text.')
+    // Chat still keeps the original formatting.
+    expect(responses[0].message.text).toBe('This is **bold** text.')
+  })
+
   it('does not post to chat when there is no chat channel, but still streams', async () => {
     jest.spyOn(websocketGateway, 'broadcastAgentResponding').mockResolvedValue()
     const chunkSpy = jest.spyOn(websocketGateway, 'broadcastMessageChunk').mockResolvedValue()

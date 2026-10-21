@@ -23,6 +23,13 @@ function resolveVoiceStreamTarget(conversation, userMessage, conversationId) {
   return { transcriptChannel, requestId }
 }
 
+// Stripped from every transcript-bound/TTS chunk in broadcastChunk below, on top of
+// removeMarkdown's own pass. Applied unconditionally rather
+// than only to a matched Markdown delimiter pair, so a span split across two separately-
+// streamed chunks (e.g. "**bo" then "ld**") still comes out clean with no cross-chunk
+// buffering/latency needed — each half just loses its stray symbol on its own.
+const STRAY_TTS_SYMBOLS = /[*~#_`]/g
+
 /**
  * One `message:chunk` broadcast, with the same warn-and-swallow failure handling every call
  * site needs. Strips Markdown from the text first — VOICE_OUTPUT_RULES already tells the model
@@ -33,8 +40,9 @@ function resolveVoiceStreamTarget(conversation, userMessage, conversationId) {
  * Markdown there renders normally for a reader.
  */
 function broadcastChunk(conversationId, channelName, requestId, text, done, errorContext) {
+  const spoken = removeMarkdown(text).replace(STRAY_TTS_SYMBOLS, '')
   return websocketGateway
-    .broadcastMessageChunk(conversationId, [channelName], { requestId, text: removeMarkdown(text), done })
+    .broadcastMessageChunk(conversationId, [channelName], { requestId, text: spoken, done })
     .catch((err) => logger.warn(`Voice assistant: failed to broadcast ${errorContext}: ${err}`))
 }
 
