@@ -33,7 +33,9 @@ on:
 
 jobs:
   build-and-test:
-    # Don't pin the OS: runner kernels vary within an image label (see #398).
+    # Don't pin the OS: ubuntu-latest is migrating to Ubuntu 26 (Oct 19 - Nov 19
+    # 2026), and runner kernels differ across images and across the fleet during
+    # that rollout. See #398.
     runs-on: ubuntu-latest
     timeout-minutes: 75
 
