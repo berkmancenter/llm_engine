@@ -86,6 +86,22 @@ describe('voiceAssistant.respond — voice output also posts to chat', () => {
     expect(responses[0].message.source).toBe('voice')
   })
 
+  it('strips Markdown from the text sent to the transcript channel, but leaves the chat message intact', async () => {
+    jest.spyOn(websocketGateway, 'broadcastAgentResponding').mockResolvedValue()
+    const chunkSpy = jest.spyOn(websocketGateway, 'broadcastMessageChunk').mockResolvedValue()
+    mockAnswerQuestion.mockResolvedValue([
+      { visible: true, message: { text: '**Lunch** is at *noon*.' }, messageType: 'json', channels: [] }
+    ])
+    const context = buildContext({ voiceOutput: true, channels: [transcriptChannel, chatChannel] })
+
+    const responses = await voiceAssistant.respond.call(context, { messages: [] }, msg('hey Berkie what time is lunch'))
+
+    const fallbackChunkCall = chunkSpy.mock.calls.find((call) => call[2].text)
+    expect(fallbackChunkCall?.[2].text).toBe('Lunch is at noon.')
+    // Chat clients render Markdown normally, so the posted message keeps it as-is.
+    expect(responses[0].message.text).toBe('**Lunch** is at *noon*.')
+  })
+
   it('does not post to chat when there is no chat channel, but still streams', async () => {
     jest.spyOn(websocketGateway, 'broadcastAgentResponding').mockResolvedValue()
     const chunkSpy = jest.spyOn(websocketGateway, 'broadcastMessageChunk').mockResolvedValue()

@@ -91,6 +91,26 @@ describe('voiceAssistant.respond — announcements', () => {
     })
   })
 
+  it('strips Markdown from a streamed announcement segment, but leaves the chat message intact', async () => {
+    const broadcastSpy = jest.spyOn(websocketGateway, 'broadcastMessageChunk').mockResolvedValue()
+    const kudos = fakeAnnouncement('kudos', '**Jane** did great.')
+    const context = buildContext({
+      voiceOutput: true,
+      channels: [transcriptChannel, chatChannel],
+      announcements: [kudos]
+    })
+
+    const responses = await voiceAssistant.respond.call(context, { messages: [] }, msg('hey Berkie read the kudos'))
+
+    expect(broadcastSpy).toHaveBeenNthCalledWith(1, 'conv-1', ['transcript'], {
+      requestId: 'conv-1',
+      text: 'Jane did great.',
+      done: false
+    })
+    // Chat clients render Markdown normally, so the posted message keeps the organizer's own formatting.
+    expect(responses[0].message.text).toBe('**Jane** did great.')
+  })
+
   it('returns no responses and skips entirely when voiceOutput is on but there is no transcript channel', async () => {
     const broadcastSpy = jest.spyOn(websocketGateway, 'broadcastMessageChunk').mockResolvedValue()
     const kudos = fakeAnnouncement('kudos', 'Jane did great.')

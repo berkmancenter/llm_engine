@@ -1,3 +1,4 @@
+import removeMarkdown from 'remove-markdown'
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory, IMessage } from '../../types/index.types.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
@@ -22,10 +23,18 @@ function resolveVoiceStreamTarget(conversation, userMessage, conversationId) {
   return { transcriptChannel, requestId }
 }
 
-/** One `message:chunk` broadcast, with the same warn-and-swallow failure handling every call site needs. */
+/**
+ * One `message:chunk` broadcast, with the same warn-and-swallow failure handling every call
+ * site needs. Strips Markdown from the text first — VOICE_OUTPUT_RULES already tells the model
+ * not to use it, but that's a prompt instruction, not a guarantee; this is a deterministic
+ * backstop so a slip (the model's own habit, or Markdown echoed from a web_search result it's
+ * quoting) never reaches TTS. Scoped to this one function since every transcript-bound/TTS text
+ * path already funnels through it — the chat-channel message built elsewhere is untouched, since
+ * Markdown there renders normally for a reader.
+ */
 function broadcastChunk(conversationId, channelName, requestId, text, done, errorContext) {
   return websocketGateway
-    .broadcastMessageChunk(conversationId, [channelName], { requestId, text, done })
+    .broadcastMessageChunk(conversationId, [channelName], { requestId, text: removeMarkdown(text), done })
     .catch((err) => logger.warn(`Voice assistant: failed to broadcast ${errorContext}: ${err}`))
 }
 
