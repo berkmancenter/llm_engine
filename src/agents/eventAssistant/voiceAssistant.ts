@@ -67,9 +67,8 @@ function wrapVoiceSourceMessage(response, questionText, userMessage, chatChannel
  * before posting it to chat; either way, the chat channel gets the same single message with
  * the raw, unsegmented body.
  */
-async function respondWithAnnouncement(announcement, questionText, userMessage, voiceOutput, conversationId) {
+async function respondWithAnnouncement(announcement, questionText, userMessage, voiceOutput, conversationId, target) {
   if (voiceOutput) {
-    const target = resolveVoiceStreamTarget(this.conversation, userMessage, conversationId)
     if (!target) return []
     const { transcriptChannel, requestId } = target
 
@@ -144,20 +143,31 @@ export default verify({
     if (!questionText) return []
 
     const conversationId = this.conversation._id.toString()
+    const voiceOutput = Boolean(this.agentConfig.voiceOutput)
+    const voiceTarget = voiceOutput ? resolveVoiceStreamTarget(this.conversation, userMessage, conversationId) : null
+
     // Past this point we're committed to producing a real response (LLM-generated or a
-    // verbatim announcement read)
-    websocketGateway
-      .broadcastAgentResponding(conversationId, this._id.toString())
-      .catch((err) => logger.warn(`Voice assistant: failed to broadcast agent:responding: ${err}`))
+    // verbatim announcement read) that will actually stream chunks to bot-media clients.
+    if (voiceTarget) {
+      websocketGateway
+        .broadcastAgentResponding(conversationId, this._id.toString())
+        .catch((err) => logger.warn(`Voice assistant: failed to broadcast agent:responding: ${err}`))
+    }
 
     logger.debug(`Voice assistant answering question: "${questionText}"`)
     const questionMessage = { ...userMessage, body: questionText }
 
-    const voiceOutput = Boolean(this.agentConfig.voiceOutput)
-
     const announcement = matchAnnouncementTrigger(questionText, this.conversation.announcements ?? [])
     if (announcement) {
-      return respondWithAnnouncement.call(this, announcement, questionText, userMessage, voiceOutput, conversationId)
+      return respondWithAnnouncement.call(
+        this,
+        announcement,
+        questionText,
+        userMessage,
+        voiceOutput,
+        conversationId,
+        voiceTarget
+      )
     }
 
     if (voiceOutput) {
@@ -165,9 +175,8 @@ export default verify({
       // for TTS, live as they're generated — in addition to (below) posting the same answer
       // to chat once it's done, same as the non-voice path, so there's still a durable,
       // visible chat record of what the bot said.
-      const target = resolveVoiceStreamTarget(this.conversation, userMessage, conversationId)
-      if (!target) return []
-      const { transcriptChannel, requestId } = target
+      if (!voiceTarget) return []
+      const { transcriptChannel, requestId } = voiceTarget
 
       let chunkStreamed = false
       const onChunk = (text: string) => {
