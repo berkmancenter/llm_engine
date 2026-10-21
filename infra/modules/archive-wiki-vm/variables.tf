@@ -89,6 +89,34 @@ variable "archive_api_token_secret_name" {
   default     = "llm-engine-archive-wiki-api-token"
 }
 
+variable "app_ref" {
+  description = <<-EOT
+    Git ref (commit SHA, tag, or branch) of the private
+    berkmancenter/bkc-archive-wiki repo to check out at clone time. Only
+    takes effect on a fresh clone — this module's own idempotency guard
+    (`if [ ! -d "$REPO_DIR/api/dist" ]` in startup-script.sh.tpl, checked
+    separately from the clone itself) means a metadata-only apply does not
+    re-check-out a changed ref; force it with a targeted `-replace` of
+    this instance, the same convention bot-media-server-vm uses for its
+    own web_server_image_tag.
+
+    Pins both wiki content and archive-wiki-api's own code to one commit —
+    nothing else updates this checkout in between. Picking up any new
+    commit (content or code) means a fresh deploy to a new app_ref value,
+    accepting the brief restart that causes either way, rather than
+    running a separate no-restart content-sync path alongside this one.
+
+    Defaults to "main" for compatibility with any consumer that doesn't
+    set this explicitly — that means an UNPINNED deploy, floating on
+    whatever main's tip is at clone time, same as this module's behavior
+    before this variable existed. llm_engine-infra's own
+    archive_wiki_ref has no default for exactly this reason: a missing
+    value there should be a loud error, not a silent float.
+  EOT
+  type        = string
+  default     = "main"
+}
+
 variable "deploy_key_secret_name" {
   description = <<-EOT
     Secret Manager secret holding the SSH private key (PEM, ed25519) for a

@@ -120,6 +120,7 @@ resource "google_compute_instance" "archive_wiki" {
       archive_api_port  = var.archive_api_port
       archive_api_token = random_password.archive_api_token.result
       deploy_key        = data.google_secret_manager_secret_version.deploy_key.secret_data
+      app_ref           = var.app_ref
     })
   }
 
