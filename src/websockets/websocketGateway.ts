@@ -80,6 +80,19 @@ class WebsocketGateway {
   }
 
   /**
+   * Revoke a user's admin-room membership everywhere. Call it when their role may have lost the right to moderate:
+   * the admin room is joined once from the role at join time and never re-validated, so without this a demoted
+   * admin's open sockets would keep receiving hidden message bodies until they disconnected.
+   */
+  async evictFromAdminRooms(userId: string) {
+    if (this._worker) {
+      this._worker.send({ evictAdminRoomsFor: userId })
+    } else {
+      await socketIO.getConnection()?.evictFromAdminRooms(userId)
+    }
+  }
+
+  /**
    * Hidden messages are split by audience instead of sent to the shared channel rooms:
    * admins get it flagged in the admin room, the author gets it unflagged in their own user room,
    * everyone else gets nothing (or a stub under the placeholder policy). See messageVisibility.ts.

@@ -3,6 +3,7 @@ import cluster from 'node:cluster'
 import { setupMaster } from '@socket.io/sticky'
 import { setupPrimary } from '@socket.io/cluster-adapter'
 import config from '../config/config.js'
+import logger from '../config/logger.js'
 import socketIO from './socketIO.js'
 import registerMessageHandlers from './handlers/messageHandlers.js'
 import registerConversationHandlers from './handlers/conversationHandlers.js'
@@ -85,7 +86,20 @@ if (cluster.isPrimary) {
   // child process' socket io instance
   process.on(
     'message',
-    (message: { conversation: string; event: string; message: string; channels?: string[]; extraRooms?: string[] }) => {
+    (message: {
+      conversation: string
+      event: string
+      message: string
+      channels?: string[]
+      extraRooms?: string[]
+      evictAdminRoomsFor?: string
+    }) => {
+      if (message.evictAdminRoomsFor) {
+        io.evictFromAdminRooms(message.evictAdminRoomsFor).catch((err) =>
+          logger.error(`Could not evict ${message.evictAdminRoomsFor} from admin rooms: ${err.message}`)
+        )
+        return
+      }
       if (message.conversation) {
         const roomIds = getRoomIds(message.conversation, message.channels)
         io.emitMultiple(

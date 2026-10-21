@@ -23,6 +23,14 @@ export function getAdminRoomId(conversation: string) {
   return `admin:${conversation}`
 }
 
+/* Tracks which sockets of one user sit in an admin room, so a role change can find them without knowing which
+   conversations they joined. Starts with "moderator:", which no ObjectId-based room name does. */
+export function getModeratorTrackerRoomId(userId: string) {
+  return `moderator:${userId}`
+}
+
+export const isAdminRoom = (room: string) => room.startsWith('admin:')
+
 export function getRoomIds(conversation: string, channels?: string[]) {
   if (channels) {
     return channels.map((channel) => getRoomId(conversation, channel))
@@ -34,5 +42,7 @@ export default {
   checkAuth,
   getRoomId,
   getRoomIds,
-  getAdminRoomId
+  getAdminRoomId,
+  getModeratorTrackerRoomId,
+  isAdminRoom
 }

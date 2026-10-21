@@ -1,6 +1,7 @@
 import mongoose from 'mongoose'
 import catchAsync from '../../utils/catchAsync.js'
-import { checkAuth, getRoomId, getRoomIds, getAdminRoomId } from '../utils.js'
+import { checkAuth, getRoomId, getRoomIds, getAdminRoomId, getModeratorTrackerRoomId } from '../utils.js'
+import { roleRights } from '../../config/roles.js'
 import logger from '../../config/logger.js'
 import authChannels from '../../utils/authChannels.js'
 import { conversationService } from '../../services/index.js'
@@ -50,10 +51,21 @@ export default (io, socket) => {
     }
     socket.join(data.topicId.toString())
   })
-  /* Admins also join `admin:<conversation>`, where hidden messages arrive flagged. Decided from the
-     user's current role at join time (checkAuth reloads the user for every event). */
+  /* Moderators (the same right the hide routes need) also join `admin:<conversation>`, where hidden messages
+     arrive flagged. Decided from the user's current role at join time (checkAuth reloads the user for every
+     event). A room emit cannot look at the receiving user, so the join is the only check; a role change after
+     it is closed by eviction instead (userService.updateUserRole -> websocketGateway.evictFromAdminRooms),
+     which finds the user's sockets through the tracker room joined alongside. Chosen over a per-emit check
+     because nothing on the emit path knows its recipients. A re-join under a role without the right also
+     leaves the room, so a demoted user's socket cannot keep it by joining again. */
   const joinAdminRoomIfAdmin = (data) => {
-    if (data.user?.role === 'admin') socket.join(getAdminRoomId(data.conversationId.toString()))
+    const adminRoom = getAdminRoomId(data.conversationId.toString())
+    if (!roleRights.get(data.user?.role)?.includes('moderateMessages')) {
+      socket.leave(adminRoom)
+      return
+    }
+    socket.join(adminRoom)
+    socket.join(getModeratorTrackerRoomId(data.user._id.toString()))
   }
   const joinChannel = catchAsync(async (data, callback) => {
     const startedAt = Date.now()

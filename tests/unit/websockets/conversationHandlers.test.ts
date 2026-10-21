@@ -468,10 +468,10 @@ describe('admin room membership', () => {
     expect(socket.join).not.toHaveBeenCalledWith(adminRoom())
   })
 
-  /* Current behavior, documented rather than endorsed: the admin room is decided from the user's role
-     at join time and nothing re-checks it. A demoted admin keeps receiving flagged hidden messages on an
-     already-joined socket until it leaves or disconnects, and a newly promoted admin only gets the room
-     on their next join. Closing this would need the role-change path to evict sockets. */
+  /* The admin room is decided from the user's role at join time. A demotion after that is closed by
+     eviction (userService.updateUserRole -> websocketGateway.evictFromAdminRooms, covered in
+     adminRoomEviction.test.ts); a re-join under the lower role also leaves the room. A newly promoted
+     admin only gets the room on their next join. */
   describe('role changes after joining', () => {
     const adminData = () => ({
       conversationId: conversation._id,
@@ -482,7 +482,17 @@ describe('admin room membership', () => {
       user: { _id: userOne._id, email: userOne.email, role: 'participant' }
     })
 
-    it('does not evict a demoted admin from the admin room on an existing socket', async () => {
+    it('joins a tracker room next to the admin room, so a role change can find the socket', async () => {
+      const { handlers, socket } = registerWithFakeSocket()
+      await joinAndWaitForCallback(handlers['conversation:join'], adminData())
+      expect(socket.join).toHaveBeenCalledWith(`moderator:${userOne._id}`)
+
+      const asParticipant = registerWithFakeSocket()
+      await joinAndWaitForCallback(asParticipant.handlers['conversation:join'], participantData())
+      expect(asParticipant.socket.join).not.toHaveBeenCalledWith(`moderator:${userOne._id}`)
+    })
+
+    it('takes a demoted admin out of the admin room when the same socket joins again', async () => {
       const { handlers, socket } = registerWithFakeSocket()
       await joinAndWaitForCallback(handlers['conversation:join'], adminData())
       expect(socket.join).toHaveBeenCalledWith(adminRoom())
@@ -490,7 +500,7 @@ describe('admin room membership', () => {
       // the same socket joins again after the user was demoted
       await joinAndWaitForCallback(handlers['conversation:join'], participantData())
 
-      expect(socket.leave).not.toHaveBeenCalledWith(adminRoom())
+      expect(socket.leave).toHaveBeenCalledWith(adminRoom())
     })
 
     it('puts a promoted user in the admin room only on their next join', async () => {

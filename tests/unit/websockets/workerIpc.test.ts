@@ -9,9 +9,11 @@ import { jest } from '@jest/globals'
  * This loads src/websockets/index.ts as a worker (not the primary) and drives that handler.
  */
 const emitMultiple = jest.fn()
+const evictFromAdminRooms = jest.fn<(userId: string) => Promise<void>>()
 const io = {
   addConnectionHandlers: jest.fn(),
   emitMultiple,
+  evictFromAdminRooms,
   io: { engine: { clientsCount: 0 } }
 }
 
@@ -35,6 +37,7 @@ afterAll(() => {
 })
 beforeEach(() => {
   emitMultiple.mockClear()
+  evictFromAdminRooms.mockReset().mockResolvedValue(undefined)
 })
 
 describe('worker IPC handler', () => {
@@ -63,6 +66,12 @@ describe('worker IPC handler', () => {
     expect(emitMultiple).toHaveBeenLastCalledWith('c1', 'poll:new', {})
     handler({ conversation: 'c1', event: 'message:new', message: {}, channels: ['a', 'b'] })
     expect(emitMultiple).toHaveBeenLastCalledWith(['c1_a', 'c1_b'], 'message:new', {})
+  })
+
+  it('evicts a user from the admin rooms on an evict message, without emitting anything', () => {
+    handler({ evictAdminRoomsFor: 'user-a' })
+    expect(evictFromAdminRooms).toHaveBeenCalledWith('user-a')
+    expect(emitMultiple).not.toHaveBeenCalled()
   })
 
   it('ignores a message without a conversation', () => {
