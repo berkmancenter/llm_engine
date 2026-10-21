@@ -6,6 +6,9 @@ export const BOT_NAME_MATCH_THRESHOLD = 65
 // Phrases that signal the moderator is calling on the bot. Matched case-insensitively
 // anywhere in the transcript line, in combination with the bot name. These are all
 // distinctive enough as multi-word idioms that they're unlikely to occur incidentally.
+// Because the phrase match doesn't care what else is in the line, a moderator prefacing
+// the call-upon with the "hey <botName>" wake word used elsewhere (voiceDirectives.ts)
+// — e.g. "hey [botName], go ahead" — is already handled with no extra logic.
 export const CALL_UPON_PHRASES = [
   'go ahead',
   'your turn',
