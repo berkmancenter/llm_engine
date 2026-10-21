@@ -102,8 +102,11 @@ describe('voice assistant voice output mode', () => {
 
       const responses = await defaultAgentTypes.voiceAssistant.respond.call(agent, { messages: [] }, msg)
 
-      // In voice output mode the agent returns [] — no message is saved or broadcast to chat
-      expect(responses).toHaveLength(0)
+      // Voice output mode also posts the full answer to chat once it's done, same as the
+      // non-voice path, in addition to the streamed chunks checked below.
+      expect(responses).toHaveLength(1)
+      expect(responses[0].channels[0].name).toBe('chat')
+      expect(responses[0].message.source).toBe('voice')
 
       const { calls } = broadcastSpy.mock
       expect(calls.length).toBeGreaterThan(1)
@@ -141,7 +144,9 @@ describe('voice assistant voice output mode', () => {
 
       const responses = await defaultAgentTypes.voiceAssistant.respond.call(agent, { messages: [] }, msg)
 
-      expect(responses).toHaveLength(0)
+      // Still posted to chat even though this path never streamed via onChunk.
+      expect(responses).toHaveLength(1)
+      expect(responses[0].channels[0].name).toBe('chat')
       expect(mockGetTools).not.toHaveBeenCalled()
 
       const { calls } = broadcastSpy.mock

@@ -69,6 +69,28 @@ describe('voiceAssistant.respond — announcements', () => {
     })
   })
 
+  it('also posts the announcement to chat when voiceOutput is on and a chat channel exists', async () => {
+    const broadcastSpy = jest.spyOn(websocketGateway, 'broadcastMessageChunk').mockResolvedValue()
+    const kudos = fakeAnnouncement('kudos', 'Jane did great.\n\nBob did great too.')
+    const context = buildContext({
+      voiceOutput: true,
+      channels: [transcriptChannel, chatChannel],
+      announcements: [kudos]
+    })
+
+    const responses = await voiceAssistant.respond.call(context, { messages: [] }, msg('hey Berkie read the kudos'))
+
+    expect(broadcastSpy).toHaveBeenCalledTimes(3) // 2 segments + done marker, same as streamed-only above
+    expect(responses).toHaveLength(1)
+    expect(responses[0].channels).toEqual([chatChannel])
+    expect(responses[0].message).toEqual({
+      text: 'Jane did great.\n\nBob did great too.',
+      source: 'voice',
+      sourceMessage: 'Read the kudos',
+      sourcePseudonym: 'Casey'
+    })
+  })
+
   it('returns no responses and skips entirely when voiceOutput is on but there is no transcript channel', async () => {
     const broadcastSpy = jest.spyOn(websocketGateway, 'broadcastMessageChunk').mockResolvedValue()
     const kudos = fakeAnnouncement('kudos', 'Jane did great.')
