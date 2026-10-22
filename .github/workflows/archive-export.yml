@@ -5,12 +5,14 @@ on:
       - 'src/services/archiveEvent.service.ts'
       - 'src/services/conversation.service/lifecycle.ts'
       - 'src/jobs/**'
+      - 'src/config/config.ts'
+      - 'src/models/**'
       - 'scripts/backfillArchiveEvents.ts'
       - 'tests/unit/jobs/archiveEvent*.test.ts'
       - 'tests/unit/services/archiveEvent.service.test.ts'
+      - 'tests/unit/services/conversationService.lifecycle.summary.test.ts'
+      - 'tests/unit/scripts/backfillArchiveEvents.test.ts'
       - '.github/workflows/archive-export.yml'
-  push:
-    branches: [fix/nextspace-archive-export]
   workflow_dispatch:
 permissions:
   contents: read
@@ -43,6 +45,7 @@ jobs:
           tests/unit/services/archiveEvent.service.test.ts
           tests/unit/jobs/archiveEvent.test.ts
           tests/unit/jobs/archiveEvent.schedule.test.ts
+          tests/unit/scripts/backfillArchiveEvents.test.ts
           tests/unit/jobs/define.test.ts
           tests/unit/jobs/startup.test.ts
           tests/unit/services/conversationService.lifecycle.summary.test.ts
