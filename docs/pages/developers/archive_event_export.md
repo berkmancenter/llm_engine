@@ -38,18 +38,19 @@ Set on the engine runtime (not just GitHub Actions):
 ```text
 BKC_ARCHIVE_API_URL=https://<archive-api-host>
 BKC_ARCHIVE_API_TOKEN=<shared token>
-BKC_ARCHIVE_EXPORT_ENABLED=true
+BKC_ARCHIVE_EXPORT_ENABLED=false
 ```
 
 The archive service uses `ARCHIVE_API_TOKEN` for the same shared token. The export
 switch defaults to false so existing deployments remain unchanged until the
-paired API is ready. Existing archive read/search tools are unaffected.
+live acceptance gate below is signed off. Existing archive read/search tools are unaffected.
 
 After deploying the engine with the flag enabled, a newly stopped event with a
 saved summary queues an `archiveEvent` job. Its worker logs one of:
 
 ```text
 Archive export queued event=<id>
+Archive export enqueue failed event=<id>
 Archive export skipped event=<id> reason=<code>
 Archive export retry event=<id> attempt=<n> reason=<code>
 Archive export delivered event=<id> path=inbox/conversations/event-<hash>.md
@@ -84,6 +85,20 @@ most recent matching completed events; use explicit IDs for older records.
 A process failure between summary persistence and queue creation can leave a
 completed event without a job; this backfill command is also the recovery path.
 It does not regenerate missing summaries or automatically recover past events.
+An enqueue failure is logged and does not prevent the stop, post-event analysis,
+or websocket notification from completing.
+
+Backfill reports `queued` for a new job, `already_queued` for existing work,
+`already_delivered` for completed delivery, and `requeued` for an explicit retry
+of failed/skipped work. Dry-run reports `eligible (dry-run)` for new eligible work
+or `retryable (dry-run)` for terminal work selected with `--retry`; it never writes
+jobs. Existing jobs are checked before enqueueing; concurrent scheduling can still
+race this check, while Agenda's insert-only identity and API deduplication protect
+delivery.
+
+A conversation restarted and stopped again with a new summary is **not re-exported**
+after delivery. The queue and API identity remain the conversation ID, and neither
+normal enqueue nor `--retry` overwrites the original draft or curator decisions.
 
 For acceptance, select one real eligible public event, queue it, find its delivered
 log/status, and confirm exactly one matching file under the archive service's
@@ -108,10 +123,40 @@ separate and is intentionally outside this change.
 - Pure policy/HTTP tests: public eligibility, source identity, field allowlist,
   authenticated POST, duplicate acknowledgment, retryable and terminal failures.
 - Worker tests: persisted outcomes, bounded retries, privacy changes before retry,
-  disabled export and rerunning delivered work.
+  disabled export, crash recovery from `delivering`, attempt-limit recovery and rerunning delivered work.
 - Mongo/Agenda tests: deduplication, completion preserving scheduled retry, explicit
   retry of terminal work and unchanged delivered records.
+- Lifecycle tests: enqueue failure still completes stop/analysis/notification; disabled
+  export and missing summaries do not enqueue.
+- Backfill tests: dry-run, enqueue, existing jobs/delivery, explicit retries, eligibility,
+  disabled export and cleanup after queue failure.
 - Paired API tests: one draft for concurrent requests, authentication, safe metadata,
   no inbox exposure through page traversal, review decisions and exact builder links.
 - Cross-repository HTTP test uses this engine's compiled delivery client against
   the real archive API app with synthetic content and a temporary inbox.
+
+## Live acceptance gate — OPEN (PR #400)
+
+Automated tests do not close this gate. Keep `BKC_ARCHIVE_EXPORT_ENABLED=false`
+for general production use until the deployment operator records the evidence and
+sign-off below. A controlled acceptance run must temporarily enable the flag on
+the selected engine runtime after the API prerequisites are verified; turn it off
+again if acceptance fails or sign-off is still pending.
+
+- [ ] Deploy [paired wiki PR #2](https://github.com/berkmancenter/bkc-archive-wiki/pull/2),
+      build/restart the API, and record its deployed revision. Preserve inbox/receipts.
+- [ ] Deploy this engine revision with export disabled; record the revision and host.
+- [ ] Set `BKC_ARCHIVE_API_URL` and matching engine/API tokens; verify authenticated
+      reachability from the engine host. Never include token values in evidence.
+- [ ] Temporarily enable export for the controlled run. Stop one real eligible public
+      event; record its conversation ID, delivered job status/log, and draft path.
+- [ ] Enqueue that ID twice; verify `already_delivered` and exactly one private draft.
+      Confirm the draft contains the summary, without chat/transcripts/attendee lists.
+- [ ] Record operator, timestamp, evidence location and pass/fail result below.
+      Only a passing, signed-off result permits leaving export enabled for normal use.
+
+Acceptance record (pending):
+- Operator / timestamp: pending
+- Wiki revision / engine revision / runtime: pending
+- Public event ID / draft path / evidence link: pending
+- Result / rollout sign-off: **OPEN — not yet performed**

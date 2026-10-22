@@ -82,3 +82,34 @@ test('disabled export makes no network call', async () => {
   expect(spy).not.toHaveBeenCalled()
   expect(job.attrs.data.reason).toBe('export_disabled')
 })
+
+test('recovers a persisted delivering job with the same source ID and consumes another attempt', async () => {
+  const job = makeJob()
+  job.attrs.data.status = 'delivering'
+  job.attrs.data.attempts = 1
+  const path = `inbox/conversations/event-${'a'.repeat(64)}.md`
+  const spy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+    expect(job.save).toHaveBeenCalled()
+    expect(job.attrs.data.status).toBe('delivering')
+    expect(job.attrs.data.attempts).toBe(2)
+    expect(JSON.parse(init!.body as string)).toEqual(expect.objectContaining({ source: 'llm-engine', source_id: 'event-1' }))
+    return new Response(JSON.stringify({ path }))
+  })
+  await archiveEvent(job as unknown as Job<ArchiveEventJobData>)
+  expect(job.attrs.data).toEqual({ conversationId: 'event-1', status: 'delivered', attempts: 2, path })
+  expect(job.save).toHaveBeenCalledTimes(2)
+  await archiveEvent(job as unknown as Job<ArchiveEventJobData>)
+  expect(spy).toHaveBeenCalledTimes(1)
+})
+
+test('crash recovery at the attempt limit does not deliver again', async () => {
+  const job = makeJob()
+  job.attrs.data.status = 'delivering'
+  job.attrs.data.attempts = 6
+  const spy = jest.spyOn(globalThis, 'fetch')
+  await archiveEvent(job as unknown as Job<ArchiveEventJobData>)
+  expect(spy).not.toHaveBeenCalled()
+  expect(job.attrs.data.status).toBe('failed')
+  expect(job.attrs.data.reason).toBe('attempt_limit')
+  expect(job.save).toHaveBeenCalledTimes(1)
+})
