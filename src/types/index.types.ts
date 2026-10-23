@@ -846,6 +846,9 @@ export interface GraphConcept {
      `provenance.conversationId` stays the first one (where the concept originated); this is
      what lets a concept raised in several sessions say so. Ids only — nothing identifying. */
   conversationIds?: string[]
+  /* Opaque, keyed (HMAC) id that is safe to send to analytics, unlike `id`, which is a slug
+     of discussion text. Added on read only when ANALYTICS_ID_SECRET is set; never stored. */
+  analyticsId?: string
   /* Id of the GraphOriginPrompt this concept came out of. */
   origin?: string
   provenance?: GraphNodeProvenance
@@ -878,6 +881,9 @@ export interface GraphContribution {
 export interface GraphOriginPrompt {
   id: string
   text: string
+  /* Opaque, keyed (HMAC) id that is safe to send to analytics, unlike `id`, which is a slug
+     of discussion text. Added on read only when ANALYTICS_ID_SECRET is set; never stored. */
+  analyticsId?: string
   provenance?: GraphNodeProvenance
 }
 

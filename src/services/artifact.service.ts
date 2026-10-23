@@ -458,6 +458,13 @@ const getVersion = async (artifactId: string, versionNumber: number, user, passc
   return version
 }
 
+/* The type (discriminator) of an artifact, for callers holding only its versions. Call it
+   after the read guard has passed. */
+const getArtifactType = async (artifactId: string): Promise<string | undefined> => {
+  const artifact = await findArtifact(artifactId)
+  return (artifact as { __t?: string } | null)?.__t
+}
+
 const artifactService = {
   createArtifact,
   appendVersion,
@@ -466,6 +473,7 @@ const artifactService = {
   getArtifact,
   listVersions,
   getVersion,
+  getArtifactType,
   authorizeArtifactRead,
   authorizeArtifactWrite,
   ensureArtifactPasscode,

@@ -118,6 +118,9 @@ const envVarsSchema = Joi.object()
         'days after which a member invite link expires; generous because it is first contact to a cold mailbox, with admin resend as the safety net'
       ),
     AUTH_TOKEN_SECRET: Joi.string().description('secret used to encrypt generated passwords'),
+    ANALYTICS_ID_SECRET: Joi.string().description(
+      'HMAC key for the opaque analyticsId on concept graph nodes; when unset, analyticsId is omitted from API responses'
+    ),
     POSTMARK_SERVER_TOKEN: Joi.string().description(
       'Server API token for outgoing email via Postmark; POSTMARK_API_TEST validates requests without sending'
     ),
@@ -303,6 +306,9 @@ const config = {
   },
   auth: {
     authTokenSecret: envVars.AUTH_TOKEN_SECRET
+  },
+  analytics: {
+    idSecret: envVars.ANALYTICS_ID_SECRET
   },
   maxMessageLength: envVars.MAX_MESSAGE_LENGTH,
   enableGcpConnectionMetrics: envVars.ENABLE_GCP_CONNECTION_METRICS,
