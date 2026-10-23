@@ -54,7 +54,7 @@ export const supportedModels: LlmModelDetails[] = [
     description: "Anthropic's fast model, next generation after Sonnet 4.6"
   },
   {
-    // Confirmed reachable on the HUIT Bedrock gateway (2026-10-14) via the bare
+    // Confirmed reachable on Bedrock (2026-10-14) via the bare
     // `us.anthropic.claude-opus-5-5` ID (the -v1 / -v1:0 forms are rejected as invalid). Not
     // the default — see the opus-5 note above; the same "needs eval verification" caveat
     // applies. This only makes the model selectable.
@@ -65,7 +65,7 @@ export const supportedModels: LlmModelDetails[] = [
     description: "Anthropic's most capable model, next generation after Opus 5"
   },
   {
-    // Confirmed reachable on the HUIT Bedrock gateway (2026-10-14) via the bare
+    // Confirmed reachable on Bedrock (2026-10-14) via the bare
     // `us.anthropic.claude-sonnet-5-5` ID (the -v1 / -v1:0 forms are rejected as invalid). Not
     // the default — same "needs eval verification" caveat as opus-5-5 above.
     name: 'sonnet-5-5',
