@@ -96,6 +96,8 @@ describe('normalizeBedrockModelName', () => {
   it('strips region prefix and version suffix from Bedrock Anthropic ids', () => {
     expect(normalizeBedrockModelName('us.anthropic.claude-haiku-4-5-20251001-v1:0')).toBe('claude-haiku-4-5-20251001')
     expect(normalizeBedrockModelName('us.anthropic.claude-opus-4-6-v1')).toBe('claude-opus-4-6')
+    expect(normalizeBedrockModelName('us.anthropic.claude-opus-5-5')).toBe('claude-opus-5-5')
+    expect(normalizeBedrockModelName('us.anthropic.claude-sonnet-5-5')).toBe('claude-sonnet-5-5')
     expect(normalizeBedrockModelName('anthropic.claude-sonnet-4-5-20250929-v1:0')).toBe('claude-sonnet-4-5-20250929')
   })
 
