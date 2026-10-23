@@ -17,10 +17,12 @@ import { getModelChat, coreLLMModel, coreLLMPlatform } from '../../agents/helper
 import { getChatPromptResponse } from '../../agents/helpers/llmChain.js'
 import { computeParticipation, countChannelParticipants, computeAudienceEngagement } from '../conversationAnalytics.service.js'
 import artifactService from '../artifact.service.js'
+import buildProvenance from '../../utils/provenance.js'
 import { EXTRACTION_PROMPT, EXTRACTION_SCHEMA } from './prompt.js'
 import { aliasedKey, assembleGraph, AssemblyReport, ExtractionResult, PollRefMap, SourceRefMap } from './assemble.js'
 import { screenForIdentities } from './nameScreen.js'
 import { identityIn } from './quoteSafety.js'
+import { findMessages, hiddenSetHash } from '../../utils/messageVisibility.js'
 import {
   knownConceptLabels,
   payloadToExtraction,
@@ -78,7 +80,15 @@ interface GraphSources {
   /* Each poll's tag and bare question text, so a caller can pre-seed an origin prompt that
      guarantees the node exists even on a chunk where the model doesn't bother restating it. */
   polls: { tag: string; pollId: string; question: string }[]
+  /* The messages that were read (id and owner), for the provenance record. */
+  messages: SourceMessage[]
   knownIdentities: string[]
+}
+
+/* A message the graph was read from, as much of it as provenance needs. */
+interface SourceMessage {
+  _id: unknown
+  owner?: unknown
 }
 
 /**
@@ -246,7 +256,7 @@ type SourceItem =
  * independently ([m1], [m2]... / [p1], [p2]...) so a cited tag's prefix alone says which map
  * to resolve it against.
  */
-export const interleaveSources = (items: SourceItem[]): Omit<GraphSources, 'knownIdentities'> => {
+export const interleaveSources = (items: SourceItem[]): Omit<GraphSources, 'knownIdentities' | 'messages'> => {
   const ordered = [...items].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
 
   const texts: string[] = []
@@ -281,15 +291,13 @@ export const interleaveSources = (items: SourceItem[]): Omit<GraphSources, 'know
 /** The messages and polls one conversation contributes, interleaved chronologically and
     tagged for citation. */
 const loadSources = async (conversation, knownIdentities: string[]): Promise<GraphSources> => {
-  const messages = await Message.find({
-    conversation: conversation._id,
-    channels: { $in: [...GRAPH_SOURCE_CHANNELS] },
-    visible: { $ne: false }
-  })
-    .sort({ createdAt: 1 })
-    .select('body fromAgent createdAt')
-    .lean()
-    .exec()
+  // 'model' audience: hidden messages never feed the extraction
+  const messages = await findMessages(
+    conversation._id,
+    'model',
+    { channels: { $in: [...GRAPH_SOURCE_CHANNELS] }, visible: { $ne: false } },
+    { select: 'body fromAgent createdAt owner', sort: { createdAt: 1 }, lean: true }
+  )
 
   /* Agent messages are excluded: an assistant's own summaries and prompts are not the
      room's thinking, and mapping them would feed the model's earlier output back in as if
@@ -311,7 +319,7 @@ const loadSources = async (conversation, knownIdentities: string[]): Promise<Gra
     )
   ]
 
-  return { ...interleaveSources(items), knownIdentities }
+  return { ...interleaveSources(items), messages: usable, knownIdentities }
 }
 
 /* Packs whole messages into chunks, never splitting one, so a statement is always judged
@@ -483,7 +491,7 @@ export const generateConceptGraph = async (conversationId: string, caller: IBase
   const knownIdentities = await collectKnownIdentities(
     siblings.length > 0 ? siblings : [{ ...conversation, _id: conversationId }]
   )
-  const { texts, taggedLines, sourceRefs, pollRefs, polls } = await loadSources(
+  const { texts, taggedLines, sourceRefs, pollRefs, polls, messages } = await loadSources(
     { ...conversation, _id: conversationId },
     knownIdentities
   )
@@ -560,10 +568,12 @@ export const generateConceptGraph = async (conversationId: string, caller: IBase
     .exec()
 
   const note = `Generated from ${texts.length} message${texts.length === 1 ? '' : 's'} in the event record`
+  // every message the extraction read (hidden ones were already left out by loadSources)
+  const provenance = await buildProvenance('conceptGraph', [conversationId], messages)
 
   if (existing) {
-    const version = await artifactService.appendVersion(existing._id!.toString(), { payload, note }, caller)
-    return { artifact: existing, version, report, results, knownIdentities, texts, pollRefs }
+    const version = await artifactService.appendVersion(existing._id!.toString(), { payload, note, provenance }, caller)
+    return { artifact: existing, version, report, results, knownIdentities, texts, pollRefs, sourceMessages: messages }
   }
 
   const { artifact, version } = await artifactService.createArtifact(
@@ -573,13 +583,14 @@ export const generateConceptGraph = async (conversationId: string, caller: IBase
       title: `Concept map — ${conversation.name}`,
       description: 'Concepts the event turned on, and how the discussion related them. Generated after the event.',
       payload,
-      note
+      note,
+      provenance
     },
     caller
   )
   /* The raw extraction rides along so a topic refinement triggered by the same event can
      merge it without paying for the transcript to be read a second time. */
-  return { artifact, version, report, results, knownIdentities, texts, pollRefs }
+  return { artifact, version, report, results, knownIdentities, texts, pollRefs, sourceMessages: messages }
 }
 
 /**
@@ -615,11 +626,12 @@ export const refineTopicGraph = async (
     knownIdentities: string[]
     conversationId?: string
     pollRefs?: PollRefMap
+    sourceMessages?: SourceMessage[]
   },
   options?: { reset?: boolean }
 ) => {
-  const reset = options?.reset ?? false
-  if (reset) logger.info(`conceptGraph: topic ${topicId} resetting — recomputing from the raw transcripts alone`)
+  const requestedReset = options?.reset ?? false
+  if (requestedReset) logger.info(`conceptGraph: topic ${topicId} resetting — recomputing from the raw transcripts alone`)
   const topic = await Topic.findOne({ _id: topicId, isDeleted: { $ne: true } })
     .select('name')
     .lean()
@@ -630,8 +642,26 @@ export const refineTopicGraph = async (
   const knownIdentities = incoming?.knownIdentities ?? (await collectKnownIdentities(conversations))
   const llm = await getModelChat(coreLLMPlatform, coreLLMModel, { maxTokens: 4000 })
 
-  let results: ExtractionResult[] = incoming?.results ?? []
-  let texts: string[] = incoming?.texts ?? []
+  const { artifact: existing, payload: priorPayload } = await currentTopicGraph(topicId)
+  /* The hidden set the series is under now. Fingerprinted over every conversation of the topic, the same way each
+     version records it, so the two can be compared. */
+  const hiddenHash = await hiddenSetHash(conversations.map((c) => c._id))
+  /* The graph so far is merged into the next one as it stands, so content hidden since it was written would survive
+     in it. When the hidden set has changed since that version, it is not merged: the graph is rebuilt from the
+     series' readable messages alone, as a reset does, and the earlier version stays in the version history. A version
+     with no recorded hash predates provenance and is taken to have been written under no hidden messages. */
+  const priorHash = (existing?.currentVersion as { provenance?: { hiddenSetHash?: string } } | undefined)?.provenance
+    ?.hiddenSetHash
+  const staleCarryForward = !requestedReset && !!priorPayload && (priorHash ?? (await hiddenSetHash([]))) !== hiddenHash
+  if (staleCarryForward) {
+    logger.info(`conceptGraph: topic ${topicId} hidden messages changed since its graph was written — rebuilding it`)
+  }
+  const reset = requestedReset || staleCarryForward
+
+  let results: ExtractionResult[] = staleCarryForward ? [] : incoming?.results ?? []
+  let texts: string[] = staleCarryForward ? [] : incoming?.texts ?? []
+  // every message read for this refinement, for the provenance record
+  let sourceMessages: SourceMessage[] = staleCarryForward ? [] : incoming?.sourceMessages ?? []
 
   /* Backfill path: no event handed us an extraction, so read the whole series. Deliberately
      the slow path — it exists for a topic whose events all predate this feature, not for the
@@ -648,6 +678,7 @@ export const refineTopicGraph = async (
       const sources = await loadSources(conversation, knownIdentities)
       if (sources.texts.length === 0) continue
       texts = [...texts, ...sources.texts]
+      sourceMessages = [...sourceMessages, ...sources.messages]
       /* Guarantees each conversation's poll questions become origin prompts even where the
          model doesn't restate them — see the identical seed in generateConceptGraph. Carries
          provenance directly rather than a sourceRefs tag: each conversation's loadSources call
@@ -694,8 +725,6 @@ export const refineTopicGraph = async (
       }
     }
   }
-
-  const { artifact: existing, payload: priorPayload } = await currentTopicGraph(topicId)
 
   /* The graph so far becomes just another extraction to merge, so one code path merges two
      chunks of a transcript and six sessions of a series. A reset deliberately leaves it out:
@@ -844,9 +873,18 @@ export const refineTopicGraph = async (
     noteBody = `Built from ${conversationCount}`
   }
   const note = noteBody + foldNote
+  /* Names the version whose payload was merged in. That payload is carried forward as is, so it can hold content
+     from messages hidden since it was written: its own provenance (not this one's source list) says what it came from. */
+  const carriedFrom = prior ? (existing?.currentVersion as { _id?: unknown } | undefined)?._id : undefined
+  const provenance = await buildProvenance(
+    'topicConceptGraph',
+    conversations.map((c) => c._id),
+    sourceMessages,
+    carriedFrom ? { carriedForwardFrom: String(carriedFrom) } : {}
+  )
 
   if (existing) {
-    const version = await artifactService.appendVersion(existing._id!.toString(), { payload, note }, caller)
+    const version = await artifactService.appendVersion(existing._id!.toString(), { payload, note, provenance }, caller)
     return { artifact: existing, version, report }
   }
 
@@ -857,7 +895,8 @@ export const refineTopicGraph = async (
       title: `Concept map — ${topic.name}`,
       description: 'Concepts this series has turned on, and how its discussions related them. Refined after each event.',
       payload,
-      note
+      note,
+      provenance
     },
     caller
   )

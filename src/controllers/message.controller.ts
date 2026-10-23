@@ -1,7 +1,7 @@
 import httpStatus from 'http-status'
 import catchAsync from '../utils/catchAsync.js'
 import parseChannelParams from '../utils/channelParams.js'
-import { messageService } from '../services/index.js'
+import { messageService, moderationService } from '../services/index.js'
 import serializeMessage from '../utils/serializeMessage.js'
 
 const createMessage = catchAsync(async (req, res) => {
@@ -24,4 +24,39 @@ const messageReplies = catchAsync(async (req, res) => {
   res.status(httpStatus.OK).send(replies)
 })
 
-export { createMessage, conversationMessages, vote, messageReplies }
+const hideMessage = catchAsync(async (req, res) => {
+  res.status(httpStatus.OK).send(await moderationService.hideMessage(req.params.messageId, req.user, req.body?.reason))
+})
+const unhideMessage = catchAsync(async (req, res) => {
+  res.status(httpStatus.OK).send(await moderationService.unhideMessage(req.params.messageId, req.user, req.body?.reason))
+})
+const hideUserMessages = catchAsync(async (req, res) => {
+  const { conversationId, userId } = req.params
+  res
+    .status(httpStatus.OK)
+    .send(await moderationService.hideUserMessages(conversationId, userId, req.user, req.body?.reason))
+})
+const unhideUserMessages = catchAsync(async (req, res) => {
+  const { conversationId, userId } = req.params
+  res
+    .status(httpStatus.OK)
+    .send(await moderationService.unhideUserMessages(conversationId, userId, req.user, req.body?.reason))
+})
+
+const moderationEvents = catchAsync(async (req, res) => {
+  const { limit, page } = req.query
+  const events = await moderationService.listModerationEvents(req.params.conversationId, req.user, { limit, page })
+  res.status(httpStatus.OK).send(events)
+})
+
+export {
+  moderationEvents,
+  createMessage,
+  conversationMessages,
+  vote,
+  messageReplies,
+  hideMessage,
+  unhideMessage,
+  hideUserMessages,
+  unhideUserMessages
+}

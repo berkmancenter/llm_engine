@@ -2,10 +2,11 @@ import conversationAnalyticsService from '../../services/conversationAnalytics.s
 import logger from '../../config/logger.js'
 import curateVibesCard from './curate.js'
 import verifyCuratedCard from './verifyCuration.js'
-import annotateSpikes from './spikeAnnotation.js'
+import annotateSpikes, { quoteAppearsIn } from './spikeAnnotation.js'
 import annotateReceptions from './quoteReception.js'
 import { loadReadableMessages } from './capabilities.js'
-import { ConversationMetrics, CuratedVibesData } from '../../types/index.types.js'
+import buildProvenance from '../../utils/provenance.js'
+import { ConversationMetrics, CuratedVibesData, GenerationProvenance } from '../../types/index.types.js'
 
 /* Pulls a log-friendly message off an unknown thrown value. */
 function errorText(error: unknown): string {
@@ -49,6 +50,27 @@ const AGENT_TYPE_LABELS: Record<string, string> = {
 export function labelActiveAgentTypes(agentTypes: string[]): string[] {
   const uniqueTypes = [...new Set(agentTypes)].filter((agentType) => agentType !== 'vibesAnalyst')
   return uniqueTypes.map((agentType) => AGENT_TYPE_LABELS[agentType]).filter((label): label is string => Boolean(label))
+}
+
+/* Which readable messages each quote on the card was taken from, so a later hide can be traced to the quotes it
+   touches. Quotes are verbatim by construction (see quoteAppearsIn), so a quote is matched back to every message it
+   appears in; the ref names the quote by position (spike:0, reception:1:spark, reception:1:reaction). */
+export function quoteSourcesFor(
+  metrics: ConversationMetrics,
+  messages: { _id?: unknown; body?: unknown }[]
+): NonNullable<GenerationProvenance['quoteSources']> {
+  const idsFor = (quote: string) => messages.filter((m) => quoteAppearsIn(quote, [m])).map((m) => String(m._id))
+  const sources: NonNullable<GenerationProvenance['quoteSources']> = []
+  const spikes = metrics.spikes ?? []
+  const receptions = metrics.receptions ?? []
+  spikes.forEach((spike, i) => {
+    if (spike.annotation?.quote) sources.push({ ref: `spike:${i}`, messageIds: idsFor(spike.annotation.quote) })
+  })
+  receptions.forEach((reception, i) => {
+    sources.push({ ref: `reception:${i}:spark`, messageIds: idsFor(reception.sparkQuote) })
+    sources.push({ ref: `reception:${i}:reaction`, messageIds: idsFor(reception.reactionQuote) })
+  })
+  return sources
 }
 
 /* Loaded on first use rather than imported at the top: the Agent model imports the agent
@@ -105,7 +127,8 @@ export async function hasCommunityAssistantAgent(conversation): Promise<boolean>
  * stay on llm, the main model, since they carry the judgment. fastLlm defaults to llm so a
  * caller that has only one model still works.
  *
- * Returns the rendered card alongside the enriched metrics it was built from, so the
+ * Returns the rendered card alongside the enriched metrics it was built from and the provenance of the messages read
+ * (callers persist it with the card), so the
  * event-stop path can persist a metrics snapshot without recomputing. The metrics are the
  * post-enrichment bundle, so the reception count reflects the analyst's reading pass.
  */
@@ -113,7 +136,7 @@ export default async function buildVibesSummary(
   conversation,
   llm,
   fastLlm = llm
-): Promise<{ renderData: CuratedVibesData; metrics: ConversationMetrics }> {
+): Promise<{ renderData: CuratedVibesData; metrics: ConversationMetrics; provenance: GenerationProvenance }> {
   const metrics = await conversationAnalyticsService.computeConversationMetrics(conversation)
 
   /* Read message text once, only from the channels the VA is allowed to (see
@@ -157,5 +180,8 @@ export default async function buildVibesSummary(
   }
   const draftCard = await curateVibesCard(metrics, eventMeta, llm)
   const renderData = await verifyCuratedCard(draftCard, metrics, llm)
-  return { renderData, metrics }
+  const provenance = await buildProvenance('vibesAnalystRecap', [conversation._id], readableMessages ?? [], {
+    quoteSources: quoteSourcesFor(metrics, readableMessages ?? [])
+  })
+  return { renderData, metrics, provenance }
 }

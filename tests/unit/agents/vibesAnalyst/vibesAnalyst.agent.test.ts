@@ -36,7 +36,13 @@ jest.unstable_mockModule('../src/agents/vibesAnalyst/verifyCuration.js', () => (
   default: mockVerify
 }))
 jest.unstable_mockModule('../src/agents/vibesAnalyst/spikeAnnotation.js', () => ({
-  default: mockAnnotateSpikes
+  default: mockAnnotateSpikes,
+  quoteAppearsIn: () => false
+}))
+// The provenance record is exercised in hiddenCanary.test.ts; here we only check the card carries it.
+const storedProvenance = { generator: 'vibesAnalystRecap', sourceMessageIds: [], authorIds: [], generatedAt: new Date() }
+jest.unstable_mockModule('../src/utils/provenance.js', () => ({
+  default: async () => storedProvenance
 }))
 jest.unstable_mockModule('../src/agents/vibesAnalyst/quoteReception.js', () => ({
   default: mockAnnotateReceptions
@@ -229,6 +235,7 @@ describe('vibesAnalyst agent', () => {
       expect(response.visible).toBe(true)
       expect(response.responseKind).toBe('curatedVibesSummary')
       expect(response.renderData).toBe(verifiedCard)
+      expect(response.provenance).toBe(storedProvenance)
       expect(response.channels).toEqual([adminChannel])
     })
 

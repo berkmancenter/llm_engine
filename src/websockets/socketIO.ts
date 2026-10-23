@@ -2,6 +2,7 @@ import { Server } from 'socket.io'
 import { createAdapter } from '@socket.io/cluster-adapter'
 import { setupWorker } from '@socket.io/sticky'
 import logger from '../config/logger.js'
+import { getModeratorTrackerRoomId, isAdminRoom } from './utils.js'
 
 let conn
 class SocketIO {
@@ -32,6 +33,22 @@ class SocketIO {
 
   emitMultiple(rooms: string[], event, data) {
     this.io!.in(rooms).emit(event, data)
+  }
+
+  /**
+   * Take every socket of this user out of every admin room. Admin-room membership is granted once, at join, from the
+   * role the user had then; nothing re-checks it per emit, so it has to be revoked when the role changes. Runs
+   * cluster-wide (fetchSockets goes through the adapter), so it reaches sockets held by other workers.
+   */
+  async evictFromAdminRooms(userId: string) {
+    const trackerRoom = getModeratorTrackerRoomId(userId)
+    const sockets = await this.io!.in(trackerRoom).fetchSockets()
+    for (const socket of sockets) {
+      for (const room of socket.rooms) {
+        if (isAdminRoom(room) || room === trackerRoom) socket.leave(room)
+      }
+    }
+    logger.info(`Evicted ${sockets.length} socket(s) of user ${userId} from admin rooms`)
   }
 
   addConnectionHandlers(handlers) {

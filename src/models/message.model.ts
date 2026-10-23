@@ -1,6 +1,7 @@
 import mongoose, { Model } from 'mongoose'
 import { toJSON, paginate } from './plugins/index.js'
 import { IMessage, Vote, MessagePrompt } from '../types/index.types.js'
+import provenanceSchema from './schemas/provenance.schema.js'
 
 const voteSchema = new mongoose.Schema<Vote>({
   owner: {
@@ -111,6 +112,16 @@ const messageSchema = new mongoose.Schema<IMessage, MessageModel>(
       required: true,
       index: true
     },
+    /* Admin moderation: hidden from everyone but admins and the author (see
+       utils/messageVisibility.ts). Deliberately separate from `visible`, which means
+       backchannel/agent-internal. `private` keeps the raw flag out of every toJSON, so no
+       transport can leak it; clients get the derived `hidden` flag instead. Hiding every
+       message by one author is kept on Conversation.hiddenAuthors, not here. */
+    hiddenByAdmin: {
+      type: Boolean,
+      default: false,
+      private: true
+    },
     parentMessage: {
       type: mongoose.SchemaTypes.ObjectId,
       ref: 'Message'
@@ -142,6 +153,13 @@ const messageSchema = new mongoose.Schema<IMessage, MessageModel>(
        by a later thread reply that needs to answer a follow-up question about the same card. */
     metricsContext: {
       type: mongoose.SchemaTypes.Mixed
+    },
+    /* What a generated card was built from (source message ids, authors, per-quote ids). Absent on cards
+       that predate it. `private` keeps it out of every toJSON, like hiddenByAdmin. */
+    provenance: {
+      type: provenanceSchema,
+      default: undefined,
+      private: true
     }
   },
   {
@@ -161,6 +179,8 @@ messageSchema.index({ conversation: 1, visible: 1, createdAt: 1 })
 // conversation + createdAt: duplicateConversationMessages() and other conversation-scoped,
 // time-ordered scans.
 messageSchema.index({ conversation: 1, createdAt: 1 })
+// Partial: only the (few) hidden messages are indexed; hide-context resolution looks them up per conversation.
+messageSchema.index({ conversation: 1, hiddenByAdmin: 1 }, { partialFilterExpression: { hiddenByAdmin: true } })
 // parentMessage + createdAt: getMessageReplies() and conversationMessages()'s reply-count
 // aggregate ($match on parentMessage), which had no index to use at all.
 messageSchema.index({ parentMessage: 1, createdAt: 1 })

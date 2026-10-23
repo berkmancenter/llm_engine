@@ -4,8 +4,11 @@ import slugify from 'slugify'
 import { toJSON, paginate, lock, hasPdf } from './plugins/index.js'
 import { IConversation, Profile, Resource } from '../types/index.types.js'
 import Message from './message.model.js'
+// circular with this model (messageVisibility reads Conversation); only used inside methods, so safe
+import { hiddenMessagesMatch } from '../utils/messageVisibility.js'
 import transcriptSchema from './schemas/transcript.schema.js'
 import announcementSchema from './schemas/announcement.schema.js'
+import provenanceSchema from './schemas/provenance.schema.js'
 
 interface ConversationMethods {
   messageCount(): number
@@ -123,6 +126,17 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
       type: Boolean,
       default: false
     },
+    /* Authors an admin has hidden in this conversation (hide-all). Kept on the conversation
+       rather than ConversationMembership: a membership row only exists for enforceMembership
+       conversations and is keyed by email, while this is keyed on the message `owner` id for any
+       conversation, and the conversation is already read on every hidden-state lookup. `private`
+       keeps the list out of every toJSON. */
+    hiddenAuthors: {
+      type: [mongoose.SchemaTypes.ObjectId],
+      ref: 'BaseUser',
+      default: [],
+      private: true
+    },
     /* Read key for this conversation's artifacts, the conversation-scoped twin of
        Topic.artifactPasscode. Minted on first artifact creation, so no existing
        conversation needed a migration. `private: true` keeps it out of every toJSON
@@ -206,6 +220,12 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
       type: String,
       default: ''
     },
+    /* What `summary` was generated from. Absent on summaries written before this existed: unknown, not clean. */
+    summaryProvenance: {
+      type: provenanceSchema,
+      default: undefined,
+      private: true
+    },
     goals: {
       type: [String],
       default: undefined
@@ -234,9 +254,16 @@ conversationSchema.virtual('messages', {
 })
 
 // count related messages when desired
-// default to visible, no replies
+// default to visible, no replies, and not admin-hidden (participant audience: a count is not per viewer,
+// so it never includes what any non-admin could not see)
 conversationSchema.method('messageCount', async function (query) {
-  return Message.countDocuments({ visible: true, parentMessage: null, ...query, conversation: this._id }).exec()
+  return Message.countDocuments({
+    visible: true,
+    parentMessage: null,
+    ...query,
+    ...(await hiddenMessagesMatch(this._id, 'participant')),
+    conversation: this._id
+  }).exec()
 })
 
 // add plugin that converts mongoose to json

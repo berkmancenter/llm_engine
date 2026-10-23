@@ -1,4 +1,4 @@
-import Message from '../../models/message.model.js'
+import { findMessages } from '../../utils/messageVisibility.js'
 import { AgentCapabilities, IMessage } from '../../types/index.types.js'
 
 /**
@@ -40,10 +40,12 @@ export const VA_READABLE_CHANNELS = ['transcript', 'chat', 'moderator'] as const
  * how many times a configured bot was invoked); filter by `fromAgent` as needed.
  */
 export async function loadReadableMessages(conversationId): Promise<IMessage[]> {
-  return Message.find({
-    conversation: conversationId,
-    channels: { $in: [...VA_READABLE_CHANNELS] }
-  })
-    .select('body bodyType pseudonym fromAgent createdAt channels visible')
-    .sort({ createdAt: 1 })
+  /* 'model' audience: the analyst's annotation passes send this text to an LLM and the recap stores the
+     result, so hidden chat (flagged, hidden author, reply under hidden) is left out here. */
+  return findMessages(
+    conversationId,
+    'model',
+    { channels: { $in: [...VA_READABLE_CHANNELS] } },
+    { select: 'body bodyType pseudonym fromAgent createdAt channels visible owner', sort: { createdAt: 1 } }
+  )
 }

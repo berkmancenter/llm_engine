@@ -2,7 +2,7 @@ import { z } from 'zod'
 import Conversation from '../../models/conversation.model.js'
 import access from '../../auth/access.js'
 import logger from '../../config/logger.js'
-import { AgentResponse } from '../../types/index.types.js'
+import { AgentResponse, GenerationProvenance } from '../../types/index.types.js'
 import { buildSnapshotPayload } from '../../services/conversationMetricsSnapshot.service.js'
 import conversationAnalyticsService from '../../services/conversationAnalytics.service.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
@@ -47,7 +47,7 @@ function reply(
   context,
   parent: AgentResponse<string>['parent'],
   message: string,
-  card?: { responseKind: string; renderData: unknown; metricsContext?: unknown }
+  card?: { responseKind: string; renderData: unknown; metricsContext?: unknown; provenance?: GenerationProvenance }
 ): AgentResponse<string> {
   const channels = context.conversation.channels.filter((channel) => channel.name === SUMMON_CHANNEL)
   return { visible: true, message, messageType: 'text', channels, parent, ...card }
@@ -269,7 +269,7 @@ async function recapResolvedEvent(
   // (an event is snapshotted once, when it ends), so the metrics computed here are not written
   // to the snapshot store; they are still shaped the same quote-free way and carried alongside
   // the card so a thread reply can answer a follow-up question about this recap's numbers.
-  const { renderData, metrics } = await buildVibesSummary(conversation, llm, fastLlm)
+  const { renderData, metrics, provenance } = await buildVibesSummary(conversation, llm, fastLlm)
   const metricsContext = [buildSnapshotPayload(conversation, metrics)]
   // Fallback text for adapters that do not render the card (e.g. zoom); the card itself
   // rides along as responseKind + renderData for adapters that do (Slack).
@@ -277,7 +277,8 @@ async function recapResolvedEvent(
     reply(context, parent, `Vibes summary for *${conversation.name}*`, {
       responseKind: 'curatedVibesSummary',
       renderData,
-      metricsContext
+      metricsContext,
+      provenance
     })
   ]
 }

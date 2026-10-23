@@ -18,7 +18,8 @@ import ApiError from '../utils/ApiError.js'
 import { pseudonymAdjectives, pseudonymNouns } from '../config/pseudonym-dictionaries.js'
 import logger from '../config/logger.js'
 import config from '../config/config.js'
-import { roles } from '../config/roles.js'
+import websocketGateway from '../websockets/websocketGateway.js'
+import { roles, roleRights } from '../config/roles.js'
 import tokenTypes from '../config/tokens.js'
 import { getModelChat, coreLLMPlatform, coreLLMModel } from '../agents/helpers/getModelChat.js'
 import { getChatPromptResponse } from '../agents/helpers/llmChain.js'
@@ -390,6 +391,14 @@ const updateUserRole = async (userId, role) => {
   }
   user.role = role
   await user.save()
+  /* Open sockets joined the admin rooms under the old role. Evict them unless the new role still moderates, so a
+     demoted user stops receiving hidden message bodies at once rather than at their next reconnect. A failed
+     eviction is logged, not thrown: the role change itself is already saved. */
+  if (!roleRights.get(role)?.includes('moderateMessages')) {
+    await websocketGateway
+      .evictFromAdminRooms(user.id)
+      .catch((err) => logger.error(`Admin room eviction failed: ${err.message}`))
+  }
   return user
 }
 /**

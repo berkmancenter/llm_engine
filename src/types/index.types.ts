@@ -1,6 +1,27 @@
 import { z } from 'zod'
 
 import mongoose from 'mongoose'
+import type { HideContext } from '../utils/messageVisibility.js'
+
+/* What a generated output (summary, artifact version, recap card) was built from, recorded when it is written.
+   Absent on anything generated before this existed: treat that as "unknown", never as clean. Private on every
+   model that stores it, like Message.hiddenByAdmin, so it never reaches a client. */
+export interface GenerationProvenance {
+  /* Every message the generator read, after hidden ones were left out. */
+  sourceMessageIds: Array<mongoose.Types.ObjectId | string>
+  /* Owners of those messages. */
+  authorIds: Array<mongoose.Types.ObjectId | string>
+  /* Which generator wrote it, e.g. 'conversationSummary'. */
+  generator: string
+  generatedAt: Date
+  /* Fingerprint of the hidden set at generation time (see hiddenSetHash). */
+  hiddenSetHash?: string
+  /* Artifact versions only: the earlier version whose payload was merged in (topic graph). Its own provenance
+     applies on top of this one's. */
+  carriedForwardFrom?: mongoose.Types.ObjectId | string
+  /* Recap cards: which messages each quote on the card came from, by position (e.g. 'spike:0', 'reception:1:spark'). */
+  quoteSources?: Array<{ ref: string; messageIds: Array<mongoose.Types.ObjectId | string> }>
+}
 
 /* The structured fields an Outlook invite's .ics attachment states outright, parsed by the email
    webhook with no LLM involved. uid identifies a recurring series (every instance shares one) and
@@ -180,6 +201,10 @@ export interface IMessage {
   createdAt?: Date
   updatedAt?: Date
   replyCount?: number
+  /* Admin-hidden (see utils/messageVisibility.ts). The raw flag never leaves the server; clients
+     see `hidden: true` only where an admin is shown a message that others cannot see. */
+  hiddenByAdmin?: boolean
+  hidden?: boolean
   /* Not stored: filled from the author's current role on the way out, and only in a conversation
      with useRealNames. See withOwnerIsAdmin in message.service.ts. */
   ownerIsAdmin?: boolean
@@ -197,6 +222,8 @@ export interface IMessage {
      it lets a later thread reply answer a follow-up question from the same numbers rather than
      recomputing or refusing. */
   metricsContext?: unknown
+  /* What a generated card (renderData) was built from. Absent on cards that predate it. */
+  provenance?: GenerationProvenance
 }
 
 export interface IFollower {
@@ -607,6 +634,8 @@ export interface IConversation {
      ignores it, so an owner can never flip anonymity on or off mid-conversation. */
   useRealNames?: boolean
   enforceMembership?: boolean
+  /* Owner ids whose messages an admin has hidden in this conversation. Server-only. */
+  hiddenAuthors?: mongoose.Types.ObjectId[]
   autoStop?: boolean
   /* Same shared secret as ITopic.artifactPasscode, for artifacts scoped to this
      conversation rather than its topic. Minted lazily; see artifact.service.ts. */
@@ -629,6 +658,7 @@ export interface IConversation {
   updatedAt?: Date
   messageCount(): number
   summary?: string
+  summaryProvenance?: GenerationProvenance
   goals?: string[]
   conversationContext?: ConversationContext
   behaviorPolicy?: BehaviorPolicy
@@ -765,6 +795,8 @@ export interface IArtifactVersion {
   createdBy?: IBaseUser | mongoose.Types.ObjectId
   /* Free-text note on what changed, for a history view. */
   note?: string
+  /* What the payload was generated from. Absent on versions that predate it or were written by a person. */
+  provenance?: GenerationProvenance
   createdAt?: Date
 }
 
@@ -931,6 +963,8 @@ export interface AgentResponse<T> {
      free like a stored snapshot. Persisted alongside the card so a later thread reply can
      answer a follow-up question from the same numbers. Adapters never render this field. */
   metricsContext?: unknown
+  /* What the card was built from; persisted on the message, never rendered. */
+  provenance?: GenerationProvenance
   proactive?: boolean
   /* Set only when the response represents something that was said/happened at a time
      other than "now" (e.g. a Zoom transcript chunk attributed to the bot) — see
@@ -1731,6 +1765,7 @@ export interface ConversationHistorySettings {
   channels?: string[]
   directMessages?: boolean
   excludeOtherAgents?: boolean // When true, only include this agent's own messages (not other agents)
+  hideContext?: HideContext // Hidden authors and ids for the conversation, so the in-memory backstop can apply them
 }
 
 export interface ConversationHistory {

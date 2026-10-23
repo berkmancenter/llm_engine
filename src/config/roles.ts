@@ -55,6 +55,8 @@ const adminOnlyRights = [
   'getUsers',
   'manageUsers',
   'manageMembers',
+  // Hide or unhide a message, or all of one author's messages, in a conversation.
+  'moderateMessages',
   /* Create an artifact, and append versions to one. Required outright for a topic-scoped
      artifact, since a topic spans other people's conversations; for a conversation-scoped
      one the conversation's or topic's owner qualifies without it. */

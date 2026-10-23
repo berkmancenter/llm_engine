@@ -1,8 +1,9 @@
 import express from 'express'
-import { conversationsController } from '../../controllers/index.js'
+import { conversationsController, messageController } from '../../controllers/index.js'
 import auth from '../../middlewares/auth.js'
 import conversationValidation from '../../validations/conversation.validation.js'
 import validate from '../../middlewares/validate.js'
+import * as hideValidation from '../../validations/message.validation.js'
 
 const router = express.Router()
 
@@ -781,5 +782,155 @@ router
  *         $ref: '#/components/responses/Unauthorized'
  */
 router.route('/:conversationId').delete(auth('deleteConversation'), conversationsController.deleteConversation)
+
+/**
+ * @swagger
+ * /conversations/{conversationId}/users/{userId}/hide-messages:
+ *   post:
+ *     summary: Hide all of a user's messages in this conversation
+ *     description: >-
+ *       Admin only. Hides every message by this user in this conversation only (group `chat` channel only;
+ *       their messages in other channels, such as a private assistant channel, are untouched), past and future, until
+ *       reversed with DELETE. Admins still see them flagged `hidden: true`; the user keeps seeing their
+ *       own messages normally and gets a `message:hidden-notice` event. Replies to hidden messages are
+ *       hidden too. Messages already forwarded to an external adapter (Slack, Zoom, ...) cannot be recalled.
+ *     tags: [Conversation]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         description: The message `owner` id of the user to hide
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reason:
+ *                 $ref: '#/components/schemas/HideReason'
+ *     responses:
+ *       200:
+ *         description: Concrete message ids that became hidden.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/HideMessagesResult'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *   delete:
+ *     summary: Unhide all of a user's messages in this conversation
+ *     description: Admin only. Reverses POST. Messages hidden individually, or as replies to a hidden message, stay hidden.
+ *     tags: [Conversation]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reason:
+ *                 type: string
+ *                 maxLength: 200
+ *                 description: One of the hide reasons, or a short free-text note.
+ *     responses:
+ *       200:
+ *         description: Concrete message ids that became visible again.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/HideMessagesResult'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ */
+router
+  .route('/:conversationId/users/:userId/hide-messages')
+  .post(auth('moderateMessages'), validate(hideValidation.hideUserMessages), messageController.hideUserMessages)
+  .delete(auth('moderateMessages'), validate(hideValidation.unhideUserMessages), messageController.unhideUserMessages)
+
+/**
+ * @swagger
+ * /conversations/{conversationId}/moderation-events:
+ *   get:
+ *     summary: List the hide/unhide activity log for a conversation
+ *     description: >-
+ *       Admin only. Append-only record of every hide and unhide that changed state in this conversation,
+ *       newest first. Holds ids, the action, an optional reason and the acting admin's username; never
+ *       message bodies. Events cannot be edited or deleted through the API.
+ *     tags: [Conversation]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 10
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *     responses:
+ *       200:
+ *         description: A page of events, newest first.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ModerationEventPage'
+ *       400:
+ *         description: Malformed id, limit or page.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ */
+router
+  .route('/:conversationId/moderation-events')
+  .get(auth('moderateMessages'), validate(hideValidation.listModerationEvents), messageController.moderationEvents)
 
 export default router

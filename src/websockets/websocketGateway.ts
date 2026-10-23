@@ -1,9 +1,17 @@
 import { Worker } from 'node:cluster'
 import socketIO from './socketIO.js'
 import logger from '../config/logger.js'
-import { getRoomIds } from './utils.js'
-import serializeMessage from '../utils/serializeMessage.js'
+import { getRoomIds, getRoomId, getAdminRoomId } from './utils.js'
+import serializeMessage, { ownerIdOf } from '../utils/serializeMessage.js'
 import { ArtifactVersionNotice } from '../types/index.types.js'
+import {
+  HideContext,
+  HiddenDisplay,
+  loadHideContext,
+  renderMessageView,
+  viewMessageFor,
+  viewerOf
+} from '../utils/messageVisibility.js'
 
 const isSubdocument = (value) => value !== null && typeof value === 'object' && value.constructor === Object
 
@@ -50,23 +58,46 @@ class WebsocketGateway {
     this._worker = workerInstance
   }
 
-  async broadcast(conversation, eventName, data, channels?) {
+  /**
+   * @param channels - channel rooms to emit to; omit for the bare conversation room, `[]` for none
+   * @param extraRooms - further room ids emitted to in the same call (the admin room, a user's own room)
+   */
+  async broadcast(conversation, eventName, data, channels?, extraRooms?: string[]) {
     if (this._worker) {
       // We are on the master node. This will use a worker node to emit the message
       this._worker.send({
         conversation,
         event: eventName,
         message: data,
-        channels
+        channels,
+        extraRooms
       })
     } else {
       // Not on master, can use socketIO directly
       const roomIds = getRoomIds(conversation, channels)
-      socketIO.getConnection().emitMultiple(roomIds, eventName, data)
+      socketIO.getConnection().emitMultiple(extraRooms?.length ? [roomIds, ...extraRooms].flat() : roomIds, eventName, data)
     }
   }
 
-  async broadcastNewMessage(message, request = null) {
+  /**
+   * Revoke a user's admin-room membership everywhere. Call it when their role may have lost the right to moderate:
+   * the admin room is joined once from the role at join time and never re-validated, so without this a demoted
+   * admin's open sockets would keep receiving hidden message bodies until they disconnected.
+   */
+  async evictFromAdminRooms(userId: string) {
+    if (this._worker) {
+      this._worker.send({ evictAdminRoomsFor: userId })
+    } else {
+      await socketIO.getConnection()?.evictFromAdminRooms(userId)
+    }
+  }
+
+  /**
+   * Hidden messages are split by audience instead of sent to the shared channel rooms:
+   * admins get it flagged in the admin room, the author gets it unflagged in their own user room,
+   * everyone else gets nothing (or a stub under the placeholder policy). See messageVisibility.ts.
+   */
+  async broadcastNewMessage(message, request: string | null = null, hideContext?: HideContext) {
     logger.debug(
       'Creating message %s via socket for userId %s, conversation %s, channels %s. Message text = "%s"',
       request,
@@ -76,17 +107,67 @@ class WebsocketGateway {
       message.body
     )
 
+    const conversationId = message.conversation._id.toString()
+    const ctx = hideContext ?? (await loadHideContext(conversationId))
+    const payload = {
+      ...serializeMessage(message),
+      count: message.count,
+      request,
+      pause: message.pause
+    }
+    const sharedView = viewMessageFor(message, { isAdmin: false }, ctx)
+    if (sharedView === 'full') {
+      await this.broadcast(conversationId, 'message:new', payload, message.channels)
+      return
+    }
+
+    // Hidden: nothing reaches the shared rooms unless the policy sends a stub.
+    if (sharedView === 'stub') {
+      await this.broadcast(conversationId, 'message:new', renderMessageView(payload, 'stub'), message.channels)
+    }
     await this.broadcast(
-      message.conversation._id.toString(),
+      conversationId,
       'message:new',
-      {
-        ...serializeMessage(message),
-        count: message.count,
-        request,
-        pause: message.pause
-      },
-      message.channels
+      renderMessageView(payload, 'flagged'),
+      [],
+      [getAdminRoomId(conversationId)]
     )
+    const ownerId = ownerIdOf(message.owner)
+    if (ownerId && viewMessageFor(message, viewerOf({ _id: ownerId }), ctx) === 'full') {
+      await this.broadcast(conversationId, 'message:new', payload, [], [ownerId])
+    }
+  }
+
+  /**
+   * Ids only, never bodies. Hiding goes to the conversation's rooms (bare room plus the channel rooms
+   * the messages were in); unhiding goes to the admin room only, because everyone else gets the
+   * restored messages through the normal `message:new` path.
+   */
+  async broadcastMessagesHidden(
+    conversationId: string,
+    payload: { messageIds: string[]; hidden: boolean; display: HiddenDisplay },
+    channels: string[] = []
+  ) {
+    if (payload.hidden) {
+      await this.broadcast(
+        conversationId,
+        'message:hidden',
+        payload,
+        channels.length ? channels : undefined,
+        channels.length ? [getRoomId(conversationId)] : undefined
+      )
+      return
+    }
+    await this.broadcast(conversationId, 'message:hidden', payload, [], [getAdminRoomId(conversationId)])
+  }
+
+  /** Toast trigger for the hidden author, sent to their own user room. */
+  async broadcastHiddenNotice(
+    conversationId: string,
+    userId: string,
+    payload: { conversationId: string; scope: 'message' | 'user'; messageIds: string[] }
+  ) {
+    await this.broadcast(conversationId, 'message:hidden-notice', payload, [], [userId])
   }
 
   async broadcastNewPoll(poll) {
@@ -106,7 +187,30 @@ class WebsocketGateway {
   }
 
   async broadcastNewVote(message) {
-    await this.broadcast(message.conversation._id.toString(), 'vote:new', message, message.channels)
+    const conversationId = message.conversation._id.toString()
+    const ctx = await loadHideContext(conversationId)
+    const sharedView = viewMessageFor(message, { isAdmin: false }, ctx)
+    if (sharedView === 'full') {
+      await this.broadcast(conversationId, 'vote:new', message, message.channels)
+      return
+    }
+    // A vote on a hidden message must not carry its body to the shared rooms.
+    const serialized = typeof message.toJSON === 'function' ? serializeMessage(message) : message
+    if (sharedView === 'stub') {
+      await this.broadcast(conversationId, 'vote:new', renderMessageView(serialized, 'stub'), message.channels)
+    }
+    await this.broadcast(
+      conversationId,
+      'vote:new',
+      renderMessageView(serialized, 'flagged'),
+      [],
+      [getAdminRoomId(conversationId)]
+    )
+    // The author still sees votes on their own hidden message (shadow-hide), unflagged, in their own user room only.
+    const ownerId = ownerIdOf(message.owner)
+    if (ownerId && viewMessageFor(message, viewerOf({ _id: ownerId }), ctx) === 'full') {
+      await this.broadcast(conversationId, 'vote:new', serialized, [], [ownerId])
+    }
   }
 
   async broadcastNewConversation(conversation) {

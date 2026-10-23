@@ -1,5 +1,6 @@
 import Message from '../../models/message.model.js'
 import { IMessage } from '../../types/index.types.js'
+import { hiddenMessagesMatch } from '../../utils/messageVisibility.js'
 
 /**
  * Gets messages for a threaded conversation.
@@ -22,6 +23,8 @@ export default async function getThreadMessages(
 
   // Check if this is a threaded reply
   if (userMessage.parentMessage) {
+    // replies hidden by an admin never reach a model
+    const hiddenMatch = await hiddenMessagesMatch(conversationId, 'model')
     // For threaded replies, build history from just the thread
     // Fetch the parent message and all replies to it (excluding the current userMessage)
     const parentMessage = allMessages.find((m) => m._id?.equals(userMessage.parentMessage))
@@ -30,7 +33,7 @@ export default async function getThreadMessages(
       // Get all replies to the parent (excluding current userMessage)
       const replies = await Message.find({
         parentMessage: userMessage.parentMessage,
-        _id: { $ne: userMessage._id },
+        _id: { $ne: userMessage._id, ...hiddenMatch._id },
         conversation: conversationId
       })
         .sort({ createdAt: 1 })
@@ -40,13 +43,17 @@ export default async function getThreadMessages(
       return [parentMessage, ...replies].sort((a, b) => a.createdAt!.getTime() - b.createdAt!.getTime())
     }
 
-    // Parent not found in current messages, fetch it separately
-    const fetchedParent = await Message.findById(userMessage.parentMessage).exec()
+    // Parent not found in current messages, fetch it separately. A hidden parent is not returned:
+    // the thread is then empty, the same as a parent that does not exist.
+    const fetchedParent = await Message.findOne({
+      _id: { $eq: userMessage.parentMessage, ...hiddenMatch._id },
+      conversation: conversationId
+    }).exec()
 
     if (fetchedParent) {
       const replies = await Message.find({
         parentMessage: userMessage.parentMessage,
-        _id: { $ne: userMessage._id },
+        _id: { $ne: userMessage._id, ...hiddenMatch._id },
         conversation: conversationId
       })
         .sort({ createdAt: 1 })

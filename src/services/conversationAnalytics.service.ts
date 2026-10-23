@@ -1,3 +1,4 @@
+import mongoose from 'mongoose'
 import Message from '../models/message.model.js'
 import Channel from '../models/channel.model.js'
 import Conversation from '../models/conversation.model.js'
@@ -5,6 +6,7 @@ import ConversationAnalytics from '../models/conversationAnalytics.model.js'
 import ConversationMetricsSnapshot from '../models/conversationMetricsSnapshot.model.js'
 import { matchBotMention } from '../agents/helpers/intentChecks.js'
 import eventDateLabel from '../utils/eventDateLabel.js'
+import { hiddenMessagesMatch } from '../utils/messageVisibility.js'
 import config from '../config/config.js'
 import {
   ActivityBucket,
@@ -53,9 +55,23 @@ const ACTIVITY_BUCKET_COUNT = 6
    channel. Without it the speaker's spoken words count as live chat and inflate the poster and
    message counts. report.service excludes it the same way.
 
-   visible:true drops backchannel and hidden messages. Replies (parentMessage set) do count,
-   unlike Conversation.messageCount, which counts only top-level posts. */
+   visible:true drops backchannel messages. Admin-hidden messages (flagged, hidden author, reply
+   to hidden) are dropped by humanMessageMatch, which adds the conversation's hidden set: these
+   numbers feed an LLM summary, so they use the model audience. Replies (parentMessage set) do
+   count, unlike Conversation.messageCount, which counts only top-level posts. */
 const visibleHumanFilter = { fromAgent: false, visible: true, channels: { $ne: 'transcript' } }
+
+/* visibleHumanFilter plus the model-audience hidden-message exclusion. The hidden set is
+   async, so every human-message query awaits this instead of spreading the filter directly.
+   The ids are cast to ObjectIds so the match also works inside an aggregate, which does not
+   cast strings the way find does. */
+async function humanMessageMatch(conversationId) {
+  const hidden = await hiddenMessagesMatch(conversationId, 'model')
+  return {
+    ...visibleHumanFilter,
+    ...(hidden._id && { _id: { $nin: hidden._id.$nin.map((id) => new mongoose.Types.ObjectId(id)) } })
+  }
+}
 
 /* A chat spike is a window holding at least this many times the messages of the
    average other window. The other-windows average is the baseline, so a single
@@ -157,7 +173,7 @@ function average(values: number[]): number {
    same pseudonym), though only owner ties a guest together across a rename. */
 export async function computeParticipation(conversationId): Promise<ParticipationMetrics> {
   const byPoster: { _id: string; count: number }[] = await Message.aggregate([
-    { $match: { conversation: conversationId, ...visibleHumanFilter } },
+    { $match: { conversation: conversationId, ...(await humanMessageMatch(conversationId)) } },
     { $group: { _id: { $ifNull: ['$owner', '$pseudonymId'] }, count: { $sum: 1 } } },
     { $sort: { count: -1 } }
   ])
@@ -677,7 +693,7 @@ function wordCount(body: unknown): number {
 export async function loadMessagesForOnDemandMetrics(
   conversationId
 ): Promise<{ messages: FilterableMessage[]; directNames: Set<string> }> {
-  const messages = await Message.find({ conversation: conversationId, ...visibleHumanFilter })
+  const messages = await Message.find({ conversation: conversationId, ...(await humanMessageMatch(conversationId)) })
     .select('createdAt channels owner pseudonymId body')
     .sort({ createdAt: 1 })
   const channelNames = [...new Set(messages.flatMap((message) => message.channels ?? []))]
@@ -786,13 +802,15 @@ export function computeMessageLengthStats(
    still counted correctly. */
 async function computeBotInvocations(conversation): Promise<BotInvocations> {
   const botName = conversation.properties?.botName || config.conversationBotName
-  /* visible:true matches every other human count (see visibleHumanFilter): a hidden or
-     backchannel message is not a summon a participant made in the open. */
+  /* visible:true plus the hidden-set match mirrors every other human count (see
+     humanMessageMatch): a hidden or backchannel message is not a summon a participant made in
+     the open. */
   const messages = await Message.find({
     conversation: conversation._id,
     fromAgent: false,
     visible: true,
-    channels: 'chat'
+    channels: 'chat',
+    ...(await hiddenMessagesMatch(conversation._id, 'model'))
   }).select('body')
 
   let count = 0
@@ -1166,7 +1184,7 @@ async function computeConversationMetrics(conversation): Promise<ConversationMet
   const audienceEngagement = computeAudienceEngagement(participation.posterCount, channelParticipantCount)
   const humanMessages = await Message.find({
     conversation: conversation._id,
-    ...visibleHumanFilter
+    ...(await humanMessageMatch(conversation._id))
   })
     .select('createdAt channels owner pseudonymId parentMessage')
     .sort({ createdAt: 1 })

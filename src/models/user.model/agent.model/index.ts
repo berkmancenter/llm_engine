@@ -21,7 +21,7 @@ import {
   AgentResponse,
   ConversationEvent
 } from '../../../types/index.types.js'
-import { ConversationDocument } from '../../conversation.model.js'
+import { hideContextOf, populateMessagesForModel } from '../../../utils/messageVisibility.js'
 import { pingLLM } from '../../../agents/helpers/llmChain.js'
 import getConversationHistory from '../../../agents/helpers/getConversationHistory.js'
 import getThreadMessages from '../../../agents/helpers/getThreadMessages.js'
@@ -284,7 +284,7 @@ agentSchema.method('evaluate', async function (userMessage = null) {
   if (!this.conversation) throw new Error(`Missing conversation for agent ${this._id}`)
 
   // ensure messages are populated for owner comparison
-  await (this.conversation as HydratedDocument<IConversation>).populate(['messages', 'channels'])
+  await populateMessagesForModel(this.conversation, ['channels'])
 
   // exclude messages from this agent in count, but not other agents on the conversation
   const messageCount =
@@ -335,7 +335,7 @@ agentSchema.method('evaluate', async function (userMessage = null) {
 
 agentSchema.method('respond', async function (userMessage = null) {
   if (!this.active) return []
-  await (this.conversation as ConversationDocument).populate(['messages', 'channels'])
+  await populateMessagesForModel(this.conversation, ['channels'])
   const agentType = agentTypes[this.agentType]
   let conversationHistory
   const conversationHistorySettings = userMessage
@@ -393,9 +393,10 @@ agentSchema.method('respond', async function (userMessage = null) {
     )
 
     // Get conversation history
+    // messagesToProcess may be a new list (a thread), so hand over the context the full list was loaded under
     conversationHistory = getConversationHistory(
       messagesToProcess,
-      effectiveSettings,
+      { ...effectiveSettings, hideContext: hideContextOf(messages) },
       effectiveSettings.excludeOtherAgents ? [this.name] : undefined,
       directChannels,
       agentTypes[this.agentType].parseInput

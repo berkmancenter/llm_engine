@@ -1,6 +1,7 @@
 import mongoose from 'mongoose'
 import catchAsync from '../../utils/catchAsync.js'
-import { checkAuth, getRoomId, getRoomIds } from '../utils.js'
+import { checkAuth, getRoomId, getRoomIds, getAdminRoomId, getModeratorTrackerRoomId } from '../utils.js'
+import { roleRights } from '../../config/roles.js'
 import logger from '../../config/logger.js'
 import authChannels from '../../utils/authChannels.js'
 import { conversationService } from '../../services/index.js'
@@ -50,11 +51,28 @@ export default (io, socket) => {
     }
     socket.join(data.topicId.toString())
   })
+  /* Moderators (the same right the hide routes need) also join `admin:<conversation>`, where hidden messages
+     arrive flagged. Decided from the user's current role at join time (checkAuth reloads the user for every
+     event). A room emit cannot look at the receiving user, so the join is the only check; a role change after
+     it is closed by eviction instead (userService.updateUserRole -> websocketGateway.evictFromAdminRooms),
+     which finds the user's sockets through the tracker room joined alongside. Chosen over a per-emit check
+     because nothing on the emit path knows its recipients. A re-join under a role without the right also
+     leaves the room, so a demoted user's socket cannot keep it by joining again. */
+  const joinAdminRoomIfAdmin = (data) => {
+    const adminRoom = getAdminRoomId(data.conversationId.toString())
+    if (!roleRights.get(data.user?.role)?.includes('moderateMessages')) {
+      socket.leave(adminRoom)
+      return
+    }
+    socket.join(adminRoom)
+    socket.join(getModeratorTrackerRoomId(data.user._id.toString()))
+  }
   const joinChannel = catchAsync(async (data, callback) => {
     const startedAt = Date.now()
     await authChannels([data.channel], data.conversationId.toString(), data.user)
     const roomId = getRoomId(data.conversationId.toString(), data.channel.name)
     socket.join(roomId)
+    joinAdminRoomIfAdmin(data)
     const conversation = await Conversation.findOne({ _id: data.conversationId }).populate(['agents', 'channels'])
     const intros = await collectChannelIntros(conversation, [data.channel.name], data.user)
     logger.info(`Socket join: user ${data.user._id} joined room ${roomId} in ${Date.now() - startedAt}ms`)
@@ -76,6 +94,7 @@ export default (io, socket) => {
     // Always join the bare conversation room (receives conversation-level events e.g. resources:updated)
     const conversationRoomId = getRoomId(data.conversationId.toString())
     socket.join(conversationRoomId)
+    joinAdminRoomIfAdmin(data)
 
     let intros: Awaited<ReturnType<typeof collectChannelIntros>> = []
     if (channels.length > 0) {
@@ -94,13 +113,14 @@ export default (io, socket) => {
     )
     if (typeof callback === 'function') callback({ intros })
   })
-  /* Only the bare room: Socket.io gives a client no room attribution on a received event,
+  /* Only the bare room (and the admin room): Socket.io gives a client no room attribution on a received event,
      so a client moving between conversations has to leave the old room to stop hearing
      conversation-level events for it. Channel rooms are still dropped on disconnect. */
   const leaveConversation = catchAsync(async (data) => {
     const roomId = getRoomId(data.conversationId.toString())
     logger.debug('Leaving conversation via socket. Room: %s', roomId)
     socket.leave(roomId)
+    socket.leave(getAdminRoomId(data.conversationId.toString()))
   })
   socket.use(([event, args], next) => {
     logger.debug('Checking auth (JWT) for topic socket requests.')

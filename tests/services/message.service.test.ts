@@ -15,6 +15,8 @@ import schedule from '../../src/jobs/schedule.js'
 import { setAgentTypes } from '../../src/models/user.model/agent.model/index.js'
 import defaultAgentTypes from '../../src/agents/index.js'
 import logger from '../../src/config/logger.js'
+import { loadHideContext, viewMessageFor, viewerOf } from '../../src/utils/messageVisibility.js'
+import getConversationHistory from '../../src/agents/helpers/getConversationHistory.js'
 import { defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/getModelChat.js'
 
 setupIntTest()
@@ -1714,6 +1716,301 @@ describe('Message service methods', () => {
       expect(mockSendZoomMessage).not.toHaveBeenCalled()
       expect(mockSendSlackMessage).not.toHaveBeenCalled()
       expect(websocketGateway.broadcastNewMessage).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('hidden messages', () => {
+    const mkMessage = (author, over = {}) =>
+      Message.create({
+        body: 'a message',
+        conversation: testConversation._id,
+        owner: author._id,
+        pseudonym: author.pseudonyms[0].pseudonym,
+        pseudonymId: author.pseudonyms[0]._id,
+        channels: ['chat'],
+        ...over
+      })
+
+    describe('newMessageHandler()', () => {
+      // hiding applies to the group chat channel, so these messages are posted there
+      beforeEach(async () => {
+        const chat = await Channel.create({ name: 'chat', passcode: null })
+        testConversation.channels = [...testConversation.channels, chat]
+        await testConversation.save()
+        zoomAdapter.chatChannels = [{ name: 'chat', direction: Direction.OUTGOING }]
+        await zoomAdapter.save()
+        testMessage.channels = [chat]
+      })
+
+      test('forwards to adapters while the author is not hidden', async () => {
+        await messageService.newMessageHandler(testMessage, testUser)
+        expect(mockSendZoomMessage).toHaveBeenCalledTimes(1)
+      })
+
+      test('does not forward a message created while its author is hidden, but still saves and broadcasts it', async () => {
+        await Conversation.updateOne({ _id: testConversation._id }, { $addToSet: { hiddenAuthors: testUser._id } })
+
+        const [created] = await messageService.newMessageHandler(testMessage, testUser)
+
+        expect(mockSendZoomMessage).not.toHaveBeenCalled()
+        expect(mockSendSlackMessage).not.toHaveBeenCalled()
+        expect(await Message.findById(created._id)).toBeTruthy()
+        expect(websocketGateway.broadcastNewMessage).toHaveBeenCalledTimes(1)
+      })
+
+      test('does not forward a reply under a hidden message', async () => {
+        const other = await createUser('Other Poster')
+        const parent = await mkMessage(other, { hiddenByAdmin: true })
+
+        await messageService.newMessageHandler({ ...testMessage, parentMessage: parent._id }, testUser)
+
+        expect(mockSendZoomMessage).not.toHaveBeenCalled()
+      })
+
+      test('skips agent evaluation for a hidden author so the message never reaches a model', async () => {
+        setAgentTypes(testAgentTypes)
+        const agent = await Agent.create({ agentType: 'perMessage', conversation: testConversation, active: true })
+        testConversation.enableAgents = true
+        testConversation.agents = [agent]
+        await testConversation.save()
+        await Conversation.updateOne({ _id: testConversation._id }, { $addToSet: { hiddenAuthors: testUser._id } })
+        mockEvaluate.mockClear()
+
+        await messageService.newMessageHandler(testMessage, testUser)
+
+        expect(mockEvaluate).not.toHaveBeenCalled()
+        setAgentTypes(defaultAgentTypes)
+      })
+
+      describe('with an agent that would answer', () => {
+        let agentResponseSpy
+
+        beforeEach(async () => {
+          // the stock perMessage type only answers direct messages; this one also listens on the chat channel
+          setAgentTypes({
+            ...testAgentTypes,
+            perMessageAll: { ...testAgentTypes.perMessage, defaultTriggers: { perMessage: { channels: ['chat'] } } }
+          })
+          const agent = await Agent.create({ agentType: 'perMessageAll', conversation: testConversation, active: true })
+          testConversation.enableAgents = true
+          testConversation.agents = [agent]
+          await testConversation.save()
+          mockEvaluate.mockReset()
+          mockEvaluate.mockResolvedValue({
+            userMessage: undefined,
+            suggestion: undefined,
+            action: AgentMessageActions.CONTRIBUTE,
+            userContributionVisible: true,
+            agentContributionVisible: true
+          })
+          agentResponseSpy = jest.spyOn(schedule, 'agentResponse').mockResolvedValue(undefined as never)
+        })
+
+        afterEach(() => {
+          setAgentTypes(defaultAgentTypes)
+        })
+
+        test('a normal message is still forwarded, evaluated and answered', async () => {
+          await messageService.newMessageHandler(testMessage, testUser)
+
+          expect(mockSendZoomMessage).toHaveBeenCalledTimes(1)
+          expect(mockEvaluate).toHaveBeenCalledTimes(1)
+          expect(agentResponseSpy).toHaveBeenCalledTimes(1)
+        })
+
+        test('a hidden author is neither forwarded, evaluated nor answered', async () => {
+          await Conversation.updateOne({ _id: testConversation._id }, { $addToSet: { hiddenAuthors: testUser._id } })
+
+          await messageService.newMessageHandler(testMessage, testUser)
+
+          expect(mockSendZoomMessage).not.toHaveBeenCalled()
+          expect(mockEvaluate).not.toHaveBeenCalled()
+          expect(agentResponseSpy).not.toHaveBeenCalled()
+        })
+
+        test('a reply under a hidden message is neither forwarded, evaluated nor answered', async () => {
+          const other = await createUser('Parent Poster')
+          const parent = await mkMessage(other, { hiddenByAdmin: true })
+
+          await messageService.newMessageHandler({ ...testMessage, parentMessage: parent._id }, testUser)
+
+          expect(mockSendZoomMessage).not.toHaveBeenCalled()
+          expect(mockEvaluate).not.toHaveBeenCalled()
+          expect(agentResponseSpy).not.toHaveBeenCalled()
+        })
+
+        test('a reply under a visible message is handled normally', async () => {
+          const other = await createUser('Visible Parent Poster')
+          const parent = await mkMessage(other)
+
+          await messageService.newMessageHandler({ ...testMessage, parentMessage: parent._id }, testUser)
+
+          expect(mockSendZoomMessage).toHaveBeenCalledTimes(1)
+          expect(mockEvaluate).toHaveBeenCalledTimes(1)
+        })
+      })
+    })
+
+    /* Hiding is scoped to the group chat channel only. A hidden author's other channels, notably
+       their private assistant channel, keep working exactly as before. */
+    describe('chat channel scope', () => {
+      let chatChannel
+      let assistantChannel
+      let agentResponseSpy
+
+      beforeEach(async () => {
+        chatChannel = await Channel.create({ name: 'chat', passcode: null })
+        assistantChannel = await Channel.create({ name: 'assistant', passcode: null })
+        testConversation.channels = [...testConversation.channels, chatChannel, assistantChannel]
+        await testConversation.save()
+        zoomAdapter.chatChannels = [
+          { name: 'chat', direction: Direction.OUTGOING },
+          { name: 'assistant', direction: Direction.OUTGOING }
+        ]
+        await zoomAdapter.save()
+        setAgentTypes({
+          ...testAgentTypes,
+          perMessageAll: {
+            ...testAgentTypes.perMessage,
+            defaultTriggers: { perMessage: { channels: ['chat', 'assistant'] } }
+          }
+        })
+        const agent = await Agent.create({ agentType: 'perMessageAll', conversation: testConversation, active: true })
+        testConversation.enableAgents = true
+        testConversation.agents = [agent]
+        await testConversation.save()
+        mockEvaluate.mockReset()
+        mockEvaluate.mockResolvedValue({
+          userMessage: undefined,
+          suggestion: undefined,
+          action: AgentMessageActions.CONTRIBUTE,
+          userContributionVisible: true,
+          agentContributionVisible: true
+        })
+        agentResponseSpy = jest.spyOn(schedule, 'agentResponse').mockResolvedValue(undefined as never)
+        await Conversation.updateOne({ _id: testConversation._id }, { $addToSet: { hiddenAuthors: testUser._id } })
+      })
+
+      afterEach(() => {
+        setAgentTypes(defaultAgentTypes)
+      })
+
+      test('a hidden author posting in the assistant channel is still forwarded, evaluated and answered', async () => {
+        await messageService.newMessageHandler({ ...testMessage, channels: [assistantChannel] }, testUser)
+
+        expect(mockSendZoomMessage).toHaveBeenCalledTimes(1)
+        expect(mockEvaluate).toHaveBeenCalledTimes(1)
+        expect(agentResponseSpy).toHaveBeenCalledTimes(1)
+      })
+
+      test('a hidden author posting in the chat channel is not forwarded, evaluated or answered', async () => {
+        await messageService.newMessageHandler({ ...testMessage, channels: [chatChannel] }, testUser)
+
+        expect(mockSendZoomMessage).not.toHaveBeenCalled()
+        expect(mockEvaluate).not.toHaveBeenCalled()
+        expect(agentResponseSpy).not.toHaveBeenCalled()
+      })
+
+      test('a hidden author posting with no channel is unaffected', async () => {
+        await messageService.newMessageHandler({ ...testMessage, channels: [] }, testUser)
+
+        expect(await Message.countDocuments({ conversation: testConversation._id })).toBe(1)
+        expect(agentResponseSpy).not.toHaveBeenCalledWith(undefined)
+      })
+
+      test('a reply in the assistant channel under a hidden chat message is handled normally', async () => {
+        const other = await createUser('Chat Parent')
+        const parent = await mkMessage(other, { hiddenByAdmin: true, channels: ['chat'] })
+
+        await messageService.newMessageHandler(
+          { ...testMessage, channels: [assistantChannel], parentMessage: parent._id },
+          testUser
+        )
+
+        expect(mockSendZoomMessage).toHaveBeenCalledTimes(1)
+        expect(mockEvaluate).toHaveBeenCalledTimes(1)
+      })
+
+      test("the agent's context keeps the hidden author's assistant-channel messages and drops their chat ones", async () => {
+        const inChat = await mkMessage(testUser, { channels: ['chat'], body: 'chat words' })
+        const inAssistant = await mkMessage(testUser, { channels: ['assistant'], body: 'assistant words' })
+
+        const conversation = await messageService.fetchConversation({ conversation: testConversation._id }, testUser)
+
+        const ids = conversation.messages.map((m) => m._id.toString())
+        expect(ids).toContain(inAssistant._id.toString())
+        expect(ids).not.toContain(inChat._id.toString())
+      })
+
+      test('hiding a message outside the chat channel is not possible at the model level either', async () => {
+        const inAssistant = await mkMessage(testUser, { channels: ['assistant'], hiddenByAdmin: true })
+        const ctx = await loadHideContext(testConversation._id)
+
+        expect(viewMessageFor(inAssistant, viewerOf({ _id: 'someone-else' }), ctx)).toBe('full')
+      })
+    })
+
+    describe('LLM context', () => {
+      test('fetchConversation leaves out single-hidden, hidden-author and cascaded-reply messages', async () => {
+        const hiddenAuthor = await createUser('Hidden Author')
+        const poster = await createUser('Visible Poster')
+        const kept = await mkMessage(poster, { body: 'kept' })
+        const singleHidden = await mkMessage(poster, { body: 'single', hiddenByAdmin: true })
+        await mkMessage(poster, { body: 'reply under hidden', parentMessage: singleHidden._id })
+        await mkMessage(hiddenAuthor, { body: 'by hidden author' })
+        await Conversation.updateOne({ _id: testConversation._id }, { $addToSet: { hiddenAuthors: hiddenAuthor._id } })
+
+        const conversation = await messageService.fetchConversation({ conversation: testConversation._id }, testUser)
+
+        expect(conversation.messages.map((m) => m.body)).toEqual(['kept'])
+        expect(conversation.messages[0]._id.toString()).toBe(kept._id.toString())
+      })
+
+      test('getConversationHistory drops a message flagged hidden even if one slips into the array', async () => {
+        const poster = await createUser('Backstop Poster')
+        const visible = await mkMessage(poster, { body: 'visible' })
+        const hidden = await mkMessage(poster, { body: 'hidden', hiddenByAdmin: true })
+
+        const { messages } = getConversationHistory([visible, hidden], { count: 10 })
+
+        expect(messages.map((m) => m.body)).toEqual(['visible'])
+      })
+
+      test('duplicateConversationMessages does not copy hidden messages', async () => {
+        const poster = await createUser('Copied Poster')
+        const hiddenAuthor = await createUser('Hidden Copy Author')
+        await mkMessage(poster, { body: 'copied' })
+        await mkMessage(poster, { body: 'hidden one', hiddenByAdmin: true })
+        await mkMessage(hiddenAuthor, { body: 'hidden author one' })
+        await Conversation.updateOne({ _id: testConversation._id }, { $addToSet: { hiddenAuthors: hiddenAuthor._id } })
+        const target = await Conversation.create({ name: 'Copy Target', owner: testUser._id, topic: publicTopic._id })
+
+        await messageService.duplicateConversationMessages(testConversation._id, target._id)
+
+        expect((await Message.find({ conversation: target._id })).map((m) => m.body)).toEqual(['copied'])
+      })
+    })
+
+    describe('getMessageReplies() and vote()', () => {
+      test('a participant gets no replies to a hidden message, an admin gets them flagged', async () => {
+        const poster = await createUser('Thread Poster')
+        const parent = await mkMessage(poster, { hiddenByAdmin: true })
+        await mkMessage(poster, { body: 'a reply', parentMessage: parent._id })
+        const viewer = await createUser('Thread Viewer')
+
+        expect(await messageService.getMessageReplies(parent._id, viewer)).toEqual([])
+        const asAdmin = await messageService.getMessageReplies(parent._id, { _id: testUser._id, role: 'admin' })
+        expect(asAdmin).toHaveLength(1)
+        expect(asAdmin[0]).toMatchObject({ body: 'a reply', hidden: true })
+      })
+
+      test('voting on a hidden message is a 404 for a participant', async () => {
+        const poster = await createUser('Vote Poster')
+        const parent = await mkMessage(poster, { hiddenByAdmin: true })
+        const voter = await createUser('Voter')
+
+        await expect(messageService.vote(parent._id, 'up', true, voter)).rejects.toMatchObject({ statusCode: 404 })
+      })
     })
   })
 })

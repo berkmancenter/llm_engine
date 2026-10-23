@@ -11,7 +11,7 @@ import access from '../auth/access.js'
 import logger from '../config/logger.js'
 import websocketGateway from '../websockets/websocketGateway.js'
 import { roleRights } from '../config/roles.js'
-import { ArtifactScope, IAgent, IArtifact, IBaseUser } from '../types/index.types.js'
+import { ArtifactScope, GenerationProvenance, IAgent, IArtifact, IBaseUser } from '../types/index.types.js'
 
 const PASSCODE_LENGTH = 8
 
@@ -256,6 +256,8 @@ const readableArtifact = async (artifactId: string, user, passcode?: string) => 
 interface VersionInput {
   payload: unknown
   note?: string
+  /* What a generator built the payload from. Set only by in-process generators: the HTTP validation does not accept it. */
+  provenance?: GenerationProvenance
 }
 
 /*
@@ -279,7 +281,7 @@ interface VersionInput {
  * in withTransaction, which would need a replica set — the artifact is never wrong in that
  * window, only one version stale, and the version that landed is still in the history.
  */
-const appendVersion = async (artifactId: string, { payload, note }: VersionInput, caller: IBaseUser) => {
+const appendVersion = async (artifactId: string, { payload, note, provenance }: VersionInput, caller: IBaseUser) => {
   const artifact = await findArtifact(artifactId)
   if (!artifact) throw new ApiError(httpStatus.NOT_FOUND, `Artifact with id ${artifactId} not found`)
 
@@ -304,7 +306,8 @@ const appendVersion = async (artifactId: string, { payload, note }: VersionInput
     versionNumber,
     payload: validated,
     createdBy: caller?._id,
-    ...(note !== undefined && { note })
+    ...(note !== undefined && { note }),
+    ...(provenance !== undefined && { provenance })
   })
 
   await Artifact.updateOne(
@@ -348,7 +351,7 @@ const appendVersion = async (artifactId: string, { payload, note }: VersionInput
  * it to build the link a client loads the artifact with.
  */
 const createArtifact = async (body, caller: IBaseUser) => {
-  const { type, topicId, conversationId, title, description, payload, note } = body
+  const { type, topicId, conversationId, title, description, payload, note, provenance } = body
 
   if (!!topicId === !!conversationId) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Provide exactly one of topicId or conversationId')
@@ -375,7 +378,7 @@ const createArtifact = async (body, caller: IBaseUser) => {
     createdBy: caller?._id
   })
 
-  const version = await appendVersion(artifact._id!.toString(), { payload, note }, caller)
+  const version = await appendVersion(artifact._id!.toString(), { payload, note, provenance }, caller)
   const passcode = await ensureArtifactPasscode(container)
 
   logger.info('Created %s artifact %s for %s %s', type, artifact._id, container.scope, topicId ?? conversationId)
