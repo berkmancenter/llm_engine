@@ -39,11 +39,18 @@ export const withAnalyticsIds = <T>(payload: T, secret: string | undefined = con
 
 /* The JSON form of an artifact or an artifact version, with analytics ids added wherever a
    concept graph payload sits: a version's own `payload`, or the `currentVersion` an artifact
-   has inlined. Anything that is not a concept graph passes through untouched. */
-export const serializeWithAnalyticsIds = (doc, secret: string | undefined = config.analytics?.idSecret) => {
+   has inlined. Anything that is not a concept graph passes through untouched.
+
+   A version document carries no type of its own (only its artifact does), so a bare version
+   is tagged only when the caller says which kind of artifact it belongs to. */
+export const serializeWithAnalyticsIds = (
+  doc,
+  secret: string | undefined = config.analytics?.idSecret,
+  artifactType?: string
+) => {
   const json = doc && typeof doc.toJSON === 'function' ? doc.toJSON() : doc
   if (!secret || !json || typeof json !== 'object') return json
-  if (json.payload && (json.type === undefined || json.type === CONCEPT_GRAPH_ARTIFACT)) {
+  if (json.payload && artifactType === CONCEPT_GRAPH_ARTIFACT) {
     return { ...json, payload: withAnalyticsIds(json.payload, secret) }
   }
   const current = json.currentVersion
@@ -54,11 +61,16 @@ export const serializeWithAnalyticsIds = (doc, secret: string | undefined = conf
 }
 
 /* The response body for any artifact read: one artifact or version, a plain list of them, or
-   a paginated page whose `results` are. */
-export const serializeArtifactResponse = (body, secret: string | undefined = config.analytics?.idSecret) => {
-  if (Array.isArray(body)) return body.map((item) => serializeWithAnalyticsIds(item, secret))
+   a paginated page whose `results` are. `artifactType` is the type of the artifact the
+   versions belong to, for version reads. */
+export const serializeArtifactResponse = (
+  body,
+  secret: string | undefined = config.analytics?.idSecret,
+  artifactType?: string
+) => {
+  if (Array.isArray(body)) return body.map((item) => serializeWithAnalyticsIds(item, secret, artifactType))
   if (body && Array.isArray(body.results)) {
-    return { ...body, results: body.results.map((item) => serializeWithAnalyticsIds(item, secret)) }
+    return { ...body, results: body.results.map((item) => serializeWithAnalyticsIds(item, secret, artifactType)) }
   }
-  return serializeWithAnalyticsIds(body, secret)
+  return serializeWithAnalyticsIds(body, secret, artifactType)
 }

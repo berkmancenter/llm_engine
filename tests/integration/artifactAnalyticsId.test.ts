@@ -1,3 +1,4 @@
+import { jest } from '@jest/globals'
 import request from 'supertest'
 import httpStatus from 'http-status'
 import app from '../../src/app.js'
@@ -6,6 +7,7 @@ import setupIntTest from '../utils/setupIntTest.js'
 import Conversation from '../../src/models/conversation.model.js'
 import ArtifactVersion from '../../src/models/artifact.model/version.js'
 import { CONCEPT_GRAPH_ARTIFACT } from '../../src/models/artifact.model/conceptGraphArtifact.js'
+import { artifactService } from '../../src/services/index.js'
 import { analyticsIdFor } from '../../src/services/conceptGraph/analyticsId.js'
 import { insertUsers, userOne } from '../fixtures/user.fixture.js'
 import { userOneAccessToken } from '../fixtures/token.fixture.js'
@@ -93,5 +95,19 @@ describe('analyticsId on concept graph reads', () => {
     expect(JSON.stringify(one.body)).not.toContain('analyticsId')
     const v1 = await auth(request(app).get(`/v1/artifacts/${artifact.id}/versions/1`)).expect(httpStatus.OK)
     expect(JSON.stringify(v1.body)).not.toContain('analyticsId')
+  })
+
+  it('fails loudly rather than sending a bare passcode when the created artifact cannot be read back', async () => {
+    const spy = jest
+      .spyOn(artifactService, 'createArtifact')
+      .mockResolvedValueOnce({ artifact: null, version: null, passcode: 'secret-passcode' } as never)
+    try {
+      const res = await auth(request(app).post('/v1/artifacts'))
+        .send({ type: CONCEPT_GRAPH_ARTIFACT, conversationId: conversation._id.toString(), title: 'Graph', payload })
+        .expect(httpStatus.INTERNAL_SERVER_ERROR)
+      expect(JSON.stringify(res.body)).not.toContain('secret-passcode')
+    } finally {
+      spy.mockRestore()
+    }
   })
 })

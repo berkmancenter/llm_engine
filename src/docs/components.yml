@@ -1483,7 +1483,6 @@ components:
             union of the conversations behind it, kept through same-label merges and size-cap
             folds. `provenance.conversationId` stays the first of them (where the concept
             originated). Ids only; resolve them against the payload's `sessions`.
-        provenance:
         analyticsId:
           type: string
           readOnly: true
@@ -1495,6 +1494,7 @@ components:
             absent when the server has no ANALYTICS_ID_SECRET configured. Ignored if sent
             back on a write. Concepts and origin prompts only, never contributions.
           example: 3f9a1c07b2d84e65
+        provenance:
           $ref: '#/components/schemas/GraphNodeProvenance'
 
     GraphContribution:
@@ -1554,7 +1554,6 @@ components:
         text:
           type: string
           example: 'What has to be trustworthy for a credential to mean anything?'
-        provenance:
         analyticsId:
           type: string
           readOnly: true
@@ -1566,6 +1565,7 @@ components:
             absent when the server has no ANALYTICS_ID_SECRET configured. Ignored if sent
             back on a write. Concepts and origin prompts only, never contributions.
           example: 3f9a1c07b2d84e65
+        provenance:
           $ref: '#/components/schemas/GraphNodeProvenance'
 
     ConceptGraphPayload:

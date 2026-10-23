@@ -1,5 +1,10 @@
 import { createHash } from 'crypto'
-import { analyticsIdFor, withAnalyticsIds, serializeWithAnalyticsIds } from '../../../../src/services/conceptGraph/analyticsId.js'
+import {
+  analyticsIdFor,
+  withAnalyticsIds,
+  serializeWithAnalyticsIds,
+  serializeArtifactResponse
+} from '../../../../src/services/conceptGraph/analyticsId.js'
 import { CONCEPT_GRAPH_ARTIFACT } from '../../../../src/models/artifact.model/conceptGraphArtifact.js'
 
 const SECRET = 'test-analytics-secret'
@@ -70,7 +75,7 @@ describe('withAnalyticsIds', () => {
 describe('serializeWithAnalyticsIds', () => {
   it('handles a version, and an artifact with an inlined current version', () => {
     const version = { versionNumber: 1, payload: graph() }
-    expect(serializeWithAnalyticsIds(version, SECRET).payload.concepts[0].analyticsId).toBeDefined()
+    expect(serializeWithAnalyticsIds(version, SECRET, CONCEPT_GRAPH_ARTIFACT).payload.concepts[0].analyticsId).toBeDefined()
 
     const artifact = { type: CONCEPT_GRAPH_ARTIFACT, currentVersion: version }
     const out = serializeWithAnalyticsIds(artifact, SECRET)
@@ -81,5 +86,19 @@ describe('serializeWithAnalyticsIds', () => {
   it('passes an artifact with an unpopulated version pointer through', () => {
     const artifact = { type: CONCEPT_GRAPH_ARTIFACT, currentVersion: 'abc123' }
     expect(serializeWithAnalyticsIds(artifact, SECRET)).toEqual(artifact)
+  })
+
+  it('does not tag a bare version unless it is known to belong to a concept graph artifact', () => {
+    const version = { versionNumber: 1, payload: graph() }
+    expect(serializeWithAnalyticsIds(version, SECRET)).toEqual(version)
+    expect(serializeWithAnalyticsIds(version, SECRET, 'DocumentArtifact')).toEqual(version)
+  })
+
+  it('applies the artifact type to every version of a page or list', () => {
+    const page = { results: [{ versionNumber: 1, payload: graph() }], page: 1 }
+    expect(serializeArtifactResponse(page, SECRET, 'DocumentArtifact')).toEqual(page)
+    const tagged = serializeArtifactResponse(page, SECRET, CONCEPT_GRAPH_ARTIFACT)
+    expect(tagged.results[0].payload.concepts[0].analyticsId).toBeDefined()
+    expect(serializeArtifactResponse([page.results[0]], SECRET)).toEqual([page.results[0]])
   })
 })

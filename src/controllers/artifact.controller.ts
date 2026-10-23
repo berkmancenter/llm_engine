@@ -1,7 +1,9 @@
 import httpStatus from 'http-status'
+import ApiError from '../utils/ApiError.js'
 import catchAsync from '../utils/catchAsync.js'
 import pick from '../utils/pick.js'
 import { artifactService } from '../services/index.js'
+import { CONCEPT_GRAPH_ARTIFACT } from '../models/artifact.model/conceptGraphArtifact.js'
 import conceptGraphService from '../services/conceptGraph/index.js'
 import { serializeArtifactResponse, serializeWithAnalyticsIds } from '../services/conceptGraph/analyticsId.js'
 
@@ -11,12 +13,15 @@ import { serializeArtifactResponse, serializeWithAnalyticsIds } from '../service
    conversation. */
 const createArtifact = catchAsync(async (req, res) => {
   const { artifact, passcode } = await artifactService.createArtifact(req.body, req.user)
+  if (!artifact) throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'Artifact was created but could not be read back')
   res.status(httpStatus.CREATED).send({ ...serializeWithAnalyticsIds(artifact), artifactPasscode: passcode })
 })
 
 const appendVersion = catchAsync(async (req, res) => {
   const version = await artifactService.appendVersion(req.params.artifactId, req.body, req.user)
-  res.status(httpStatus.CREATED).send(serializeWithAnalyticsIds(version))
+  res
+    .status(httpStatus.CREATED)
+    .send(serializeWithAnalyticsIds(version, undefined, await artifactService.getArtifactType(req.params.artifactId)))
 })
 
 const listArtifacts = catchAsync(async (req, res) => {
@@ -43,7 +48,7 @@ const generateConceptGraph = catchAsync(async (req, res) => {
   res.status(httpStatus.ACCEPTED).send({
     generated: true,
     artifact: serializeWithAnalyticsIds(result.artifact),
-    version: serializeWithAnalyticsIds(result.version),
+    version: serializeWithAnalyticsIds(result.version, undefined, CONCEPT_GRAPH_ARTIFACT),
     report: result.report
   })
 })
@@ -64,7 +69,9 @@ const getArtifact = catchAsync(async (req, res) => {
 const listVersions = catchAsync(async (req, res) => {
   const options = pick(req.query, ['sortBy', 'limit', 'page'])
   const versions = await artifactService.listVersions(req.params.artifactId, req.user, req.query.artifactPasscode, options)
-  res.status(httpStatus.OK).send(serializeArtifactResponse(versions))
+  res
+    .status(httpStatus.OK)
+    .send(serializeArtifactResponse(versions, undefined, await artifactService.getArtifactType(req.params.artifactId)))
 })
 
 const getVersion = catchAsync(async (req, res) => {
@@ -74,7 +81,9 @@ const getVersion = catchAsync(async (req, res) => {
     req.user,
     req.query.artifactPasscode
   )
-  res.status(httpStatus.OK).send(serializeArtifactResponse(version))
+  res
+    .status(httpStatus.OK)
+    .send(serializeArtifactResponse(version, undefined, await artifactService.getArtifactType(req.params.artifactId)))
 })
 
 export {
