@@ -46,6 +46,11 @@ export interface InboundInvite {
   fromAddress: string
   invite: ParsedInvite
   body?: string
+  /* The Reply-To header off the webhook payload, a header value and not body text, so it
+     carries the same trust level as fromAddress. Used instead of fromAddress to resolve the
+     organizer when fromAddress's domain is a configured relay (e.g. zoom.us) rather than the
+     real sender — see resolveOrganizer in emailSetup.service.ts. */
+  replyToAddress?: string
 }
 
 /* A plain inbound email with no .ics attachment (see emailSetup.service.ts's
@@ -58,6 +63,7 @@ export interface InboundEmail {
   subject?: string
   body?: string
   messageId?: string
+  replyToAddress?: string
 }
 
 export interface OnDemandEventUrls {

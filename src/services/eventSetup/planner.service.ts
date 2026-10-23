@@ -139,7 +139,7 @@ const INVITE_SYSTEM_PROMPT = `You are a data extraction engine. Parse the input 
 
 - The \`.ics\` fields (title, description, location) win on conflict. Only use the email body to fill in a field none of the \`.ics\` fields answer.
 
-- **\`zoomLink\`**: a Zoom URL only, if present in the location, the \`.ics\` description, or the email body. Ignore all other video platforms. Leave undefined if absent everywhere.
+- **\`zoomLink\`**: a Zoom URL only, if present in the location, the \`.ics\` description, or the email body. Ignore all other video platforms. When more than one Zoom URL appears (common in a Zoom-generated webinar invite), prefer the one presented as the way to join the meeting or webinar (e.g. under "Join from PC, Mac, iPad, or Android" or "Join Zoom Meeting"); ignore a URL under an international-numbers or dial-in section. Leave undefined if absent everywhere.
 
 - **\`speakers\`** and **\`moderators\`** — Each is an array of objects with the shape \`{{ name, bio, alternateName? }}\`.
   - Include an entry for every person mentioned by name, even if no bio is given — set \`bio\` to an empty string in that case.
@@ -225,7 +225,7 @@ const EMAIL_SYSTEM_PROMPT = `You are a data extraction engine. The input below i
 
 **Extraction rules:**
 
-- **\`zoomLink\`**: a Zoom URL only, if present anywhere in the body, including a quoted or forwarded section. Ignore all other video platforms. Leave undefined if absent.
+- **\`zoomLink\`**: a Zoom URL only, if present anywhere in the body, including a quoted or forwarded section. Ignore all other video platforms. When more than one Zoom URL appears (common when a Zoom-generated invite's full text, dial-in numbers included, is forwarded as the email body), prefer the one presented as the way to join the meeting or webinar (e.g. under "Join from PC, Mac, iPad, or Android" or "Join Zoom Meeting"); ignore a URL under an international-numbers or dial-in section. Leave undefined if absent.
 
 - **\`dateTime\`**: ISO 8601 in UTC (always end with Z), only if the email states or clearly implies a specific start time. Leave undefined if the email describes joining right away, or gives no time at all.
 

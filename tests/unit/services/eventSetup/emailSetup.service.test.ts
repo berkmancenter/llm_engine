@@ -196,6 +196,11 @@ const allowedDomain = 'example.edu'
 config.allowedOrganizerEmailDomains = [allowedDomain]
 const OUTSIDE_DOMAIN = 'not-an-org.invalid'
 
+// A relay domain (e.g. Zoom) whose own address is never the real organizer — see
+// resolveOrganizer's replyToAddress fallback.
+const relayDomain = 'zoom.us'
+config.trustedCalendarRelayDomains = [relayDomain]
+
 // createConversation rejects a scheduledTime in the past, so these are relative to now rather than
 // fixed calendar dates, which would silently rot the whole suite once the date passed.
 const HOUR_MS = 60 * 60 * 1000
@@ -370,6 +375,35 @@ describe('emailSetup.service', () => {
 
       expect(loggerWarnSpy).not.toHaveBeenCalled()
     })
+
+    it('resolves the organizer from Reply-To when From is a trusted relay domain', async () => {
+      const replyTo = `jen@${allowedDomain}`
+      await insertUsers([newUser(replyTo)])
+
+      const organizer = await resolveOrganizer(`no-reply@${relayDomain}`, undefined, replyTo)
+
+      expect(organizer).not.toBeNull()
+      expect(organizer!.email).toBe(replyTo)
+      expect(sendSignupSpy).not.toHaveBeenCalled()
+    })
+
+    it('rejects a relay sender with no Reply-To, falling back to From as today', async () => {
+      const organizer = await resolveOrganizer(`no-reply@${relayDomain}`)
+
+      expect(organizer).toBeNull()
+      expect(sendSignupSpy).not.toHaveBeenCalled()
+    })
+
+    it('ignores Reply-To when From is not a trusted relay domain', async () => {
+      const email = `known@${allowedDomain}`
+      await insertUsers([newUser(email)])
+      const replyTo = `someone-else@${allowedDomain}`
+
+      const organizer = await resolveOrganizer(email, undefined, replyTo)
+
+      expect(organizer).not.toBeNull()
+      expect(organizer!.email).toBe(email)
+    })
   })
 
   describe('resolveTopic', () => {
@@ -528,6 +562,20 @@ describe('emailSetup.service', () => {
       )
     })
 
+    it('resolves the organizer from Reply-To when the invite arrives from a trusted relay domain', async () => {
+      const [organizer] = await insertUsers([newUser(`org@${allowedDomain}`)])
+
+      const conversation = await createConversationFromInvite({
+        ...buildInvite({}, `no-reply@${relayDomain}`),
+        replyToAddress: `org@${allowedDomain}`
+      })
+
+      expect(conversation).not.toBeNull()
+      // Same reasoning as the Topic comparison above: .owner on this freshly-created,
+      // unrefetched conversation is the full organizer Document, so .id is the safe comparison.
+      expect((conversation!.owner as unknown as { id: string }).id).toBe(organizer.id)
+    })
+
     it('creates the conversation with a blank topic when nothing matches', async () => {
       await insertUsers([newUser(`org@${allowedDomain}`)])
 
@@ -673,6 +721,18 @@ describe('emailSetup.service', () => {
 
       const persisted = await Conversation.findById(conversation!._id)
       expect(persisted).not.toBeNull()
+    })
+
+    it('resolves the organizer from Reply-To when the email arrives from a trusted relay domain', async () => {
+      const [organizer] = await insertUsers([newUser(`org@${allowedDomain}`)])
+
+      const conversation = await createConversationFromEmail({
+        ...buildEmail({}, `no-reply@${relayDomain}`),
+        replyToAddress: `org@${allowedDomain}`
+      })
+
+      expect(conversation).not.toBeNull()
+      expect((conversation!.owner as unknown as { id: string }).id).toBe(organizer.id)
     })
 
     it('creates a scheduled conversation when the email states a future time, with the stated duration', async () => {

@@ -252,6 +252,9 @@ const envVarsSchema = Joi.object()
     ALLOWED_ORGANIZER_EMAIL_DOMAINS: Joi.string().description(
       'Comma-separated email domains whose senders, if they have no account yet, get a "please sign up" reply to an inbound email, calendar invite or plain on-demand email alike. A message from any other domain is rejected: no event, no reply. Unset means none, so every inbound email is silently dropped on both paths.'
     ),
+    TRUSTED_CALENDAR_RELAY_DOMAINS: Joi.string().description(
+      "Comma-separated email domains (e.g. zoom.us) whose inbound messages are sent by a relay, not the real organizer: the envelope From and the .ics ORGANIZER field are both the relay's own address. For a message from one of these domains, organizer resolution trusts the Reply-To header instead of From. Unset means none, so every sender is resolved by From as before."
+    ),
     ON_DEMAND_EVENT_DURATION_MINUTES: Joi.number()
       .default(120)
       .description('Default length of an event created from a plain emailed Zoom link, when the email states no duration'),
@@ -425,6 +428,10 @@ const config = {
   },
   systemUsers: parseSystemUsersEnv(envVars.SYSTEM_USERS),
   allowedOrganizerEmailDomains: (envVars.ALLOWED_ORGANIZER_EMAIL_DOMAINS ?? '')
+    .split(',')
+    .map((domain: string) => domain.trim().toLowerCase())
+    .filter((domain: string) => domain.length > 0),
+  trustedCalendarRelayDomains: (envVars.TRUSTED_CALENDAR_RELAY_DOMAINS ?? '')
     .split(',')
     .map((domain: string) => domain.trim().toLowerCase())
     .filter((domain: string) => domain.length > 0),

@@ -59,38 +59,56 @@ const isAllowedOrganizerDomain = (address: string): boolean => {
   return domain !== null && config.allowedOrganizerEmailDomains.includes(domain)
 }
 
+/** True if the address's domain is a configured calendar relay (env var TRUSTED_CALENDAR_RELAY_DOMAINS). */
+const isTrustedRelayDomain = (address: string): boolean => {
+  const domain = emailDomain(address)
+  return domain !== null && config.trustedCalendarRelayDomains.includes(domain)
+}
+
 /**
- * Looks up the user account for an inbound email's sender, restricted to domains in
+ * Looks up the user account for an inbound email's organizer, restricted to domains in
  * config.allowedOrganizerEmailDomains. Three outcomes:
- *   - sender's domain is allowlisted and has an account -> returns that account
- *   - sender's domain is allowlisted but has no account -> sends a signup email, returns null
- *   - sender's domain is not allowlisted -> returns null, no email sent at all
+ *   - organizer's domain is allowlisted and has an account -> returns that account
+ *   - organizer's domain is allowlisted but has no account -> sends a signup email, returns null
+ *   - organizer's domain is not allowlisted -> returns null, no email sent at all
  *
  * fromAddress must be the trusted envelope From, not a value read out of the email body (which
- * anyone can fake). statedOrganizer is an optional second address the message itself claims as
- * its organizer (e.g. a calendar invite's ORGANIZER field); it's never used for the lookup, only
- * compared against fromAddress to log a warning if the two disagree.
+ * anyone can fake). replyToAddress is the trusted Reply-To header: when fromAddress's domain is a
+ * configured relay (e.g. zoom.us sending a Zoom-generated invite on a host's behalf), fromAddress
+ * is the relay itself rather than the real organizer, so replyToAddress is used instead wherever
+ * fromAddress otherwise would be. Every other sender resolves by fromAddress exactly as before.
+ *
+ * statedOrganizer is an optional second address the message itself claims as its organizer (e.g.
+ * a calendar invite's ORGANIZER field); it's never used for the lookup, only compared against the
+ * resolved address to log a warning if the two disagree.
  */
-export const resolveOrganizer = async (fromAddress: string, statedOrganizer?: string) => {
-  if (!isAllowedOrganizerDomain(fromAddress)) {
-    logger.warn(`Email webhook: sender ${fromAddress} is outside the allowlisted domains; rejecting, no event created`)
+export const resolveOrganizer = async (fromAddress: string, statedOrganizer?: string, replyToAddress?: string) => {
+  const isRelayFallback = isTrustedRelayDomain(fromAddress) && !!replyToAddress
+  const organizerAddress = isRelayFallback ? replyToAddress! : fromAddress
+
+  if (!isAllowedOrganizerDomain(organizerAddress)) {
+    logger.warn(`Email webhook: sender ${organizerAddress} is outside the allowlisted domains; rejecting, no event created`)
     return null
   }
 
-  // Case-insensitive: a mixed-case From would otherwise miss a lowercase-stored account.
-  const organizer = await userService.getUserByEmail(fromAddress.toLowerCase())
+  if (isRelayFallback) {
+    logger.info(`Email webhook: From ${fromAddress} is a trusted relay; resolving organizer from Reply-To ${organizerAddress}`)
+  }
+
+  // Case-insensitive: a mixed-case address would otherwise miss a lowercase-stored account.
+  const organizer = await userService.getUserByEmail(organizerAddress.toLowerCase())
   if (organizer) {
     // Might be a spoofed ORGANIZER or a relay rewriting headers. Worth logging, not worth blocking a real event over.
-    if (statedOrganizer && statedOrganizer.toLowerCase() !== fromAddress.toLowerCase()) {
+    if (statedOrganizer && statedOrganizer.toLowerCase() !== organizerAddress.toLowerCase()) {
       logger.warn(
-        `Email webhook: .ics ORGANIZER ${statedOrganizer} differs from envelope From ${fromAddress}; trusting From`
+        `Email webhook: .ics ORGANIZER ${statedOrganizer} differs from resolved organizer address ${organizerAddress}; trusting the latter`
       )
     }
     return organizer
   }
 
-  await emailService.sendSignupInviteEmail(fromAddress)
-  logger.info(`Email webhook: no account for ${fromAddress} (allowlisted domain); sent signup invite`)
+  await emailService.sendSignupInviteEmail(organizerAddress)
+  logger.info(`Email webhook: no account for ${organizerAddress} (allowlisted domain); sent signup invite`)
   return null
 }
 
@@ -216,7 +234,7 @@ export const createEventForOrganizer = async ({
  * Returns null when resolveOrganizer rejects the sender.
  */
 export const createConversationFromInvite = async (inboundInvite: InboundInvite) => {
-  const { invite, fromAddress, body } = inboundInvite
+  const { invite, fromAddress, body, replyToAddress } = inboundInvite
 
   if (invite.uid) {
     const existing = await findConversationBySource('inviteUid', invite.uid)
@@ -228,7 +246,7 @@ export const createConversationFromInvite = async (inboundInvite: InboundInvite)
     logger.warn('Email webhook: invite has no UID; cannot dedup a webhook retry for this message')
   }
 
-  const organizer = await resolveOrganizer(fromAddress, invite.organizer)
+  const organizer = await resolveOrganizer(fromAddress, invite.organizer, replyToAddress)
   if (!organizer) return null
 
   try {
@@ -326,7 +344,7 @@ const sendOnDemandReply = async (
  * Zoom link.
  */
 export const createConversationFromEmail = async (inboundEmail: InboundEmail) => {
-  const { fromAddress, fromName, subject, body, messageId } = inboundEmail
+  const { fromAddress, fromName, subject, body, messageId, replyToAddress } = inboundEmail
 
   if (messageId) {
     const existing = await findConversationBySource('messageId', messageId)
@@ -338,7 +356,7 @@ export const createConversationFromEmail = async (inboundEmail: InboundEmail) =>
     logger.warn('Email webhook: email has no Message-ID; cannot dedup a webhook retry for this message')
   }
 
-  const organizer = await resolveOrganizer(fromAddress)
+  const organizer = await resolveOrganizer(fromAddress, undefined, replyToAddress)
   if (!organizer) return null
 
   try {
