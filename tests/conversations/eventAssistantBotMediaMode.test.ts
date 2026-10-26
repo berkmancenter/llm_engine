@@ -58,8 +58,8 @@ describe('eventAssistant botMediaMode wiring', () => {
     expect(resolve(['zoom', 'nextspace'], { enabled: false, voiceDestination: 'zoom' })).toBe('silent')
   })
 
-  test('unmatched platform combo (falls through to the default adapter block): defaults to "silent" when voiceDestination is unset', () => {
-    expect(resolve(['some-other-platform'], { enabled: true })).toBe('silent')
+  test('unmatched platform combo (falls through to the default adapter block): defaults to "none" when voiceDestination is unset — Zoom is transcription-only here, no audience for an idle camera', () => {
+    expect(resolve(['some-other-platform'], { enabled: true })).toBe('none')
   })
 
   test('unmatched platform combo (falls through to the default adapter block): "voice" when the organizer chose voiceDestination "zoom"', () => {

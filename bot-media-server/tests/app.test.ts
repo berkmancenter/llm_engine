@@ -181,6 +181,32 @@ describe('bot-media-server app (integration)', () => {
     await thinkingChimePromise
   })
 
+  test('the question llm_engine sends with agent:responding reaches the browser', async () => {
+    const engineSideSocket = await engineConnected
+
+    const questionPromise = waitForEvent<{ question: string }>(browser, 'question')
+    engineSideSocket.emit('agent:responding', { question: 'Hey TestBot, what event is this?' })
+
+    expect((await questionPromise).question).toBe('Hey TestBot, what event is this?')
+  })
+
+  test('a reconnecting client mid-thought is resynced with the last asked question too', async () => {
+    const engineSideSocket = await engineConnected
+    const { port } = app.httpServer.address() as AddressInfo
+
+    const thinkingStatePromise = waitForEvent<{ state: string }>(browser, 'state')
+    engineSideSocket.emit('agent:responding', { question: 'Hey TestBot, what event is this?' })
+    await thinkingStatePromise
+
+    browser.close()
+    const reconnected = connectBrowser(port)
+
+    const questionPromise = waitForEvent<{ question: string }>(reconnected, 'question')
+    expect((await questionPromise).question).toBe('Hey TestBot, what event is this?')
+
+    reconnected.close()
+  })
+
   test('gives up and goes idle if no message:chunk arrives within the thinking timeout', async () => {
     // A short override so this test doesn't wait for the real THINKING_TIMEOUT_MS default —
     // needs a fresh app/engine connection since that's only configurable at startup.
