@@ -18,10 +18,10 @@ variable "zones" {
     Things to know before editing this list:
     - GCP does not allow changing a group's zones after it is created, so
       Terraform creates a new group (the zone list is part of its name),
-      points the load balancer at it, then deletes the old one. The old and
-      new VMs briefly run side by side; open websocket connections on the
-      old VM drop when the load balancer switches, so do this in a quiet
-      window.
+      points the load balancer at it, then deletes the old one. For a short
+      time both VMs are running. Users connected to the old VM are
+      disconnected when the load balancer switches and have to reconnect,
+      so make this change at a time when few people are using the site.
     - GCP requires the rollout settings max_surge (extra VMs a deploy may
       add at once) and max_unavailable (VMs it may take down at once) to be
       0 or at least the number of zones. main.tf sets max_surge to the
