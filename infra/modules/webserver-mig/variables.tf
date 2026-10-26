@@ -18,10 +18,10 @@ variable "zones" {
     Things to know before editing this list:
     - GCP does not allow changing a group's zones after it is created, so
       Terraform creates a new group (the zone list is part of its name),
-      points the load balancer at it, then deletes the old one. For a short
-      time both VMs are running. Users connected to the old VM are
-      disconnected when the load balancer switches and have to reconnect,
-      so make this change at a time when few people are using the site.
+      points the load balancer at it, then deletes the old one. The load
+      balancer switches as soon as the new group exists, before its VM has
+      booted, so the site is down for a few minutes until the new VM passes
+      its health checks. Make this change when few people are using the site.
     - GCP requires the rollout settings max_surge (extra VMs a deploy may
       add at once) and max_unavailable (VMs it may take down at once) to be
       0 or at least the number of zones. main.tf sets max_surge to the
@@ -171,10 +171,11 @@ variable "max_replicas" {
     negligible, so there's no reason to artificially cap burst capacity this
     low before real usage data (e.g. the k6 load tests, see k6/README.md)
     says otherwise.
-    Until websocket state is shared across machines, the app cannot run on
-    more than one VM at a time, so callers must set this to 1 (prod does,
-    together with min_replicas = 1). The default above is the eventual
-    ceiling, not a value that works today.
+    Until websocket state is shared across machines, the app cannot serve
+    websocket traffic correctly from more than one VM, so callers must set
+    this to 1 (prod does, together with min_replicas = 1). A deploy still
+    briefly runs two VMs while the new one replaces the old. The default
+    above is the eventual ceiling, not a value that works today.
   EOT
   type        = number
   default     = 8

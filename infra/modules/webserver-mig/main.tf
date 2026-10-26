@@ -1,3 +1,9 @@
+# The validation rules in variables.tf refer to other variables, which older
+# Terraform rejects with a confusing error instead of this version message.
+terraform {
+  required_version = ">= 1.9"
+}
+
 # Web server instance template + regional MIG + autoscaler + HTTPS load
 # balancer (module B4). No Caddy anywhere — TLS termination and path-based
 # routing both happen at the load balancer.
@@ -177,8 +183,10 @@ resource "google_compute_health_check" "web_server_ws" {
 # at. A new name plus create_before_destroy lets Terraform build the new group,
 # repoint the backends, then delete the old one, instead of failing mid-apply.
 resource "google_compute_region_instance_group_manager" "web_server" {
-  project                   = var.project_id
-  name                      = "llm-engine-web-mig-${substr(sha1(join(",", sort(var.zones))), 0, 6)}" # editing zones replaces the group
+  project = var.project_id
+  # Only the zone list feeds the suffix, so `terraform apply -replace` on this
+  # resource collides with its own name. To force a fresh group, edit zones.
+  name                      = "llm-engine-web-mig-${substr(sha1(join(",", sort(var.zones))), 0, 6)}"
   region                    = var.region
   distribution_policy_zones = var.zones
   # Not the default shape, EVEN: when a zone has no machines left, EVEN keeps
@@ -211,11 +219,23 @@ resource "google_compute_region_instance_group_manager" "web_server" {
     initial_delay_sec = 120
   }
 
+  # By default a failed VM is repaired in its original zone, which a stockout
+  # there would block. Letting the repair move zones needs update-on-repair.
+  instance_lifecycle_policy {
+    force_update_on_repair = "YES"
+    on_repair {
+      allow_changing_zone = "YES"
+    }
+  }
+
   update_policy {
     type                  = "PROACTIVE"
     minimal_action        = "REPLACE"
     max_surge_fixed       = length(var.zones) # GCP requires 0 or at least the zone count, same for max_unavailable
     max_unavailable_fixed = var.max_unavailable
+    # GCP rejects the BALANCED shape unless proactive redistribution (moving
+    # VMs between zones on its own to even them out) is off.
+    instance_redistribution_type = "NONE"
   }
 
   # target_size is set by the autoscaler at runtime, not by this config, so
