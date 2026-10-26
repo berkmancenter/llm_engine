@@ -178,7 +178,7 @@ resource "google_compute_health_check" "web_server_ws" {
 # repoint the backends, then delete the old one, instead of failing mid-apply.
 resource "google_compute_region_instance_group_manager" "web_server" {
   project                   = var.project_id
-  name                      = "llm-engine-web-mig-${substr(sha1(join(",", sort(var.zones))), 0, 6)}"
+  name                      = "llm-engine-web-mig-${substr(sha1(join(",", sort(var.zones))), 0, 6)}" # editing zones replaces the group
   region                    = var.region
   distribution_policy_zones = var.zones
   # Not the default shape, EVEN: when a zone has no machines left, EVEN keeps

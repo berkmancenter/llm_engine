@@ -15,21 +15,31 @@ variable "zones" {
     n2-standard-4 machines left for 9+ hours, so a deploy that needed a
     new VM in that zone hung. Listing several zones lets the group create
     the VM in another one with the BALANCED target shape set in main.tf.
-    Two things to know before editing this list:
+    Things to know before editing this list:
     - GCP does not allow changing a group's zones after it is created, so
       Terraform creates a new group (the zone list is part of its name),
-      points the load balancer at it, then deletes the old one. Expect a
-      minute or two of errors while the new VM boots.
+      points the load balancer at it, then deletes the old one. The old and
+      new VMs briefly run side by side; open websocket connections on the
+      old VM drop when the load balancer switches, so do this in a quiet
+      window.
     - GCP requires the rollout settings max_surge (extra VMs a deploy may
       add at once) and max_unavailable (VMs it may take down at once) to be
       0 or at least the number of zones. main.tf sets max_surge to the
       length of this list; max_unavailable stays 0.
+    - The mongo and chroma VMs stay in one zone, so the web VM may now sit
+      in a different zone from its database: sub-millisecond extra latency
+      and a small per-GB charge for traffic between zones. Accepted in
+      exchange for not being stuck when one zone runs out of machines.
   EOT
   type        = list(string)
   default     = ["us-central1-a", "us-central1-b", "us-central1-c"]
   validation {
-    condition     = length(var.zones) >= 1
-    error_message = "zones must list at least one zone."
+    condition     = length(var.zones) >= 1 && length(distinct(var.zones)) == length(var.zones)
+    error_message = "zones must list at least one zone, with no duplicates."
+  }
+  validation {
+    condition     = alltrue([for z in var.zones : startswith(z, "${var.region}-")])
+    error_message = "every zone must be inside var.region."
   }
 }
 
@@ -145,7 +155,11 @@ variable "app_env_secret_id" {
 }
 
 variable "min_replicas" {
-  description = "MIG minimum size — the always-on baseline capacity."
+  description = <<-EOT
+    MIG minimum size, the always-on baseline capacity. Also seeds the
+    group's size when the group is created. Keep min and max at 1 until
+    websocket state is shared across machines; see max_replicas.
+  EOT
   type        = number
   default     = 1
 }
@@ -157,6 +171,10 @@ variable "max_replicas" {
     negligible, so there's no reason to artificially cap burst capacity this
     low before real usage data (e.g. the k6 load tests, see k6/README.md)
     says otherwise.
+    Until websocket state is shared across machines, the app cannot run on
+    more than one VM at a time, so callers must set this to 1 (prod does,
+    together with min_replicas = 1). The default above is the eventual
+    ceiling, not a value that works today.
   EOT
   type        = number
   default     = 8
@@ -183,6 +201,10 @@ variable "max_unavailable" {
   description = "VMs a rollout may take down at once. GCP requires 0 or at least the number of zones in var.zones."
   type        = number
   default     = 0
+  validation {
+    condition     = var.max_unavailable == 0 || var.max_unavailable >= length(var.zones)
+    error_message = "max_unavailable must be 0 or at least the number of zones."
+  }
 }
 
 variable "connection_draining_timeout_sec" {
