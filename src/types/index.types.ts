@@ -51,6 +51,12 @@ export interface InboundInvite {
      organizer when fromAddress's domain is a configured relay (e.g. zoom.us) rather than the
      real sender — see resolveOrganizer in emailSetup.service.ts. */
   replyToAddress?: string
+  /* True when Postmark's spam scan found DKIM_VALID_AU in X-Spam-Tests: the From domain itself
+     signed the message, so From is not a forged header. The Reply-To relay fallback in
+     resolveOrganizer only runs when this is true — fromAddress alone is trivially spoofable
+     (anyone can claim From: no-reply@zoom.us), so trusting a sender-controlled Reply-To on an
+     unverified From would let anyone impersonate any allowlisted organizer. */
+  fromDomainSigned?: boolean
 }
 
 /* A plain inbound email with no .ics attachment (see emailSetup.service.ts's
@@ -64,6 +70,8 @@ export interface InboundEmail {
   body?: string
   messageId?: string
   replyToAddress?: string
+  /* Same meaning as InboundInvite.fromDomainSigned above. */
+  fromDomainSigned?: boolean
 }
 
 export interface OnDemandEventUrls {

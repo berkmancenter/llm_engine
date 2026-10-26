@@ -376,11 +376,11 @@ describe('emailSetup.service', () => {
       expect(loggerWarnSpy).not.toHaveBeenCalled()
     })
 
-    it('resolves the organizer from Reply-To when From is a trusted relay domain', async () => {
+    it('resolves the organizer from Reply-To when From is a trusted relay domain and DKIM-signed', async () => {
       const replyTo = `jen@${allowedDomain}`
       await insertUsers([newUser(replyTo)])
 
-      const organizer = await resolveOrganizer(`no-reply@${relayDomain}`, undefined, replyTo)
+      const organizer = await resolveOrganizer(`no-reply@${relayDomain}`, undefined, replyTo, true)
 
       expect(organizer).not.toBeNull()
       expect(organizer!.email).toBe(replyTo)
@@ -388,9 +388,23 @@ describe('emailSetup.service', () => {
     })
 
     it('rejects a relay sender with no Reply-To, falling back to From as today', async () => {
-      const organizer = await resolveOrganizer(`no-reply@${relayDomain}`)
+      const organizer = await resolveOrganizer(`no-reply@${relayDomain}`, undefined, undefined, true)
 
       expect(organizer).toBeNull()
+      expect(sendSignupSpy).not.toHaveBeenCalled()
+    })
+
+    // The core spoofing protection: From alone is trivially fakeable, so a relay-domain sender
+    // whose signature can't be verified must not get to pick its own organizer via Reply-To.
+    it('rejects a relay sender\'s Reply-To when the From domain is not DKIM-verified (possible spoof)', async () => {
+      const replyTo = `jen@${allowedDomain}`
+      await insertUsers([newUser(replyTo)])
+
+      const unsigned = await resolveOrganizer(`no-reply@${relayDomain}`, undefined, replyTo, false)
+      const missingFlag = await resolveOrganizer(`no-reply@${relayDomain}`, undefined, replyTo)
+
+      expect(unsigned).toBeNull()
+      expect(missingFlag).toBeNull()
       expect(sendSignupSpy).not.toHaveBeenCalled()
     })
 
@@ -567,13 +581,27 @@ describe('emailSetup.service', () => {
 
       const conversation = await createConversationFromInvite({
         ...buildInvite({}, `no-reply@${relayDomain}`),
-        replyToAddress: `org@${allowedDomain}`
+        replyToAddress: `org@${allowedDomain}`,
+        fromDomainSigned: true
       })
 
       expect(conversation).not.toBeNull()
       // Same reasoning as the Topic comparison above: .owner on this freshly-created,
       // unrefetched conversation is the full organizer Document, so .id is the safe comparison.
       expect((conversation!.owner as unknown as { id: string }).id).toBe(organizer.id)
+    })
+
+    it('rejects the invite when the relay From is not DKIM-verified, even with a valid Reply-To', async () => {
+      await insertUsers([newUser(`org@${allowedDomain}`)])
+
+      const conversation = await createConversationFromInvite({
+        ...buildInvite({}, `no-reply@${relayDomain}`),
+        replyToAddress: `org@${allowedDomain}`
+        // fromDomainSigned omitted: an unsigned From must not get to pick its own organizer.
+      })
+
+      expect(conversation).toBeNull()
+      expect(await Conversation.countDocuments()).toBe(0)
     })
 
     it('creates the conversation with a blank topic when nothing matches', async () => {
@@ -728,11 +756,25 @@ describe('emailSetup.service', () => {
 
       const conversation = await createConversationFromEmail({
         ...buildEmail({}, `no-reply@${relayDomain}`),
-        replyToAddress: `org@${allowedDomain}`
+        replyToAddress: `org@${allowedDomain}`,
+        fromDomainSigned: true
       })
 
       expect(conversation).not.toBeNull()
       expect((conversation!.owner as unknown as { id: string }).id).toBe(organizer.id)
+    })
+
+    it('rejects the email when the relay From is not DKIM-verified, even with a valid Reply-To', async () => {
+      await insertUsers([newUser(`org@${allowedDomain}`)])
+
+      const conversation = await createConversationFromEmail({
+        ...buildEmail({}, `no-reply@${relayDomain}`),
+        replyToAddress: `org@${allowedDomain}`
+        // fromDomainSigned omitted: an unsigned From must not get to pick its own organizer.
+      })
+
+      expect(conversation).toBeNull()
+      expect(await Conversation.countDocuments()).toBe(0)
     })
 
     it('creates a scheduled conversation when the email states a future time, with the stated duration', async () => {

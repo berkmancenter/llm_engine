@@ -249,6 +249,9 @@ const buildInboundEmailPayload = (icsBody: string, attachmentOverrides = {}) => 
   Subject: 'Quarterly Strategy Roundtable',
   MessageID: '73e6d360-66eb-11e1-8e72-a8206ea7d3ea',
   TextBody: 'You are invited.',
+  // Empty by default (no DKIM_VALID_AU), mutable for tests exercising the relay fallback, which
+  // requires it. A real sender's From is never trusted for that fallback without this.
+  Headers: [] as { Name: string; Value: string }[],
   Attachments: [
     {
       Name: 'invite.ics',
@@ -648,6 +651,9 @@ describe('POST /v1/webhooks/email', () => {
       // Realistic shape: unlike From, Postmark does not normalize ReplyTo to a bare address, so a
       // real Zoom-relayed invite's ReplyTo carries a display name and angle brackets.
       payload.ReplyTo = '"Jane Organizer" <jane@example.com>'
+      // Matches the real captured sample's X-Spam-Tests value (abbreviated): proves the From
+      // domain itself signed the message, which is required before Reply-To is trusted.
+      payload.Headers = [{ Name: 'X-Spam-Tests', Value: 'DKIM_SIGNED,DKIM_VALID,DKIM_VALID_AU,SPF_PASS' }]
 
       await request(app).post('/v1/webhooks/email').auth(webhookUser, webhookSecret).send(payload).expect(httpStatus.OK)
 
@@ -659,6 +665,55 @@ describe('POST /v1/webhooks/email', () => {
       const conversation = await Conversation.findOne({ 'source.inviteUid': 'webinar-uid-1' })
       expect(conversation).not.toBeNull()
       expect(conversation!.name).toBe('My Webinar')
+    }, 10000)
+
+    test('rejects a Zoom-relayed webinar invite when the From domain is not DKIM-verified (possible spoof)', async () => {
+      await insertUsers([
+        {
+          username: 'jane',
+          email: 'jane@example.com',
+          password: 'password1',
+          role: 'participant',
+          isEmailVerified: false
+        }
+      ])
+
+      const webinarIcs = [
+        'BEGIN:VCALENDAR',
+        'PRODID:-//zoom.us//iCalendar Event//EN',
+        'VERSION:2.0',
+        'METHOD:REQUEST',
+        'BEGIN:VEVENT',
+        'DTSTAMP:20251110T160849Z',
+        'DTSTART:20270601T170000Z',
+        'DTEND:20270601T180000Z',
+        'SUMMARY:My Webinar',
+        'UID:webinar-uid-spoofed',
+        'ORGANIZER;ROLE=REQ-PARTICIPANT;CN=Jen Hickey:no-reply@zoom.us',
+        'END:VEVENT',
+        'END:VCALENDAR'
+      ].join('\r\n')
+
+      const payload = buildInboundEmailPayload(webinarIcs)
+      // Anyone can set these two headers on a message they send themselves — without the DKIM
+      // check, this would otherwise create an event attributed to jane@example.com and send the
+      // bot into the sender's own meeting.
+      payload.From = 'no-reply@zoom.us'
+      payload.ReplyTo = '"Jane Organizer" <jane@example.com>'
+      // No X-Spam-Tests header at all: Postmark omits it when the scan didn't run, which must be
+      // treated the same as "not signed", not as "trust it anyway".
+      payload.Headers = []
+
+      const warnSpy = jest.spyOn(logger, 'warn').mockReturnValue(logger)
+      await request(app).post('/v1/webhooks/email').auth(webhookUser, webhookSecret).send(payload).expect(httpStatus.OK)
+
+      await waitFor(() => {
+        const rejected = warnSpy.mock.calls.some(([msg]) => String(msg).includes('no-reply@zoom.us'))
+        if (!rejected) throw new Error('rejection warning not logged yet')
+      })
+
+      expect(sendEventCreatedSpy).not.toHaveBeenCalled()
+      expect(await Conversation.findOne({ 'source.inviteUid': 'webinar-uid-spoofed' })).toBeNull()
     }, 10000)
   })
 

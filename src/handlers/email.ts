@@ -59,6 +59,32 @@ export const bareEmailAddress = (raw: string): string => {
   return (match ? match[1] : decoded).trim()
 }
 
+/** One entry from Postmark's parsed `Headers` array: the original message's raw headers. */
+interface InboundEmailHeader {
+  Name?: string
+  Value?: string
+}
+
+/**
+ * From alone is trivially spoofable — any sender can claim From: no-reply@zoom.us with no proof
+ * it actually came from Zoom's mail servers. Postmark's spam scan already checks this: its
+ * X-Spam-Tests header includes DKIM_VALID_AU when the visible From domain is the one that
+ * actually signed the message (DKIM "Author" alignment), which a spoofed From cannot produce.
+ * resolveOrganizer only trusts the Reply-To relay fallback (see
+ * emailSetup.service.ts) when this is true, so a forged From falls back to being checked against
+ * the allowlist directly, which rejects it. When the scan didn't run, Postmark omits the header
+ * entirely, so this treats the message as unsigned (fail closed) rather than trusting it.
+ */
+const isFromDomainSigned = (headers: unknown): boolean => {
+  if (!Array.isArray(headers)) return false
+  const spamTests = (headers as InboundEmailHeader[]).find((header) => header?.Name === 'X-Spam-Tests')?.Value
+  if (typeof spamTests !== 'string') return false
+  return spamTests
+    .split(',')
+    .map((test) => test.trim())
+    .includes('DKIM_VALID_AU')
+}
+
 /**
  * Pull the calendar fields out of an inbound email webhook payload's base64 `.ics` attachment.
  * Returns null when the message has no calendar attachment or no event component. Reads only
@@ -122,6 +148,7 @@ const handleEvent = async (req, res) => {
     // fromAddress — see InboundInvite.replyToAddress. Unlike From, Postmark does not normalize
     // this to a bare address, so it needs the same cleanup as the .ics ORGANIZER field.
     const replyToAddress = typeof req.body?.ReplyTo === 'string' ? bareEmailAddress(req.body.ReplyTo) : undefined
+    const fromDomainSigned = isFromDomainSigned(req.body?.Headers)
 
     if (invite) {
       // Times log as UTC; a bad zone conversion is otherwise invisible until the event runs an hour off.
@@ -130,7 +157,7 @@ const handleEvent = async (req, res) => {
           `from ${fromAddress}, organizer ${invite.organizer ?? 'none'}, ` +
           `starts ${invite.startDate?.toISOString() ?? 'unknown'}, ends ${invite.endDate?.toISOString() ?? 'unknown'}`
       )
-      await createConversationFromInvite({ fromAddress, invite, body, replyToAddress })
+      await createConversationFromInvite({ fromAddress, invite, body, replyToAddress, fromDomainSigned })
       return
     }
 
@@ -140,7 +167,7 @@ const handleEvent = async (req, res) => {
     const messageId = typeof req.body?.MessageID === 'string' ? req.body.MessageID : undefined
 
     logger.info(`Email webhook: no calendar attachment from ${fromAddress}; treating as a plain on-demand email`)
-    await createConversationFromEmail({ fromAddress, fromName, subject, body, messageId, replyToAddress })
+    await createConversationFromEmail({ fromAddress, fromName, subject, body, messageId, replyToAddress, fromDomainSigned })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     logger.error(`Email webhook: failed to parse inbound invite: ${message}`)

@@ -78,12 +78,25 @@ const isTrustedRelayDomain = (address: string): boolean => {
  * is the relay itself rather than the real organizer, so replyToAddress is used instead wherever
  * fromAddress otherwise would be. Every other sender resolves by fromAddress exactly as before.
  *
+ * The relay fallback only runs when fromDomainSigned is true (DKIM_VALID_AU on the inbound scan —
+ * see isFromDomainSigned in handlers/email.ts). fromAddress alone is trivially spoofable: with no
+ * signature check, anyone could claim From: no-reply@zoom.us and put any allowlisted organizer's
+ * address in Reply-To, which they fully control, to create an event — and send the bot into their
+ * own meeting — attributed to someone else's account. Without a signed From, a relay-domain sender
+ * is checked against the allowlist directly instead, which rejects it (no account there is
+ * actually @zoom.us).
+ *
  * statedOrganizer is an optional second address the message itself claims as its organizer (e.g.
  * a calendar invite's ORGANIZER field); it's never used for the lookup, only compared against the
  * resolved address to log a warning if the two disagree.
  */
-export const resolveOrganizer = async (fromAddress: string, statedOrganizer?: string, replyToAddress?: string) => {
-  const isRelayFallback = isTrustedRelayDomain(fromAddress) && !!replyToAddress
+export const resolveOrganizer = async (
+  fromAddress: string,
+  statedOrganizer?: string,
+  replyToAddress?: string,
+  fromDomainSigned?: boolean
+) => {
+  const isRelayFallback = isTrustedRelayDomain(fromAddress) && !!replyToAddress && !!fromDomainSigned
   const organizerAddress = isRelayFallback ? replyToAddress! : fromAddress
 
   if (!isAllowedOrganizerDomain(organizerAddress)) {
@@ -234,7 +247,7 @@ export const createEventForOrganizer = async ({
  * Returns null when resolveOrganizer rejects the sender.
  */
 export const createConversationFromInvite = async (inboundInvite: InboundInvite) => {
-  const { invite, fromAddress, body, replyToAddress } = inboundInvite
+  const { invite, fromAddress, body, replyToAddress, fromDomainSigned } = inboundInvite
 
   if (invite.uid) {
     const existing = await findConversationBySource('inviteUid', invite.uid)
@@ -246,7 +259,7 @@ export const createConversationFromInvite = async (inboundInvite: InboundInvite)
     logger.warn('Email webhook: invite has no UID; cannot dedup a webhook retry for this message')
   }
 
-  const organizer = await resolveOrganizer(fromAddress, invite.organizer, replyToAddress)
+  const organizer = await resolveOrganizer(fromAddress, invite.organizer, replyToAddress, fromDomainSigned)
   if (!organizer) return null
 
   try {
@@ -344,7 +357,7 @@ const sendOnDemandReply = async (
  * Zoom link.
  */
 export const createConversationFromEmail = async (inboundEmail: InboundEmail) => {
-  const { fromAddress, fromName, subject, body, messageId, replyToAddress } = inboundEmail
+  const { fromAddress, fromName, subject, body, messageId, replyToAddress, fromDomainSigned } = inboundEmail
 
   if (messageId) {
     const existing = await findConversationBySource('messageId', messageId)
@@ -356,7 +369,7 @@ export const createConversationFromEmail = async (inboundEmail: InboundEmail) =>
     logger.warn('Email webhook: email has no Message-ID; cannot dedup a webhook retry for this message')
   }
 
-  const organizer = await resolveOrganizer(fromAddress, undefined, replyToAddress)
+  const organizer = await resolveOrganizer(fromAddress, undefined, replyToAddress, fromDomainSigned)
   if (!organizer) return null
 
   try {
