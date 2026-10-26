@@ -429,6 +429,7 @@ export interface ConfigProperty {
   itemKey?: string
   schema?: Array<object>
   format?: PropertyFormat // extra validation beyond `type`, run on create and for draft status
+  showForPlatforms?: string[] // only show this property when the conversation is on one of these platforms
 }
 
 export interface PropertyRef {

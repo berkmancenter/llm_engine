@@ -98,25 +98,19 @@ describe('zoom adapter tests', () => {
       config.recall.outputMediaUrl = originalOutputMediaUrl
     })
 
-    async function deployBot(
-      voiceOutput,
-      {
-        chatChannels = [],
-        dmChannels = [],
-        botMediaMode
-      }: { chatChannels?: unknown[]; dmChannels?: unknown[]; botMediaMode?: 'none' | 'silent' | 'voice' } = {}
-    ) {
-      await createConversation('Voice Output Test')
-      // voiceOutput is a feature (conversation.features), not a plain property.
-      conversation.features = [{ name: 'voiceOutput', enabled: voiceOutput }]
-      await conversation.save()
+    // botMediaMode is the ONLY thing deployMeetingBot's mode selection reads now — it no
+    // longer inspects conversation.features/voiceOutput or dmChannels/chatChannels itself at
+    // all (that reasoning moved into the conversation type's own adapters config — see
+    // tests/conversations/eventAssistantBotMediaMode.test.ts for coverage of the actual
+    // voiceOutput-driven resolution eventAssistant.ts does). This suite only exercises
+    // deployMeetingBot's own, much simpler contract: trust botMediaMode, default to 'silent'.
+    async function deployBot(botMediaMode?: 'none' | 'silent' | 'voice') {
+      await createConversation('Bot Media Mode Test')
       // No botId, so isBotDeployed short-circuits to false without an extra fetch call.
       adapter.config = {
         meetingUrl: 'http://zoom.meeting.com',
         ...(botMediaMode !== undefined && { botMediaMode })
       }
-      adapter.chatChannels = chatChannels
-      adapter.dmChannels = dmChannels
       ;(fetch as jest.Mock).mockResolvedValue({
         status: httpStatus.CREATED,
         json: jest.fn().mockResolvedValue({ id: 'new-bot-id' })
@@ -128,8 +122,8 @@ describe('zoom adapter tests', () => {
       return JSON.parse(options.body)
     }
 
-    it('includes output_media with audio=true and requests web_4_core when voiceOutput is on', async () => {
-      const body = await deployBot(true)
+    it('includes output_media with audio=true and requests web_4_core when botMediaMode is "voice"', async () => {
+      const body = await deployBot('voice')
 
       expect(body.output_media.camera.kind).toBe('webpage')
       const url = new URL(body.output_media.camera.config.url)
@@ -137,65 +131,37 @@ describe('zoom adapter tests', () => {
       expect(body.variant).toEqual({ zoom: 'web_4_core' })
     })
 
-    it('omits output_media entirely for a transcription-only adapter with voiceOutput off', async () => {
-      const body = await deployBot(false)
+    it('includes output_media with audio=false and no pricier variant when botMediaMode is "silent"', async () => {
+      const body = await deployBot('silent')
+
+      expect(body.output_media.camera.kind).toBe('webpage')
+      const url = new URL(body.output_media.camera.config.url)
+      expect(url.searchParams.get('audio')).toBe('false')
+      expect(body.variant).toBeUndefined()
+    })
+
+    it('defaults to a silent idle camera when botMediaMode is not set at all', async () => {
+      const body = await deployBot()
+
+      expect(body.output_media.camera.kind).toBe('webpage')
+      const url = new URL(body.output_media.camera.config.url)
+      expect(url.searchParams.get('audio')).toBe('false')
+      expect(body.variant).toBeUndefined()
+    })
+
+    it('omits output_media entirely when botMediaMode is explicitly "none"', async () => {
+      const body = await deployBot('none')
 
       expect(body.output_media).toBeUndefined()
       expect(body.variant).toBeUndefined()
     })
 
-    it('never requests the pricier variant when RECALL_OUTPUT_MEDIA_URL is unset, even with voiceOutput on', async () => {
+    it('never requests the pricier variant when RECALL_OUTPUT_MEDIA_URL is unset, even with botMediaMode "voice"', async () => {
       config.recall.outputMediaUrl = undefined
-      const body = await deployBot(true)
+      const body = await deployBot('voice')
 
       expect(body.output_media).toBeUndefined()
       expect(body.variant).toBeUndefined()
-    })
-
-    it('includes output_media with audio=false when voiceOutput is off but chatChannels are configured', async () => {
-      const body = await deployBot(false, { chatChannels: [{ name: 'chat', direction: Direction.BOTH }] })
-
-      expect(body.output_media.camera.kind).toBe('webpage')
-      const url = new URL(body.output_media.camera.config.url)
-      expect(url.searchParams.get('audio')).toBe('false')
-      expect(body.variant).toBeUndefined()
-    })
-
-    it('includes output_media with audio=false when voiceOutput is off but dmChannels are configured', async () => {
-      const body = await deployBot(false, { dmChannels: [{ direct: true, direction: Direction.BOTH }] })
-
-      expect(body.output_media.camera.kind).toBe('webpage')
-      const url = new URL(body.output_media.camera.config.url)
-      expect(url.searchParams.get('audio')).toBe('false')
-      expect(body.variant).toBeUndefined()
-    })
-
-    it('rollout override: omits output_media for a chatty bot when config.botMediaMode is explicitly "none"', async () => {
-      const body = await deployBot(false, {
-        chatChannels: [{ name: 'chat', direction: Direction.BOTH }],
-        botMediaMode: 'none'
-      })
-
-      expect(body.output_media).toBeUndefined()
-      expect(body.variant).toBeUndefined()
-    })
-
-    it('rollout override: includes output_media for a transcription-only bot when config.botMediaMode is explicitly "silent"', async () => {
-      const body = await deployBot(false, { botMediaMode: 'silent' })
-
-      expect(body.output_media.camera.kind).toBe('webpage')
-      const url = new URL(body.output_media.camera.config.url)
-      expect(url.searchParams.get('audio')).toBe('false')
-      expect(body.variant).toBeUndefined()
-    })
-
-    it('rollout override: voiceOutput still forces output_media on even when config.botMediaMode is explicitly "none"', async () => {
-      const body = await deployBot(true, { botMediaMode: 'none' })
-
-      expect(body.output_media.camera.kind).toBe('webpage')
-      const url = new URL(body.output_media.camera.config.url)
-      expect(url.searchParams.get('audio')).toBe('true')
-      expect(body.variant).toEqual({ zoom: 'web_4_core' })
     })
   })
 
