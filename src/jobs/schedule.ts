@@ -64,6 +64,9 @@ const schedule = {
   cleanUpTopics: async () => {
     await agenda.every('0 1 * * *', 'clean up inactive topics')
   },
+  expireUnconfirmedConversations: async () => {
+    await agenda.every('0 3 * * *', 'expire unconfirmed organizer confirmations')
+  },
   summarizePdf: async (data: { conversationId: string; resourceId: string; filePath: string; citation: string }) => {
     await agenda.now('summarize pdf', data)
   },

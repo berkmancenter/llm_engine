@@ -211,6 +211,31 @@ That page is also where you can edit any details and find the moderator and part
 }
 
 /**
+ * Ask the resolved organizer behind a relayed invite to confirm it's really them before the
+ * event can leave Draft. Needed because e.g. Zoom's own Reply-To is never actually verified to belong to who it
+ * claims (see emailSetup.service.ts's resolveOrganizer and organizerConfirmation.service.ts)
+ * @param {string} to
+ * @param {Conversation} conversation
+ * @param {string} confirmUrl
+ * @param {Date} expiresAt
+ * @returns {Promise}
+ */
+const sendOrganizerConfirmationEmail = async (to, conversation, confirmUrl: string, expiresAt: Date) => {
+  const subject = `Confirm you're hosting "${conversation.name}"`
+  const expiresLine = `This link expires on ${expiresAt.toUTCString()}.`
+  const text = `Hello,
+Our assistant was invited to a Zoom meeting or webinar ("${conversation.name}") that lists you as the host. If that's you, confirm here to activate the event: ${confirmUrl}
+${expiresLine}
+If you didn't set this up, you can safely ignore this email — nothing happens unless you click confirm, and this request will expire on its own.`
+  const html = `<p>Hello,</p>
+<p>Our assistant was invited to a Zoom meeting or webinar ("${conversation.name}") that lists you as the host. If that's you, <a href="${confirmUrl}">confirm here</a> to activate the event.</p>
+<p>If the link doesn't open, copy and paste this address into your browser: ${confirmUrl}</p>
+<p>${expiresLine}</p>
+<p>If you didn't set this up, you can safely ignore this email — nothing happens unless you click confirm, and this request will expire on its own.</p>`
+  await sendEmailAsync(to, subject, text, html, 'organizer-confirmation')
+}
+
+/**
  * Notify an organizer that we couldn't turn their inbound calendar invite into an event.
  * Deliberately excludes any error detail: the inbound address accepts mail from anyone, so the
  * reply body is not a safe place for stack traces or other internals. The full error goes to the
@@ -402,6 +427,7 @@ const emailService = {
   sendPasswordResetEmailAsync,
   sendArchiveTopicEmail,
   sendSignupInviteEmail,
+  sendOrganizerConfirmationEmail,
   sendEventCreatedEmail,
   sendEventCreationFailedEmail,
   sendOnDemandEventEmail,

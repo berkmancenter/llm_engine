@@ -53,6 +53,9 @@ const defineJob = {
   cleanUpTopics: async () => {
     await agenda.define('clean up inactive topics', JobHandlers.cleanUpTopics)
   },
+  expireUnconfirmedConversations: async () => {
+    await agenda.define('expire unconfirmed organizer confirmations', JobHandlers.expireUnconfirmedConversations)
+  },
   summarizePdf: async () => {
     await agenda.define('summarize pdf', { lockLifetime: LLM_JOB_LOCK_LIFETIME }, JobHandlers.summarizePdf)
   },

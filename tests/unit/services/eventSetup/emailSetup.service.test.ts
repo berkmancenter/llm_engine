@@ -261,6 +261,7 @@ describe('emailSetup.service', () => {
   let sendEventCreationFailedSpy
   let sendOnDemandEventSpy
   let sendOnDemandEventFailedSpy
+  let sendOrganizerConfirmationSpy
   let loggerWarnSpy
   let loggerErrorSpy
   let planConversationFromInviteSpy
@@ -286,6 +287,9 @@ describe('emailSetup.service', () => {
     sendOnDemandEventSpy = jest.spyOn(emailService, 'sendOnDemandEventEmail').mockResolvedValue(undefined as never)
     sendOnDemandEventFailedSpy = jest
       .spyOn(emailService, 'sendOnDemandEventFailedEmail')
+      .mockResolvedValue(undefined as never)
+    sendOrganizerConfirmationSpy = jest
+      .spyOn(emailService, 'sendOrganizerConfirmationEmail')
       .mockResolvedValue(undefined as never)
     jest.spyOn(transcript, 'loadTopicMetadataIntoVectorStore').mockResolvedValue(undefined as never)
     jest.spyOn(transcript, 'loadEventMetadataIntoVectorStore').mockResolvedValue(undefined as never)
@@ -589,6 +593,13 @@ describe('emailSetup.service', () => {
       // Same reasoning as the Topic comparison above: .owner on this freshly-created,
       // unrefetched conversation is the full organizer Document, so .id is the safe comparison.
       expect((conversation!.owner as unknown as { id: string }).id).toBe(organizer.id)
+      // Reply-To is never actually verified to belong to the resolved organizer (Zoom's webinar
+      // Email Contact setting is unverified), so the event must stay gated behind a confirmation
+      // click rather than treated as immediately trustworthy, regardless of what else is complete.
+      expect(conversation!.source?.pendingOrganizerConfirmation).toBe(true)
+      expect(conversation!.draft).toBe(true)
+      expect(sendOrganizerConfirmationSpy).toHaveBeenCalledWith(organizer.email, expect.anything(), expect.anything(), expect.anything())
+      expect(sendEventCreatedSpy).not.toHaveBeenCalled()
     })
 
     it('rejects the invite when the relay From is not DKIM-verified, even with a valid Reply-To', async () => {
@@ -751,30 +762,23 @@ describe('emailSetup.service', () => {
       expect(persisted).not.toBeNull()
     })
 
-    it('resolves the organizer from Reply-To when the email arrives from a trusted relay domain', async () => {
+    // Unlike the invite path, this one never trusts Reply-To over From at all (see
+    // createConversationFromEmail's module comment): an on-demand conversation starts
+    // synchronously at creation, with no pending/unconfirmed state to hold it in if the resolved
+    // organizer turned out to be unverified. A relay-domain sender is just checked against the
+    // allowlist by From, which rejects it, since no account is actually @zoom.us.
+    it('rejects a relay-domain sender on the plain-email path; it has no pending state to fall back into', async () => {
       const [organizer] = await insertUsers([newUser(`org@${allowedDomain}`)])
 
-      const conversation = await createConversationFromEmail({
-        ...buildEmail({}, `no-reply@${relayDomain}`),
-        replyToAddress: `org@${allowedDomain}`,
-        fromDomainSigned: true
-      })
-
-      expect(conversation).not.toBeNull()
-      expect((conversation!.owner as unknown as { id: string }).id).toBe(organizer.id)
-    })
-
-    it('rejects the email when the relay From is not DKIM-verified, even with a valid Reply-To', async () => {
-      await insertUsers([newUser(`org@${allowedDomain}`)])
-
-      const conversation = await createConversationFromEmail({
-        ...buildEmail({}, `no-reply@${relayDomain}`),
-        replyToAddress: `org@${allowedDomain}`
-        // fromDomainSigned omitted: an unsigned From must not get to pick its own organizer.
-      })
+      const conversation = await createConversationFromEmail(buildEmail({}, `no-reply@${relayDomain}`))
 
       expect(conversation).toBeNull()
       expect(await Conversation.countDocuments()).toBe(0)
+      expect(sendOrganizerConfirmationSpy).not.toHaveBeenCalled()
+      expect(sendOnDemandEventSpy).not.toHaveBeenCalled()
+      // Sanity: the same address genuinely has an account, so this is specifically about the
+      // relay domain being rejected, not an unrelated "no such user" failure.
+      expect(organizer).toBeTruthy()
     })
 
     it('creates a scheduled conversation when the email states a future time, with the stated duration', async () => {

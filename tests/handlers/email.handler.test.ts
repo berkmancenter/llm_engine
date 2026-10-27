@@ -520,6 +520,7 @@ describe('POST /v1/webhooks/email', () => {
     })
 
     let sendEventCreatedSpy
+    let sendOrganizerConfirmationSpy
     let planConversationFromInviteSpy
 
     beforeEach(() => {
@@ -532,6 +533,9 @@ describe('POST /v1/webhooks/email', () => {
       // this plumbing test isn't also exercising (or paying for) a real LLM call.
       planConversationFromInviteSpy = jest.spyOn(plannerService, 'planConversationFromInvite').mockResolvedValue({})
       sendEventCreatedSpy = jest.spyOn(emailService, 'sendEventCreatedEmail').mockResolvedValue(undefined as never)
+      sendOrganizerConfirmationSpy = jest
+        .spyOn(emailService, 'sendOrganizerConfirmationEmail')
+        .mockResolvedValue(undefined as never)
     })
 
     afterEach(() => {
@@ -658,13 +662,24 @@ describe('POST /v1/webhooks/email', () => {
       await request(app).post('/v1/webhooks/email').auth(webhookUser, webhookSecret).send(payload).expect(httpStatus.OK)
 
       await waitFor(() => {
-        if (sendEventCreatedSpy.mock.calls.length === 0) throw new Error('not finished yet')
+        if (sendOrganizerConfirmationSpy.mock.calls.length === 0) throw new Error('not finished yet')
       })
 
-      expect(sendEventCreatedSpy).toHaveBeenCalledWith('jane@example.com', expect.anything(), expect.anything())
+      // Reply-To is never actually verified to belong to the resolved organizer (Zoom's webinar
+      // Email Contact setting is unverified), so this must ask for confirmation rather than
+      // immediately treating the event as ready — see organizerConfirmation.service.ts.
+      expect(sendOrganizerConfirmationSpy).toHaveBeenCalledWith(
+        'jane@example.com',
+        expect.anything(),
+        expect.anything(),
+        expect.anything()
+      )
+      expect(sendEventCreatedSpy).not.toHaveBeenCalled()
       const conversation = await Conversation.findOne({ 'source.inviteUid': 'webinar-uid-1' })
       expect(conversation).not.toBeNull()
       expect(conversation!.name).toBe('My Webinar')
+      expect(conversation!.source?.pendingOrganizerConfirmation).toBe(true)
+      expect(conversation!.draft).toBe(true)
     }, 10000)
 
     test('rejects a Zoom-relayed webinar invite when the From domain is not DKIM-verified (possible spoof)', async () => {

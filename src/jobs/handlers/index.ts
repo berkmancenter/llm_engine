@@ -3,6 +3,7 @@ import conversationHandlers from './conversation.js'
 import conversationEventHandlers from './conversationEvent.js'
 import conversationCostHandlers from './conversationCost.js'
 import inviteHandlers from './invite.js'
+import organizerConfirmationHandlers from './organizerConfirmation.js'
 import pollHandlers from './poll.js'
 import resourceHandlers from './resource.js'
 import topicHandlers from './topic.js'
@@ -34,7 +35,10 @@ const JobHandlers = {
   cleanUpTranscripts: transcriptHandlers.cleanUpTranscripts,
 
   // Topic handlers
-  cleanUpTopics: topicHandlers.cleanUpTopics
+  cleanUpTopics: topicHandlers.cleanUpTopics,
+
+  // Organizer confirmation handlers
+  expireUnconfirmedConversations: organizerConfirmationHandlers.expireUnconfirmedConversations
 }
 
 export default JobHandlers

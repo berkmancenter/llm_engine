@@ -46,4 +46,19 @@ const inviteResendLimiter = rateLimit({
   }
 })
 
-export { authLimiter, memberImportLimiter, inviteSendLimiter, inviteConsumeLimiter, inviteResendLimiter }
+/* Guards the public organizer-confirmation validate/confirm endpoints, same reasoning and
+   shape as inviteConsumeLimiter: counts successes too, since skipping them would let a valid
+   token be replayed without ever counting against the limit. */
+const organizerConfirmationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20
+})
+
+export {
+  authLimiter,
+  memberImportLimiter,
+  inviteSendLimiter,
+  inviteConsumeLimiter,
+  inviteResendLimiter,
+  organizerConfirmationLimiter
+}

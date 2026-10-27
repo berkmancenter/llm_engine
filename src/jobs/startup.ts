@@ -15,6 +15,8 @@ export async function startJobs() {
     await schedule.cleanUpTopics()
     await defineJob.cleanUpTranscripts()
     await schedule.cleanUpTranscripts()
+    await defineJob.expireUnconfirmedConversations()
+    await schedule.expireUnconfirmedConversations()
     await defineJob.autoStartConversation()
     await defineJob.conversationEndingSoon()
     await defineJob.summarizePdf()

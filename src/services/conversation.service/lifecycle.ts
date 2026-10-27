@@ -89,6 +89,7 @@ export interface DraftStatusInput {
   scheduledTime?: Date | string | null
   scheduledEndTime?: Date | string | null
   properties?: Record<string, unknown>
+  source?: { [key: string]: unknown }
 }
 
 /**
@@ -118,8 +119,16 @@ export function satisfiesTypeProperties(conversation: DraftStatusInput): boolean
  * Draft as long as they have a name and a topic, both already schema-required. Scheduled
  * conversations additionally need an end time and every property rule their type declares,
  * including format rules such as the Zoom-host check.
+ *
+ * A relayed invite's organizer is resolved from its Reply-To header, which may not be verified (see emailSetup.service.ts's resolveOrganizer) —
+ * so one more thing can hold a conversation in Draft regardless of whether every other field already looks complete:
+ * source.pendingOrganizerConfirmation, set only on that path, cleared only by
+ * organizerConfirmation.service.ts's confirmOrganizer once the resolved organizer actually
+ * clicks the emailed link.
  */
 export function isConversationDraft(conversation: DraftStatusInput): boolean {
+  if (conversation.source?.pendingOrganizerConfirmation) return true
+
   const hasName = typeof conversation.name === 'string' && conversation.name.trim().length > 0
   const hasTopic = !!conversation.topic
 

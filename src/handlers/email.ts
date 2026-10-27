@@ -167,7 +167,7 @@ const handleEvent = async (req, res) => {
     const messageId = typeof req.body?.MessageID === 'string' ? req.body.MessageID : undefined
 
     logger.info(`Email webhook: no calendar attachment from ${fromAddress}; treating as a plain on-demand email`)
-    await createConversationFromEmail({ fromAddress, fromName, subject, body, messageId, replyToAddress, fromDomainSigned })
+    await createConversationFromEmail({ fromAddress, fromName, subject, body, messageId })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     logger.error(`Email webhook: failed to parse inbound invite: ${message}`)

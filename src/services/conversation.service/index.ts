@@ -8,7 +8,6 @@ import agentService from '../agent.service/index.js'
 import Adapter from '../../models/adapter.model.js'
 import schedule from '../../jobs/schedule.js'
 import logger from '../../config/logger.js'
-import config from '../../config/config.js'
 import adapterService from '../adapter.service.js'
 import channelService from '../channel.service.js'
 import { ConversationDocument } from '../../models/conversation.model.js'
@@ -31,6 +30,7 @@ import agentDispatcher from '../../jobs/agentDispatcher.js'
 import userService, { resolveDisplayName } from '../user.service.js'
 import assertMembership from '../../utils/assertMembership.js'
 import resourceService from '../resource.service.js'
+import scheduleConversationAutoStart from './scheduleAutoStart.js'
 
 export { updateTranscriptStatus }
 
@@ -40,7 +40,6 @@ const returnFields =
    past this point the owner should create a new event rather than editing this one. */
 const draftEditLockoutMs = 6 * 60 * 1000 // 6 minutes
 export const maxScheduledInterval = 10 * 60 * 1000 // 10 minutes in milliseconds
-export const { autoStartLeadTimeMs } = config.conversation
 
 /**
  * Removed messages array property and replaces with messageCount
@@ -125,13 +124,6 @@ const autoStop = async (conversationId) => {
   return doStopConversation(conversation)
 }
 
-async function scheduleConversationAutoStart(conversation) {
-  await schedule.cancelAutoStartConversation(conversation._id)
-  const scheduledAt = new Date(conversation.scheduledTime.getTime() - autoStartLeadTimeMs)
-  await schedule.autoStartConversation(scheduledAt, { conversationId: conversation._id })
-  logger.info(`Scheduled auto-start for conversation ${conversation._id} at ${scheduledAt}`)
-}
-
 async function scheduleConversationEndingSoon(conversation) {
   await schedule.cancelConversationEndingSoon(conversation._id)
   // Schedule maxScheduledInterval before the scheduled end time;
@@ -192,10 +184,11 @@ const createConversation = async (conversationBody, user, { allowDraft = false }
      so a client can never write source on a conversation it creates. Without this gate, an
      ordinary user could squat on a future invite's or email's dedup key via the public API and
      make a legitimate one silently no-op against their decoy (see createConversationFromInvite
-     and createConversationFromEmail, which both dedup by reading source back). The allowlist
+     and createConversationFromEmail, which both dedup by reading source back), or set
+     pendingOrganizerConfirmation themselves to fake out isConversationDraft's gate. The allowlist
      itself, not just allowDraft, still applies: an allowDraft caller can only ever write these
-     two known keys, never an arbitrary one. */
-  const ALLOWED_SOURCE_KEYS = ['inviteUid', 'messageId']
+     known keys, never an arbitrary one. */
+  const ALLOWED_SOURCE_KEYS = ['inviteUid', 'messageId', 'pendingOrganizerConfirmation']
   const allowedSource = allowDraft
     ? Object.fromEntries(Object.entries(conversationBody.source ?? {}).filter(([key]) => ALLOWED_SOURCE_KEYS.includes(key)))
     : {}

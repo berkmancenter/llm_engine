@@ -69,9 +69,6 @@ export interface InboundEmail {
   subject?: string
   body?: string
   messageId?: string
-  replyToAddress?: string
-  /* Same meaning as InboundInvite.fromDomainSigned above. */
-  fromDomainSigned?: boolean
 }
 
 export interface OnDemandEventUrls {
@@ -284,6 +281,23 @@ export interface IAgentIntroduction {
 // nonce are stored; the raw values exist nowhere but the email and the recipient's browser.
 export interface IMemberInvite {
   membership: mongoose.Types.ObjectId
+  tokenHash: string
+  expiresAt: Date
+  consumedAt?: Date | null
+  invalidatedAt?: Date | null
+  nonceHash?: string | null
+  nonceExpiresAt?: Date | null
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+// One row per minted organizer-confirmation link (see organizerConfirmation.service.ts), the
+// gate a relayed invite's resolved organizer must click through before the conversation can
+// ever leave draft (see isConversationDraft's pendingOrganizerConfirmation check). Same shape as
+// IMemberInvite and for the same reasons: only hashes stored, a nonce split so a mail scanner's
+// GET pre-fetch can't burn the token in place of a real click.
+export interface IOrganizerConfirmation {
+  conversation: mongoose.Types.ObjectId
   tokenHash: string
   expiresAt: Date
   consumedAt?: Date | null
