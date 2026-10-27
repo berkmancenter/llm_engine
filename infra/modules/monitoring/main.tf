@@ -838,8 +838,8 @@ resource "google_monitoring_alert_policy" "backend_5xx_rate_backend" {
       rate.
 
       **Check first:**
-      - `gcloud compute instance-groups managed list-instances llm-engine-web-mig
-        --region=us-central1` - is the instance healthy?
+      - `gcloud compute instance-groups managed list-instances ${var.mig_name}
+        --region=${var.region}` - is the instance healthy?
       - `gcloud logging read 'resource.type="gce_instance" AND severity>=ERROR'
         --freshness=15m` - what's actually erroring?
       - The live dashboard (`terraform output monitoring_dashboard_url` from
