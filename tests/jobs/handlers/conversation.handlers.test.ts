@@ -12,6 +12,7 @@ import defaultAgentTypes from '../../../src/agents/index.js'
 import { defaultLLMPlatform, defaultLLMModel } from '../../../src/agents/helpers/getModelChat.js'
 import config from '../../../src/config/config.js'
 import schedule from '../../../src/jobs/schedule.js'
+import agentDispatcher from '../../../src/jobs/agentDispatcher.js'
 
 setupIntTest()
 
@@ -271,12 +272,31 @@ describe('conversation handler tests', () => {
   describe('conversationStopped reaches an agent attached to the stopping conversation', () => {
     let scheduleSpy: jest.SpyInstance
 
+    const dispatchTestAgentType = {
+      start: jest.fn(),
+      stop: jest.fn(),
+      evaluate: jest.fn(),
+      onConversationEvent: jest.fn().mockResolvedValue([]),
+      capabilities: () => ({ read: [{ type: 'ownConversation' as const }], write: [{ type: 'ownConversation' as const }] }),
+      name: 'Test dispatch agent',
+      description: 'A test agent',
+      maxTokens: 2000,
+      defaultTriggers: undefined,
+      priority: 10,
+      llmTemplateVars: {},
+      defaultLLMTemplates: {},
+      defaultLLMPlatform,
+      defaultLLMModel
+    }
+
     beforeAll(() => {
       config.disablePostEventAnalysis = false
+      setAgentTypes({ testDispatchAgent: dispatchTestAgentType })
     })
 
     afterAll(() => {
       config.disablePostEventAnalysis = true
+      setAgentTypes(defaultAgentTypes)
     })
 
     /* The block above stubs agentService.stopAgent and the outer afterEach only clears call
@@ -290,7 +310,7 @@ describe('conversation handler tests', () => {
       jest.restoreAllMocks()
     })
 
-    test('notifies the Concept Cartographer when the conversation it belongs to stops', async () => {
+    test('notifies the agent when the conversation it belongs to stops', async () => {
       /* No transcript, so the stop routine skips the live LLM summary call. Started well
          past the grace period that keeps a quiet conversation open, so it still stops. */
       const chatOnlyConversation = new Conversation({
@@ -302,7 +322,7 @@ describe('conversation handler tests', () => {
         startTime: new Date(Date.now() - 90 * 60 * 1000) // 90 min ago
       })
       const agent = new Agent({
-        agentType: 'conceptCartographer',
+        agentType: 'testDispatchAgent',
         conversation: chatOnlyConversation._id,
         active: true
       })
@@ -315,6 +335,220 @@ describe('conversation handler tests', () => {
       expect(scheduleSpy).toHaveBeenCalledWith({
         agentId: agent._id.toString(),
         event: expect.objectContaining({ type: 'conversationStopped', conversationId: chatOnlyConversation._id.toString() })
+      })
+    })
+  })
+
+  describe('openConversationWindow', () => {
+    let scheduleSpy: jest.SpyInstance
+
+    const dispatchTestAgentType = {
+      start: jest.fn(),
+      stop: jest.fn(),
+      evaluate: jest.fn(),
+      onConversationEvent: jest.fn().mockResolvedValue([]),
+      capabilities: () => ({ read: [{ type: 'ownConversation' as const }], write: [{ type: 'ownConversation' as const }] }),
+      name: 'Test dispatch agent',
+      description: 'A test agent',
+      maxTokens: 2000,
+      defaultTriggers: undefined,
+      priority: 10,
+      llmTemplateVars: {},
+      defaultLLMTemplates: {},
+      defaultLLMPlatform,
+      defaultLLMModel
+    }
+
+    beforeAll(() => {
+      setAgentTypes({ testDispatchAgent: dispatchTestAgentType })
+    })
+
+    afterAll(() => {
+      setAgentTypes(defaultAgentTypes)
+    })
+
+    beforeEach(() => {
+      scheduleSpy = jest.spyOn(schedule, 'conversationEvent').mockResolvedValue(undefined)
+    })
+
+    // preEventMinutes left undefined means "don't set it" (unconfigured), not "15" — a default
+    // parameter would instead substitute 15 for an explicit attachAgent(undefined) call.
+    async function attachAgent(preEventMinutes?: number) {
+      if (preEventMinutes !== undefined) {
+        await Conversation.findByIdAndUpdate(conversation._id, { preEventMinutes })
+      }
+      const agent = new Agent({ agentType: 'testDispatchAgent', conversation: conversation._id, active: false })
+      await agent.save()
+      await Conversation.findByIdAndUpdate(conversation._id, { $push: { agents: agent._id } })
+      return agent
+    }
+
+    test("dispatches to this conversation's own agent even though it is not active yet", async () => {
+      const agent = await attachAgent(15)
+
+      await JobHandlers.openConversationWindow({
+        attrs: { data: { conversationId: conversation._id, phase: 'preEvent' } }
+      })
+
+      expect(scheduleSpy).toHaveBeenCalledWith({
+        agentId: agent._id.toString(),
+        event: expect.objectContaining({
+          type: 'conversationWindowOpened',
+          phase: 'preEvent',
+          conversationId: conversation._id.toString()
+        })
+      })
+    })
+
+    test('skips when preEventMinutes is not configured', async () => {
+      await attachAgent()
+
+      await JobHandlers.openConversationWindow({
+        attrs: { data: { conversationId: conversation._id, phase: 'preEvent' } }
+      })
+
+      expect(scheduleSpy).not.toHaveBeenCalled()
+    })
+
+    test('skips once the conversation has already started', async () => {
+      await attachAgent(15)
+      await Conversation.findByIdAndUpdate(conversation._id, { active: true, startTime: new Date() })
+
+      await JobHandlers.openConversationWindow({
+        attrs: { data: { conversationId: conversation._id, phase: 'preEvent' } }
+      })
+
+      expect(scheduleSpy).not.toHaveBeenCalled()
+    })
+
+    test('skips an unimplemented phase', async () => {
+      await attachAgent(15)
+
+      await JobHandlers.openConversationWindow({
+        attrs: { data: { conversationId: conversation._id, phase: 'postEvent' } }
+      })
+
+      expect(scheduleSpy).not.toHaveBeenCalled()
+    })
+
+    test('does not throw if conversation not found', async () => {
+      const fakeId = '000000000000000000000000'
+      await expect(
+        JobHandlers.openConversationWindow({ attrs: { data: { conversationId: fakeId, phase: 'preEvent' } } })
+      ).resolves.not.toThrow()
+    })
+
+    describe('activates agents for pregame chat/DM responsiveness', () => {
+      const perMessageType = {
+        start: jest.fn(),
+        stop: jest.fn(),
+        evaluate: jest.fn(),
+        name: 'Test perMessage agent',
+        description: 'A test agent',
+        maxTokens: 2000,
+        defaultTriggers: { perMessage: { channels: ['chat'] } },
+        priority: 10,
+        llmTemplateVars: {},
+        defaultLLMTemplates: {},
+        defaultLLMPlatform,
+        defaultLLMModel
+      }
+      const perMessageAndPeriodicType = {
+        ...perMessageType,
+        start: jest.fn(),
+        name: 'Test perMessage+periodic agent (mirrors eventAssistant)',
+        defaultTriggers: { perMessage: { channels: ['chat'] }, periodic: { timerPeriod: 180, proactive: true } }
+      }
+      const periodicOnlyType = {
+        ...perMessageType,
+        start: jest.fn(),
+        name: 'Test periodic-only agent',
+        defaultTriggers: { periodic: { timerPeriod: 120 } }
+      }
+      const brokenStartType = {
+        ...perMessageType,
+        start: jest.fn().mockRejectedValue(new Error('boom')),
+        name: 'Test agent whose start() always throws'
+      }
+
+      let periodicScheduleSpy: jest.SpyInstance
+
+      beforeAll(() => {
+        setAgentTypes({
+          testPerMessage: perMessageType,
+          testPerMessageAndPeriodic: perMessageAndPeriodicType,
+          testPeriodicOnly: periodicOnlyType,
+          testBrokenStart: brokenStartType
+        })
+      })
+
+      afterAll(() => {
+        setAgentTypes(defaultAgentTypes)
+      })
+
+      beforeEach(() => {
+        periodicScheduleSpy = jest.spyOn(schedule, 'periodicAgent').mockReset().mockResolvedValue(undefined)
+      })
+
+      async function attachTypedAgent(agentType: string) {
+        await Conversation.findByIdAndUpdate(conversation._id, { preEventMinutes: 15 })
+        const agent = new Agent({ agentType, conversation: conversation._id, active: false })
+        await agent.save()
+        await Conversation.findByIdAndUpdate(conversation._id, { $push: { agents: agent._id } })
+        return agent
+      }
+
+      test('activates a perMessage-triggered agent', async () => {
+        const agent = await attachTypedAgent('testPerMessage')
+
+        await JobHandlers.openConversationWindow({
+          attrs: { data: { conversationId: conversation._id, phase: 'preEvent' } }
+        })
+
+        const updated = await Agent.findById(agent._id)
+        expect(updated!.active).toBe(true)
+        expect(perMessageType.start).toHaveBeenCalled()
+      })
+
+      test('activates a perMessage+periodic agent without scheduling its periodic trigger', async () => {
+        const agent = await attachTypedAgent('testPerMessageAndPeriodic')
+
+        await JobHandlers.openConversationWindow({
+          attrs: { data: { conversationId: conversation._id, phase: 'preEvent' } }
+        })
+
+        const updated = await Agent.findById(agent._id)
+        expect(updated!.active).toBe(true)
+        expect(periodicScheduleSpy).not.toHaveBeenCalled()
+      })
+
+      test('leaves a periodic-only agent inactive', async () => {
+        const agent = await attachTypedAgent('testPeriodicOnly')
+
+        await JobHandlers.openConversationWindow({
+          attrs: { data: { conversationId: conversation._id, phase: 'preEvent' } }
+        })
+
+        const updated = await Agent.findById(agent._id)
+        expect(updated!.active).toBe(false)
+        expect(periodicOnlyType.start).not.toHaveBeenCalled()
+        expect(periodicScheduleSpy).not.toHaveBeenCalled()
+      })
+
+      test('one agent failing to start does not block the others or the dispatch', async () => {
+        const dispatchSpy = jest.spyOn(agentDispatcher, 'dispatch').mockResolvedValue(undefined)
+        await attachTypedAgent('testBrokenStart')
+        const workingAgent = await attachTypedAgent('testPerMessage')
+
+        await expect(
+          JobHandlers.openConversationWindow({
+            attrs: { data: { conversationId: conversation._id, phase: 'preEvent' } }
+          })
+        ).resolves.not.toThrow()
+
+        const updatedWorkingAgent = await Agent.findById(workingAgent._id)
+        expect(updatedWorkingAgent!.active).toBe(true)
+        expect(dispatchSpy).toHaveBeenCalled()
       })
     })
   })

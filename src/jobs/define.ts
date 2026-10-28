@@ -33,6 +33,9 @@ const defineJob = {
   autoStartConversation: async () => {
     await agenda.define('autoStart', JobHandlers.autoStartConversation)
   },
+  openConversationWindow: async () => {
+    await agenda.define('openConversationWindow', JobHandlers.openConversationWindow)
+  },
   autoStopConversation: async (conversationId) => {
     await agenda.define(
       `autoStop - ${conversationId}`,
