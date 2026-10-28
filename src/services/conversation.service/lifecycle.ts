@@ -19,6 +19,7 @@ import buildProvenance from '../../utils/provenance.js'
 import Poll from '../../models/poll.model/poll.js'
 import { getConversationType } from '../../conversations/index.js'
 import { isValidPropertyFormat } from '../../conversations/propertyFormats.js'
+import { IConversation } from '../../types/index.types.js'
 
 const transcriptBatchInterval = 30
 const autoStopCheckInterval = 5 * 60
@@ -138,6 +139,18 @@ export function isConversationDraft(conversation: DraftStatusInput): boolean {
 
   if (!hasName || !hasTopic || !conversation.scheduledEndTime) return true
   return !satisfiesTypeProperties(conversation)
+}
+
+/**
+ * Whether this conversation's preEvent window is currently open
+ */
+export function isPreEventWindowOpen(
+  conversation: Pick<IConversation, 'startTime' | 'scheduledTime' | 'preEventMinutes'>
+): boolean {
+  if (conversation.startTime) return false
+  if (typeof conversation.preEventMinutes !== 'number' || !conversation.scheduledTime) return false
+  const opensAt = new Date(conversation.scheduledTime).getTime() - conversation.preEventMinutes * 60 * 1000
+  return Date.now() >= opensAt
 }
 
 export async function doStartConversation(conversation) {

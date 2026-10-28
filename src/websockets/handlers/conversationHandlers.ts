@@ -9,6 +9,7 @@ import { agentResponseToMessageData } from '../../services/message.service.js'
 import { Conversation, Topic } from '../../models/index.js'
 import { IChannel } from '../../types/index.types.js'
 import introduceOnce from '../../services/agentIntroduction.service.js'
+import { isPreEventWindowOpen } from '../../services/conversation.service/lifecycle.js'
 
 /**
  * @param {boolean} [options.observer] - a shared screen gets the presentation greeting, built fresh
@@ -17,7 +18,8 @@ import introduceOnce from '../../services/agentIntroduction.service.js'
  */
 export async function collectChannelIntros(conversation, channelNames, user, { observer = false } = {}) {
   const intros: ReturnType<typeof agentResponseToMessageData>[] = []
-  if (!conversation.active) return intros
+  // Admit the preEvent window too, not just the live event — see isPreEventWindowOpen.
+  if (!conversation.active && !isPreEventWindowOpen(conversation)) return intros
   for (const channelName of channelNames) {
     const channel = conversation.channels?.find((c) => c.name === channelName)
     if (!channel) continue
