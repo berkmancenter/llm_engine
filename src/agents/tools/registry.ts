@@ -157,6 +157,7 @@ registerTool('resource_search', (context) => {
     logger.warn('Tool registry: resource_search requested but no activeConversationId in context')
     return []
   }
-  return createResourceSearchTools({ conversationId })
+  const resultNote = typeof context?.toolResultNote === 'string' ? context.toolResultNote : undefined
+  return createResourceSearchTools({ conversationId, resultNote })
 })
 registerToolPrompt('resource_search', (context) => buildResourceSearchToolsPrompt(context))

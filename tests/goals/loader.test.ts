@@ -95,12 +95,24 @@ describe('getGroupChatGoals', () => {
   })
 })
 
+describe('socratic_probe', () => {
+  test('loads as a groupChat text goal with a confidence floor and examples', () => {
+    const goal = loadGoal('socratic_probe')
+    expect(goal).toMatchObject({ id: 'socratic_probe', channel: 'groupChat', outputContract: { format: 'text' } })
+    expect(goal.triggers.minConfidence).toBe(70)
+    expect(goal.triggers.conditions.length).toBeGreaterThan(0)
+    expect(goal.guardrails.length).toBeGreaterThan(0)
+    expect(goal.examples.length).toBeGreaterThan(0)
+  })
+})
+
 describe('listGoalIds', () => {
   test('includes known goal ids from both channels', () => {
     const ids = listGoalIds()
     expect(ids).toContain('bridge_topics')
     expect(ids).toContain('private_reassure')
     expect(ids).toContain('missing_perspective')
+    expect(ids).toContain('socratic_probe')
   })
 
   test('does not include the schema.json file as a goal id', () => {

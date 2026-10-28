@@ -52,6 +52,21 @@ describe('resourceSearch tools', () => {
       expect(result).toBe('No matching background material found.')
     })
 
+    test('appends resultNote after retrieved passages, but not to the no-match message', async () => {
+      const conversationId = new mongoose.Types.ObjectId().toString()
+      ragSpy = jest
+        .spyOn(rag, 'getContextChunksForQuestion')
+        .mockResolvedValueOnce({ chunks: 'Source ID: 0\nTitle: Some Paper\nSnippet: Relevant text.', retrievedDocs: [] })
+        .mockResolvedValueOnce({ chunks: '', retrievedDocs: [] })
+
+      const [searchResourcesTool] = createResourceSearchTools({ conversationId, resultNote: '[note]' })
+
+      expect(await searchResourcesTool.invoke({ query: 'flexible work' })).toBe(
+        'Source ID: 0\nTitle: Some Paper\nSnippet: Relevant text.\n\n[note]'
+      )
+      expect(await searchResourcesTool.invoke({ query: 'nonsense' })).toBe('No matching background material found.')
+    })
+
     test('degrades gracefully when the collection does not exist yet (no resources uploaded)', async () => {
       const conversationId = new mongoose.Types.ObjectId().toString()
       ragSpy = jest.spyOn(rag, 'getContextChunksForQuestion').mockRejectedValue(new Error('collection not found'))

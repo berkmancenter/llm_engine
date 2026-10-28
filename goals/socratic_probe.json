@@ -1,0 +1,34 @@
+{
+  "id": "socratic_probe",
+  "label": "Socratic probe",
+  "description": "Poses one pointed question that ties the group's current discussion to a specific idea in the community's readings — used when the readings complicate, support, define, or dispute what people are saying and the room hasn't engaged with them. Asks; never summarizes or answers.",
+  "channel": "groupChat",
+  "triggers": {
+    "conditions": [
+      "participants are making a claim that a passage in the Background Reading complicates or supports, and no one has brought that passage in",
+      "the discussion is circling a concept that the readings define or dispute, without citing or engaging with how the readings treat it",
+      "the room is quickly agreeing on something the readings treat as contested or unsettled"
+    ],
+    "minConfidence": 70
+  },
+  "guardrails": [
+    "only use when a relevant passage from the Background Reading was actually retrieved — if no relevant passage is available, stay silent",
+    "ask exactly ONE pointed question that connects the current discussion to one specific idea in the readings",
+    "never summarize the reading, never state its finding, and never answer the question yourself — the message is the question, not a statement followed by a question",
+    "the question must come with at most ONE short clause naming the source (e.g. 'In Lee's study of moderator burnout, ...'); do not describe what the source found, concluded, or reported",
+    "do not open with a statement about what the group is saying or agreeing on; open with the question or the source clause",
+    "name the source (title or author) when it is known, and never attribute an idea to a reading that was not retrieved",
+    "one sentence, ideally under 35 words, ending in a single question mark",
+    "don't single out or name individual participants",
+    "don't repeat a question or passage already used in this conversation",
+    "frame as genuine curiosity, not a gotcha or a quiz"
+  ],
+  "outputContract": {
+    "format": "text"
+  },
+  "examples": [
+    "In Ostrom's 'Governing the Commons', what part does monitoring play in whether trust holds up, and where would that show up in what we're describing?",
+    "How does Gillespie's reading treat the idea that moderation can be neutral, and does that match how we're using the word?",
+    "When you say 'legitimacy', is that closer to how the procedural fairness reading defines it, or to something else?"
+  ]
+}

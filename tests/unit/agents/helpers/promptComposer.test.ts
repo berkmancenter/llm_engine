@@ -782,6 +782,12 @@ describe('composeSystemPrompt', () => {
     expect(result).toContain('RUTHLESS BREVITY')
   })
 
+  test('appends the socratic personality section when requested', () => {
+    const result = composeSystemPrompt('Base.', { personalityName: 'socratic' })
+    expect(result).toContain('Socratic discussion partner')
+    expect(result).not.toContain('RUTHLESS BREVITY')
+  })
+
   test('unknown personalityName does not append a personality section', () => {
     const result = composeSystemPrompt('Base.', { personalityName: 'nonexistent-personality' })
     expect(result).toContain('Base.')

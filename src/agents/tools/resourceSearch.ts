@@ -7,6 +7,9 @@ import logger from '../../config/logger.js'
 
 export interface ResourceSearchToolOptions {
   conversationId: string
+  /** Optional instruction appended after any retrieved passages (not after the "no match" text),
+      so it sits right before the model writes its post-search reply. Empty/absent = no note. */
+  resultNote?: string
 }
 
 function formatResourceChunk(doc: { metadata: { citation?: string }; pageContent: string }, idx: number): string {
@@ -28,7 +31,7 @@ function formatResourceChunk(doc: { metadata: { citation?: string }; pageContent
  * worth digging into.
  */
 export default function createResourceSearchTools(options: ResourceSearchToolOptions) {
-  const { conversationId } = options
+  const { conversationId, resultNote } = options
 
   const searchResourcesTool = tool(
     async ({ query }) => {
@@ -38,7 +41,8 @@ export default function createResourceSearchTools(options: ResourceSearchToolOpt
           query,
           formatResourceChunk
         )
-        return chunks || 'No matching background material found.'
+        if (!chunks) return 'No matching background material found.'
+        return resultNote ? `${chunks}\n\n${resultNote}` : chunks
       } catch (err) {
         // The collection may not exist yet for a conversation with no resources uploaded —
         // degrade gracefully rather than failing the whole agent turn over it.

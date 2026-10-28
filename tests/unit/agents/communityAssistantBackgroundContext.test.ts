@@ -10,6 +10,8 @@ import { jest } from '@jest/globals'
 const mockGetAgentStructuredResponse = jest.fn<(...args: any[]) => Promise<any>>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockGetBackgroundContextForQuestion = jest.fn<(...args: any[]) => Promise<string>>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockCreateResourceSearchTools = jest.fn<(...args: any[]) => any[]>(() => [])
 
 jest.unstable_mockModule('../src/agents/helpers/llmChain.js', () => ({
   getAgentStructuredResponse: mockGetAgentStructuredResponse,
@@ -17,19 +19,24 @@ jest.unstable_mockModule('../src/agents/helpers/llmChain.js', () => ({
 }))
 
 jest.unstable_mockModule('../src/agents/tools/resourceSearch.js', () => ({
-  default: () => [],
+  default: mockCreateResourceSearchTools,
   buildResourceSearchToolsPrompt: async () => null,
   getBackgroundContextForQuestion: mockGetBackgroundContextForQuestion
 }))
 
 const { default: communityAssistant } = await import('../../../src/agents/communityAssistant/communityAssistant.js')
+const { getPersonalityByName } = await import('../../../src/agents/helpers/agentPersonality.js')
 
 const BOT_NAME = 'Berkie'
 
-function buildContext(tools: string[], resources: unknown[] = [{ fileName: 'reading.pdf' }]) {
+function buildContext(
+  tools: string[],
+  resources: unknown[] = [{ fileName: 'reading.pdf' }],
+  personality: string | null = null
+) {
   return {
     _id: 'agent-1',
-    agentConfig: { botName: BOT_NAME, tools, topicIds: [] as string[] },
+    agentConfig: { botName: BOT_NAME, tools, topicIds: [] as string[], personality },
     conversation: { _id: 'conv-1', channels: [{ name: 'chat' }], messages: [], behaviorPolicy: undefined, resources },
     getLLM: async () => ({ fakeLlm: true })
   }
@@ -40,6 +47,7 @@ describe('communityAssistant background-reading hybrid (up-front RAG gate)', () 
     mockGetAgentStructuredResponse.mockReset()
     mockGetAgentStructuredResponse.mockResolvedValue('a reply')
     mockGetBackgroundContextForQuestion.mockReset()
+    mockCreateResourceSearchTools.mockClear()
   })
 
   test('injects a Background Reading section when resource_search is enabled and content clears the bar', async () => {
@@ -89,5 +97,35 @@ describe('communityAssistant background-reading hybrid (up-front RAG gate)', () 
     expect(mockGetBackgroundContextForQuestion).not.toHaveBeenCalled()
     const [, , , userPrompt] = mockGetAgentStructuredResponse.mock.calls[0]
     expect(userPrompt).not.toContain('## Background Reading:')
+  })
+
+  describe('personality retrieval note', () => {
+    const socraticNote = getPersonalityByName('socratic')?.retrievalNote as string
+
+    test('socratic places its retrieval note right after the Background Reading and on search results', async () => {
+      expect(socraticNote).toBeTruthy()
+      mockGetBackgroundContextForQuestion.mockResolvedValue('Source ID: 0\nTitle: Fake Paper\nSnippet: fabricated content')
+      const context = buildContext(['resource_search'], [{ fileName: 'reading.pdf' }], 'socratic')
+      const userMessage = { _id: 'm5', body: `${BOT_NAME}, what does the reading say?`, channels: ['chat'] }
+
+      await communityAssistant.respond.call(context, { messages: [] }, userMessage)
+
+      const [, , , userPrompt] = mockGetAgentStructuredResponse.mock.calls[0]
+      expect(userPrompt).toContain(`fabricated content\n\n${socraticNote}\n\n## Question:`)
+      expect(mockCreateResourceSearchTools).toHaveBeenCalledWith({ conversationId: 'conv-1', resultNote: socraticNote })
+    })
+
+    test('without a personality note, the Background Reading and search results are left untouched', async () => {
+      mockGetBackgroundContextForQuestion.mockResolvedValue('Source ID: 0\nTitle: Fake Paper\nSnippet: fabricated content')
+      const context = buildContext(['resource_search'], [{ fileName: 'reading.pdf' }], 'sarcastic-expert')
+      const userMessage = { _id: 'm6', body: `${BOT_NAME}, what does the reading say?`, channels: ['chat'] }
+
+      await communityAssistant.respond.call(context, { messages: [] }, userMessage)
+
+      const [, , , userPrompt] = mockGetAgentStructuredResponse.mock.calls[0]
+      expect(userPrompt).toContain('fabricated content\n\n## Question:')
+      expect(userPrompt).not.toContain('Reply reminder')
+      expect(mockCreateResourceSearchTools).toHaveBeenCalledWith({ conversationId: 'conv-1', resultNote: undefined })
+    })
   })
 })

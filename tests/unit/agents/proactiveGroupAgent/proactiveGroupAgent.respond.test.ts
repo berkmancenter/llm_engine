@@ -268,7 +268,7 @@ describe('proactiveGroupAgent respond', () => {
         expect.any(Date)
       )
       const callArgs = mockRunInterventionAnalysis.mock.calls[0]
-      const recentTranscript = callArgs[callArgs.length - 2] as string
+      const recentTranscript = callArgs[9] as string
       expect(recentTranscript).toBe('Part-time work is the future.')
     })
 
@@ -295,7 +295,7 @@ describe('proactiveGroupAgent respond', () => {
       await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
 
       const callArgs = mockRunInterventionAnalysis.mock.calls[0]
-      const goalPriorities = callArgs[callArgs.length - 1]
+      const goalPriorities = callArgs[10]
       expect(goalPriorities).toEqual({ synthesize_discussion: 80 })
 
       // composeSystemPrompt is not mocked in this file — assert the real prompt it built
@@ -313,7 +313,7 @@ describe('proactiveGroupAgent respond', () => {
       await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
 
       const callArgs = mockRunInterventionAnalysis.mock.calls[0]
-      expect(callArgs[callArgs.length - 1]).toBeUndefined()
+      expect(callArgs[10]).toBeUndefined()
 
       const systemPrompt = callArgs[1] as string
       expect(systemPrompt).not.toContain('Preferred pattern')
