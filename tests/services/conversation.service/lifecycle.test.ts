@@ -178,4 +178,45 @@ describe('isConversationDraft', () => {
     }
     expect(isConversationDraft(conversation)).toBe(false)
   })
+
+  /* A Zoom-relayed invite's organizer is resolved from Reply-To, which Zoom never verifies (see
+     emailSetup.service.ts's resolveOrganizer), so source.pendingOrganizerConfirmation holds the
+     conversation Draft independent of every other check — otherwise an attacker who happens to
+     guess a real Topic prefix could skip confirmation entirely despite every other field already
+     looking complete. Cleared only by organizerConfirmation.service.ts's confirmOrganizer. */
+  describe('source.pendingOrganizerConfirmation', () => {
+    test('holds an otherwise-complete conversation Draft', () => {
+      const conversation = completeConversation() as ReturnType<typeof completeConversation> & {
+        source?: Record<string, unknown>
+      }
+      conversation.source = { pendingOrganizerConfirmation: true }
+      expect(isConversationDraft(conversation)).toBe(true)
+    })
+
+    test('holds an instant-start conversation Draft too, despite having no scheduledTime at all', () => {
+      const conversation = completeConversation() as ReturnType<typeof completeConversation> & {
+        source?: Record<string, unknown>
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(conversation as any).scheduledTime = undefined
+      conversation.source = { pendingOrganizerConfirmation: true }
+      expect(isConversationDraft(conversation)).toBe(true)
+    })
+
+    test('does not hold a conversation Draft once cleared (false), only while true', () => {
+      const conversation = completeConversation() as ReturnType<typeof completeConversation> & {
+        source?: Record<string, unknown>
+      }
+      conversation.source = { pendingOrganizerConfirmation: false }
+      expect(isConversationDraft(conversation)).toBe(false)
+    })
+
+    test('is a no-op when absent, so every unrelated conversation is unaffected', () => {
+      const conversation = completeConversation() as ReturnType<typeof completeConversation> & {
+        source?: Record<string, unknown>
+      }
+      conversation.source = { inviteUid: 'UID-1' }
+      expect(isConversationDraft(conversation)).toBe(false)
+    })
+  })
 })

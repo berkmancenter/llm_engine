@@ -46,6 +46,17 @@ export interface InboundInvite {
   fromAddress: string
   invite: ParsedInvite
   body?: string
+  /* The Reply-To header off the webhook payload, a header value and not body text, so it
+     carries the same trust level as fromAddress. Used instead of fromAddress to resolve the
+     organizer when fromAddress's domain is a configured relay (e.g. zoom.us) rather than the
+     real sender — see resolveOrganizer in emailSetup.service.ts. */
+  replyToAddress?: string
+  /* True when Postmark's spam scan found DKIM_VALID_AU in X-Spam-Tests: the From domain itself
+     signed the message, so From is not a forged header. The Reply-To relay fallback in
+     resolveOrganizer only runs when this is true — fromAddress alone is trivially spoofable
+     (anyone can claim From: no-reply@zoom.us), so trusting a sender-controlled Reply-To on an
+     unverified From would let anyone impersonate any allowlisted organizer. */
+  fromDomainSigned?: boolean
 }
 
 /* A plain inbound email with no .ics attachment (see emailSetup.service.ts's
@@ -270,6 +281,23 @@ export interface IAgentIntroduction {
 // nonce are stored; the raw values exist nowhere but the email and the recipient's browser.
 export interface IMemberInvite {
   membership: mongoose.Types.ObjectId
+  tokenHash: string
+  expiresAt: Date
+  consumedAt?: Date | null
+  invalidatedAt?: Date | null
+  nonceHash?: string | null
+  nonceExpiresAt?: Date | null
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+// One row per minted organizer-confirmation link (see organizerConfirmation.service.ts), the
+// gate a relayed invite's resolved organizer must click through before the conversation can
+// ever leave draft (see isConversationDraft's pendingOrganizerConfirmation check). Same shape as
+// IMemberInvite and for the same reasons: only hashes stored, a nonce split so a mail scanner's
+// GET pre-fetch can't burn the token in place of a real click.
+export interface IOrganizerConfirmation {
+  conversation: mongoose.Types.ObjectId
   tokenHash: string
   expiresAt: Date
   consumedAt?: Date | null

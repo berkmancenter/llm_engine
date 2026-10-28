@@ -14,7 +14,9 @@ import emailService from '../email.service.js'
 import eventUrls from '../eventUrls.service.js'
 import conversationService from '../conversation.service/index.js'
 import plannerService from './planner.service.js'
+import organizerConfirmationService from './organizerConfirmation.service.js'
 import { ExtractedFields } from './eventFieldsSchema.js'
+import missingRequirements from './missingRequirements.js'
 import { getConversationType } from '../../conversations/index.js'
 import { isZoomUrl } from '../../conversations/propertyFormats.js'
 import { ConversationType, InboundInvite, InboundEmail } from '../../types/index.types.js'
@@ -59,38 +61,85 @@ const isAllowedOrganizerDomain = (address: string): boolean => {
   return domain !== null && config.allowedOrganizerEmailDomains.includes(domain)
 }
 
+/** True if the address's domain is a configured calendar relay (env var TRUSTED_CALENDAR_RELAY_DOMAINS). */
+const isTrustedRelayDomain = (address: string): boolean => {
+  const domain = emailDomain(address)
+  return domain !== null && config.trustedCalendarRelayDomains.includes(domain)
+}
+
 /**
- * Looks up the user account for an inbound email's sender, restricted to domains in
+ * True when resolveOrganizer would (or did) resolve the organizer from Reply-To rather than
+ * From — see resolveOrganizer's doc comment for the full reasoning. Exported so a caller that
+ * needs to know which path produced a resolved organizer (to gate the event behind an
+ * organizer-confirmation click, since Reply-To is never actually verified — see
+ * organizerConfirmation.service.ts) can recompute the same condition, rather than resolveOrganizer
+ * needing to change its return shape just to carry it out.
+ */
+export const isRelayFallbackResolution = (
+  fromAddress: string,
+  replyToAddress?: string,
+  fromDomainSigned?: boolean
+): boolean => isTrustedRelayDomain(fromAddress) && !!replyToAddress && !!fromDomainSigned
+
+/**
+ * Looks up the user account for an inbound email's organizer, restricted to domains in
  * config.allowedOrganizerEmailDomains. Three outcomes:
- *   - sender's domain is allowlisted and has an account -> returns that account
- *   - sender's domain is allowlisted but has no account -> sends a signup email, returns null
- *   - sender's domain is not allowlisted -> returns null, no email sent at all
+ *   - organizer's domain is allowlisted and has an account -> returns that account
+ *   - organizer's domain is allowlisted but has no account -> sends a signup email, returns null
+ *   - organizer's domain is not allowlisted -> returns null, no email sent at all
  *
  * fromAddress must be the trusted envelope From, not a value read out of the email body (which
- * anyone can fake). statedOrganizer is an optional second address the message itself claims as
- * its organizer (e.g. a calendar invite's ORGANIZER field); it's never used for the lookup, only
- * compared against fromAddress to log a warning if the two disagree.
+ * anyone can fake). replyToAddress is the trusted Reply-To header: when fromAddress's domain is a
+ * configured relay (e.g. zoom.us sending a Zoom-generated invite on a host's behalf), fromAddress
+ * is the relay itself rather than the real organizer, so replyToAddress is used instead wherever
+ * fromAddress otherwise would be. Every other sender resolves by fromAddress exactly as before.
+ *
+ * The relay fallback only runs when fromDomainSigned is true (DKIM_VALID_AU on the inbound scan —
+ * see isFromDomainSigned in handlers/email.ts). fromAddress alone is trivially spoofable: with no
+ * signature check, anyone could claim From: no-reply@zoom.us and put any allowlisted organizer's
+ * address in Reply-To, which they fully control, to create an event — and send the bot into their
+ * own meeting — attributed to someone else's account. Without a signed From, a relay-domain sender
+ * is checked against the allowlist directly instead, which rejects it (no account there is
+ * actually @zoom.us).
+ *
+ * statedOrganizer is an optional second address the message itself claims as its organizer (e.g.
+ * a calendar invite's ORGANIZER field); it's never used for the lookup, only compared against the
+ * resolved address to log a warning if the two disagree.
  */
-export const resolveOrganizer = async (fromAddress: string, statedOrganizer?: string) => {
-  if (!isAllowedOrganizerDomain(fromAddress)) {
-    logger.warn(`Email webhook: sender ${fromAddress} is outside the allowlisted domains; rejecting, no event created`)
+export const resolveOrganizer = async (
+  fromAddress: string,
+  statedOrganizer?: string,
+  replyToAddress?: string,
+  fromDomainSigned?: boolean
+) => {
+  const isRelayFallback = isRelayFallbackResolution(fromAddress, replyToAddress, fromDomainSigned)
+  const organizerAddress = isRelayFallback ? replyToAddress! : fromAddress
+
+  if (!isAllowedOrganizerDomain(organizerAddress)) {
+    logger.warn(`Email webhook: sender ${organizerAddress} is outside the allowlisted domains; rejecting, no event created`)
     return null
   }
 
-  // Case-insensitive: a mixed-case From would otherwise miss a lowercase-stored account.
-  const organizer = await userService.getUserByEmail(fromAddress.toLowerCase())
+  if (isRelayFallback) {
+    logger.info(
+      `Email webhook: From ${fromAddress} is a trusted relay; resolving organizer from Reply-To ${organizerAddress}`
+    )
+  }
+
+  // Case-insensitive: a mixed-case address would otherwise miss a lowercase-stored account.
+  const organizer = await userService.getUserByEmail(organizerAddress.toLowerCase())
   if (organizer) {
     // Might be a spoofed ORGANIZER or a relay rewriting headers. Worth logging, not worth blocking a real event over.
-    if (statedOrganizer && statedOrganizer.toLowerCase() !== fromAddress.toLowerCase()) {
+    if (statedOrganizer && statedOrganizer.toLowerCase() !== organizerAddress.toLowerCase()) {
       logger.warn(
-        `Email webhook: .ics ORGANIZER ${statedOrganizer} differs from envelope From ${fromAddress}; trusting From`
+        `Email webhook: .ics ORGANIZER ${statedOrganizer} differs from resolved organizer address ${organizerAddress}; trusting the latter`
       )
     }
     return organizer
   }
 
-  await emailService.sendSignupInviteEmail(fromAddress)
-  logger.info(`Email webhook: no account for ${fromAddress} (allowlisted domain); sent signup invite`)
+  await emailService.sendSignupInviteEmail(organizerAddress)
+  logger.info(`Email webhook: no account for ${organizerAddress} (allowlisted domain); sent signup invite`)
   return null
 }
 
@@ -120,28 +169,24 @@ const PLACEHOLDER_CONVERSATION_NAME = 'Untitled event'
 const defaultFeatures = (conversationType: ConversationType) =>
   (conversationType.features ?? []).map((feature) => ({ name: feature.name, enabled: feature.default }))
 
-/**
- * Lists what's still missing before this conversation can run (e.g. a Zoom link, a Topic). Same
- * rules as lifecycle.ts's isConversationDraft check, just broken out by name instead of one
- * true/false, so the email can say exactly what's missing.
- */
-const missingRequirements = (
-  conversation: { topic?: unknown; properties?: Record<string, unknown> },
-  conversationType?: ConversationType
-): string[] => {
-  const missing: string[] = []
-  if (!conversation.topic) missing.push('a series')
-  ;(conversationType?.properties ?? []).forEach((property) => {
-    if (!property.required) return
-    const value = conversation.properties?.[property.name] ?? property.default
-    if (value === undefined || value === null || value === '') missing.push(property.label ?? property.name)
-  })
-  return missing
-}
-
 export const findConversationBySource = async (sourceKey: string, sourceValue?: string) => {
   if (!sourceValue) return null
   return Conversation.findOne({ [`source.${sourceKey}`]: sourceValue })
+}
+
+const CONFIRM_ORGANIZER_PATH = '/confirm-organizer'
+
+/**
+ * The reply for a conversation created via the relay fallback: Reply-To was never actually
+ * verified to belong to the resolved organizer (see resolveOrganizer and
+ * organizerConfirmation.service.ts's module comment), so the normal "your event is ready"
+ * messaging would be premature. Mints a confirmation link and sends that instead; the normal
+ * sendEventCreatedEmail only goes out once organizerConfirmationService.confirmOrganizer runs.
+ */
+const sendOrganizerConfirmationReply = async (to: string | undefined, conversation) => {
+  const { token, expiresAt } = await organizerConfirmationService.mintConfirmation(conversation)
+  const confirmUrl = `${config.appHost}${CONFIRM_ORGANIZER_PATH}?token=${token}`
+  await emailService.sendOrganizerConfirmationEmail(to, conversation, confirmUrl, expiresAt)
 }
 
 // Shared by every inbound-email flow (just the invite flow so far). Never throws: it emails the
@@ -216,7 +261,7 @@ export const createEventForOrganizer = async ({
  * Returns null when resolveOrganizer rejects the sender.
  */
 export const createConversationFromInvite = async (inboundInvite: InboundInvite) => {
-  const { invite, fromAddress, body } = inboundInvite
+  const { invite, fromAddress, body, replyToAddress, fromDomainSigned } = inboundInvite
 
   if (invite.uid) {
     const existing = await findConversationBySource('inviteUid', invite.uid)
@@ -228,8 +273,10 @@ export const createConversationFromInvite = async (inboundInvite: InboundInvite)
     logger.warn('Email webhook: invite has no UID; cannot dedup a webhook retry for this message')
   }
 
-  const organizer = await resolveOrganizer(fromAddress, invite.organizer)
+  const organizer = await resolveOrganizer(fromAddress, invite.organizer, replyToAddress, fromDomainSigned)
   if (!organizer) return null
+
+  const pendingOrganizerConfirmation = isRelayFallbackResolution(fromAddress, replyToAddress, fromDomainSigned)
 
   try {
     const topic = await resolveTopic(inboundInvite, organizer)
@@ -241,9 +288,11 @@ export const createConversationFromInvite = async (inboundInvite: InboundInvite)
       extracted,
       name: invite.summary ?? PLACEHOLDER_CONVERSATION_NAME,
       timing: { scheduledTime: invite.startDate, scheduledEndTime: invite.endDate },
-      source: { inviteUid: invite.uid },
+      source: { inviteUid: invite.uid, ...(pendingOrganizerConfirmation && { pendingOrganizerConfirmation: true }) },
       referenceId: invite.uid,
-      sendReply: (conversation, missing) => emailService.sendEventCreatedEmail(organizer.email, conversation, missing)
+      sendReply: pendingOrganizerConfirmation
+        ? (conversation) => sendOrganizerConfirmationReply(organizer.email, conversation)
+        : (conversation, missing) => emailService.sendEventCreatedEmail(organizer.email, conversation, missing)
     })
   } catch (err) {
     // Only covers resolveTopic/planConversationFromInvite above. A createConversationFromType

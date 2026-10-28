@@ -12,7 +12,7 @@ import websocketGateway from '../../src/websockets/websocketGateway.js'
 import transcript from '../../src/agents/helpers/transcript.js'
 import plannerService from '../../src/services/eventSetup/planner.service.js'
 import emailService from '../../src/services/email.service.js'
-import { parseInviteFromPayload } from '../../src/handlers/email.js'
+import { parseInviteFromPayload, bareEmailAddress } from '../../src/handlers/email.js'
 import { AgentMessageActions } from '../../src/types/index.types.js'
 import { setAgentTypes } from '../../src/models/user.model/agent.model/index.js'
 import defaultAgentTypes from '../../src/agents/index.js'
@@ -243,9 +243,15 @@ const buildIcs = (
 const buildInboundEmailPayload = (icsBody: string, attachmentOverrides = {}) => ({
   FromName: 'Jane Organizer',
   From: 'jane@example.com',
+  // Undefined by default, mutable for tests exercising the Reply-To relay fallback (e.g. a
+  // Zoom-generated invite whose From is Zoom's own address, not the real organizer's).
+  ReplyTo: undefined as string | undefined,
   Subject: 'Quarterly Strategy Roundtable',
   MessageID: '73e6d360-66eb-11e1-8e72-a8206ea7d3ea',
   TextBody: 'You are invited.',
+  // Empty by default (no DKIM_VALID_AU), mutable for tests exercising the relay fallback, which
+  // requires it. A real sender's From is never trusted for that fallback without this.
+  Headers: [] as { Name: string; Value: string }[],
   Attachments: [
     {
       Name: 'invite.ics',
@@ -417,6 +423,37 @@ describe('POST /v1/webhooks/email', () => {
       expect(invite?.summary).toBe('Quarterly Strategy Roundtable')
     })
 
+    test('picks the first calendar attachment when more than one is present', () => {
+      // A real Zoom webinar invite arrives with two calendar-shaped attachments
+      // (observed: "Invitation.ics" with no name= param, and a second "invite.ics"); this locks
+      // in that parseInviteFromPayload doesn't choke on that and deterministically picks the
+      // first match rather than erroring or silently picking an arbitrary one.
+      const firstIcs = buildIcs({ summary: 'First Invite', uid: 'uid-first' })
+      const secondIcs = buildIcs({ summary: 'Second Invite', uid: 'uid-second' })
+      const payload = buildInboundEmailPayload(firstIcs)
+      payload.Attachments = [
+        {
+          Name: 'Invitation.ics',
+          Content: Buffer.from(firstIcs, 'utf8').toString('base64'),
+          ContentType: 'text/calendar; method=REQUEST',
+          ContentLength: firstIcs.length,
+          ContentID: ''
+        },
+        {
+          Name: 'invite.ics',
+          Content: Buffer.from(secondIcs, 'utf8').toString('base64'),
+          ContentType: 'text/calendar; name="invite.ics"',
+          ContentLength: secondIcs.length,
+          ContentID: ''
+        }
+      ]
+
+      const invite = parseInviteFromPayload(payload)
+
+      expect(invite?.summary).toBe('First Invite')
+      expect(invite?.uid).toBe('uid-first')
+    })
+
     test('returns null when there is no calendar attachment', () => {
       const payload = buildInboundEmailPayload(buildIcs())
       payload.Attachments = [
@@ -437,19 +474,53 @@ describe('POST /v1/webhooks/email', () => {
     })
   })
 
+  describe('bareEmailAddress', () => {
+    it('returns a bare address unchanged', () => {
+      expect(bareEmailAddress('jane@example.com')).toBe('jane@example.com')
+    })
+
+    it('strips a display name and angle brackets', () => {
+      expect(bareEmailAddress('"Jane Organizer" <jane@example.com>')).toBe('jane@example.com')
+    })
+
+    // Observed real behavior: the app's global xss-clean middleware escapes '<' to '&lt;' but
+    // leaves a bare '>' alone (see src/app.ts). This is the shape that actually reaches the
+    // handler for a real inbound ReplyTo header.
+    it('decodes a partially-escaped value (opening bracket entity-encoded, closing bracket literal)', () => {
+      expect(bareEmailAddress('"BKC Events" &lt;bkc-events@law.harvard.edu>')).toBe('bkc-events@law.harvard.edu')
+    })
+
+    // Defensive: not observed from xss-clean specifically, but a different/future sanitizer could
+    // escape both brackets, and the decode shouldn't depend on which one it was.
+    it('decodes a fully-escaped value (both brackets entity-encoded)', () => {
+      expect(bareEmailAddress('&quot;BKC Events&quot; &lt;bkc-events@law.harvard.edu&gt;')).toBe(
+        'bkc-events@law.harvard.edu'
+      )
+    })
+
+    it('does not mangle a literal ampersand in an address', () => {
+      expect(bareEmailAddress('jane+test&co@example.com')).toBe('jane+test&co@example.com')
+    })
+  })
+
   describe('createConversationFromInvite wiring', () => {
     let originalDomains
+    let originalRelayDomains
 
     beforeAll(() => {
       originalDomains = config.allowedOrganizerEmailDomains
       config.allowedOrganizerEmailDomains = ['example.com']
+      originalRelayDomains = config.trustedCalendarRelayDomains
+      config.trustedCalendarRelayDomains = ['zoom.us']
     })
 
     afterAll(() => {
       config.allowedOrganizerEmailDomains = originalDomains
+      config.trustedCalendarRelayDomains = originalRelayDomains
     })
 
     let sendEventCreatedSpy
+    let sendOrganizerConfirmationSpy
     let planConversationFromInviteSpy
 
     beforeEach(() => {
@@ -462,6 +533,9 @@ describe('POST /v1/webhooks/email', () => {
       // this plumbing test isn't also exercising (or paying for) a real LLM call.
       planConversationFromInviteSpy = jest.spyOn(plannerService, 'planConversationFromInvite').mockResolvedValue({})
       sendEventCreatedSpy = jest.spyOn(emailService, 'sendEventCreatedEmail').mockResolvedValue(undefined as never)
+      sendOrganizerConfirmationSpy = jest
+        .spyOn(emailService, 'sendOrganizerConfirmationEmail')
+        .mockResolvedValue(undefined as never)
     })
 
     afterEach(() => {
@@ -540,6 +614,121 @@ describe('POST /v1/webhooks/email', () => {
       })
 
       expect(planConversationFromInviteSpy).toHaveBeenCalledWith(expect.objectContaining({ body: 'You are invited.' }))
+    }, 10000)
+
+    test('resolves the organizer from Reply-To for a Zoom-generated webinar invite', async () => {
+      await insertUsers([
+        {
+          username: 'jane',
+          email: 'jane@example.com',
+          password: 'password1',
+          role: 'participant',
+          isEmailVerified: false
+        }
+      ])
+
+      // Shaped like a real Zoom webinar panelist invite: a VTIMEZONE block, a noisy multi-URL
+      // DESCRIPTION (join link plus an "international numbers" link), and ORGANIZER set to Zoom's
+      // own relay address with the real host's name only in CN.
+      const webinarIcs = [
+        'BEGIN:VCALENDAR',
+        'PRODID:-//zoom.us//iCalendar Event//EN',
+        'VERSION:2.0',
+        'CALSCALE:GREGORIAN',
+        'METHOD:REQUEST',
+        'BEGIN:VEVENT',
+        'DTSTAMP:20251110T160849Z',
+        'DTSTART:20270601T170000Z',
+        'DTEND:20270601T180000Z',
+        'SUMMARY:My Webinar',
+        'UID:webinar-uid-1',
+        'DESCRIPTION:Topic: My Webinar\\n\\nJoin from PC\\, Mac\\, iPad\\, or Android:\\nhttps://huitstage.zoom.us/w/93875854509?tk=abc&pwd=def\\nPasscode:175391\\n\\nWebinar ID: 938 7585 4509\\nInternational numbers available: https://huitstage.zoom.us/u/aZNtMVq0h\\n',
+        'LOCATION:https://huitstage.zoom.us/w/93875854509?tk=abc&pwd=def',
+        'ORGANIZER;ROLE=REQ-PARTICIPANT;CN=Jen Hickey:no-reply@zoom.us',
+        'ATTENDEE;ROLE=REQ-PARTICIPANT;CN=Event Assistant:mailto:assistant@example.invalid',
+        'END:VEVENT',
+        'END:VCALENDAR'
+      ].join('\r\n')
+
+      const payload = buildInboundEmailPayload(webinarIcs)
+      payload.From = 'no-reply@zoom.us'
+      // Realistic shape: unlike From, Postmark does not normalize ReplyTo to a bare address, so a
+      // real Zoom-relayed invite's ReplyTo carries a display name and angle brackets.
+      payload.ReplyTo = '"Jane Organizer" <jane@example.com>'
+      // Matches the real captured sample's X-Spam-Tests value (abbreviated): proves the From
+      // domain itself signed the message, which is required before Reply-To is trusted.
+      payload.Headers = [{ Name: 'X-Spam-Tests', Value: 'DKIM_SIGNED,DKIM_VALID,DKIM_VALID_AU,SPF_PASS' }]
+
+      await request(app).post('/v1/webhooks/email').auth(webhookUser, webhookSecret).send(payload).expect(httpStatus.OK)
+
+      await waitFor(() => {
+        if (sendOrganizerConfirmationSpy.mock.calls.length === 0) throw new Error('not finished yet')
+      })
+
+      // Reply-To is never actually verified to belong to the resolved organizer (Zoom's webinar
+      // Email Contact setting is unverified), so this must ask for confirmation rather than
+      // immediately treating the event as ready — see organizerConfirmation.service.ts.
+      expect(sendOrganizerConfirmationSpy).toHaveBeenCalledWith(
+        'jane@example.com',
+        expect.anything(),
+        expect.anything(),
+        expect.anything()
+      )
+      expect(sendEventCreatedSpy).not.toHaveBeenCalled()
+      const conversation = await Conversation.findOne({ 'source.inviteUid': 'webinar-uid-1' })
+      expect(conversation).not.toBeNull()
+      expect(conversation!.name).toBe('My Webinar')
+      expect(conversation!.source?.pendingOrganizerConfirmation).toBe(true)
+      expect(conversation!.draft).toBe(true)
+    }, 10000)
+
+    test('rejects a Zoom-relayed webinar invite when the From domain is not DKIM-verified (possible spoof)', async () => {
+      await insertUsers([
+        {
+          username: 'jane',
+          email: 'jane@example.com',
+          password: 'password1',
+          role: 'participant',
+          isEmailVerified: false
+        }
+      ])
+
+      const webinarIcs = [
+        'BEGIN:VCALENDAR',
+        'PRODID:-//zoom.us//iCalendar Event//EN',
+        'VERSION:2.0',
+        'METHOD:REQUEST',
+        'BEGIN:VEVENT',
+        'DTSTAMP:20251110T160849Z',
+        'DTSTART:20270601T170000Z',
+        'DTEND:20270601T180000Z',
+        'SUMMARY:My Webinar',
+        'UID:webinar-uid-spoofed',
+        'ORGANIZER;ROLE=REQ-PARTICIPANT;CN=Jen Hickey:no-reply@zoom.us',
+        'END:VEVENT',
+        'END:VCALENDAR'
+      ].join('\r\n')
+
+      const payload = buildInboundEmailPayload(webinarIcs)
+      // Anyone can set these two headers on a message they send themselves — without the DKIM
+      // check, this would otherwise create an event attributed to jane@example.com and send the
+      // bot into the sender's own meeting.
+      payload.From = 'no-reply@zoom.us'
+      payload.ReplyTo = '"Jane Organizer" <jane@example.com>'
+      // No X-Spam-Tests header at all: Postmark omits it when the scan didn't run, which must be
+      // treated the same as "not signed", not as "trust it anyway".
+      payload.Headers = []
+
+      const warnSpy = jest.spyOn(logger, 'warn').mockReturnValue(logger)
+      await request(app).post('/v1/webhooks/email').auth(webhookUser, webhookSecret).send(payload).expect(httpStatus.OK)
+
+      await waitFor(() => {
+        const rejected = warnSpy.mock.calls.some(([msg]) => String(msg).includes('no-reply@zoom.us'))
+        if (!rejected) throw new Error('rejection warning not logged yet')
+      })
+
+      expect(sendEventCreatedSpy).not.toHaveBeenCalled()
+      expect(await Conversation.findOne({ 'source.inviteUid': 'webinar-uid-spoofed' })).toBeNull()
     }, 10000)
   })
 

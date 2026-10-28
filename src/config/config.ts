@@ -117,6 +117,11 @@ const envVarsSchema = Joi.object()
       .description(
         'days after which a member invite link expires; generous because it is first contact to a cold mailbox, with admin resend as the safety net'
       ),
+    ORGANIZER_CONFIRMATION_EXPIRATION_HOURS: Joi.number()
+      .default(48)
+      .description(
+        "hours after which an unconfirmed Zoom-relayed invite's organizer-confirmation link expires; the conversation it created stays a draft (never auto-starts) until confirmed, and is deleted once this passes with no click"
+      ),
     AUTH_TOKEN_SECRET: Joi.string().description('secret used to encrypt generated passwords'),
     ANALYTICS_ID_SECRET: Joi.string().description(
       'HMAC key for the opaque analyticsId on concept graph nodes; when unset, analyticsId is omitted from API responses'
@@ -252,6 +257,9 @@ const envVarsSchema = Joi.object()
     ALLOWED_ORGANIZER_EMAIL_DOMAINS: Joi.string().description(
       'Comma-separated email domains whose senders, if they have no account yet, get a "please sign up" reply to an inbound email, calendar invite or plain on-demand email alike. A message from any other domain is rejected: no event, no reply. Unset means none, so every inbound email is silently dropped on both paths.'
     ),
+    TRUSTED_CALENDAR_RELAY_DOMAINS: Joi.string().description(
+      "Comma-separated email domains (e.g. zoom.us) whose inbound messages are sent by a relay, not the real organizer: the envelope From and the .ics ORGANIZER field are both the relay's own address. For a message from one of these domains, organizer resolution trusts the Reply-To header instead of From. Unset means none, so every sender is resolved by From as before."
+    ),
     ON_DEMAND_EVENT_DURATION_MINUTES: Joi.number()
       .default(120)
       .description('Default length of an event created from a plain emailed Zoom link, when the email states no duration'),
@@ -298,7 +306,8 @@ const config = {
     resetPasswordExpirationMinutes: envVars.JWT_RESET_PASSWORD_EXPIRATION_MINUTES,
     verifyEmailExpirationMinutes: undefined,
     handoffExpirationMinutes: envVars.HANDOFF_TOKEN_EXPIRATION_MINUTES,
-    inviteExpirationDays: envVars.INVITE_TOKEN_EXPIRATION_DAYS
+    inviteExpirationDays: envVars.INVITE_TOKEN_EXPIRATION_DAYS,
+    organizerConfirmationExpirationHours: envVars.ORGANIZER_CONFIRMATION_EXPIRATION_HOURS
   },
   email: {
     postmarkServerToken: envVars.POSTMARK_SERVER_TOKEN,
@@ -425,6 +434,10 @@ const config = {
   },
   systemUsers: parseSystemUsersEnv(envVars.SYSTEM_USERS),
   allowedOrganizerEmailDomains: (envVars.ALLOWED_ORGANIZER_EMAIL_DOMAINS ?? '')
+    .split(',')
+    .map((domain: string) => domain.trim().toLowerCase())
+    .filter((domain: string) => domain.length > 0),
+  trustedCalendarRelayDomains: (envVars.TRUSTED_CALENDAR_RELAY_DOMAINS ?? '')
     .split(',')
     .map((domain: string) => domain.trim().toLowerCase())
     .filter((domain: string) => domain.length > 0),

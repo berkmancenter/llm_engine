@@ -16,6 +16,7 @@ import healthRoute from './health.route.js'
 import openApiRoute from './openapi.route.js'
 import eventSetupRoute from './eventSetup.route.js'
 import artifactsRoute from './artifacts.route.js'
+import organizerConfirmationRoute from './organizerConfirmation.route.js'
 // import exportRoute from './export.route.js'
 
 const router = express.Router()
@@ -83,6 +84,10 @@ const defaultRoutes = [
   {
     path: '/event-setup',
     route: eventSetupRoute
+  },
+  {
+    path: '/organizer-confirmation',
+    route: organizerConfirmationRoute
   },
   {
     path: '/docs',

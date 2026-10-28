@@ -32,6 +32,60 @@ const organizerEmail = (organizer: string | null): string | undefined =>
   organizer ? organizer.replace(/^mailto:/i, '') : undefined
 
 /**
+ * The app's global xss-clean middleware (see app.ts) runs on every request body before this
+ * handler sees it, and HTML-entity-escapes '<' (to '&lt;') in every string field, ReplyTo
+ * included. Reverse that first so the bracket match below sees the real character. Decode &amp;
+ * last, the standard order for undoing a conformant escaper, so a literal '&lt;' typed into some
+ * other field isn't double-unescaped into '<'.
+ */
+const decodeHtmlEntities = (value: string): string =>
+  value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+
+/**
+ * Postmark normalizes From to a bare address (the display name travels separately in
+ * FromName/FromFull.Name), but does the same for neither ReplyTo nor provide a ReplyToFull
+ * alongside it: ReplyTo can arrive as a raw RFC 5322 mailbox string, e.g. `"Joe Smith"
+ * <joe@fake.com>`. Strip the display name and angle brackets so downstream domain
+ * matching (resolveOrganizer) sees a clean address instead of one with a trailing '>'.
+ */
+export const bareEmailAddress = (raw: string): string => {
+  const decoded = decodeHtmlEntities(raw)
+  const match = decoded.match(/<([^<>]+)>/)
+  return (match ? match[1] : decoded).trim()
+}
+
+/** One entry from Postmark's parsed `Headers` array: the original message's raw headers. */
+interface InboundEmailHeader {
+  Name?: string
+  Value?: string
+}
+
+/**
+ * From alone is trivially spoofable — any sender can claim From: no-reply@zoom.us with no proof
+ * it actually came from Zoom's mail servers. Postmark's spam scan already checks this: its
+ * X-Spam-Tests header includes DKIM_VALID_AU when the visible From domain is the one that
+ * actually signed the message (DKIM "Author" alignment), which a spoofed From cannot produce.
+ * resolveOrganizer only trusts the Reply-To relay fallback (see
+ * emailSetup.service.ts) when this is true, so a forged From falls back to being checked against
+ * the allowlist directly, which rejects it. When the scan didn't run, Postmark omits the header
+ * entirely, so this treats the message as unsigned (fail closed) rather than trusting it.
+ */
+const isFromDomainSigned = (headers: unknown): boolean => {
+  if (!Array.isArray(headers)) return false
+  const spamTests = (headers as InboundEmailHeader[]).find((header) => header?.Name === 'X-Spam-Tests')?.Value
+  if (typeof spamTests !== 'string') return false
+  return spamTests
+    .split(',')
+    .map((test) => test.trim())
+    .includes('DKIM_VALID_AU')
+}
+
+/**
  * Pull the calendar fields out of an inbound email webhook payload's base64 `.ics` attachment.
  * Returns null when the message has no calendar attachment or no event component. Reads only
  * the fields the .ics states outright; nothing here interprets the free-text body.
@@ -90,6 +144,12 @@ const handleEvent = async (req, res) => {
     // the plain-email path reads it as the only source it has.
     const body = typeof req.body?.TextBody === 'string' ? req.body.TextBody : undefined
 
+    // A header, not body text, so it's safe for resolveOrganizer to trust the same way as
+    // fromAddress — see InboundInvite.replyToAddress. Unlike From, Postmark does not normalize
+    // this to a bare address, so it needs the same cleanup as the .ics ORGANIZER field.
+    const replyToAddress = typeof req.body?.ReplyTo === 'string' ? bareEmailAddress(req.body.ReplyTo) : undefined
+    const fromDomainSigned = isFromDomainSigned(req.body?.Headers)
+
     if (invite) {
       // Times log as UTC; a bad zone conversion is otherwise invisible until the event runs an hour off.
       logger.info(
@@ -97,7 +157,7 @@ const handleEvent = async (req, res) => {
           `from ${fromAddress}, organizer ${invite.organizer ?? 'none'}, ` +
           `starts ${invite.startDate?.toISOString() ?? 'unknown'}, ends ${invite.endDate?.toISOString() ?? 'unknown'}`
       )
-      await createConversationFromInvite({ fromAddress, invite, body })
+      await createConversationFromInvite({ fromAddress, invite, body, replyToAddress, fromDomainSigned })
       return
     }
 

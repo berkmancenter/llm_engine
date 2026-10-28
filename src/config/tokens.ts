@@ -5,7 +5,8 @@ const tokenTypes = {
   VERIFY_EMAIL: 'verifyEmail',
   ARCHIVE_TOPIC: 'archiveTopic',
   HANDOFF: 'handoff',
-  MEMBER_INVITE: 'memberInvite'
+  MEMBER_INVITE: 'memberInvite',
+  ORGANIZER_CONFIRMATION: 'organizerConfirmation'
 }
 
 export default tokenTypes
