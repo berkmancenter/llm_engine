@@ -500,7 +500,7 @@
 <p>Email integration requires the use of <a href="https://postmarkapp.com">Postmark</a>, a third party service that receives mail on your behalf and posts it to your server as JSON.</p>
 <h3 id="the-two-paths">The two paths</h3>
 <ul>
-<li><strong>Calendar invite.</strong> An organizer adds the event setup bot as an attendee on a meeting invite. The webhook parses the attached <code>.ics</code> file for the title, time, and location, matches the invite title against a <code>Prefix:</code> in one of the organizer's existing Topics, and creates a draft event on that schedule.</li>
+<li><strong>Calendar invite.</strong> An organizer adds the event setup bot as an attendee on a meeting invite. The webhook parses the attached <code>.ics</code> file for the title, time, and location, matches the invite title against a <code>Prefix:</code> in one of the organizer's existing Topics, and creates a draft event on that schedule. This also covers a Zoom meeting or webinar panelist invite: Zoom itself sends the <code>.ics</code>, with <code>From</code> and the <code>.ics</code> <code>ORGANIZER</code> both set to Zoom's own address rather than the real host's. See <code>TRUSTED_CALENDAR_RELAY_DOMAINS</code> below.</li>
 <li><strong>Plain email, on demand.</strong> An organizer emails the bot directly with a Zoom link and no calendar invite. An LLM call reads the email for the Zoom link, speakers, and, if stated, a start time. With no stated time, the Event Assistant joins the call right away; with a future time, the event is scheduled instead. Either way the organizer gets a reply with direct links to the event, the moderator view, the participant view, and the presentation view for a shared screen, and the bot leaves the call automatically once it ends.</li>
 </ul>
 <p>Both paths are gated by <code>ALLOWED_ORGANIZER_EMAIL_DOMAINS</code> (see below): a sender outside the allowlist gets no event and no reply of any kind, not even an error.</p>
@@ -545,6 +545,11 @@
 <td><code>ALLOWED_ORGANIZER_EMAIL_DOMAINS</code></td>
 <td>no</td>
 <td>Comma-separated domains allowed to create an event on either path. A sender outside this list gets no event and no reply, silently. <strong>Leaving this unset drops every inbound message, on both paths.</strong></td>
+</tr>
+<tr>
+<td><code>TRUSTED_CALENDAR_RELAY_DOMAINS</code></td>
+<td>no</td>
+<td>Comma-separated domains (e.g. <code>zoom.us</code>) whose <code>From</code> and <code>.ics</code> <code>ORGANIZER</code> are a relay's own address, not the real host's — organizer resolution falls back to the <code>Reply-To</code> header for these. Needed to accept a Zoom-generated meeting or webinar invite; unset means none, so such an invite resolves (and likely rejects) by <code>From</code> as before.</td>
 </tr>
 <tr>
 <td><code>ON_DEMAND_EVENT_DURATION_MINUTES</code></td>
