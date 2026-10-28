@@ -193,7 +193,12 @@ const confirmOrganizer = async (token: string, nonce: string) => {
   // field was already filled in.
   const conversationType = getConversationType('eventAssistant')
   const missing = missingRequirements(conversation, conversationType)
-  await emailService.sendEventCreatedEmail((conversation.owner as { email?: string })?.email, conversation, missing)
+  try {
+    await emailService.sendEventCreatedEmail((conversation.owner as { email?: string })?.email, conversation, missing)
+  } catch (err) {
+    // The confirm already saved, so a failed email must not turn into an error response.
+    logger.error(`Email webhook: event-created email failed after confirming ${conversation._id}: ${err.message}`)
+  }
 
   return conversation
 }
