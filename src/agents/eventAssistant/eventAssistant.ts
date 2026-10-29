@@ -168,8 +168,7 @@ export default verify({
       "Welcome! I'm {{agentConfig.botName}}, your AI event assistant. You can ask me questions in the chat with an @{{agentConfig.botName}} mention. Or send me a DM if you want to talk privately.",
     presentationChatIntroMessage:
       "Welcome! I'm {{agentConfig.botName}}, your AI event assistant. This is the event's group chat, shown here for everyone in the room. Join the event on your own device to chat with other participants and ask me questions with an @{{agentConfig.botName}} mention.",
-    // TODO: placeholder copy — revisit once pregame intro wording is decided
-    pregameChatIntroMessage: `Welcome! I'm {{agentConfig.botName}}, your AI event assistant. The event hasn't started yet, but you can chat with other early arrivals here and ask me questions with an @{{agentConfig.botName}} mention.`,
+    pregameChatIntroMessage: `Welcome! I'm {{agentConfig.botName}}, your AI event assistant. The event hasn't started yet, think of this as the lobby: a space to chat with other early arrivals before things kick off. Ask me anything about today's session with an @{{agentConfig.botName}} mention, and I'll drop a few fun facts here while we wait. Just remember that everyone can see what you ask me here. Use the private chat tab if you want to talk privately.`,
     tools: getDefaultEventAssistantToolNames(),
     seriesHistory: false, // when true, gives the assistant access to other past events in the same series
     minInterval: 10, // minimum minutes between check-ins per participant
