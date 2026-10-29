@@ -277,6 +277,45 @@ export interface IAgentIntroduction {
   updatedAt?: Date
 }
 
+// Later Unpacker modes and destinations are added to these lists, never renamed
+export const UNPACK_MODES = ['lastMinute'] as const
+export type UnpackMode = (typeof UNPACK_MODES)[number]
+export const UNPACK_DESTINATIONS = ['privateChat'] as const
+export type UnpackDestination = (typeof UNPACK_DESTINATIONS)[number]
+
+// Stores the user ID, never a pseudonym, since one user can hold several pseudonyms
+export interface IUnpackRequest {
+  conversation: mongoose.Types.ObjectId
+  user: mongoose.Types.ObjectId
+  mode: UnpackMode
+  destination: UnpackDestination
+  chunkIds: mongoose.Types.ObjectId[]
+  quote: string
+  requestMessage?: mongoose.Types.ObjectId
+  answerMessage: mongoose.Types.ObjectId
+  createdAt?: Date
+}
+
+export interface UnpackTerm {
+  term: string
+  text: string
+}
+
+export interface UnpackExplanation {
+  type: 'unpack_explanation'
+  mode: UnpackMode
+  destination: UnpackDestination
+  requestMessage: string
+  chunkIds: string[]
+  passage: { start: string; end: string }
+  quote: string
+  whatTheyreSaying: string
+  whyItMatters: string
+  terms: UnpackTerm[]
+  // plain-text copy for chat history and clients that can't render the card
+  text: string
+}
+
 // One row per minted invite link (see invite.service.ts). Only hashes of the token and
 // nonce are stored; the raw values exist nowhere but the email and the recipient's browser.
 export interface IMemberInvite {
