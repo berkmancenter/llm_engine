@@ -41,5 +41,18 @@ describe('OpenAPI route', () => {
       expect(Object.keys(res.body.components?.schemas ?? {}).length).toBeGreaterThan(0)
       expect(res.body.components.schemas).toHaveProperty('Message')
     })
+
+    // Clients generate their types from these, so the Unpacker message bodies must be described
+    test('describes the Unpacker request and explanation message bodies', async () => {
+      const res = await request(app).get('/v1/openapi.json').expect(httpStatus.OK)
+      const { UnpackRequestBody, UnpackExplanation } = res.body.components.schemas
+
+      expect(UnpackRequestBody.properties.type.enum).toEqual(['unpack_request'])
+      expect(UnpackRequestBody.required).toEqual(expect.arrayContaining(['type', 'mode', 'text']))
+      expect(UnpackExplanation.properties.type.enum).toEqual(['unpack_explanation'])
+      expect(UnpackExplanation.required).toEqual(
+        expect.arrayContaining(['whatTheyreSaying', 'whyItMatters', 'terms', 'chunkIds', 'passage', 'text'])
+      )
+    })
   })
 })
