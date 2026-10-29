@@ -41,10 +41,10 @@ function buildHistory(messages): ConversationHistory {
 
 /* Live-model eval: each case is nondeterministic. Measured with haiku-4.5 on Bedrock over 15 runs per
    case: agree-with-a-claim 100%, "what does the reading say" 100%, straight answer 100%, follow-up on
-   an answer ~75% (misses open with an acknowledgement instead of a question, or drop the reading),
-   "I don't know" ~60% (misses restate the reading's finding or skip the question). Expect the
-   occasional red run, mostly in the last two cases; a repeat failure on the same case is a
-   regression. */
+   an answer ~73% (misses open with an acknowledgement instead of a question, or drop the reading),
+   "I don't know" ~60% (misses restate the reading's finding or skip the question). The last two
+   cases retry up to twice (see "retried cases"), so a pass there does not imply per-run
+   reliability; a repeat failure on the same case even with retries is a regression. */
 describe('communityAssistant socratic personality', () => {
   let agent
   let conversation
@@ -165,30 +165,44 @@ describe('communityAssistant socratic personality', () => {
     testTimeout
   )
 
-  it(
-    'follows up on an answer to its earlier question by probing a key word the person just used',
-    async () => {
-      const reply = await ask(
-        `@${BOT_NAME} I think a quota keeps people accountable: if you have to show up, you're accountable to the group.`,
-        await earlierExchange()
-      )
-      expect(opensWithQuestion(reply)).toBe(true)
-      // stays on the person's own key idea (accountable / accountability, or their "show up" phrasing)
-      expect(reply).toMatch(/accountab|show(ing)? up/i)
-      // brings the reading in by name, or at least points at it
-      expect(reply).toMatch(/okonkwo|crowding|\b(study|reading|paper|research)\b/i)
-    },
-    testTimeout
-  )
+  /* The two flakiest cases retry up to twice: their measured single-run pass rates are about 73% and
+     60%, so a green run here does not imply per-run reliability. jest.retryTimes is global to the
+     running file, not scoped to its describe, so it is switched on and off in hooks to keep the
+     other cases un-retried. */
+  describe('retried cases', () => {
+    beforeAll(() => {
+      jest.retryTimes(2, { logErrorsBeforeRetry: true })
+    })
 
-  it(
-    'treats "I don\'t know" as progress: asks a smaller question instead of supplying the reading\'s finding',
-    async () => {
-      const reply = await ask(`@${BOT_NAME} honestly, I don't know`, await earlierExchange())
-      expect(opensWithQuestion(reply)).toBe(true)
-      // never fills the gap with the reading's findings
-      expect(reply).not.toMatch(/third|two quarters|recover|low-effort|substantive replies/i)
-    },
-    testTimeout
-  )
+    afterAll(() => {
+      jest.retryTimes(0)
+    })
+
+    it(
+      'follows up on an answer to its earlier question by probing a key word the person just used',
+      async () => {
+        const reply = await ask(
+          `@${BOT_NAME} I think a quota keeps people accountable: if you have to show up, you're accountable to the group.`,
+          await earlierExchange()
+        )
+        expect(opensWithQuestion(reply)).toBe(true)
+        // stays on the person's own key idea (accountable / accountability, or their "show up" phrasing)
+        expect(reply).toMatch(/accountab|show(ing)? up/i)
+        // brings the reading in by name, or at least points at it
+        expect(reply).toMatch(/okonkwo|crowding|\b(study|reading|paper|research)\b/i)
+      },
+      testTimeout
+    )
+
+    it(
+      'treats "I don\'t know" as progress: asks a smaller question instead of supplying the reading\'s finding',
+      async () => {
+        const reply = await ask(`@${BOT_NAME} honestly, I don't know`, await earlierExchange())
+        expect(opensWithQuestion(reply)).toBe(true)
+        // never fills the gap with the reading's findings
+        expect(reply).not.toMatch(/third|two quarters|recover|low-effort|substantive replies/i)
+      },
+      testTimeout
+    )
+  })
 })
