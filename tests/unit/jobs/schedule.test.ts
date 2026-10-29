@@ -55,7 +55,7 @@ describe('schedule.periodicAgent / cronAgent use one job name per type, keyed by
     expect(await schedule.cronAgentExists('agent-a')).toBe(false)
   })
 
-  test('cancelPeriodicAgent only removes the targeted agent\'s job', async () => {
+  test("cancelPeriodicAgent only removes the targeted agent's job", async () => {
     await schedule.periodicAgent('60 seconds', { agentId: 'agent-a' })
     await schedule.periodicAgent('60 seconds', { agentId: 'agent-b' })
 
@@ -65,7 +65,7 @@ describe('schedule.periodicAgent / cronAgent use one job name per type, keyed by
     expect(await schedule.periodicAgentExists('agent-b')).toBe(true)
   })
 
-  test('cancelCronAgent only removes the targeted agent\'s job', async () => {
+  test("cancelCronAgent only removes the targeted agent's job", async () => {
     await schedule.cronAgent('0 * * * *', { agentId: 'agent-a' })
     await schedule.cronAgent('0 * * * *', { agentId: 'agent-b' })
 
@@ -89,6 +89,52 @@ describe('schedule.periodicAgent / cronAgent use one job name per type, keyed by
     const jobs = await agenda.jobs({ name: 'cronAgent', 'data.agentId': 'agent-a' })
     expect(jobs).toHaveLength(1)
     expect(jobs[0].attrs.repeatTimezone).toBeNull()
+  })
+})
+
+describe('schedule.startConversationWindowCountdown uses one job name per conversation+phase, keyed by data', () => {
+  beforeEach(clearAgendaJobs)
+  afterAll(clearAgendaJobs)
+
+  test('two conversations starting a countdown get two separate documents, not one collided document', async () => {
+    await schedule.startConversationWindowCountdown({ conversationId: 'conversation-a', phase: 'preEvent' })
+    await schedule.startConversationWindowCountdown({ conversationId: 'conversation-b', phase: 'preEvent' })
+
+    const jobs = await agenda.jobs({ name: 'conversationWindowCountdown' })
+    expect(jobs).toHaveLength(2)
+    expect(jobs.map((j) => j.attrs.data.conversationId).sort()).toEqual(['conversation-a', 'conversation-b'])
+  })
+
+  /* Directly exercises the scenario openConversationWindow's own retry safety depends on: if
+     it ever re-runs (an Agenda retry after a mid-flight kill, see jobs/CLAUDE.md), it calls
+     this again for the same conversation — that must upsert in place, not create a second,
+     colliding recurring job. */
+  test('restarting the countdown for the same conversation+phase upserts in place', async () => {
+    await schedule.startConversationWindowCountdown({ conversationId: 'conversation-a', phase: 'preEvent' })
+    await schedule.startConversationWindowCountdown({ conversationId: 'conversation-a', phase: 'preEvent' })
+
+    const jobs = await agenda.jobs({ name: 'conversationWindowCountdown', 'data.conversationId': 'conversation-a' })
+    expect(jobs).toHaveLength(1)
+  })
+
+  test('preEvent and postEvent countdowns for the same conversation get two separate documents', async () => {
+    await schedule.startConversationWindowCountdown({ conversationId: 'conversation-a', phase: 'preEvent' })
+    await schedule.startConversationWindowCountdown({ conversationId: 'conversation-a', phase: 'postEvent' })
+
+    const jobs = await agenda.jobs({ name: 'conversationWindowCountdown', 'data.conversationId': 'conversation-a' })
+    expect(jobs).toHaveLength(2)
+    expect(jobs.map((j) => j.attrs.data.phase).sort()).toEqual(['postEvent', 'preEvent'])
+  })
+
+  test('cancelConversationWindowCountdown only removes the targeted conversation+phase', async () => {
+    await schedule.startConversationWindowCountdown({ conversationId: 'conversation-a', phase: 'preEvent' })
+    await schedule.startConversationWindowCountdown({ conversationId: 'conversation-b', phase: 'preEvent' })
+
+    await schedule.cancelConversationWindowCountdown('conversation-a', 'preEvent')
+
+    const jobs = await agenda.jobs({ name: 'conversationWindowCountdown' })
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0].attrs.data.conversationId).toBe('conversation-b')
   })
 })
 

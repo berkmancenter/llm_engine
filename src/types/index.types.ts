@@ -1979,7 +1979,23 @@ export interface ConversationWindowOpenedEvent {
   phase: ConversationPhase
 }
 
-export type ConversationEvent = ConversationStoppedEvent | ParticipantJoinedEvent | ConversationWindowOpenedEvent
+/* Dispatched on a recurring cadence while a conversation window is open (see
+   jobs/handlers/conversation.ts's conversationWindowCountdown), so listeners don't each
+   recompute the same timestamps from scheduledTime/preEventMinutes themselves. `remainingMs`
+   is time until this window's own closing boundary */
+export interface ConversationWindowCountdownEvent {
+  type: 'conversationWindowCountdown'
+  conversationId: string
+  phase: ConversationPhase
+  elapsedMs: number
+  remainingMs: number
+}
+
+export type ConversationEvent =
+  | ConversationStoppedEvent
+  | ParticipantJoinedEvent
+  | ConversationWindowOpenedEvent
+  | ConversationWindowCountdownEvent
 
 export interface IAgent {
   _id?: mongoose.Types.ObjectId
