@@ -31,7 +31,11 @@ import agentDispatcher from '../../jobs/agentDispatcher.js'
 import userService, { resolveDisplayName } from '../user.service.js'
 import assertMembership from '../../utils/assertMembership.js'
 import resourceService from '../resource.service.js'
-import scheduleConversationAutoStart from './scheduleAutoStart.js'
+import {
+  scheduleConversationAutoStart,
+  scheduleConversationPreEventWindow,
+  rescheduleConversationTimers
+} from './scheduleConversationTimers.js'
 
 export { updateTranscriptStatus }
 
@@ -123,15 +127,6 @@ const autoStop = async (conversationId) => {
   }
   await conversation.populate(['topic', 'agents', 'adapters'])
   return doStopConversation(conversation)
-}
-
-/* Mirrors scheduleConversationAutoStart's shape, but only when preEventMinutes is set */
-async function scheduleConversationPreEventWindow(conversation) {
-  await schedule.cancelOpenConversationWindow(conversation._id, 'preEvent')
-  if (typeof conversation.preEventMinutes !== 'number') return
-  const scheduledAt = new Date(conversation.scheduledTime.getTime() - conversation.preEventMinutes * 60 * 1000)
-  await schedule.triggerOpenConversationWindow(scheduledAt, { conversationId: conversation._id, phase: 'preEvent' })
-  logger.info(`Scheduled pre-event window for conversation ${conversation._id} at ${scheduledAt}`)
 }
 
 async function scheduleConversationEndingSoon(conversation) {
@@ -297,8 +292,7 @@ const createConversation = async (conversationBody, user, { allowDraft = false }
   websocketGateway.broadcastNewConversation(conversation)
 
   if (conversation.scheduledTime) {
-    await scheduleConversationAutoStart(conversation)
-    await scheduleConversationPreEventWindow(conversation)
+    await rescheduleConversationTimers(conversation)
     if (conversation.scheduledEndTime) {
       await scheduleConversationEndingSoon(conversation)
     }
@@ -657,6 +651,8 @@ const updateConversation = async (conversationBody, user) => {
     }
   }
 
+  const wasDraft = conversationDoc!.draft
+
   conversationDoc!.draft = isConversationDraft(conversationDoc!)
 
   await conversationDoc!.save()
@@ -667,8 +663,16 @@ const updateConversation = async (conversationBody, user) => {
   if (restBody.scheduledTime !== undefined && conversationDoc!.scheduledTime) {
     await scheduleConversationAutoStart(conversationDoc!)
   }
-  // Also reschedule on a preEventMinutes change alone, not just scheduledTime.
-  if ((restBody.scheduledTime !== undefined || restBody.preEventMinutes !== undefined) && conversationDoc!.scheduledTime) {
+  /* Also reschedule on a preEventMinutes change, or when this update just turned a draft into a
+     complete event: openConversationWindow skips drafts (see jobs/handlers/conversation.ts), so
+     a draft finished after its pre-event window would have opened never gets one unless this
+     edit reschedules it. scheduleConversationPreEventWindow runs the job immediately when the
+     computed start time has already passed, so this also covers a late finish. */
+  const finishedDraft = wasDraft && !conversationDoc!.draft
+  if (
+    (restBody.scheduledTime !== undefined || restBody.preEventMinutes !== undefined || finishedDraft) &&
+    conversationDoc!.scheduledTime
+  ) {
     await scheduleConversationPreEventWindow(conversationDoc!)
   }
   if (restBody.scheduledEndTime !== undefined && conversationDoc!.scheduledEndTime) {

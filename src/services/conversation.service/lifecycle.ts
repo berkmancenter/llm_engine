@@ -145,9 +145,9 @@ export function isConversationDraft(conversation: DraftStatusInput): boolean {
  * Whether this conversation's preEvent window is currently open
  */
 export function isPreEventWindowOpen(
-  conversation: Pick<IConversation, 'startTime' | 'scheduledTime' | 'preEventMinutes'>
+  conversation: Pick<IConversation, 'startTime' | 'scheduledTime' | 'preEventMinutes' | 'draft'>
 ): boolean {
-  if (conversation.startTime) return false
+  if (conversation.startTime || conversation.draft) return false
   if (typeof conversation.preEventMinutes !== 'number' || !conversation.scheduledTime) return false
   const opensAt = new Date(conversation.scheduledTime).getTime() - conversation.preEventMinutes * 60 * 1000
   return Date.now() >= opensAt

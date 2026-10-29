@@ -421,6 +421,17 @@ describe('conversation handler tests', () => {
       expect(scheduleSpy).not.toHaveBeenCalled()
     })
 
+    test('skips a draft conversation, which auto-start will never start', async () => {
+      await attachAgent(15)
+      await Conversation.findByIdAndUpdate(conversation._id, { draft: true })
+
+      await JobHandlers.openConversationWindow({
+        attrs: { data: { conversationId: conversation._id, phase: 'preEvent' } }
+      })
+
+      expect(scheduleSpy).not.toHaveBeenCalled()
+    })
+
     test('skips an unimplemented phase', async () => {
       await attachAgent(15)
 

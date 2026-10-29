@@ -273,6 +273,7 @@ describe('collectChannelIntros', () => {
       { $set: { agents: agents.map((a) => a._id), channels: [chatChannel._id, dmChannel._id] } }
     )
     conversation = await Conversation.findById(conversationOne._id).populate(['agents', 'channels'])
+    conversation.draft = false
   })
 
   const joinAs = (user) => collectChannelIntros(conversation, ['chat', dmChannelName], user)

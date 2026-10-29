@@ -24,7 +24,7 @@ import tokenTypes from '../../config/tokens.js'
 import ApiError from '../../utils/ApiError.js'
 import { OrganizerConfirmation, Conversation, Adapter } from '../../models/index.js'
 import { isConversationDraft } from '../conversation.service/lifecycle.js'
-import scheduleConversationAutoStart from '../conversation.service/scheduleAutoStart.js'
+import { rescheduleConversationTimers } from '../conversation.service/scheduleConversationTimers.js'
 import emailService from '../email.service.js'
 import { getConversationType } from '../../conversations/index.js'
 import missingRequirements from './missingRequirements.js'
@@ -183,7 +183,7 @@ const confirmOrganizer = async (token: string, nonce: string) => {
   await conversation.save()
 
   if (!conversation.draft && conversation.scheduledTime) {
-    await scheduleConversationAutoStart(conversation)
+    await rescheduleConversationTimers(conversation)
   }
 
   logger.info(`Email webhook: organizer confirmed Zoom-relayed event ${conversation._id}`)

@@ -1,4 +1,4 @@
-import { isConversationDraft } from '../../../src/services/conversation.service/lifecycle.js'
+import { isConversationDraft, isPreEventWindowOpen } from '../../../src/services/conversation.service/lifecycle.js'
 import { setConversationTypes, resetConversationTypes } from '../../../src/conversations/index.js'
 import { ConfigProperty, ConversationType } from '../../../src/types/index.types.js'
 
@@ -218,5 +218,39 @@ describe('isConversationDraft', () => {
       conversation.source = { inviteUid: 'UID-1' }
       expect(isConversationDraft(conversation)).toBe(false)
     })
+  })
+})
+
+describe('isPreEventWindowOpen', () => {
+  function withinWindow(overrides: Record<string, unknown> = {}) {
+    return {
+      scheduledTime: new Date(Date.now() + 5 * 60 * 1000),
+      preEventMinutes: 15,
+      ...overrides
+    }
+  }
+
+  test('is open once within preEventMinutes of scheduledTime', () => {
+    expect(isPreEventWindowOpen(withinWindow())).toBe(true)
+  })
+
+  test('is not open before preEventMinutes of scheduledTime', () => {
+    expect(isPreEventWindowOpen(withinWindow({ scheduledTime: new Date(Date.now() + 60 * 60 * 1000) }))).toBe(false)
+  })
+
+  test('is not open once the conversation has started', () => {
+    expect(isPreEventWindowOpen(withinWindow({ startTime: new Date() }))).toBe(false)
+  })
+
+  test('is not open for a draft, even if scheduledTime/preEventMinutes would otherwise open it', () => {
+    expect(isPreEventWindowOpen(withinWindow({ draft: true }))).toBe(false)
+  })
+
+  test('is not open when preEventMinutes is unconfigured', () => {
+    expect(isPreEventWindowOpen(withinWindow({ preEventMinutes: undefined }))).toBe(false)
+  })
+
+  test('is not open when scheduledTime is unset', () => {
+    expect(isPreEventWindowOpen(withinWindow({ scheduledTime: undefined }))).toBe(false)
   })
 })

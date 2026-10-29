@@ -2122,6 +2122,40 @@ describe('Conversation service methods', () => {
         expect(scheduleSpy).toHaveBeenCalled()
       })
 
+      /* openConversationWindow skips drafts (see conversation.handlers.test.ts), so a draft
+         finished after its would-be pre-event window opened needs this update itself to
+         schedule the job — scheduledTime/preEventMinutes alone wouldn't trigger it since
+         neither changed here. preEventConversation has no scheduledEndTime yet, so it's
+         still a Draft (see isConversationDraft). */
+      test('should reschedule the pre-event window when an update finishes a draft', async () => {
+        expect(preEventConversation.draft).toBe(true)
+
+        const cancelSpy = jest.spyOn(schedule, 'cancelOpenConversationWindow').mockReset().mockResolvedValue(undefined)
+        const scheduleSpy = jest.spyOn(schedule, 'triggerOpenConversationWindow').mockReset().mockResolvedValue(undefined)
+
+        const updated = await conversationService.updateConversation(
+          { id: preEventConversation._id.toString(), scheduledEndTime: new Date(Date.now() + 7200000) },
+          registeredUser
+        )
+
+        expect(updated!.draft).toBe(false)
+        expect(cancelSpy).toHaveBeenCalledWith(preEventConversation._id, 'preEvent')
+        expect(scheduleSpy).toHaveBeenCalled()
+      })
+
+      test('does not reschedule the pre-event window on an update that changes neither the schedule nor draft status', async () => {
+        const cancelSpy = jest.spyOn(schedule, 'cancelOpenConversationWindow').mockReset().mockResolvedValue(undefined)
+        const scheduleSpy = jest.spyOn(schedule, 'triggerOpenConversationWindow').mockReset().mockResolvedValue(undefined)
+
+        await conversationService.updateConversation(
+          { id: preEventConversation._id.toString(), name: 'Pre-Event Enabled (renamed)' },
+          registeredUser
+        )
+
+        expect(cancelSpy).not.toHaveBeenCalled()
+        expect(scheduleSpy).not.toHaveBeenCalled()
+      })
+
       /* Both jobs are scheduled as an offset from the same scheduledTime (see
          scheduleConversationAutoStart/scheduleConversationPreEventWindow) — a preEventMinutes
          at or below the auto-start lead time means the conversation would already be

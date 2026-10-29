@@ -60,6 +60,10 @@ const openConversationWindow = async (job) => {
       logger.debug(`Conversation window opened (preEvent): conversation ${conversationId} already started, skipping`)
       return
     }
+    if (conversation.draft) {
+      logger.debug(`Conversation window opened (preEvent): conversation ${conversationId} is a draft, skipping`)
+      return
+    }
 
     /* Chat/DM responsiveness during preEvent needs agents actually `active`
 
