@@ -3,7 +3,6 @@ import ApiError from '../utils/ApiError.js'
 import catchAsync from '../utils/catchAsync.js'
 import pick from '../utils/pick.js'
 import { artifactService } from '../services/index.js'
-import { CONCEPT_GRAPH_ARTIFACT } from '../models/artifact.model/conceptGraphArtifact.js'
 import conceptGraphService from '../services/conceptGraph/index.js'
 import { serializeArtifactResponse, serializeWithAnalyticsIds } from '../services/conceptGraph/analyticsId.js'
 
