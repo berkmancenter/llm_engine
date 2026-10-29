@@ -788,6 +788,11 @@ describe('composeSystemPrompt', () => {
     expect(result).not.toContain('RUTHLESS BREVITY')
   })
 
+  test('the socratic personality section keeps question-first as the default', () => {
+    const result = composeSystemPrompt('Base.', { personalityName: 'socratic' })
+    expect(result).toContain('Question first (the default).')
+  })
+
   test('unknown personalityName does not append a personality section', () => {
     const result = composeSystemPrompt('Base.', { personalityName: 'nonexistent-personality' })
     expect(result).toContain('Base.')

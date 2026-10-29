@@ -39,10 +39,12 @@ function buildHistory(messages): ConversationHistory {
   }
 }
 
-/* Live-model eval: each case is nondeterministic. Measured with haiku-4.5 on Bedrock, per case:
-   question-first (claim / "what does the reading say") ~98%, straight-answer shape ~100%, naming the
-   reading ~95% (the straight-answer case is the weakest). Expect the occasional red run; a repeat
-   failure on the same case is a regression. */
+/* Live-model eval: each case is nondeterministic. Measured with haiku-4.5 on Bedrock over 15 runs per
+   case: agree-with-a-claim 100%, "what does the reading say" 100%, straight answer 100%, follow-up on
+   an answer ~75% (misses open with an acknowledgement instead of a question, or drop the reading),
+   "I don't know" ~60% (misses restate the reading's finding or skip the question). Expect the
+   occasional red run, mostly in the last two cases; a repeat failure on the same case is a
+   regression. */
 describe('communityAssistant socratic personality', () => {
   let agent
   let conversation
@@ -91,13 +93,36 @@ describe('communityAssistant socratic personality', () => {
     return /^[^.!?]*\?/.test(reply.trim())
   }
 
-  async function ask(body: string): Promise<string> {
+  async function ask(body: string, earlier: unknown[] = []): Promise<string> {
     console.log(`Q: ${body}`)
     const msg = await createMessage(body, user1, conversation, ['chat'])
-    const responses = await defaultAgentTypes.communityAssistant.respond.call(agent, buildHistory([]), msg)
+    const responses = await defaultAgentTypes.communityAssistant.respond.call(agent, buildHistory(earlier), msg)
     console.log(`A: ${responses[0]?.message}`)
     expect(responses).toHaveLength(1)
     return String(responses[0].message)
+  }
+
+  /* An earlier exchange in the chat: the person's claim, then the bot's question about it. */
+  async function earlierExchange() {
+    const claim = await createMessage(
+      `@${BOT_NAME} I think mandatory posting quotas are the best way to keep a forum active.`,
+      user1,
+      conversation,
+      ['chat'],
+      new Date(Date.now() - 2 * 60 * 1000)
+    )
+    const question = {
+      ...(await createMessage(
+        "What do you think a posting quota does to the kind of posts people write, in Okonkwo-Reyes's study of quota crowding?",
+        user1,
+        conversation,
+        ['chat'],
+        new Date(Date.now() - 60 * 1000)
+      )),
+      fromAgent: true,
+      pseudonym: BOT_NAME
+    }
+    return [claim, question]
   }
 
   it(
@@ -136,6 +161,33 @@ describe('communityAssistant socratic personality', () => {
       // then a question that brings the reading in
       expect(sentences.slice(1).some((s) => s.includes('?'))).toBe(true)
       expect(reply).toMatch(READING_TERMS)
+    },
+    testTimeout
+  )
+
+  it(
+    'follows up on an answer to its earlier question by probing a key word the person just used',
+    async () => {
+      const reply = await ask(
+        `@${BOT_NAME} I think a quota keeps people accountable: if you have to show up, you're accountable to the group.`,
+        await earlierExchange()
+      )
+      expect(opensWithQuestion(reply)).toBe(true)
+      // stays on the person's own key idea (accountable / accountability, or their "show up" phrasing)
+      expect(reply).toMatch(/accountab|show(ing)? up/i)
+      // brings the reading in by name, or at least points at it
+      expect(reply).toMatch(/okonkwo|crowding|\b(study|reading|paper|research)\b/i)
+    },
+    testTimeout
+  )
+
+  it(
+    'treats "I don\'t know" as progress: asks a smaller question instead of supplying the reading\'s finding',
+    async () => {
+      const reply = await ask(`@${BOT_NAME} honestly, I don't know`, await earlierExchange())
+      expect(opensWithQuestion(reply)).toBe(true)
+      // never fills the gap with the reading's findings
+      expect(reply).not.toMatch(/third|two quarters|recover|low-effort|substantive replies/i)
     },
     testTimeout
   )
