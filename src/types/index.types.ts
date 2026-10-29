@@ -606,6 +606,18 @@ export interface ConversationGoal {
 export interface ConversationContext {
   conversationType?: string
   purpose?: string
+  // Why this conversation, why now — the motivation/occasion behind holding it.
+  rationale?: string
+  // The central question(s) the session is wrestling with.
+  centralQuestions?: string[]
+  // Known tensions or disagreements worth surfacing, rather than glossing over.
+  knownTensions?: string[]
+  scope?: {
+    inScope?: string[]
+    outOfScope?: string[]
+  }
+  // What the organizer hopes people leave with.
+  desiredTakeaway?: string
   audience?: {
     expertiseLevel?: 'beginner' | 'mixed' | 'expert'
     assumedBackgroundKnowledge?: 'low' | 'lowToMedium' | 'medium' | 'high'
