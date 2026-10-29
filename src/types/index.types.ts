@@ -1005,6 +1005,9 @@ export interface AgentResponse<T> {
      webhook.service.ts's fromAgent branch. Omitted everywhere else, so createMessage's
      own default (the time the message was actually created) still applies normally. */
   createdAt?: Date
+  /* Saves the reply under this ID, for an agent that has to record a link to its own reply
+     before the job handler persists it. */
+  messageId?: mongoose.Types.ObjectId
 }
 
 /* The raw counts an analytics source fetcher returns for one event, before we
