@@ -1,4 +1,5 @@
 import agenda from './index.js'
+import { ConversationPhase } from '../types/index.types.js'
 
 const schedule = {
   /* periodicAgent/cronAgent share one job name across every agent (see define.ts), so the
@@ -42,6 +43,15 @@ const schedule = {
   },
   cancelAutoStartConversation: async (conversationId) => {
     await agenda.cancel({ name: 'autoStart', 'data.conversationId': conversationId })
+  },
+  // Shared by every conversation window (currently just preEvent; postEvent will reuse this
+  // same job once it exists), keyed by `data.phase` so cancelling one window never touches
+  // another scheduled for the same conversation.
+  triggerOpenConversationWindow: async (scheduledAt: Date, data: { conversationId: string; phase: ConversationPhase }) => {
+    await agenda.schedule(scheduledAt, 'openConversationWindow', data)
+  },
+  cancelOpenConversationWindow: async (conversationId: string, phase: ConversationPhase) => {
+    await agenda.cancel({ name: 'openConversationWindow', 'data.conversationId': conversationId, 'data.phase': phase })
   },
   autoStopConversation: async (timerPeriod, data, firstRunAt: Date) => {
     const job = agenda.create(`autoStop - ${data.conversationId}`, data)

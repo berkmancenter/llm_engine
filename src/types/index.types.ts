@@ -639,6 +639,8 @@ export interface IConversation {
   channels: Array<IChannel>
   scheduledTime?: Date
   scheduledEndTime?: Date
+  /* Minutes before scheduledTime that the preEvent window opens */
+  preEventMinutes?: number
   startTime?: Date
   endTime?: Date
   adapters: Array<IAdapter>
@@ -1907,7 +1909,15 @@ export interface ParticipantJoinedEvent {
   interests?: string
 }
 
-export type ConversationEvent = ConversationStoppedEvent | ParticipantJoinedEvent
+export type ConversationPhase = 'preEvent' | 'postEvent'
+
+export interface ConversationWindowOpenedEvent {
+  type: 'conversationWindowOpened'
+  conversationId: string
+  phase: ConversationPhase
+}
+
+export type ConversationEvent = ConversationStoppedEvent | ParticipantJoinedEvent | ConversationWindowOpenedEvent
 
 export interface IAgent {
   _id?: mongoose.Types.ObjectId

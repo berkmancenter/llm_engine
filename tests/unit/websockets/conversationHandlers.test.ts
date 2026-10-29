@@ -273,6 +273,7 @@ describe('collectChannelIntros', () => {
       { $set: { agents: agents.map((a) => a._id), channels: [chatChannel._id, dmChannel._id] } }
     )
     conversation = await Conversation.findById(conversationOne._id).populate(['agents', 'channels'])
+    conversation.draft = false
   })
 
   const joinAs = (user) => collectChannelIntros(conversation, ['chat', dmChannelName], user)
@@ -383,6 +384,27 @@ describe('collectChannelIntros', () => {
 
     expect(intros).toEqual([])
     expect(introsAfterReactivation).toHaveLength(3)
+  })
+
+  test('also introduces agents while inactive but inside the preEvent window', async () => {
+    conversation.active = false
+    conversation.scheduledTime = new Date(Date.now() + 5 * 60 * 1000) // starts in 5 min
+    conversation.preEventMinutes = 10 // window opened 5 min ago
+
+    const intros = await joinAs(userOne)
+
+    expect(intros).toHaveLength(3)
+  })
+
+  test('still returns nothing for an inactive, already-ended conversation even with preEventMinutes set', async () => {
+    conversation.active = false
+    conversation.startTime = new Date(Date.now() - 60 * 60 * 1000) // already ran
+    conversation.scheduledTime = new Date(Date.now() - 65 * 60 * 1000)
+    conversation.preEventMinutes = 10
+
+    const intros = await joinAs(userOne)
+
+    expect(intros).toEqual([])
   })
 })
 

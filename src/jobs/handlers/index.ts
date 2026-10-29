@@ -20,6 +20,7 @@ const JobHandlers = {
   autoStartConversation: conversationHandlers.autoStartConversation,
   autoStopConversation: conversationHandlers.autoStopConversation,
   conversationEndingSoon: conversationHandlers.conversationEndingSoon,
+  openConversationWindow: conversationHandlers.openConversationWindow,
 
   // Invite handlers
   publicInviteResend: inviteHandlers.publicInviteResend,

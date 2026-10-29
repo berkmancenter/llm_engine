@@ -173,6 +173,10 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
     scheduledEndTime: {
       type: Date
     },
+    // Minutes before scheduledTime that the preEvent window opens
+    preEventMinutes: {
+      type: Number
+    },
     startTime: {
       type: Date
     },

@@ -18,6 +18,7 @@ export async function startJobs() {
     await defineJob.expireUnconfirmedConversations()
     await schedule.expireUnconfirmedConversations()
     await defineJob.autoStartConversation()
+    await defineJob.openConversationWindow()
     await defineJob.conversationEndingSoon()
     await defineJob.summarizePdf()
     await defineJob.conversationEvent()

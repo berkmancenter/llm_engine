@@ -2034,6 +2034,163 @@ describe('Conversation service methods', () => {
       expect(scheduleSpy).toHaveBeenCalled()
     })
 
+    describe('preEvent window scheduling', () => {
+      let preEventConversation
+
+      beforeEach(async () => {
+        preEventConversation = await conversationService.createConversationFromType(
+          {
+            type: 'eventAssistant',
+            name: 'Pre-Event Enabled',
+            platforms: ['zoom'],
+            topicId: topicOne._id.toString(),
+            scheduledTime: new Date(Date.now() + 3600000),
+            description: 'Has preEvent on',
+            properties: { zoomMeetingUrl: 'https://zoom.us/j/222222222' },
+            preEventMinutes: 15
+          },
+          registeredUser
+        )
+      })
+
+      test('should schedule the pre-event window at creation when preEventMinutes is set', async () => {
+        // mockReset (not just spyOn), since jest.spyOn returns the SAME mock across tests in
+        // this block once already spied once — without clearing it first, an earlier test's
+        // call count leaks into this one's assertion.
+        const scheduleSpy = jest.spyOn(schedule, 'triggerOpenConversationWindow').mockReset().mockResolvedValue(undefined)
+
+        await conversationService.createConversationFromType(
+          {
+            type: 'eventAssistant',
+            name: 'Another Pre-Event Event',
+            platforms: ['zoom'],
+            topicId: topicOne._id.toString(),
+            scheduledTime: new Date(Date.now() + 3600000),
+            description: 'Has preEvent on too',
+            properties: { zoomMeetingUrl: 'https://zoom.us/j/333333333' },
+            preEventMinutes: 20
+          },
+          registeredUser
+        )
+
+        expect(scheduleSpy).toHaveBeenCalledWith(expect.any(Date), expect.objectContaining({ phase: 'preEvent' }))
+      })
+
+      test('should not schedule the pre-event window at creation when preEventMinutes is unset (default)', async () => {
+        const scheduleSpy = jest.spyOn(schedule, 'triggerOpenConversationWindow').mockReset().mockResolvedValue(undefined)
+
+        await conversationService.createConversationFromType(
+          {
+            type: 'eventAssistant',
+            name: 'No Pre-Event',
+            platforms: ['zoom'],
+            topicId: topicOne._id.toString(),
+            scheduledTime: new Date(Date.now() + 3600000),
+            description: 'preEvent left off',
+            properties: { zoomMeetingUrl: 'https://zoom.us/j/444444444' }
+          },
+          registeredUser
+        )
+
+        expect(scheduleSpy).not.toHaveBeenCalled()
+      })
+
+      test('should reschedule the pre-event window when scheduledTime changes', async () => {
+        const cancelSpy = jest.spyOn(schedule, 'cancelOpenConversationWindow').mockReset().mockResolvedValue(undefined)
+        const scheduleSpy = jest.spyOn(schedule, 'triggerOpenConversationWindow').mockReset().mockResolvedValue(undefined)
+
+        const newStart = new Date(Date.now() + 7200000)
+        await conversationService.updateConversation(
+          { id: preEventConversation._id.toString(), scheduledTime: newStart },
+          registeredUser
+        )
+
+        expect(cancelSpy).toHaveBeenCalledWith(preEventConversation._id, 'preEvent')
+        expect(scheduleSpy).toHaveBeenCalled()
+      })
+
+      test('should reschedule the pre-event window when only preEventMinutes changes', async () => {
+        const cancelSpy = jest.spyOn(schedule, 'cancelOpenConversationWindow').mockReset().mockResolvedValue(undefined)
+        const scheduleSpy = jest.spyOn(schedule, 'triggerOpenConversationWindow').mockReset().mockResolvedValue(undefined)
+
+        await conversationService.updateConversation(
+          { id: preEventConversation._id.toString(), preEventMinutes: 30 },
+          registeredUser
+        )
+
+        expect(cancelSpy).toHaveBeenCalledWith(preEventConversation._id, 'preEvent')
+        expect(scheduleSpy).toHaveBeenCalled()
+      })
+
+      /* openConversationWindow skips drafts (see conversation.handlers.test.ts), so a draft
+         finished after its would-be pre-event window opened needs this update itself to
+         schedule the job — scheduledTime/preEventMinutes alone wouldn't trigger it since
+         neither changed here. preEventConversation has no scheduledEndTime yet, so it's
+         still a Draft (see isConversationDraft). */
+      test('should reschedule the pre-event window when an update finishes a draft', async () => {
+        expect(preEventConversation.draft).toBe(true)
+
+        const cancelSpy = jest.spyOn(schedule, 'cancelOpenConversationWindow').mockReset().mockResolvedValue(undefined)
+        const scheduleSpy = jest.spyOn(schedule, 'triggerOpenConversationWindow').mockReset().mockResolvedValue(undefined)
+
+        const updated = await conversationService.updateConversation(
+          { id: preEventConversation._id.toString(), scheduledEndTime: new Date(Date.now() + 7200000) },
+          registeredUser
+        )
+
+        expect(updated!.draft).toBe(false)
+        expect(cancelSpy).toHaveBeenCalledWith(preEventConversation._id, 'preEvent')
+        expect(scheduleSpy).toHaveBeenCalled()
+      })
+
+      test('does not reschedule the pre-event window on an update that changes neither the schedule nor draft status', async () => {
+        const cancelSpy = jest.spyOn(schedule, 'cancelOpenConversationWindow').mockReset().mockResolvedValue(undefined)
+        const scheduleSpy = jest.spyOn(schedule, 'triggerOpenConversationWindow').mockReset().mockResolvedValue(undefined)
+
+        await conversationService.updateConversation(
+          { id: preEventConversation._id.toString(), name: 'Pre-Event Enabled (renamed)' },
+          registeredUser
+        )
+
+        expect(cancelSpy).not.toHaveBeenCalled()
+        expect(scheduleSpy).not.toHaveBeenCalled()
+      })
+
+      /* Both jobs are scheduled as an offset from the same scheduledTime (see
+         scheduleConversationAutoStart/scheduleConversationPreEventWindow) — a preEventMinutes
+         at or below the auto-start lead time means the conversation would already be
+         auto-started by the time the window is due to open. */
+      test('rejects preEventMinutes at or below the auto-start lead time on create', async () => {
+        const autoStartLeadMinutes = config.conversation.autoStartLeadTimeMs / 60000
+
+        await expect(
+          conversationService.createConversationFromType(
+            {
+              type: 'eventAssistant',
+              name: 'Too-short Pre-Event',
+              platforms: ['zoom'],
+              topicId: topicOne._id.toString(),
+              scheduledTime: new Date(Date.now() + 3600000),
+              properties: { zoomMeetingUrl: 'https://zoom.us/j/555555555' },
+              preEventMinutes: autoStartLeadMinutes
+            },
+            registeredUser
+          )
+        ).rejects.toThrow(ApiError)
+      })
+
+      test('rejects preEventMinutes at or below the auto-start lead time on update', async () => {
+        const autoStartLeadMinutes = config.conversation.autoStartLeadTimeMs / 60000
+
+        await expect(
+          conversationService.updateConversation(
+            { id: preEventConversation._id.toString(), preEventMinutes: autoStartLeadMinutes },
+            registeredUser
+          )
+        ).rejects.toThrow(ApiError)
+      })
+    })
+
     /* Fix #2: when a conversation moves to a different topic, the old topic's
        conversations list should no longer include it. Before this fix, only the
        new topic was updated. */
