@@ -67,14 +67,20 @@ function buildAgent({ features = [{ name: 'unpacker', enabled: true }], messages
   }
 }
 
+// A saved message's ID embeds the second the server created it, so fixtures keep the two in step
+function objectIdAt(time: Date) {
+  return new mongoose.Types.ObjectId(Math.floor(time.getTime() / SECOND))
+}
+
 function unpackMessage(body: Record<string, unknown> = {}, overrides: Record<string, unknown> = {}) {
+  const createdAt = (overrides.createdAt as Date | undefined) ?? new Date()
   return {
-    _id: new mongoose.Types.ObjectId(),
+    _id: objectIdAt(createdAt),
     owner: userId,
     bodyType: 'json',
     body: { type: 'unpack_request', mode: 'lastMinute', text: 'Unpack 10:43 AM', ...body },
     channels: [privateChat.name],
-    createdAt: new Date(),
+    createdAt,
     ...overrides
   }
 }
@@ -253,6 +259,47 @@ describe('handleUnpackRequest', () => {
       const [reply] = await handleUnpackRequest(buildAgent({ messages: [...messages, request] }), request)
 
       expect((reply.message as UnpackExplanation).type).toBe('unpack_explanation')
+    })
+
+    it("doesn't count taps that arrived after this one, even within the same second", async () => {
+      const now = Date.now()
+      const laterTaps = Array.from({ length: UNPACK_REQUESTS_PER_MINUTE }, (_, i) =>
+        unpackMessage({}, { createdAt: new Date(now + (i + 1) * 100) })
+      )
+      const request = unpackMessage({}, { createdAt: new Date(now) })
+      const agent = buildAgent({ messages: [...lastMinuteTranscript(now), request, ...laterTaps] })
+
+      const [reply] = await handleUnpackRequest(agent, request)
+
+      expect((reply.message as UnpackExplanation).type).toBe('unpack_explanation')
+    })
+
+    it('still applies the limit when a client backdates its earlier requests', async () => {
+      const now = Date.now()
+      const backdatedRequests = Array.from({ length: UNPACK_REQUESTS_PER_MINUTE }, (_, i) =>
+        unpackMessage(
+          {},
+          { _id: objectIdAt(new Date(now - (5 + i) * SECOND)), createdAt: new Date(now - (2 + i) * 60 * SECOND) }
+        )
+      )
+      const agent = buildAgent({ messages: [...lastMinuteTranscript(now), ...backdatedRequests] })
+
+      const [reply] = await handleUnpackRequest(agent, unpackMessage({}, { createdAt: new Date(now) }))
+
+      expect(reply).toMatchObject({ messageType: 'text', message: UNPACK_REPLIES.rateLimited })
+      expect(mockGetChatPromptResponse).not.toHaveBeenCalled()
+    })
+
+    it('still applies the limit when a client backdates the new request', async () => {
+      const now = Date.now()
+      const earlierRequests = Array.from({ length: UNPACK_REQUESTS_PER_MINUTE }, (_, i) => earlierRequest(5 + i, now))
+      const agent = buildAgent({ messages: [...lastMinuteTranscript(now), ...earlierRequests] })
+      const backdated = unpackMessage({}, { _id: objectIdAt(new Date(now)), createdAt: new Date(now - 10 * 60 * SECOND) })
+
+      const [reply] = await handleUnpackRequest(agent, backdated)
+
+      expect(reply).toMatchObject({ messageType: 'text', message: UNPACK_REPLIES.rateLimited })
+      expect(mockGetChatPromptResponse).not.toHaveBeenCalled()
     })
 
     it('apologizes and records nothing when the AI model call fails', async () => {

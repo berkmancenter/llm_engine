@@ -82,18 +82,24 @@ function getTranscriptWindow(conversation, end: Date) {
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
 }
 
+/**
+ * When the server received a request, in milliseconds. A websocket client can set createdAt but not _id,
+ * so createdAt only counts when it lands just after the whole second stored in the ID.
+ */
+function receivedAt(message): number {
+  const idTime = message._id.getTimestamp().getTime()
+  const createdAt = new Date(message.createdAt).getTime()
+  // 2s, not 1s: the ID is made before the save sets createdAt, which can tip into the next second
+  return createdAt >= idTime && createdAt < idTime + 2000 ? createdAt : idTime
+}
+
 // Counts request messages, saved before any job runs, so quick repeat taps can't all get through
 function isRateLimited(conversation, userMessage, askedAt: Date): boolean {
   const windowStart = askedAt.getTime() - 60 * 1000
   const earlierRequests = (conversation.messages ?? []).filter((message) => {
-    const sentAt = new Date(message.createdAt).getTime()
-    return (
-      isUnpackRequest(message) &&
-      !message._id.equals(userMessage._id) &&
-      message.owner?._id?.equals(userMessage.owner) &&
-      sentAt >= windowStart &&
-      sentAt <= askedAt.getTime()
-    )
+    if (!isUnpackRequest(message) || message._id.equals(userMessage._id)) return false
+    const sentAt = receivedAt(message)
+    return message.owner?._id?.equals(userMessage.owner) && sentAt >= windowStart && sentAt <= askedAt.getTime()
   })
   return earlierRequests.length >= UNPACK_REQUESTS_PER_MINUTE
 }
@@ -124,7 +130,7 @@ export default async function handleUnpackRequest(agent, userMessage): Promise<A
   }
 
   // The job queue can lag, so the window ends when the participant asked, not now
-  const askedAt = userMessage.createdAt ? new Date(userMessage.createdAt) : new Date()
+  const askedAt = new Date(receivedAt(userMessage))
   const chunks = getTranscriptWindow(conversation, askedAt)
   if (chunks.length === 0) return [textReply(UNPACK_REPLIES.noTranscript, channels)]
 
