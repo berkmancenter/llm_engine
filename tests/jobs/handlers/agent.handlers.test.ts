@@ -75,6 +75,19 @@ describe('agent job handlers', () => {
       )
     })
 
+    test('saves the message under the ID the agent chose, so the agent can link to its reply before it exists', async () => {
+      const messageId = new mongoose.Types.ObjectId()
+      jest
+        .spyOn(Agent.prototype, 'respond')
+        .mockResolvedValue([{ visible: true, message: 'Hello from agent', messageType: 'text', channels: [], messageId }])
+      jest.spyOn(websocketGateway, 'broadcastNewMessage').mockResolvedValue()
+
+      await agentHandlers.agentResponse({ attrs: { data: { agentId: agent._id, message: {} } } })
+
+      const saved = await Message.findById(messageId)
+      expect(saved?.body).toBe('Hello from agent')
+    })
+
     test('should call resourceService.addResources for a resources response', async () => {
       const resources = [{ source: 'ai', title: 'Test Paper', category: 'suggested', participantVisible: true }]
       jest

@@ -6,6 +6,7 @@ import logger from '../../config/logger.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { formatTranscript, formatSingleUserConversationHistory } from '../helpers/llmInputFormatters.js'
 import User from '../../models/user.model/user.model.js'
+import PLAIN_LANGUAGE_TERM_RULES from '../helpers/plainLanguageRules.js'
 
 export type JargonFilterResponse = {
   type: 'jargon_clarification'
@@ -37,11 +38,9 @@ export const JARGON_FILTER_SYSTEM_PROMPT = `You are an assistant monitoring a li
 - Cover all jargon found in the window in a single, consolidated response
 - Write each jargon term as its own bullet point on a new line
 - Bold the jargon term or phrase at the start of each bullet (e.g. **SLO** — ...)
-- Explain each term as if to a high school student with no background in the field — use everyday analogies and avoid assuming any prior knowledge
 - Be concise: one or two sentences per term is enough
 - Do not repeat jargon terms in the clarification without immediately defining them
-- Never imply the terms are obvious or easy, or that the reader should already know them
-- Avoid phrases like "simply", "just", "basically", "obviously", or "of course"
+${PLAIN_LANGUAGE_TERM_RULES}
 
 ## Output Format
 
@@ -98,13 +97,10 @@ export const JARGON_FOLLOW_UP_SYSTEM_PROMPT = `You are a helpful assistant that 
 - Questions unrelated to terminology or jargon
 
 ## Guidelines for answering (when isJargonRelated is true):
-- Use plain language as if explaining to a high school student with no background in the field
 - Be conversational and natural - this is a back-and-forth dialogue
 - Keep responses concise (2-3 sentences unless more detail is needed)
-- Use everyday analogies when helpful
 - If the user asks for more detail about a term, expand on your previous explanation
-- Never imply terms are obvious or that the reader should already know them
-- Avoid phrases like "simply", "just", "basically", "obviously", or "of course"
+${PLAIN_LANGUAGE_TERM_RULES}
 
 Return JSON with:
 - isJargonRelated: boolean (true if about jargon, false otherwise)

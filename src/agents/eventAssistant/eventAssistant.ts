@@ -15,6 +15,7 @@ import getDefaultEventAssistantToolNames from './eventAssistantDefaultTools.js'
 import generateImageResponse from './imageGenerator.js'
 import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from '../helpers/slashCommandParser.js'
 import generateMindMap from './mindMapGenerator.js'
+import handleUnpackRequest, { isUnpackRequest } from './unpackHandler.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 import { loadGoal } from '../../goals/loader.js'
 
@@ -214,6 +215,15 @@ export default verify({
       }
     }
 
+    if (isUnpackRequest(userMessage)) {
+      return {
+        userMessage,
+        action: AgentMessageActions.CONTRIBUTE,
+        userContributionVisible: true,
+        suggestion: undefined
+      }
+    }
+
     // Parse slash commands using shared parser
     const activeCommands = this.agentConfig?.moderatorSupport
       ? supportedCommands
@@ -244,6 +254,11 @@ export default verify({
     if (userMessage?.channels?.includes('image-gen')) {
       const imageResponse = await generateImageResponse(userMessage, this.conversation)
       return imageResponse ? [imageResponse] : []
+    }
+
+    // Even with the switch off, an unpack request must never fall through to the question path
+    if (isUnpackRequest(userMessage)) {
+      return handleUnpackRequest(this, userMessage)
     }
 
     // Handle mind map command

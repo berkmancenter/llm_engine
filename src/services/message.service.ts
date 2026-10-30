@@ -102,6 +102,8 @@ const createMessage = async (messageBody, user, conversation) => {
   }
 
   const message = await Message.create({
+    // The websocket path passes client bodies through unvalidated, so only agents may choose an ID
+    ...(user.agentType && messageBody._id !== undefined && { _id: messageBody._id }),
     body: messageBody.body,
     ...(messageBody.bodyType !== undefined && { bodyType: messageBody.bodyType }),
     ...(messageBody.createdAt !== undefined && { createdAt: messageBody.createdAt }),
@@ -514,6 +516,7 @@ export const duplicateConversationMessages = async (conversationOrId, duplicateC
 }
 
 export const agentResponseToMessageData = (response, agent) => ({
+  ...(response.messageId !== undefined && { _id: response.messageId }),
   body: response.message,
   ...(response.messageType !== undefined && { bodyType: response.messageType }),
   ...(response.createdAt !== undefined && { createdAt: response.createdAt }),
