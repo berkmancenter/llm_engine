@@ -1,0 +1,51 @@
+name: Archive export regression
+on:
+  pull_request:
+    paths:
+      - 'src/services/archiveEvent.service.ts'
+      - 'src/services/conversation.service/lifecycle.ts'
+      - 'src/jobs/**'
+      - 'src/config/config.ts'
+      - 'src/models/**'
+      - 'scripts/backfillArchiveEvents.ts'
+      - 'tests/unit/jobs/archiveEvent*.test.ts'
+      - 'tests/unit/services/archiveEvent.service.test.ts'
+      - 'tests/unit/services/conversationService.lifecycle.summary.test.ts'
+      - 'tests/unit/scripts/backfillArchiveEvents.test.ts'
+      - '.github/workflows/archive-export.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    # Match the main CI runner: MongoDB 8.0 rejects newer 6.19+ kernels.
+    runs-on: ubuntu-22.04
+    services:
+      mongodb:
+        image: mongo:8.0
+        ports: ['27017:27017']
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1})'"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      MONGODB_URL: mongodb://127.0.0.1:27017/archive_export_test
+      JWT_SECRET: local-test-only
+      BEDROCK_API_KEY: local-test-only
+      BEDROCK_BASE_URL: http://127.0.0.1:1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: corepack enable
+      - run: yarn install --frozen-lockfile
+      - run: yarn lint && yarn prettier && yarn build
+      - run: >-
+          yarn test
+          tests/unit/services/archiveEvent.service.test.ts
+          tests/unit/jobs/archiveEvent.test.ts
+          tests/unit/jobs/archiveEvent.schedule.test.ts
+          tests/unit/scripts/backfillArchiveEvents.test.ts
+          tests/unit/jobs/define.test.ts
+          tests/unit/jobs/startup.test.ts
+          tests/unit/services/conversationService.lifecycle.summary.test.ts

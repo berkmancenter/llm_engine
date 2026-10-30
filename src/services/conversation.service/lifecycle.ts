@@ -288,6 +288,19 @@ export async function doStopConversation(conversation) {
   }
   await doc.save()
 
+  // Queue only after the summary is persisted. The worker rechecks public/event
+  // eligibility; export is independent of chat assistants and notification settings.
+  if (config.bkcArchive.exportEnabled && doc.summary) {
+    try {
+      await schedule.archiveEvent(doc._id.toString())
+      logger.info(`Archive export queued event=${doc._id}`)
+    } catch {
+      // Optional export must not interrupt the remaining stop side effects.
+      // Backfill can recover the saved summary if the queue is unavailable.
+      logger.error(`Archive export enqueue failed event=${doc._id}`)
+    }
+  }
+
   /* External analytics (e.g. Matomo tracked sessions) are intentionally NOT fetched
      here. The provider may not have archived the just-ended event's visits yet, and
      stopping the event must stay fast and not block on a slow or cold archive. The
