@@ -5,7 +5,6 @@ import { AgentMessageActions, ConversationHistory } from '../../types/index.type
 import { formatMultiUserConversationHistory } from '../helpers/llmInputFormatters.js'
 import getConversationHistory from '../helpers/getConversationHistory.js'
 import { composeSystemPrompt } from '../helpers/promptComposer.js'
-import { getPersonalityByName } from '../helpers/agentPersonality.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
 import { getTools, buildToolsGuidance } from '../tools/registry.js'
@@ -200,18 +199,14 @@ export default verify({
     const toolNames: string[] = this.agentConfig?.tools || []
     const topicIds: string[] = this.agentConfig?.topicIds || []
 
+    const toolContext = { topicIds, activeConversationId: conversationId }
+
     let personalityName: string | null = null
     if (this.agentConfig?.personality !== undefined) {
       personalityName = this.agentConfig.personality
     } else if (config.enableAgentPersonality) {
       personalityName = 'sarcastic-expert'
     }
-
-    // A personality can restate its reply shape right after retrieved passages (search results and
-    // the Background Reading section below), where the model reads the material it is about to use;
-    // personalities without a retrievalNote leave both untouched.
-    const retrievalNote = personalityName ? getPersonalityByName(personalityName)?.retrievalNote : undefined
-    const toolContext = { topicIds, activeConversationId: conversationId, toolResultNote: retrievalNote }
 
     const communityNote = this.conversation.description
       ? `\n\n**About this community:** ${this.conversation.description}`
@@ -305,9 +300,7 @@ export default verify({
       isDM && sharedChatContext
         ? `Note: the prior conversation is your private DM thread with this user. You also actively participate and respond in ${groupChatLabel}. When answering DMs you are given that channel's recent history as context (below), so you can reference what has been discussed there — but the group channel does not have visibility into this DM thread.\n\n`
         : ''
-    const backgroundSection = backgroundContext
-      ? `## Background Reading:\n${backgroundContext}\n\n${retrievalNote ? `${retrievalNote}\n\n` : ''}`
-      : ''
+    const backgroundSection = backgroundContext ? `## Background Reading:\n${backgroundContext}\n\n` : ''
     const userPrompt = sharedChatContext
       ? `${backgroundSection}${dmContextNote}## Shared Chat History:\n${sharedChatContext}\n\n${questionHeader}\n${question}`
       : `${backgroundSection}${questionHeader}\n${question}`

@@ -1,5 +1,4 @@
 import { supportedModels } from '../agents/helpers/getModelChat.js'
-import { availablePersonalities } from '../agents/helpers/agentPersonality.js'
 import { ConversationType } from '../types/index.types.js'
 import config from '../config/config.js'
 
@@ -38,14 +37,6 @@ const communityRoom: ConversationType = {
       validationKeys: ['llmModel', 'llmPlatform']
     },
     {
-      name: 'personality',
-      label: 'Assistant Personality',
-      description: 'Voice the assistant uses. Leave unset for the agent default.',
-      required: false,
-      type: 'enum',
-      options: availablePersonalities.map((p) => p.name) as unknown as object[]
-    },
-    {
       name: 'notifications',
       label: 'Notifications',
       description:
@@ -79,7 +70,6 @@ const communityRoom: ConversationType = {
         { $ref: 'llmModel.llmModel' },
         { $ref: 'llmModel.llmPlatform' },
         { $ref: 'botName', as: 'agentConfig.botName' },
-        { $ref: 'personality', as: 'agentConfig.personality' },
         { $ref: 'notifications', as: 'agentConfig.notifications' },
         { $ref: 'tools', as: 'agentConfig.tools' },
         { $ref: 'topicIds', as: 'agentConfig.topicIds' }

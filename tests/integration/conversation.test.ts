@@ -13,7 +13,6 @@ import { setAgentTypes } from '../../src/models/user.model/agent.model/index.js'
 import defaultAgentTypes from '../../src/agents/index.js'
 import defaultAdapterTypes from '../../src/adapters/index.js'
 import defaultConversationTypes, { setConversationTypes } from '../../src/conversations/index.js'
-import communityRoom from '../../src/conversations/communityRoom.js'
 import { defaultLLMPlatform, defaultLLMModel } from '../../src/agents/helpers/getModelChat.js'
 
 import websocketGateway from '../../src/websockets/websocketGateway.js'
@@ -771,66 +770,6 @@ describe('Conversation routes', () => {
       expect(getResp.body.resources[0].fileName).toBeUndefined()
     })
   })
-  describe('POST /v1/conversations/from-type - communityRoom personality and socratic_probe goal', () => {
-    // communityRoom maps its `personality` property onto communityAssistant's agentConfig; register
-    // that agent type as the stub so creation never reaches a live LLM.
-    beforeAll(() => {
-      setAgentTypes({ ...testAgentTypeSpecification, communityAssistant: testAgentTypeSpecification.test })
-      setConversationTypes({ ...testConversationTypes, communityRoom })
-    })
-    afterAll(() => {
-      setAgentTypes(testAgentTypeSpecification)
-      setConversationTypes(testConversationTypes)
-    })
-
-    const createRoom = (properties: Record<string, unknown>) =>
-      request(app).post(`/v1/conversations/from-type`).set('Authorization', `Bearer ${userOneAccessToken}`).send({
-        type: 'communityRoom',
-        name: 'Socratic Room',
-        topicId: publicTopic._id.toString(),
-        properties
-      })
-
-    test('should return 201 and persist the socratic personality on the conversation and its agent', async () => {
-      const resp = await createRoom({ personality: 'socratic' }).expect(httpStatus.CREATED)
-
-      expect(resp.body.properties.personality).toBe('socratic')
-
-      const conversation = await Conversation.findById(resp.body.id)
-      expect(conversation!.properties!.personality).toBe('socratic')
-      expect(conversation!.agents).toHaveLength(1)
-      const agent = await Agent.findById(conversation!.agents[0])
-      expect(agent!.agentConfig!.personality).toBe('socratic')
-    })
-
-    test('should return 400 when the personality is unknown', async () => {
-      await createRoom({ personality: 'not_a_real_personality' }).expect(httpStatus.BAD_REQUEST)
-      expect(await Conversation.countDocuments({ name: 'Socratic Room' })).toBe(0)
-    })
-
-    test('should accept socratic_probe on the room while still rejecting an unknown goal id', async () => {
-      const created = await createRoom({ personality: 'socratic' }).expect(httpStatus.CREATED)
-      jest.spyOn(websocketGateway, 'broadcastConversationUpdate').mockResolvedValue()
-      // goals can only change while the conversation is stopped
-      await Conversation.findByIdAndUpdate(created.body.id, { active: false })
-
-      const res = await request(app)
-        .put('/v1/conversations')
-        .set('Authorization', `Bearer ${userOneAccessToken}`)
-        .send({ id: created.body.id, goals: ['socratic_probe'] })
-        .expect(httpStatus.OK)
-      expect(res.body.goals).toEqual(['socratic_probe'])
-      expect((await Conversation.findById(created.body.id))!.goals).toEqual(['socratic_probe'])
-
-      await request(app)
-        .put('/v1/conversations')
-        .set('Authorization', `Bearer ${userOneAccessToken}`)
-        .send({ id: created.body.id, goals: ['socratic_probe', 'not_a_real_goal'] })
-        .expect(httpStatus.BAD_REQUEST)
-      expect((await Conversation.findById(created.body.id))!.goals).toEqual(['socratic_probe'])
-    })
-  })
-
   describe('POST /v1/conversations/from-type', () => {
     test('should return 201 and create conversation from type with all required fields', async () => {
       const resp = await request(app)
