@@ -17,8 +17,6 @@ const unpackRequestSchema = new mongoose.Schema<IUnpackRequest>(
 )
 
 unpackRequestSchema.plugin(toJSON)
-// serves the per-participant rate limit, which counts one user's recent rows in one event
-unpackRequestSchema.index({ conversation: 1, user: 1, createdAt: -1 })
 
 const UnpackRequest = mongoose.model<IUnpackRequest>('UnpackRequest', unpackRequestSchema)
 export default UnpackRequest

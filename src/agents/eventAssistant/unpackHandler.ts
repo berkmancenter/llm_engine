@@ -82,13 +82,20 @@ function getTranscriptWindow(conversation, end: Date) {
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
 }
 
-async function isRateLimited(conversationId, userId): Promise<boolean> {
-  const recentRequests = await UnpackRequest.countDocuments({
-    conversation: conversationId,
-    user: userId,
-    createdAt: { $gte: new Date(Date.now() - 60 * 1000) }
+// Counts request messages, saved before any job runs, so quick repeat taps can't all get through
+function isRateLimited(conversation, userMessage, askedAt: Date): boolean {
+  const windowStart = askedAt.getTime() - 60 * 1000
+  const earlierRequests = (conversation.messages ?? []).filter((message) => {
+    const sentAt = new Date(message.createdAt).getTime()
+    return (
+      isUnpackRequest(message) &&
+      !message._id.equals(userMessage._id) &&
+      message.owner?._id?.equals(userMessage.owner) &&
+      sentAt >= windowStart &&
+      sentAt <= askedAt.getTime()
+    )
   })
-  return recentRequests >= UNPACK_REQUESTS_PER_MINUTE
+  return earlierRequests.length >= UNPACK_REQUESTS_PER_MINUTE
 }
 
 /**
@@ -121,7 +128,7 @@ export default async function handleUnpackRequest(agent, userMessage): Promise<A
   const chunks = getTranscriptWindow(conversation, askedAt)
   if (chunks.length === 0) return [textReply(UNPACK_REPLIES.noTranscript, channels)]
 
-  if (await isRateLimited(conversation._id, userMessage.owner)) {
+  if (isRateLimited(conversation, userMessage, askedAt)) {
     return [textReply(UNPACK_REPLIES.rateLimited, channels)]
   }
 

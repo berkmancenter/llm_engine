@@ -79,6 +79,10 @@ function unpackMessage(body: Record<string, unknown> = {}, overrides: Record<str
   }
 }
 
+function earlierRequest(secondsBefore: number, now: number, owner = userId) {
+  return unpackMessage({}, { owner, createdAt: new Date(now - secondsBefore * SECOND) })
+}
+
 function lastMinuteTranscript(now: number) {
   return [
     transcriptChunk('Too old to include.', UNPACK_LAST_MINUTE_WINDOW_SECONDS + 30, now),
@@ -217,22 +221,30 @@ describe('handleUnpackRequest', () => {
       expect(await UnpackRequest.countDocuments()).toBe(0)
     })
 
-    it("asks the participant to wait once they hit the per-minute limit, ignoring other people's requests", async () => {
-      const agent = buildAgent({ messages: lastMinuteTranscript(Date.now()) })
-      const row = {
-        conversation: agent.conversation._id,
-        mode: 'lastMinute',
-        answerMessage: new mongoose.Types.ObjectId()
-      }
-      await UnpackRequest.create([
-        ...Array.from({ length: UNPACK_REQUESTS_PER_MINUTE }, () => ({ ...row, user: userId })),
-        { ...row, user: new mongoose.Types.ObjectId() }
-      ])
+    it('asks the participant to wait once they hit the per-minute limit, even before any earlier request is answered', async () => {
+      const now = Date.now()
+      const earlierRequests = Array.from({ length: UNPACK_REQUESTS_PER_MINUTE }, (_, i) => earlierRequest(5 + i, now))
+      const agent = buildAgent({ messages: [...lastMinuteTranscript(now), ...earlierRequests] })
 
-      const [reply] = await handleUnpackRequest(agent, unpackMessage())
+      const [reply] = await handleUnpackRequest(agent, unpackMessage({}, { createdAt: new Date(now) }))
 
       expect(reply).toMatchObject({ messageType: 'text', message: UNPACK_REPLIES.rateLimited })
       expect(mockGetChatPromptResponse).not.toHaveBeenCalled()
+    })
+
+    it("doesn't count other people's requests or requests from over a minute ago toward the limit", async () => {
+      const now = Date.now()
+      const messages = [
+        ...lastMinuteTranscript(now),
+        ...Array.from({ length: UNPACK_REQUESTS_PER_MINUTE - 1 }, (_, i) => earlierRequest(5 + i, now)),
+        earlierRequest(UNPACK_LAST_MINUTE_WINDOW_SECONDS + 5, now),
+        earlierRequest(5, now, new mongoose.Types.ObjectId())
+      ]
+      const request = unpackMessage({}, { createdAt: new Date(now) })
+
+      const [reply] = await handleUnpackRequest(buildAgent({ messages: [...messages, request] }), request)
+
+      expect((reply.message as UnpackExplanation).type).toBe('unpack_explanation')
     })
 
     it('apologizes and records nothing when the AI model call fails', async () => {
