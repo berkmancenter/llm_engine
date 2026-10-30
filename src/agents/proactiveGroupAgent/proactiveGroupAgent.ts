@@ -23,6 +23,8 @@ import createAgentPoll from '../helpers/agentPoll.js'
 import { getEligibleGoals, getMinContributionMs, composeSystemPrompt } from '../helpers/promptComposer.js'
 import { getGroupChatGoals } from '../../goals/loader.js'
 import validateProfessionalism from '../helpers/professionalismValidator.js'
+import runSocraticStage from '../helpers/socraticPipeline.js'
+import { validateSocraticSlots } from '../helpers/socraticSlots.js'
 import transcript from '../helpers/transcript.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
 import { getBackgroundContextForQuestion } from '../tools/resourceSearch.js'
@@ -47,9 +49,93 @@ function buildReadingQuery(history: ConversationHistory): string {
     .slice(-READING_QUERY_MAX_CHARS)
 }
 
+type SocraticSlotFields = { sourceLabel?: string | null; concept?: string | null; loadedWord?: string | null }
+
+const SOCRATIC_CHAT_LINES = 8
+const SOCRATIC_POSTS = 5
+
+function recentTexts(history: ConversationHistory, fromAgent: boolean, count: number): string[] {
+  return history.messages
+    .filter((m) => Boolean(m.fromAgent) === fromAgent)
+    .slice(-count)
+    .map((m) => {
+      const text = extractMessageText(m)
+      return typeof text === 'string' ? text.trim() : ''
+    })
+    .filter(Boolean)
+}
+
+/** Pseudonyms of human participants, plus each one's last word (e.g. "Badger" for "Curious Badger"). */
+function participantNameList(messages: IMessage[]): string[] {
+  const names = new Set<string>()
+  for (const m of messages) {
+    if (m.fromAgent || !m.pseudonym) continue
+    names.add(m.pseudonym)
+    const last = m.pseudonym.trim().split(/\s+/).at(-1)
+    if (last) names.add(last)
+  }
+  return [...names]
+}
+
+/**
+ * Validates the decision call's slots, then has the passage-blind writer produce the question (with
+ * a template fallback). Returns null to stay silent. The decision call's own message is never used.
+ */
+async function buildSocraticQuestion(
+  this: IAgent & { getLLM: () => Promise<unknown> },
+  analysis: SocraticSlotFields,
+  sharedChatHistory: ConversationHistory,
+  passage: string
+): Promise<string | null> {
+  const humanChatLines = recentTexts(sharedChatHistory, false, 15)
+  const slotResult = validateSocraticSlots(analysis, {
+    passage,
+    resources: this.conversation.resources ?? [],
+    humanChatLines
+  })
+  if (!slotResult.ok) {
+    logger.warn(`${this.name}: ${SOCRATIC_GOAL_ID} slots rejected (${slotResult.reason}) — staying silent`)
+    return null
+  }
+  const llm = await this.getLLM()
+  const result = await runSocraticStage({
+    llm,
+    slots: slotResult.slots,
+    passage,
+    humanChatLines: humanChatLines.slice(-SOCRATIC_CHAT_LINES),
+    recentPosts: recentTexts(sharedChatHistory, true, SOCRATIC_POSTS),
+    participantNames: participantNameList((this.conversation.messages ?? []) as IMessage[])
+  })
+  return result?.message ?? null
+}
+
 function getProactiveSchema(goals: ConversationGoal[]) {
   const goalIdOptions = [...goals.map((g) => g.id), 'none'] as unknown as [string, ...string[]]
+  const socraticSlots: z.ZodRawShape = goals.some((g) => g.id === SOCRATIC_GOAL_ID)
+    ? {
+        sourceLabel: z
+          .string()
+          .nullable()
+          .optional()
+          .describe(`For ${SOCRATIC_GOAL_ID} only: the author or title of the retrieved reading. Null otherwise.`),
+        concept: z
+          .string()
+          .nullable()
+          .optional()
+          .describe(
+            `For ${SOCRATIC_GOAL_ID} only: a term or phrase copied verbatim from the passage, at most 6 words, with no numbers and no result. Null otherwise.`
+          ),
+        loadedWord: z
+          .string()
+          .nullable()
+          .optional()
+          .describe(
+            `For ${SOCRATIC_GOAL_ID} only: a word the group keeps using that the passage treats differently, else null.`
+          )
+      }
+    : {}
   return z.object({
+    ...socraticSlots,
     reasoning: z
       .string()
       .describe(
@@ -75,7 +161,7 @@ function getProactiveGroupSystemPrompt(goals: ConversationGoal[]): string {
   const readingRule = goals.some((g) => g.id === SOCRATIC_GOAL_ID)
     ? `
 - "${SOCRATIC_GOAL_ID}" questions must be grounded in the "## Background Reading:" section of the user message. If that section is absent, do not use "${SOCRATIC_GOAL_ID}".
-- "${SOCRATIC_GOAL_ID}" messages are a single question, not a statement plus a question: at most one short clause naming the source, then the question. Never restate what the reading found.`
+- For "${SOCRATIC_GOAL_ID}" do not write the question yourself: set sharedChatMessage to the single word "question" (a separate step writes the message from your slots, without seeing the passage). Instead fill: "sourceLabel" (author or title of the reading the passage comes from), "concept" (a term or phrase copied verbatim from the passage, at most 6 words, no numbers, never a result or finding), and "loadedWord" (a word the group keeps repeating that the passage treats differently, otherwise null). Leave these null for other goals.`
     : ''
 
   return `You are an AI facilitator during a live event. You read participant messages and the live transcript, then decide whether to post in the shared group chat.
@@ -326,7 +412,7 @@ export default verify({
       recentTranscript,
       goalPriorities,
       backgroundReading
-    )) as unknown as InterventionAnalysis | null
+    )) as unknown as (InterventionAnalysis & SocraticSlotFields) | null
 
     if (!analysis) {
       logger.debug(`${this.agentType} ${this._id}: no intervention opportunity detected`)
@@ -336,6 +422,12 @@ export default verify({
     if (analysis.goalId === SOCRATIC_GOAL_ID && !backgroundReading) {
       logger.warn(`${this.name}: ${SOCRATIC_GOAL_ID} chosen without retrieved passages — discarding`)
       return []
+    }
+
+    if (analysis.goalId === SOCRATIC_GOAL_ID && backgroundReading) {
+      const question = await buildSocraticQuestion.call(this, analysis, sharedChatHistory, backgroundReading)
+      if (!question) return []
+      analysis.sharedChatMessage = question
     }
 
     if (this.conversation.behaviorPolicy?.globalPolicy?.safetyPosture === 'strict' && analysis.sharedChatMessage) {

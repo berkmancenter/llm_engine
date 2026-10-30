@@ -12,6 +12,13 @@ const mockGetBackgroundContext = jest.fn<(...args: any[]) => Promise<string>>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockFn = () => jest.fn<(...args: any[]) => any>()
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockRunSocraticStage = jest.fn<(...args: any[]) => Promise<any>>()
+
+jest.unstable_mockModule('../src/agents/helpers/socraticPipeline.js', () => ({
+  default: mockRunSocraticStage
+}))
+
 jest.unstable_mockModule('../src/agents/helpers/interventionHandler.js', () => ({
   runInterventionAnalysis: mockRunInterventionAnalysis,
   detectPrivateInterventionOpportunity: mockFn(),
@@ -75,7 +82,10 @@ function makeAgent(
       name: 'Test Conversation',
       startTime: overrides.startTime ?? new Date(Date.now() - 20 * 60 * 1000),
       goals: overrides.goals ?? ['socratic_probe'],
-      resources: 'resources' in overrides ? overrides.resources : [{ fileName: 'reading.pdf' }],
+      resources:
+        'resources' in overrides
+          ? overrides.resources
+          : [{ fileName: 'reading.pdf', title: 'Governing the Commons', authors: ['Elinor Ostrom'] }],
       behaviorPolicy: {
         globalPolicy: { tone: 'warmSupportive', verbosity: 'brief', formality: 'semiFormal' },
         channels: {
@@ -106,6 +116,7 @@ describe('proactiveGroupAgent socratic_probe reading prefetch', () => {
     jest.clearAllMocks()
     mockRunInterventionAnalysis.mockResolvedValue(null)
     mockGetBackgroundContext.mockResolvedValue(PASSAGES)
+    mockRunSocraticStage.mockResolvedValue({ message: 'A pipeline question?', source: 'writer' })
   })
 
   it('prefetches when socratic_probe is active and resources have a fileName, passing passages as the user-prompt arg', async () => {
@@ -275,14 +286,17 @@ describe('proactiveGroupAgent socratic_probe reading prefetch', () => {
       shouldIntervene: true,
       goalId: 'socratic_probe',
       reasoning: 'r',
-      sharedChatMessage: 'In Ostrom, what role does monitoring play?',
+      sharedChatMessage: 'question',
+      sourceLabel: 'Governing the Commons',
+      concept: 'fabricated passage',
+      loadedWord: null,
       confidenceScore: 95
     })
 
     const responses = await proactiveGroupAgent.respond.call(makeAgent(), history())
 
     expect(responses).toHaveLength(1)
-    expect(responses[0].message).toBe('In Ostrom, what role does monitoring play?')
+    expect(responses[0].message).toBe('A pipeline question?')
   })
 
   it('builds the query from the last few non-agent chat messages, each clipped and the total bounded', async () => {
@@ -307,5 +321,117 @@ describe('proactiveGroupAgent socratic_probe reading prefetch', () => {
     expect(mockGetBackgroundContext).not.toHaveBeenCalled()
     expect(responses).toEqual([])
     expect(mockRunInterventionAnalysis).not.toHaveBeenCalled()
+  })
+})
+
+describe('proactiveGroupAgent socratic_probe question pipeline', () => {
+  const decision = (slots: Record<string, unknown> = {}) => ({
+    shouldIntervene: true,
+    goalId: 'socratic_probe',
+    reasoning: 'r',
+    sharedChatMessage: 'question',
+    sourceLabel: 'Governing the Commons',
+    concept: 'fabricated passage',
+    loadedWord: null,
+    confidenceScore: 90,
+    ...slots
+  })
+  const stageInput = () => mockRunSocraticStage.mock.calls[0][0]
+  const chat = (...bodies: string[]) =>
+    bodies.map((b, i) => chatMessage(b, 1000 * (bodies.length - i), { pseudonym: 'Curious Badger' }))
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockRunInterventionAnalysis.mockReset()
+    mockRunSocraticStage.mockReset()
+    mockRunSocraticStage.mockResolvedValue({ message: 'A pipeline question?', source: 'writer' })
+    mockGetBackgroundContext.mockResolvedValue(PASSAGES)
+  })
+
+  it('posts the pipeline message instead of the decision call message, passing slots and passage', async () => {
+    mockRunInterventionAnalysis.mockResolvedValue(decision())
+
+    const responses = await proactiveGroupAgent.respond.call(makeAgent({ messages: chat('I like quotas') }), history())
+
+    expect(responses).toHaveLength(1)
+    expect(responses[0].message).toBe('A pipeline question?')
+    expect(stageInput()).toEqual(
+      expect.objectContaining({
+        slots: { sourceLabel: 'Governing the Commons', concept: 'fabricated passage', loadedWord: null },
+        passage: PASSAGES,
+        participantNames: expect.arrayContaining(['Curious Badger', 'Badger'])
+      })
+    )
+  })
+
+  it('asks the decision call for slots only when socratic_probe is eligible', async () => {
+    mockRunInterventionAnalysis.mockResolvedValue(null)
+    await proactiveGroupAgent.respond.call(makeAgent({ goals: ['socratic_probe', 'synthesize_discussion'] }), history())
+    const withSocratic = mockRunInterventionAnalysis.mock.calls[0][2]
+    expect(Object.keys(withSocratic.shape)).toEqual(expect.arrayContaining(['sourceLabel', 'concept', 'loadedWord']))
+    expect(mockRunInterventionAnalysis.mock.calls[0][1]).toContain('"concept"')
+
+    mockRunInterventionAnalysis.mockClear()
+    await proactiveGroupAgent.respond.call(makeAgent({ goals: ['synthesize_discussion'] }), history())
+    expect(Object.keys(mockRunInterventionAnalysis.mock.calls[0][2].shape)).not.toContain('concept')
+  })
+
+  it.each([
+    ['a concept not in the passage', { concept: 'moderator burnout' }],
+    ['a concept with a finding verb', { concept: 'trust fell' }],
+    ['a source that matches no reading', { sourceLabel: 'Somebody Else' }],
+    ['a missing concept', { concept: null }]
+  ])('stays silent, without running the stage, on %s', async (_label, slots) => {
+    mockRunInterventionAnalysis.mockResolvedValue(decision(slots))
+
+    const responses = await proactiveGroupAgent.respond.call(makeAgent(), history())
+
+    expect(responses).toEqual([])
+    expect(mockRunSocraticStage).not.toHaveBeenCalled()
+  })
+
+  it('drops a loaded word the group has not repeated, keeps one it has', async () => {
+    mockRunInterventionAnalysis.mockResolvedValue(decision({ loadedWord: 'healthy' }))
+    await proactiveGroupAgent.respond.call(makeAgent({ messages: chat('a healthy forum') }), history())
+    expect(stageInput().slots.loadedWord).toBeNull()
+
+    mockRunSocraticStage.mockClear()
+    await proactiveGroupAgent.respond.call(makeAgent({ messages: chat('a healthy forum', 'healthy means busy') }), history())
+    expect(stageInput().slots.loadedWord).toBe('healthy')
+  })
+
+  it('passes human chat and the agents own recent posts separately', async () => {
+    mockRunInterventionAnalysis.mockResolvedValue(decision())
+    const messages = [
+      ...chat('I like quotas'),
+      chatMessage('Earlier agent question?', 10 * 60 * 1000, { fromAgent: true, pseudonym: AGENT_NAME })
+    ]
+    await proactiveGroupAgent.respond.call(makeAgent({ messages }), history())
+
+    expect(stageInput().humanChatLines).toEqual(['I like quotas'])
+    expect(stageInput().recentPosts).toEqual(['Earlier agent question?'])
+  })
+
+  it('stays silent when the stage returns nothing', async () => {
+    mockRunInterventionAnalysis.mockResolvedValue(decision())
+    mockRunSocraticStage.mockResolvedValue(null)
+
+    expect(await proactiveGroupAgent.respond.call(makeAgent(), history())).toEqual([])
+  })
+
+  it('does not run the stage for other goals', async () => {
+    mockRunInterventionAnalysis.mockResolvedValue({
+      ...decision(),
+      goalId: 'synthesize_discussion',
+      sharedChatMessage: 'hello'
+    })
+
+    const responses = await proactiveGroupAgent.respond.call(
+      makeAgent({ goals: ['synthesize_discussion', 'socratic_probe'] }),
+      history()
+    )
+
+    expect(responses[0].message).toBe('hello')
+    expect(mockRunSocraticStage).not.toHaveBeenCalled()
   })
 })
