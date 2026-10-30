@@ -98,7 +98,12 @@ describe('getGroupChatGoals', () => {
 describe('socratic_probe', () => {
   test('loads as a groupChat text goal with a confidence floor and examples', () => {
     const goal = loadGoal('socratic_probe')
-    expect(goal).toMatchObject({ id: 'socratic_probe', channel: 'groupChat', outputContract: { format: 'text' } })
+    expect(goal).toMatchObject({
+      id: 'socratic_probe',
+      channel: 'groupChat',
+      silenceCompatible: true,
+      outputContract: { format: 'text' }
+    })
     expect(goal.triggers.minConfidence).toBe(70)
     expect(goal.triggers.conditions.length).toBeGreaterThan(0)
     expect(goal.guardrails.length).toBeGreaterThan(0)

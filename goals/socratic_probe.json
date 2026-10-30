@@ -3,6 +3,7 @@
   "label": "Socratic probe",
   "description": "Poses one pointed question that ties the group's current discussion to a specific idea in the community's readings — used when the readings complicate, support, define, or dispute what people are saying and the room hasn't engaged with them. Asks; never summarizes or answers.",
   "channel": "groupChat",
+  "silenceCompatible": true,
   "triggers": {
     "conditions": [
       "participants are making a claim that a passage in the Background Reading complicates or supports, and no one has brought that passage in",
