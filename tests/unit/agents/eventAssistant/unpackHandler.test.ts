@@ -160,6 +160,14 @@ describe('handleUnpackRequest', () => {
       expect(rows[0].chunkIds).toHaveLength(2)
     })
 
+    it('still sends the explanation when the request cannot be recorded', async () => {
+      jest.spyOn(UnpackRequest, 'create').mockRejectedValueOnce(new Error('database unavailable'))
+
+      const [reply] = await handleUnpackRequest(buildAgent({ messages: lastMinuteTranscript(Date.now()) }), unpackMessage())
+
+      expect((reply.message as UnpackExplanation).type).toBe('unpack_explanation')
+    })
+
     it("counts back from when the participant asked, not when Berkie's job runs", async () => {
       const askedAt = Date.now() - 5 * 60 * SECOND
       const messages = [

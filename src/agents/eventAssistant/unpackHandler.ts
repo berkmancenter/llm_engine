@@ -167,16 +167,21 @@ export default async function handleUnpackRequest(agent, userMessage): Promise<A
     text: toPlainText(sections)
   }
 
-  await UnpackRequest.create({
-    conversation: conversation._id,
-    user: userMessage.owner,
-    mode: request.mode,
-    destination: request.destination,
-    chunkIds,
-    quote,
-    requestMessage: userMessage._id,
-    answerMessage: answerId
-  })
+  // Written before the job saves the reply, so a failed reply save leaves answerMessage pointing at nothing
+  try {
+    await UnpackRequest.create({
+      conversation: conversation._id,
+      user: userMessage.owner,
+      mode: request.mode,
+      destination: request.destination,
+      chunkIds,
+      quote,
+      requestMessage: userMessage._id,
+      answerMessage: answerId
+    })
+  } catch (error) {
+    logger.error(`unpack: could not record request ${userMessage._id} in ${conversation._id}`, error)
+  }
 
   return [{ visible: true, message, messageType: 'json', channels, messageId: answerId }]
 }
