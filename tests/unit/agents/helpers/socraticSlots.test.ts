@@ -46,6 +46,17 @@ describe('validateSocraticSlots', () => {
     expect(validateSocraticSlots({ ...base, sourceLabel }, ctx).ok).toBe(true)
   })
 
+  it.each([
+    'Okonkwo-Reyes (2024)',
+    'Okonkwo-Reyes, M. (2024). Quota Crowding in Volunteer Forums.',
+    'Okonkwo-Reyes (2024). Quota Crowding in Volunteer Forums'
+  ])('trims a copied citation down to the source name: %s', (sourceLabel) => {
+    expect(validateSocraticSlots({ ...base, sourceLabel }, ctx)).toEqual({
+      ok: true,
+      slots: expect.objectContaining({ sourceLabel: 'Okonkwo-Reyes' })
+    })
+  })
+
   it('accepts a source label that only appears in the passage', () => {
     const r = validateSocraticSlots(
       { ...base, sourceLabel: 'Journal Smith' },

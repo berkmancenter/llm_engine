@@ -123,7 +123,7 @@ function getProactiveSchema(goals: ConversationGoal[]) {
           .nullable()
           .optional()
           .describe(
-            `For ${SOCRATIC_GOAL_ID} only: a term or phrase copied verbatim from the passage, at most 6 words, with no numbers and no result. Null otherwise.`
+            `For ${SOCRATIC_GOAL_ID} only: a 1-4 word noun phrase copied verbatim from the passage that names a topic or term, never a result. Null otherwise.`
           ),
         loadedWord: z
           .string()
@@ -161,7 +161,7 @@ function getProactiveGroupSystemPrompt(goals: ConversationGoal[]): string {
   const readingRule = goals.some((g) => g.id === SOCRATIC_GOAL_ID)
     ? `
 - "${SOCRATIC_GOAL_ID}" questions must be grounded in the "## Background Reading:" section of the user message. If that section is absent, do not use "${SOCRATIC_GOAL_ID}".
-- For "${SOCRATIC_GOAL_ID}" do not write the question yourself: set sharedChatMessage to the single word "question" (a separate step writes the message from your slots, without seeing the passage). Instead fill: "sourceLabel" (author or title of the reading the passage comes from), "concept" (a term or phrase copied verbatim from the passage, at most 6 words, no numbers, never a result or finding), and "loadedWord" (a word the group keeps repeating that the passage treats differently, otherwise null). Leave these null for other goals.`
+- For "${SOCRATIC_GOAL_ID}" do not write the question yourself: set sharedChatMessage to the single word "question" (a separate step writes the message from your slots, without seeing the passage). Instead fill: "sourceLabel" (just the author surname or the title, e.g. "Ostrom", with no year or full citation), "concept" (a short noun phrase of 1-4 words copied verbatim from the passage that NAMES a topic or term, e.g. "procedural legitimacy" or "monitoring costs"; never a sentence, a result, a trend, or anything with a number or a verb like fell/rose/found), and "loadedWord" (a word the group keeps repeating that the passage treats differently, otherwise null). Leave these null for other goals.`
     : ''
 
   return `You are an AI facilitator during a live event. You read participant messages and the live transcript, then decide whether to post in the shared group chat.

@@ -41,6 +41,16 @@ function clean(value: unknown): string {
     : ''
 }
 
+/** The decision model often copies a whole citation; keep the part that names the source. */
+function normalizeSourceLabel(raw: string): string {
+  const noYear = raw
+    .replace(/\(\s*\d{4}[a-z]?\s*\)|\b\d{4}[a-z]?\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const lead = noYear.split(/,|\.\s/)[0].trim()
+  return clean(lead.length >= 3 ? lead : noYear)
+}
+
 function sourceMatchesResources(label: string, passage: string, resources: SocraticResourceRef[]): boolean {
   const needle = label.toLowerCase()
   if (needle.length < 3) return false
@@ -77,7 +87,7 @@ export function validateSocraticSlots(
     return { ok: false, reason: 'concept is not in the retrieved passage' }
   }
 
-  const sourceLabel = clean(raw.sourceLabel)
+  const sourceLabel = normalizeSourceLabel(clean(raw.sourceLabel))
   if (!sourceLabel) return { ok: false, reason: 'sourceLabel missing' }
   if (!sourceMatchesResources(sourceLabel, context.passage, context.resources)) {
     return { ok: false, reason: 'sourceLabel matches no reading' }
