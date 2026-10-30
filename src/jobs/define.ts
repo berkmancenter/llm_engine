@@ -1,14 +1,6 @@
 import agenda from './index.js'
 import JobHandlers from './handlers/index.js'
-
-/* Agenda's own default lockLifetime (10 min) assumes a job either finishes or dies within
-   that window; once it elapses, the job's lock is treated as stale and another instance's
-   poller will run it again from scratch. These jobs call out to an LLM (or, for
-   batchTranscript, an embeddings API) and can legitimately run longer than 10 minutes under
-   load, so they get a longer lockLifetime to avoid two instances genuinely running the same
-   job concurrently. See jobs/handlers/* for the idempotency guards that cover the (much more
-   likely) case of a job being killed and retried after its lock does expire. */
-const LLM_JOB_LOCK_LIFETIME = 15 * 60 * 1000 // 15 minutes
+import { LLM_JOB_LOCK_LIFETIME } from './lockLifetime.js'
 
 const defineJob = {
   /* One definition per job TYPE, not per agent. agenda only ever processes a job name that
@@ -61,6 +53,9 @@ const defineJob = {
   },
   summarizePdf: async () => {
     await agenda.define('summarize pdf', { lockLifetime: LLM_JOB_LOCK_LIFETIME }, JobHandlers.summarizePdf)
+  },
+  generateConceptGraph: async () => {
+    await agenda.define('generateConceptGraph', { lockLifetime: LLM_JOB_LOCK_LIFETIME }, JobHandlers.generateConceptGraph)
   },
   conversationEvent: async () => {
     await agenda.define('conversationEvent', { lockLifetime: LLM_JOB_LOCK_LIFETIME }, JobHandlers.conversationEvent)

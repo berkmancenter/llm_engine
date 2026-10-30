@@ -41,7 +41,7 @@ store — anything that would be wrong to do twice — work through this before 
 4. **Set `lockLifetime` above the job's realistic worst case** in `define.ts` if it calls an
    LLM or embeddings API. The 10-minute library default can be shorter than a real call under
    load, which would let another instance start the same job as a genuine *concurrent*
-   duplicate — not just a retry. `LLM_JOB_LOCK_LIFETIME` (15 min) in that file is the existing
+   duplicate — not just a retry. `LLM_JOB_LOCK_LIFETIME` (15 min, in `lockLifetime.ts`) is the existing
    convention; add new LLM-calling job names to it rather than inventing a new constant.
 5. **No clean idempotency key exists?** Accept the gap explicitly with a comment (see
    `batchTranscript` in `handlers/transcript.ts`, which duplicates RAG chunks on a retry and

@@ -3,12 +3,15 @@ import request from 'supertest'
 import httpStatus from 'http-status'
 import mongoose from 'mongoose'
 import app from '../../src/app.js'
+import config from '../../src/config/config.js'
 import setupIntTest from '../utils/setupIntTest.js'
 import Conversation from '../../src/models/conversation.model.js'
+import Artifact from '../../src/models/artifact.model/artifact.js'
 import ArtifactVersion from '../../src/models/artifact.model/version.js'
 import { DOCUMENT_ARTIFACT } from '../../src/models/artifact.model/documentArtifact.js'
 import { CONCEPT_GRAPH_ARTIFACT } from '../../src/models/artifact.model/conceptGraphArtifact.js'
 import websocketGateway from '../../src/websockets/websocketGateway.js'
+import schedule from '../../src/jobs/schedule.js'
 import { insertUsers, userOne, participant } from '../fixtures/user.fixture.js'
 import { userOneAccessToken, participantAccessToken } from '../fixtures/token.fixture.js'
 import { newPublicTopic, insertTopics } from '../fixtures/topic.fixture.js'
@@ -17,6 +20,9 @@ setupIntTest()
 
 /* No socket server in the suite, and the route must not fail because of it. */
 const broadcastSpy = jest.spyOn(websocketGateway, 'broadcastArtifactVersion')
+/* POST /v1/artifacts/generate only claims/creates the artifact and enqueues a job — the
+   pipeline itself is exercised in tests/services/conceptGraph, so the job is spied out here. */
+const scheduleSpy = jest.spyOn(schedule, 'generateConceptGraph')
 
 beforeAll(async () => {
   await ArtifactVersion.syncIndexes()
@@ -28,6 +34,8 @@ let conversation
 beforeEach(async () => {
   broadcastSpy.mockReset()
   broadcastSpy.mockResolvedValue(undefined)
+  scheduleSpy.mockReset()
+  scheduleSpy.mockResolvedValue(undefined)
   await insertUsers([userOne, participant])
   topic = newPublicTopic()
   topic.owner = userOne._id
@@ -42,6 +50,7 @@ beforeEach(async () => {
 
 afterAll(() => {
   broadcastSpy.mockRestore()
+  scheduleSpy.mockRestore()
 })
 
 const createBody = (overrides = {}) => ({
@@ -435,6 +444,118 @@ describe('topic-scoped series concept graph', () => {
 
     expectIntact(res.body.currentVersion.payload)
     expectNoAttribution(res.body)
+  })
+})
+
+describe('POST /v1/artifacts/generate', () => {
+  /* The pipeline itself never runs in this route anymore — it is enqueued as a job (see
+     jobs/handlers/conceptGraph.ts) precisely so this request can't run long enough to hit
+     the load balancer's backend timeout (infra/modules/webserver-mig/lb.tf). */
+  it('responds 202 immediately with a pending artifact and enqueues a job, without running the pipeline', async () => {
+    const res = await request(app)
+      .post('/v1/artifacts/generate')
+      .set('Authorization', `Bearer ${userOneAccessToken}`)
+      .send({ conversationId: conversation._id.toString() })
+      .expect(httpStatus.ACCEPTED)
+
+    expect(res.body.generated).toBe(true)
+    expect(res.body.status).toBe('pending')
+    expect(res.body.artifact.type).toBe(CONCEPT_GRAPH_ARTIFACT)
+    expect(res.body.artifact.generationStatus).toBe('pending')
+    expect(res.body.artifact.currentVersion).toBeUndefined()
+    expect(scheduleSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ artifactId: res.body.artifact.id, conversationId: conversation._id.toString() })
+    )
+  })
+
+  it('does not return generationStartedAt, though it is stored on create', async () => {
+    const res = await request(app)
+      .post('/v1/artifacts/generate')
+      .set('Authorization', `Bearer ${userOneAccessToken}`)
+      .send({ conversationId: conversation._id.toString() })
+      .expect(httpStatus.ACCEPTED)
+
+    expect(res.body.artifact).not.toHaveProperty('generationStartedAt')
+    const doc = await Artifact.collection.findOne({ _id: new mongoose.Types.ObjectId(res.body.artifact.id) })
+    expect(doc!.generationStartedAt).toBeInstanceOf(Date)
+
+    const fetched = await request(app)
+      .get(`/v1/artifacts/${res.body.artifact.id}`)
+      .set('Authorization', `Bearer ${userOneAccessToken}`)
+      .expect(httpStatus.OK)
+    expect(fetched.body).not.toHaveProperty('generationStartedAt')
+  })
+
+  /* The leak guard is the global error handler's production masking of non-operational
+     errors (middlewares/error.ts), so the test runs the route under that mode. */
+  it('responds 500 without the underlying message when enqueueing fails, and leaves no shell behind', async () => {
+    scheduleSpy.mockRejectedValue(new Error('mongo blip at db.internal:27017'))
+    const originalEnv = config.env
+    config.env = 'production'
+    let res
+    try {
+      res = await request(app)
+        .post('/v1/artifacts/generate')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({ conversationId: conversation._id.toString() })
+    } finally {
+      config.env = originalEnv
+    }
+
+    expect(res.status).toBe(httpStatus.INTERNAL_SERVER_ERROR)
+    expect(JSON.stringify(res.body)).not.toContain('db.internal')
+    const docs = await Artifact.collection.find({ conversation: conversation._id }).toArray()
+    expect(docs).toHaveLength(1)
+    expect(docs[0].isDeleted).toBe(true)
+  })
+
+  it('does not enqueue a second job while one is already pending', async () => {
+    const first = await request(app)
+      .post('/v1/artifacts/generate')
+      .set('Authorization', `Bearer ${userOneAccessToken}`)
+      .send({ conversationId: conversation._id.toString() })
+      .expect(httpStatus.ACCEPTED)
+    scheduleSpy.mockClear()
+
+    const second = await request(app)
+      .post('/v1/artifacts/generate')
+      .set('Authorization', `Bearer ${userOneAccessToken}`)
+      .send({ conversationId: conversation._id.toString() })
+      .expect(httpStatus.ACCEPTED)
+
+    expect(second.body.artifact.id).toBe(first.body.artifact.id)
+    expect(second.body.status).toBe('pending')
+    expect(scheduleSpy).not.toHaveBeenCalled()
+  })
+
+  it('refuses a participant, who may read the eventual graph but not trigger generation', async () => {
+    await request(app)
+      .post('/v1/artifacts/generate')
+      .set('Authorization', `Bearer ${participantAccessToken}`)
+      .send({ conversationId: conversation._id.toString() })
+      .expect(httpStatus.FORBIDDEN)
+    expect(scheduleSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('appendVersion after a generation claim', () => {
+  it('flips a taken-over pending artifact to ready and clears the claim fields', async () => {
+    const created = await createArtifact()
+    await Artifact.updateOne(
+      { _id: created.id },
+      { $set: { generationStatus: 'pending', generationStartedAt: new Date(0), generationError: 'old' } }
+    )
+
+    await request(app)
+      .post(`/v1/artifacts/${created.id}/versions`)
+      .set('Authorization', `Bearer ${userOneAccessToken}`)
+      .send({ payload: { body: 'A revised summary.' } })
+      .expect(httpStatus.CREATED)
+
+    const doc = await Artifact.collection.findOne({ _id: new mongoose.Types.ObjectId(created.id) })
+    expect(doc!.generationStatus).toBe('ready')
+    expect(doc!.generationStartedAt).toBeUndefined()
+    expect(doc!.generationError).toBeUndefined()
   })
 })
 

@@ -18,6 +18,7 @@ import { getChatPromptResponse } from '../../agents/helpers/llmChain.js'
 import { computeParticipation, countChannelParticipants, computeAudienceEngagement } from '../conversationAnalytics.service.js'
 import artifactService from '../artifact.service.js'
 import buildProvenance from '../../utils/provenance.js'
+import { LLM_JOB_LOCK_LIFETIME } from '../../jobs/lockLifetime.js'
 import { EXTRACTION_PROMPT, EXTRACTION_SCHEMA } from './prompt.js'
 import { aliasedKey, assembleGraph, AssemblyReport, ExtractionResult, PollRefMap, SourceRefMap } from './assemble.js'
 import { screenForIdentities } from './nameScreen.js'
@@ -36,6 +37,7 @@ import {
 import { applyRelinks, proposeRelinks } from './relink.js'
 import { proposeConsolidations, ConsolidationCandidate } from './consolidate.js'
 import { ConceptGraphPayload, IBaseUser } from '../../types/index.types.js'
+import schedule from '../../jobs/schedule.js'
 
 /*
  * Builds a ConceptGraphArtifact from an event that has finished.
@@ -628,7 +630,10 @@ export const refineTopicGraph = async (
     pollRefs?: PollRefMap
     sourceMessages?: SourceMessage[]
   },
-  options?: { reset?: boolean }
+  /* `onConversation` is called once per conversation the backfill reads, so a caller running
+     this inside a locked job can renew its lock as it goes: a long series can outlast the
+     lock otherwise. A failure in it is logged, never allowed to fail the run. */
+  options?: { reset?: boolean; onConversation?: () => void | Promise<void> }
 ) => {
   const requestedReset = options?.reset ?? false
   if (requestedReset) logger.info(`conceptGraph: topic ${topicId} resetting — recomputing from the raw transcripts alone`)
@@ -675,6 +680,11 @@ export const refineTopicGraph = async (
        would have built had the feature existed at the time. */
     const accumulated: string[] = []
     for (const conversation of conversations) {
+      try {
+        await options?.onConversation?.()
+      } catch (error) {
+        logger.warn(`conceptGraph: topic ${topicId} onConversation callback failed: ${error}`)
+      }
       const sources = await loadSources(conversation, knownIdentities)
       if (sources.texts.length === 0) continue
       texts = [...texts, ...sources.texts]
@@ -903,9 +913,121 @@ export const refineTopicGraph = async (
   return { artifact, version, report }
 }
 
+/*
+ * Claims (or creates) the target artifact and hands the actual generation off to a
+ * background job (jobs/handlers/conceptGraph.ts), rather than running generateConceptGraph/
+ * refineTopicGraph's LLM chain inline. POST /v1/artifacts/generate sits behind a load
+ * balancer with a much shorter timeout than this pipeline can take
+ * (infra/modules/webserver-mig/lb.tf), so a caller must never wait on either function
+ * directly.
+ *
+ * The atomic claim below — flip generationStatus to 'pending', but only if it is not
+ * already 'pending' — is the "claim before you act" guard jobs/CLAUDE.md asks for, and it
+ * doubles as the only thing stopping two overlapping requests for the same artifact from
+ * both starting a generation run and paying for the LLM calls twice. A generation already
+ * in flight is a no-op: the caller gets the same, still-pending artifact back rather than a
+ * second job.
+ *
+ * `pending` is only trusted for as long as the job's own lock could still be held: a claim
+ * older than LLM_JOB_LOCK_LIFETIME (or one with no generationStartedAt at all) is treated as
+ * abandoned and can be taken over, since agenda would have handed the job to another worker by
+ * then anyway. Without this, a failure between the claim and the job landing in the queue would
+ * leave the artifact `pending` for good and every later request would return early.
+ */
+export const enqueueGeneration = async (
+  { conversationId, topicId, reset }: { conversationId?: string; topicId?: string; reset?: boolean },
+  caller: IBaseUser
+) => {
+  if (!!topicId === !!conversationId) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Provide exactly one of topicId or conversationId')
+  }
+
+  const container = await artifactService.resolveContainer({ topicId, conversationId })
+  if (!container) {
+    throw new ApiError(
+      httpStatus.NOT_FOUND,
+      conversationId ? `Conversation with id ${conversationId} not found` : `Topic with id ${topicId} not found`
+    )
+  }
+  await artifactService.authorizeArtifactWrite(container, caller)
+
+  const existing = await Artifact.findOne({
+    ...(conversationId ? { conversation: conversationId } : { topic: topicId, scope: 'topic' }),
+    __t: CONCEPT_GRAPH_ARTIFACT,
+    isDeleted: { $ne: true }
+  })
+    .sort('createdAt')
+    .exec()
+
+  const callerId = caller._id!.toString()
+
+  /* The generic message a failed enqueue leaves on the artifact, which reaches every reader
+     of it. The real error is logged, not stored. */
+  const ENQUEUE_FAILED = 'Generation could not be started. Try again, or check the server logs.'
+
+  if (existing) {
+    const staleBefore = new Date(Date.now() - LLM_JOB_LOCK_LIFETIME)
+    const claimed = await Artifact.findOneAndUpdate(
+      {
+        _id: existing._id,
+        // `$not: { $gte }` also matches a missing generationStartedAt, which counts as stale.
+        $or: [{ generationStatus: { $ne: 'pending' } }, { generationStartedAt: { $not: { $gte: staleBefore } } }]
+      },
+      { $set: { generationStatus: 'pending', generationStartedAt: new Date() }, $unset: { generationError: '' } },
+      { new: true }
+    ).exec()
+    if (!claimed) {
+      // Already generating — hand back the in-flight artifact rather than starting a duplicate.
+      return existing
+    }
+    try {
+      await schedule.generateConceptGraph({ artifactId: claimed._id!.toString(), conversationId, topicId, callerId, reset })
+    } catch (err) {
+      logger.error(`conceptGraph: failed to enqueue generation for artifact ${claimed._id}`, err)
+      /* A shell with no version has nothing to show, so it goes away like a first run that
+         failed in the handler; one with a version goes back to showing it, marked failed. */
+      await Artifact.updateOne(
+        { _id: claimed._id },
+        claimed.currentVersion
+          ? { $set: { generationStatus: 'failed', generationError: ENQUEUE_FAILED } }
+          : { $set: { isDeleted: true } }
+      ).exec()
+      throw err
+    }
+    return claimed
+  }
+
+  const name = conversationId
+    ? (await Conversation.findById(conversationId).select('name').lean().exec())?.name
+    : (await Topic.findOne({ _id: topicId, isDeleted: { $ne: true } }).select('name').lean().exec())?.name
+
+  const artifact = await Artifact.create({
+    __t: CONCEPT_GRAPH_ARTIFACT,
+    scope: container.scope,
+    topic: container.topicId,
+    ...(container.scope === 'conversation' && { conversation: container.conversationId }),
+    title: `Concept map — ${name ?? (conversationId ? 'event' : 'series')}`,
+    createdBy: caller?._id,
+    generationStatus: 'pending',
+    generationStartedAt: new Date()
+  })
+
+  try {
+    await schedule.generateConceptGraph({ artifactId: artifact._id!.toString(), conversationId, topicId, callerId, reset })
+  } catch (err) {
+    logger.error(`conceptGraph: failed to enqueue generation for new artifact ${artifact._id}`, err)
+    // Freshly created, so it has no version: soft-delete the shell rather than leave an empty failed one.
+    await Artifact.updateOne({ _id: artifact._id }, { $set: { isDeleted: true } }).exec()
+    throw err
+  }
+
+  return artifact
+}
+
 const conceptGraphService = {
   generateConceptGraph,
   refineTopicGraph,
+  enqueueGeneration,
   chunkSources,
   loadSources,
   GRAPH_SOURCE_CHANNELS

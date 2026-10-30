@@ -82,6 +82,26 @@ const artifactSchema = new mongoose.Schema<IArtifact, ArtifactModel>(
       default: false,
       index: true
     },
+    /* Tracks an in-flight or failed background generation run (see conceptGraph/index.ts's
+       enqueueGeneration and jobs/handlers/conceptGraph.ts). 'ready' covers both "never
+       generated asynchronously" and "generation succeeded" — appendVersion sets it on every
+       successful write, and artifacts predating this field read back as undefined, which
+       callers should treat the same as 'ready' since they only ever existed once a version
+       already did. */
+    generationStatus: {
+      type: String,
+      enum: ['ready', 'pending', 'failed'],
+      default: 'ready'
+    },
+    generationError: {
+      type: String
+    },
+    /* When the current `pending` claim was taken, so a claim older than the job lock lifetime
+       can be told apart from a run still in flight. See enqueueGeneration. */
+    generationStartedAt: {
+      type: Date,
+      private: true
+    },
     isDeleted: {
       type: Boolean,
       default: false,
