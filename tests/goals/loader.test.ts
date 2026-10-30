@@ -95,12 +95,51 @@ describe('getGroupChatGoals', () => {
   })
 })
 
+describe('socratic_probe', () => {
+  test('loads as a groupChat text goal with a confidence floor and examples', () => {
+    const goal = loadGoal('socratic_probe')
+    expect(goal).toMatchObject({ id: 'socratic_probe', channel: 'groupChat', outputContract: { format: 'text' } })
+    expect(goal.triggers.minConfidence).toBe(70)
+    expect(goal.triggers.conditions.length).toBeGreaterThan(0)
+    expect(goal.guardrails.length).toBeGreaterThan(0)
+    expect(goal.examples.length).toBeGreaterThan(0)
+  })
+
+  test('every example is a single one-sentence question within the word limit', () => {
+    for (const example of loadGoal('socratic_probe').examples) {
+      expect(example.match(/\?/g)).toHaveLength(1)
+      expect(example.trim().endsWith('?')).toBe(true)
+      expect(example.trim().split(/(?<=[.!?])\s+/)).toHaveLength(1)
+      expect(example.split(/\s+/).length).toBeLessThan(35)
+    }
+  })
+
+  test('triggers on a loaded word the readings use differently', () => {
+    const conditions = loadGoal('socratic_probe').triggers.conditions.map((c) => c.condition)
+    expect(conditions.some((c) => /loaded word/i.test(c) && /without saying what they mean/i.test(c))).toBe(true)
+  })
+
+  test('guards against invented analogies and anchors loaded words without attributing them', () => {
+    const guardrails = loadGoal('socratic_probe').guardrails.join('\n')
+    expect(guardrails).toMatch(/no analogies, hypothetical scenarios, or examples of your own/i)
+    expect(guardrails).toMatch(/only if the retrieved passage itself contains it/i)
+    expect(guardrails).toMatch(/quote that exact word, never who said it, and still name the source in the same sentence/i)
+    expect(guardrails).toMatch(/don't repeat a question or passage already used/i)
+  })
+
+  test('includes an example that anchors on a quoted loaded word and names the source', () => {
+    const { examples } = loadGoal('socratic_probe')
+    expect(examples.some((e) => /'fair'/.test(e) && /Tyler's/.test(e))).toBe(true)
+  })
+})
+
 describe('listGoalIds', () => {
   test('includes known goal ids from both channels', () => {
     const ids = listGoalIds()
     expect(ids).toContain('bridge_topics')
     expect(ids).toContain('private_reassure')
     expect(ids).toContain('missing_perspective')
+    expect(ids).toContain('socratic_probe')
   })
 
   test('does not include the schema.json file as a goal id', () => {

@@ -471,11 +471,14 @@ describe('resolveConversationType', () => {
         ])
       )
       expect(result.goals).not.toContain('provoke_participation')
+      expect(result.goals).not.toContain('socratic_probe')
     })
 
     test('includes challenge goals when catalyst is enabled', () => {
       const result = resolveConversationType({ features: [{ name: 'catalyst' }] }, typeWithGroupChatFeatures)
-      expect(result.goals).toEqual(expect.arrayContaining(['provoke_participation', 'play_commentary', 'poll_reveal']))
+      expect(result.goals).toEqual(
+        expect.arrayContaining(['provoke_participation', 'play_commentary', 'poll_reveal', 'socratic_probe'])
+      )
       expect(result.goals).not.toContain('synthesize_discussion')
     })
 

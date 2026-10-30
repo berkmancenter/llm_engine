@@ -119,7 +119,8 @@ export async function runInterventionAnalysis(
   behaviorPolicy?: BehaviorPolicy,
   channelType: 'dm' | 'groupChat' = 'groupChat',
   recentTranscript?: string,
-  goalPriorities?: Record<string, number>
+  goalPriorities?: Record<string, number>,
+  backgroundReading?: string
 ): Promise<InterventionAnalysis | null> {
   // Format conversation histories
   const sharedChatMessages = formatMultiUserConversationHistory(sharedChatHistory)
@@ -145,7 +146,12 @@ export async function runInterventionAnalysis(
   // Get agent's recent posts for self-awareness
   const agentRecentPosts = getAgentRecentPosts(sharedChatHistory, this.name, 5)
 
-  const resolvedUserTemplate = userTemplate ?? this.llmTemplates.user ?? USER_TEMPLATE
+  const baseUserTemplate = userTemplate ?? this.llmTemplates.user ?? USER_TEMPLATE
+  // Reading passages ride in the user prompt (not the system prompt) so the system prompt stays
+  // byte-stable for prompt caching. Omitted entirely when the caller has none.
+  const resolvedUserTemplate = backgroundReading
+    ? `## Background Reading:\n{backgroundReading}\n\n${baseUserTemplate}`
+    : baseUserTemplate
 
   const templateVars = {
     topic: this.conversation.name,
@@ -156,6 +162,7 @@ export async function runInterventionAnalysis(
       sharedChatMessages.map((m) => (m.role === 'assistant' ? `Assistant: ${m.content}` : m.content)).join('\n') ||
       'No shared chat messages yet.',
     agentRecentPosts,
+    ...(backgroundReading ? { backgroundReading } : {}),
     ...extraTemplateVars
   }
 

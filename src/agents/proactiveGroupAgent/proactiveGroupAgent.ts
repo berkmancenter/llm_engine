@@ -24,6 +24,28 @@ import { getEligibleGoals, getMinContributionMs, composeSystemPrompt } from '../
 import { getGroupChatGoals } from '../../goals/loader.js'
 import validateProfessionalism from '../helpers/professionalismValidator.js'
 import transcript from '../helpers/transcript.js'
+import { extractMessageText } from '../helpers/slashCommandParser.js'
+import { getBackgroundContextForQuestion } from '../tools/resourceSearch.js'
+
+const SOCRATIC_GOAL_ID = 'socratic_probe'
+// Bounds for the reading-search query built from recent shared chat: a few messages, each
+// clipped, so a long chat burst can't turn into an oversized embedding query.
+const READING_QUERY_MESSAGES = 5
+const READING_QUERY_MESSAGE_CHARS = 300
+const READING_QUERY_MAX_CHARS = 1000
+
+function buildReadingQuery(history: ConversationHistory): string {
+  return history.messages
+    .filter((m) => !m.fromAgent)
+    .slice(-READING_QUERY_MESSAGES)
+    .map((m) => {
+      const text = extractMessageText(m)
+      return typeof text === 'string' ? text.trim().slice(0, READING_QUERY_MESSAGE_CHARS) : ''
+    })
+    .filter(Boolean)
+    .join('\n')
+    .slice(-READING_QUERY_MAX_CHARS)
+}
 
 function getProactiveSchema(goals: ConversationGoal[]) {
   const goalIdOptions = [...goals.map((g) => g.id), 'none'] as unknown as [string, ...string[]]
@@ -50,6 +72,11 @@ function getProactiveSchema(goals: ConversationGoal[]) {
 
 function getProactiveGroupSystemPrompt(goals: ConversationGoal[]): string {
   const goalIdsList = [...goals.map((g) => `"${g.id}"`), '"none"'].join(' | ')
+  const readingRule = goals.some((g) => g.id === SOCRATIC_GOAL_ID)
+    ? `
+- "${SOCRATIC_GOAL_ID}" questions must be grounded in the "## Background Reading:" section of the user message. If that section is absent, do not use "${SOCRATIC_GOAL_ID}".
+- "${SOCRATIC_GOAL_ID}" messages are a single question, not a statement plus a question: at most one short clause naming the source, then the question. Never restate what the reading found.`
+    : ''
 
   return `You are an AI facilitator during a live event. You read participant messages and the live transcript, then decide whether to post in the shared group chat.
 
@@ -69,7 +96,7 @@ JUDGMENT:
 - Do not treat the opening phase of an event as a reason to withhold. A silent room during introductions is a valid state to act on — you do not need to wait for substantive topic discussion to begin before checking whether a goal applies.
 - Prioritize the present moment. History is context; act on what just happened.
 - Don't re-raise a theme that has already run its course or that you've made recently without meaningful development since.
-- Vary the goals you apply. Don't overuse any single one.
+- Vary the goals you apply. Don't overuse any single one.${readingRule}
 
 ## Output Format
 
@@ -218,16 +245,6 @@ export default verify({
     const personalityName = this.agentConfig?.personality ?? null
     const goalPriorities = this.agentConfig?.goalPriorities as Record<string, number> | undefined
     const goalContext = this.agentConfig?.goalContext as Record<string, string> | undefined
-    const systemPrompt = composeSystemPrompt(getProactiveGroupSystemPrompt(groupChatGoals), {
-      conversationContext: this.conversation.conversationContext,
-      behaviorPolicy: this.conversation.behaviorPolicy,
-      goals: groupChatGoals,
-      channelType: 'groupChat',
-      personalityName,
-      goalPriorities,
-      goalContext
-    })
-
     const sharedChatHistory = getConversationHistory(this.conversation.messages, {
       count: 100,
       channels: ['chat'],
@@ -264,23 +281,60 @@ export default verify({
       this.conversation.channels.filter((c: IChannel) => c.direct).map((c: IChannel) => c.name)
     )
 
+    // Prefetch only once we are about to call the LLM. socratic_probe is hard-gated: it is only
+    // offered to the model when passages were actually retrieved, so it can never fire ungrounded
+    // (no resources, empty/failed retrieval, or nothing to query with).
+    let backgroundReading: string | undefined
+    if (groupChatGoals.some((g) => g.id === SOCRATIC_GOAL_ID) && this.conversation.resources?.some((r) => r.fileName)) {
+      const query = buildReadingQuery(sharedChatHistory)
+      if (query) {
+        try {
+          backgroundReading = (await getBackgroundContextForQuestion(String(this.conversation._id), query)) || undefined
+        } catch (error) {
+          logger.warn(`${this.name}: background reading prefetch failed — continuing without`, error)
+        }
+      }
+    }
+
+    const eligibleGoals = backgroundReading ? groupChatGoals : groupChatGoals.filter((g) => g.id !== SOCRATIC_GOAL_ID)
+    if (eligibleGoals.length === 0) {
+      logger.debug(`${this.name}: only ${SOCRATIC_GOAL_ID} is active and no reading passages were retrieved — skipping`)
+      return []
+    }
+
+    const systemPrompt = composeSystemPrompt(getProactiveGroupSystemPrompt(eligibleGoals), {
+      conversationContext: this.conversation.conversationContext,
+      behaviorPolicy: this.conversation.behaviorPolicy,
+      goals: eligibleGoals,
+      channelType: 'groupChat',
+      personalityName,
+      goalPriorities,
+      goalContext
+    })
+
     const analysis = (await runInterventionAnalysis.call(
       this,
       sharedChatHistory,
       systemPrompt,
-      getProactiveSchema(groupChatGoals),
+      getProactiveSchema(eligibleGoals),
       privateHistory,
       undefined,
       undefined,
-      groupChatGoals,
+      eligibleGoals,
       this.conversation.behaviorPolicy,
       'groupChat',
       recentTranscript,
-      goalPriorities
+      goalPriorities,
+      backgroundReading
     )) as unknown as InterventionAnalysis | null
 
     if (!analysis) {
       logger.debug(`${this.agentType} ${this._id}: no intervention opportunity detected`)
+      return []
+    }
+
+    if (analysis.goalId === SOCRATIC_GOAL_ID && !backgroundReading) {
+      logger.warn(`${this.name}: ${SOCRATIC_GOAL_ID} chosen without retrieved passages — discarding`)
       return []
     }
 
@@ -301,7 +355,7 @@ export default verify({
 
     const chatChannels = this.conversation.channels.filter((c: IChannel) => c.name === 'chat')
 
-    const matchedGoal = groupChatGoals.find((g) => g.id === analysis.goalId)
+    const matchedGoal = eligibleGoals.find((g) => g.id === analysis.goalId)
     if (matchedGoal?.outputContract.format === 'poll') {
       logger.info(`${this.name}: Detected ${analysis.goalId} opportunity — ${analysis.detectedPattern}`)
       return executePoll.call(this, analysis, chatChannels, matchedGoal)

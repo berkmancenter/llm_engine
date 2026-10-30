@@ -468,6 +468,23 @@ describe('Conversation routes', () => {
       expect(conversation!.goals).toEqual(['challenge_consensus', 'missing_perspective'])
     })
 
+    test('should return 201 and persist the socratic_probe goal', async () => {
+      const resp = await request(app)
+        .post(`/v1/conversations`)
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({
+          name: 'Test Socratic Goal Conversation',
+          topicId: publicTopic._id.toString(),
+          goals: ['socratic_probe']
+        })
+        .expect(httpStatus.CREATED)
+
+      expect(resp.body.goals).toEqual(['socratic_probe'])
+
+      const conversation = await Conversation.findById(resp.body.id)
+      expect(conversation!.goals).toEqual(['socratic_probe'])
+    })
+
     test('non-owner fetching a conversation with channels should not see passcodes', async () => {
       const channels = await insertChannels(conversationWithChannels.channels)
       const toInsert = {
@@ -2446,6 +2463,19 @@ describe('Conversation routes', () => {
 
       const updatedConversation = await Conversation.findById(conversationOne._id)
       expect(updatedConversation?.goals).toEqual(['missing_perspective', 'surface_signal'])
+    })
+
+    test('should return 200 and update goals to socratic_probe when user is conversation owner', async () => {
+      const res = await request(app)
+        .put('/v1/conversations')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send({ id: conversationOne._id, goals: ['socratic_probe'] })
+        .expect(httpStatus.OK)
+
+      expect(res.body.goals).toEqual(['socratic_probe'])
+
+      const updatedConversation = await Conversation.findById(conversationOne._id)
+      expect(updatedConversation?.goals).toEqual(['socratic_probe'])
     })
 
     test('should return 400 when updating with an unknown goal id', async () => {
