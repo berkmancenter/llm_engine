@@ -13,9 +13,17 @@
 
 resource "google_compute_region_autoscaler" "web_server" {
   project = var.project_id
-  name    = "llm-engine-web-autoscaler"
-  region  = var.region
-  target  = google_compute_region_instance_group_manager.web_server.id
+  # Google refuses to change a regional autoscaler's target in place and the
+  # provider doesn't know that, so a new group needs a new autoscaler. Because
+  # the group is create_before_destroy, Terraform creates this one before the
+  # old one is gone; a fixed name then fails with a 409, hence the zone hash.
+  name   = "llm-engine-web-autoscaler-${local.zone_list_hash}"
+  region = var.region
+  target = google_compute_region_instance_group_manager.web_server.id
+
+  lifecycle {
+    replace_triggered_by = [google_compute_region_instance_group_manager.web_server.id]
+  }
 
   autoscaling_policy {
     min_replicas    = var.min_replicas

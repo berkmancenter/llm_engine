@@ -17,6 +17,8 @@ terraform {
 locals {
   vcpu_count                = tonumber(regex("-([0-9]+)$", var.machine_type)[0])
   websocket_max_parallelism = max(local.vcpu_count - 1, 1)
+  # Shared by the group and its autoscaler so both get a new name on a zone change.
+  zone_list_hash = substr(sha1(join(",", sort(var.zones))), 0, 6)
 }
 
 # --- Service account the VMs run as ---
@@ -186,7 +188,7 @@ resource "google_compute_region_instance_group_manager" "web_server" {
   project = var.project_id
   # Only the zone list feeds the suffix, so `terraform apply -replace` on this
   # resource collides with its own name. To force a fresh group, edit zones.
-  name                      = "llm-engine-web-mig-${substr(sha1(join(",", sort(var.zones))), 0, 6)}"
+  name                      = "llm-engine-web-mig-${local.zone_list_hash}"
   region                    = var.region
   distribution_policy_zones = var.zones
   # Not the default shape, EVEN: when a zone has no machines left, EVEN keeps
