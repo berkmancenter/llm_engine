@@ -419,6 +419,11 @@ export default verify({
       return []
     }
 
+    if (analysis.goalId === 'none') {
+      logger.debug(`${this.agentType} ${this._id}: decision returned goal none — no intervention`)
+      return []
+    }
+
     if (analysis.goalId === SOCRATIC_GOAL_ID && !backgroundReading) {
       logger.warn(`${this.name}: ${SOCRATIC_GOAL_ID} chosen without retrieved passages — discarding`)
       return []

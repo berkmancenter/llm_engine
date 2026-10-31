@@ -364,6 +364,35 @@ describe('proactiveGroupAgent socratic_probe question pipeline', () => {
     )
   })
 
+  it('never posts a decision with goal none, even with shouldIntervene and a message', async () => {
+    mockRunInterventionAnalysis.mockResolvedValue(
+      decision({ goalId: 'none', sharedChatMessage: 'A message the model wrote itself' })
+    )
+
+    const responses = await proactiveGroupAgent.respond.call(
+      makeAgent({ goals: ['socratic_probe', 'synthesize_discussion'] }),
+      history()
+    )
+
+    expect(responses).toEqual([])
+    expect(mockRunSocraticStage).not.toHaveBeenCalled()
+  })
+
+  it('still posts a non-none goal message', async () => {
+    mockRunInterventionAnalysis.mockResolvedValue(
+      decision({ goalId: 'synthesize_discussion', sharedChatMessage: 'A summary question?' })
+    )
+
+    const responses = await proactiveGroupAgent.respond.call(
+      makeAgent({ goals: ['socratic_probe', 'synthesize_discussion'] }),
+      history()
+    )
+
+    expect(responses).toHaveLength(1)
+    expect(responses[0].message).toBe('A summary question?')
+    expect(mockRunSocraticStage).not.toHaveBeenCalled()
+  })
+
   it('asks the decision call for slots only when socratic_probe is eligible', async () => {
     mockRunInterventionAnalysis.mockResolvedValue(null)
     await proactiveGroupAgent.respond.call(makeAgent({ goals: ['socratic_probe', 'synthesize_discussion'] }), history())
