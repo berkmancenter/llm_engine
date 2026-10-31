@@ -75,6 +75,13 @@ describe('checkSocraticShape', () => {
     ).toContain('outcome')
   })
 
+  it('rejects the added outcome words outside the slots, but not inside the concept slot', () => {
+    for (const word of ['hurt', 'lower', 'more', 'dropped', 'crowded']) {
+      expect(checkSocraticShape(`Why would ${word} replies matter per Okonkwo-Reyes?`, ctx()).join()).toContain('outcome')
+    }
+    expect(checkSocraticShape('How does Okonkwo-Reyes define quota crowding?', ctx())).toEqual([])
+  })
+
   it('rejects a 4-word run copied from the passage but not from the concept slot', () => {
     const copied = 'Does Okonkwo-Reyes mean the share of substantive replies in quota crowding?'
     expect(checkSocraticShape(copied, ctx()).join()).toContain('copy wording')

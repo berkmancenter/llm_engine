@@ -38,6 +38,46 @@ describe('validateSocraticSlots', () => {
     expect(validateSocraticSlots({ ...base, concept: 'replies fell' }, { ...ctx, passage }).ok).toBe(false)
   })
 
+  describe('concept versus finding terms', () => {
+    const FIXTURE =
+      "Okonkwo-Reyes (2024) reports that mandatory posting quotas in volunteer forums produce what she terms 'quota crowding': " +
+      'once members must post a minimum number of times per week, the share of substantive replies falls by roughly a third. ' +
+      'Communities that dropped quotas and instead recognized thoughtful contributions saw participation recover within two quarters.'
+    const fctx = { ...ctx, passage: FIXTURE }
+    const ok = (concept: string) => validateSocraticSlots({ ...base, concept }, fctx).ok
+
+    it('still allows the coined term and plain topic terms of the fixture reading', () => {
+      expect(ok('quota crowding')).toBe(true)
+      expect(ok('posting quotas')).toBe(true)
+      expect(ok('substantive replies')).toBe(true)
+      expect(ok('volunteer forums')).toBe(true)
+    })
+
+    it.each(['dropped quotas', 'quotas hurt', 'lower participation', 'more replies'])(
+      'rejects the outcome phrase %s',
+      (concept) => {
+        expect(ok(concept)).toBe(false)
+      }
+    )
+
+    it('rejects an unquoted crowd word, which only a quoted coined term may carry', () => {
+      const passage = 'Quotas lead to crowding of replies, and replies fall by a third.'
+      expect(validateSocraticSlots({ ...base, concept: 'crowding of replies' }, { ...ctx, passage }).ok).toBe(false)
+    })
+
+    it('rejects a concept sharing an outcome-ish word with a sentence that reports a quantity', () => {
+      const passage = 'Quotas were relaxed. Relaxed forums recovered within two quarters.'
+      const r = validateSocraticSlots({ ...base, concept: 'relaxed forums' }, { ...ctx, passage })
+      expect(r).toEqual({ ok: false, reason: expect.stringContaining('quantity') })
+      expect(validateSocraticSlots({ ...base, concept: 'Quotas were relaxed' }, { ...ctx, passage }).ok).toBe(false)
+    })
+
+    it('allows an outcome-ish word when no quantity sentence contains it', () => {
+      const passage = 'Moderated forums are common. Replies fell by a third.'
+      expect(validateSocraticSlots({ ...base, concept: 'moderated forums' }, { ...ctx, passage }).ok).toBe(true)
+    })
+  })
+
   it.each([
     ['author', 'Okonkwo-Reyes'],
     ['title', 'quota crowding in volunteer forums'],
