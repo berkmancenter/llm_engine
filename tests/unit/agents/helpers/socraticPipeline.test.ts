@@ -10,6 +10,7 @@ jest.unstable_mockModule('../src/agents/helpers/llmChain.js', () => ({
   getChatPromptResponse: mockChat
 }))
 
+const { default: logger } = await import('../../../../src/config/logger.js')
 const { default: runSocraticStage } = await import('../../../../src/agents/helpers/socraticPipeline.js')
 
 const PASSAGE =
@@ -98,6 +99,30 @@ describe('runSocraticStage', () => {
     await runSocraticStage(input())
 
     for (const c of writerCallsArgs()) expect(JSON.stringify(c)).not.toContain('collapsed 62')
+  })
+
+  it('logs each rejected draft with stage and reason, and a summary, without leaking them to the writer', async () => {
+    const info = jest.spyOn(logger, 'info').mockImplementation((() => logger) as never)
+    wire({
+      judgeA: () => ({ reasoning: 'asserts a one third drop', revealsFinding: true }),
+      judgeB: () => ({ impliedFindings: ['replies fell'] }),
+      writer: (n) => ({ question: n === 1 ? 'Okonkwo-Reyes found it fell, no?' : GOOD })
+    })
+    await runSocraticStage(input())
+
+    const lines = info.mock.calls.map((c) => String(c[0]))
+    info.mockRestore()
+    const rejects = lines.filter((l) => l.includes('draft rejected'))
+    expect(rejects).toHaveLength(4)
+    expect(rejects[0]).toContain('"attempt":1')
+    expect(rejects[0]).toContain('"stage":"shape"')
+    expect(rejects[0]).toContain('Okonkwo-Reyes found it fell, no?')
+    expect(rejects[1]).toContain('judge1:validateSocraticQuestion+judge2:extractImpliedFindings')
+    expect(rejects[1]).toContain('asserts a one third drop')
+    expect(rejects[1]).toContain('replies fell')
+    expect(lines.some((l) => l.includes('summary') && l.includes('"outcome":"posted-template"'))).toBe(true)
+    expect(lines.some((l) => l.includes('"attempts":4') && l.includes('"budgetHit":false'))).toBe(true)
+    for (const c of writerCallsArgs()) expect(JSON.stringify(c)).not.toContain('asserts a one third')
   })
 
   it('fails closed when judge (a) throws: the draft is not posted', async () => {

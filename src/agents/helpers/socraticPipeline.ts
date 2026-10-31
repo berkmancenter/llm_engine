@@ -27,7 +27,8 @@ export interface SocraticStageResult {
   source: 'writer' | 'template'
 }
 
-type Outcome = { message: string } | { rejected: RejectedDraft }
+/** `stage`/`detail` are for server logs only; the writer only ever sees `rejected.reasons`. */
+type Outcome = { message: string } | { rejected: RejectedDraft; stage: string; detail: string }
 
 async function draftOnce(input: SocraticStageInput, rejected: RejectedDraft[]): Promise<Outcome | 'writer-error'> {
   let draft: string
@@ -44,14 +45,28 @@ async function draftOnce(input: SocraticStageInput, rejected: RejectedDraft[]): 
   }
 
   const shapeReasons = checkSocraticShape(draft, input)
-  if (shapeReasons.length > 0) return { rejected: { draft, reasons: shapeReasons } }
+  if (shapeReasons.length > 0) {
+    return { rejected: { draft, reasons: shapeReasons }, stage: 'shape', detail: shapeReasons.join('; ') }
+  }
 
   // Independent judges; either flagging (or erroring) rejects. Both fail closed internally.
   const [a, b] = await Promise.all([
     validateSocraticQuestion(input.llm, draft, input.passage),
     extractImpliedFindings(input.llm, draft, input.passage)
   ])
-  if (!a.valid || !b.valid) return { rejected: { draft, reasons: [GENERIC_LEAK_REASON] } }
+  if (!a.valid || !b.valid) {
+    const stages: string[] = []
+    const details: string[] = []
+    if (!a.valid) {
+      stages.push('judge1:validateSocraticQuestion')
+      details.push(`judge1: ${a.reason ?? ''}`)
+    }
+    if (!b.valid) {
+      stages.push('judge2:extractImpliedFindings')
+      details.push(`judge2: ${b.reason ?? ''}`)
+    }
+    return { rejected: { draft, reasons: [GENERIC_LEAK_REASON] }, stage: stages.join('+'), detail: details.join(' | ') }
+  }
   return { message: draft }
 }
 
@@ -63,9 +78,12 @@ export default async function runSocraticStage(input: SocraticStageInput): Promi
   const deadline = Date.now() + (input.budgetMs ?? SOCRATIC_STAGE_BUDGET_MS)
   let expired = false
 
+  let attemptsUsed = 0
+
   const attempts = async (): Promise<SocraticStageResult | null> => {
     const rejected: RejectedDraft[] = []
     for (let attempt = 1; attempt <= MAX_WRITER_ATTEMPTS && !expired; attempt++) {
+      attemptsUsed = attempt
       const outcome = await draftOnce(input, rejected)
       if (expired) return null
       if (outcome === 'writer-error') {
@@ -73,7 +91,14 @@ export default async function runSocraticStage(input: SocraticStageInput): Promi
         continue
       }
       if ('message' in outcome) return { message: outcome.message, source: 'writer' }
-      logger.info(`[SocraticStage] draft ${attempt} rejected: ${outcome.rejected.reasons.join('; ')}`)
+      logger.info(
+        `[SocraticStage] draft rejected ${JSON.stringify({
+          attempt,
+          stage: outcome.stage,
+          reason: outcome.detail,
+          draft: outcome.rejected.draft
+        })}`
+      )
       rejected.push(outcome.rejected)
     }
     return null
@@ -89,7 +114,14 @@ export default async function runSocraticStage(input: SocraticStageInput): Promi
   } finally {
     clearTimeout(timer)
   }
-  if (result && result !== 'timeout') return result
+  const logSummary = (outcome: 'posted-writer' | 'posted-template' | 'silent') =>
+    logger.info(
+      `[SocraticStage] summary ${JSON.stringify({ outcome, attempts: attemptsUsed, budgetHit: result === 'timeout' })}`
+    )
+  if (result && result !== 'timeout') {
+    logSummary('posted-writer')
+    return result
+  }
   expired = true
   logger.info(
     `[SocraticStage] ${result === 'timeout' ? 'time budget exceeded' : 'no draft passed'} — using template fallback`
@@ -99,8 +131,10 @@ export default async function runSocraticStage(input: SocraticStageInput): Promi
   const reasons = checkSocraticShape(template, input)
   if (reasons.length > 0) {
     logger.warn(`[SocraticStage] template fallback failed checks (${reasons.join('; ')}) — staying silent`)
+    logSummary('silent')
     return null
   }
   logger.info('[SocraticStage] template fallback used')
+  logSummary('posted-template')
   return { message: template, source: 'template' }
 }

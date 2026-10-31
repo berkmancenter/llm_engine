@@ -117,7 +117,7 @@ export async function extractImpliedFindings(llm, message: string, passage: stri
       logger.warn(
         `[SocraticGuardrail] Implied findings in message: ${text}. Findings: ${result.impliedFindings.join(' | ')}`
       )
-      return { valid: false, reason: 'it implies a finding from the reading' }
+      return { valid: false, reason: `it implies a finding from the reading (${result.impliedFindings.join(' | ')})` }
     }
     return { valid: true }
   } catch (error) {
