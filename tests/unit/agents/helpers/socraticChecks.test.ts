@@ -55,6 +55,17 @@ describe('checkSocraticShape', () => {
     expect(checkSocraticShape(GOOD, ctx())).toEqual([])
   })
 
+  it.each(['he', 'she', 'his', 'her', 'him', 'hers', 'himself', 'herself'])('rejects the pronoun "%s"', (p) => {
+    const text = `Would Okonkwo-Reyes say ${p} treats quota crowding as we do?`
+    expect(checkSocraticShape(text, ctx()).join()).toContain('refer to the source only by its name')
+  })
+
+  it('does not flag pronoun-like substrings or quoted words', () => {
+    expect(checkSocraticShape('Where does Okonkwo-Reyes treat quota crowding, and is it there?', ctx())).toEqual([])
+    const c = ctx({ slots: { ...slots, loadedWord: 'her' } })
+    expect(checkSocraticShape('When we say "her", would Okonkwo-Reyes mean the same thing by it?', c)).toEqual([])
+  })
+
   it('rejects participant names, including a pseudonym surname', () => {
     expect(checkSocraticShape('Badger, how does Okonkwo-Reyes treat quota crowding?', ctx()).join()).toContain('participant')
     expect(checkSocraticShape('Did Curious Badger read Okonkwo-Reyes on quota crowding?', ctx()).join()).toContain(

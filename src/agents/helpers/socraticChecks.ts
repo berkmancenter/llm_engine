@@ -27,6 +27,13 @@ function normalizeQuotes(s: string): string {
   return s.replace(/[“”„]/g, '"').replace(/[‘’]/g, "'")
 }
 
+// Gendered pronouns: the writer has not read the source and cannot know which one is right.
+const SOURCE_PRONOUNS = /\b(he|she|his|her|hers|him|himself|herself)\b/i
+
+function removeQuoted(text: string): string {
+  return text.replace(/"[^"]*"/g, ' ')
+}
+
 function removeSlots(text: string, slots: SocraticSlots): string {
   let out = text
   for (const slot of [slots.concept, ...sourceNameVariants(slots.sourceLabel), slots.loadedWord ?? '']) {
@@ -146,6 +153,9 @@ export function checkSocraticShape(rawText: string, ctx: SocraticCheckContext): 
   // Setting the group's word against a reading term smuggles in a presupposition about the reading.
   if (slots.loadedWord && lower.includes(slots.loadedWord.toLowerCase()) && lower.includes(slots.concept.toLowerCase())) {
     reasons.push('ask only about the quoted word; do not pair it with any other term')
+  }
+  if (SOURCE_PRONOUNS.test(removeQuoted(text))) {
+    reasons.push('refer to the source only by its name; do not use he, she, his, her or him')
   }
   if (ANALOGY_PATTERN.test(text)) reasons.push('it must not use analogies or hypotheticals')
 

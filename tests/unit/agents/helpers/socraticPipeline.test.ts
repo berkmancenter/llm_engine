@@ -74,12 +74,17 @@ describe('runSocraticStage', () => {
     expect(writerCallsArgs()[0][3]).toEqual(expect.objectContaining({ concept: 'quota crowding' }))
   })
 
-  it('redrafts a draft that pairs the loaded word with the concept', async () => {
-    const drafts = ['When we say "healthy", would Okonkwo-Reyes mean quota crowding by that, or something broader?', GOOD]
+  it('redrafts a draft that pairs the loaded word with the concept, or uses a pronoun for the source', async () => {
+    const drafts = [
+      'When we say "healthy", would Okonkwo-Reyes mean quota crowding by that, or something broader?',
+      'When we say "healthy", would Okonkwo-Reyes say that is what she means?',
+      GOOD
+    ]
     wire({ writer: (n) => ({ question: drafts[n - 1] }) })
     expect(await runSocraticStage(input())).toEqual({ message: GOOD, source: 'writer' })
-    expect(writerCallsArgs()).toHaveLength(2)
+    expect(writerCallsArgs()).toHaveLength(3)
     expect(writerCallsArgs()[1][3].rejected).toContain('do not pair it with any other term')
+    expect(writerCallsArgs()[2][3].rejected).toContain('refer to the source only by its name')
   })
 
   it('redrafts via the writer only, with the rejection reasons, and never re-runs anything else', async () => {
