@@ -45,8 +45,8 @@ describe('checkSocraticShape', () => {
     expect(checkSocraticShape('Is a healthy forum what Okonkwo-Reyes means in quota crowding?', c).join()).toContain(
       'double quotes'
     )
-    expect(checkSocraticShape('Is a "healthy" forum what Okonkwo-Reyes means by quota crowding?', c)).toEqual([])
-    expect(checkSocraticShape('Is a “healthy” forum what Okonkwo-Reyes means by quota crowding?', c)).toEqual([])
+    expect(checkSocraticShape('Is a "healthy" forum what Okonkwo-Reyes would mean by quota crowding?', c)).toEqual([])
+    expect(checkSocraticShape('Is a “healthy” forum what Okonkwo-Reyes would mean by quota crowding?', c)).toEqual([])
   })
 
   it('rejects participant names, including a pseudonym surname', () => {
@@ -94,6 +94,37 @@ describe('checkSocraticShape', () => {
       expect.arrayContaining([expect.stringContaining('repeats an earlier post')])
     )
     expect(checkSocraticShape(GOOD, ctx({ recentPosts: ['Is anyone here a volunteer moderator themselves?'] }))).toEqual([])
+  })
+})
+
+describe('quoted words credited to the source', () => {
+  const REASON = 'credit the source'
+  const lw = ctx({ slots: { ...slots, loadedWord: 'healthy' } })
+  it.each([
+    'When Okonkwo-Reyes discusses quota crowding, how does that reading use the term "healthy", and would it match what you mean by it?',
+    'When you say filler posts count as "activity", how does Okonkwo-Reyes use that term, and does it match what you mean?',
+    'How does the source use "healthy" to describe forums?',
+    'How does Okonkwo-Reyes define "healthy" in the discussion of quota crowding?'
+  ])('rejects: %s', (text) => {
+    const c = text.includes('healthy') ? lw : ctx()
+    expect(checkSocraticShape(text, c).join()).toContain(REASON)
+  })
+
+  it.each([
+    'When we say "healthy", would Okonkwo-Reyes mean the same thing by it?',
+    'How would Okonkwo-Reyes treat "healthy" in a forum like ours?',
+    'Does Okonkwo-Reyes\'s idea of quota crowding apply to what we call "healthy"?',
+    'Does Okonkwo-Reyes\u2019s idea of quota crowding fit what we mean by \u201chealthy\u201d?',
+    'How does Okonkwo-Reyes use the phrase "quota crowding", and does that fit what we are describing?'
+  ])('passes: %s', (text) => {
+    const c = text.includes('healthy') ? lw : ctx()
+    expect(checkSocraticShape(text, c).join()).not.toContain(REASON)
+  })
+
+  it('does not flag a quoted span that occurs in the passage', () => {
+    expect(
+      checkSocraticShape('How does Okonkwo-Reyes use "substantive replies" in this finding?', ctx()).join()
+    ).not.toContain(REASON)
   })
 })
 

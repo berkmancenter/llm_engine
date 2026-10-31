@@ -62,6 +62,60 @@ export function findCopiedNgram(text: string, passage: string, slots: SocraticSl
   return null
 }
 
+const SOURCE_NOUNS = 'source|reading|study|author|authors|paper|text|article|she|he|they'
+// Present/past attributing verbs (and phrasal ones) that credit a subject with using a word.
+const ATTRIBUTING_VERBS =
+  'us(?:e|es|ed|ing)|defin(?:e|es|ed|ing)|describ(?:e|es|ed|ing)|discuss(?:es|ed|ing)?|treat(?:s|ed|ing)?|' +
+  'say|says|said|saying|call(?:s|ed|ing)?|mean|means|meant|refer(?:s|red|ring)? to|characteri[sz](?:e|es|ed|ing)|' +
+  'label(?:s|led|ed|ing)?|frame[sd]?|framing|interpret(?:s|ed|ing)?|regard(?:s|ed|ing)?|view(?:s|ed|ing)?|' +
+  'consider(?:s|ed|ing)?|understand(?:s|ing)?|understood|employ(?:s|ed|ing)?|writ(?:e|es|ing)|wrote|' +
+  'talk(?:s|ed|ing)? about|speak(?:s|ing)? of|spoke of'
+const MODALS = /\b(would|could|might|may|can|should|will)\b/i
+const WORD_ANAPHORA = /\b(that|this|the|such a|those|these) (term|word|phrase|label|wording|terms|words)\b/i
+
+function sourceRefPattern(label: string): string {
+  const names = sourceNameVariants(label).map(escapeRegExp)
+  return `(?:${[...names, `(?:the |this |that |their )?(?:${SOURCE_NOUNS})(?:'s)?`].join('|')})`
+}
+
+function normalizeForQuote(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+}
+
+/**
+ * Double-quoted spans of the draft that are not in the passage and sit in a clause where the source
+ * is the subject of a present/past attributing verb (or the next clause says "that term" about it).
+ * Such a draft credits the source with the group's own words; a modal ("would mean") is a question
+ * about what the source would do and is allowed.
+ */
+export function findQuotedWordCreditedToSource(text: string, passage: string, label: string): string | null {
+  const normPassage = ` ${normalizeForQuote(passage)} `
+  const clauses = text.split(/[,;:]|\s+(?:and|but|while|whereas)\s+/i)
+  // eslint-disable-next-line security/detect-non-literal-regexp
+  const credit = new RegExp(
+    `(?<![\\p{L}\\p{N}])${sourceRefPattern(
+      label
+    )}(?![\\p{L}\\p{N}])((?:\\s+[\\p{L}'-]+){0,3}?)\\s+(?:${ATTRIBUTING_VERBS})(?![\\p{L}\\p{N}])`,
+    'iu'
+  )
+  let lastForeignQuote: string | null = null
+  for (const clause of clauses) {
+    const quotes = [...clause.matchAll(/"([^"]+)"/g)]
+      .map((m) => m[1])
+      .filter((q) => normalizeForQuote(q) && !normPassage.includes(` ${normalizeForQuote(q)} `))
+    const m = credit.exec(clause)
+    // a modal before the verb makes it hypothetical; the clause may start with it ("would X mean")
+    const credited = m !== null && !MODALS.test(clause.slice(0, m.index + m[0].length))
+    if (credited && quotes.length > 0) return quotes[0]
+    if (credited && lastForeignQuote && WORD_ANAPHORA.test(clause)) return lastForeignQuote
+    if (quotes.length > 0) [lastForeignQuote] = quotes
+  }
+  return null
+}
+
 /**
  * Deterministic shape checks for a socratic question. Returns generic, passage-free reasons (they
  * are safe to hand back to the writer, which must never see the passage); empty means it passed.
@@ -90,6 +144,10 @@ export function checkSocraticShape(rawText: string, ctx: SocraticCheckContext): 
   )
   if (nameHit) reasons.push('it must not name any participant')
   if (ANALOGY_PATTERN.test(text)) reasons.push('it must not use analogies or hypotheticals')
+
+  if (findQuotedWordCreditedToSource(text, ctx.passage, slots.sourceLabel)) {
+    reasons.push('do not credit the source with words from the room; ask whether the source would use that word')
+  }
 
   const stripped = removeSlots(text, slots)
   if (/\d/.test(stripped)) reasons.push('it must not contain numbers')
