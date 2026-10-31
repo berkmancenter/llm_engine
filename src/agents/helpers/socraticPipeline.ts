@@ -1,15 +1,13 @@
 import logger from '../../config/logger.js'
 import { checkSocraticShape, renderSocraticTemplate } from './socraticChecks.js'
-import validateSocraticQuestion, { extractImpliedFindings } from './socraticQuestionValidator.js'
+import { extractImpliedFindings } from './socraticQuestionValidator.js'
 import writeSocraticQuestion, { RejectedDraft } from './socraticQuestionWriter.js'
 import { SocraticSlots } from './socraticSlots.js'
 
 /** One initial draft plus three redrafts, each a writer-only call. */
 export const MAX_WRITER_ATTEMPTS = 4
-/** Whole-stage budget; when it runs out the validated template is posted instead of going silent. */
-export const SOCRATIC_STAGE_BUDGET_MS = 45_000
 
-// Rejection reasons from the LLM judges can quote the passage, so the writer only ever gets this.
+// Rejection reasons from the LLM judge can quote the passage, so the writer only ever gets this.
 const GENERIC_LEAK_REASON = 'it stated or implied a result from the source; only ask how the source treats the concept'
 
 export interface SocraticStageInput {
@@ -19,7 +17,6 @@ export interface SocraticStageInput {
   humanChatLines: string[]
   recentPosts: string[]
   participantNames: string[]
-  budgetMs?: number
 }
 
 export interface SocraticStageResult {
@@ -49,23 +46,14 @@ async function draftOnce(input: SocraticStageInput, rejected: RejectedDraft[]): 
     return { rejected: { draft, reasons: shapeReasons }, stage: 'shape', detail: shapeReasons.join('; ') }
   }
 
-  // Independent judges; either flagging (or erroring) rejects. Both fail closed internally.
-  const [a, b] = await Promise.all([
-    validateSocraticQuestion(input.llm, draft, input.passage),
-    extractImpliedFindings(input.llm, draft, input.passage)
-  ])
-  if (!a.valid || !b.valid) {
-    const stages: string[] = []
-    const details: string[] = []
-    if (!a.valid) {
-      stages.push('judge1:validateSocraticQuestion')
-      details.push(`judge1: ${a.reason ?? ''}`)
+  // Fails closed internally: a judge error counts as a rejection.
+  const verdict = await extractImpliedFindings(input.llm, draft, input.passage)
+  if (!verdict.valid) {
+    return {
+      rejected: { draft, reasons: [GENERIC_LEAK_REASON] },
+      stage: 'judge:extractImpliedFindings',
+      detail: verdict.reason ?? ''
     }
-    if (!b.valid) {
-      stages.push('judge2:extractImpliedFindings')
-      details.push(`judge2: ${b.reason ?? ''}`)
-    }
-    return { rejected: { draft, reasons: [GENERIC_LEAK_REASON] }, stage: stages.join('+'), detail: details.join(' | ') }
   }
   return { message: draft }
 }
@@ -75,57 +63,33 @@ async function draftOnce(input: SocraticStageInput, rejected: RejectedDraft[]): 
  * the validated slots, else null (stay silent). Never re-runs the decision call.
  */
 export default async function runSocraticStage(input: SocraticStageInput): Promise<SocraticStageResult | null> {
-  const deadline = Date.now() + (input.budgetMs ?? SOCRATIC_STAGE_BUDGET_MS)
-  let expired = false
-
+  const rejected: RejectedDraft[] = []
   let attemptsUsed = 0
-
-  const attempts = async (): Promise<SocraticStageResult | null> => {
-    const rejected: RejectedDraft[] = []
-    for (let attempt = 1; attempt <= MAX_WRITER_ATTEMPTS && !expired; attempt++) {
-      attemptsUsed = attempt
-      const outcome = await draftOnce(input, rejected)
-      if (expired) return null
-      if (outcome === 'writer-error') {
-        rejected.push({ draft: '(no draft)', reasons: ['write one question that follows every rule'] })
-        continue
-      }
-      if ('message' in outcome) return { message: outcome.message, source: 'writer' }
-      logger.info(
-        `[SocraticStage] draft rejected ${JSON.stringify({
-          attempt,
-          stage: outcome.stage,
-          reason: outcome.detail,
-          draft: outcome.rejected.draft
-        })}`
-      )
-      rejected.push(outcome.rejected)
-    }
-    return null
-  }
-
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<'timeout'>((resolve) => {
-    timer = setTimeout(() => resolve('timeout'), Math.max(0, deadline - Date.now()))
-  })
-  let result: SocraticStageResult | null | 'timeout'
-  try {
-    result = await Promise.race([attempts(), timeout])
-  } finally {
-    clearTimeout(timer)
-  }
   const logSummary = (outcome: 'posted-writer' | 'posted-template' | 'silent') =>
+    logger.info(`[SocraticStage] summary ${JSON.stringify({ outcome, attempts: attemptsUsed })}`)
+
+  for (let attempt = 1; attempt <= MAX_WRITER_ATTEMPTS; attempt++) {
+    attemptsUsed = attempt
+    const outcome = await draftOnce(input, rejected)
+    if (outcome === 'writer-error') {
+      rejected.push({ draft: '(no draft)', reasons: ['write one question that follows every rule'] })
+      continue
+    }
+    if ('message' in outcome) {
+      logSummary('posted-writer')
+      return { message: outcome.message, source: 'writer' }
+    }
     logger.info(
-      `[SocraticStage] summary ${JSON.stringify({ outcome, attempts: attemptsUsed, budgetHit: result === 'timeout' })}`
+      `[SocraticStage] draft rejected ${JSON.stringify({
+        attempt,
+        stage: outcome.stage,
+        reason: outcome.detail,
+        draft: outcome.rejected.draft
+      })}`
     )
-  if (result && result !== 'timeout') {
-    logSummary('posted-writer')
-    return result
+    rejected.push(outcome.rejected)
   }
-  expired = true
-  logger.info(
-    `[SocraticStage] ${result === 'timeout' ? 'time budget exceeded' : 'no draft passed'} — using template fallback`
-  )
+  logger.info('[SocraticStage] no draft passed — using template fallback')
 
   const template = renderSocraticTemplate(input.slots)
   const reasons = checkSocraticShape(template, input)

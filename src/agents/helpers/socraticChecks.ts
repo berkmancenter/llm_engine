@@ -1,4 +1,4 @@
-import { FINDING_VERBS_PATTERN, SocraticSlots } from './socraticSlots.js'
+import { escapeRegExp, FINDING_VERBS_PATTERN, SocraticSlots } from './socraticSlots.js'
 import { contentWordOverlap } from './textOverlap.js'
 
 export const MAX_QUESTION_WORDS = 40
@@ -6,18 +6,13 @@ export const MAX_REPEAT_OVERLAP = 0.5
 const NGRAM_SIZE = 4
 
 // Analogies and hypotheticals of the writer's own: the goal forbids inventing them.
-export const ANALOGY_PATTERN =
-  /\b(imagine|think of a|is (this|that|it) like|as if|suppose|what if|picture a|craftsman|horse|ship)\b/i
+export const ANALOGY_PATTERN = /\b(imagine|think of a|is (this|that|it) like|as if|suppose|what if|picture a)\b/i
 
 export interface SocraticCheckContext {
   slots: SocraticSlots
   passage: string
   participantNames: string[]
   recentPosts: string[]
-}
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 /** Names the source may be referred to by: the full label, or its surname when it is a short name. */

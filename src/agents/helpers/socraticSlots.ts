@@ -24,7 +24,7 @@ const MIN_LOADED_WORD_USES = 2
 export const FINDING_VERBS_PATTERN =
   /\b(found|showed|fell|falls?|falling|rose|rises?|rising|recovered|recovers?|recovering|led to|caused|reduces?|reduced|increases?|increased|dropped|declined?|declining)\b/i
 
-function escapeRegExp(s: string): string {
+export function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 

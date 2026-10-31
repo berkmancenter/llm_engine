@@ -31,19 +31,17 @@ const LEAKY = 'Okonkwo-Reyes found replies fell by a third, so is "healthy" abou
 
 type Handlers = {
   writer?: (call: number) => unknown
-  judgeA?: () => unknown
-  judgeB?: () => unknown
+  judge?: () => unknown
 }
 
-function wire({ writer, judgeA, judgeB }: Handlers) {
+function wire({ writer, judge }: Handlers) {
   let writerCalls = 0
   mockChat.mockImplementation(async (_llm, system: string) => {
     if (system.startsWith('You write one Socratic question')) {
       const out = await (writer ?? (() => ({ question: GOOD })))(++writerCalls)
       return out
     }
-    if (system.startsWith('You check a facilitator')) return (judgeA ?? (() => ({ reasoning: '', revealsFinding: false })))()
-    return (judgeB ?? (() => ({ impliedFindings: [] })))()
+    return (judge ?? (() => ({ impliedFindings: [] })))()
   })
 }
 
@@ -93,7 +91,7 @@ describe('runSocraticStage', () => {
 
   it('does not feed judge reasoning (which may quote the passage) back to the writer', async () => {
     wire({
-      judgeA: () => ({ reasoning: 'it reveals that engagement collapsed 62 percent', revealsFinding: true }),
+      judge: () => ({ impliedFindings: ['engagement collapsed 62 percent'] }),
       writer: () => ({ question: GOOD })
     })
     await runSocraticStage(input())
@@ -104,8 +102,7 @@ describe('runSocraticStage', () => {
   it('logs each rejected draft with stage and reason, and a summary, without leaking them to the writer', async () => {
     const info = jest.spyOn(logger, 'info').mockImplementation((() => logger) as never)
     wire({
-      judgeA: () => ({ reasoning: 'asserts a one third drop', revealsFinding: true }),
-      judgeB: () => ({ impliedFindings: ['replies fell'] }),
+      judge: () => ({ impliedFindings: ['replies fell'] }),
       writer: (n) => ({ question: n === 1 ? 'Okonkwo-Reyes found it fell, no?' : GOOD })
     })
     await runSocraticStage(input())
@@ -117,35 +114,22 @@ describe('runSocraticStage', () => {
     expect(rejects[0]).toContain('"attempt":1')
     expect(rejects[0]).toContain('"stage":"shape"')
     expect(rejects[0]).toContain('Okonkwo-Reyes found it fell, no?')
-    expect(rejects[1]).toContain('judge1:validateSocraticQuestion+judge2:extractImpliedFindings')
-    expect(rejects[1]).toContain('asserts a one third drop')
+    expect(rejects[1]).toContain('judge:extractImpliedFindings')
     expect(rejects[1]).toContain('replies fell')
     expect(lines.some((l) => l.includes('summary') && l.includes('"outcome":"posted-template"'))).toBe(true)
-    expect(lines.some((l) => l.includes('"attempts":4') && l.includes('"budgetHit":false'))).toBe(true)
-    for (const c of writerCallsArgs()) expect(JSON.stringify(c)).not.toContain('asserts a one third')
+    expect(lines.some((l) => l.includes('"attempts":4'))).toBe(true)
+    for (const c of writerCallsArgs()) expect(JSON.stringify(c)).not.toContain('replies fell')
   })
 
-  it('fails closed when judge (a) throws: the draft is not posted', async () => {
+  it('fails closed when the judge throws or extracts a finding', async () => {
     wire({
-      judgeA: () => {
-        throw new Error('llm down')
-      }
-    })
-    const result = await runSocraticStage(input())
-
-    expect(result?.source).toBe('template')
-    expect(result?.message).not.toBe(GOOD)
-  })
-
-  it('fails closed when judge (b) throws or extracts a finding', async () => {
-    wire({
-      judgeB: () => {
+      judge: () => {
         throw new Error('llm down')
       }
     })
     expect((await runSocraticStage(input()))?.source).toBe('template')
 
-    wire({ judgeB: () => ({ impliedFindings: ['replies fell'] }) })
+    wire({ judge: () => ({ impliedFindings: ['replies fell'] }) })
     expect((await runSocraticStage(input()))?.source).toBe('template')
   })
 
@@ -171,11 +155,5 @@ describe('runSocraticStage', () => {
     wire({ writer: () => ({ question: LEAKY }) })
     const result = await runSocraticStage(input({ slots: { ...slots, loadedWord: null } }))
     expect(result?.message).toBe("How does Okonkwo-Reyes treat quota crowding, and does that fit what we're describing?")
-  })
-
-  it('jumps to the template (not silence) when the time budget runs out', async () => {
-    wire({ writer: () => new Promise(() => undefined) })
-    const result = await runSocraticStage(input({ budgetMs: 20 }))
-    expect(result?.source).toBe('template')
   })
 })
