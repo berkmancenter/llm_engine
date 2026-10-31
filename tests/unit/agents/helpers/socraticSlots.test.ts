@@ -72,6 +72,11 @@ describe('validateSocraticSlots', () => {
       expect(validateSocraticSlots({ ...base, concept: 'Quotas were relaxed' }, { ...ctx, passage }).ok).toBe(false)
     })
 
+    it('ignores digits in the passage header lines', () => {
+      const passage = 'Source ID: 0\nTitle: Fabricated Forums (2024)\nSnippet: Fabricated forums are common.'
+      expect(validateSocraticSlots({ ...base, concept: 'fabricated forums' }, { ...ctx, passage }).ok).toBe(true)
+    })
+
     it('allows an outcome-ish word when no quantity sentence contains it', () => {
       const passage = 'Moderated forums are common. Replies fell by a third.'
       expect(validateSocraticSlots({ ...base, concept: 'moderated forums' }, { ...ctx, passage }).ok).toBe(true)

@@ -97,7 +97,10 @@ export function conceptLooksLikeFinding(concept: string, passage: string): strin
   if (FINDING_VERBS_PATTERN.test(concept.replace(OUTCOME_ONLY_WORDS, ' '))) return 'concept contains a finding verb'
   if (isQuotedTerm(concept, passage)) return null
   if (FINDING_VERBS_PATTERN.test(concept)) return 'concept contains a finding verb'
-  const quantitySentences = passage.split(/(?<=[.!?])\s+/).filter((sentence) => QUANTITY_SENTENCE.test(sentence))
+  // Header lines ("Source ID: 0", "Title: ... (2024)") are metadata, not claims.
+  const quantitySentences = passage
+    .split(/(?<=[.!?])\s+|\n+/)
+    .filter((sentence) => !/^\s*(Source ID|Title):/i.test(sentence) && QUANTITY_SENTENCE.test(sentence))
   const shared = (concept.match(/[\p{L}'-]+/gu) ?? []).find(
     (word) => OUTCOME_WORD.test(word) && quantitySentences.some((sentence) => countWordUses(word, [sentence]) > 0)
   )
