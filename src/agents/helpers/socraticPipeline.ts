@@ -1,14 +1,10 @@
 import logger from '../../config/logger.js'
 import { checkSocraticShape, renderSocraticTemplate } from './socraticChecks.js'
-import findAssertedResult from './socraticQuestionValidator.js'
 import writeSocraticQuestion, { RejectedDraft } from './socraticQuestionWriter.js'
 import { SocraticSlots } from './socraticSlots.js'
 
 /** One initial draft plus three redrafts, each a writer-only call. */
 export const MAX_WRITER_ATTEMPTS = 4
-
-// Rejection reasons from the LLM judge can quote the passage, so the writer only ever gets this.
-const GENERIC_LEAK_REASON = 'it stated or implied a result from the source; only ask how the source treats the concept'
 
 export interface SocraticStageInput {
   llm: unknown
@@ -46,15 +42,6 @@ async function draftOnce(input: SocraticStageInput, rejected: RejectedDraft[]): 
     return { rejected: { draft, reasons: shapeReasons }, stage: 'shape', detail: shapeReasons.join('; ') }
   }
 
-  // A judge error counts as a rejection; the template (no judge needed) is the fallback.
-  const verdict = await findAssertedResult(input.llm, draft, input.passage)
-  if (!verdict.valid) {
-    return {
-      rejected: { draft, reasons: [GENERIC_LEAK_REASON] },
-      stage: verdict.error ? 'judge:error' : 'judge:span',
-      detail: verdict.reason ?? ''
-    }
-  }
   return { message: draft }
 }
 

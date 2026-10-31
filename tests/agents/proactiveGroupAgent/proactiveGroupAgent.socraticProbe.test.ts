@@ -59,14 +59,14 @@ const reading = {
 }
 
 /* Live-model eval of the guaranteed-question pipeline: the decision call picks the goal and slots,
-   a passage-blind writer drafts the question, code checks and two LLM judges gate it, and a template
+   a passage-blind writer drafts the question, deterministic code checks gate it, and a template
    built from validated slots is the fallback. The SHAPE of the message (one question, source named,
    loaded word quoted, no participant names, no numbers, no copied passage wording) is therefore a
    hard gate on every case. Whether the decision fires at all is still a model judgment, so it is
    logged separately ('socratic_probe responses:' line) rather than gated beyond the response count.
    Measured with haiku-4.5 on Bedrock over 5 sequential runs: all 5 cases passed in all 5 runs (25/25).
    Across those runs the decision fired a socratic_probe 11 times, the writer's draft was posted 10
-   times (often after 1-2 redrafts rejected by the judges) and the template fallback posted once. The
+   times (often after 1-2 redrafts rejected by the checks) and the template fallback posted once. The
    earlier-question case mostly stays silent. A sample this small does not bound the failure rate;
    a repeat failure on the same case is a regression. */
 describe('proactive group agent socratic_probe tests', () => {

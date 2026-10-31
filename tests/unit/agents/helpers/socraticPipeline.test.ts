@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals'
 
 /* Whole socratic stage with only the LLM chain mocked, dispatching on which prompt is being run, so
-   the real writer, judge, checks and template are exercised. */
+   the real writer, checks and template are exercised. */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockChat = jest.fn<(...args: any[]) => Promise<any>>()
@@ -31,17 +31,15 @@ const LEAKY = 'Okonkwo-Reyes found replies fell by a third, so is "healthy" abou
 
 type Handlers = {
   writer?: (call: number) => unknown
-  judge?: () => unknown
 }
 
-function wire({ writer, judge }: Handlers) {
+function wire({ writer }: Handlers) {
   let writerCalls = 0
   mockChat.mockImplementation(async (_llm, system: string) => {
     if (system.startsWith('You write one Socratic question')) {
-      const out = await (writer ?? (() => ({ question: GOOD })))(++writerCalls)
-      return out
+      return (writer ?? (() => ({ question: GOOD })))(++writerCalls)
     }
-    return (judge ?? (() => ({ span: null })))()
+    throw new Error('unexpected LLM call')
   })
 }
 
@@ -89,43 +87,10 @@ describe('runSocraticStage', () => {
     expect(result?.message).not.toMatch(/third|fell|quarter|recover/i)
   })
 
-  it('never gives the writer the passage or judge output on redrafts', async () => {
-    wire({
-      judge: (() => {
-        let n = 0
-        return () => (++n === 1 ? { span: 'mean the same thing' } : { span: null })
-      })()
-    })
-    const result = await runSocraticStage(input())
-
-    expect(result).toEqual({ message: GOOD, source: 'writer' })
-    const calls = writerCallsArgs()
-    expect(calls).toHaveLength(2)
-    for (const c of calls) {
-      const serialized = JSON.stringify(c)
-      expect(serialized).not.toContain('falls by roughly')
-      expect(serialized).not.toContain('presupposes')
-      expect(serialized).not.toContain('mean the same thing"')
-    }
-    expect(calls[1][3].rejected).toContain('only ask how the source treats the concept')
-  })
-
-  it('passes when the judge quotes a span that is not in the draft', async () => {
-    wire({ judge: () => ({ span: 'replies fell by a third' }) })
-    expect(await runSocraticStage(input())).toEqual({ message: GOOD, source: 'writer' })
-    expect(writerCallsArgs()).toHaveLength(1)
-  })
-
-  it('verifies the span case-, whitespace- and punctuation-insensitively', async () => {
-    wire({ judge: () => ({ span: 'MEAN  the same, thing' }) })
-    expect((await runSocraticStage(input()))?.source).toBe('template')
-  })
-
   it('logs each rejected draft with stage and reason, and a summary, without leaking them to the writer', async () => {
     const info = jest.spyOn(logger, 'info').mockImplementation((() => logger) as never)
     wire({
-      judge: () => ({ span: 'Okonkwo-Reyes on quota crowding' }),
-      writer: (n) => ({ question: n === 1 ? 'Okonkwo-Reyes found it fell, no?' : GOOD })
+      writer: () => ({ question: 'Okonkwo-Reyes found it fell, no?' })
     })
     await runSocraticStage(input())
 
@@ -136,36 +101,10 @@ describe('runSocraticStage', () => {
     expect(rejects[0]).toContain('"attempt":1')
     expect(rejects[0]).toContain('"stage":"shape"')
     expect(rejects[0]).toContain('Okonkwo-Reyes found it fell, no?')
-    expect(rejects[1]).toContain('judge:span')
-    expect(rejects[1]).toContain('Okonkwo-Reyes on quota crowding')
+    expect(rejects[3]).toContain('"attempt":4')
     expect(lines.some((l) => l.includes('summary') && l.includes('"outcome":"posted-template"'))).toBe(true)
     expect(lines.some((l) => l.includes('"attempts":4'))).toBe(true)
-    for (const c of writerCallsArgs()) expect(JSON.stringify(c)).not.toContain('judge:span')
-  })
-
-  it('does not go silent or post the unchecked draft when the judge errors: it posts the template', async () => {
-    wire({
-      judge: () => {
-        throw new Error('llm down')
-      }
-    })
-    const result = await runSocraticStage(input())
-    expect(result?.source).toBe('template')
-    expect(result?.message).not.toBe(GOOD)
-  })
-
-  it('skips the judge when SOCRATIC_JUDGE=off', async () => {
-    process.env.SOCRATIC_JUDGE = 'off'
-    try {
-      wire({
-        judge: () => {
-          throw new Error('should not be called')
-        }
-      })
-      expect(await runSocraticStage(input())).toEqual({ message: GOOD, source: 'writer' })
-    } finally {
-      delete process.env.SOCRATIC_JUDGE
-    }
+    for (const c of writerCallsArgs()) expect(JSON.stringify(c)).not.toContain('"stage"')
   })
 
   it('counts a writer error as a failed attempt and keeps trying', async () => {
