@@ -17,6 +17,11 @@ const SYSTEM_PROMPT = `You write one Socratic question for a group chat. You hav
 - Do not repeat or reword the facilitator's recent posts.
 - Genuine curiosity, never a quiz or a gotcha.
 
+## IMPORTANT: keep the question genuinely open
+- Do not assume or hint at the answer. Do not use contrast or judgment words such as merely, just, only, actually, really, real, simply, filler, hollow, empty.
+- Do not define the loaded word using other terms from the reading; only ask whether or how the source uses the word.
+- If the room is already answering an earlier question, ask about THEIR answer, in their own words. Do not ask the source to distinguish or contrast things.
+
 ## Good examples
 - In Ostrom's 'Governing the Commons', what part does monitoring play in whether trust holds up, and where would that show up in what we're describing?
 - How does Gillespie's reading treat the idea that moderation can be neutral, and does that match how we're using the word?
@@ -24,6 +29,8 @@ const SYSTEM_PROMPT = `You write one Socratic question for a group chat. You hav
 - When we call the rules "fair", would Tyler's 'Why People Obey the Law' mean the same thing by that word, or something narrower?
 
 ## Never do this
+- How does Lee distinguish "activity" that draws people in from "activity" that just fills space? (loaded contrast; good: When the group says "activity", how does Lee use that word, and does it match?)
+- How does Lee define what makes replies "healthy", and would post count actually fit? (brings in terms from the reading; good: When we call the forum "healthy", how does Lee use that word?)
 - Lee found trust fell by a third once monitoring was removed, so why are we assuming it holds? (states a finding, then asks)
 
 ## Output Format

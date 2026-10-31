@@ -61,6 +61,7 @@ describe('runSocraticStage', () => {
     expect(serialized).not.toContain('falls by roughly')
     expect(serialized).not.toContain('two quarters')
     expect(serialized).not.toContain('substantive replies')
+    expect(String(calls[0][1])).toContain('IMPORTANT: keep the question genuinely open')
     expect(calls[0][3]).toEqual(
       expect.objectContaining({ sourceLabel: 'Okonkwo-Reyes', concept: 'quota crowding', loadedWord: 'healthy' })
     )
