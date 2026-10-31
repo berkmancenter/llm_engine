@@ -1,6 +1,6 @@
 import logger from '../../config/logger.js'
 import { checkSocraticShape, renderSocraticTemplate } from './socraticChecks.js'
-import { extractImpliedFindings } from './socraticQuestionValidator.js'
+import findAssertedResult from './socraticQuestionValidator.js'
 import writeSocraticQuestion, { RejectedDraft } from './socraticQuestionWriter.js'
 import { SocraticSlots } from './socraticSlots.js'
 
@@ -46,12 +46,12 @@ async function draftOnce(input: SocraticStageInput, rejected: RejectedDraft[]): 
     return { rejected: { draft, reasons: shapeReasons }, stage: 'shape', detail: shapeReasons.join('; ') }
   }
 
-  // Fails closed internally: a judge error counts as a rejection.
-  const verdict = await extractImpliedFindings(input.llm, draft, input.passage)
+  // A judge error counts as a rejection; the template (no judge needed) is the fallback.
+  const verdict = await findAssertedResult(input.llm, draft, input.passage)
   if (!verdict.valid) {
     return {
       rejected: { draft, reasons: [GENERIC_LEAK_REASON] },
-      stage: 'judge:extractImpliedFindings',
+      stage: verdict.error ? 'judge:error' : 'judge:span',
       detail: verdict.reason ?? ''
     }
   }

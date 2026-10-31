@@ -2,65 +2,92 @@ import { z } from 'zod'
 import { getChatPromptResponse } from './llmChain.js'
 import logger from '../../config/logger.js'
 
-const ExtractionSchema = z.object({
-  impliedFindings: z
-    .array(z.string())
-    .describe(
-      'Every finding, number, or outcome from the passage that the message states or lets a reader infer. Empty if none.'
-    )
+const SpanSchema = z.object({
+  span: z
+    .string()
+    .nullable()
+    .describe('The exact words copied from the draft that state or presuppose a result from the passage, or null.')
 })
 
-const EXTRACT_SYSTEM_PROMPT = `You audit a facilitator's question for leaks of a reading's findings.
+const SYSTEM_PROMPT = `You check a facilitator's draft question against the reading passage it was drawn from.
 
-Given a reading passage and a facilitator message, list every finding, number, or outcome from the passage that the message states, paraphrases, or lets a reader infer (for example a question that presupposes the result: "why did replies fall once quotas arrived?" implies replies fell).
+Quote the exact words in the draft that state or presuppose a result from the passage, or return null.
 
-A message that only names the source, names a concept or term, or asks open-endedly how the source treats something implies NO finding. Return an empty list for those.
+Flag only an asserted or presupposed outcome, such as "why did replies fall?" or "since quotas hurt replies, ...". Copy the words from the draft character for character.
+
+Do NOT flag:
+- naming the source, its author, or its title;
+- naming the concept, or using the passage's own terms;
+- asking how the source treats, defines, or discusses something;
+- any open question that does not assume what happened.
 
 ## Output Format
 {{
-  "impliedFindings": [list of strings, empty if none]
+  "span": "exact words from the draft" or null
 }}
 
 Return ONLY raw JSON. No markdown, no backticks, no explanation.`
 
-const EXTRACT_USER_PROMPT = `Reading passage:
+const USER_PROMPT = `Reading passage:
 {passage}
 
-Facilitator message:
+Draft question:
 "{message}"
 
-List any finding, number, or outcome from the passage that the message states or implies.`
+Quote the words in the draft that state or presuppose a result from the passage, or return null.`
 
 export interface SocraticQuestionVerdict {
   valid: boolean
+  /** True when the judge could not run; the caller treats the draft as rejected. */
+  error?: boolean
   reason?: string
 }
 
+export type SocraticJudgeMode = 'off' | 'span'
+
+/** `SOCRATIC_JUDGE=off` skips the LLM judge (for ablations); anything else runs it. Read per call. */
+export function socraticJudgeMode(): SocraticJudgeMode {
+  return process.env.SOCRATIC_JUDGE?.trim().toLowerCase() === 'off' ? 'off' : 'span'
+}
+
+function normalize(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+}
+
+/** True when the quoted span really occurs in the draft (case, whitespace and punctuation ignored). */
+export function spanOccursIn(span: string, draft: string): boolean {
+  const needle = normalize(span)
+  return needle.length > 0 && ` ${normalize(draft)} `.includes(` ${needle} `)
+}
+
 /**
- * Judge: tries to extract any finding the message implies from the passage. Any non-empty
- * result rejects. Fails CLOSED on LLM errors.
+ * Judge: asks the model to quote the words of the draft that state or presuppose a result. A quote
+ * that is verifiably in the draft rejects it; no quote, or one that is not in the draft, passes. An
+ * LLM error is reported as `error` (not a pass) so the caller can reject the draft.
  */
-export async function extractImpliedFindings(llm, message: string, passage: string): Promise<SocraticQuestionVerdict> {
+export default async function findAssertedResult(llm, message: string, passage: string): Promise<SocraticQuestionVerdict> {
+  if (socraticJudgeMode() === 'off') return { valid: true }
   const text = message.trim()
   try {
     const result = (await getChatPromptResponse(
       llm,
-      EXTRACT_SYSTEM_PROMPT,
-      EXTRACT_USER_PROMPT,
+      SYSTEM_PROMPT,
+      USER_PROMPT,
       { passage, message: text },
       [],
-      ExtractionSchema
-    )) as z.infer<typeof ExtractionSchema>
+      SpanSchema
+    )) as z.infer<typeof SpanSchema>
 
-    if (result.impliedFindings.some((f) => f.trim())) {
-      logger.warn(
-        `[SocraticGuardrail] Implied findings in message: ${text}. Findings: ${result.impliedFindings.join(' | ')}`
-      )
-      return { valid: false, reason: `it implies a finding from the reading (${result.impliedFindings.join(' | ')})` }
+    const span = result.span?.trim()
+    if (span && spanOccursIn(span, text)) {
+      return { valid: false, reason: `it states or presupposes a result: "${span}"` }
     }
     return { valid: true }
   } catch (error) {
-    logger.error('[SocraticGuardrail] Extraction error, failing closed', error)
-    return { valid: false, reason: 'the finding extraction could not be completed' }
+    logger.error('[SocraticGuardrail] Judge error, treating the draft as rejected', error)
+    return { valid: false, error: true, reason: 'the result check could not be completed' }
   }
 }
