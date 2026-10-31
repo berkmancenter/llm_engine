@@ -11,7 +11,7 @@ const SYSTEM_PROMPT = `You write one Socratic question for a group chat. You hav
 ## Rules
 - Exactly one question, one sentence, at most 35 words, ending in a single question mark. No statement before it.
 - Name the source in the question, using the source name you are given.
-- Anchor on the given concept. If a loaded word is given, put it in double quotes in the question exactly as written.
+- If a loaded word is given, you get no concept: put the word in double quotes exactly as written and ask only whether or how the source uses it. Never add another term to set it against. Otherwise, anchor on the given concept.
 - Ask what the source says or how it treats the idea, and whether that fits what the group is describing. Do not guess, state, or hint at any result, number, trend, or outcome.
 - Do not name participants. Do not invent analogies, hypotheticals, or examples.
 - Do not repeat or reword the facilitator's recent posts.
@@ -84,7 +84,8 @@ export default async function writeSocraticQuestion(llm, input: SocraticWriterIn
     USER_PROMPT,
     {
       sourceLabel: input.slots.sourceLabel,
-      concept: input.slots.concept,
+      // With a loaded word the concept is withheld: pairing the two invites a presupposition.
+      concept: input.slots.loadedWord ? '(none)' : input.slots.concept,
       loadedWord: input.slots.loadedWord ?? '(none)',
       chatLines: input.humanChatLines.map((l) => `- ${l}`).join('\n') || '(none)',
       recentPosts: input.recentPosts.map((p) => `- ${p}`).join('\n') || '(none)',

@@ -42,11 +42,17 @@ describe('checkSocraticShape', () => {
 
   it('requires the loaded word in double quotes when set', () => {
     const c = ctx({ slots: { ...slots, loadedWord: 'healthy' } })
-    expect(checkSocraticShape('Is a healthy forum what Okonkwo-Reyes means in quota crowding?', c).join()).toContain(
-      'double quotes'
-    )
-    expect(checkSocraticShape('Is a "healthy" forum what Okonkwo-Reyes would mean by quota crowding?', c)).toEqual([])
-    expect(checkSocraticShape('Is a “healthy” forum what Okonkwo-Reyes would mean by quota crowding?', c)).toEqual([])
+    expect(checkSocraticShape('Is a healthy forum what Okonkwo-Reyes means by it?', c).join()).toContain('double quotes')
+    expect(checkSocraticShape('Is a "healthy" forum what Okonkwo-Reyes would mean by it?', c)).toEqual([])
+    expect(checkSocraticShape('Is a “healthy” forum what Okonkwo-Reyes would mean by it?', c)).toEqual([])
+  })
+
+  it('rejects a draft pairing the loaded word with the concept, case-insensitively', () => {
+    const c = ctx({ slots: { ...slots, loadedWord: 'healthy' } })
+    const paired = 'When we say "healthy", would Okonkwo-Reyes mean Quota Crowding by that?'
+    expect(checkSocraticShape(paired, c).join()).toContain('do not pair it with any other term')
+    // the concept alone is fine when there is no loaded word
+    expect(checkSocraticShape(GOOD, ctx())).toEqual([])
   })
 
   it('rejects participant names, including a pseudonym surname', () => {

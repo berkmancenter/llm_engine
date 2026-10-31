@@ -143,6 +143,10 @@ export function checkSocraticShape(rawText: string, ctx: SocraticCheckContext): 
     (n) => n.length >= 3 && new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(n)}(?![\\p{L}\\p{N}])`, 'iu').test(text)
   )
   if (nameHit) reasons.push('it must not name any participant')
+  // Setting the group's word against a reading term smuggles in a presupposition about the reading.
+  if (slots.loadedWord && lower.includes(slots.loadedWord.toLowerCase()) && lower.includes(slots.concept.toLowerCase())) {
+    reasons.push('ask only about the quoted word; do not pair it with any other term')
+  }
   if (ANALOGY_PATTERN.test(text)) reasons.push('it must not use analogies or hypotheticals')
 
   if (findQuotedWordCreditedToSource(text, ctx.passage, slots.sourceLabel)) {

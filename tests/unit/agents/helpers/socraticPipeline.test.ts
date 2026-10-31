@@ -26,7 +26,7 @@ const input = (over = {}) => ({
   ...over
 })
 
-const GOOD = 'When we say "healthy", does Okonkwo-Reyes on quota crowding mean the same thing by it?'
+const GOOD = 'When we say "healthy", does Okonkwo-Reyes mean the same thing by it?'
 const LEAKY = 'Okonkwo-Reyes found replies fell by a third, so is "healthy" about quota crowding?'
 
 type Handlers = {
@@ -64,8 +64,22 @@ describe('runSocraticStage', () => {
     expect(String(calls[0][1])).toContain('IMPORTANT: keep the question genuinely open')
     expect(String(calls[0][1])).toContain("IMPORTANT: do not credit the source with the group's words")
     expect(calls[0][3]).toEqual(
-      expect.objectContaining({ sourceLabel: 'Okonkwo-Reyes', concept: 'quota crowding', loadedWord: 'healthy' })
+      expect.objectContaining({ sourceLabel: 'Okonkwo-Reyes', concept: '(none)', loadedWord: 'healthy' })
     )
+  })
+
+  it('withholds the concept from the writer only when a loaded word is present', async () => {
+    wire({ writer: () => ({ question: 'How does Okonkwo-Reyes treat quota crowding, and does it fit?' }) })
+    await runSocraticStage(input({ slots: { ...slots, loadedWord: null } }))
+    expect(writerCallsArgs()[0][3]).toEqual(expect.objectContaining({ concept: 'quota crowding' }))
+  })
+
+  it('redrafts a draft that pairs the loaded word with the concept', async () => {
+    const drafts = ['When we say "healthy", would Okonkwo-Reyes mean quota crowding by that, or something broader?', GOOD]
+    wire({ writer: (n) => ({ question: drafts[n - 1] }) })
+    expect(await runSocraticStage(input())).toEqual({ message: GOOD, source: 'writer' })
+    expect(writerCallsArgs()).toHaveLength(2)
+    expect(writerCallsArgs()[1][3].rejected).toContain('do not pair it with any other term')
   })
 
   it('redrafts via the writer only, with the rejection reasons, and never re-runs anything else', async () => {
