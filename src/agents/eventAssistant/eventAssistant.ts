@@ -17,6 +17,8 @@ import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from
 import generateMindMap from './mindMapGenerator.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 import { loadGoal } from '../../goals/loader.js'
+import { GROUP_CHAT_CHANNELS, isGroupChatMessage } from '../helpers/groupChatChannel.js'
+import { PREGAME_CHANNEL } from '../../conversations/eventAssistant.js'
 
 /**
  * Builds a dynamic capability description for the WELCOME check-in message.
@@ -155,7 +157,7 @@ export default verify({
   priority: 100,
   maxTokens: 2000,
   defaultTriggers: {
-    perMessage: { directMessages: true, channels: ['chat', 'image-gen'], allowMessagesFromAgents: true },
+    perMessage: { directMessages: true, channels: [...GROUP_CHAT_CHANNELS, 'image-gen'], allowMessagesFromAgents: true },
     periodic: { timerPeriod: 180, proactive: true }
   },
   agentConfig: {
@@ -165,6 +167,8 @@ export default verify({
       "Welcome! I'm {{agentConfig.botName}}, your AI event assistant. You can ask me questions in the chat with an @{{agentConfig.botName}} mention. Or send me a DM if you want to talk privately.",
     presentationChatIntroMessage:
       "Welcome! I'm {{agentConfig.botName}}, your AI event assistant. This is the event's group chat, shown here for everyone in the room. Join the event on your own device to chat with other participants and ask me questions with an @{{agentConfig.botName}} mention.",
+    // TODO: placeholder copy — revisit once pregame intro wording is decided
+    pregameChatIntroMessage: `Welcome! I'm {{agentConfig.botName}}, your AI event assistant. The event hasn't started yet, but you can chat with other early arrivals here and ask me questions with an @{{agentConfig.botName}} mention.`,
     tools: getDefaultEventAssistantToolNames(),
     seriesHistory: false, // when true, gives the assistant access to other past events in the same series
     minInterval: 10, // minimum minutes between check-ins per participant
@@ -184,7 +188,7 @@ export default verify({
     return translatedMsg
   },
   ragCollectionName: undefined,
-  defaultConversationHistorySettings: { count: 100, directMessages: true, channels: ['chat'] },
+  defaultConversationHistorySettings: { count: 100, directMessages: true, channels: [...GROUP_CHAT_CHANNELS] },
 
   async evaluate(userMessage) {
     if (!userMessage) {
@@ -220,7 +224,7 @@ export default verify({
       : supportedCommands.filter((c) => c.command !== 'mod' && c.command !== 'escalate')
     let modifiedMessage = parseSlashCommands(userMessage, activeCommands)
 
-    if (modifiedMessage?.channels?.includes('chat')) {
+    if (isGroupChatMessage(modifiedMessage?.channels)) {
       const words = modifiedMessage?.body?.trim().split(/\s+/) ?? []
       if (matchBotMention(words, this.agentConfig?.botName)) {
         modifiedMessage = { ...modifiedMessage, body: normalizeBotMention(modifiedMessage.body, this.agentConfig?.botName) }
@@ -251,8 +255,8 @@ export default verify({
       return await generateMindMap(this, userMessage)
     }
 
-    // Message on chat channel?
-    if (userMessage?.channels?.includes('chat')) {
+    // Message on the group chat (chat or, pre-event, pregame)?
+    if (isGroupChatMessage(userMessage?.channels)) {
       const llm = await this.getLLM()
       if (!(await checkBotIntent(llm, this.agentConfig?.botName, userMessage))) {
         return []
@@ -322,7 +326,20 @@ export default verify({
         return []
       }
     }
-    if (channel.name === 'chat') {
+    if (channel.name === PREGAME_CHANNEL) {
+      return [
+        {
+          message: {
+            text: renderAgentTemplate(this.agentConfig.pregameChatIntroMessage, this.toObject()),
+            type: 'intro'
+          },
+          messageType: 'json',
+          channels: [channel],
+          visible: true
+        }
+      ]
+    }
+    if (isGroupChatMessage([channel.name])) {
       const templateByAdapter = {
         zoom: this.agentConfig.zoomChatIntroMessage,
         presentation: this.agentConfig.presentationChatIntroMessage

@@ -10,6 +10,7 @@ export const PARTICIPANT_CHANNEL = 'participant' as const
 export const MODERATOR_CHANNEL = 'moderator' as const
 export const CHAT_CHANNEL = 'chat' as const
 export const IMAGE_GEN_CHANNEL = 'image-gen' as const
+export const PREGAME_CHANNEL = 'pregame' as const
 
 const eventAssistant: ConversationType = {
   // user-facing
@@ -236,7 +237,8 @@ const eventAssistant: ConversationType = {
     { name: PARTICIPANT_CHANNEL },
     { name: MODERATOR_CHANNEL },
     { name: CHAT_CHANNEL },
-    { name: IMAGE_GEN_CHANNEL }
+    { name: IMAGE_GEN_CHANNEL },
+    { name: PREGAME_CHANNEL }
   ],
   adapters: {
     // Fully remote: Zoom only — moderator DMs sent via Zoom
@@ -258,6 +260,10 @@ const eventAssistant: ConversationType = {
           users: 'moderators'
         }
       ],
+      // No pregame entry: a Zoom bot can only ever be deployed once a conversation has already
+      // started (see isPreEventWindowOpen), so Zoom chat never needs a preEvent-phase channel —
+      // early Zoom attendees just land in the regular chat channel, and pregame chat composed on
+      // NextSpace is never forwarded into Zoom's native chat panel.
       chatChannels: [
         {
           name: CHAT_CHANNEL,
@@ -285,9 +291,10 @@ const eventAssistant: ConversationType = {
           direction: Direction.BOTH
         }
       ],
+      // Same reasoning as the zoom-only block above: no pregame entry here either.
       chatChannels: [
         {
-          name: 'chat',
+          name: CHAT_CHANNEL,
           direction: Direction.BOTH
         }
       ],

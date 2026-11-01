@@ -19,6 +19,7 @@ import {
   EVENT_ASSISTANT_SERIES_HISTORY_USER_CARVEOUT
 } from './buildEventAssistantToolSystemPrompt.js'
 import { VOICE_OUTPUT_RULES } from '../helpers/voiceDirectives.js' // used in no-tools path below
+import { isGroupChatMessage } from '../helpers/groupChatChannel.js'
 
 export enum QuestionClassification {
   ON_TOPIC_ANSWER = 'ON_TOPIC_ANSWER',
@@ -38,11 +39,17 @@ export function buildLLMTemplates(
     ? `Your name is ${botName} - always refer to yourself with this exact spelling, even if your name appears differently in transcripts or conversation history.`
     : ''
   const extraCapabilityLines: string[] = []
-  if (capabilities?.hasMindMap) extraCapabilityLines.push('- /mindmap — the user types this command to trigger a visual mind map of the key topics. **Never produce a mind map, markdown outline, or markmap diagram in your text response** — if asked, tell the user to type /mindmap instead.')
+  if (capabilities?.hasMindMap)
+    extraCapabilityLines.push(
+      '- /mindmap — the user types this command to trigger a visual mind map of the key topics. **Never produce a mind map, markdown outline, or markmap diagram in your text response** — if asked, tell the user to type /mindmap instead.'
+    )
   if (capabilities?.hasMod) extraCapabilityLines.push('- /mod — submits a question anonymously to the moderator')
-  const capabilitiesSection = extraCapabilityLines.length > 0
-    ? `\n\n## Your Capabilities\nThe following slash commands are available. Do not mention or suggest these in regular answers — only describe them when a participant directly asks what you can do or how to use a specific feature.\n${extraCapabilityLines.join('\n')}`
-    : ''
+  const capabilitiesSection =
+    extraCapabilityLines.length > 0
+      ? `\n\n## Your Capabilities\nThe following slash commands are available. Do not mention or suggest these in regular answers — only describe them when a participant directly asks what you can do or how to use a specific feature.\n${extraCapabilityLines.join(
+          '\n'
+        )}`
+      : ''
   const hasTools = toolNames.length > 0
   const scopeRestricted = answerScope === 'companyContextOnly'
   const lectureScoped = answerScope === 'helpUserUnderstandTheLecture'
@@ -385,7 +392,7 @@ export function buildVisualGuidance(autoVisualActive: boolean): string {
 }
 
 export async function answerQuestion(userMessage, conversationHistory, options?) {
-  const chatHistory = userMessage?.channels?.includes('chat')
+  const chatHistory = isGroupChatMessage(userMessage?.channels)
     ? formatMultiUserConversationHistory(conversationHistory)
     : formatSingleUserConversationHistory(conversationHistory)
 
@@ -428,19 +435,14 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
   const tools = toolNames.length > 0 ? await getTools(toolNames, toolContext) : []
   const hasWebSearch = toolNames.includes('web_search')
 
-  const channelType = userMessage?.channels?.includes('chat') ? 'groupChat' : 'dm'
+  const channelType = isGroupChatMessage(userMessage?.channels) ? 'groupChat' : 'dm'
   const answerScope = this.conversation.behaviorPolicy?.channels?.[channelType]?.qaBehavior?.answerScope
 
   // Get the appropriate templates based on personality setting
-  const templates = buildLLMTemplates(
-    this.agentConfig?.botName,
-    toolNames,
-    answerScope,
-    {
-      hasMindMap: !this.conversation.platforms?.length || this.conversation.platforms.includes('nextspace'),
-      hasMod: !!this.agentConfig?.moderatorSupport
-    }
-  )
+  const templates = buildLLMTemplates(this.agentConfig?.botName, toolNames, answerScope, {
+    hasMindMap: !this.conversation.platforms?.length || this.conversation.platforms.includes('nextspace'),
+    hasMod: !!this.agentConfig?.moderatorSupport
+  })
 
   // Use provided context from options if available, otherwise search transcript
   let contextString: string
@@ -650,8 +652,8 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
   let parentMessageId
 
   // Set parent for threading
-  if (userMessage?.channels?.includes('chat')) {
-    // For chat: thread under the original message or current message
+  if (isGroupChatMessage(userMessage?.channels)) {
+    // For group chat: thread under the original message or current message
     parentMessageId = userMessage.parentMessage || userMessage._id
   } else if (userMessage.parentMessage) {
     // For DMs: only set parent if the incoming message is already a reply (user initiated side convo)

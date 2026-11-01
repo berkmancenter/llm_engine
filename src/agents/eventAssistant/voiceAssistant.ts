@@ -7,6 +7,7 @@ import logger from '../../config/logger.js'
 import getDefaultEventAssistantToolNames from './eventAssistantDefaultTools.js'
 import { extractVoiceQuestion, evaluateVoiceTrigger, matchAnnouncementTrigger } from '../helpers/voiceDirectives.js'
 import websocketGateway from '../../websockets/websocketGateway.js'
+import { currentGroupChannelName } from '../helpers/groupChatChannel.js'
 
 function findChannel(conversation, name) {
   return conversation.channels.find((channel) => channel.name === name)
@@ -85,7 +86,7 @@ async function respondWithAnnouncement(announcement, questionText, userMessage, 
     }
   }
 
-  const chatChannel = findChannel(this.conversation, 'chat')
+  const chatChannel = findChannel(this.conversation, currentGroupChannelName(this.conversation))
   if (!chatChannel) return []
 
   return [
@@ -207,12 +208,12 @@ export default verify({
         await broadcastChunk(conversationId, transcriptChannel.name, requestId, '', true, 'done marker')
       }
 
-      const voiceChatChannel = findChannel(this.conversation, 'chat')
+      const voiceChatChannel = findChannel(this.conversation, currentGroupChannelName(this.conversation))
       if (!voiceChatChannel) return []
       return responses.map((r) => wrapVoiceSourceMessage(r, questionText, userMessage, voiceChatChannel))
     }
 
-    const chatChannel = findChannel(this.conversation, 'chat')
+    const chatChannel = findChannel(this.conversation, currentGroupChannelName(this.conversation))
     if (!chatChannel) return []
 
     // answerQuestion expects chat/DM history; transcript is handled internally via RAG
