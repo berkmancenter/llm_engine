@@ -63,13 +63,14 @@ describe('runSocraticStage', () => {
     expect(serialized).not.toContain('substantive replies')
     expect(String(calls[0][1])).toContain('IMPORTANT: keep the question genuinely open')
     expect(String(calls[0][1])).toContain("IMPORTANT: do not credit the source with the group's words")
+    expect(String(calls[0][1])).toContain('IMPORTANT: ask exactly one thing')
     expect(calls[0][3]).toEqual(
       expect.objectContaining({ sourceLabel: 'Okonkwo-Reyes', concept: '(none)', loadedWord: 'healthy' })
     )
   })
 
   it('withholds the concept from the writer only when a loaded word is present', async () => {
-    wire({ writer: () => ({ question: 'How does Okonkwo-Reyes treat quota crowding, and does it fit?' }) })
+    wire({ writer: () => ({ question: 'How does Okonkwo-Reyes treat quota crowding?' }) })
     await runSocraticStage(input({ slots: { ...slots, loadedWord: null } }))
     expect(writerCallsArgs()[0][3]).toEqual(expect.objectContaining({ concept: 'quota crowding' }))
   })
@@ -85,6 +86,13 @@ describe('runSocraticStage', () => {
     expect(writerCallsArgs()).toHaveLength(3)
     expect(writerCallsArgs()[1][3].rejected).toContain('do not pair it with any other term')
     expect(writerCallsArgs()[2][3].rejected).toContain('refer to the source only by its name')
+  })
+
+  it('redrafts a compound draft with the one-ask reason', async () => {
+    const compound = 'When we say "healthy", would Okonkwo-Reyes use it, and does it match what we mean?'
+    wire({ writer: (n) => ({ question: n === 1 ? compound : GOOD }) })
+    expect(await runSocraticStage(input())).toEqual({ message: GOOD, source: 'writer' })
+    expect(writerCallsArgs()[1][3].rejected).toContain('ask one thing only')
   })
 
   it('redrafts via the writer only, with the rejection reasons, and never re-runs anything else', async () => {
@@ -149,6 +157,6 @@ describe('runSocraticStage', () => {
   it('uses the concept template when there is no loaded word', async () => {
     wire({ writer: () => ({ question: LEAKY }) })
     const result = await runSocraticStage(input({ slots: { ...slots, loadedWord: null } }))
-    expect(result?.message).toBe("How does Okonkwo-Reyes treat quota crowding, and does that fit what we're describing?")
+    expect(result?.message).toBe("How does Okonkwo-Reyes treat quota crowding?")
   })
 })

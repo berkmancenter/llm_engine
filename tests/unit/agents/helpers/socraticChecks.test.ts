@@ -14,7 +14,7 @@ const ctx = (over = {}) => ({
   recentPosts: [],
   ...over
 })
-const GOOD = 'How does Okonkwo-Reyes treat quota crowding, and does that fit what we are describing?'
+const GOOD = 'How does Okonkwo-Reyes treat quota crowding?'
 
 describe('checkSocraticShape', () => {
   it('passes a clean question', () => {
@@ -61,7 +61,7 @@ describe('checkSocraticShape', () => {
   })
 
   it('does not flag pronoun-like substrings or quoted words', () => {
-    expect(checkSocraticShape('Where does Okonkwo-Reyes treat quota crowding, and is it there?', ctx())).toEqual([])
+    expect(checkSocraticShape('Where does Okonkwo-Reyes treat quota crowding?', ctx())).toEqual([])
     const c = ctx({ slots: { ...slots, loadedWord: 'her' } })
     expect(checkSocraticShape('When we say "her", would Okonkwo-Reyes mean the same thing by it?', c)).toEqual([])
   })
@@ -106,7 +106,7 @@ describe('checkSocraticShape', () => {
   })
 
   it('rejects a near-repeat of a recent post, ignoring the source name', () => {
-    const post = 'How does Okonkwo-Reyes treat quota crowding, and does it fit our forum?'
+    const post = 'How does Okonkwo-Reyes treat quota crowding in our forum?'
     expect(checkSocraticShape(GOOD, ctx({ recentPosts: [post] }))).toEqual(
       expect.arrayContaining([expect.stringContaining('repeats an earlier post')])
     )
@@ -132,7 +132,7 @@ describe('quoted words credited to the source', () => {
     'How would Okonkwo-Reyes treat "healthy" in a forum like ours?',
     'Does Okonkwo-Reyes\'s idea of quota crowding apply to what we call "healthy"?',
     'Does Okonkwo-Reyes\u2019s idea of quota crowding fit what we mean by \u201chealthy\u201d?',
-    'How does Okonkwo-Reyes use the phrase "quota crowding", and does that fit what we are describing?'
+    'How does Okonkwo-Reyes use the phrase "quota crowding" in a forum?'
   ])('passes: %s', (text) => {
     const c = text.includes('healthy') ? lw : ctx()
     expect(checkSocraticShape(text, c).join()).not.toContain(REASON)
@@ -145,6 +145,49 @@ describe('quoted words credited to the source', () => {
   })
 })
 
+describe('one ask per question', () => {
+  const REASON = 'ask one thing only'
+  const lw = ctx({ slots: { ...slots, loadedWord: 'healthy' } })
+
+  it.each([
+    'How does Okonkwo-Reyes treat quota crowding, and does that fit what we are describing?',
+    'How does Okonkwo-Reyes treat quota crowding, and where would that show up in our forum?',
+    'How does Okonkwo-Reyes treat quota crowding but would that fit our forum?',
+    'How does Okonkwo-Reyes treat quota crowding; does that fit our forum?',
+    'How does Okonkwo-Reyes treat quota crowding, where would that show up in our forum?',
+    'Is quota crowding close to how Okonkwo-Reyes frames it, or does Okonkwo-Reyes mean something else?'
+  ])('rejects a compound question: %s', (text) => {
+    expect(checkSocraticShape(text, ctx()).join()).toContain(REASON)
+  })
+
+  it('rejects a compound question around the loaded word', () => {
+    const text = 'When we say "healthy", would Okonkwo-Reyes use it, and does it match what we mean?'
+    expect(checkSocraticShape(text, lw).join()).toContain(REASON)
+  })
+
+  it.each([
+    'How does Okonkwo-Reyes treat quota crowding?',
+    'What part does Okonkwo-Reyes give to quota crowding in a forum like ours?',
+    'In Okonkwo-Reyes\'s paper, how is quota crowding treated?',
+    // a short alternative inside one ask is a single choice
+    'Is quota crowding closer to how Okonkwo-Reyes frames it, or something different?'
+  ])('accepts a single ask: %s', (text) => {
+    expect(checkSocraticShape(text, ctx()).join()).not.toContain(REASON)
+  })
+
+  it('accepts a leading "When we say ..." framing clause', () => {
+    const text = 'When we say "healthy", would Okonkwo-Reyes mean the same thing by it?'
+    expect(checkSocraticShape(text, lw)).toEqual([])
+    const alt = 'When we say "healthy", would Okonkwo-Reyes mean the same thing, or something narrower?'
+    expect(checkSocraticShape(alt, lw)).toEqual([])
+  })
+
+  it('does not count a conjunction inside a slot as a second ask', () => {
+    const c = ctx({ slots: { ...slots, concept: 'trust and who decides' } })
+    expect(checkSocraticShape('How does Okonkwo-Reyes treat trust and who decides?', c)).toEqual([])
+  })
+})
+
 describe('renderSocraticTemplate', () => {
   it('uses the loaded word when present', () => {
     expect(renderSocraticTemplate({ ...slots, loadedWord: 'healthy' })).toBe(
@@ -154,7 +197,7 @@ describe('renderSocraticTemplate', () => {
 
   it('falls back to the concept, and quotes a long title as the source', () => {
     expect(renderSocraticTemplate(slots)).toBe(
-      "How does Okonkwo-Reyes treat quota crowding, and does that fit what we're describing?"
+      "How does Okonkwo-Reyes treat quota crowding?"
     )
     expect(renderSocraticTemplate({ ...slots, sourceLabel: 'Quota Crowding in Volunteer Forums' })).toContain(
       "'Quota Crowding in Volunteer Forums'"

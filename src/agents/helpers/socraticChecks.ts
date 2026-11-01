@@ -30,6 +30,26 @@ function normalizeQuotes(s: string): string {
 // Gendered pronouns: the writer has not read the source and cannot know which one is right.
 const SOURCE_PRONOUNS = /\b(he|she|his|her|hers|him|himself|herself)\b/i
 
+const INTERROGATIVE_START =
+  /^(how|what|where|when|why|which|who|does|do|did|would|could|should|is|are|was|can|will)(?![\p{L}\p{N}'-])/iu
+// A leading framing clause ("When we say X, would ...") sets up the single ask; it is not one.
+const FRAMING_START = /^(when|if|since|given|as|while|because|although)(?![\p{L}\p{N}'-])/iu
+
+/**
+ * True when the draft poses more than one ask: after splitting on commas, semicolons, and/but/or,
+ * more than one clause opens like a question. A short alternative inside one ask ("..., or something
+ * narrower?") does not open like a question and is allowed.
+ */
+export function isCompoundQuestion(text: string): boolean {
+  const clauses = text
+    .replace(/\?+\s*$/, '')
+    .split(/\s*[,;]\s*(?:(?:and|but|or)\s+)?|\s+(?:and|but|or)\s+/i)
+    .map((c) => c.trim())
+    .filter(Boolean)
+  const asks = clauses.filter((c, i) => INTERROGATIVE_START.test(c) && !(i === 0 && FRAMING_START.test(c)))
+  return asks.length > 1
+}
+
 function removeQuoted(text: string): string {
   return text.replace(/"[^"]*"/g, ' ')
 }
@@ -164,6 +184,9 @@ export function checkSocraticShape(rawText: string, ctx: SocraticCheckContext): 
   }
 
   const stripped = removeSlots(text, slots)
+  if (isCompoundQuestion(stripped)) {
+    reasons.push('ask one thing only; do not add a second question or follow-up clause')
+  }
   if (/\d/.test(stripped)) reasons.push('it must not contain numbers')
   if (FINDING_VERBS_PATTERN.test(stripped)) reasons.push('it must not use verbs that report an outcome')
   if (findCopiedNgram(text, ctx.passage, slots)) reasons.push('it must not copy wording from the source')
@@ -191,5 +214,5 @@ export function renderSocraticTemplate(slots: SocraticSlots): string {
   const source = sourcePhrase(slots.sourceLabel)
   return slots.loadedWord
     ? `When we say "${slots.loadedWord}", would ${source} mean the same thing by it?`
-    : `How does ${source} treat ${slots.concept}, and does that fit what we're describing?`
+    : `How does ${source} treat ${slots.concept}?`
 }
