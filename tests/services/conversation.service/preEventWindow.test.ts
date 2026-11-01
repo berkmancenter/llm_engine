@@ -18,8 +18,8 @@ describe('isPreEventWindowOpen', () => {
   })
 
   test('closes once the conversation has started, even before scheduledTime itself', () => {
-    // autoStartLeadTimeMs sets startTime a few minutes before scheduledTime; once that's
-    // happened the preEvent window is over, even though scheduledTime hasn't arrived yet.
+    // A manual start (admin "start now", or a moderator resuming a transcript) can set
+    // startTime before scheduledTime; the preEvent window is over regardless.
     expect(isPreEventWindowOpen(withinWindow({ startTime: new Date() }))).toBe(false)
   })
 

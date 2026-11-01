@@ -3,13 +3,14 @@ import { IConversation } from '../../types/index.types.js'
 /**
  * Whether this conversation's preEvent window is currently open: preEventMinutes configured,
  * past the computed open time, and the conversation hasn't started, ended, or stayed a draft.
- * Closes at startTime, not the advertised scheduledTime: doStartConversation's own
- * autoStartLeadTimeMs buffer starts the conversation a few minutes early, and once that's
- * happened the window is over — an organizer who set preEventMinutes to 15 meant "let people in
- * 15 minutes early," which is still true even if the last few of those minutes now overlap with
- * the conversation itself being live. A draft conversation never auto-starts at all, so its
- * window is never considered open either — otherwise a draft would get its agents turned on
- * during what would be its pregame window with nothing left to ever turn them back off (see
+ * Closes at startTime rather than the advertised scheduledTime, since a conversation can still
+ * be started ahead of scheduledTime via the admin/owner "start now" endpoint or a moderator
+ * resuming a transcript — both call doStartConversation directly with no time check of their
+ * own — and once that's happened the window is over regardless of what scheduledTime says. The
+ * normal auto-start path now fires exactly at scheduledTime, so for it this is equivalent to
+ * checking scheduledTime itself. A draft conversation never auto-starts at all, so its window is
+ * never considered open either — otherwise a draft would get its agents turned on during what
+ * would be its pregame window with nothing left to ever turn them back off (see
  * jobs/handlers/conversation.ts's openConversationWindow).
  *
  * Its own leaf module rather than living in lifecycle.ts itself, for the same reason as this

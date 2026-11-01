@@ -2155,40 +2155,6 @@ describe('Conversation service methods', () => {
         expect(cancelSpy).not.toHaveBeenCalled()
         expect(scheduleSpy).not.toHaveBeenCalled()
       })
-
-      /* Both jobs are scheduled as an offset from the same scheduledTime (see
-         scheduleConversationAutoStart/scheduleConversationPreEventWindow) — a preEventMinutes
-         at or below the auto-start lead time means the conversation would already be
-         auto-started by the time the window is due to open. */
-      test('rejects preEventMinutes at or below the auto-start lead time on create', async () => {
-        const autoStartLeadMinutes = config.conversation.autoStartLeadTimeMs / 60000
-
-        await expect(
-          conversationService.createConversationFromType(
-            {
-              type: 'eventAssistant',
-              name: 'Too-short Pre-Event',
-              platforms: ['zoom'],
-              topicId: topicOne._id.toString(),
-              scheduledTime: new Date(Date.now() + 3600000),
-              properties: { zoomMeetingUrl: 'https://zoom.us/j/555555555' },
-              preEventMinutes: autoStartLeadMinutes
-            },
-            registeredUser
-          )
-        ).rejects.toThrow(ApiError)
-      })
-
-      test('rejects preEventMinutes at or below the auto-start lead time on update', async () => {
-        const autoStartLeadMinutes = config.conversation.autoStartLeadTimeMs / 60000
-
-        await expect(
-          conversationService.updateConversation(
-            { id: preEventConversation._id.toString(), preEventMinutes: autoStartLeadMinutes },
-            registeredUser
-          )
-        ).rejects.toThrow(ApiError)
-      })
     })
 
     /* Fix #2: when a conversation moves to a different topic, the old topic's

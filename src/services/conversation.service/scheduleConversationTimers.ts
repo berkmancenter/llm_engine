@@ -1,4 +1,3 @@
-import config from '../../config/config.js'
 import logger from '../../config/logger.js'
 import schedule from '../../jobs/schedule.js'
 
@@ -13,14 +12,13 @@ import schedule from '../../jobs/schedule.js'
    don't reach for a new file like this for every future job type. */
 
 /**
- * (Re)schedules a conversation's auto-start job for autoStartLeadTimeMs before its scheduledTime,
- * cancelling any existing one first.
+ * (Re)schedules a conversation's auto-start job for its scheduledTime, cancelling any existing
+ * one first.
  */
 export async function scheduleConversationAutoStart(conversation) {
   await schedule.cancelAutoStartConversation(conversation._id)
-  const scheduledAt = new Date(conversation.scheduledTime.getTime() - config.conversation.autoStartLeadTimeMs)
-  await schedule.autoStartConversation(scheduledAt, { conversationId: conversation._id })
-  logger.info(`Scheduled auto-start for conversation ${conversation._id} at ${scheduledAt}`)
+  await schedule.autoStartConversation(conversation.scheduledTime, { conversationId: conversation._id })
+  logger.info(`Scheduled auto-start for conversation ${conversation._id} at ${conversation.scheduledTime}`)
 }
 
 /**

@@ -239,9 +239,6 @@ const envVarsSchema = Joi.object()
       .description('Web search provider to use (e.g. tavily, brave, serpapi)'),
     BKC_ARCHIVE_API_URL: Joi.string().description('Base URL of the BKC archive-wiki API (e.g. http://localhost:4000).'),
     BKC_ARCHIVE_API_TOKEN: Joi.string().description('Bearer token for the BKC archive-wiki API'),
-    CONVERSATION_AUTO_START_LEAD_TIME_MINUTES: Joi.number()
-      .default(5)
-      .description('Minutes before scheduledTime to auto-start a conversation'),
     CONVERSATION_AUTO_STOP_DELAY_MINUTES: Joi.number()
       .default(30)
       .description('Minutes after scheduledEndTime to auto-stop a conversation'),
@@ -429,7 +426,6 @@ const config = {
   },
   webSearchProvider: envVars.WEB_SEARCH_PROVIDER,
   conversation: {
-    autoStartLeadTimeMs: envVars.CONVERSATION_AUTO_START_LEAD_TIME_MINUTES * 60 * 1000,
     autoStopDelayMs: envVars.CONVERSATION_AUTO_STOP_DELAY_MINUTES * 60 * 1000
   },
   systemUsers: parseSystemUsersEnv(envVars.SYSTEM_USERS),
