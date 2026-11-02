@@ -177,22 +177,21 @@ function buildBehaviorPolicySection(behaviorPolicy: BehaviorPolicy | undefined, 
 
   const lines: string[] = ['## Behavioral Guidelines']
   const gp = behaviorPolicy.globalPolicy
+  const channelPolicy = channelType === 'dm' ? behaviorPolicy.channels?.dm : behaviorPolicy.channels?.groupChat
 
   if (gp) {
     if (gp.tone) lines.push(TONE_LINES[gp.tone])
     if (gp.formality) lines.push(FORMALITY_LINES[gp.formality])
-    const dmOverridesVerbosity = channelType === 'dm' && behaviorPolicy.channels?.dm?.qaBehavior?.responseLength
-    if (gp.verbosity && !dmOverridesVerbosity) lines.push(VERBOSITY_LINES[gp.verbosity])
+    const channelOverridesVerbosity = Boolean(channelPolicy?.qaBehavior?.responseLength)
+    if (gp.verbosity && !channelOverridesVerbosity) lines.push(VERBOSITY_LINES[gp.verbosity])
     const jargonLine = gp.jargonLevel && JARGON_LINES[gp.jargonLevel]
     if (jargonLine) lines.push(jargonLine)
     if (gp.citationBehavior) lines.push(`- ${gp.citationBehavior}`)
     if (gp.uncertaintyBehavior) lines.push(`- ${gp.uncertaintyBehavior}`)
   }
 
-  const channelPolicy = channelType === 'dm' ? behaviorPolicy.channels?.dm : behaviorPolicy.channels?.groupChat
-
-  if (channelType === 'dm' && behaviorPolicy.channels?.dm?.qaBehavior) {
-    const qa = behaviorPolicy.channels.dm.qaBehavior
+  if (channelPolicy?.qaBehavior) {
+    const qa = channelPolicy.qaBehavior
     const responseLengthLine = RESPONSE_LENGTH_LINES[qa.responseLength]
     if (responseLengthLine) lines.push(responseLengthLine)
     if (qa.clarifyWhenAmbiguous) lines.push('- Ask a clarifying question before answering when the question is ambiguous')
@@ -209,9 +208,7 @@ function buildBehaviorPolicySection(behaviorPolicy: BehaviorPolicy | undefined, 
   const initiativeLine = channelPolicy?.proactivePolicy?.initiativeLevel
   if (initiativeLine && INITIATIVE_LINES[initiativeLine]) lines.push(INITIATIVE_LINES[initiativeLine])
 
-  const channelGuardrails =
-    channelType === 'groupChat' ? behaviorPolicy.channels?.groupChat?.guardrails : behaviorPolicy.channels?.dm?.guardrails
-  const allGuardrails = [...(gp?.guardrails ?? []), ...(channelGuardrails ?? [])]
+  const allGuardrails = [...(gp?.guardrails ?? []), ...(channelPolicy?.guardrails ?? [])]
   if (allGuardrails.length > 0) {
     lines.push('Guardrails:')
     for (const g of allGuardrails) lines.push(`- ${g}`)
