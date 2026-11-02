@@ -1,6 +1,6 @@
 {
   "id": "synthesize_discussion",
-  "label": "Synthesize discussion",
+  "label": "Catch the recap",
   "description": "Pulls together threads of conversation into a coherent summary, helping participants see the shape of the discussion and where it has arrived.",
   "channel": "groupChat",
   "triggers": {

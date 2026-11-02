@@ -1,6 +1,6 @@
 {
   "id": "surface_signal",
-  "label": "Surface signal",
+  "label": "See what's resonating",
   "description": "Reflects back what the room seems to be thinking — surfacing patterns, points of agreement, or significant tensions that might not be fully visible to participants.",
   "channel": "groupChat",
   "triggers": {

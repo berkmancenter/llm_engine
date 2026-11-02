@@ -1,6 +1,6 @@
 {
   "id": "provoke_participation",
-  "label": "Provoke participation",
+  "label": "Share your perspective",
   "description": "Generates energy and draws out participation when a conversation has gone quiet or passive — introducing a pointed question or productive tension to get people talking.",
   "channel": "groupChat",
   "silenceCompatible": true,

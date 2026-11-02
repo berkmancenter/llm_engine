@@ -1,6 +1,6 @@
 {
   "id": "bridge_topics",
-  "label": "Bridge topics",
+  "label": "Connect the dots",
   "description": "Connects ideas from different parts of the conversation that seem related but haven't been linked, helping participants see continuity across threads.",
   "channel": "groupChat",
   "triggers": {

@@ -1,6 +1,6 @@
 {
   "id": "invite_quieter_voices",
-  "label": "Invite quieter voices",
+  "label": "Share a different view",
   "description": "Protects suppressed perspectives and makes space for dissent when enthusiasm, convergence, or a dominant voice may be crowding out doubt or minority views. Always warm in register.",
   "channel": "groupChat",
   "triggers": {

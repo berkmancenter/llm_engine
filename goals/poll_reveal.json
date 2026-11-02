@@ -1,6 +1,6 @@
 {
   "id": "poll_reveal",
-  "label": "Poll and reveal",
+  "label": "Cast your vote",
   "description": "Runs a quick poll to surface group opinion or gather live reactions, then shares and contextualizes the result — creating participation and revealing the distribution of views.",
   "channel": "groupChat",
   "silenceCompatible": true,

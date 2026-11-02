@@ -1,6 +1,6 @@
 {
   "id": "challenge_consensus",
-  "label": "Challenge consensus",
+  "label": "Push back a bit",
   "description": "Stress-tests a dominant position or emerging agreement by introducing a pointed counterpoint or question — used when the room is active but converging too quickly around one view without pressure-testing it.",
   "channel": "groupChat",
   "triggers": {

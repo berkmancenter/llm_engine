@@ -1,6 +1,6 @@
 {
   "id": "socratic_probe",
-  "label": "Socratic probe",
+  "label": "Dig into the reading",
   "description": "Poses one pointed question that ties the group's current discussion to a specific idea in the community's readings — used when the readings complicate, support, define, or dispute what people are saying and the room hasn't engaged with them. Asks; never summarizes or answers.",
   "channel": "groupChat",
   "silenceCompatible": true,

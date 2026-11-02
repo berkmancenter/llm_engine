@@ -1,6 +1,6 @@
 {
   "id": "structure_conversation",
-  "label": "Structure conversation",
+  "label": "Take stock together",
   "description": "Provides light scaffolding when a conversation is sprawling or stuck — surfaces where the group is, what remains open, or what might be worth tackling next.",
   "channel": "groupChat",
   "triggers": {

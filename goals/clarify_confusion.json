@@ -1,6 +1,6 @@
 {
   "id": "clarify_confusion",
-  "label": "Clarify confusion",
+  "label": "Clear something up",
   "description": "Responds to apparent confusion or misunderstanding in the group — whether about a concept, an exchange, or what's being asked — by offering a clarification or gently naming the gap.",
   "channel": "groupChat",
   "triggers": {
