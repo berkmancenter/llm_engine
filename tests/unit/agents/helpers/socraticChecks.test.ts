@@ -66,6 +66,28 @@ describe('checkSocraticShape', () => {
     expect(checkSocraticShape('When we say "her", would Okonkwo-Reyes mean the same thing by it?', c)).toEqual([])
   })
 
+  it('rejects a trailing given-that style clause but allows a leading framing clause', () => {
+    const c = ctx({ slots: { ...slots, loadedWord: 'healthy' } })
+    const trailing = [
+      'How does Okonkwo-Reyes treat quota crowding, given that you have described posting as a small price?',
+      'How does Okonkwo-Reyes treat quota crowding, given what you said about the noise?',
+      'How does Okonkwo-Reyes treat quota crowding in light of how you see it?',
+      'How does Okonkwo-Reyes treat quota crowding, considering that you disagree?',
+      'How does Okonkwo-Reyes treat quota crowding, seeing that you called it fine?',
+      'How does Okonkwo-Reyes treat quota crowding now that you have raised it?',
+      'How does Okonkwo-Reyes treat quota crowding since you said it matters?',
+      'How does Okonkwo-Reyes treat quota crowding, since we said it is fine?',
+      'How does Okonkwo-Reyes treat quota crowding because you said so?',
+      'How does Okonkwo-Reyes treat quota crowding, GIVEN THAT you said so?'
+    ]
+    for (const q of trailing) {
+      expect(checkSocraticShape(q, ctx()).join()).toContain('given-that clause')
+    }
+    expect(checkSocraticShape('When we say "healthy", would Okonkwo-Reyes mean the same thing by it?', c)).toEqual([])
+    expect(checkSocraticShape(renderSocraticTemplate(c.slots), c)).toEqual([])
+    expect(checkSocraticShape(renderSocraticTemplate(slots), ctx())).toEqual([])
+  })
+
   it('rejects participant names, including a pseudonym surname', () => {
     expect(checkSocraticShape('Badger, how does Okonkwo-Reyes treat quota crowding?', ctx()).join()).toContain('participant')
     expect(checkSocraticShape('Did Curious Badger read Okonkwo-Reyes on quota crowding?', ctx()).join()).toContain(

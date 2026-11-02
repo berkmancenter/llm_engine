@@ -50,6 +50,10 @@ export function isCompoundQuestion(text: string): boolean {
   return asks.length > 1
 }
 
+// A trailing premise/contrast clause ("..., given that you've said X") sets the room's view against the reading.
+const TRAILING_PREMISE_PATTERN =
+  /\b(given that|given what|in light of|considering that|considering what|seeing that|seeing as|now that|since you|since we|because you|because we)(?![\p{L}\p{N}'-])/iu
+
 function removeQuoted(text: string): string {
   return text.replace(/"[^"]*"/g, ' ')
 }
@@ -186,6 +190,10 @@ export function checkSocraticShape(rawText: string, ctx: SocraticCheckContext): 
   const stripped = removeSlots(text, slots)
   if (isCompoundQuestion(stripped)) {
     reasons.push('ask one thing only; do not add a second question or follow-up clause')
+  }
+  const premise = TRAILING_PREMISE_PATTERN.exec(stripped.trim())
+  if (premise && premise.index > 0) {
+    reasons.push("do not add a given-that clause about the room's view; ask the question plainly")
   }
   if (/\d/.test(stripped)) reasons.push('it must not contain numbers')
   if (FINDING_VERBS_PATTERN.test(stripped)) reasons.push('it must not use verbs that report an outcome')
