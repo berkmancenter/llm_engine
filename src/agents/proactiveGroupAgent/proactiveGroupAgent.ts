@@ -23,11 +23,119 @@ import createAgentPoll from '../helpers/agentPoll.js'
 import { getEligibleGoals, getMinContributionMs, composeSystemPrompt } from '../helpers/promptComposer.js'
 import { getGroupChatGoals } from '../../goals/loader.js'
 import validateProfessionalism from '../helpers/professionalismValidator.js'
+import runSocraticStage from '../helpers/socraticPipeline.js'
+import { validateSocraticSlots } from '../helpers/socraticSlots.js'
 import transcript from '../helpers/transcript.js'
+import { extractMessageText } from '../helpers/slashCommandParser.js'
+import { getBackgroundContextForQuestion } from '../tools/resourceSearch.js'
+
+const SOCRATIC_GOAL_ID = 'socratic_probe'
+// Bounds for the reading-search query built from recent shared chat: a few messages, each
+// clipped, so a long chat burst can't turn into an oversized embedding query.
+const READING_QUERY_MESSAGES = 5
+const READING_QUERY_MESSAGE_CHARS = 300
+const READING_QUERY_MAX_CHARS = 1000
+
+function buildReadingQuery(history: ConversationHistory): string {
+  return history.messages
+    .filter((m) => !m.fromAgent)
+    .slice(-READING_QUERY_MESSAGES)
+    .map((m) => {
+      const text = extractMessageText(m)
+      return typeof text === 'string' ? text.trim().slice(0, READING_QUERY_MESSAGE_CHARS) : ''
+    })
+    .filter(Boolean)
+    .join('\n')
+    .slice(-READING_QUERY_MAX_CHARS)
+}
+
+type SocraticSlotFields = { sourceLabel?: string | null; concept?: string | null; loadedWord?: string | null }
+
+const SOCRATIC_CHAT_LINES = 8
+const SOCRATIC_POSTS = 5
+
+function recentTexts(history: ConversationHistory, fromAgent: boolean, count: number): string[] {
+  return history.messages
+    .filter((m) => Boolean(m.fromAgent) === fromAgent)
+    .slice(-count)
+    .map((m) => {
+      const text = extractMessageText(m)
+      return typeof text === 'string' ? text.trim() : ''
+    })
+    .filter(Boolean)
+}
+
+/** Pseudonyms of human participants, plus each one's last word (e.g. "Badger" for "Curious Badger"). */
+function participantNameList(messages: IMessage[]): string[] {
+  const names = new Set<string>()
+  for (const m of messages) {
+    if (m.fromAgent || !m.pseudonym) continue
+    names.add(m.pseudonym)
+    const last = m.pseudonym.trim().split(/\s+/).at(-1)
+    if (last) names.add(last)
+  }
+  return [...names]
+}
+
+/**
+ * Validates the decision call's slots, then has the passage-blind writer produce the question (with
+ * a template fallback). Returns null to stay silent. The decision call's own message is never used.
+ */
+async function buildSocraticQuestion(
+  this: IAgent & { getLLM: () => Promise<unknown> },
+  analysis: SocraticSlotFields,
+  sharedChatHistory: ConversationHistory,
+  passage: string
+): Promise<string | null> {
+  const humanChatLines = recentTexts(sharedChatHistory, false, 15)
+  const slotResult = validateSocraticSlots(analysis, {
+    passage,
+    resources: this.conversation.resources ?? [],
+    humanChatLines
+  })
+  if (!slotResult.ok) {
+    logger.warn(`${this.name}: ${SOCRATIC_GOAL_ID} slots rejected (${slotResult.reason}) — staying silent`)
+    return null
+  }
+  const llm = await this.getLLM()
+  const result = await runSocraticStage({
+    llm,
+    slots: slotResult.slots,
+    passage,
+    humanChatLines: humanChatLines.slice(-SOCRATIC_CHAT_LINES),
+    recentPosts: recentTexts(sharedChatHistory, true, SOCRATIC_POSTS),
+    participantNames: participantNameList((this.conversation.messages ?? []) as IMessage[])
+  })
+  return result?.message ?? null
+}
 
 function getProactiveSchema(goals: ConversationGoal[]) {
   const goalIdOptions = [...goals.map((g) => g.id), 'none'] as unknown as [string, ...string[]]
+  const socraticSlots: z.ZodRawShape = goals.some((g) => g.id === SOCRATIC_GOAL_ID)
+    ? {
+        sourceLabel: z
+          .string()
+          .nullable()
+          .optional()
+          .describe(`For ${SOCRATIC_GOAL_ID} only: the author or title of the retrieved reading. Null otherwise.`),
+        concept: z
+          .string()
+          .nullable()
+          .optional()
+          .describe(
+            `For ${SOCRATIC_GOAL_ID} only: the passage's TOPIC or a term it names, as a 1-4 word noun phrase copied verbatim; never the name of something it found, and never an outcome, trend or comparison. Null otherwise.`
+          ),
+        loadedWord: z
+          .string()
+          .nullable()
+          .optional()
+          .describe(
+            `For ${SOCRATIC_GOAL_ID} only: a word the group keeps using that the passage treats differently, else null.`
+          )
+      }
+    : {}
   return z.object({
+    ...socraticSlots,
     reasoning: z
       .string()
       .describe(
@@ -50,6 +158,11 @@ function getProactiveSchema(goals: ConversationGoal[]) {
 
 function getProactiveGroupSystemPrompt(goals: ConversationGoal[]): string {
   const goalIdsList = [...goals.map((g) => `"${g.id}"`), '"none"'].join(' | ')
+  const readingRule = goals.some((g) => g.id === SOCRATIC_GOAL_ID)
+    ? `
+- "${SOCRATIC_GOAL_ID}" questions must be grounded in the "## Background Reading:" section of the user message. If that section is absent, do not use "${SOCRATIC_GOAL_ID}".
+- For "${SOCRATIC_GOAL_ID}" do not write the question yourself: set sharedChatMessage to the single word "question" (a separate step writes the message from your slots, without seeing the passage). Instead fill: "sourceLabel" (just the author surname or the title, e.g. "Ostrom", with no year or full citation), "concept" (a short noun phrase of 1-4 words copied verbatim from the passage that NAMES the passage's topic or a term it uses, e.g. "procedural legitimacy" or "monitoring costs"; never the name of a phenomenon it found, an outcome, a sentence, a trend, or anything with a number or a verb like fell/rose/found/dropped/hurt/lower), and "loadedWord" (a word the group keeps repeating that the passage treats differently, otherwise null). Leave these null for other goals.`
+    : ''
 
   return `You are an AI facilitator during a live event. You read participant messages and the live transcript, then decide whether to post in the shared group chat.
 
@@ -69,7 +182,7 @@ JUDGMENT:
 - Do not treat the opening phase of an event as a reason to withhold. A silent room during introductions is a valid state to act on — you do not need to wait for substantive topic discussion to begin before checking whether a goal applies.
 - Prioritize the present moment. History is context; act on what just happened.
 - Don't re-raise a theme that has already run its course or that you've made recently without meaningful development since.
-- Vary the goals you apply. Don't overuse any single one.
+- Vary the goals you apply. Don't overuse any single one.${readingRule}
 
 ## Output Format
 
@@ -218,16 +331,6 @@ export default verify({
     const personalityName = this.agentConfig?.personality ?? null
     const goalPriorities = this.agentConfig?.goalPriorities as Record<string, number> | undefined
     const goalContext = this.agentConfig?.goalContext as Record<string, string> | undefined
-    const systemPrompt = composeSystemPrompt(getProactiveGroupSystemPrompt(groupChatGoals), {
-      conversationContext: this.conversation.conversationContext,
-      behaviorPolicy: this.conversation.behaviorPolicy,
-      goals: groupChatGoals,
-      channelType: 'groupChat',
-      personalityName,
-      goalPriorities,
-      goalContext
-    })
-
     const sharedChatHistory = getConversationHistory(this.conversation.messages, {
       count: 100,
       channels: ['chat'],
@@ -264,24 +367,72 @@ export default verify({
       this.conversation.channels.filter((c: IChannel) => c.direct).map((c: IChannel) => c.name)
     )
 
+    // Prefetch only once we are about to call the LLM. socratic_probe is hard-gated: it is only
+    // offered to the model when passages were actually retrieved, so it can never fire ungrounded
+    // (no resources, empty/failed retrieval, or nothing to query with).
+    let backgroundReading: string | undefined
+    if (groupChatGoals.some((g) => g.id === SOCRATIC_GOAL_ID) && this.conversation.resources?.some((r) => r.fileName)) {
+      const query = buildReadingQuery(sharedChatHistory)
+      if (query) {
+        try {
+          backgroundReading = (await getBackgroundContextForQuestion(String(this.conversation._id), query)) || undefined
+        } catch (error) {
+          logger.warn(`${this.name}: background reading prefetch failed — continuing without`, error)
+        }
+      }
+    }
+
+    const eligibleGoals = backgroundReading ? groupChatGoals : groupChatGoals.filter((g) => g.id !== SOCRATIC_GOAL_ID)
+    if (eligibleGoals.length === 0) {
+      logger.debug(`${this.name}: only ${SOCRATIC_GOAL_ID} is active and no reading passages were retrieved — skipping`)
+      return []
+    }
+
+    const systemPrompt = composeSystemPrompt(getProactiveGroupSystemPrompt(eligibleGoals), {
+      conversationContext: this.conversation.conversationContext,
+      behaviorPolicy: this.conversation.behaviorPolicy,
+      goals: eligibleGoals,
+      channelType: 'groupChat',
+      personalityName,
+      goalPriorities,
+      goalContext
+    })
+
     const analysis = (await runInterventionAnalysis.call(
       this,
       sharedChatHistory,
       systemPrompt,
-      getProactiveSchema(groupChatGoals),
+      getProactiveSchema(eligibleGoals),
       privateHistory,
       undefined,
       undefined,
-      groupChatGoals,
+      eligibleGoals,
       this.conversation.behaviorPolicy,
       'groupChat',
       recentTranscript,
-      goalPriorities
-    )) as unknown as InterventionAnalysis | null
+      goalPriorities,
+      backgroundReading
+    )) as unknown as (InterventionAnalysis & SocraticSlotFields) | null
 
     if (!analysis) {
       logger.debug(`${this.agentType} ${this._id}: no intervention opportunity detected`)
       return []
+    }
+
+    if (analysis.goalId === 'none') {
+      logger.debug(`${this.agentType} ${this._id}: decision returned goal none — no intervention`)
+      return []
+    }
+
+    if (analysis.goalId === SOCRATIC_GOAL_ID && !backgroundReading) {
+      logger.warn(`${this.name}: ${SOCRATIC_GOAL_ID} chosen without retrieved passages — discarding`)
+      return []
+    }
+
+    if (analysis.goalId === SOCRATIC_GOAL_ID && backgroundReading) {
+      const question = await buildSocraticQuestion.call(this, analysis, sharedChatHistory, backgroundReading)
+      if (!question) return []
+      analysis.sharedChatMessage = question
     }
 
     if (this.conversation.behaviorPolicy?.globalPolicy?.safetyPosture === 'strict' && analysis.sharedChatMessage) {
@@ -301,7 +452,7 @@ export default verify({
 
     const chatChannels = this.conversation.channels.filter((c: IChannel) => c.name === 'chat')
 
-    const matchedGoal = groupChatGoals.find((g) => g.id === analysis.goalId)
+    const matchedGoal = eligibleGoals.find((g) => g.id === analysis.goalId)
     if (matchedGoal?.outputContract.format === 'poll') {
       logger.info(`${this.name}: Detected ${analysis.goalId} opportunity — ${analysis.detectedPattern}`)
       return executePoll.call(this, analysis, chatChannels, matchedGoal)
