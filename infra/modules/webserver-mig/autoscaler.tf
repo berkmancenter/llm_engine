@@ -15,7 +15,7 @@ resource "google_compute_region_autoscaler" "web_server" {
   project = var.project_id
   # Google refuses to change a regional autoscaler's target in place, so a new
   # group (new zone list) needs a new autoscaler. The hash keeps the new name
-  # clear of the old one, which Terraform may still be deleting.
+  # clear of the old one, which is deleted only after the new one exists.
   name   = "llm-engine-web-autoscaler-${local.zone_list_hash}"
   region = var.region
   target = google_compute_region_instance_group_manager.web_server.id
@@ -23,6 +23,7 @@ resource "google_compute_region_autoscaler" "web_server" {
   # Without this, a zone change leaves the old autoscaler behind as a deposed
   # object until the next apply. Google allows one autoscaler per group, so
   # this must reach production only after the rename above has been applied.
+  # Like the group, `-replace` collides with its own name; edit zones instead.
   lifecycle {
     create_before_destroy = true
   }

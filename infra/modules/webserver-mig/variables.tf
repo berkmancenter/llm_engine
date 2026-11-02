@@ -18,7 +18,8 @@ variable "zones" {
     Things to know before editing this list:
     - GCP does not allow changing a group's zones after it is created, so
       Terraform creates a new group (the zone list is part of its name),
-      points the load balancer at it, then deletes the old one. The load
+      points the load balancer at it, then deletes the old one. The
+      autoscaler is swapped the same way, since it cannot change groups. The load
       balancer switches as soon as the new group exists, before its VM has
       booted, so the site is down for a few minutes until the new VM passes
       its health checks. Make this change when few people are using the site.
