@@ -24,6 +24,7 @@ export async function startJobs() {
     await defineJob.generateConceptGraph()
     await defineJob.conversationEvent()
     await defineJob.conversationCost()
+    await defineJob.archiveEvent()
     await defineJob.pollExpired()
     await defineJob.publicInviteResend()
   }

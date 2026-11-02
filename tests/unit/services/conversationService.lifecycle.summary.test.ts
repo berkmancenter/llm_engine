@@ -30,6 +30,10 @@ const { publicTopic } = await import('../../fixtures/conversation.fixture.js')
 const { insertTopics } = await import('../../fixtures/topic.fixture.js')
 const { Conversation, Message } = await import('../../../src/models/index.js')
 const { doStopConversation } = await import('../../../src/services/conversation.service/lifecycle.js')
+const { default: config } = await import('../../../src/config/config.js')
+const { default: schedule } = await import('../../../src/jobs/schedule.js')
+const { default: agentDispatcher } = await import('../../../src/jobs/agentDispatcher.js')
+const { default: websocketGateway } = await import('../../../src/websockets/websocketGateway.js')
 const { default: logger } = await import('../../../src/config/logger.js')
 
 setupIntTest()
@@ -79,6 +83,80 @@ describe('doStopConversation summary generation', () => {
     const updated = await Conversation.findById(conversation._id)
     expect(mockGetChatPromptResponse).toHaveBeenCalled()
     expect(updated!.summary).toBe('Mock summary')
+  })
+
+  test('queues archive delivery after persisting the summary when enabled', async () => {
+    const conversation = await makeConversation()
+    await seedTranscriptMessages(conversation._id, 20)
+    const previous = config.bkcArchive.exportEnabled
+    config.bkcArchive.exportEnabled = true
+    const queued = jest.spyOn(schedule, 'archiveEvent').mockImplementation(async (id) => {
+      const saved = await Conversation.findById(id)
+      expect(saved!.summary).toBe('Mock summary')
+    })
+    try {
+      await doStopConversation(conversation)
+      expect(queued).toHaveBeenCalledWith(conversation._id.toString())
+    } finally {
+      config.bkcArchive.exportEnabled = previous
+      queued.mockRestore()
+    }
+  })
+
+  test('enqueue failure still completes stop and dispatches post-event analysis', async () => {
+    const conversation = await makeConversation()
+    await seedTranscriptMessages(conversation._id, 20)
+    const previous = config.bkcArchive.exportEnabled
+    const previousAnalysis = config.disablePostEventAnalysis
+    config.bkcArchive.exportEnabled = true
+    config.disablePostEventAnalysis = false
+    const queued = jest.spyOn(schedule, 'archiveEvent').mockRejectedValue(new Error('queue unavailable'))
+    const dispatch = jest.spyOn(agentDispatcher, 'dispatch').mockResolvedValue(undefined)
+    const logged = jest.spyOn(logger, 'error')
+    const broadcast = jest.spyOn(websocketGateway, 'broadcastConversationStopped')
+    broadcast.mockClear()
+    try {
+      await expect(doStopConversation(conversation)).resolves.toBe(conversation)
+      const saved = await Conversation.findById(conversation._id)
+      expect(saved!.active).toBe(false)
+      expect(saved!.summary).toBe('Mock summary')
+      expect(queued).toHaveBeenCalledWith(conversation._id.toString())
+      expect(logged).toHaveBeenCalledWith(`Archive export enqueue failed event=${conversation._id}`)
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'conversationStopped', conversationId: conversation._id.toString() }),
+        expect.any(Object),
+        expect.any(Object)
+      )
+      expect(broadcast).toHaveBeenCalledWith(conversation)
+    } finally {
+      config.bkcArchive.exportEnabled = previous
+      config.disablePostEventAnalysis = previousAnalysis
+      queued.mockRestore()
+      dispatch.mockRestore()
+      logged.mockRestore()
+    }
+  })
+
+  test.each([
+    { enabled: false, messages: 20 },
+    { enabled: true, messages: 10 }
+  ])('does not enqueue when enabled=$enabled and transcript messages=$messages', async ({ enabled, messages }) => {
+    const conversation = await makeConversation()
+    await seedTranscriptMessages(conversation._id, messages)
+    const previous = config.bkcArchive.exportEnabled
+    config.bkcArchive.exportEnabled = enabled
+    const queued = jest.spyOn(schedule, 'archiveEvent').mockResolvedValue(undefined)
+    try {
+      await doStopConversation(conversation)
+      expect(queued).not.toHaveBeenCalled()
+      const saved = await Conversation.findById(conversation._id)
+      expect(saved!.active).toBe(false)
+      if (messages === 20) expect(saved!.summary).toBe('Mock summary')
+      else expect(saved!.summary).toBeFalsy()
+    } finally {
+      config.bkcArchive.exportEnabled = previous
+      queued.mockRestore()
+    }
   })
 
   test('skips summary generation when there are fewer than 20 transcript messages', async () => {

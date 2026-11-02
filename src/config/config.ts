@@ -239,6 +239,9 @@ const envVarsSchema = Joi.object()
       .description('Web search provider to use (e.g. tavily, brave, serpapi)'),
     BKC_ARCHIVE_API_URL: Joi.string().description('Base URL of the BKC archive-wiki API (e.g. http://localhost:4000).'),
     BKC_ARCHIVE_API_TOKEN: Joi.string().description('Bearer token for the BKC archive-wiki API'),
+    BKC_ARCHIVE_EXPORT_ENABLED: Joi.boolean()
+      .default(false)
+      .description('Queue public completed event summaries for archive review'),
     CONVERSATION_AUTO_START_LEAD_TIME_MINUTES: Joi.number()
       .default(5)
       .description('Minutes before scheduledTime to auto-start a conversation'),
@@ -425,7 +428,8 @@ const config = {
   },
   bkcArchive: {
     apiUrl: envVars.BKC_ARCHIVE_API_URL,
-    apiToken: envVars.BKC_ARCHIVE_API_TOKEN
+    apiToken: envVars.BKC_ARCHIVE_API_TOKEN,
+    exportEnabled: envVars.BKC_ARCHIVE_EXPORT_ENABLED
   },
   webSearchProvider: envVars.WEB_SEARCH_PROVIDER,
   conversation: {
