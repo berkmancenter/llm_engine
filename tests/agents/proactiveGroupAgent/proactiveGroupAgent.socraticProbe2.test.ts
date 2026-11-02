@@ -121,7 +121,7 @@ describe('proactive group agent socratic_probe tests (reading 2)', () => {
     const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, history)
     console.log(
       'socratic_probe responses:',
-      JSON.stringify(responses.map((r) => [r.goalId, r.message, r.sourceLabel, r.concept, r.loadedWord]))
+      JSON.stringify(responses.map((r) => [r.goalId, (r.message as { text?: string })?.text, r.sourceLabel, r.concept, r.loadedWord]))
     )
     return responses
   }
@@ -153,7 +153,8 @@ describe('proactive group agent socratic_probe tests (reading 2)', () => {
       ])
 
       expect(responses).toHaveLength(1)
-      const { goalId, message } = responses[0]
+      const { goalId, message: rawMessage } = responses[0]
+      const message = (rawMessage as { text: string }).text
       expect(goalId).toBe('socratic_probe')
       expectGuaranteedShape(String(message).trim())
     },
@@ -175,7 +176,8 @@ describe('proactive group agent socratic_probe tests (reading 2)', () => {
       ])
 
       expect(responses).toHaveLength(1)
-      const { goalId, message } = responses[0]
+      const { goalId, message: rawMessage } = responses[0]
+      const message = (rawMessage as { text: string }).text
       expect(goalId).toBe('socratic_probe')
       const text = String(message).trim()
       expectGuaranteedShape(text)
@@ -218,7 +220,7 @@ describe('proactive group agent socratic_probe tests (reading 2)', () => {
       // staying silent is the usual (and fine) outcome: the room is already engaging with the earlier
       // question. If it does speak, it must be a new question with the guaranteed shape.
       if (responses.length === 0) return
-      const text = String(responses[0].message).trim()
+      const text = (responses[0].message as { text: string }).text.trim()
       expectGuaranteedShape(text)
       // a different question, not the earlier one reworded
       expect(contentWordOverlap(earlierQuestion, text, SOURCE_TERMS)).toBeLessThanOrEqual(0.5)

@@ -371,7 +371,7 @@ describe('proactiveGroupAgent respond', () => {
         expect.any(String) // recentTranscript
       )
       expect(responses).toHaveLength(1)
-      expect(responses[0].message).toBe(analysisWithMessage.sharedChatMessage)
+      expect((responses[0].message as { text: string }).text).toBe(analysisWithMessage.sharedChatMessage)
     })
 
     it('returns [] when strict and professionalism check fails', async () => {

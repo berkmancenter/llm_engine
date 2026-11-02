@@ -92,7 +92,7 @@ describe(`proactive group agent catalyst tests`, () => {
         // Bold data-backed claim with room still silent — should provoke discussion
         if (responses.length > 0) {
           const { goalId } = responses[0]
-          console.log(`[13:45] Detected ${goalId}:`, responses[0].message)
+          console.log(`[13:45] Detected ${goalId}:`, (responses[0].message as { text: string }).text)
           expect(['provoke_participation', 'play_commentary', 'poll_reveal']).toContain(goalId)
         }
       },
@@ -123,7 +123,7 @@ describe(`proactive group agent catalyst tests`, () => {
         // Lots of data just presented, but room is passive - should provoke discussion or run a poll
         if (responses.length > 0) {
           const { goalId } = responses[0]
-          console.log(`[07:30] Detected ${goalId}:`, responses[0].message)
+          console.log(`[07:30] Detected ${goalId}:`, (responses[0].message as { text: string }).text)
           expect(['provoke_participation', 'poll_reveal']).toContain(goalId)
         }
       },
@@ -179,7 +179,7 @@ describe(`proactive group agent catalyst tests`, () => {
         // Genuine debate already in progress — agent should stay out of it
         if (responses.length > 0) {
           const { goalId } = responses[0]
-          console.log(`[08:45] Detected ${goalId}:`, responses[0].message)
+          console.log(`[08:45] Detected ${goalId}:`, (responses[0].message as { text: string }).text)
         }
         // Don't expect intervention during active healthy discussion
       },
@@ -213,8 +213,8 @@ describe(`proactive group agent catalyst tests`, () => {
         // Breathing room after emotional peak - good moment for warm play_commentary
         if (responses.length > 0) {
           const { goalId } = responses[0]
-          console.log(`[06:20] Detected ${goalId}:`, responses[0].message)
-          expect(responses[0].message).toBeDefined()
+          console.log(`[06:20] Detected ${goalId}:`, (responses[0].message as { text: string }).text)
+          expect((responses[0].message as { text: string }).text).toBeDefined()
         }
       },
       testTimeout
@@ -256,7 +256,7 @@ describe(`proactive group agent catalyst tests`, () => {
         // Perfect moment for witty play_commentary on surprising data
         if (responses.length > 0) {
           const { goalId } = responses[0]
-          console.log(`[08:50] Detected ${goalId}:`, responses[0].message)
+          console.log(`[08:50] Detected ${goalId}:`, (responses[0].message as { text: string }).text)
           expect(['play_commentary', 'provoke_participation', 'poll_reveal']).toContain(goalId)
         }
       },
@@ -287,7 +287,7 @@ describe(`proactive group agent catalyst tests`, () => {
         // Should NOT use witty play_commentary during emotionally raw moments
         if (responses.length > 0) {
           const { goalId } = responses[0]
-          console.log(`[04:35] Detected ${goalId}:`, responses[0].message)
+          console.log(`[04:35] Detected ${goalId}:`, (responses[0].message as { text: string }).text)
           // Should NOT be play_commentary - could be no intervention or warm provoke_participation
           expect(goalId).not.toBe('play_commentary')
         }
@@ -318,7 +318,7 @@ describe(`proactive group agent catalyst tests`, () => {
         // Transition moments are good for play_commentary
         if (responses.length > 0) {
           const { goalId } = responses[0]
-          console.log(`[06:30] Detected ${goalId}:`, responses[0].message)
+          console.log(`[06:30] Detected ${goalId}:`, (responses[0].message as { text: string }).text)
           expect(['play_commentary', 'provoke_participation', 'poll_reveal']).toContain(goalId)
         }
       },
@@ -351,7 +351,7 @@ describe(`proactive group agent catalyst tests`, () => {
 
         if (responses.length > 0) {
           const { goalId } = responses[0]
-          console.log(`[07:30 passive room] Detected ${goalId}:`, responses[0].message)
+          console.log(`[07:30 passive room] Detected ${goalId}:`, (responses[0].message as { text: string }).text)
           expect(['poll_reveal', 'provoke_participation', 'play_commentary']).toContain(goalId)
         }
         // poll_reveal is the ideal choice here but provoke_participation is also valid —
@@ -394,7 +394,7 @@ describe(`proactive group agent catalyst tests`, () => {
 
         if (responses.length > 0) {
           const { goalId } = responses[0]
-          console.log(`[speaker show of hands] Detected ${goalId}:`, responses[0].message)
+          console.log(`[speaker show of hands] Detected ${goalId}:`, (responses[0].message as { text: string }).text)
           expect(goalId).not.toBe('poll_reveal')
         }
       },
@@ -447,7 +447,7 @@ describe(`proactive group agent catalyst tests`, () => {
         // challenge_consensus should surface the unexamined counterargument.
         if (responses.length > 0) {
           const { goalId } = responses[0]
-          console.log(`[13:50 one-sided endorsement] Detected ${goalId}:`, responses[0].message)
+          console.log(`[13:50 one-sided endorsement] Detected ${goalId}:`, (responses[0].message as { text: string }).text)
           expect(['challenge_consensus', 'invite_quieter_voices']).toContain(goalId)
         }
       },
@@ -502,7 +502,7 @@ describe(`proactive group agent catalyst tests`, () => {
         // Both sides are present and being engaged — challenge_consensus has nothing to introduce.
         if (responses.length > 0) {
           const { goalId } = responses[0]
-          console.log(`[13:50 two-sided debate] Detected ${goalId}:`, responses[0].message)
+          console.log(`[13:50 two-sided debate] Detected ${goalId}:`, (responses[0].message as { text: string }).text)
           expect(goalId).not.toBe('challenge_consensus')
         }
       },
@@ -563,7 +563,7 @@ describe(`proactive group agent catalyst tests`, () => {
 
         if (responses.length > 0) {
           const { goalId } = responses[0]
-          console.log(`[12:30 converged on empathy] Detected ${goalId}:`, responses[0].message)
+          console.log(`[12:30 converged on empathy] Detected ${goalId}:`, (responses[0].message as { text: string }).text)
           // missing_perspective is the only active goal here, so a non-empty response can only be this
           expect(goalId).toBe('missing_perspective')
         }

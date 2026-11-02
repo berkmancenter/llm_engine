@@ -263,6 +263,19 @@ export default verify({
   defaultLLMModel,
   ragCollectionName: undefined,
 
+  // Chat interventions carry a goal label in a JSON body; adapters that only forward plain
+  // text (Zoom) get just the text instead. Polls are exempt — they need their JSON body intact
+  // for zoom.ts's own poll-link handling.
+  parseOutput: (msg) => {
+    if (msg.bodyType === 'text' || msg.body?.type === 'poll') {
+      return msg
+    }
+    const translatedMsg = msg.toObject()
+    translatedMsg.bodyType = 'text'
+    translatedMsg.body = msg.body.text
+    return translatedMsg
+  },
+
   async evaluate(userMessage: unknown) {
     // This agent is proactive (triggers.periodic.proactive), so the framework's own
     // evaluate() never applies its "no new messages" skip — see agent.model/index.ts.
@@ -469,7 +482,8 @@ export default verify({
         ...analysis,
         visible: true,
         proactive: true,
-        message: analysis.sharedChatMessage,
+        message: { text: analysis.sharedChatMessage, goal: matchedGoal?.label },
+        messageType: 'json',
         channels: chatChannels
       } as AgentResponse<string | Record<string, unknown>>
     ]
