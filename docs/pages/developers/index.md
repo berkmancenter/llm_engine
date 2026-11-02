@@ -194,6 +194,8 @@ You can duplicate and/or modify the provider code and configuration file to allo
 
 A few agent types have been carefully tested and vetted for "production" use. There are other experimental [development agent](development_agents.md) types under development in the `agents/development` folder. Be careful running development agents! They should only be used in experimental or development contexts.
 
+The proactive group agent's `socratic_probe` goal has its own write-up: see the [socratic probe guide](socratic_probe.md) for the question pipeline, its logs and how it is evaluated.
+
 ### Enabling development agents
 
 In your `.env` file set `ENABLE_DEVELOPMENT_AGENTS=true`.
