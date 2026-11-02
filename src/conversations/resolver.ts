@@ -38,6 +38,10 @@ export const NEUTRAL_BEHAVIORAL_POLICY: BehaviorPolicy = {
       }
     },
     groupChat: {
+      qaBehavior: {
+        answerScope: 'broaderSubjectArea',
+        responseLength: 'short'
+      },
       proactivePolicy: {
         initiativeLevel: 'moderatelyProactive',
         minContributionMinutes: 2,

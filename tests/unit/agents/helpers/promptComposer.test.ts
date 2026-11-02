@@ -405,6 +405,34 @@ describe('buildBehaviorPolicySection', () => {
     })
   })
 
+  describe('groupChat qaBehavior', () => {
+    test('renders the same qaBehavior guidance as dm, scoped to groupChat', () => {
+      const policy: BehaviorPolicy = {
+        channels: { groupChat: { qaBehavior: { ...BASE_QA_BEHAVIOR, clarifyWhenAmbiguous: true, responseLength: 'short' } } }
+      }
+      const result = buildBehaviorPolicySection(policy, 'groupChat')
+      expect(result).toContain('clarifying question')
+      expect(result).toContain('Two sentences maximum')
+    })
+
+    test('does not render groupChat qaBehavior when channelType is dm', () => {
+      const policy: BehaviorPolicy = {
+        channels: { groupChat: { qaBehavior: { ...BASE_QA_BEHAVIOR, clarifyWhenAmbiguous: true } } }
+      }
+      expect(buildBehaviorPolicySection(policy, 'dm')).not.toContain('clarifying question')
+    })
+
+    test('suppresses global verbosity in groupChat when qaBehavior.responseLength is set', () => {
+      const policy: BehaviorPolicy = {
+        globalPolicy: { ...BASE_GLOBAL_POLICY, verbosity: 'brief' },
+        channels: { groupChat: { qaBehavior: { ...BASE_QA_BEHAVIOR, responseLength: 'medium' } } }
+      }
+      const result = buildBehaviorPolicySection(policy, 'groupChat')
+      expect(result).not.toContain('one or two sentences where possible')
+      expect(result).toContain('3–5 sentences')
+    })
+  })
+
   describe('proactivePolicy initiativeLevel', () => {
     test('renders lightlyProactive for groupChat', () => {
       const policy: BehaviorPolicy = {

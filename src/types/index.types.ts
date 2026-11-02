@@ -579,14 +579,16 @@ export interface ConversationContext {
   }
 }
 
+export interface QaBehavior {
+  responseLength: 'short' | 'medium' | 'long'
+  clarifyWhenAmbiguous?: boolean
+  addContextWhenUseful?: boolean
+  answerScope: 'helpUserUnderstandTheLecture' | 'broaderSubjectArea' | 'companyContextOnly' | 'open'
+  allowFollowUpDialogue?: boolean
+}
+
 export interface DmPolicy {
-  qaBehavior?: {
-    responseLength: 'short' | 'medium' | 'long'
-    clarifyWhenAmbiguous?: boolean
-    addContextWhenUseful?: boolean
-    answerScope: 'helpUserUnderstandTheLecture' | 'broaderSubjectArea' | 'companyContextOnly' | 'open'
-    allowFollowUpDialogue?: boolean
-  }
+  qaBehavior?: QaBehavior
   proactivePolicy?: {
     initiativeLevel: 'passive' | 'lightlyProactive' | 'moderatelyProactive' | 'highlyProactive'
     minContributionMinutes?: number
@@ -596,6 +598,7 @@ export interface DmPolicy {
 }
 
 export interface GroupChatPolicy {
+  qaBehavior?: QaBehavior
   proactivePolicy?: {
     initiativeLevel: 'passive' | 'lightlyProactive' | 'moderatelyProactive' | 'highlyProactive'
     minContributionMinutes?: number

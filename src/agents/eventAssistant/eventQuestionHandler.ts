@@ -429,7 +429,7 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
   const hasWebSearch = toolNames.includes('web_search')
 
   const channelType = userMessage?.channels?.includes('chat') ? 'groupChat' : 'dm'
-  const answerScope = this.conversation.behaviorPolicy?.channels?.dm?.qaBehavior?.answerScope
+  const answerScope = this.conversation.behaviorPolicy?.channels?.[channelType]?.qaBehavior?.answerScope
 
   // Get the appropriate templates based on personality setting
   const templates = buildLLMTemplates(
@@ -535,6 +535,14 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
     systemTemplate = templates.timeWindowSystem + buildVisualGuidance(autoVisualActive)
     templateType = 'timeWindow'
     classification = QuestionClassification.CATCHUP
+  } else if (answerScope === 'open' && channelType === 'groupChat') {
+    // Open scope means every question is in bounds, so there's nothing for the classification
+    // call to filter out — skip it (and its extra LLM round-trip) and answer directly. DMs still
+    // classify even when open: ON_TOPIC_ASK_SPEAKER there drives suggesting the moderator, which
+    // isn't a thing group chat does.
+    systemTemplate = templates.semanticSystem + buildVisualGuidance(autoVisualActive)
+    templateType = 'semantic'
+    classification = QuestionClassification.ON_TOPIC_ANSWER
   } else {
     const rawClassification = await getResponse.call(
       this,
