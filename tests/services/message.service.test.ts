@@ -398,6 +398,17 @@ describe('Message service methods', () => {
       expect(sentMessage.body).toBe('**First insight\\nSecond insight\\nThird insight**')
     })
 
+    test('ignores an _id sent by a human, since the websocket path does not validate the body', async () => {
+      const chosenId = new mongoose.Types.ObjectId()
+      testMessage.channels = [testZoomChannel]
+      testMessage.body = 'Picking my own ID'
+      testMessage._id = chosenId
+
+      const [saved] = await messageService.newMessageHandler(testMessage, testUser)
+
+      expect(saved._id!.equals(chosenId)).toBe(false)
+    })
+
     test('should send original message when no parseOutput function provided', async () => {
       testMessage.channels = [testZoomChannel]
       testMessage.body = 'Message without parser'

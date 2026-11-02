@@ -37,3 +37,17 @@ describe('ConversationType feature definitions', () => {
     })
   })
 })
+
+describe('eventAssistant unpacker feature', () => {
+  const unpacker = conversationTypes.eventAssistant.features?.find((f) => f.name === 'unpacker')
+
+  test('exists and starts off so unfinished Unpacker work stays hidden', () => {
+    expect(unpacker).toBeDefined()
+    expect(unpacker!.default).toBe(false)
+  })
+
+  test('starts no agents and has no slash command, since participants trigger it with buttons', () => {
+    expect(unpacker!.agents).toEqual([])
+    expect(unpacker!.slashCommand).toBeUndefined()
+  })
+})

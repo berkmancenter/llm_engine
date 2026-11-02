@@ -223,6 +223,110 @@ components:
         description:
           type: string
 
+    UnpackRequestBody:
+      type: object
+      description: >-
+        Message body (sent with bodyType "json") asking the event assistant to explain part of the
+        talk in plain language. Send it to the participant's direct channel with the assistant.
+        Ignored unless the event's "unpacker" feature is on.
+      required:
+        - type
+        - mode
+        - text
+      properties:
+        type:
+          type: string
+          enum: [unpack_request]
+        mode:
+          type: string
+          enum: [lastMinute]
+          description: Which part of the talk to explain. lastMinute is the transcript from the 60 seconds before the request.
+        text:
+          type: string
+          description: Readable label for the request (e.g. "Unpack 10:43 AM"), shown in chat history and by text-only clients.
+        destination:
+          type: string
+          enum: [privateChat]
+          default: privateChat
+          description: Where the explanation is posted.
+
+    UnpackTerm:
+      type: object
+      required:
+        - term
+        - text
+      properties:
+        term:
+          type: string
+        text:
+          type: string
+          description: Plain-language explanation of the term.
+
+    UnpackExplanation:
+      type: object
+      description: >-
+        Message body (bodyType "json") the event assistant sends in reply to an UnpackRequestBody.
+        If no transcript arrived in the window, or the participant sent too many requests in the
+        last minute, the assistant sends a short text message instead.
+      required:
+        - type
+        - mode
+        - destination
+        - requestMessage
+        - chunkIds
+        - passage
+        - quote
+        - whatTheyreSaying
+        - whyItMatters
+        - terms
+        - text
+      properties:
+        type:
+          type: string
+          enum: [unpack_explanation]
+        mode:
+          type: string
+          enum: [lastMinute]
+        destination:
+          type: string
+          enum: [privateChat]
+        requestMessage:
+          type: string
+          description: ID of the participant's request message.
+        chunkIds:
+          type: array
+          description: IDs of the transcript messages that were explained, oldest first.
+          items:
+            type: string
+        passage:
+          type: object
+          description: When the explained passage ran. Each time is when a transcript chunk finished.
+          required:
+            - start
+            - end
+          properties:
+            start:
+              type: string
+              format: date-time
+            end:
+              type: string
+              format: date-time
+        quote:
+          type: string
+          description: The transcript text that was explained.
+        whatTheyreSaying:
+          type: string
+        whyItMatters:
+          type: string
+        terms:
+          type: array
+          description: Specialist terms in the passage. Empty when there are none.
+          items:
+            $ref: '#/components/schemas/UnpackTerm'
+        text:
+          type: string
+          description: Plain-text version of all sections, for chat history and clients that can't render the card.
+
     Pseudonym:
       type: object
       required:
