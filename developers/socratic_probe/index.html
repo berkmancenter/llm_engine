@@ -1,0 +1,685 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Socratic probe - LLM Engine</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+  
+  
+  
+  
+  <style>:root{--md-annotation-icon:url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20d%3D%22M11%209h2V7h-2m1%2013c-4.41%200-8-3.59-8-8s3.59-8%208-8%208%203.59%208%208-3.59%208-8%208m0-18A10%2010%200%200%200%202%2012a10%2010%200%200%200%2010%2010%2010%2010%200%200%200%2010-10A10%2010%200%200%200%2012%202m-1%2015h2v-6h-2z%22/%3E%3C/svg%3E');}</style>
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#socratic-probe" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="LLM Engine" class="md-header__button md-logo" aria-label="LLM Engine" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 3c5.5 0 10 3.58 10 8 0 .58-.08 1.14-.22 1.68-.59-.3-1.23-.52-1.9-.62.08-.34.12-.7.12-1.06 0-3.31-3.58-6-8-6s-8 2.69-8 6 3.58 6 8 6l1.09-.05L13 18l.08.95L12 19c-1.19 0-2.38-.17-3.53-.5C6.64 20 4.37 20.89 2 21c2.33-2.33 2.75-3.9 2.75-4.5A7.22 7.22 0 0 1 2 11c0-4.42 4.5-8 10-8m6 11h2v3h3v2h-3v3h-2v-3h-3v-2h3z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            LLM Engine
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Socratic probe
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/berkmancenter/llm_engine" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="LLM Engine" class="md-nav__button md-logo" aria-label="LLM Engine" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 3c5.5 0 10 3.58 10 8 0 .58-.08 1.14-.22 1.68-.59-.3-1.23-.52-1.9-.62.08-.34.12-.7.12-1.06 0-3.31-3.58-6-8-6s-8 2.69-8 6 3.58 6 8 6l1.09-.05L13 18l.08.95L12 19c-1.19 0-2.38-.17-3.53-.5C6.64 20 4.37 20.89 2 21c2.33-2.33 2.75-3.9 2.75-4.5A7.22 7.22 0 0 1 2 11c0-4.42 4.5-8 10-8m6 11h2v3h3v2h-3v3h-2v-3h-3v-2h3z"/></svg>
+
+    </a>
+    LLM Engine
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/berkmancenter/llm_engine" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deploying/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deploying
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../using/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-it-does-and-when-it-fires" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it does and when it fires
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The pipeline
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Logs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-there-are-no-llm-judges" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why there are no LLM judges
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evaluation-method" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evaluation method
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Results
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-gaps-and-pruning-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known gaps and pruning plan
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="socratic-probe">Socratic probe</h1>
+<p><code>socratic_probe</code> is a goal of the proactive group agent (<code>src/agents/proactiveGroupAgent/PROACTIVE_GROUP_AGENT.md</code>). It posts one short question to the group chat that ties what the room is saying to an idea in the community's readings, without ever saying what the reading concluded. This page describes how the question is produced and checked, how to debug it from the logs, and how it was evaluated.</p>
+<h2 id="what-it-does-and-when-it-fires">What it does and when it fires</h2>
+<p>The goal definition is <code>goals/socratic_probe.json</code> (channel <code>groupChat</code>, <code>silenceCompatible: true</code>, minimum confidence 70). It is meant for four situations: the group makes a claim a retrieved passage complicates or supports, circles a concept the readings define or dispute, agrees quickly on something the readings treat as contested, or keeps repeating a loaded word ("healthy", "fair") the passage uses differently. The message is always a single question, never a statement followed by a question.</p>
+<p>Gating in <code>proactiveGroupAgent.ts</code>:</p>
+<ul>
+<li><strong>Grounded only.</strong> The goal is offered to the decision model only when passages were actually retrieved. The agent prefetches background reading just before the decision call, and only if <code>socratic_probe</code> is active and at least one conversation resource has a <code>fileName</code>. The query is built from the last few human chat messages. If there is no resource, no query, empty retrieval or a failed retrieval, the goal is removed from the eligible set.</li>
+<li><strong>Nothing else active.</strong> If <code>socratic_probe</code> was the only eligible goal and no passage was retrieved, the agent returns without calling the model.</li>
+<li><strong>Quiet chat.</strong> Because the goal is <code>silenceCompatible</code>, it keeps the agent running when chat is quiet but the transcript is active (see the activity gate in <code>evaluate()</code>). With chat and transcript both quiet the agent skips regardless.</li>
+<li><strong>Decision <code>none</code>.</strong> A decision with <code>goalId</code> of <code>"none"</code> is ignored. A <code>socratic_probe</code> decision with no retrieved passage is discarded.</li>
+<li><strong>Strict safety posture.</strong> If the conversation's <code>behaviorPolicy</code> has <code>safetyPosture: 'strict'</code>, the final message also goes through the generic professionalism guardrail, which can drop it (see Known gaps).</li>
+</ul>
+<h2 id="the-pipeline">The pipeline</h2>
+<ol>
+<li><strong>Decision call.</strong> The existing proactive decision call picks a goal. For <code>socratic_probe</code> it is told not to write the question: <code>sharedChatMessage</code> is the placeholder <code>question</code>, and it fills three slots, <code>sourceLabel</code>, <code>concept</code> and <code>loadedWord</code>. The decision call's own message is never used.</li>
+<li><strong>Slot validation</strong> (<code>socraticSlots.ts</code>, <code>validateSocraticSlots</code>). A bad concept or source silences the goal for this cycle (<code>slots rejected (&lt;reason&gt;)</code> warning).<ul>
+<li><code>concept</code> must be present, at most 6 words, free of digits, and appear in the retrieved passage (case-insensitive).</li>
+<li><code>concept</code> must name a topic, not an outcome. It is rejected when it contains a finding verb (found, fell, rose, dropped, led to, ...), or when it shares an outcome-ish word (past participle or comparative) with a passage sentence that reports a quantity. A term the passage itself coins in quotation marks is exempt from the second test and from the outcome-only words.</li>
+<li><code>sourceLabel</code> is trimmed to the part naming the source (years and full citations are cut) and must match the passage text or a conversation resource's title, authors or citation.</li>
+<li><code>loadedWord</code> is silently dropped (not an error) if it is over 3 words, contains a quote or question mark, or the group has used it fewer than twice in the last 15 human chat lines.</li>
+</ul>
+</li>
+<li><strong>Passage-blind writer</strong> (<code>socraticQuestionWriter.ts</code>). A separate model call receives the source name, the concept, the loaded word, the last 8 human chat lines and the agent's last 5 posts. It never receives the passage, so it cannot leak a finding it was never shown. When a loaded word is set, the concept is withheld (shown as <code>(none)</code>): pairing the group's word with a reading term invited presuppositions about the reading.</li>
+<li>
+<p><strong>Deterministic shape checks</strong> (<code>socraticChecks.ts</code>, <code>checkSocraticShape</code>), each with its reason:</p>
+<table>
+<thead>
+<tr>
+<th>Check</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>exactly one <code>?</code>, at the very end</td>
+<td>one ask only</td>
+</tr>
+<tr>
+<td>at most 40 words</td>
+<td>keeps it a question, not a paragraph</td>
+</tr>
+<tr>
+<td>names the source (full label, or surname for a 2-3 token label)</td>
+<td>the room must know where the idea comes from</td>
+</tr>
+<tr>
+<td>quotes the loaded word in double quotes, when one is set</td>
+<td>marks the word as the group's, not the source's</td>
+</tr>
+<tr>
+<td>names no participant (pseudonym or last word of one)</td>
+<td>never single anyone out</td>
+</tr>
+<tr>
+<td>loaded word and concept not both present</td>
+<td>pairing smuggles in a presupposition about the reading</td>
+</tr>
+<tr>
+<td>no he/she/his/her/him outside quotes</td>
+<td>the writer has not read the source and cannot know the gender</td>
+</tr>
+<tr>
+<td>no analogy or hypothetical markers (imagine, what if, as if, ...)</td>
+<td>the goal forbids invented examples</td>
+</tr>
+<tr>
+<td>no quoted foreign word credited to the source (<code>findQuotedWordCreditedToSource</code>)</td>
+<td>"Lee uses 'healthy'" attributes the group's word to the source; a modal ("would mean") is allowed</td>
+</tr>
+<tr>
+<td>not a compound question (<code>isCompoundQuestion</code>)</td>
+<td>a second clause is where presuppositions creep in; a leading framing clause ("When we say X, would ...") is not a second ask</td>
+</tr>
+<tr>
+<td>no trailing "given that / in light of / since you" clause</td>
+<td>sets the room's view against the reading</td>
+</tr>
+<tr>
+<td>no digits</td>
+<td>numbers imply a finding</td>
+</tr>
+<tr>
+<td>no finding verbs (found, fell, rose, ...) after slots are stripped</td>
+<td>reports an outcome</td>
+</tr>
+<tr>
+<td>no 4-gram copied from the passage (after removing slot terms; all-function-word runs ignored)</td>
+<td>copied wording can carry the finding</td>
+</tr>
+<tr>
+<td>content-word overlap with a recent agent post at most 0.5 (source-name words ignored)</td>
+<td>do not re-ask the same question</td>
+</tr>
+</tbody>
+</table>
+<p>Reasons returned to the writer are generic and contain no passage text, so they are safe to hand back.
+5. <strong>Redrafts.</strong> A rejected draft is fed back to the writer with its reasons, up to 4 writer calls in all (one draft plus 3 redrafts; <code>MAX_WRITER_ATTEMPTS</code> in <code>socraticPipeline.ts</code>). The decision call is never re-run. A failed writer call counts as an attempt.
+6. <strong>Template fallback.</strong> If no draft passes, a question is rendered from the validated slots with no model: <code>When we say "&lt;word&gt;", would &lt;source&gt; mean the same thing by it?</code>, or <code>How does &lt;source&gt; treat &lt;concept&gt;?</code> with no loaded word. The template goes through the same shape checks.
+7. <strong>Silence.</strong> If the template itself fails the checks, nothing is posted.</p>
+</li>
+</ol>
+<h2 id="logs">Logs</h2>
+<p>Search for <code>[SocraticStage]</code>:</p>
+<ul>
+<li><code>draft rejected {"attempt","stage","reason","draft"}</code>: one per rejected draft. <code>stage</code> is <code>shape</code> (the only stage today), <code>reason</code> is the <code>;</code>-joined list of failed checks, <code>draft</code> is the full text.</li>
+<li><code>no draft passed — using template fallback</code>, then <code>template fallback used</code> or <code>template fallback failed checks (...) — staying silent</code>.</li>
+<li><code>summary {"outcome","attempts"}</code>: always the last line. <code>outcome</code> is <code>posted-writer</code>, <code>posted-template</code> or <code>silent</code>; <code>attempts</code> is the number of writer calls used.</li>
+<li><code>writer call failed</code>: the model call threw; it counts as an attempt.</li>
+</ul>
+<p>The agent itself logs <code>slots rejected (&lt;reason&gt;)</code> before the stage runs, <code>chosen without retrieved passages</code>, and the prefetch failure warning.</p>
+<p><strong>Debugging a missing probe.</strong> Work backwards: no <code>socratic_probe</code> decision means the goal was not eligible (no passages, so check the resource <code>fileName</code> and the prefetch warning) or the model chose another goal or <code>none</code>. A <code>slots rejected</code> line names the validation rule that fired. A <code>summary</code> with <code>silent</code>, or with <code>attempts</code> of 4 followed by the template, means the writer kept failing a check; the <code>draft rejected</code> lines show which. A guardrail rejection warning means the strict safety posture dropped it.</p>
+<p><strong>Deciding what to prune.</strong> Count <code>reason</code> fragments over a large sample of <code>draft rejected</code> lines. A check that never appears in the reasons, across many conversations, adds code without protecting anything. A check that appears on most first drafts is either a prompt problem (fix the writer prompt) or an over-strict rule (relax the check). Look at the <code>attempts</code> histogram too: mostly 1 means the prompt does the work and the checks are a backstop.</p>
+<h2 id="why-there-are-no-llm-judges">Why there are no LLM judges</h2>
+<p>Two model-based judges were built and removed. One never fired. The other rejected about 80% of first drafts as over-strict, which burned redraft budget and pushed output toward the template. A variant that quoted the offending span back to the writer gave no measurable benefit. Deterministic checks are predictable, free, explain themselves with a one-line reason, and can be unit tested. The tradeoff is that they are shape checks and cannot catch every presupposition; the blind audit below is how that residual risk is measured.</p>
+<h2 id="evaluation-method">Evaluation method</h2>
+<p><strong>Fabricated readings.</strong> Tests use invented papers and terms, so the model cannot know their contents from training and any leak must come from the pipeline. <code>tests/agents/proactiveGroupAgent/proactiveGroupAgent.socraticProbe.test.ts</code> and <code>...socraticProbe2.test.ts</code> each use one fabricated reading.</p>
+<p><strong>Live suite.</strong> <code>yarn test:agents</code> runs <code>tests/agents/**</code> against the configured test LLM, real Chroma and a shared Mongo. It runs serially (<code>-i</code>) because the tests share one database and wipe collections; do not run it in parallel or alongside another run against the same Mongo. The socratic tests hard-gate the message shape on every case: one question mark at the end, at most 40 words, source named, no participant names, no digits, no invented analogy, no copied passage wording, a quoted loaded word when the decision identified one, and no re-ask above 0.5 overlap. They also assert silence with no resources and with an irrelevant chat. Whether the decision fires is a model judgment and is logged (<code>socratic_probe responses:</code>) rather than gated. See <code>tests/CLAUDE.md</code>.</p>
+<p><strong>Blind audit.</strong> Shape checks cannot see a presupposition, so quality is measured by a person-like read. A separate model sees only the passage, the chat lines and a shuffled set of unlabeled messages (no indication whether a message came from the plain model or the pipeline) and labels each:</p>
+<ul>
+<li><code>LEAK-ASSERT</code>: the message states something the passage says.</li>
+<li><code>LEAK-PRESUPPOSE</code>: the message takes a claim from the passage for granted.</li>
+<li><code>CLEAN</code>: neither.</li>
+</ul>
+<p>plus flags for <code>misattributes</code> (credits the source with the group's words), <code>one_question</code>, <code>quotes_word</code> and <code>fabricates</code>. The secret key mapping messages to conditions is kept apart and applied only after labeling.</p>
+<p>Lessons:</p>
+<ul>
+<li><strong>Calibrate the rubric explicitly.</strong> Naming the reading's concept, or asking whether the author would use a word, is not a leak by itself. Without that line an auditor treats any reference to the reading as a leak.</li>
+<li><strong>Use two independent auditors</strong> and compare; disagreement shows where the rubric is vague.</li>
+<li><strong>Require hand-reading.</strong> An auditor that labels by keyword rule is useless; instruct it to read every message and say so in its output.</li>
+<li><strong>An untuned strict auditor can flag everything.</strong> Check the rate on known-good messages before trusting a result.</li>
+<li><strong>Samples are small</strong> (tens of messages). Treat differences of a few messages as noise.</li>
+<li><strong>Keep per-message notes</strong>, not just counts, so a surprising label can be re-checked.</li>
+</ul>
+<h2 id="results">Results</h2>
+<p>On the first reading (41 messages from the plain model, no pipeline): 18 clean, 22 presupposing, 1 asserting, 7 misattributing. The guarded pipeline (shape checks, concept withheld, redrafts) over 80 messages across two readings: 77 and 79 clean, 0 asserted, 0 misattributing, 0 compound.</p>
+<p>For context, earlier rounds with a stricter auditor: misattribution went from about 35% to about 7%, then to 0 after the concept was withheld whenever a loaded word is set; presupposition was about 18-21% before the later fixes (single ask, no trailing given-that clause, no crediting the source with the group's words). Counts are from separate rounds with different samples and are indicative, not a controlled comparison.</p>
+<h2 id="known-gaps-and-pruning-plan">Known gaps and pruning plan</h2>
+<ul>
+<li><strong>Small samples.</strong> All figures come from tens of messages on two fabricated readings with one configured test LLM. Treat them as a regression tripwire, not a failure-rate bound.</li>
+<li><strong>Professionalism guardrail.</strong> Under <code>safetyPosture: 'strict'</code> the generic guardrail runs after the pipeline and has dropped otherwise valid probes. Those drops are not covered by the <code>[SocraticStage]</code> logs; look for the <code>rejected by professionalism guardrail</code> warning.</li>
+<li><strong>Checks that did not fire in recent runs:</strong> the finding-verb check, the analogy markers, the near-repeat overlap check and the digit check. The template fallback was used in about 0 of 80 messages. These are candidates for pruning.</li>
+<li><strong>Plan.</strong> Collect <code>draft rejected</code> lines from real conversations for a few weeks, count reasons, and remove a check only if it never fired and the blind audit on a fresh reading shows no regression without it. Keep slot-validation rules (they gate the writer's inputs) and the checks that did fire in the audit: single ask, no credit to the source, no pronouns, and the loaded-word pairing rule. Keep the template fallback as the last line, since removing it turns every exhausted redraft into silence.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "navigation.sections", "search.suggest"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

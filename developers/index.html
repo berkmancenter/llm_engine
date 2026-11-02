@@ -721,6 +721,7 @@ Describes how new system users are created as needed on demand when they encount
 <p>You can duplicate and/or modify the provider code and configuration file to allow for red teaming additional agents.</p>
 <h2 id="production-vs-development-agents">Production vs. Development Agents</h2>
 <p>A few agent types have been carefully tested and vetted for "production" use. There are other experimental <a href="development_agents/">development agent</a> types under development in the <code>agents/development</code> folder. Be careful running development agents! They should only be used in experimental or development contexts.</p>
+<p>The proactive group agent's <code>socratic_probe</code> goal has its own write-up: see the <a href="socratic_probe/">socratic probe guide</a> for the question pipeline, its logs and how it is evaluated.</p>
 <h3 id="enabling-development-agents">Enabling development agents</h3>
 <p>In your <code>.env</code> file set <code>ENABLE_DEVELOPMENT_AGENTS=true</code>.</p>
 <h3 id="testing-development-agents">Testing development agents</h3>
