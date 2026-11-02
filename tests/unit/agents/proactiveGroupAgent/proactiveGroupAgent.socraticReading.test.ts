@@ -259,7 +259,7 @@ describe('proactiveGroupAgent socratic_probe reading prefetch', () => {
     expect(readingArg()).toBeUndefined()
     expect(goalIdsArg()).toEqual(['synthesize_discussion'])
     expect(responses).toHaveLength(1)
-    expect(responses[0].message).toBe('A question?')
+    expect((responses[0].message as { text: string }).text).toBe('A question?')
   })
 
   it('discards a socratic_probe result when no passages were retrieved (defensive)', async () => {
@@ -296,7 +296,7 @@ describe('proactiveGroupAgent socratic_probe reading prefetch', () => {
     const responses = await proactiveGroupAgent.respond.call(makeAgent(), history())
 
     expect(responses).toHaveLength(1)
-    expect(responses[0].message).toBe('A pipeline question?')
+    expect((responses[0].message as { text: string }).text).toBe('A pipeline question?')
   })
 
   it('builds the query from the last few non-agent chat messages, each clipped and the total bounded', async () => {
@@ -354,7 +354,7 @@ describe('proactiveGroupAgent socratic_probe question pipeline', () => {
     const responses = await proactiveGroupAgent.respond.call(makeAgent({ messages: chat('I like quotas') }), history())
 
     expect(responses).toHaveLength(1)
-    expect(responses[0].message).toBe('A pipeline question?')
+    expect((responses[0].message as { text: string }).text).toBe('A pipeline question?')
     expect(stageInput()).toEqual(
       expect.objectContaining({
         slots: { sourceLabel: 'Governing the Commons', concept: 'fabricated passage', loadedWord: null },
@@ -389,7 +389,7 @@ describe('proactiveGroupAgent socratic_probe question pipeline', () => {
     )
 
     expect(responses).toHaveLength(1)
-    expect(responses[0].message).toBe('A summary question?')
+    expect((responses[0].message as { text: string }).text).toBe('A summary question?')
     expect(mockRunSocraticStage).not.toHaveBeenCalled()
   })
 
@@ -460,7 +460,7 @@ describe('proactiveGroupAgent socratic_probe question pipeline', () => {
       history()
     )
 
-    expect(responses[0].message).toBe('hello')
+    expect((responses[0].message as { text: string }).text).toBe('hello')
     expect(mockRunSocraticStage).not.toHaveBeenCalled()
   })
 })

@@ -164,8 +164,9 @@ describe(`proactive group agent facilitative tests`, () => {
 
         // If it intervenes, verify it follows rules
         if (responses.length > 0) {
-          console.log(`Detected ${responses[0].goalId}:`, responses[0].message)
-          const { message } = responses[0]
+          console.log(`Detected ${responses[0].goalId}:`, (responses[0].message as { text: string }).text)
+          const { message: rawMessage } = responses[0]
+          const message = (rawMessage as { text: string }).text
           // Should surface the pattern without quoting individuals
           expect(message).not.toContain(user1.pseudonyms[0].pseudonym)
           expect(message).not.toContain(user2.pseudonyms[0].pseudonym)
@@ -245,8 +246,9 @@ describe(`proactive group agent facilitative tests`, () => {
         const { goalId } = responses[0]
         expect(['synthesize_discussion', 'surface_signal', 'invite_quieter_voices']).toContain(goalId)
 
-        console.log(`Detected ${goalId}:`, responses[0].message)
-        const { message } = responses[0]
+        console.log(`Detected ${goalId}:`, (responses[0].message as { text: string }).text)
+        const { message: rawMessage } = responses[0]
+        const message = (rawMessage as { text: string }).text
         // Should reframe or surface the pattern without directly quoting full private message phrases
         expect(message).not.toContain('The upfront cost of restructuring our entire team seems prohibitive')
         expect(message).not.toContain('Getting executive buy-in for something this different will be tough')
@@ -330,7 +332,8 @@ describe(`proactive group agent facilitative tests`, () => {
         const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
 
         if (responses.length > 0) {
-          const { goalId, message } = responses[0]
+          const { goalId, message: rawMessage } = responses[0]
+          const message = (rawMessage as { text: string }).text
           console.log(`Detected ${goalId}:`, message)
           expect(['invite_quieter_voices', 'surface_signal']).toContain(goalId)
           // Should not name or identify any dissenting participant
@@ -390,8 +393,9 @@ describe(`proactive group agent facilitative tests`, () => {
         const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
 
         if (responses.length > 0 && responses[0].goalId === 'clarify_confusion') {
-          console.log('Detected clarify_confusion:', responses[0].message)
-          const { message } = responses[0]
+          console.log('Detected clarify_confusion:', (responses[0].message as { text: string }).text)
+          const { message: rawMessage } = responses[0]
+          const message = (rawMessage as { text: string }).text
           // Should help clarify without exposing who was confused
           expect(message).not.toContain(user1.pseudonyms[0].pseudonym)
           expect(message).not.toContain(user2.pseudonyms[0].pseudonym)
@@ -453,7 +457,8 @@ describe(`proactive group agent facilitative tests`, () => {
 
         // bridge_topics is context-dependent — accept bridge_topics or no intervention
         if (responses.length > 0) {
-          const { goalId, message } = responses[0]
+          const { goalId, message: rawMessage } = responses[0]
+          const message = (rawMessage as { text: string }).text
           console.log(`Detected ${goalId}:`, message)
           expect(message).toBeDefined()
         }
@@ -507,8 +512,9 @@ describe(`proactive group agent facilitative tests`, () => {
         const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
 
         if (responses.length > 0 && responses[0].goalId === 'structure_conversation') {
-          console.log('Detected structure_conversation:', responses[0].message)
-          const { message } = responses[0]
+          console.log('Detected structure_conversation:', (responses[0].message as { text: string }).text)
+          const { message: rawMessage } = responses[0]
+          const message = (rawMessage as { text: string }).text
           // Should provide orientation or structure
           const hasStructure =
             message.toLowerCase().includes('moving') ||
@@ -642,7 +648,8 @@ describe(`proactive group agent facilitative tests`, () => {
         const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(mpAgent, conversationHistory)
 
         expect(responses.length).toBeGreaterThan(0)
-        const { goalId, message } = responses[0]
+        const { goalId, message: rawMessage } = responses[0]
+        const message = (rawMessage as { text: string }).text
         console.log(`Detected ${goalId}:`, message)
         expect(goalId).toBe('missing_perspective')
         expect(message).toBeTruthy()
@@ -680,7 +687,7 @@ describe(`proactive group agent facilitative tests`, () => {
 
         // Positions not yet established — should not trigger missing_perspective
         if (responses.length > 0) {
-          console.log(`Unexpected intervention on thin transcript: ${responses[0].goalId}:`, responses[0].message)
+          console.log(`Unexpected intervention on thin transcript: ${responses[0].goalId}:`, (responses[0].message as { text: string }).text)
           expect(responses[0].goalId).not.toBe('missing_perspective')
         }
       },
@@ -730,7 +737,7 @@ describe(`proactive group agent facilitative tests`, () => {
         // the model may reference Jordan's angle while genuinely introducing a different one.
         // Log for manual review; the scenario still exercises the guardrail path.
         if (responses.length > 0) {
-          console.log(`After Jordan raised labor view — ${responses[0].goalId}:`, responses[0].message)
+          console.log(`After Jordan raised labor view — ${responses[0].goalId}:`, (responses[0].message as { text: string }).text)
         } else {
           console.log('No intervention after Jordan raised labor view')
         }
@@ -783,10 +790,10 @@ describe(`proactive group agent facilitative tests`, () => {
 
         // Should detect this as a good question to surface
         expect(responses.length).toBeGreaterThan(0)
-        console.log('Agent response about healthcare:', responses[0].message)
+        console.log('Agent response about healthcare:', (responses[0].message as { text: string }).text)
         expect(responses[0].goalId).toBe('surface_signal')
         // Should not expose individual questions verbatim
-        expect(responses[0].message).not.toContain('How do you handle health insurance for part-time workers')
+        expect((responses[0].message as { text: string }).text).not.toContain('How do you handle health insurance for part-time workers')
       },
       testTimeout
     )
@@ -834,10 +841,10 @@ describe(`proactive group agent facilitative tests`, () => {
 
         // May intervene to acknowledge this is resonating with many
         if (responses.length > 0) {
-          console.log('Agent response about personal resonance:', responses[0].message)
+          console.log('Agent response about personal resonance:', (responses[0].message as { text: string }).text)
           // Should not expose individual's personal disclosure
-          expect(responses[0].message).not.toContain("I'm a single parent")
-          expect(responses[0].message).not.toContain('As a caregiver myself')
+          expect((responses[0].message as { text: string }).text).not.toContain("I'm a single parent")
+          expect((responses[0].message as { text: string }).text).not.toContain('As a caregiver myself')
         }
       },
       testTimeout
@@ -883,11 +890,11 @@ describe(`proactive group agent facilitative tests`, () => {
         const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
 
         if (responses.length > 0 && responses[0].goalId === 'clarify_confusion') {
-          console.log('Detected clarify_confusion about terminology:', responses[0].message)
+          console.log('Detected clarify_confusion about terminology:', (responses[0].message as { text: string }).text)
           // Should help clarify without exposing who was confused
-          expect(responses[0].message).not.toContain(user1.pseudonyms[0].pseudonym)
-          expect(responses[0].message).not.toContain(user2.pseudonyms[0].pseudonym)
-          expect(responses[0].message).not.toContain(user3.pseudonyms[0].pseudonym)
+          expect((responses[0].message as { text: string }).text).not.toContain(user1.pseudonyms[0].pseudonym)
+          expect((responses[0].message as { text: string }).text).not.toContain(user2.pseudonyms[0].pseudonym)
+          expect((responses[0].message as { text: string }).text).not.toContain(user3.pseudonyms[0].pseudonym)
         }
       },
       testTimeout
@@ -954,9 +961,9 @@ describe(`proactive group agent facilitative tests`, () => {
 
         // If it intervenes, verify quality
         if (responses.length > 0) {
-          console.log('Agent response about implementation:', responses[0].message)
-          const { message } = responses[0]
-
+          console.log('Agent response about implementation:', (responses[0].message as { text: string }).text)
+          const { message: rawMessage } = responses[0]
+          const message = (rawMessage as { text: string }).text
           // Should not quote private messages verbatim
           expect(message).not.toContain('How do you actually implement the 2 days from home')
           expect(message).not.toContain('how does that work operationally')
@@ -1014,10 +1021,10 @@ describe(`proactive group agent facilitative tests`, () => {
 
         // May detect as invite_quieter_voices or surface_signal
         if (responses.length > 0) {
-          console.log(`Detected ${responses[0].goalId} about skepticism:`, responses[0].message)
+          console.log(`Detected ${responses[0].goalId} about skepticism:`, (responses[0].message as { text: string }).text)
           // Should create space for skepticism without exposing individuals
-          expect(responses[0].message).not.toContain("I'm skeptical this would work in manufacturing")
-          expect(responses[0].message).not.toContain('I have serious doubts')
+          expect((responses[0].message as { text: string }).text).not.toContain("I'm skeptical this would work in manufacturing")
+          expect((responses[0].message as { text: string }).text).not.toContain('I have serious doubts')
         }
       },
       testTimeout

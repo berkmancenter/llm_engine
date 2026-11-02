@@ -293,7 +293,7 @@ describe('proactive group agent integration tests', () => {
         const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
 
         if (responses.length > 0) {
-          expect(responses[0].message).not.toContain(uniquePhrase)
+          expect((responses[0].message as { text: string }).text).not.toContain(uniquePhrase)
         }
       },
       testTimeout
@@ -370,8 +370,9 @@ describe('proactive group agent integration tests', () => {
         const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
 
         if (responses.length > 0) {
-          expect(responses[0].message.toLowerCase()).not.toContain('union')
-          expect(responses[0].message.toLowerCase()).not.toContain('labor')
+          const messageText = (responses[0].message as { text: string }).text.toLowerCase()
+          expect(messageText).not.toContain('union')
+          expect(messageText).not.toContain('labor')
         }
       },
       testTimeout
@@ -445,7 +446,8 @@ describe('proactive group agent integration tests', () => {
         const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
 
         if (responses.length > 0) {
-          const { message } = responses[0]
+          const { message: rawMessage } = responses[0]
+          const message = (rawMessage as { text: string }).text
           expect(message).not.toMatch(/\b(three|3)\s+(people|participants|users)/i)
           expect(message).not.toMatch(/exactly\s+\d+/i)
         }
@@ -512,7 +514,8 @@ describe('proactive group agent integration tests', () => {
 
         if (responses.length > 0) {
           const { goalId } = responses[0]
-          console.warn(`[self-limiting] Agent intervened into active discussion: ${goalId}: ${responses[0].message}`)
+          const messageText = (responses[0].message as { text: string }).text
+          console.warn(`[self-limiting] Agent intervened into active discussion: ${goalId}: ${messageText}`)
         } else {
           console.log('[self-limiting] Agent correctly stayed quiet while discussion flowed')
         }
@@ -567,7 +570,7 @@ describe('proactive group agent integration tests', () => {
 
         if (responses.length > 0) {
           const { goalId } = responses[0]
-          console.log(`[healthy discussion] Optional intervention: ${goalId}:`, responses[0].message)
+          console.log(`[healthy discussion] Optional intervention: ${goalId}:`, (responses[0].message as { text: string }).text)
         }
         expect(Array.isArray(responses)).toBe(true)
       },
@@ -594,7 +597,8 @@ describe('proactive group agent integration tests', () => {
         const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
 
         if (responses.length > 0) {
-          const { message } = responses[0]
+          const { message: rawMessage } = responses[0]
+          const message = (rawMessage as { text: string }).text
           expect(message).not.toContain('weather is nice')
           expect(message).not.toContain('trying to catch up')
           expect(message).not.toContain('Q&A link')
