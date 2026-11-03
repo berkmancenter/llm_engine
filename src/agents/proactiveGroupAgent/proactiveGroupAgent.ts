@@ -36,9 +36,13 @@ const READING_QUERY_MESSAGES = 5
 const READING_QUERY_MESSAGE_CHARS = 300
 const READING_QUERY_MAX_CHARS = 1000
 
-function buildReadingQuery(history: ConversationHistory): string {
-  return history.messages
+// Draws from both chat and transcript so a quiet chat during an active lecture/discussion still
+// yields a query — chat alone would starve socratic_probe of input whenever no one is typing,
+// even though it's marked silenceCompatible.
+function buildReadingQuery(chatHistory: ConversationHistory, transcriptHistory: ConversationHistory): string {
+  return [...chatHistory.messages, ...transcriptHistory.messages]
     .filter((m) => !m.fromAgent)
+    .sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0))
     .slice(-READING_QUERY_MESSAGES)
     .map((m) => {
       const text = extractMessageText(m)
@@ -385,7 +389,12 @@ export default verify({
     // (no resources, empty/failed retrieval, or nothing to query with).
     let backgroundReading: string | undefined
     if (groupChatGoals.some((g) => g.id === SOCRATIC_GOAL_ID) && this.conversation.resources?.some((r) => r.fileName)) {
-      const query = buildReadingQuery(sharedChatHistory)
+      const transcriptHistory = getConversationHistory(this.conversation.messages, {
+        count: 100,
+        channels: ['transcript'],
+        endTime: conversationHistory.end
+      })
+      const query = buildReadingQuery(sharedChatHistory, transcriptHistory)
       if (query) {
         try {
           backgroundReading = (await getBackgroundContextForQuestion(String(this.conversation._id), query)) || undefined

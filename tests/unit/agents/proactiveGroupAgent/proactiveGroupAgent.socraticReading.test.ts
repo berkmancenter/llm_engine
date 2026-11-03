@@ -315,12 +315,32 @@ describe('proactiveGroupAgent socratic_probe reading prefetch', () => {
     expect(query.length).toBeLessThanOrEqual(1000)
   })
 
-  it('skips the prefetch when the shared chat has no text to query with, dropping socratic_probe', async () => {
+  it('skips the prefetch when neither chat nor transcript has text to query with, dropping socratic_probe', async () => {
     const responses = await proactiveGroupAgent.respond.call(makeAgent({ messages: [] }), history())
 
     expect(mockGetBackgroundContext).not.toHaveBeenCalled()
     expect(responses).toEqual([])
     expect(mockRunInterventionAnalysis).not.toHaveBeenCalled()
+  })
+
+  it('builds the query from the transcript when chat is quiet, so a silent chat does not starve the prefetch', async () => {
+    const messages = [chatMessage('Ostrom argues trust emerges from repeated interaction', 5000, { channels: ['transcript'] })]
+
+    await proactiveGroupAgent.respond.call(makeAgent({ messages }), history())
+
+    expect(mockGetBackgroundContext).toHaveBeenCalledWith('conv-1', expect.stringContaining('Ostrom argues trust emerges'))
+  })
+
+  it('combines chat and transcript text, most recent last, when both have content', async () => {
+    const messages = [
+      chatMessage('older transcript line', 9000, { channels: ['transcript'] }),
+      chatMessage('newer chat line', 1000, { channels: ['chat'] })
+    ]
+
+    await proactiveGroupAgent.respond.call(makeAgent({ messages }), history())
+
+    const query = mockGetBackgroundContext.mock.calls[0][1] as string
+    expect(query).toBe('older transcript line\nnewer chat line')
   })
 })
 
