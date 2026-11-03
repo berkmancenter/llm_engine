@@ -17,7 +17,7 @@ import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from
 import generateMindMap from './mindMapGenerator.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 import { loadGoal } from '../../goals/loader.js'
-import { GROUP_CHAT_CHANNELS, isGroupChatMessage } from '../helpers/groupChatChannel.js'
+import { GROUP_CHAT_CHANNELS, isGroupChatMessage, currentGroupChannelName } from '../helpers/groupChatChannel.js'
 import { PREGAME_CHANNEL } from '../../conversations/eventAssistant.js'
 
 /**
@@ -223,6 +223,19 @@ export default verify({
       ? supportedCommands
       : supportedCommands.filter((c) => c.command !== 'mod' && c.command !== 'escalate')
     let modifiedMessage = parseSlashCommands(userMessage, activeCommands)
+
+    /* A client that misses conversation:started (dropped connection, laptop asleep, ...) can
+       stay on the pregame view indefinitely and keep posting there after the event has actually
+       gone live. Retag those messages to the now-current group channel rather than just
+       declining to answer them — otherwise the message (and any reply) would still be saved
+       into a channel nobody else, including admins, is looking at anymore. */
+    const liveGroupChannel = currentGroupChannelName(this.conversation)
+    if (modifiedMessage?.channels?.includes(PREGAME_CHANNEL) && liveGroupChannel !== PREGAME_CHANNEL) {
+      modifiedMessage = {
+        ...modifiedMessage,
+        channels: modifiedMessage.channels.map((channel) => (channel === PREGAME_CHANNEL ? liveGroupChannel : channel))
+      }
+    }
 
     if (isGroupChatMessage(modifiedMessage?.channels)) {
       const words = modifiedMessage?.body?.trim().split(/\s+/) ?? []
