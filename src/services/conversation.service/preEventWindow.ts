@@ -1,5 +1,9 @@
 import { IConversation } from '../../types/index.types.js'
 
+// If auto-start hasn't set startTime within this long after scheduledTime, treat it as failed
+// rather than leaving the window open indefinitely
+const AUTO_START_GRACE_MS = 30 * 1000
+
 /**
  * Whether this conversation's preEvent window is currently open: preEventMinutes configured,
  * past the computed open time, and the conversation hasn't started, ended, or stayed a draft.
@@ -8,10 +12,12 @@ import { IConversation } from '../../types/index.types.js'
  * resuming a transcript — both call doStartConversation directly with no time check of their
  * own — and once that's happened the window is over regardless of what scheduledTime says. The
  * normal auto-start path now fires exactly at scheduledTime, so for it this is equivalent to
- * checking scheduledTime itself. A draft conversation never auto-starts at all, so its window is
- * never considered open either — otherwise a draft would get its agents turned on during what
- * would be its pregame window with nothing left to ever turn them back off (see
- * jobs/handlers/conversation.ts's openConversationWindow).
+ * checking scheduledTime itself. Also closes AUTO_START_GRACE_MS after scheduledTime even without
+ * a startTime, as a failsafe for a stuck/failed auto-start job (see that constant). A draft
+ * conversation never auto-starts at all, so its window is never considered open either —
+ * otherwise a draft would get its agents turned on during what would be its pregame window with
+ * nothing left to ever turn them back off (see jobs/handlers/conversation.ts's
+ * openConversationWindow).
  *
  * Its own leaf module rather than living in lifecycle.ts itself, for the same reason as this
  * directory's scheduleConversationTimers.ts: lifecycle.ts imports agentService, which (via the
@@ -29,6 +35,9 @@ export default function isPreEventWindowOpen(
   // open for the few seconds around scheduledTime where that job never ran to activate anything.
   if (typeof conversation.preEventMinutes !== 'number' || conversation.preEventMinutes <= 0) return false
   if (!conversation.scheduledTime) return false
-  const opensAt = new Date(conversation.scheduledTime).getTime() - conversation.preEventMinutes * 60 * 1000
-  return Date.now() >= opensAt
+  const scheduledTimeMs = new Date(conversation.scheduledTime).getTime()
+  const opensAt = scheduledTimeMs - conversation.preEventMinutes * 60 * 1000
+  const closesAt = scheduledTimeMs + AUTO_START_GRACE_MS
+  const now = Date.now()
+  return now >= opensAt && now < closesAt
 }

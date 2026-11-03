@@ -46,4 +46,16 @@ describe('isPreEventWindowOpen', () => {
   test('is not open when scheduledTime is unset', () => {
     expect(isPreEventWindowOpen(withinWindow({ scheduledTime: undefined }))).toBe(false)
   })
+
+  describe('auto-start grace period (failsafe for a stuck/failed autoStart job)', () => {
+    test('stays open for a few seconds after scheduledTime with no startTime yet', () => {
+      // Normal case: auto-start hasn't set startTime yet, but it's well within the grace period.
+      expect(isPreEventWindowOpen(withinWindow({ scheduledTime: new Date(Date.now() - 5 * 1000) }))).toBe(true)
+    })
+
+    test('closes once the grace period has elapsed with no startTime set', () => {
+      // Abnormal case: autoStart should have set startTime by now and clearly hasn't.
+      expect(isPreEventWindowOpen(withinWindow({ scheduledTime: new Date(Date.now() - 60 * 1000) }))).toBe(false)
+    })
+  })
 })
