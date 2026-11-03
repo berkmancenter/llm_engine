@@ -35,6 +35,14 @@ describe('isPreEventWindowOpen', () => {
     expect(isPreEventWindowOpen(withinWindow({ preEventMinutes: undefined }))).toBe(false)
   })
 
+  test('is not open when preEventMinutes is 0, matching openConversationWindow treating it as unconfigured', () => {
+    expect(isPreEventWindowOpen(withinWindow({ preEventMinutes: 0 }))).toBe(false)
+  })
+
+  test('is not open when preEventMinutes is negative', () => {
+    expect(isPreEventWindowOpen(withinWindow({ preEventMinutes: -5 }))).toBe(false)
+  })
+
   test('is not open when scheduledTime is unset', () => {
     expect(isPreEventWindowOpen(withinWindow({ scheduledTime: undefined }))).toBe(false)
   })

@@ -24,7 +24,11 @@ export default function isPreEventWindowOpen(
   conversation: Pick<IConversation, 'scheduledTime' | 'preEventMinutes' | 'startTime' | 'endTime' | 'draft'>
 ): boolean {
   if (conversation.startTime || conversation.endTime || conversation.draft) return false
-  if (typeof conversation.preEventMinutes !== 'number' || !conversation.scheduledTime) return false
+  // preEventMinutes <= 0 is treated the same as unconfigured, matching openConversationWindow's
+  // own falsy check (jobs/handlers/conversation.ts) — otherwise this could read the window as
+  // open for the few seconds around scheduledTime where that job never ran to activate anything.
+  if (typeof conversation.preEventMinutes !== 'number' || conversation.preEventMinutes <= 0) return false
+  if (!conversation.scheduledTime) return false
   const opensAt = new Date(conversation.scheduledTime).getTime() - conversation.preEventMinutes * 60 * 1000
   return Date.now() >= opensAt
 }
