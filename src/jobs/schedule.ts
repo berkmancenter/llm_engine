@@ -53,6 +53,15 @@ const schedule = {
   cancelOpenConversationWindow: async (conversationId: string, phase: ConversationPhase) => {
     await agenda.cancel({ name: 'openConversationWindow', 'data.conversationId': conversationId, 'data.phase': phase })
   },
+  // For adapter types that need to be live before the conversation officially starts (see
+  // preStartAdapter). Scoped by both conversationId and adapterType so cancelling one adapter
+  // type's pre-start never touches another type's, scheduled separately for the same conversation.
+  adapterPreStart: async (scheduledAt: Date, data: { conversationId: string; adapterType: string }) => {
+    await agenda.schedule(scheduledAt, 'adapterPreStart', data)
+  },
+  cancelAdapterPreStart: async (conversationId: string, adapterType: string) => {
+    await agenda.cancel({ name: 'adapterPreStart', 'data.conversationId': conversationId, 'data.adapterType': adapterType })
+  },
   autoStopConversation: async (timerPeriod, data, firstRunAt: Date) => {
     const job = agenda.create(`autoStop - ${data.conversationId}`, data)
     job.repeatEvery(timerPeriod)

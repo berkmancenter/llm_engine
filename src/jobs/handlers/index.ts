@@ -22,6 +22,7 @@ const JobHandlers = {
   autoStopConversation: conversationHandlers.autoStopConversation,
   conversationEndingSoon: conversationHandlers.conversationEndingSoon,
   openConversationWindow: conversationHandlers.openConversationWindow,
+  preStartAdapter: conversationHandlers.preStartAdapter,
 
   // Invite handlers
   publicInviteResend: inviteHandlers.publicInviteResend,

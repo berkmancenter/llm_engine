@@ -33,6 +33,7 @@ import resourceService from '../resource.service.js'
 import {
   scheduleConversationAutoStart,
   scheduleConversationPreEventWindow,
+  scheduleAdapterPreStarts,
   rescheduleConversationTimers
 } from './scheduleConversationTimers.js'
 
@@ -601,6 +602,7 @@ const updateConversation = async (conversationBody, user) => {
      so this is safe to call even if a job was already registered. */
   if (restBody.scheduledTime !== undefined && conversationDoc!.scheduledTime) {
     await scheduleConversationAutoStart(conversationDoc!)
+    await scheduleAdapterPreStarts(conversationDoc!)
   }
   /* Also reschedule on a preEventMinutes change, or when this update just turned a draft into a
      complete event: openConversationWindow skips drafts (see jobs/handlers/conversation.ts), so

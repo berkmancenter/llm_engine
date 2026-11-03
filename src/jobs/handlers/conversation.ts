@@ -1,10 +1,11 @@
 import logger from '../../config/logger.js'
-import { Conversation, Message } from '../../models/index.js'
+import { Adapter, Conversation, Message } from '../../models/index.js'
 import {
   doConversationEndingSoon,
   doStartConversation,
   doStopConversation
 } from '../../services/conversation.service/lifecycle.js'
+import adapterService from '../../services/adapter.service.js'
 import agentDispatcher from '../agentDispatcher.js'
 import { ConversationPhase } from '../../types/index.types.js'
 import { AgentDocument } from '../../models/user.model/agent.model/index.js'
@@ -29,6 +30,45 @@ const autoStartConversation = async (job) => {
     await doStartConversation(conversation)
   } catch (err) {
     logger.error(`Auto-start failed for conversation ${conversationId}`, err)
+  }
+}
+
+/* For adapter types that need to be live before the conversation officially starts — today
+   just Zoom, whose Recall bot needs time to actually join the call before anything gets
+   captured; see scheduleAdapterPreStart. Scoped to one adapterType per job so a future adapter
+   type with the same need can reuse this without touching what Zoom's own schedule does.
+   doStartConversation's own adapter loop will call adapterService.start on the same adapter
+   again at scheduledTime; that's a safe no-op (e.g. Zoom's own isBotDeployed check). */
+const preStartAdapter = async (job) => {
+  const { conversationId, adapterType } = job.attrs.data as { conversationId: string; adapterType: string }
+  try {
+    const conversation = await Conversation.findOne({ _id: conversationId })
+    if (!conversation) {
+      logger.warn(`Adapter pre-start (${adapterType}): conversation ${conversationId} not found`)
+      return
+    }
+    if (conversation.draft) {
+      logger.debug(`Adapter pre-start (${adapterType}): conversation ${conversationId} is a draft, skipping`)
+      return
+    }
+    if (conversation.active) {
+      logger.debug(`Adapter pre-start (${adapterType}): conversation ${conversationId} already active, skipping`)
+      return
+    }
+    const adapters = await Adapter.find({ conversation: conversationId, type: adapterType, active: false })
+    // Isolated per adapter: one adapter failing to start (e.g. a uniqueness conflict) must not
+    // block another adapter of the same type on this conversation from starting.
+    await Promise.all(
+      adapters.map(async (adapter) => {
+        try {
+          await adapterService.start(adapter)
+        } catch (err) {
+          logger.error(`Adapter pre-start (${adapterType}): failed to start adapter ${adapter._id}`, err)
+        }
+      })
+    )
+  } catch (err) {
+    logger.error(`Adapter pre-start (${adapterType}) failed for conversation ${conversationId}`, err)
   }
 }
 
@@ -179,6 +219,7 @@ const conversationHandlers = {
   autoStartConversation,
   autoStopConversation,
   conversationEndingSoon,
-  openConversationWindow
+  openConversationWindow,
+  preStartAdapter
 }
 export default conversationHandlers

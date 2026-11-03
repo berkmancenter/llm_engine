@@ -2020,6 +2020,20 @@ describe('Conversation service methods', () => {
       expect(scheduleSpy).toHaveBeenCalled()
     })
 
+    test('should reschedule the zoom adapter pre-start job when scheduledTime changes', async () => {
+      const cancelSpy = jest.spyOn(schedule, 'cancelAdapterPreStart').mockResolvedValue(undefined)
+      const scheduleSpy = jest.spyOn(schedule, 'adapterPreStart').mockResolvedValue(undefined)
+
+      const newStart = new Date(Date.now() + 7200000)
+      await conversationService.updateConversation(
+        { id: conversation._id.toString(), scheduledTime: newStart },
+        registeredUser
+      )
+
+      expect(cancelSpy).toHaveBeenCalledWith(conversation._id, 'zoom')
+      expect(scheduleSpy).toHaveBeenCalled()
+    })
+
     test('should reschedule the conversation ending soon job when scheduledEndTime changes', async () => {
       const cancelSpy = jest.spyOn(schedule, 'cancelConversationEndingSoon').mockResolvedValue(undefined)
       const scheduleSpy = jest.spyOn(schedule, 'conversationEndingSoon').mockResolvedValue(undefined)

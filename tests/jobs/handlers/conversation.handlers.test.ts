@@ -1,5 +1,5 @@
 import mongoose from 'mongoose'
-import { Conversation, Message, Agent } from '../../../src/models/index.js'
+import { Adapter, Conversation, Message, Agent } from '../../../src/models/index.js'
 import { publicTopic, conversationOne } from '../../fixtures/conversation.fixture.js'
 import { insertTopics } from '../../fixtures/topic.fixture.js'
 import { insertUsers, userOne } from '../../fixtures/user.fixture.js'
@@ -8,7 +8,9 @@ import setupIntTest from '../../utils/setupIntTest.js'
 import websocketGateway from '../../../src/websockets/websocketGateway.js'
 import agentService from '../../../src/services/agent.service/index.js'
 import { setAgentTypes } from '../../../src/models/user.model/agent.model/index.js'
+import { setAdapterTypes } from '../../../src/models/adapter.model.js'
 import defaultAgentTypes from '../../../src/agents/index.js'
+import defaultAdapterTypes from '../../../src/adapters/index.js'
 import { defaultLLMPlatform, defaultLLMModel } from '../../../src/agents/helpers/getModelChat.js'
 import config from '../../../src/config/config.js'
 import schedule from '../../../src/jobs/schedule.js'
@@ -82,6 +84,84 @@ describe('conversation handler tests', () => {
       const updated = await Conversation.findById(conversation._id)
       expect(updated!.active).toBe(false)
       expect(updated!.startTime).toBeUndefined()
+    })
+  })
+
+  describe('preStartAdapter', () => {
+    const mockAdapterStart = jest.fn()
+
+    beforeAll(() => {
+      setAdapterTypes({
+        zoom: { start: mockAdapterStart, stop: jest.fn(), getUniqueKeys: jest.fn().mockReturnValue([]) },
+        slack: { start: mockAdapterStart, stop: jest.fn(), getUniqueKeys: jest.fn().mockReturnValue([]) }
+      })
+    })
+
+    afterAll(() => {
+      setAdapterTypes(defaultAdapterTypes)
+    })
+
+    test('starts an inactive adapter of the given type', async () => {
+      const zoomAdapter = new Adapter({ type: 'zoom', conversation })
+      await zoomAdapter.save()
+
+      await JobHandlers.preStartAdapter({ attrs: { data: { conversationId: conversation._id, adapterType: 'zoom' } } })
+
+      const updated = await Adapter.findById(zoomAdapter._id)
+      expect(updated!.active).toBe(true)
+      expect(mockAdapterStart).toHaveBeenCalled()
+    })
+
+    test('does not start an adapter of a different type', async () => {
+      const slackAdapter = new Adapter({ type: 'slack', conversation })
+      await slackAdapter.save()
+
+      await JobHandlers.preStartAdapter({ attrs: { data: { conversationId: conversation._id, adapterType: 'zoom' } } })
+
+      const updated = await Adapter.findById(slackAdapter._id)
+      expect(updated!.active).toBe(false)
+      expect(mockAdapterStart).not.toHaveBeenCalled()
+    })
+
+    test('skips an adapter that is already active', async () => {
+      const zoomAdapter = new Adapter({ type: 'zoom', conversation, active: true })
+      await zoomAdapter.save()
+
+      await JobHandlers.preStartAdapter({ attrs: { data: { conversationId: conversation._id, adapterType: 'zoom' } } })
+
+      expect(mockAdapterStart).not.toHaveBeenCalled()
+    })
+
+    test('does not throw if conversation not found', async () => {
+      const fakeId = '000000000000000000000000'
+      await expect(
+        JobHandlers.preStartAdapter({ attrs: { data: { conversationId: fakeId, adapterType: 'zoom' } } })
+      ).resolves.not.toThrow()
+      expect(mockAdapterStart).not.toHaveBeenCalled()
+    })
+
+    test('does not start adapters for a Draft conversation', async () => {
+      await Conversation.findByIdAndUpdate(conversation._id, { draft: true })
+      const zoomAdapter = new Adapter({ type: 'zoom', conversation })
+      await zoomAdapter.save()
+
+      await JobHandlers.preStartAdapter({ attrs: { data: { conversationId: conversation._id, adapterType: 'zoom' } } })
+
+      const updated = await Adapter.findById(zoomAdapter._id)
+      expect(updated!.active).toBe(false)
+      expect(mockAdapterStart).not.toHaveBeenCalled()
+    })
+
+    test('does not start adapters for a conversation that is already active', async () => {
+      await Conversation.findByIdAndUpdate(conversation._id, { active: true })
+      const zoomAdapter = new Adapter({ type: 'zoom', conversation })
+      await zoomAdapter.save()
+
+      await JobHandlers.preStartAdapter({ attrs: { data: { conversationId: conversation._id, adapterType: 'zoom' } } })
+
+      const updated = await Adapter.findById(zoomAdapter._id)
+      expect(updated!.active).toBe(false)
+      expect(mockAdapterStart).not.toHaveBeenCalled()
     })
   })
 
