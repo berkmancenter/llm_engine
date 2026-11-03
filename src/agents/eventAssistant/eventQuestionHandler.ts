@@ -19,7 +19,7 @@ import {
   EVENT_ASSISTANT_SERIES_HISTORY_USER_CARVEOUT
 } from './buildEventAssistantToolSystemPrompt.js'
 import { VOICE_OUTPUT_RULES } from '../helpers/voiceDirectives.js' // used in no-tools path below
-import { isGroupChatMessage } from '../helpers/groupChatChannel.js'
+import { isGroupChatMessage, currentGroupChannelName } from '../helpers/groupChatChannel.js'
 
 export enum QuestionClassification {
   ON_TOPIC_ANSWER = 'ON_TOPIC_ANSWER',
@@ -391,6 +391,33 @@ export function buildVisualGuidance(autoVisualActive: boolean): string {
     : `\n- **Visuals & images:** You can create images, diagrams, charts, and other visuals, so never tell the user you are unable to make one. When the user asks for a picture/diagram/visual, answer the underlying concept helpfully and invite them to use the /visual command so you can generate one for them. Always speak about this in the first person (e.g. "I can create that for you") — never refer to yourself in the third person. Do not deny the capability.`
 }
 
+/**
+ * Where a finished answer should post, and whether to thread it under the question. Recomputed
+ * at answer time rather than reused from when the question arrived: generating an answer can
+ * take long enough that a group-chat question's channel (pregame vs chat) is no longer the live
+ * one by the time it's ready, and sending the answer there would land it somewhere the frontend
+ * already moved away from. When that's happened, thread under the question too would reference a
+ * parent in a channel nobody's looking at anymore, so it's skipped along with the channel.
+ * DM questions are untouched: the reply always stays in the channel asked, with normal threading.
+ */
+export function resolveAnswerDestination(
+  conversation,
+  userMessage,
+  responseChannels: Pick<IChannel, 'name'>[],
+  channelType
+) {
+  if (channelType !== 'groupChat') {
+    return { channels: responseChannels, parentMessageId: userMessage.parentMessage }
+  }
+  const currentChannelName = currentGroupChannelName(conversation)
+  const channelMoved = !userMessage.channels?.includes(currentChannelName)
+  const channels = channelMoved
+    ? conversation.channels.filter((channel: IChannel) => channel.name === currentChannelName)
+    : responseChannels
+  const parentMessageId = channelMoved ? undefined : userMessage.parentMessage || userMessage._id
+  return { channels, parentMessageId }
+}
+
 export async function answerQuestion(userMessage, conversationHistory, options?) {
   const chatHistory = isGroupChatMessage(userMessage?.channels)
     ? formatMultiUserConversationHistory(conversationHistory)
@@ -649,16 +676,13 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
 
   let responseMessage = llmResponse
   let imageGenResponse
-  let parentMessageId
 
-  // Set parent for threading
-  if (isGroupChatMessage(userMessage?.channels)) {
-    // For group chat: thread under the original message or current message
-    parentMessageId = userMessage.parentMessage || userMessage._id
-  } else if (userMessage.parentMessage) {
-    // For DMs: only set parent if the incoming message is already a reply (user initiated side convo)
-    parentMessageId = userMessage.parentMessage
-  }
+  const { channels: finalResponseChannels, parentMessageId } = resolveAnswerDestination(
+    this.conversation,
+    userMessage,
+    responseChannels,
+    channelType
+  )
 
   if (!allowGenerateVisual) logger.debug('Visual generation skipped due to off-topic or unanswerable question')
 
@@ -715,7 +739,7 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
       ...(moderatorSuggested ? { moderatorSuggested: true, message: userMessage._id?.toString() } : {})
     },
     messageType: 'json',
-    channels: responseChannels,
+    channels: finalResponseChannels,
     context: contextString,
     classification,
     promptType,
