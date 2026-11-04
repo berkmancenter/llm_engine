@@ -1638,6 +1638,31 @@ describe('Conversation service methods', () => {
     })
   })
 
+  describe('startConversation() conversationStarted dispatch', () => {
+    test('dispatches conversationStarted event when conversation is started', async () => {
+      await insertUsers([registeredUser])
+      await insertTopics([topicOne])
+      const conversation = new Conversation({
+        name: 'Test Start',
+        owner: registeredUser._id,
+        topic: topicOne._id,
+        draft: false,
+        agents: [],
+        adapters: [],
+        messages: []
+      })
+      await conversation.save()
+      const dispatchSpy = jest.spyOn(agentDispatcher, 'dispatch').mockResolvedValue(undefined)
+
+      await conversationService.startConversation(conversation._id.toString(), registeredUser)
+
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'conversationStarted', conversationId: conversation._id.toString() }),
+        expect.objectContaining({ type: 'conversation', id: conversation._id.toString() })
+      )
+    })
+  })
+
   describe('startConversation() draft gating', () => {
     beforeEach(async () => {
       await insertUsers([registeredUser])
