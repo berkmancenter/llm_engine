@@ -2,7 +2,6 @@ import mongoose from 'mongoose'
 import httpStatus from 'http-status'
 import { Conversation, Topic, Follower, Message, Channel, Agent, ConversationMembership } from '../../models/index.js'
 import updateDocument from '../../utils/updateDocument.js'
-import config from '../../config/config.js'
 import ApiError from '../../utils/ApiError.js'
 import websocketGateway from '../../websockets/websocketGateway.js'
 import agentService from '../agent.service/index.js'
@@ -34,6 +33,7 @@ import resourceService from '../resource.service.js'
 import {
   scheduleConversationAutoStart,
   scheduleConversationPreEventWindow,
+  scheduleAdapterPreStarts,
   rescheduleConversationTimers
 } from './scheduleConversationTimers.js'
 
@@ -101,34 +101,6 @@ const stopConversation = async (conversationOrId, user) => {
   return doStopConversation(conversation)
 }
 
-const autoStart = async (conversationId) => {
-  const conversation = await Conversation.findOne({ _id: conversationId })
-  if (!conversation) {
-    logger.warn(`Auto-start: conversation ${conversationId} not found`)
-    return
-  }
-  if (conversation.active) {
-    logger.debug(`Auto-start: conversation ${conversationId} already active, skipping`)
-    return
-  }
-  await conversation.populate(['topic', 'agents', 'adapters'])
-  return doStartConversation(conversation)
-}
-
-const autoStop = async (conversationId) => {
-  const conversation = await Conversation.findOne({ _id: conversationId })
-  if (!conversation) {
-    logger.warn(`Auto-stop: conversation ${conversationId} not found`)
-    return
-  }
-  if (!conversation.active) {
-    logger.debug(`Auto-stop: conversation ${conversationId} already inactive, skipping`)
-    return
-  }
-  await conversation.populate(['topic', 'agents', 'adapters'])
-  return doStopConversation(conversation)
-}
-
 async function scheduleConversationEndingSoon(conversation) {
   await schedule.cancelConversationEndingSoon(conversation._id)
   // Schedule maxScheduledInterval before the scheduled end time;
@@ -177,24 +149,6 @@ const createConversation = async (conversationBody, user, { allowDraft = false }
 
   if (conversationBody.scheduledTime && new Date(conversationBody.scheduledTime) <= new Date()) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'scheduledTime must be in the future')
-  }
-
-  /* Both autoStart and the preEvent window are scheduled as an offset from the same
-     scheduledTime (see scheduleConversationAutoStart/scheduleConversationPreEventWindow), so a
-     preEventMinutes at or below the auto-start lead time means the conversation auto-starts
-     before (or exactly when) the window would open. openConversationWindow's own "already
-     started" guard would then silently no-op it — reject the configuration here instead, so
-     that failure is loud at creation time, not a pregame feature that quietly never fires. */
-  if (
-    typeof conversationBody.preEventMinutes === 'number' &&
-    conversationBody.preEventMinutes <= config.conversation.autoStartLeadTimeMs / 60000
-  ) {
-    throw new ApiError(
-      httpStatus.BAD_REQUEST,
-      `preEventMinutes must be greater than the auto-start lead time (${
-        config.conversation.autoStartLeadTimeMs / 60000
-      } minutes)`
-    )
   }
 
   const { embeddingsPlatform, embeddingsModelName } = conversationBody.transcript?.vectorStore ?? {}
@@ -385,20 +339,6 @@ const updateConversation = async (conversationBody, user) => {
     enforceMembership: _incomingEnforcesMembership,
     ...restBody
   } = conversationBody
-
-  // Same reasoning as createConversation's check: only when the caller is actually setting
-  // preEventMinutes, so a previously-valid value isn't resurfaced as an error on an unrelated edit.
-  if (
-    typeof restBody.preEventMinutes === 'number' &&
-    restBody.preEventMinutes <= config.conversation.autoStartLeadTimeMs / 60000
-  ) {
-    throw new ApiError(
-      httpStatus.BAD_REQUEST,
-      `preEventMinutes must be greater than the auto-start lead time (${
-        config.conversation.autoStartLeadTimeMs / 60000
-      } minutes)`
-    )
-  }
 
   const oldResources = incomingResources !== undefined ? [...conversationDoc.resources] : null
 
@@ -662,6 +602,7 @@ const updateConversation = async (conversationBody, user) => {
      so this is safe to call even if a job was already registered. */
   if (restBody.scheduledTime !== undefined && conversationDoc!.scheduledTime) {
     await scheduleConversationAutoStart(conversationDoc!)
+    await scheduleAdapterPreStarts(conversationDoc!)
   }
   /* Also reschedule on a preEventMinutes change, or when this update just turned a draft into a
      complete event: openConversationWindow skips drafts (see jobs/handlers/conversation.ts), so
@@ -1089,8 +1030,6 @@ const conversationService = {
   patchConversationAgent,
   startConversation,
   stopConversation,
-  autoStart,
-  autoStop,
   joinConversation,
   generateConversationReport,
   updateTranscriptStatus,

@@ -8,6 +8,7 @@ import Conversation from '../models/conversation.model.js'
 import Adapter from '../models/adapter.model.js'
 import webhookService from '../services/webhook.service.js'
 import conversationService from '../services/conversation.service/index.js'
+import { doStopConversation } from '../services/conversation.service/lifecycle.js'
 
 const verifyRequestFromRecall = (args: { secret: string; headers: Record<string, string>; payload: string | null }) => {
   const { secret, headers, payload } = args
@@ -108,7 +109,10 @@ const handleBotStatusChange = async (adapter, body) => {
         `Bot left call for on-demand conversation ${conversation._id} (${subCode}); stopping instead of redeploying`
       )
       try {
-        await conversationService.autoStop(conversation._id)
+        // conversation.active is already confirmed above, so no need to re-check it here —
+        // just populate what doStopConversation needs to stop each agent/adapter in turn.
+        await conversation.populate(['topic', 'agents', 'adapters'])
+        await doStopConversation(conversation)
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error'
         logger.error(`Failed to stop on-demand conversation ${conversation._id}: ${errorMessage}`)

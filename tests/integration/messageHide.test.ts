@@ -284,7 +284,7 @@ describe('admin hide message', () => {
       const noChannel = await insertMessage(s.author, conversationOne, { channels: [] })
 
       const res = await hideOne(s.adminToken, inAssistant._id).expect(httpStatus.BAD_REQUEST)
-      expect(res.body.message).toMatch(/chat channel/)
+      expect(res.body.message).toMatch(/chat\/pregame channel/)
       await hideOne(s.adminToken, noChannel._id).expect(httpStatus.BAD_REQUEST)
 
       expect((await Message.findById(inAssistant._id))!.hiddenByAdmin).toBe(false)

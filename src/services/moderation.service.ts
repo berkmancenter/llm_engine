@@ -5,7 +5,7 @@ import { Conversation, Message, ModerationEvent, User } from '../models/index.js
 import ApiError from '../utils/ApiError.js'
 import { roleRights } from '../config/roles.js'
 import websocketGateway from '../websockets/websocketGateway.js'
-import { HIDEABLE_CHANNEL, HideContext, inHideableChannel, loadHideContext } from '../utils/messageVisibility.js'
+import { HIDEABLE_CHANNELS, HideContext, inHideableChannel, loadHideContext } from '../utils/messageVisibility.js'
 
 /**
  * Admin moderation: hide a message, or every message by one author, in ONE conversation, and undo it.
@@ -94,7 +94,7 @@ const setMessageHidden = async (messageId, requester, hidden: boolean, reason?: 
   const message = await loadMessage(messageId)
   // Hiding is a group chat feature: refuse rather than silently doing nothing for another channel.
   if (hidden && !inHideableChannel(message)) {
-    throw new ApiError(httpStatus.BAD_REQUEST, `Only messages in the ${HIDEABLE_CHANNEL} channel can be hidden.`)
+    throw new ApiError(httpStatus.BAD_REQUEST, `Only messages in the ${HIDEABLE_CHANNELS.join('/')} channel can be hidden.`)
   }
   const conversationId = message.conversation.toString()
   const wasFlagged = !!message.hiddenByAdmin

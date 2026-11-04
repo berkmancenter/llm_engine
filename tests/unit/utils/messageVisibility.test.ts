@@ -102,9 +102,15 @@ describe('scope: the chat channel only', () => {
     expect(viewMessageFor({ _id: 'n4', owner: 'author-1', channels: ['assistant', 'chat'] }, OTHER, everything)).toBe('omit')
   })
 
-  it('recognises chat given as names or as channel objects', () => {
+  it('also hides a message in pregame, the same way it hides one in chat', () => {
+    expect(viewMessageFor({ _id: 'n5', owner: 'author-1', channels: ['pregame'] }, OTHER, everything)).toBe('omit')
+  })
+
+  it('recognises chat and pregame given as names or as channel objects', () => {
     expect(inHideableChannel({ channels: ['chat'] })).toBe(true)
     expect(inHideableChannel({ channels: [{ name: 'chat' }] })).toBe(true)
+    expect(inHideableChannel({ channels: ['pregame'] })).toBe(true)
+    expect(inHideableChannel({ channels: [{ name: 'pregame' }] })).toBe(true)
     expect(inHideableChannel({ channels: [{ name: 'assistant' }] })).toBe(false)
     expect(inHideableChannel({})).toBe(false)
   })

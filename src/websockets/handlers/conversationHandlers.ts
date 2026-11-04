@@ -9,7 +9,7 @@ import { agentResponseToMessageData } from '../../services/message.service.js'
 import { Conversation, Topic } from '../../models/index.js'
 import { IChannel } from '../../types/index.types.js'
 import introduceOnce from '../../services/agentIntroduction.service.js'
-import { isPreEventWindowOpen } from '../../services/conversation.service/lifecycle.js'
+import isPreEventWindowOpen from '../../services/conversation.service/preEventWindow.js'
 
 /**
  * @param {boolean} [options.observer] - a shared screen gets the presentation greeting, built fresh

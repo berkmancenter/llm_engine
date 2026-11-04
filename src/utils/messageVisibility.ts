@@ -14,20 +14,21 @@ import Message from '../models/message.model.js'
  * Every read path (history, replies, live broadcast, vote:new) decides what one viewer gets by
  * calling `viewMessageFor`; none re-implements the rules above.
  *
- * Hiding is scoped to one conversation AND to the group chat channel: a message outside `chat` (the
- * hidden author's private assistant channel, say) is never hidden, whatever the rules above say.
+ * Hiding is scoped to one conversation AND to the group chat channels (`chat`, and `pregame`
+ * while the preEvent window stands in for it): a message outside those (the hidden author's
+ * private assistant channel, say) is never hidden, whatever the rules above say.
  *
  * Hiding is scoped to one conversation and is NOT a recall: a message already forwarded to an
  * external adapter (Slack, Zoom, ...) stays there. See the moderation service.
  */
 
-/** The only channel hiding applies to: the group chat. Messages in any other channel are never hidden. */
-export const HIDEABLE_CHANNEL = 'chat'
+/** The only channels hiding applies to: the group chat, pregame or live. Messages in any other channel are never hidden. */
+export const HIDEABLE_CHANNELS = ['chat', 'pregame']
 
 /** Whether hiding can apply to this message at all. Channels may be names or channel objects. */
 export const inHideableChannel = (message: { channels?: unknown } | null | undefined): boolean =>
-  ((message?.channels as Array<string | { name?: string }> | undefined) ?? []).some(
-    (channel) => (typeof channel === 'string' ? channel : channel?.name) === HIDEABLE_CHANNEL
+  ((message?.channels as Array<string | { name?: string }> | undefined) ?? []).some((channel) =>
+    HIDEABLE_CHANNELS.includes((typeof channel === 'string' ? channel : channel?.name) ?? '')
   )
 
 /** 'omit' drops hidden messages from non-admins' view; 'placeholder' sends a body-less stub instead. */
@@ -130,7 +131,7 @@ export async function loadHideContext(
   const hiddenIds = new Set<string>()
   const seeds: any[] = await Message.find({
     conversation: conversationId,
-    channels: HIDEABLE_CHANNEL,
+    channels: { $in: HIDEABLE_CHANNELS },
     $or: [{ hiddenByAdmin: true }, ...(authorIds.length ? [{ owner: { $in: authorIds } }] : [])]
   })
     .select('_id')
@@ -140,7 +141,7 @@ export async function loadHideContext(
   while (frontier.length) {
     const replies: any[] = await Message.find({
       conversation: conversationId,
-      channels: HIDEABLE_CHANNEL,
+      channels: { $in: HIDEABLE_CHANNELS },
       parentMessage: { $in: frontier }
     })
       .select('_id')

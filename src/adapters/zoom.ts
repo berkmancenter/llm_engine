@@ -17,6 +17,11 @@ const defaultRetention = {
   hours: 168 // 1 week
 }
 
+// Recall needs time to actually join the call before anything gets captured — see
+// scheduleConversationTimers.ts's scheduleAdapterPreStarts, which reads this to decide whether
+// (and how early) to start this adapter type ahead of the conversation's official start.
+const PRE_START_LEAD_MS = 5 * 60 * 1000
+
 async function isBotDeployed() {
   const { botId } = this.config
   if (!botId) {
@@ -373,6 +378,7 @@ export default {
     zoomMeetingUrl: 'meetingUrl',
     botName: 'botName'
   },
+  preStartLeadMs: PRE_START_LEAD_MS,
   async sendMessage(message, channelConfig?) {
     if (this.config.botId === 'loadtest') {
       logger.info(`[LOAD TEST] Would send message: ${message.body}`)

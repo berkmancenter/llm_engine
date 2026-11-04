@@ -16,7 +16,8 @@ const allChannels = [
   { name: 'chat', passcode: 'cccccccc' },
   { name: 'moderator', passcode: 'mmmmmmmm' },
   { name: 'participant', passcode: 'pppppppp' },
-  { name: 'image-gen', passcode: 'iiiiiiii' }
+  { name: 'image-gen', passcode: 'iiiiiiii' },
+  { name: 'pregame', passcode: 'gggggggg' }
 ]
 
 describe('eventUrls.service', () => {
@@ -28,11 +29,12 @@ describe('eventUrls.service', () => {
       expect(url).toContain('conversationId=65f0000000000000000000aa')
     })
 
-    it('carries the transcript and chat channels with their passcodes', () => {
+    it('carries the transcript, chat, and pregame channels with their passcodes', () => {
       const url = eventUrls.participantUrl(conversationWith(allChannels))
 
       expect(url).toContain('channel=transcript%2Ctttttttt')
       expect(url).toContain('channel=chat%2Ccccccccc')
+      expect(url).toContain('channel=pregame%2Cgggggggg')
     })
 
     it('never exposes the moderator channel', () => {

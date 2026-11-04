@@ -567,6 +567,31 @@ describe(`event assistant CI tests`, () => {
       expect(msgs[0].message.text).toEqual(`Welcome to ${conversation.name}!`)
     })
 
+    it('sends a distinct template-based intro to the pregame channel', async () => {
+      const [pregameChannel] = await Channel.create([{ name: 'pregame' }])
+      const msgs = await agent.introduce(pregameChannel)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].messageType).toBe('json')
+      expect(msgs[0].message.type).toBe('intro')
+      expect(msgs[0].message.text).toContain(`@${agent.agentConfig.botName}`)
+      expect(msgs[0].message.text).not.toContain('{{agentConfig.botName}}')
+      // Distinct wording from the chat intro, not just the same template on a different channel.
+      expect(msgs[0].message.text).toContain("hasn't started yet")
+      expect(msgs[0].channels).toHaveLength(1)
+      expect(msgs[0].channels[0]).toEqual(pregameChannel)
+    })
+
+    it('renders template vars in pregameChatIntroMessage using agent data', async () => {
+      agent.agentConfig = {
+        ...agent.agentConfig,
+        pregameChatIntroMessage: 'Pregame lobby for {{conversation.name}}!'
+      }
+      const [pregameChannel] = await Channel.create([{ name: 'pregame' }])
+      const msgs = await agent.introduce(pregameChannel)
+      expect(msgs).toHaveLength(1)
+      expect(msgs[0].message.text).toEqual(`Pregame lobby for ${conversation.name}!`)
+    })
+
     it('returns empty array for non-DM, non-chat channels', async () => {
       await agent.save()
       const [channel] = await Channel.create([{ name: 'testchannel' }])

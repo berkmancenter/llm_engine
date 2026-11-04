@@ -39,6 +39,7 @@ describe('job definitions set lockLifetime based on whether the job calls an LLM
     await defineJob.conversationEndingSoon()
     await defineJob.pollExpired()
     await defineJob.publicInviteResend()
+    await defineJob.adapterPreStart()
 
     const defaultLockLifetime = agenda._defaultLockLifetime
     expect(agenda._definitions.autoStart.lockLifetime).toBe(defaultLockLifetime)
@@ -48,5 +49,6 @@ describe('job definitions set lockLifetime based on whether the job calls an LLM
     expect(agenda._definitions.conversationEndingSoon.lockLifetime).toBe(defaultLockLifetime)
     expect(agenda._definitions['poll expired'].lockLifetime).toBe(defaultLockLifetime)
     expect(agenda._definitions.publicInviteResend.lockLifetime).toBe(defaultLockLifetime)
+    expect(agenda._definitions.adapterPreStart.lockLifetime).toBe(defaultLockLifetime)
   })
 })

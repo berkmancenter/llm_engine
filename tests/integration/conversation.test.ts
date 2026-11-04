@@ -2491,6 +2491,19 @@ describe('Conversation routes', () => {
         .expect(httpStatus.BAD_REQUEST)
     })
 
+    test('should return 400 when updating preEventMinutes to 0', async () => {
+      const updateBody = {
+        id: conversationOne._id,
+        preEventMinutes: 0
+      }
+
+      await request(app)
+        .put('/v1/conversations')
+        .set('Authorization', `Bearer ${userOneAccessToken}`)
+        .send(updateBody)
+        .expect(httpStatus.BAD_REQUEST)
+    })
+
     test('should broadcast conversation update via websocket', async () => {
       const updateBody = {
         id: conversationOne._id,
