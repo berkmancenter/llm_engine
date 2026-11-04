@@ -4,6 +4,7 @@ import { Agent, Channel, Conversation, Message } from '../../src/models/index.js
 import { insertUsers } from '../fixtures/user.fixture.js'
 import { publicTopic } from '../fixtures/conversation.fixture.js'
 import { NEUTRAL_BEHAVIORAL_POLICY } from '../../src/conversations/resolver.js'
+import { PREGAME_CHANNEL } from '../../src/conversations/eventAssistant.js'
 import { insertTopics } from '../fixtures/topic.fixture.js'
 import loadTranscript from './transcriptUtils.js'
 import transcript from '../../src/agents/helpers/transcript.js'
@@ -1010,6 +1011,7 @@ export async function createEventAssistantConversation(conversationObj, owner, t
   const channels = await Channel.create([
     { name: 'transcript' },
     { name: 'chat' },
+    { name: PREGAME_CHANNEL },
     { name: 'image-gen' },
     { name: `direct-agents-${owner._id}`, direct: true, participants: [owner, agent] }
   ])
@@ -1045,6 +1047,7 @@ export async function createEventAssistantConversationWithResources(
   const channels = await Channel.create([
     { name: 'transcript' },
     { name: 'chat' },
+    { name: PREGAME_CHANNEL },
     { name: 'image-gen' },
     { name: `direct-agents-${owner._id}`, direct: true, participants: [owner, agent] }
   ])
