@@ -9,6 +9,8 @@ const conversationEventTriggerId = (event: ConversationEvent) => {
       return `event:participantJoined:${event.conversationId}:${event.userId}`
     case 'conversationStopped':
       return `event:conversationStopped:${event.conversationId}`
+    case 'conversationStarted':
+      return `event:conversationStarted:${event.conversationId}`
     case 'conversationWindowOpened':
       return `event:conversationWindowOpened:${event.conversationId}:${event.phase}`
     case 'conversationWindowCountdown':

@@ -1974,6 +1974,12 @@ export interface ConversationStoppedEvent {
   topicId?: string
 }
 
+export interface ConversationStartedEvent {
+  type: 'conversationStarted'
+  conversationId: string
+  topicId?: string
+}
+
 export interface ParticipantJoinedEvent {
   type: 'participantJoined'
   conversationId: string
@@ -2005,6 +2011,7 @@ export interface ConversationWindowCountdownEvent {
 
 export type ConversationEvent =
   | ConversationStoppedEvent
+  | ConversationStartedEvent
   | ParticipantJoinedEvent
   | ConversationWindowOpenedEvent
   | ConversationWindowCountdownEvent
