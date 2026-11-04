@@ -30,6 +30,9 @@ import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers
 import { loadGoal } from '../../goals/loader.js'
 import { GROUP_CHAT_CHANNELS, isGroupChatMessage, currentGroupChannelName } from '../helpers/groupChatChannel.js'
 import { PREGAME_CHANNEL } from '../../conversations/eventAssistant.js'
+import { findMessages } from '../../utils/messageVisibility.js'
+import getConversationHistory from '../helpers/getConversationHistory.js'
+import { formatMultiUserConversationHistory } from '../helpers/llmInputFormatters.js'
 
 /**
  * Builds a dynamic capability description for the WELCOME check-in message.
@@ -354,6 +357,108 @@ async function sendWarmUpQuestionsToNewJoiners(this): Promise<AgentResponse<unkn
   return responses
 }
 
+// Below this many distinct respondents, warm-up answers are withheld from the prompt entirely
+// (see buildPregameRecapMessage) rather than trusting the model to describe one real answer
+// honestly instead of inventing supporting detail to sound more substantiated.
+const MIN_WARM_UP_RESPONDENTS = 2
+
+/**
+ * Builds a short "here's what you missed" message for the live group channel once the
+ * conversation actually starts, synthesizing pregame group chat and warm-up question answers.
+ * Queried directly from the database (via findMessages, the audience-aware reader — 'model' so
+ * hidden messages are excluded, same audience doStopConversation's own summary uses) rather than
+ * from an in-memory conversation.messages, since onConversationEvent doesn't carry a loaded
+ * history the way respond() does. Warm-up answers are found via answersPrompt rather than just
+ * "any non-agent DM content," so a participant's later, unrelated DM doesn't get swept in.
+ * Returns null when there's nothing to recap (quiet pregame, no warm-up answers, or both), so the
+ * caller can skip posting rather than announce that nothing happened. Called with `this` = agent.
+ */
+async function buildPregameRecapMessage(this): Promise<string | null> {
+  const pregameMessages = await findMessages(
+    this.conversation._id,
+    'model',
+    { channels: PREGAME_CHANNEL },
+    { sort: { createdAt: 1 } }
+  )
+  const pregameHistory = getConversationHistory(pregameMessages, { channels: [PREGAME_CHANNEL] })
+  const pregameChatText = formatMultiUserConversationHistory(pregameHistory)
+    .map((m) => (m.role === 'assistant' ? `AI Assistant: ${m.content}` : m.content))
+    .join('\n')
+
+  const dmChannelNames = (this.conversation.channels ?? [])
+    .filter((c: IChannel) => c.direct && c.name.endsWith(`-${this._id}`))
+    .map((c: IChannel) => c.name)
+
+  const promptMessages = dmChannelNames.length
+    ? await findMessages(this.conversation._id, 'model', {
+        channels: { $in: dmChannelNames },
+        pseudonymId: this.pseudonyms[0]._id,
+        'body.type': 'warmUpQuestion'
+      })
+    : []
+
+  const rawAnswerMessages = promptMessages.length
+    ? await findMessages(this.conversation._id, 'model', {
+        answersPrompt: { $in: promptMessages.map((m) => m._id) }
+      })
+    : []
+  // Below MIN_WARM_UP_RESPONDENTS, don't hand the model any answers to synthesize from at all —
+  // asked to describe "sentiment" from only one real answer, it's liable to invent supporting
+  // detail to sound more substantiated (the same failure mode backChannelInsightsGenerator's
+  // filterHallucinations exists to catch, just not reusable here: that checker verifies
+  // {participant, text} claims, which doesn't apply to text we deliberately never attribute).
+  const distinctRespondents = new Set(rawAnswerMessages.map((m) => String(m.pseudonymId ?? m.owner))).size
+  const answerMessages = distinctRespondents >= MIN_WARM_UP_RESPONDENTS ? rawAnswerMessages : []
+  const warmUpAnswersText = answerMessages
+    .map((m) => extractMessageText(m))
+    .filter(Boolean)
+    .join('\n')
+
+  if (!pregameChatText && !warmUpAnswersText) return null
+
+  const personalityName = this.agentConfig?.personality ?? (config.enableAgentPersonality ? 'sarcastic-expert' : null)
+
+  const base = `You are an AI assistant posting to the live group chat now that the event has officially
+started. Write a short "here's what you missed" message, in your own voice, catching everyone up on the
+pregame chat and the warm-up question, whether they were there for it or are just arriving now.
+
+**CRITICAL RULES:**
+- Keep the whole message to 1-2 short sentences, no more than about 40 words total. Pick the single
+  most interesting thread from the pregame chat and, separately, the single most interesting thing
+  about the warm-up answers — don't try to list everything that came up. No trivia asides, no
+  parentheticals, no backstory. This is a quick catch-up, not a report.
+- A short, playful nod that early arrivals got a head start is a nice touch, but only if it fits in
+  one more short clause — drop it rather than go over the word limit for it.
+- Ground everything only in the pregame chat and warm-up answers provided below — never invent details,
+  names, or claims that aren't there.
+- Never attribute a specific line to a specific pseudonym or quote one by name, and never state or
+  imply how many people were involved — no "a couple of," "three people," "a few," or similar.
+  Revealing pregame turnout isn't the point. Use vague collective language instead: "participants,"
+  "some of you," "folks," "people in the chat."
+- Stay honest about scale even with vague language: don't imply "everyone" or "the whole room"
+  agreed on something if it was really just a couple of individual answers.
+- If the pregame chat was empty or the warm-up answers were empty, just work with whichever one has
+  content rather than mentioning that the other was empty.
+- Use only "they/them" pronouns when referring to any person.
+- Never use an em dash. Use a comma, period, or parentheses instead.`
+
+  const systemPrompt = composeSystemPrompt(base, {
+    personalityName,
+    conversationContext: this.conversation.conversationContext,
+    behaviorPolicy: this.conversation.behaviorPolicy,
+    channelType: 'groupChat'
+  })
+
+  const userPrompt = `Pregame chat:
+${pregameChatText || 'No pregame chat activity.'}
+
+Warm-up question answers:
+${warmUpAnswersText || 'No warm-up answers.'}`
+
+  const llm = await this.getLLM()
+  return getChatPromptResponse(llm, systemPrompt, userPrompt, {})
+}
+
 // Filter /mod and /escalate command messages and moderator_submitted replies from LLM history so
 // they don't appear as unanswered questions, causing the LLM to re-answer them on the next turn.
 function filterModeratorHistory(conversationHistory) {
@@ -670,6 +775,30 @@ export default verify({
         }
       }
       return []
+    }
+
+    /* Exactly-once per conversation, enforced by claimResponseTrigger against this event's own
+       (stable, non-recurring) trigger id in conversationEvent.ts — unlike conversationWindowCountdown
+       below, there's no need for an additional Message-based dedup here. */
+    if (evt.type === 'conversationStarted') {
+      access.assertCanRead(this, { type: 'conversation', id: evt.conversationId }, evt.type)
+
+      // No configured pre-event window means nothing was ever posted to the pregame channel or
+      // sent as a warm-up DM (same unconfigured check as isPreEventWindowOpen) — skip straight
+      // past buildPregameRecapMessage's DB queries rather than running them just to find nothing.
+      if (typeof this.conversation.preEventMinutes !== 'number' || this.conversation.preEventMinutes <= 0) return []
+
+      const channel = this.conversation.channels?.find((c) => c.name === currentGroupChannelName(this.conversation))
+      if (!channel) return []
+
+      try {
+        const text = await buildPregameRecapMessage.call(this)
+        if (!text) return []
+        return [{ message: { text, type: 'pregameRecap' }, messageType: 'json', channels: [channel], visible: true }]
+      } catch (err) {
+        logger.error('[onConversationEvent] LLM call failed for pregame recap', err)
+        return []
+      }
     }
 
     if (evt.type === 'conversationWindowCountdown') {
