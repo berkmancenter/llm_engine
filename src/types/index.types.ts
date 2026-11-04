@@ -2029,6 +2029,10 @@ export interface IAgent {
   llmTemplateVars?: { [key: string]: { name: string; description: string }[] }
   llmTemplates?: { [key: string]: string }
   agentConfig?: { [key: string]: unknown }
+  /* Output an agent type generated itself and wants to reuse rather than recompute on every
+     call. Distinct from agentConfig, which is
+     organizer-configurable settings, not generated content. */
+  generatedContent?: { [key: string]: unknown }
   capabilities?: AgentCapabilities
   ragCollectionName?: string
   triggers?: Triggers

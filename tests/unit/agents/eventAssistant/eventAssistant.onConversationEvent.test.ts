@@ -39,6 +39,8 @@ function buildContext(
     agentConfig: { botName: 'Berkie', ...agentConfigOverrides },
     capabilities: { read: [{ type: 'ownConversation' }], write: [{ type: 'ownConversation' }] },
     getLLM: async () => 'fake-llm',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setGeneratedContentIfAbsent: jest.fn<(...args: any[]) => Promise<any>>().mockImplementation((_key, value) => value),
     conversation: {
       _id: conversationId,
       name: 'Where Are All the Aliens?',
@@ -226,5 +228,141 @@ describe('eventAssistant.onConversationEvent — three facts on conversationWind
     const result = await eventAssistant.onConversationEvent.call(context, countdownEvent())
 
     expect(result).toEqual([])
+  })
+})
+
+describe('eventAssistant.onConversationEvent — warm-up question', () => {
+  const dmChannel = { name: 'direct-user-1-agent-1', direct: true }
+
+  beforeEach(() => {
+    // Three facts' own dedup always reports "already posted" here so its LLM call never mixes
+    // into these warm-up-focused assertions; only the warm-up check varies per test.
+    mockMessageExists.mockImplementation((query) =>
+      Promise.resolve(query['body.type'] === 'threeFacts' ? { _id: 'already-posted' } : null)
+    )
+  })
+
+  afterEach(() => {
+    jest.clearAllMocks()
+  })
+
+  test('conversationWindowOpened eagerly generates and caches the warm-up question', async () => {
+    mockGetChatPromptResponse.mockResolvedValue({ question: 'What brought you here?' })
+    const context = buildContext()
+
+    const result = await eventAssistant.onConversationEvent.call(context, {
+      type: 'conversationWindowOpened',
+      conversationId,
+      phase: 'preEvent'
+    })
+
+    expect(result).toEqual([])
+    expect(context.setGeneratedContentIfAbsent).toHaveBeenCalledWith('warmUpQuestion', { text: 'What brought you here?' })
+  })
+
+  test('conversationWindowOpened returns [] for a phase other than preEvent, without generating', async () => {
+    const context = buildContext()
+
+    const result = await eventAssistant.onConversationEvent.call(context, {
+      type: 'conversationWindowOpened',
+      conversationId,
+      phase: 'other'
+    })
+
+    expect(result).toEqual([])
+    expect(mockGetChatPromptResponse).not.toHaveBeenCalled()
+  })
+
+  test('conversationWindowOpened skips generation when the question is organizer-supplied', async () => {
+    const context = buildContext({}, { warmUpQuestion: { source: 'organizer', text: 'Hi' } })
+
+    await eventAssistant.onConversationEvent.call(context, {
+      type: 'conversationWindowOpened',
+      conversationId,
+      phase: 'preEvent'
+    })
+
+    expect(mockGetChatPromptResponse).not.toHaveBeenCalled()
+    expect(context.setGeneratedContentIfAbsent).not.toHaveBeenCalled()
+  })
+
+  test('sends the warm-up question to a joined participant on the countdown tick', async () => {
+    mockGetChatPromptResponse.mockResolvedValue({ question: 'What brought you here?' })
+    const context = buildContext({ channels: [pregameChannel, dmChannel] })
+
+    const result = await eventAssistant.onConversationEvent.call(context, countdownEvent())
+
+    expect(result).toEqual([
+      {
+        message: { text: 'What brought you here?', type: 'warmUpQuestion' },
+        messageType: 'json',
+        channels: [dmChannel],
+        visible: true,
+        replyFormat: { type: 'text' }
+      }
+    ])
+  })
+
+  test('does not resend to a channel that already has a warm-up message', async () => {
+    mockMessageExists.mockResolvedValue({ _id: 'already-sent' })
+    const context = buildContext({ channels: [pregameChannel, dmChannel] })
+
+    const result = await eventAssistant.onConversationEvent.call(context, countdownEvent())
+
+    expect(result).toEqual([])
+    expect(mockGetChatPromptResponse).not.toHaveBeenCalled()
+  })
+
+  test('uses the organizer-supplied question and options when configured, without an LLM call', async () => {
+    const context = buildContext(
+      { channels: [pregameChannel, dmChannel] },
+      { warmUpQuestion: { source: 'organizer', format: 'singleChoice', text: 'Hi there', options: ['A', 'B'] } }
+    )
+
+    const result = await eventAssistant.onConversationEvent.call(context, countdownEvent())
+
+    expect(mockGetChatPromptResponse).not.toHaveBeenCalled()
+    expect(result).toEqual([
+      {
+        message: { text: 'Hi there', type: 'warmUpQuestion' },
+        messageType: 'json',
+        channels: [dmChannel],
+        visible: true,
+        replyFormat: {
+          type: 'singleChoice',
+          options: [
+            { value: 'A', label: 'A' },
+            { value: 'B', label: 'B' }
+          ]
+        }
+      }
+    ])
+  })
+
+  test('combines a pending three-facts post and a new joiner warm-up in the same tick', async () => {
+    mockMessageExists.mockResolvedValue(null)
+    mockGetChatPromptResponse
+      .mockResolvedValueOnce({ facts: ['Fact one', 'Fact two', 'Fact three'], invitation: 'Say hello!' })
+      .mockResolvedValueOnce({ question: 'What brought you here?' })
+    const context = buildContext({ channels: [pregameChannel, dmChannel] })
+
+    const result = await eventAssistant.onConversationEvent.call(context, countdownEvent())
+
+    expect(result).toHaveLength(2)
+    expect((result[0].message as { type: string }).type).toBe('threeFacts')
+    expect((result[1].message as { type: string }).type).toBe('warmUpQuestion')
+  })
+
+  test('one channel failing to build its warm-up message does not block the others', async () => {
+    const dmChannelTwo = { name: 'direct-user-2-agent-1', direct: true }
+    const context = buildContext({ channels: [pregameChannel, dmChannel, dmChannelTwo] })
+    mockGetChatPromptResponse
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce({ question: 'What brought you here?' })
+
+    const result = await eventAssistant.onConversationEvent.call(context, countdownEvent())
+
+    expect(result).toHaveLength(1)
+    expect(result[0].channels).toEqual([dmChannelTwo])
   })
 })
