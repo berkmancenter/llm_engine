@@ -33,12 +33,17 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-22.04
+    # Don't pin the OS: ubuntu-latest is migrating to Ubuntu 26 (Oct 19 - Nov 19
+    # 2026), and runner kernels differ across images and across the fleet during
+    # that rollout. See #398.
+    runs-on: ubuntu-latest
     timeout-minutes: 75
 
     services:
       mongodb:
-        image: mongo:8.0
+        # 7.0 matches prod (llm_engine-infra mongo-vm) and, unlike 8.x, starts on
+        # Linux kernel 6.19+ (SERVER-121912). See #398.
+        image: mongo:7.0
         ports:
           - 27017:27017
         options: >-
