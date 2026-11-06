@@ -436,7 +436,7 @@ export interface PropertyRef {
   as?: string // destination key in agent params (supports dot notation for nesting); defaults to last segment of $ref
 }
 
-export type AgentProperty = ConfigProperty | PropertyRef
+export type PropertyBinding = ConfigProperty | PropertyRef
 
 export interface ChannelConfig {
   name: string
@@ -446,12 +446,12 @@ export interface ChannelConfig {
 
 export interface AgentConfig {
   name: string
-  properties?: AgentProperty[]
+  properties?: PropertyBinding[]
 }
 
 export interface FeatureAgentConfig {
   name: string // agent type name
-  properties?: AgentProperty[] // wiring from resolved properties into agent config
+  properties?: PropertyBinding[] // wiring from resolved properties into agent config
 }
 
 /**
@@ -513,6 +513,9 @@ export interface ConversationType {
   properties: ConfigProperty[]
   features?: FeatureConfig[]
   agents?: AgentConfig[]
+  // $ref/as entries resolved the same way an agent's own `properties` are, but landing
+  // directly on the created conversation document instead of an agent's agentConfig.
+  propertyBindings?: PropertyBinding[]
   channels?: ChannelConfig[]
   enableDMs?: string[]
   adapters?: Record<string, AdapterConfig>
