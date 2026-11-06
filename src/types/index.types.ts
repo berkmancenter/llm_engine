@@ -1970,6 +1970,10 @@ export type WriteGrant = { type: 'ownConversation' }
 export interface AgentCapabilities {
   read: ReadGrant[]
   write: WriteGrant[]
+  /* Conversation windows (see ConversationPhase) this agent should be started for ahead of
+     doStartConversation — e.g. ['preEvent'] to be reachable/ticking during pregame.
+     conversation actually starts. */
+  activeDuringPhases?: ConversationPhase[]
 }
 export interface ConversationStoppedEvent {
   type: 'conversationStopped'

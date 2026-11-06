@@ -668,11 +668,13 @@ describe('conversation handler tests', () => {
     })
 
     describe('activates agents for pregame chat/DM responsiveness', () => {
+      const preEventCapabilities = () => ({ read: [], write: [], activeDuringPhases: ['preEvent' as const] })
+
       const perMessageType = {
         start: jest.fn(),
         stop: jest.fn(),
         evaluate: jest.fn(),
-        name: 'Test perMessage agent',
+        name: 'Test perMessage agent, not opted in to preEvent',
         description: 'A test agent',
         maxTokens: 2000,
         defaultTriggers: { perMessage: { channels: ['chat'] } },
@@ -682,22 +684,30 @@ describe('conversation handler tests', () => {
         defaultLLMPlatform,
         defaultLLMModel
       }
-      const perMessageAndPeriodicType = {
+      const optedInPerMessageType = {
         ...perMessageType,
         start: jest.fn(),
-        name: 'Test perMessage+periodic agent (mirrors eventAssistant)',
-        defaultTriggers: { perMessage: { channels: ['chat'] }, periodic: { timerPeriod: 180, proactive: true } }
+        name: 'Test perMessage agent, opted in to preEvent',
+        capabilities: preEventCapabilities
+      }
+      const optedInPerMessageAndPeriodicType = {
+        ...perMessageType,
+        start: jest.fn(),
+        name: 'Test perMessage+periodic agent (mirrors eventAssistant), opted in to preEvent',
+        defaultTriggers: { perMessage: { channels: ['chat'] }, periodic: { timerPeriod: 180, proactive: true } },
+        capabilities: preEventCapabilities
       }
       const periodicOnlyType = {
         ...perMessageType,
         start: jest.fn(),
-        name: 'Test periodic-only agent',
+        name: 'Test periodic-only agent, not opted in to preEvent',
         defaultTriggers: { periodic: { timerPeriod: 120 } }
       }
       const brokenStartType = {
         ...perMessageType,
         start: jest.fn().mockRejectedValue(new Error('boom')),
-        name: 'Test agent whose start() always throws'
+        name: 'Test agent whose start() always throws, opted in to preEvent',
+        capabilities: preEventCapabilities
       }
 
       let periodicScheduleSpy: jest.SpyInstance
@@ -705,7 +715,8 @@ describe('conversation handler tests', () => {
       beforeAll(() => {
         setAgentTypes({
           testPerMessage: perMessageType,
-          testPerMessageAndPeriodic: perMessageAndPeriodicType,
+          testOptedInPerMessage: optedInPerMessageType,
+          testOptedInPerMessageAndPeriodic: optedInPerMessageAndPeriodicType,
           testPeriodicOnly: periodicOnlyType,
           testBrokenStart: brokenStartType
         })
@@ -727,7 +738,7 @@ describe('conversation handler tests', () => {
         return agent
       }
 
-      test('activates a perMessage-triggered agent', async () => {
+      test('leaves a perMessage-triggered agent inactive when it has not opted in to preEvent', async () => {
         const agent = await attachTypedAgent('testPerMessage')
 
         await JobHandlers.openConversationWindow({
@@ -735,12 +746,12 @@ describe('conversation handler tests', () => {
         })
 
         const updated = await Agent.findById(agent._id)
-        expect(updated!.active).toBe(true)
-        expect(perMessageType.start).toHaveBeenCalled()
+        expect(updated!.active).toBe(false)
+        expect(perMessageType.start).not.toHaveBeenCalled()
       })
 
-      test('activates a perMessage+periodic agent without scheduling its periodic trigger', async () => {
-        const agent = await attachTypedAgent('testPerMessageAndPeriodic')
+      test('activates a perMessage-triggered agent that opts in to preEvent', async () => {
+        const agent = await attachTypedAgent('testOptedInPerMessage')
 
         await JobHandlers.openConversationWindow({
           attrs: { data: { conversationId: conversation._id, phase: 'preEvent' } }
@@ -748,10 +759,27 @@ describe('conversation handler tests', () => {
 
         const updated = await Agent.findById(agent._id)
         expect(updated!.active).toBe(true)
-        expect(periodicScheduleSpy).not.toHaveBeenCalled()
+        expect(optedInPerMessageType.start).toHaveBeenCalled()
       })
 
-      test('leaves a periodic-only agent inactive', async () => {
+      test('activates an opted-in perMessage+periodic agent and schedules its periodic trigger too', async () => {
+        const agent = await attachTypedAgent('testOptedInPerMessageAndPeriodic')
+
+        await JobHandlers.openConversationWindow({
+          attrs: { data: { conversationId: conversation._id, phase: 'preEvent' } }
+        })
+
+        const updated = await Agent.findById(agent._id)
+        expect(updated!.active).toBe(true)
+        // Unlike the old perMessage-inferred heuristic, an explicit preEvent opt-in starts
+        // whatever triggers the agent actually has — periodic included — via agentService.
+        // startAgent(). An agent that wants perMessage reachability without its periodic/
+        // proactive logic running early needs to guard that itself (see eventAssistant's own
+        // onConversationEvent phase handling).
+        expect(periodicScheduleSpy).toHaveBeenCalled()
+      })
+
+      test('leaves a periodic-only agent inactive when it has not opted in to preEvent', async () => {
         const agent = await attachTypedAgent('testPeriodicOnly')
 
         await JobHandlers.openConversationWindow({
@@ -767,7 +795,7 @@ describe('conversation handler tests', () => {
       test('one agent failing to start does not block the others or the dispatch', async () => {
         const dispatchSpy = jest.spyOn(agentDispatcher, 'dispatch').mockResolvedValue(undefined)
         await attachTypedAgent('testBrokenStart')
-        const workingAgent = await attachTypedAgent('testPerMessage')
+        const workingAgent = await attachTypedAgent('testOptedInPerMessage')
 
         await expect(
           JobHandlers.openConversationWindow({
