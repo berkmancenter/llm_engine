@@ -135,19 +135,11 @@ function buildConversationContextSection(conversationContext: ConversationContex
   if (!conversationContext) return ''
   const { conversationType, purpose, rationale, centralQuestions, knownTensions, scope, desiredTakeaway } =
     conversationContext
-  const hasContent =
-    conversationType ||
-    purpose ||
-    rationale ||
-    (centralQuestions && centralQuestions.length > 0) ||
-    (knownTensions && knownTensions.length > 0) ||
-    scope ||
-    desiredTakeaway ||
-    conversationContext.audience ||
-    conversationContext.contentSensitivity
-  if (!hasContent) return ''
 
-  const lines: string[] = ['## Event Context']
+  // Built up directly from content, rather than gated by a separate "is there content" check,
+  // so an object that's present but empty (e.g. `scope: {}`) can't produce a header with nothing
+  // under it the way a truthiness check on the object itself would.
+  const lines: string[] = []
 
   if (conversationType || purpose) {
     let desc: string
@@ -201,10 +193,11 @@ function buildConversationContextSection(conversationContext: ConversationContex
         `- Sensitive domains: ${cs.domains.join(', ')} — avoid editorializing, taking sides, or making light of these topics`
       )
     }
-    lines.push(sensitivityLines.join('\n'))
+    if (sensitivityLines.length > 1) lines.push(sensitivityLines.join('\n'))
   }
 
-  return lines.join('\n')
+  if (lines.length === 0) return ''
+  return ['## Event Context', ...lines].join('\n')
 }
 
 /**
