@@ -733,7 +733,7 @@ components:
           type: boolean
         type:
           type: string
-          enum: [string, number, boolean, object, enum]
+          enum: [string, number, boolean, object, array, enum]
         label:
           type: string
         default:
