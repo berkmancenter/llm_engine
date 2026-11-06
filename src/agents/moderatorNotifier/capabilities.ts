@@ -12,6 +12,7 @@ import { AgentCapabilities } from '../../types/index.types.js'
 export default function (): AgentCapabilities {
   return {
     read: [{ type: 'ownConversation' as const, events: ['conversationStarted' as const] }],
-    write: [{ type: 'ownConversation' as const }]
+    write: [{ type: 'ownConversation' as const }],
+    activeDuringPhases: ['preEvent']
   }
 }

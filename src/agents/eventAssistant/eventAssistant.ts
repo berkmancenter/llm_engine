@@ -34,6 +34,7 @@ import { findMessages } from '../../utils/messageVisibility.js'
 import findWarmUpAnswers from '../helpers/warmUpAnswers.js'
 import getConversationHistory from '../helpers/getConversationHistory.js'
 import { formatMultiUserConversationHistory } from '../helpers/llmInputFormatters.js'
+import isPreEventWindowOpen from '../../services/conversation.service/preEventWindow.js'
 
 /**
  * Builds a dynamic capability description for the WELCOME check-in message.
@@ -639,8 +640,13 @@ export default verify({
     }
   },
   async respond(conversationHistory: ConversationHistory, userMessage, options?) {
-    // Periodic check-in tick (no userMessage means this was triggered by the periodic job)
+    // Periodic check-in tick (no userMessage means this was triggered by the periodic job).
+    // This trigger now also gets scheduled during the preEvent window (see capabilities.ts's
+    // activeDuringPhases — needed for DM reachability pregame), but "checking in on someone
+    // who's gone quiet" presumes an event already in progress. Nothing to check in on before
+    // the real start, so skip rather than let buildCheckinResponses run against pregame DMs.
     if (!userMessage) {
+      if (isPreEventWindowOpen(this.conversation)) return []
       return buildCheckinResponses.call(this, conversationHistory)
     }
 

@@ -19,6 +19,7 @@ import access from '../../auth/access.js'
 import { extractMessageText } from '../helpers/slashCommandParser.js'
 import findWarmUpAnswers from '../helpers/warmUpAnswers.js'
 import { findMessages } from '../../utils/messageVisibility.js'
+import { GROUP_CHAT_CHANNELS } from '../helpers/groupChatChannel.js'
 
 const SYSTEM_PROMPT = `You are a Moderator Assistant monitoring a live event. Your sole job is to detect moments when the human moderator should be alerted — not to intervene in the public chat yourself.
 
@@ -219,7 +220,11 @@ async function buildWarmUpQuestionResultsForModerator(this): Promise<QuestionRes
     (themesResult?.themes ?? [])
       .map((theme) => {
         const validIndices = [...new Set(theme.matchingAnswers)].filter((i) => i >= 1 && i <= answerTexts.length)
-        return { label: theme.value, count: validIndices.length, examples: validIndices.slice(0, 3).map((i) => answerTexts[i - 1]) }
+        return {
+          label: theme.value,
+          count: validIndices.length,
+          examples: validIndices.slice(0, 3).map((i) => answerTexts[i - 1])
+        }
       })
       .filter((result) => result.count > 0)
   )
@@ -234,7 +239,11 @@ export default verify({
   priority: 80,
   maxTokens: 2000,
   defaultTriggers: {
-    periodic: { timerPeriod: 120, conversationHistorySettings: { timeWindow: 120, channels: ['transcript'] } }
+    periodic: {
+      timerPeriod: 120,
+      proactive: true,
+      conversationHistorySettings: { timeWindow: 120, channels: ['transcript'] }
+    }
   },
   agentConfig: {},
   llmTemplateVars: {
@@ -323,7 +332,7 @@ ${results.map((r) => `* ${r.label}: ${r.count}`).join('\n')}`
 
     const sharedChatHistory = getConversationHistory(this.conversation.messages, {
       count: 100,
-      channels: ['chat'],
+      channels: GROUP_CHAT_CHANNELS,
       endTime: conversationHistory.end
     })
 
@@ -344,7 +353,9 @@ ${results.map((r) => `* ${r.label}: ${r.count}`).join('\n')}`
     // Format DM history grouped by channel so agent messages clearly show their recipient.
     // Without this, 50 separately-addressed checkins appear as 50 duplicate messages.
     const dmChannels = this.conversation.channels.filter((c: IChannel) => c.direct)
-    await Promise.all(dmChannels.map((c) => (c as unknown as { populate(path: string): Promise<void> }).populate('participants')))
+    await Promise.all(
+      dmChannels.map((c) => (c as unknown as { populate(path: string): Promise<void> }).populate('participants'))
+    )
     const privateMessagesText = formatDmHistoryByChannel(privateHistory.messages, dmChannels)
 
     const recentTranscript = transcript.getTranscript(this.conversation, 600, conversationHistory.end)
@@ -365,9 +376,8 @@ ${results.map((r) => `* ${r.label}: ${r.count}`).join('\n')}`
         retrievedChunks: chunks,
         privateMessages: privateMessagesText || 'No private messages.',
         sharedChatHistory:
-          sharedChatMessages
-            .map((m) => (m.role === 'assistant' ? `Assistant: ${m.content}` : m.content))
-            .join('\n') || 'No shared chat messages yet.'
+          sharedChatMessages.map((m) => (m.role === 'assistant' ? `Assistant: ${m.content}` : m.content)).join('\n') ||
+          'No shared chat messages yet.'
       },
       [],
       MODERATOR_SCHEMA
