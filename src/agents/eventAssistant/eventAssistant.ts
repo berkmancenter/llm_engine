@@ -288,6 +288,12 @@ async function buildWarmUpQuestionResponse(this, channel: IChannel): Promise<Age
       logger.warn('[onConversationEvent] warmUpQuestion.source is "organizer" but no text is configured')
       return null
     }
+    // Same 2-4 option bound the generated path enforces via zod — the client renders
+    // singleChoice as a fixed set of buttons, so fewer than 2 or more than 4 can't render sanely.
+    if (format === 'singleChoice' && (!Array.isArray(optionLabels) || optionLabels.length < 2 || optionLabels.length > 4)) {
+      logger.warn('[onConversationEvent] warmUpQuestion.source is "organizer" with format "singleChoice" but options is not an array of 2-4 strings')
+      return null
+    }
   } else {
     const generated = await ensureWarmUpQuestionGenerated.call(this, format)
     if (!generated) return null
