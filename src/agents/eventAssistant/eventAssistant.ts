@@ -374,28 +374,27 @@ const MIN_WARM_UP_RESPONDENTS = 2
  * caller can skip posting rather than announce that nothing happened. Called with `this` = agent.
  */
 async function buildPregameRecapMessage(this): Promise<string | null> {
-  const pregameMessages = await findMessages(
-    this.conversation._id,
-    'model',
-    { channels: PREGAME_CHANNEL },
-    { sort: { createdAt: 1 } }
-  )
-  const pregameHistory = getConversationHistory(pregameMessages, { channels: [PREGAME_CHANNEL] })
-  const pregameChatText = formatMultiUserConversationHistory(pregameHistory)
-    .map((m) => (m.role === 'assistant' ? `AI Assistant: ${m.content}` : m.content))
-    .join('\n')
-
   const dmChannelNames = (this.conversation.channels ?? [])
     .filter((c: IChannel) => c.direct && c.participants?.includes(this._id))
     .map((c: IChannel) => c.name)
 
-  const promptMessages = dmChannelNames.length
-    ? await findMessages(this.conversation._id, 'model', {
-        channels: { $in: dmChannelNames },
-        pseudonymId: this.pseudonyms[0]._id,
-        'body.type': 'warmUpQuestion'
-      })
-    : []
+  // Independent reads — neither depends on the other's result — run concurrently rather than
+  // paying both round trips back-to-back.
+  const [pregameMessages, promptMessages] = await Promise.all([
+    findMessages(this.conversation._id, 'model', { channels: PREGAME_CHANNEL }, { sort: { createdAt: 1 } }),
+    dmChannelNames.length
+      ? findMessages(this.conversation._id, 'model', {
+          channels: { $in: dmChannelNames },
+          pseudonymId: this.pseudonyms[0]._id,
+          'body.type': 'warmUpQuestion'
+        })
+      : Promise.resolve([])
+  ])
+
+  const pregameHistory = getConversationHistory(pregameMessages, { channels: [PREGAME_CHANNEL] })
+  const pregameChatText = formatMultiUserConversationHistory(pregameHistory)
+    .map((m) => (m.role === 'assistant' ? `AI Assistant: ${m.content}` : m.content))
+    .join('\n')
 
   const rawAnswerMessages = promptMessages.length
     ? await findMessages(this.conversation._id, 'model', {
