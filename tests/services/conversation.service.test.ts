@@ -1638,6 +1638,31 @@ describe('Conversation service methods', () => {
     })
   })
 
+  describe('startConversation() conversationStarted dispatch', () => {
+    test('dispatches conversationStarted event when conversation is started', async () => {
+      await insertUsers([registeredUser])
+      await insertTopics([topicOne])
+      const conversation = new Conversation({
+        name: 'Test Start',
+        owner: registeredUser._id,
+        topic: topicOne._id,
+        draft: false,
+        agents: [],
+        adapters: [],
+        messages: []
+      })
+      await conversation.save()
+      const dispatchSpy = jest.spyOn(agentDispatcher, 'dispatch').mockResolvedValue(undefined)
+
+      await conversationService.startConversation(conversation._id.toString(), registeredUser)
+
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'conversationStarted', conversationId: conversation._id.toString() }),
+        expect.objectContaining({ type: 'conversation', id: conversation._id.toString() })
+      )
+    })
+  })
+
   describe('startConversation() draft gating', () => {
     beforeEach(async () => {
       await insertUsers([registeredUser])
@@ -2003,6 +2028,20 @@ describe('Conversation service methods', () => {
       ).rejects.toMatchObject({ statusCode: httpStatus.BAD_REQUEST, message: 'Cannot update an active conversation' })
     })
 
+    test('should reject updates to an event currently in its pre-event window', async () => {
+      await conversation.updateOne({
+        draft: false,
+        preEventMinutes: 15,
+        scheduledTime: new Date(Date.now() + 5 * 60 * 1000)
+      })
+      await expect(
+        conversationService.updateConversation({ id: conversation._id.toString(), name: 'New Name' }, registeredUser)
+      ).rejects.toMatchObject({
+        statusCode: httpStatus.BAD_REQUEST,
+        message: 'Cannot update a conversation during its pre-event window'
+      })
+    })
+
     /* Fix #1: auto-start and auto-stop jobs should be rescheduled when the event's
        scheduled times change. Before this fix, updating times had no effect on
        already-queued Agenda jobs. */
@@ -2332,6 +2371,56 @@ describe('Conversation service methods', () => {
 
       const agentsAfter = await Agent.find({ conversation: featureConv._id })
       expect(agentsAfter.map((a) => a.agentType)).not.toContain('backChannelInsights')
+    })
+
+    test('should apply preEventMinutes when the pregame feature is enabled via update', async () => {
+      /* pregame has no agents of its own (agents: []) — it only binds preEventMinutes onto the
+         conversation via propertyBindings. createConversationFromType applies conversationFields
+         at creation, but updateConversation's feature-reconciliation path previously never did. */
+      const pregameConv = await conversationService.createConversationFromType(
+        {
+          type: 'eventAssistant',
+          name: 'Pregame Via Update Test',
+          platforms: ['zoom'],
+          topicId: topicOne._id.toString(),
+          scheduledTime: new Date(Date.now() + 25200000),
+          properties: { zoomMeetingUrl: 'https://zoom.us/j/pregame-update-test' }
+        },
+        registeredUser
+      )
+      expect(pregameConv.preEventMinutes).toBeUndefined()
+
+      await conversationService.updateConversation(
+        { id: pregameConv._id.toString(), features: [{ name: 'pregame', config: { preEventMinutes: 20 } }] },
+        registeredUser
+      )
+
+      const updated = await Conversation.findById(pregameConv._id)
+      expect(updated!.preEventMinutes).toBe(20)
+    })
+
+    test('should clear preEventMinutes when the pregame feature is disabled via update', async () => {
+      const pregameConv = await conversationService.createConversationFromType(
+        {
+          type: 'eventAssistant',
+          name: 'Pregame Disable Via Update Test',
+          platforms: ['zoom'],
+          topicId: topicOne._id.toString(),
+          scheduledTime: new Date(Date.now() + 28800000),
+          properties: { zoomMeetingUrl: 'https://zoom.us/j/pregame-disable-test' },
+          features: [{ name: 'pregame', config: { preEventMinutes: 20 } }]
+        },
+        registeredUser
+      )
+      expect(pregameConv.preEventMinutes).toBe(20)
+
+      await conversationService.updateConversation(
+        { id: pregameConv._id.toString(), features: [{ name: 'pregame', enabled: false }] },
+        registeredUser
+      )
+
+      const updated = await Conversation.findById(pregameConv._id)
+      expect(updated!.preEventMinutes).toBeUndefined()
     })
 
     test('syncs slackBotUserId into the slack adapter config on a properties update', async () => {
@@ -2669,6 +2758,45 @@ describe('Conversation service methods', () => {
 
       const assistant = result.agents.find((a) => a.agentType === 'eventAssistant')
       expect(assistant?.agentConfig).toEqual({ botName: 'CustomBot' })
+    })
+
+    test('should strip generatedContent from agents for non-owner user', async () => {
+      const params = {
+        type: 'eventAssistant',
+        name: 'Generated Content Test',
+        platforms: ['zoom'],
+        topicId: topicOne._id.toString(),
+        scheduledTime: new Date(Date.now() + 18000000),
+        properties: { zoomMeetingUrl: 'https://zoom.us/j/generatedcontenttest' }
+      }
+      const conv = await conversationService.createConversationFromType(params, registeredUser)
+      const assistant = conv.agents.find((a) => a.agentType === 'eventAssistant')
+      await Agent.updateOne({ _id: assistant!._id }, { generatedContent: { warmUpQuestion: { text: 'Secret?' } } })
+
+      const nonOwner = { _id: new mongoose.Types.ObjectId(), role: 'participant' }
+      const result = await conversationService.findByIdFull(conv._id.toString(), nonOwner)
+
+      const resultAssistant = result.agents.find((a) => a.agentType === 'eventAssistant')
+      expect(resultAssistant).not.toHaveProperty('generatedContent')
+    })
+
+    test('should include generatedContent on agents for conversation owner', async () => {
+      const params = {
+        type: 'eventAssistant',
+        name: 'Generated Content Owner Test',
+        platforms: ['zoom'],
+        topicId: topicOne._id.toString(),
+        scheduledTime: new Date(Date.now() + 21600000),
+        properties: { zoomMeetingUrl: 'https://zoom.us/j/generatedcontentowner' }
+      }
+      const conv = await conversationService.createConversationFromType(params, registeredUser)
+      const assistant = conv.agents.find((a) => a.agentType === 'eventAssistant')
+      await Agent.updateOne({ _id: assistant!._id }, { generatedContent: { warmUpQuestion: { text: 'Secret?' } } })
+
+      const result = await conversationService.findByIdFull(conv._id.toString(), registeredUser)
+
+      const resultAssistant = result.agents.find((a) => a.agentType === 'eventAssistant')
+      expect(resultAssistant?.generatedContent).toEqual({ warmUpQuestion: { text: 'Secret?' } })
     })
 
     test('should include agentConfig on agents for conversation owner', async () => {
