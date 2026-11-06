@@ -385,7 +385,7 @@ describe('eventAssistant.onConversationEvent — warm-up question', () => {
 
 describe('eventAssistant.onConversationEvent — pregame recap on conversationStarted', () => {
   const chatChannel = { name: 'chat', direct: false }
-  const dmChannel = { name: 'direct-user-1-agent-1', direct: true }
+  const dmChannel = { name: 'direct-user-1-agent-1', direct: true, participants: ['agent-1'] }
 
   const pregameMessage = {
     _id: 'pm-1',
@@ -432,11 +432,7 @@ describe('eventAssistant.onConversationEvent — pregame recap on conversationSt
     return { type: 'conversationStarted' as const, conversationId, topicId: 'topic-1', ...overrides }
   }
 
-  function mockFindMessagesFor({
-    pregame = [] as unknown[],
-    prompts = [] as unknown[],
-    answers = [] as unknown[]
-  } = {}) {
+  function mockFindMessagesFor({ pregame = [] as unknown[], prompts = [] as unknown[], answers = [] as unknown[] } = {}) {
     mockFindMessages.mockImplementation((_convId: unknown, _audience: unknown, filter: Record<string, unknown>) => {
       if (filter.channels === 'pregame') return Promise.resolve(pregame)
       if (filter['body.type'] === 'warmUpQuestion') return Promise.resolve(prompts)
@@ -544,7 +540,7 @@ describe('eventAssistant.onConversationEvent — pregame recap on conversationSt
 
     const [, systemPrompt] = mockGetChatPromptResponse.mock.calls[0]
     expect(systemPrompt).toContain('Never attribute a specific line to a')
-    expect(systemPrompt).toContain('Revealing pregame turnout isn\'t the point')
+    expect(systemPrompt).toContain("Revealing pregame turnout isn't the point")
   })
 
   test('posts a recap from pregame chat alone when there were no warm-up answers', async () => {

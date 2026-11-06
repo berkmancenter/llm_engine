@@ -386,7 +386,7 @@ async function buildPregameRecapMessage(this): Promise<string | null> {
     .join('\n')
 
   const dmChannelNames = (this.conversation.channels ?? [])
-    .filter((c: IChannel) => c.direct && c.name.endsWith(`-${this._id}`))
+    .filter((c: IChannel) => c.direct && c.participants?.includes(this._id))
     .map((c: IChannel) => c.name)
 
   const promptMessages = dmChannelNames.length
