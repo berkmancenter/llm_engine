@@ -328,15 +328,21 @@ async function sendWarmUpQuestionsToNewJoiners(this): Promise<AgentResponse<unkn
   const dmChannels = (this.conversation.channels ?? []).filter(
     (c: IChannel) => c.direct && c.participants?.includes(this._id)
   )
+  if (dmChannels.length === 0) return []
+
+  const alreadySentTo = await Message.find({
+    conversation: this.conversation._id,
+    pseudonymId: this.pseudonyms[0]._id,
+    channels: { $in: dmChannels.map((c) => c.name) },
+    'body.type': 'warmUpQuestion'
+  })
+    .select('channels')
+    .lean()
+  const sentChannelNames = new Set(alreadySentTo.flatMap((m) => m.channels ?? []))
+
   const responses: AgentResponse<unknown>[] = []
   for (const channel of dmChannels) {
-    const alreadySent = await Message.exists({
-      conversation: this.conversation._id,
-      pseudonymId: this.pseudonyms[0]._id,
-      channels: channel.name,
-      'body.type': 'warmUpQuestion'
-    })
-    if (alreadySent) continue
+    if (sentChannelNames.has(channel.name)) continue
 
     try {
       const response = await buildWarmUpQuestionResponse.call(this, channel)

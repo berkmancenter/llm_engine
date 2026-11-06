@@ -4,13 +4,15 @@ import { jest } from '@jest/globals'
 const mockGetChatPromptResponse = jest.fn<(...args: any[]) => Promise<any>>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockMessageExists = jest.fn<(...args: any[]) => Promise<any>>()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockMessageFind = jest.fn<(...args: any[]) => any>()
 
 jest.unstable_mockModule('../src/agents/helpers/llmChain.js', () => ({
   getChatPromptResponse: mockGetChatPromptResponse
 }))
 
 jest.unstable_mockModule('../src/models/message.model.js', () => ({
-  default: { exists: mockMessageExists }
+  default: { exists: mockMessageExists, find: mockMessageFind }
 }))
 
 // eventQuestionHandler.js transitively needs other llmChain.js exports this test doesn't mock;
@@ -240,6 +242,9 @@ describe('eventAssistant.onConversationEvent — warm-up question', () => {
     mockMessageExists.mockImplementation((query) =>
       Promise.resolve(query['body.type'] === 'threeFacts' ? { _id: 'already-posted' } : null)
     )
+    // Default: no channel has a warm-up message yet. sendWarmUpQuestionsToNewJoiners batches its
+    // already-sent check into Message.find(...).select(...).lean() — see eventAssistant.ts.
+    mockMessageFind.mockReturnValue({ select: () => ({ lean: () => Promise.resolve([]) }) })
   })
 
   afterEach(() => {
@@ -304,7 +309,7 @@ describe('eventAssistant.onConversationEvent — warm-up question', () => {
   })
 
   test('does not resend to a channel that already has a warm-up message', async () => {
-    mockMessageExists.mockResolvedValue({ _id: 'already-sent' })
+    mockMessageFind.mockReturnValue({ select: () => ({ lean: () => Promise.resolve([{ channels: [dmChannel.name] }]) }) })
     const context = buildContext({ channels: [pregameChannel, dmChannel] })
 
     const result = await eventAssistant.onConversationEvent.call(context, countdownEvent())
