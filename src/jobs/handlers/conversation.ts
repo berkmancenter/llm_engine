@@ -155,7 +155,9 @@ const openConversationWindow = async (job) => {
 const conversationWindowCountdown = async (job) => {
   const { conversationId, phase } = job.attrs.data as { conversationId: string; phase: ConversationPhase }
   try {
-    const conversation = await Conversation.findOne({ _id: conversationId }).populate('agents')
+    // Only agent._id is used below (to notify agentDispatcher), so project agents down to just
+    // that instead of hydrating full Agent documents on every tick of every open pre-event window.
+    const conversation = await Conversation.findOne({ _id: conversationId }).populate('agents', '_id')
     // Same ObjectId-vs-string gotcha as openConversationWindow: re-derive from the fetched doc
     // when there is one, rather than trusting job.attrs.data's own type.
     const conversationIdStr = conversation?._id?.toString() ?? conversationId.toString()
