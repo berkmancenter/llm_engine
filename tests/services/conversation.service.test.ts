@@ -2028,6 +2028,20 @@ describe('Conversation service methods', () => {
       ).rejects.toMatchObject({ statusCode: httpStatus.BAD_REQUEST, message: 'Cannot update an active conversation' })
     })
 
+    test('should reject updates to an event currently in its pre-event window', async () => {
+      await conversation.updateOne({
+        draft: false,
+        preEventMinutes: 15,
+        scheduledTime: new Date(Date.now() + 5 * 60 * 1000)
+      })
+      await expect(
+        conversationService.updateConversation({ id: conversation._id.toString(), name: 'New Name' }, registeredUser)
+      ).rejects.toMatchObject({
+        statusCode: httpStatus.BAD_REQUEST,
+        message: 'Cannot update a conversation during its pre-event window'
+      })
+    })
+
     /* Fix #1: auto-start and auto-stop jobs should be rescheduled when the event's
        scheduled times change. Before this fix, updating times had no effect on
        already-queued Agenda jobs. */
