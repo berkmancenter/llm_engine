@@ -1,7 +1,7 @@
 import handlebars from 'handlebars'
 import httpStatus from 'http-status'
 import ApiError from '../utils/ApiError.js'
-import { AgentProperty, BehaviorPolicy, ConversationType, Feature, FeatureConfig } from '../types/index.types.js'
+import { BehaviorPolicy, ConversationType, Feature, FeatureConfig, PropertyBinding } from '../types/index.types.js'
 import { isValidPropertyFormat } from './propertyFormats.js'
 
 const FACILITATIVE_GOALS = [
@@ -71,6 +71,9 @@ interface ResolvedConversationConfig {
   features: Feature[]
   goals: string[]
   behaviorPolicy: BehaviorPolicy
+  // conversationType.propertyBindings resolved via resolvePropertyBindings, for callers
+  // that want a property to land on the conversation document itself rather than agentConfig.
+  conversationFields: Record<string, unknown>
 }
 
 const removeEmptyValues = (obj) => {
@@ -110,9 +113,9 @@ const setNestedValue = (obj: Record<string, unknown>, path: string, value: unkno
   current[keys[keys.length - 1]] = value
 }
 
-const resolveAgentProperties = (agentProperties: AgentProperty[], resolvedProperties: Record<string, unknown>) => {
+const resolvePropertyBindings = (bindings: PropertyBinding[], resolvedProperties: Record<string, unknown>) => {
   const result: Record<string, unknown> = {}
-  for (const prop of agentProperties) {
+  for (const prop of bindings) {
     if ('$ref' in prop) {
       const value = getNestedValue(resolvedProperties, prop.$ref)
       const key = prop.as ?? prop.$ref.split('.').at(-1)!
@@ -279,9 +282,9 @@ const resolveAgents = (
   conversationType: ConversationType,
   resolvedProperties: Record<string, unknown>
 ): Array<{ name: string; properties?: Record<string, unknown> }> => {
-  const mapAgent = (agent: { name: string; properties?: AgentProperty[] }) => ({
+  const mapAgent = (agent: { name: string; properties?: PropertyBinding[] }) => ({
     name: agent.name,
-    properties: agent.properties ? resolveAgentProperties(agent.properties, resolvedProperties) : undefined
+    properties: agent.properties ? resolvePropertyBindings(agent.properties, resolvedProperties) : undefined
   })
 
   return [
@@ -335,6 +338,7 @@ export default function resolveConversationType(
     properties: resolvedProperties,
     features,
     goals,
-    behaviorPolicy
+    behaviorPolicy,
+    conversationFields: resolvePropertyBindings(conversationType.propertyBindings ?? [], workingProperties)
   }
 }

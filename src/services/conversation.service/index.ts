@@ -279,7 +279,9 @@ const createConversationFromType = async (params, user, { allowDraft = false } =
   }
 
   const resolved = resolveConversationType(params, conversationType, allowDraft)
-  return createConversation({ ...params, conversationType: type, ...resolved }, user, { allowDraft })
+  return createConversation({ ...params, conversationType: type, ...resolved, ...resolved.conversationFields }, user, {
+    allowDraft
+  })
 }
 
 /**
