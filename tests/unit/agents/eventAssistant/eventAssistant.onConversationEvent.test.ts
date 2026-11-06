@@ -232,7 +232,7 @@ describe('eventAssistant.onConversationEvent — three facts on conversationWind
 })
 
 describe('eventAssistant.onConversationEvent — warm-up question', () => {
-  const dmChannel = { name: 'direct-user-1-agent-1', direct: true }
+  const dmChannel = { name: 'direct-user-1-agent-1', direct: true, participants: ['agent-1'] }
 
   beforeEach(() => {
     // Three facts' own dedup always reports "already posted" here so its LLM call never mixes
@@ -354,7 +354,7 @@ describe('eventAssistant.onConversationEvent — warm-up question', () => {
   })
 
   test('one channel failing to build its warm-up message does not block the others', async () => {
-    const dmChannelTwo = { name: 'direct-user-2-agent-1', direct: true }
+    const dmChannelTwo = { name: 'direct-user-2-agent-1', direct: true, participants: ['agent-1'] }
     const context = buildContext({ channels: [pregameChannel, dmChannel, dmChannelTwo] })
     mockGetChatPromptResponse
       .mockRejectedValueOnce(new Error('boom'))

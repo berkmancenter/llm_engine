@@ -291,7 +291,9 @@ async function buildWarmUpQuestionResponse(this, channel: IChannel): Promise<Age
     // Same 2-4 option bound the generated path enforces via zod — the client renders
     // singleChoice as a fixed set of buttons, so fewer than 2 or more than 4 can't render sanely.
     if (format === 'singleChoice' && (!Array.isArray(optionLabels) || optionLabels.length < 2 || optionLabels.length > 4)) {
-      logger.warn('[onConversationEvent] warmUpQuestion.source is "organizer" with format "singleChoice" but options is not an array of 2-4 strings')
+      logger.warn(
+        '[onConversationEvent] warmUpQuestion.source is "organizer" with format "singleChoice" but options is not an array of 2-4 strings'
+      )
       return null
     }
   } else {
@@ -324,7 +326,7 @@ async function buildWarmUpQuestionResponse(this, channel: IChannel): Promise<Age
  */
 async function sendWarmUpQuestionsToNewJoiners(this): Promise<AgentResponse<unknown>[]> {
   const dmChannels = (this.conversation.channels ?? []).filter(
-    (c: IChannel) => c.direct && c.name.endsWith(`-${this._id}`)
+    (c: IChannel) => c.direct && c.participants?.includes(this._id)
   )
   const responses: AgentResponse<unknown>[] = []
   for (const channel of dmChannels) {
