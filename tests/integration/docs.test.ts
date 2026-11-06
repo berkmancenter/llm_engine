@@ -54,5 +54,22 @@ describe('OpenAPI route', () => {
         expect.arrayContaining(['whatTheyreSaying', 'whyItMatters', 'terms', 'chunkIds', 'passage', 'text'])
       )
     })
+
+    test('describes the passage preview and send endpoints, and a card with no request message', async () => {
+      const res = await request(app).get('/v1/openapi.json').expect(httpStatus.OK)
+      const { schemas } = res.body.components
+
+      expect(res.body.paths).toHaveProperty(['/unpack/{conversationId}/preview', 'post'])
+      expect(res.body.paths).toHaveProperty(['/unpack/{conversationId}/send', 'post'])
+      expect(schemas.UnpackSelection.required).toEqual(['startMessageId', 'startOffset', 'endMessageId', 'endOffset'])
+      expect(schemas.UnpackPreview.properties.explanation.required).toEqual(
+        expect.arrayContaining(['quote', 'whatTheyreSaying', 'headline', 'visual'])
+      )
+      expect(schemas.UnpackError.properties.reason.enum).toEqual(
+        expect.arrayContaining(['selectionTooLong', 'unpackFailed'])
+      )
+      expect(schemas.UnpackExplanation.properties.mode.enum).toEqual(['lastMinute', 'passage'])
+      expect(schemas.UnpackExplanation.required).not.toContain('requestMessage')
+    })
   })
 })
