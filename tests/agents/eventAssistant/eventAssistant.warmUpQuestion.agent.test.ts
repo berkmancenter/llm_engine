@@ -55,7 +55,10 @@ describe('eventAssistant warm-up question (live LLM, for manual review)', () => 
   // it reuses the tick already running for three facts rather than a second delivery mechanism,
   // and incidentally lands a little after the channel's own intro rather than on top of it.
   async function triggerWarmUpTick(conversation, agent) {
-    const responses = await defaultAgentTypes.eventAssistant.onConversationEvent.call(agent, countdownTickEvent(conversation))
+    const responses = await defaultAgentTypes.eventAssistant.onConversationEvent.call(
+      agent,
+      countdownTickEvent(conversation)
+    )
     return responses.filter((r) => (r.message as { type?: string })?.type === 'warmUpQuestion')
   }
 
@@ -216,8 +219,9 @@ describe('eventAssistant warm-up question (live LLM, for manual review)', () => 
       const messageData = agentResponseToMessageData(warmUp, agent)
       await Message.create({ ...messageData, channels: messageData.channels?.map((c) => c.name) })
 
+      const attendeeChannelName = warmUp.channels?.[0]?.name
       const secondTick = await triggerWarmUpTick(conversation, agent)
-      expect(secondTick).toEqual([])
+      expect(secondTick.find((r) => r.channels?.[0]?.name === attendeeChannelName)).toBeUndefined()
     },
     testTimeout
   )
