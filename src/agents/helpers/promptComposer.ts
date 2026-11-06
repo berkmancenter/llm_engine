@@ -129,7 +129,7 @@ function getMinContributionMs(
 
 /**
  * Generates the event context section of a system prompt from a ConversationContext.
- * Returns an empty string if no conversationType is set.
+ * Returns an empty string if conversationContext is unset or none of its fields have content.
  */
 function buildConversationContextSection(conversationContext: ConversationContext | undefined): string {
   if (!conversationContext) return ''
