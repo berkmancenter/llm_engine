@@ -6,8 +6,16 @@ import { formatTime, formatTranscript } from './llmInputFormatters.js'
 import rag, { TRANSCRIPT_COLLECTION_PREFIX } from './rag.js'
 import Conversation from '../../models/conversation.model.js'
 import Topic from '../../models/topic.model.js'
+import UnpackExplanation from '../../models/unpackExplanation.model.js'
+import UnpackRequest from '../../models/unpackRequest.model.js'
 
 export const TOPIC_TRANSCRIPT_COLLECTION_PREFIX = 'topic-transcript'
+
+// Unpacker rows quote the transcript, so they go when it does
+async function deleteUnpackRows(conversationId) {
+  await UnpackRequest.deleteMany({ conversation: conversationId })
+  await UnpackExplanation.deleteMany({ conversation: conversationId })
+}
 
 /**
  * Convert time string into a Date object, inferring from the startTime
@@ -344,6 +352,8 @@ async function clearTranscript(conversation) {
       logger.warn(`Failed to clear transcript from topic collection ${TOPIC_TRANSCRIPT_COLLECTION_PREFIX}-${topicId}`)
     }
   }
+  await deleteUnpackRows(conversation._id)
+
   // Find all messages for this conversation in transcript channel
   const messagesToDelete = await Message.find({
     conversation,
@@ -380,6 +390,8 @@ async function deleteTranscript(conversation) {
       )
     }
   }
+  await deleteUnpackRows(conversation._id)
+
   // Find all messages for this conversation in transcript channel
   const messagesToDelete = await Message.find({
     conversation,
@@ -414,6 +426,7 @@ export default {
   clearTranscript,
   deleteTranscript,
   deleteTopicCollection,
+  deleteUnpackRows,
   getTranscriptMessages,
   getTranscript
 }
