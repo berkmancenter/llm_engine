@@ -7,8 +7,10 @@ import {
 } from '../../services/conversation.service/lifecycle.js'
 import adapterService from '../../services/adapter.service.js'
 import agentDispatcher from '../agentDispatcher.js'
+import schedule from '../schedule.js'
 import { ConversationPhase } from '../../types/index.types.js'
 import { AgentDocument } from '../../models/user.model/agent.model/index.js'
+import isPreEventWindowOpen from '../../services/conversation.service/preEventWindow.js'
 
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000
 const MIN_TRANSCRIPT_MESSAGES_TO_STOP = 10
@@ -135,8 +137,53 @@ const openConversationWindow = async (job) => {
       { type: 'conversation', id: conversationIdStr },
       { alsoNotify: agentIds }
     )
+    await schedule.startConversationWindowCountdown({ conversationId: conversationIdStr, phase })
   } catch (err) {
     logger.error(`Conversation window opened (${phase}) failed for conversation ${conversationId}`, err)
+  }
+}
+
+/* Recurring companion to openConversationWindow, started there once the window opens. Fires
+   every minute so listeners (e.g. an agent waiting for "within a minute of scheduledTime")
+   don't need their own periodic trigger running during preEvent
+
+   Self-cancels once it no longer applies (conversation gone, unconfigured, or already started)
+   rather than relying on any other call site to stop it — this job's own lifecycle is entirely
+   self-contained. remainingMs/elapsedMs are recomputed fresh from the conversation's current
+   scheduledTime/preEventMinutes on every tick, so an update made after the window already
+   opened is picked up automatically, with no need to restart this job on every edit. */
+const conversationWindowCountdown = async (job) => {
+  const { conversationId, phase } = job.attrs.data as { conversationId: string; phase: ConversationPhase }
+  try {
+    const conversation = await Conversation.findOne({ _id: conversationId }).populate('agents')
+    // Same ObjectId-vs-string gotcha as openConversationWindow: re-derive from the fetched doc
+    // when there is one, rather than trusting job.attrs.data's own type.
+    const conversationIdStr = conversation?._id?.toString() ?? conversationId.toString()
+    if (!conversation || phase !== 'preEvent' || !isPreEventWindowOpen(conversation)) {
+      await schedule.cancelConversationWindowCountdown(conversationIdStr, phase)
+      return
+    }
+
+    // isPreEventWindowOpen already guarantees both are set; the assertions just satisfy TS,
+    // which can't narrow through an opaque function call.
+    const scheduledTimeMs = conversation.scheduledTime!.getTime()
+    const windowOpenedAtMs = scheduledTimeMs - conversation.preEventMinutes! * 60 * 1000
+    const now = Date.now()
+
+    const agentIds = conversation.agents.map((agent) => agent._id!.toString())
+    await agentDispatcher.dispatch(
+      {
+        type: 'conversationWindowCountdown',
+        conversationId: conversationIdStr,
+        phase,
+        elapsedMs: now - windowOpenedAtMs,
+        remainingMs: scheduledTimeMs - now
+      },
+      { type: 'conversation', id: conversationIdStr },
+      { alsoNotify: agentIds }
+    )
+  } catch (err) {
+    logger.error(`Conversation window countdown (${phase}) failed for conversation ${conversationId}`, err)
   }
 }
 
@@ -220,6 +267,7 @@ const conversationHandlers = {
   autoStopConversation,
   conversationEndingSoon,
   openConversationWindow,
-  preStartAdapter
+  preStartAdapter,
+  conversationWindowCountdown
 }
 export default conversationHandlers

@@ -606,6 +606,18 @@ export interface ConversationGoal {
 export interface ConversationContext {
   conversationType?: string
   purpose?: string
+  // Why this conversation, why now — the motivation/occasion behind holding it.
+  rationale?: string
+  // The central question(s) the session is wrestling with.
+  centralQuestions?: string[]
+  // Known tensions or disagreements worth surfacing, rather than glossing over.
+  knownTensions?: string[]
+  scope?: {
+    inScope?: string[]
+    outOfScope?: string[]
+  }
+  // What the organizer hopes people leave with.
+  desiredTakeaway?: string
   audience?: {
     expertiseLevel?: 'beginner' | 'mixed' | 'expert'
     assumedBackgroundKnowledge?: 'low' | 'lowToMedium' | 'medium' | 'high'
@@ -1962,6 +1974,12 @@ export interface ConversationStoppedEvent {
   topicId?: string
 }
 
+export interface ConversationStartedEvent {
+  type: 'conversationStarted'
+  conversationId: string
+  topicId?: string
+}
+
 export interface ParticipantJoinedEvent {
   type: 'participantJoined'
   conversationId: string
@@ -1979,7 +1997,24 @@ export interface ConversationWindowOpenedEvent {
   phase: ConversationPhase
 }
 
-export type ConversationEvent = ConversationStoppedEvent | ParticipantJoinedEvent | ConversationWindowOpenedEvent
+/* Dispatched on a recurring cadence while a conversation window is open (see
+   jobs/handlers/conversation.ts's conversationWindowCountdown), so listeners don't each
+   recompute the same timestamps from scheduledTime/preEventMinutes themselves. `remainingMs`
+   is time until this window's own closing boundary */
+export interface ConversationWindowCountdownEvent {
+  type: 'conversationWindowCountdown'
+  conversationId: string
+  phase: ConversationPhase
+  elapsedMs: number
+  remainingMs: number
+}
+
+export type ConversationEvent =
+  | ConversationStoppedEvent
+  | ConversationStartedEvent
+  | ParticipantJoinedEvent
+  | ConversationWindowOpenedEvent
+  | ConversationWindowCountdownEvent
 
 export interface IAgent {
   _id?: mongoose.Types.ObjectId
@@ -2001,6 +2036,10 @@ export interface IAgent {
   llmTemplateVars?: { [key: string]: { name: string; description: string }[] }
   llmTemplates?: { [key: string]: string }
   agentConfig?: { [key: string]: unknown }
+  /* Output an agent type generated itself and wants to reuse rather than recompute on every
+     call. Distinct from agentConfig, which is
+     organizer-configurable settings, not generated content. */
+  generatedContent?: { [key: string]: unknown }
   capabilities?: AgentCapabilities
   ragCollectionName?: string
   triggers?: Triggers

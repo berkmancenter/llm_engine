@@ -1638,6 +1638,31 @@ describe('Conversation service methods', () => {
     })
   })
 
+  describe('startConversation() conversationStarted dispatch', () => {
+    test('dispatches conversationStarted event when conversation is started', async () => {
+      await insertUsers([registeredUser])
+      await insertTopics([topicOne])
+      const conversation = new Conversation({
+        name: 'Test Start',
+        owner: registeredUser._id,
+        topic: topicOne._id,
+        draft: false,
+        agents: [],
+        adapters: [],
+        messages: []
+      })
+      await conversation.save()
+      const dispatchSpy = jest.spyOn(agentDispatcher, 'dispatch').mockResolvedValue(undefined)
+
+      await conversationService.startConversation(conversation._id.toString(), registeredUser)
+
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'conversationStarted', conversationId: conversation._id.toString() }),
+        expect.objectContaining({ type: 'conversation', id: conversation._id.toString() })
+      )
+    })
+  })
+
   describe('startConversation() draft gating', () => {
     beforeEach(async () => {
       await insertUsers([registeredUser])
@@ -2669,6 +2694,45 @@ describe('Conversation service methods', () => {
 
       const assistant = result.agents.find((a) => a.agentType === 'eventAssistant')
       expect(assistant?.agentConfig).toEqual({ botName: 'CustomBot' })
+    })
+
+    test('should strip generatedContent from agents for non-owner user', async () => {
+      const params = {
+        type: 'eventAssistant',
+        name: 'Generated Content Test',
+        platforms: ['zoom'],
+        topicId: topicOne._id.toString(),
+        scheduledTime: new Date(Date.now() + 18000000),
+        properties: { zoomMeetingUrl: 'https://zoom.us/j/generatedcontenttest' }
+      }
+      const conv = await conversationService.createConversationFromType(params, registeredUser)
+      const assistant = conv.agents.find((a) => a.agentType === 'eventAssistant')
+      await Agent.updateOne({ _id: assistant!._id }, { generatedContent: { warmUpQuestion: { text: 'Secret?' } } })
+
+      const nonOwner = { _id: new mongoose.Types.ObjectId(), role: 'participant' }
+      const result = await conversationService.findByIdFull(conv._id.toString(), nonOwner)
+
+      const resultAssistant = result.agents.find((a) => a.agentType === 'eventAssistant')
+      expect(resultAssistant).not.toHaveProperty('generatedContent')
+    })
+
+    test('should include generatedContent on agents for conversation owner', async () => {
+      const params = {
+        type: 'eventAssistant',
+        name: 'Generated Content Owner Test',
+        platforms: ['zoom'],
+        topicId: topicOne._id.toString(),
+        scheduledTime: new Date(Date.now() + 21600000),
+        properties: { zoomMeetingUrl: 'https://zoom.us/j/generatedcontentowner' }
+      }
+      const conv = await conversationService.createConversationFromType(params, registeredUser)
+      const assistant = conv.agents.find((a) => a.agentType === 'eventAssistant')
+      await Agent.updateOne({ _id: assistant!._id }, { generatedContent: { warmUpQuestion: { text: 'Secret?' } } })
+
+      const result = await conversationService.findByIdFull(conv._id.toString(), registeredUser)
+
+      const resultAssistant = result.agents.find((a) => a.agentType === 'eventAssistant')
+      expect(resultAssistant?.generatedContent).toEqual({ warmUpQuestion: { text: 'Secret?' } })
     })
 
     test('should include agentConfig on agents for conversation owner', async () => {
