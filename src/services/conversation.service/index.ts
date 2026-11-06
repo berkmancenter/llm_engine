@@ -15,6 +15,7 @@ import { TopicDocument } from '../../models/topic.model.js'
 import { getConversationType } from '../../conversations/index.js'
 import adapterTypes from '../../adapters/index.js'
 import resolveConversationType from '../../conversations/resolver.js'
+import isPreEventWindowOpen from './preEventWindow.js'
 import { supportedModels } from '../../agents/helpers/getEmbeddings.js'
 import transcript from '../../agents/helpers/transcript.js'
 import memberBios from '../../utils/memberBios.js'
@@ -304,6 +305,10 @@ const updateConversation = async (conversationBody, user) => {
   }
   if (conversationDoc.active) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Cannot update an active conversation')
+  }
+
+  if (isPreEventWindowOpen(conversationDoc)) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Cannot update a conversation during its pre-event window')
   }
   /* Once a Draft conversation's scheduled start time is within 6 minutes (including
      after it has already passed), it stays locked from further edits: the owner
