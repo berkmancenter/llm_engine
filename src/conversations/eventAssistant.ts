@@ -208,6 +208,74 @@ const eventAssistant: ConversationType = {
       userControlled: false,
       agents: [],
       properties: []
+    },
+    {
+      name: 'pregame',
+      label: 'Pregame Access',
+      description:
+        'Opens the room before the event starts where early arrivals can chat and answer a private warm-up question.',
+      default: false,
+      category: 'assistant',
+      userControlled: false,
+      agents: [],
+      properties: [
+        {
+          name: 'preEventMinutes',
+          label: 'Doors Open (minutes before start)',
+          description: 'How many minutes before the scheduled start time early access opens.',
+          required: false,
+          type: 'number',
+          default: 15
+        },
+        {
+          name: 'warmUpQuestion',
+          label: 'Warm-Up Question Source',
+          description: 'Whether the private warm-up question is written by the assistant or supplied by the organizer.',
+          required: false,
+          type: 'enum',
+          options: [
+            { value: 'organizer', label: 'Organizer written' },
+            { value: 'generated', label: 'AI generated' }
+          ],
+          default: 'generated'
+        },
+        {
+          name: 'warmUpQuestionText',
+          label: 'Warm-Up Question Text',
+          description: 'Used only when the warm-up question source is organizer.',
+          required: false,
+          type: 'string'
+        },
+        {
+          name: 'warmUpQuestionFormat',
+          label: 'Warm-Up Question Format',
+          description: 'Open-ended text, or a single-choice question with fixed options. Applies to either source.',
+          required: false,
+          type: 'enum',
+          options: [
+            { value: 'text', label: 'Open-ended text' },
+            { value: 'singleChoice', label: 'Single choice' }
+          ],
+          default: 'text'
+        },
+        {
+          name: 'warmUpQuestionOptions',
+          label: 'Warm-Up Question Options',
+          description:
+            'The selectable options. Used only when source is organizer and format is singleChoice — an agent-authored singleChoice question generates its own options instead.',
+          required: false,
+          type: 'array'
+        },
+        {
+          name: 'groupChannelOpener',
+          label: 'Post Pregame Recap on Start',
+          description:
+            'When the event starts, post a short recap of the pregame chat and warm-up answers to the group chat.',
+          required: false,
+          type: 'boolean',
+          default: true
+        }
+      ]
     }
   ],
 
@@ -224,7 +292,12 @@ const eventAssistant: ConversationType = {
         { $ref: 'llmModel.llmPlatform' },
         { $ref: 'botName', as: 'agentConfig.botName' },
         { $ref: 'moderatorSupport', as: 'agentConfig.moderatorSupport' },
-        { $ref: 'seriesHistory', as: 'agentConfig.seriesHistory' }
+        { $ref: 'seriesHistory', as: 'agentConfig.seriesHistory' },
+        { $ref: 'pregame.warmUpQuestion', as: 'agentConfig.warmUpQuestion.source' },
+        { $ref: 'pregame.warmUpQuestionText', as: 'agentConfig.warmUpQuestion.text' },
+        { $ref: 'pregame.warmUpQuestionFormat', as: 'agentConfig.warmUpQuestion.format' },
+        { $ref: 'pregame.warmUpQuestionOptions', as: 'agentConfig.warmUpQuestion.options' },
+        { $ref: 'pregame.groupChannelOpener', as: 'agentConfig.groupChannelOpener' }
       ]
     },
     {
@@ -241,6 +314,7 @@ const eventAssistant: ConversationType = {
       ]
     }
   ],
+  propertyBindings: [{ $ref: 'pregame.preEventMinutes' }],
   enableDMs: ['agents'],
   channels: [
     { name: TRANSCRIPT_CHANNEL },

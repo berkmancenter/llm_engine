@@ -786,6 +786,7 @@ export default verify({
       // sent as a warm-up DM (same unconfigured check as isPreEventWindowOpen) — skip straight
       // past buildPregameRecapMessage's DB queries rather than running them just to find nothing.
       if (typeof this.conversation.preEventMinutes !== 'number' || this.conversation.preEventMinutes <= 0) return []
+      if (this.agentConfig?.groupChannelOpener === false) return []
 
       const channel = this.conversation.channels?.find((c) => c.name === currentGroupChannelName(this.conversation))
       if (!channel) return []
