@@ -348,6 +348,7 @@ const updateConversation = async (conversationBody, user) => {
   } = conversationBody
 
   const oldResources = incomingResources !== undefined ? [...conversationDoc.resources] : null
+  const oldFeatures = incomingFeatures !== undefined ? conversationDoc.features : undefined
 
   /* updateDocument sets doc[key] = body[key] directly, so passing properties through
      would overwrite all existing keys with only what the caller sent. We merge manually
@@ -409,6 +410,29 @@ const updateConversation = async (conversationBody, user) => {
            not explicitly false. */
         const enabledFeatureNames = new Set(incomingFeatures.filter((f) => f.enabled !== false).map((f) => f.name))
 
+        /* Resolved once from the new feature set, the same way createConversationFromType
+           resolves at creation, so a property bound onto the conversation (e.g. pregame's
+           preEventMinutes) is applied here too rather than only when creating agents from
+           scratch. Diffed against what the *previous* feature set would have resolved to so a
+           binding whose feature was just disabled gets cleared instead of left stale — leaving
+           it stale would make isPreEventWindowOpen keep reporting a window long after the
+           feature (and its agent) were removed. */
+        const resolved = resolveConversationType(
+          { platforms: conversationDoc.platforms, properties: conversationDoc.properties, features: incomingFeatures },
+          convType
+        )
+        const previousFields = resolveConversationType(
+          { platforms: conversationDoc.platforms, properties: conversationDoc.properties, features: oldFeatures ?? [] },
+          convType
+        ).conversationFields
+        for (const key of Object.keys(previousFields)) {
+          if (!(key in resolved.conversationFields)) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ;(conversationDoc as any)[key] = undefined
+          }
+        }
+        Object.assign(conversationDoc, resolved.conversationFields)
+
         for (const featureDef of convType.features ?? []) {
           for (const agentSpec of featureDef.agents ?? []) {
             if (!enabledFeatureNames.has(featureDef.name)) {
@@ -429,14 +453,6 @@ const updateConversation = async (conversationBody, user) => {
               /* Feature enabled: create the agent if it doesn't exist yet. */
               const exists = await Agent.findOne({ conversation: conversationDoc._id, agentType: agentSpec.name })
               if (!exists) {
-                const resolved = resolveConversationType(
-                  {
-                    platforms: conversationDoc.platforms,
-                    properties: conversationDoc.properties,
-                    features: incomingFeatures
-                  },
-                  convType
-                )
                 const agentDef = resolved.agentTypes.find((a) => a.name === agentSpec.name)
                 if (agentDef) {
                   const agent = await agentService.createAgent(agentDef.name, conversationDoc, agentDef.properties)

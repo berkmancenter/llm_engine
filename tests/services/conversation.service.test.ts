@@ -2373,6 +2373,56 @@ describe('Conversation service methods', () => {
       expect(agentsAfter.map((a) => a.agentType)).not.toContain('backChannelInsights')
     })
 
+    test('should apply preEventMinutes when the pregame feature is enabled via update', async () => {
+      /* pregame has no agents of its own (agents: []) — it only binds preEventMinutes onto the
+         conversation via propertyBindings. createConversationFromType applies conversationFields
+         at creation, but updateConversation's feature-reconciliation path previously never did. */
+      const pregameConv = await conversationService.createConversationFromType(
+        {
+          type: 'eventAssistant',
+          name: 'Pregame Via Update Test',
+          platforms: ['zoom'],
+          topicId: topicOne._id.toString(),
+          scheduledTime: new Date(Date.now() + 25200000),
+          properties: { zoomMeetingUrl: 'https://zoom.us/j/pregame-update-test' }
+        },
+        registeredUser
+      )
+      expect(pregameConv.preEventMinutes).toBeUndefined()
+
+      await conversationService.updateConversation(
+        { id: pregameConv._id.toString(), features: [{ name: 'pregame', config: { preEventMinutes: 20 } }] },
+        registeredUser
+      )
+
+      const updated = await Conversation.findById(pregameConv._id)
+      expect(updated!.preEventMinutes).toBe(20)
+    })
+
+    test('should clear preEventMinutes when the pregame feature is disabled via update', async () => {
+      const pregameConv = await conversationService.createConversationFromType(
+        {
+          type: 'eventAssistant',
+          name: 'Pregame Disable Via Update Test',
+          platforms: ['zoom'],
+          topicId: topicOne._id.toString(),
+          scheduledTime: new Date(Date.now() + 28800000),
+          properties: { zoomMeetingUrl: 'https://zoom.us/j/pregame-disable-test' },
+          features: [{ name: 'pregame', config: { preEventMinutes: 20 } }]
+        },
+        registeredUser
+      )
+      expect(pregameConv.preEventMinutes).toBe(20)
+
+      await conversationService.updateConversation(
+        { id: pregameConv._id.toString(), features: [{ name: 'pregame', enabled: false }] },
+        registeredUser
+      )
+
+      const updated = await Conversation.findById(pregameConv._id)
+      expect(updated!.preEventMinutes).toBeUndefined()
+    })
+
     test('syncs slackBotUserId into the slack adapter config on a properties update', async () => {
       /* A Slack-backed bot (the Vibes Analyst) renders its bot user id into the adapter
          config once at creation. Adding or changing slackBotUserId later has to reach that
