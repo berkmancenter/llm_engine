@@ -844,6 +844,8 @@ const deleteConversation = async (id, user) => {
   await Conversation.deleteOne({ _id: id })
   await Follower.deleteMany({ conversation })
   await Message.deleteMany({ conversation })
+  // Also done by transcript.deleteTranscript, but that call above only logs a failure and carries on
+  await transcript.deleteUnpackRows(conversation._id)
   await Agent.deleteMany({ conversation })
   await Adapter.deleteMany({ conversation })
   await ConversationMembership.deleteMany({ conversation: id })
