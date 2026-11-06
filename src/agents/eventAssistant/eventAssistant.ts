@@ -31,6 +31,7 @@ import { loadGoal } from '../../goals/loader.js'
 import { GROUP_CHAT_CHANNELS, isGroupChatMessage, currentGroupChannelName } from '../helpers/groupChatChannel.js'
 import { PREGAME_CHANNEL } from '../../conversations/eventAssistant.js'
 import { findMessages } from '../../utils/messageVisibility.js'
+import findWarmUpAnswers from '../helpers/warmUpAnswers.js'
 import getConversationHistory from '../helpers/getConversationHistory.js'
 import { formatMultiUserConversationHistory } from '../helpers/llmInputFormatters.js'
 
@@ -388,21 +389,14 @@ const MIN_WARM_UP_RESPONDENTS = 2
  * caller can skip posting rather than announce that nothing happened. Called with `this` = agent.
  */
 async function buildPregameRecapMessage(this): Promise<string | null> {
-  const dmChannelNames = (this.conversation.channels ?? [])
-    .filter((c: IChannel) => c.direct && c.participants?.includes(this._id))
-    .map((c: IChannel) => c.name)
-
   // Independent reads — neither depends on the other's result — run concurrently rather than
-  // paying both round trips back-to-back.
-  const [pregameMessages, promptMessages] = await Promise.all([
+  // paying both round trips back-to-back. findWarmUpAnswers does its own prompt-then-answers
+  // lookup internally (shared with moderatorNotifier's warm-up theme synthesis); body.type:
+  // 'warmUpQuestion' is already unique within a conversation, so it needs no channel/pseudonym
+  // scoping of its own here.
+  const [pregameMessages, rawAnswerMessages] = await Promise.all([
     findMessages(this.conversation._id, 'model', { channels: PREGAME_CHANNEL }, { sort: { createdAt: 1 } }),
-    dmChannelNames.length
-      ? findMessages(this.conversation._id, 'model', {
-          channels: { $in: dmChannelNames },
-          pseudonymId: this.pseudonyms[0]._id,
-          'body.type': 'warmUpQuestion'
-        })
-      : Promise.resolve([])
+    findWarmUpAnswers(this.conversation._id)
   ])
 
   const pregameHistory = getConversationHistory(pregameMessages, { channels: [PREGAME_CHANNEL] })
@@ -410,11 +404,6 @@ async function buildPregameRecapMessage(this): Promise<string | null> {
     .map((m) => (m.role === 'assistant' ? `AI Assistant: ${m.content}` : m.content))
     .join('\n')
 
-  const rawAnswerMessages = promptMessages.length
-    ? await findMessages(this.conversation._id, 'model', {
-        answersPrompt: { $in: promptMessages.map((m) => m._id) }
-      })
-    : []
   // Below MIN_WARM_UP_RESPONDENTS, don't hand the model any answers to synthesize from at all —
   // asked to describe "sentiment" from only one real answer, it's liable to invent supporting
   // detail to sound more substantiated (the same failure mode backChannelInsightsGenerator's
