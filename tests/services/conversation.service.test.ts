@@ -2696,6 +2696,45 @@ describe('Conversation service methods', () => {
       expect(assistant?.agentConfig).toEqual({ botName: 'CustomBot' })
     })
 
+    test('should strip generatedContent from agents for non-owner user', async () => {
+      const params = {
+        type: 'eventAssistant',
+        name: 'Generated Content Test',
+        platforms: ['zoom'],
+        topicId: topicOne._id.toString(),
+        scheduledTime: new Date(Date.now() + 18000000),
+        properties: { zoomMeetingUrl: 'https://zoom.us/j/generatedcontenttest' }
+      }
+      const conv = await conversationService.createConversationFromType(params, registeredUser)
+      const assistant = conv.agents.find((a) => a.agentType === 'eventAssistant')
+      await Agent.updateOne({ _id: assistant!._id }, { generatedContent: { warmUpQuestion: { text: 'Secret?' } } })
+
+      const nonOwner = { _id: new mongoose.Types.ObjectId(), role: 'participant' }
+      const result = await conversationService.findByIdFull(conv._id.toString(), nonOwner)
+
+      const resultAssistant = result.agents.find((a) => a.agentType === 'eventAssistant')
+      expect(resultAssistant).not.toHaveProperty('generatedContent')
+    })
+
+    test('should include generatedContent on agents for conversation owner', async () => {
+      const params = {
+        type: 'eventAssistant',
+        name: 'Generated Content Owner Test',
+        platforms: ['zoom'],
+        topicId: topicOne._id.toString(),
+        scheduledTime: new Date(Date.now() + 21600000),
+        properties: { zoomMeetingUrl: 'https://zoom.us/j/generatedcontentowner' }
+      }
+      const conv = await conversationService.createConversationFromType(params, registeredUser)
+      const assistant = conv.agents.find((a) => a.agentType === 'eventAssistant')
+      await Agent.updateOne({ _id: assistant!._id }, { generatedContent: { warmUpQuestion: { text: 'Secret?' } } })
+
+      const result = await conversationService.findByIdFull(conv._id.toString(), registeredUser)
+
+      const resultAssistant = result.agents.find((a) => a.agentType === 'eventAssistant')
+      expect(resultAssistant?.generatedContent).toEqual({ warmUpQuestion: { text: 'Secret?' } })
+    })
+
     test('should include agentConfig on agents for conversation owner', async () => {
       const params = {
         type: 'eventAssistant',
