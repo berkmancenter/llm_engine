@@ -414,7 +414,19 @@ describe('collectChannelIntros', () => {
   test('still returns nothing for an inactive, already-ended conversation even with preEventMinutes set', async () => {
     conversation.active = false
     conversation.startTime = new Date(Date.now() - 60 * 60 * 1000) // already ran
+    conversation.endTime = new Date(Date.now() - 5 * 60 * 1000) // and already stopped
     conversation.scheduledTime = new Date(Date.now() - 65 * 60 * 1000)
+    conversation.preEventMinutes = 10
+
+    const intros = await joinAs(userOne)
+
+    expect(intros).toEqual([])
+  })
+
+  test('still returns nothing once scheduledTime has passed, even if the conversation never started', async () => {
+    // e.g. a failed auto-start: no startTime/endTime at all, but scheduledTime is in the past.
+    conversation.active = false
+    conversation.scheduledTime = new Date(Date.now() - 5 * 60 * 1000)
     conversation.preEventMinutes = 10
 
     const intros = await joinAs(userOne)

@@ -1112,6 +1112,35 @@ describe('agent tests', () => {
       expect(mockEvaluate).not.toHaveBeenCalled()
     })
 
+    test('should not process a message that answers a prompt, even when channels match', async () => {
+      const agent = new Agent({
+        agentType: 'perMessage',
+        conversation: channelEnabledConversation,
+        triggers: {
+          perMessage: {
+            channels: ['general', 'random']
+          }
+        }
+      })
+      await agent.save()
+      await await agent.start()
+
+      const promptAnswer = new Message({
+        ...msgWithChannels.toObject(),
+        _id: new mongoose.Types.ObjectId(),
+        answersPrompt: new mongoose.Types.ObjectId()
+      })
+
+      const expectedEval = {
+        action: AgentMessageActions.OK,
+        userContributionVisible: true
+      }
+
+      const evaluation = await agent.evaluate(promptAnswer)
+      expect(evaluation).toEqual(expectedEval)
+      expect(mockEvaluate).not.toHaveBeenCalled()
+    })
+
     test('should process direct message when directMessages is enabled', async () => {
       const agent = new Agent({
         agentType: 'perMessage',
@@ -2829,6 +2858,55 @@ describe('agent tests', () => {
       expect(claimed).toBe(true)
       const dbAgent = await Agent.findById(agent._id)
       expect(dbAgent!.lastResponseTriggerId).toBe('message:def')
+    })
+  })
+
+  /* setGeneratedContentIfAbsent backs eventAssistant's warm-up question cache (and any future
+     agent-generated content meant to be identical for every reader): see the race discussed in
+     agent.model/index.ts, where a preEvent countdown tick can still find nothing cached (e.g. the
+     conversationWindowOpened job meant to pre-generate this hasn't run or failed), so two
+     concurrent callers can both generate a candidate before either has cached one. */
+  describe('setGeneratedContentIfAbsent', () => {
+    test('sets the value when nothing is cached for that key, and persists it', async () => {
+      const agent = new Agent({ agentType: 'perMessage', conversation })
+      await agent.save()
+
+      const result = await agent.setGeneratedContentIfAbsent('warmUpQuestion', { text: 'Q1' })
+
+      expect(result).toEqual({ text: 'Q1' })
+      expect(agent.generatedContent).toEqual({ warmUpQuestion: { text: 'Q1' } })
+      const dbAgent = await Agent.findById(agent._id)
+      expect(dbAgent!.generatedContent).toEqual({ warmUpQuestion: { text: 'Q1' } })
+    })
+
+    test('returns the already-cached value instead of overwriting it, when the key is already set', async () => {
+      const agent = new Agent({ agentType: 'perMessage', conversation })
+      await agent.save()
+      await agent.setGeneratedContentIfAbsent('warmUpQuestion', { text: 'Q1' })
+
+      // Simulates a second, concurrent caller that generated its own candidate before seeing Q1
+      // cached — it should lose the race and get Q1 back, not overwrite it with Q2.
+      const result = await agent.setGeneratedContentIfAbsent('warmUpQuestion', { text: 'Q2' })
+
+      expect(result).toEqual({ text: 'Q1' })
+      expect(agent.generatedContent).toEqual({ warmUpQuestion: { text: 'Q1' } })
+      const dbAgent = await Agent.findById(agent._id)
+      expect(dbAgent!.generatedContent).toEqual({ warmUpQuestion: { text: 'Q1' } })
+    })
+
+    test('sets a different key independently of one already claimed', async () => {
+      const agent = new Agent({ agentType: 'perMessage', conversation })
+      await agent.save()
+      await agent.setGeneratedContentIfAbsent('warmUpQuestion', { text: 'Q1' })
+
+      const result = await agent.setGeneratedContentIfAbsent('otherContent', { text: 'other' })
+
+      expect(result).toEqual({ text: 'other' })
+      const dbAgent = await Agent.findById(agent._id)
+      expect(dbAgent!.generatedContent).toEqual({
+        warmUpQuestion: { text: 'Q1' },
+        otherContent: { text: 'other' }
+      })
     })
   })
 })

@@ -3,6 +3,13 @@ import { IChannel } from '../../types/index.types.js'
 
 export default class AgentEvaluationService {
   static async evaluateMessage(agent, userMessage, messageCount) {
+    // A message answering a prompt (e.g. a warm-up question) is a structured
+    // response to something already asked, not a new turn for an agent to interpret
+    if (userMessage.answersPrompt) {
+      logger.debug(`evaluateMessage: message answers a prompt, skipping for ${agent.agentType} ${agent._id}`)
+      return false
+    }
+
     // Disallow processing messages from agents (including self) unless explicitly opted in
     if (userMessage.fromAgent && !agent.triggers?.perMessage?.allowMessagesFromAgents) {
       logger.debug(`evaluateMessage: skipping message from agent for ${agent.agentType} ${agent._id}`)
