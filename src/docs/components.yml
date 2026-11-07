@@ -733,7 +733,7 @@ components:
           type: boolean
         type:
           type: string
-          enum: [string, number, boolean, object, enum]
+          enum: [string, number, boolean, object, array, enum]
         label:
           type: string
         default:
@@ -1099,6 +1099,33 @@ components:
               type: string
             purpose:
               type: string
+            rationale:
+              type: string
+              description: Why this conversation, why now.
+            centralQuestions:
+              type: array
+              items:
+                type: string
+              description: The central question(s) the session is wrestling with.
+            knownTensions:
+              type: array
+              items:
+                type: string
+              description: Known tensions or disagreements worth surfacing.
+            scope:
+              type: object
+              properties:
+                inScope:
+                  type: array
+                  items:
+                    type: string
+                outOfScope:
+                  type: array
+                  items:
+                    type: string
+            desiredTakeaway:
+              type: string
+              description: What the organizer hopes people leave with.
             audience:
               type: object
               properties:

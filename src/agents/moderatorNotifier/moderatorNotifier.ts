@@ -1,12 +1,25 @@
 import { z } from 'zod'
 import verify from '../helpers/verify.js'
-import { AgentMessageActions, AgentResponse, ConversationHistory, IChannel, IMessage } from '../../types/index.types.js'
+import {
+  AgentMessageActions,
+  AgentResponse,
+  ConversationEvent,
+  ConversationHistory,
+  IChannel,
+  IMessage
+} from '../../types/index.types.js'
+import { QuestionResultSummary, QuestionResults } from './moderatorNotifier.types.js'
 import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import getConversationHistory from '../helpers/getConversationHistory.js'
 import { formatMultiUserConversationHistory, formatDmHistoryByChannel } from '../helpers/llmInputFormatters.js'
 import transcript from '../helpers/transcript.js'
 import logger from '../../config/logger.js'
+import access from '../../auth/access.js'
+import { extractMessageText } from '../helpers/slashCommandParser.js'
+import findWarmUpAnswers from '../helpers/warmUpAnswers.js'
+import { findMessages } from '../../utils/messageVisibility.js'
+import { GROUP_CHAT_CHANNELS } from '../helpers/groupChatChannel.js'
 
 const SYSTEM_PROMPT = `You are a Moderator Assistant monitoring a live event. Your sole job is to detect moments when the human moderator should be alerted — not to intervene in the public chat yourself.
 
@@ -102,13 +115,135 @@ function getPreviousAlerts(messages, agentName) {
     .join('\n')
 }
 
+const WARM_UP_THEMES_SCHEMA = z.object({
+  themes: z.array(
+    z.object({
+      value: z.string().describe('A short description of one distinct theme or position in the warm-up answers'),
+      matchingAnswers: z
+        .array(z.number().int())
+        .describe('The number of every answer below that aligns with this theme, from the numbered list given')
+    })
+  )
+})
+
+// Hard ceiling on how many buckets ever reach the moderator, Other included — capThemes enforces
+// this regardless of whether the model honors the prompt's own request to stay near it.
+const MAX_WARM_UP_THEMES = 5
+
+const WARM_UP_THEMES_SYSTEM_PROMPT = `You are reviewing private warm-up question answers submitted by event
+attendees before a live event started. Identify the distinct themes or positions across the answers, for
+the moderator's own use — this is an internal moderator view, never shown to participants.
+
+**CRITICAL RULES:**
+- Each answer below is numbered. For every theme, list the number of every answer that aligns with it —
+  do not describe, quote, or count answers yourself; reference them only by number. The count and examples
+  shown to the moderator are derived entirely from the numbers you list, not from anything else you write.
+- Ground every theme in the actual answers — never invent a theme no answer actually supports.
+- Group answers expressing a similar view into one theme rather than listing every answer separately, but
+  don't force answers that don't actually align into the same theme.
+- Report at most ${MAX_WARM_UP_THEMES} themes. If the answers fall into more distinct groups than that,
+  keep the most-supported ones and fold the rest into a final catch-all theme named "Other" — still list
+  every one of its matching answer numbers, same as any other theme.
+- Below that cap, a theme supported by just one answer is still worth reporting — the moderator should see
+  the full range of responses, not just majority opinions.
+- Use only "they/them" pronouns when referring to any person.
+- Never use an em dash. Use a comma, period, or parentheses instead.
+
+Return a JSON object: {{ "themes": [{{ "value": "...", "matchingAnswers": [1, 3] }}] }}`
+
+const WARM_UP_THEMES_USER_TEMPLATE = `Numbered warm-up question answers:
+{answers}`
+
+/**
+ * Backstop for MAX_WARM_UP_THEMES: the prompt already asks the model to fold overflow into its
+ * own "Other" theme, but nothing guarantees compliance, so this enforces the cap regardless.
+ * Keeps the most-supported themes and merges everything past the cap into one Other bucket,
+ * combining counts and sampling a few examples from across the merged themes.
+ */
+function capThemes(results: QuestionResultSummary[]): QuestionResultSummary[] {
+  if (results.length <= MAX_WARM_UP_THEMES) return results
+  const sorted = [...results].sort((a, b) => b.count - a.count)
+  const kept = sorted.slice(0, MAX_WARM_UP_THEMES - 1)
+  const overflow = sorted.slice(MAX_WARM_UP_THEMES - 1)
+  const other: QuestionResultSummary = {
+    label: 'Other',
+    count: overflow.reduce((sum, r) => sum + r.count, 0),
+    examples: overflow.flatMap((r) => r.examples ?? []).slice(0, 3)
+  }
+  return [...kept, other]
+}
+
+async function buildWarmUpQuestionResultsForModerator(this): Promise<QuestionResults | null> {
+  const promptMessages = await findMessages(this.conversation._id, 'model', { 'body.type': 'warmUpQuestion' })
+  if (!promptMessages.length) return null
+  const [promptMessage] = promptMessages
+
+  // Pass the ids already fetched above so findWarmUpAnswers doesn't re-run the identical query.
+  const answerMessages = await findWarmUpAnswers(
+    this.conversation._id,
+    promptMessages.map((m) => m._id)
+  )
+  if (!answerMessages.length) return null
+
+  const question = extractMessageText(promptMessage)
+  const format: 'text' | 'singleChoice' = promptMessage.prompt?.type === 'singleChoice' ? 'singleChoice' : 'text'
+
+  if (format === 'singleChoice') {
+    const options = promptMessage.prompt?.options ?? []
+    const counts = new Map<string, number>(options.map((o) => [o.value, 0]))
+    for (const answer of answerMessages) {
+      const value = extractMessageText(answer)
+      if (counts.has(value)) counts.set(value, (counts.get(value) ?? 0) + 1)
+    }
+    const results = options.map((o) => ({ label: o.label, count: counts.get(o.value) ?? 0 }))
+    if (!results.some((r) => r.count > 0)) return null
+    return { questionType: 'warmUpQuestion', question, format, results }
+  }
+
+  const answerTexts = answerMessages.map((m) => extractMessageText(m)).filter(Boolean)
+  if (!answerTexts.length) return null
+  const answersText = answerTexts.map((text, i) => `${i + 1}. ${text}`).join('\n')
+
+  const llm = await this.getLLM()
+  const themesResult = (await getChatPromptResponse(
+    llm,
+    WARM_UP_THEMES_SYSTEM_PROMPT,
+    WARM_UP_THEMES_USER_TEMPLATE,
+    { answers: answersText },
+    undefined,
+    WARM_UP_THEMES_SCHEMA
+  )) as z.infer<typeof WARM_UP_THEMES_SCHEMA>
+
+  // count/examples are derived from matchingAnswers, not trusted from the model directly — a
+  // theme's text could otherwise claim more support than the answers it actually points at.
+  const results = capThemes(
+    (themesResult?.themes ?? [])
+      .map((theme) => {
+        const validIndices = [...new Set(theme.matchingAnswers)].filter((i) => i >= 1 && i <= answerTexts.length)
+        return {
+          label: theme.value,
+          count: validIndices.length,
+          examples: validIndices.slice(0, 3).map((i) => answerTexts[i - 1])
+        }
+      })
+      .filter((result) => result.count > 0)
+  )
+  if (!results.length) return null
+
+  return { questionType: 'warmUpQuestion', question, format, results }
+}
+
 export default verify({
   name: 'Moderator Notifier',
   description: 'Monitors private messages and the transcript to escalate significant themes to the moderator',
   priority: 80,
   maxTokens: 2000,
   defaultTriggers: {
-    periodic: { timerPeriod: 120, conversationHistorySettings: { timeWindow: 120, channels: ['transcript'] } }
+    periodic: {
+      timerPeriod: 120,
+      proactive: true,
+      conversationHistorySettings: { timeWindow: 120, channels: ['transcript'] }
+    }
   },
   agentConfig: {},
   llmTemplateVars: {
@@ -142,6 +277,13 @@ export default verify({
     if (msg.body.insights) {
       translatedMsg.body = `MODERATOR REPORT
 ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).join('\n')}`
+      return translatedMsg
+    }
+
+    if (msg.body.questionResults) {
+      const { question, results } = msg.body.questionResults as QuestionResults
+      translatedMsg.body = `MODERATOR REPORT: ${question}
+${results.map((r) => `* ${r.label}: ${r.count}`).join('\n')}`
       return translatedMsg
     }
 
@@ -190,7 +332,7 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
 
     const sharedChatHistory = getConversationHistory(this.conversation.messages, {
       count: 100,
-      channels: ['chat'],
+      channels: GROUP_CHAT_CHANNELS,
       endTime: conversationHistory.end
     })
 
@@ -211,7 +353,9 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
     // Format DM history grouped by channel so agent messages clearly show their recipient.
     // Without this, 50 separately-addressed checkins appear as 50 duplicate messages.
     const dmChannels = this.conversation.channels.filter((c: IChannel) => c.direct)
-    await Promise.all(dmChannels.map((c) => (c as unknown as { populate(path: string): Promise<void> }).populate('participants')))
+    await Promise.all(
+      dmChannels.map((c) => (c as unknown as { populate(path: string): Promise<void> }).populate('participants'))
+    )
     const privateMessagesText = formatDmHistoryByChannel(privateHistory.messages, dmChannels)
 
     const recentTranscript = transcript.getTranscript(this.conversation, 600, conversationHistory.end)
@@ -232,9 +376,8 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
         retrievedChunks: chunks,
         privateMessages: privateMessagesText || 'No private messages.',
         sharedChatHistory:
-          sharedChatMessages
-            .map((m) => (m.role === 'assistant' ? `Assistant: ${m.content}` : m.content))
-            .join('\n') || 'No shared chat messages yet.'
+          sharedChatMessages.map((m) => (m.role === 'assistant' ? `Assistant: ${m.content}` : m.content)).join('\n') ||
+          'No shared chat messages yet.'
       },
       [],
       MODERATOR_SCHEMA
@@ -313,5 +456,42 @@ ${msg.body.insights.map((insight: { value: string }) => `* ${insight.value}`).jo
 
   async introduce() {
     return []
+  },
+
+  async onConversationEvent(evt: ConversationEvent): Promise<AgentResponse<Record<string, unknown>>[]> {
+    if (evt.type !== 'conversationStarted') return []
+    if (evt.conversationId !== this.conversation?._id?.toString()) return []
+    access.assertCanRead(this, { type: 'conversation', id: evt.conversationId }, evt.type)
+
+    // No configured pre-event window means no warm-up question was ever sent — skip straight
+    // past the eventAssistant lookup and DB queries rather than running them just to find nothing.
+    if (typeof this.conversation.preEventMinutes !== 'number' || this.conversation.preEventMinutes <= 0) return []
+
+    const channel = this.conversation.channels?.find((c: IChannel) => c.name === 'moderator')
+    if (!channel) return []
+
+    try {
+      const questionResults = await buildWarmUpQuestionResultsForModerator.call(this)
+      if (!questionResults) return []
+      // timestamp spans the window this report actually covers — the pregame period, not a
+      // single instant — matching the other moderator message shapes' {start, end} field, so the
+      // existing click-to-focus-transcript behavior in the moderator view keeps working here too.
+      const scheduledTimeMs = new Date(this.conversation.scheduledTime).getTime()
+      const windowStart = scheduledTimeMs - this.conversation.preEventMinutes * 60 * 1000
+      return [
+        {
+          visible: true,
+          // type identifies the message's own shape (questionResults vs. insights/metrics, which
+          // have no type field and are instead inferred from which key is present) — distinct
+          // from questionResults.questionType, which identifies which prompt this reports on.
+          message: { type: 'questionResults', timestamp: { start: windowStart, end: Date.now() }, questionResults },
+          messageType: 'json',
+          channels: [channel]
+        }
+      ]
+    } catch (err) {
+      logger.error(`${this.name}: failed to build warm-up themes for moderator`, err)
+      return []
+    }
   }
 })

@@ -480,6 +480,17 @@ describe('conversation handler tests', () => {
       })
     })
 
+    test('starts the recurring countdown once the window opens', async () => {
+      const countdownSpy = jest.spyOn(schedule, 'startConversationWindowCountdown').mockResolvedValue(undefined)
+      await attachAgent(15)
+
+      await JobHandlers.openConversationWindow({
+        attrs: { data: { conversationId: conversation._id, phase: 'preEvent' } }
+      })
+
+      expect(countdownSpy).toHaveBeenCalledWith({ conversationId: conversation._id.toString(), phase: 'preEvent' })
+    })
+
     test('skips when preEventMinutes is not configured', async () => {
       await attachAgent()
 
@@ -529,12 +540,141 @@ describe('conversation handler tests', () => {
       ).resolves.not.toThrow()
     })
 
+    describe('conversationWindowCountdown', () => {
+      let cancelSpy: jest.SpyInstance
+
+      beforeEach(() => {
+        cancelSpy = jest.spyOn(schedule, 'cancelConversationWindowCountdown').mockResolvedValue(undefined)
+      })
+
+      test('dispatches with freshly computed elapsed/remaining time', async () => {
+        const preEventMinutes = 15
+        const scheduledTime = new Date(Date.now() + 10 * 60 * 1000) // 10 min from now
+        await Conversation.findByIdAndUpdate(conversation._id, { preEventMinutes, scheduledTime })
+        const agent = await attachAgent()
+
+        await JobHandlers.conversationWindowCountdown({
+          attrs: { data: { conversationId: conversation._id, phase: 'preEvent' } }
+        })
+
+        expect(scheduleSpy).toHaveBeenCalledWith({
+          agentId: agent._id.toString(),
+          event: expect.objectContaining({
+            type: 'conversationWindowCountdown',
+            phase: 'preEvent',
+            conversationId: conversation._id.toString()
+          })
+        })
+        // Window opened 5 min ago (10 min until start, 15 min preEventMinutes); remaining is
+        // ~10 min until scheduledTime. Generous bounds to absorb test execution time.
+        const [[{ event }]] = scheduleSpy.mock.calls.slice(-1)
+        expect(event.elapsedMs).toBeGreaterThan(4.9 * 60 * 1000)
+        expect(event.elapsedMs).toBeLessThan(5.1 * 60 * 1000)
+        expect(event.remainingMs).toBeGreaterThan(9.9 * 60 * 1000)
+        expect(event.remainingMs).toBeLessThan(10.1 * 60 * 1000)
+        expect(cancelSpy).not.toHaveBeenCalled()
+      })
+
+      /* A manual "start now" (or a moderator resuming a transcript) can set startTime before
+         scheduledTime — see preEventWindow.ts. Once a conversation has actually started, the
+         preEvent window is over regardless of what scheduledTime still says, so the countdown
+         should stop rather than keep ticking. */
+      test('self-cancels once the conversation has started, even before scheduledTime', async () => {
+        await Conversation.findByIdAndUpdate(conversation._id, {
+          preEventMinutes: 15,
+          scheduledTime: new Date(Date.now() + 2 * 60 * 1000), // 2 min until the advertised start
+          active: true,
+          startTime: new Date() // started early, e.g. via "start now"
+        })
+        await attachAgent()
+
+        await JobHandlers.conversationWindowCountdown({
+          attrs: { data: { conversationId: conversation._id, phase: 'preEvent' } }
+        })
+
+        expect(scheduleSpy).not.toHaveBeenCalled()
+        expect(cancelSpy).toHaveBeenCalledWith(conversation._id.toString(), 'preEvent')
+      })
+
+      test('self-cancels once scheduledTime itself has passed', async () => {
+        await Conversation.findByIdAndUpdate(conversation._id, {
+          preEventMinutes: 15,
+          scheduledTime: new Date(Date.now() - 60 * 1000), // advertised start just passed
+          active: true,
+          startTime: new Date(Date.now() - 5 * 60 * 1000)
+        })
+        await attachAgent()
+
+        await JobHandlers.conversationWindowCountdown({
+          attrs: { data: { conversationId: conversation._id, phase: 'preEvent' } }
+        })
+
+        expect(scheduleSpy).not.toHaveBeenCalled()
+        expect(cancelSpy).toHaveBeenCalledWith(conversation._id.toString(), 'preEvent')
+      })
+
+      test('self-cancels once the conversation has fully ended', async () => {
+        await Conversation.findByIdAndUpdate(conversation._id, {
+          preEventMinutes: 15,
+          scheduledTime: new Date(Date.now() + 10 * 60 * 1000),
+          active: false,
+          startTime: new Date(Date.now() - 60 * 60 * 1000),
+          endTime: new Date()
+        })
+        await attachAgent()
+
+        await JobHandlers.conversationWindowCountdown({
+          attrs: { data: { conversationId: conversation._id, phase: 'preEvent' } }
+        })
+
+        expect(scheduleSpy).not.toHaveBeenCalled()
+        expect(cancelSpy).toHaveBeenCalledWith(conversation._id.toString(), 'preEvent')
+      })
+
+      test('self-cancels when preEventMinutes is no longer configured', async () => {
+        await Conversation.findByIdAndUpdate(conversation._id, { scheduledTime: new Date(Date.now() + 10 * 60 * 1000) })
+        await attachAgent()
+
+        await JobHandlers.conversationWindowCountdown({
+          attrs: { data: { conversationId: conversation._id, phase: 'preEvent' } }
+        })
+
+        expect(scheduleSpy).not.toHaveBeenCalled()
+        expect(cancelSpy).toHaveBeenCalledWith(conversation._id.toString(), 'preEvent')
+      })
+
+      test('self-cancels for an unimplemented phase', async () => {
+        await Conversation.findByIdAndUpdate(conversation._id, {
+          preEventMinutes: 15,
+          scheduledTime: new Date(Date.now() + 10 * 60 * 1000)
+        })
+        await attachAgent()
+
+        await JobHandlers.conversationWindowCountdown({
+          attrs: { data: { conversationId: conversation._id, phase: 'postEvent' } }
+        })
+
+        expect(scheduleSpy).not.toHaveBeenCalled()
+        expect(cancelSpy).toHaveBeenCalledWith(conversation._id.toString(), 'postEvent')
+      })
+
+      test('self-cancels if the conversation is gone', async () => {
+        const fakeId = '000000000000000000000000'
+
+        await JobHandlers.conversationWindowCountdown({ attrs: { data: { conversationId: fakeId, phase: 'preEvent' } } })
+
+        expect(cancelSpy).toHaveBeenCalledWith(fakeId, 'preEvent')
+      })
+    })
+
     describe('activates agents for pregame chat/DM responsiveness', () => {
+      const preEventCapabilities = () => ({ read: [], write: [], activeDuringPhases: ['preEvent' as const] })
+
       const perMessageType = {
         start: jest.fn(),
         stop: jest.fn(),
         evaluate: jest.fn(),
-        name: 'Test perMessage agent',
+        name: 'Test perMessage agent, not opted in to preEvent',
         description: 'A test agent',
         maxTokens: 2000,
         defaultTriggers: { perMessage: { channels: ['chat'] } },
@@ -544,22 +684,30 @@ describe('conversation handler tests', () => {
         defaultLLMPlatform,
         defaultLLMModel
       }
-      const perMessageAndPeriodicType = {
+      const optedInPerMessageType = {
         ...perMessageType,
         start: jest.fn(),
-        name: 'Test perMessage+periodic agent (mirrors eventAssistant)',
-        defaultTriggers: { perMessage: { channels: ['chat'] }, periodic: { timerPeriod: 180, proactive: true } }
+        name: 'Test perMessage agent, opted in to preEvent',
+        capabilities: preEventCapabilities
+      }
+      const optedInPerMessageAndPeriodicType = {
+        ...perMessageType,
+        start: jest.fn(),
+        name: 'Test perMessage+periodic agent (mirrors eventAssistant), opted in to preEvent',
+        defaultTriggers: { perMessage: { channels: ['chat'] }, periodic: { timerPeriod: 180, proactive: true } },
+        capabilities: preEventCapabilities
       }
       const periodicOnlyType = {
         ...perMessageType,
         start: jest.fn(),
-        name: 'Test periodic-only agent',
+        name: 'Test periodic-only agent, not opted in to preEvent',
         defaultTriggers: { periodic: { timerPeriod: 120 } }
       }
       const brokenStartType = {
         ...perMessageType,
         start: jest.fn().mockRejectedValue(new Error('boom')),
-        name: 'Test agent whose start() always throws'
+        name: 'Test agent whose start() always throws, opted in to preEvent',
+        capabilities: preEventCapabilities
       }
 
       let periodicScheduleSpy: jest.SpyInstance
@@ -567,7 +715,8 @@ describe('conversation handler tests', () => {
       beforeAll(() => {
         setAgentTypes({
           testPerMessage: perMessageType,
-          testPerMessageAndPeriodic: perMessageAndPeriodicType,
+          testOptedInPerMessage: optedInPerMessageType,
+          testOptedInPerMessageAndPeriodic: optedInPerMessageAndPeriodicType,
           testPeriodicOnly: periodicOnlyType,
           testBrokenStart: brokenStartType
         })
@@ -589,7 +738,7 @@ describe('conversation handler tests', () => {
         return agent
       }
 
-      test('activates a perMessage-triggered agent', async () => {
+      test('leaves a perMessage-triggered agent inactive when it has not opted in to preEvent', async () => {
         const agent = await attachTypedAgent('testPerMessage')
 
         await JobHandlers.openConversationWindow({
@@ -597,12 +746,12 @@ describe('conversation handler tests', () => {
         })
 
         const updated = await Agent.findById(agent._id)
-        expect(updated!.active).toBe(true)
-        expect(perMessageType.start).toHaveBeenCalled()
+        expect(updated!.active).toBe(false)
+        expect(perMessageType.start).not.toHaveBeenCalled()
       })
 
-      test('activates a perMessage+periodic agent without scheduling its periodic trigger', async () => {
-        const agent = await attachTypedAgent('testPerMessageAndPeriodic')
+      test('activates a perMessage-triggered agent that opts in to preEvent', async () => {
+        const agent = await attachTypedAgent('testOptedInPerMessage')
 
         await JobHandlers.openConversationWindow({
           attrs: { data: { conversationId: conversation._id, phase: 'preEvent' } }
@@ -610,10 +759,27 @@ describe('conversation handler tests', () => {
 
         const updated = await Agent.findById(agent._id)
         expect(updated!.active).toBe(true)
-        expect(periodicScheduleSpy).not.toHaveBeenCalled()
+        expect(optedInPerMessageType.start).toHaveBeenCalled()
       })
 
-      test('leaves a periodic-only agent inactive', async () => {
+      test('activates an opted-in perMessage+periodic agent and schedules its periodic trigger too', async () => {
+        const agent = await attachTypedAgent('testOptedInPerMessageAndPeriodic')
+
+        await JobHandlers.openConversationWindow({
+          attrs: { data: { conversationId: conversation._id, phase: 'preEvent' } }
+        })
+
+        const updated = await Agent.findById(agent._id)
+        expect(updated!.active).toBe(true)
+        // Unlike the old perMessage-inferred heuristic, an explicit preEvent opt-in starts
+        // whatever triggers the agent actually has — periodic included — via agentService.
+        // startAgent(). An agent that wants perMessage reachability without its periodic/
+        // proactive logic running early needs to guard that itself (see eventAssistant's own
+        // onConversationEvent phase handling).
+        expect(periodicScheduleSpy).toHaveBeenCalled()
+      })
+
+      test('leaves a periodic-only agent inactive when it has not opted in to preEvent', async () => {
         const agent = await attachTypedAgent('testPeriodicOnly')
 
         await JobHandlers.openConversationWindow({
@@ -629,7 +795,7 @@ describe('conversation handler tests', () => {
       test('one agent failing to start does not block the others or the dispatch', async () => {
         const dispatchSpy = jest.spyOn(agentDispatcher, 'dispatch').mockResolvedValue(undefined)
         await attachTypedAgent('testBrokenStart')
-        const workingAgent = await attachTypedAgent('testPerMessage')
+        const workingAgent = await attachTypedAgent('testOptedInPerMessage')
 
         await expect(
           JobHandlers.openConversationWindow({

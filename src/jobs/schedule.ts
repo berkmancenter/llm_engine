@@ -53,6 +53,21 @@ const schedule = {
   cancelOpenConversationWindow: async (conversationId: string, phase: ConversationPhase) => {
     await agenda.cancel({ name: 'openConversationWindow', 'data.conversationId': conversationId, 'data.phase': phase })
   },
+  // Recurring, started once the window opens, self-cancelling (see the job handler) once it
+  // no longer applies, so no caller outside that handler ever needs to cancel this directly.
+  startConversationWindowCountdown: async (data: { conversationId: string; phase: ConversationPhase }) => {
+    const job = agenda.create('conversationWindowCountdown', data)
+    job.unique({ 'data.conversationId': data.conversationId, 'data.phase': data.phase })
+    job.repeatEvery('1 minute', { skipImmediate: true })
+    await job.save()
+  },
+  cancelConversationWindowCountdown: async (conversationId: string, phase: ConversationPhase) => {
+    await agenda.cancel({
+      name: 'conversationWindowCountdown',
+      'data.conversationId': conversationId,
+      'data.phase': phase
+    })
+  },
   // For adapter types that need to be live before the conversation officially starts (see
   // preStartAdapter). Scoped by both conversationId and adapterType so cancelling one adapter
   // type's pre-start never touches another type's, scheduled separately for the same conversation.

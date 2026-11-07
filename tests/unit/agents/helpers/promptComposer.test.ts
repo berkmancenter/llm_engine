@@ -135,8 +135,12 @@ describe('buildConversationContextSection', () => {
     expect(buildConversationContextSection(undefined)).toBe('')
   })
 
-  test('returns empty string when conversationType is not set', () => {
-    expect(buildConversationContextSection({ purpose: 'teamBuilding' })).toBe('')
+  test('returns empty string when conversationContext has no renderable fields', () => {
+    expect(buildConversationContextSection({})).toBe('')
+  })
+
+  test('renders purpose alone, without requiring conversationType', () => {
+    expect(buildConversationContextSection({ purpose: 'teamBuilding' })).toContain('Purpose: teamBuilding.')
   })
 
   test('renders conversationType', () => {
@@ -149,6 +153,41 @@ describe('buildConversationContextSection', () => {
   test('renders purpose when present', () => {
     const ctx: ConversationContext = { conversationType: 'workshop', purpose: 'Team building and alignment' }
     expect(buildConversationContextSection(ctx)).toContain('Purpose: Team building and alignment.')
+  })
+
+  test('renders rationale alone, without requiring conversationType', () => {
+    const result = buildConversationContextSection({ rationale: 'A new policy just took effect last week.' })
+    expect(result).toContain('Why this session, now: A new policy just took effect last week.')
+  })
+
+  test('renders centralQuestions joined together', () => {
+    const ctx: ConversationContext = { centralQuestions: ['Is this fair?', 'Who bears the cost?'] }
+    const result = buildConversationContextSection(ctx)
+    expect(result).toContain('Central question(s) this session is wrestling with: Is this fair?; Who bears the cost?')
+  })
+
+  test('renders knownTensions joined together', () => {
+    const ctx: ConversationContext = { knownTensions: ['Speakers disagree on the timeline.'] }
+    const result = buildConversationContextSection(ctx)
+    expect(result).toContain('Known tensions or disagreements worth surfacing: Speakers disagree on the timeline.')
+  })
+
+  test('renders scope.inScope and scope.outOfScope', () => {
+    const ctx: ConversationContext = { scope: { inScope: ['policy impact'], outOfScope: ['legal advice'] } }
+    const result = buildConversationContextSection(ctx)
+    expect(result).toContain('In scope: policy impact')
+    expect(result).toContain('Out of scope: legal advice')
+  })
+
+  test('omits scope entirely when inScope/outOfScope are both empty', () => {
+    const result = buildConversationContextSection({ scope: {} })
+    expect(result).not.toContain('In scope')
+    expect(result).not.toContain('Out of scope')
+  })
+
+  test('renders desiredTakeaway', () => {
+    const result = buildConversationContextSection({ desiredTakeaway: 'A concrete next step they can act on.' })
+    expect(result).toContain('What the organizer hopes people leave with: A concrete next step they can act on.')
   })
 
   test('renders audience expertise and type', () => {

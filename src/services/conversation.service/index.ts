@@ -15,6 +15,7 @@ import { TopicDocument } from '../../models/topic.model.js'
 import { getConversationType } from '../../conversations/index.js'
 import adapterTypes from '../../adapters/index.js'
 import resolveConversationType from '../../conversations/resolver.js'
+import isPreEventWindowOpen from './preEventWindow.js'
 import { supportedModels } from '../../agents/helpers/getEmbeddings.js'
 import transcript from '../../agents/helpers/transcript.js'
 import memberBios from '../../utils/memberBios.js'
@@ -279,7 +280,9 @@ const createConversationFromType = async (params, user, { allowDraft = false } =
   }
 
   const resolved = resolveConversationType(params, conversationType, allowDraft)
-  return createConversation({ ...params, conversationType: type, ...resolved }, user, { allowDraft })
+  return createConversation({ ...params, conversationType: type, ...resolved, ...resolved.conversationFields }, user, {
+    allowDraft
+  })
 }
 
 /**
@@ -302,6 +305,10 @@ const updateConversation = async (conversationBody, user) => {
   }
   if (conversationDoc.active) {
     throw new ApiError(httpStatus.BAD_REQUEST, 'Cannot update an active conversation')
+  }
+
+  if (isPreEventWindowOpen(conversationDoc)) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Cannot update a conversation during its pre-event window')
   }
   /* Once a Draft conversation's scheduled start time is within 6 minutes (including
      after it has already passed), it stays locked from further edits: the owner
@@ -341,6 +348,7 @@ const updateConversation = async (conversationBody, user) => {
   } = conversationBody
 
   const oldResources = incomingResources !== undefined ? [...conversationDoc.resources] : null
+  const oldFeatures = incomingFeatures !== undefined ? conversationDoc.features : undefined
 
   /* updateDocument sets doc[key] = body[key] directly, so passing properties through
      would overwrite all existing keys with only what the caller sent. We merge manually
@@ -402,6 +410,29 @@ const updateConversation = async (conversationBody, user) => {
            not explicitly false. */
         const enabledFeatureNames = new Set(incomingFeatures.filter((f) => f.enabled !== false).map((f) => f.name))
 
+        /* Resolved once from the new feature set, the same way createConversationFromType
+           resolves at creation, so a property bound onto the conversation (e.g. pregame's
+           preEventMinutes) is applied here too rather than only when creating agents from
+           scratch. Diffed against what the *previous* feature set would have resolved to so a
+           binding whose feature was just disabled gets cleared instead of left stale — leaving
+           it stale would make isPreEventWindowOpen keep reporting a window long after the
+           feature (and its agent) were removed. */
+        const resolved = resolveConversationType(
+          { platforms: conversationDoc.platforms, properties: conversationDoc.properties, features: incomingFeatures },
+          convType
+        )
+        const previousFields = resolveConversationType(
+          { platforms: conversationDoc.platforms, properties: conversationDoc.properties, features: oldFeatures ?? [] },
+          convType
+        ).conversationFields
+        for (const key of Object.keys(previousFields)) {
+          if (!(key in resolved.conversationFields)) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ;(conversationDoc as any)[key] = undefined
+          }
+        }
+        Object.assign(conversationDoc, resolved.conversationFields)
+
         for (const featureDef of convType.features ?? []) {
           for (const agentSpec of featureDef.agents ?? []) {
             if (!enabledFeatureNames.has(featureDef.name)) {
@@ -422,14 +453,6 @@ const updateConversation = async (conversationBody, user) => {
               /* Feature enabled: create the agent if it doesn't exist yet. */
               const exists = await Agent.findOne({ conversation: conversationDoc._id, agentType: agentSpec.name })
               if (!exists) {
-                const resolved = resolveConversationType(
-                  {
-                    platforms: conversationDoc.platforms,
-                    properties: conversationDoc.properties,
-                    features: incomingFeatures
-                  },
-                  convType
-                )
                 const agentDef = resolved.agentTypes.find((a) => a.name === agentSpec.name)
                 if (agentDef) {
                   const agent = await agentService.createAgent(agentDef.name, conversationDoc, agentDef.properties)
@@ -690,11 +713,14 @@ const findByIdFull = async (id, user) => {
         }) as any[]
       }
 
-      // strip agentConfig and adapter config from non-owners — these may contain API keys
+      // strip agentConfig, generatedContent, and adapter config from non-owners — agentConfig may
+      // contain API keys, and generatedContent can hold not-yet-delivered content (e.g. a cached
+      // warm-up question meant to arrive as a private DM, not be readable from this endpoint).
       let { agents, adapters } = cleanRet
       if (!isOwnerOrAdmin) {
         if (agents) {
-          agents = agents.map(({ agentConfig, ...rest }) => {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          agents = agents.map(({ agentConfig, generatedContent: _generatedContent, ...rest }) => {
             // Clients need the bot's name to label the chat, so it is the one key that survives.
             const botName = agentConfig?.botName
             return typeof botName === 'string' && botName !== '' ? { ...rest, agentConfig: { botName } } : rest
