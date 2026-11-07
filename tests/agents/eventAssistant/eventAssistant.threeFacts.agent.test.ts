@@ -26,13 +26,18 @@ describe('eventAssistant three facts on conversationWindowCountdown (live LLM, f
       remainingMs: 240000
     }
     const responses = await defaultAgentTypes.eventAssistant.onConversationEvent.call(agent, event)
-    expect(responses).toHaveLength(1)
-    expect(responses[0].messageType).toBe('json')
-    expect(responses[0].message.type).toBe('threeFacts')
-    expect(responses[0].channels).toHaveLength(1)
-    expect(responses[0].channels[0].name).toBe(PREGAME_CHANNEL)
+    // the conversation owner's own direct-agents-<id> channel
+    // (from createEventAssistantConversation) also counts as a dmChannel to
+    // sendWarmUpQuestionsToNewJoiners and gets its own warm-up question on this same tick — this
+    // helper only cares about the threeFacts response specifically.
+    const threeFactsResponses = responses.filter((r) => (r.message as { type?: string })?.type === 'threeFacts')
+    expect(threeFactsResponses).toHaveLength(1)
+    const [threeFacts] = threeFactsResponses
+    expect(threeFacts.messageType).toBe('json')
+    expect(threeFacts.channels).toHaveLength(1)
+    expect(threeFacts.channels[0].name).toBe(PREGAME_CHANNEL)
 
-    const { facts, invitation } = responses[0].message as { facts: string[]; invitation: string }
+    const { facts, invitation } = threeFacts.message as { facts: string[]; invitation: string }
     expect(facts.length).toBeGreaterThan(0)
     expect(facts.length).toBeLessThanOrEqual(3)
     expect(invitation).toBeTruthy()
@@ -163,7 +168,9 @@ describe('eventAssistant three facts on conversationWindowCountdown (live LLM, f
         elapsedMs: 60000,
         remainingMs: 240000
       }
-      const [response] = await defaultAgentTypes.eventAssistant.onConversationEvent.call(agent, firstTickEvent)
+      const firstTick = await defaultAgentTypes.eventAssistant.onConversationEvent.call(agent, firstTickEvent)
+      const response = firstTick.find((r) => (r.message as { type?: string })?.type === 'threeFacts')
+      expect(response).toBeDefined()
       // onConversationEvent only builds the response; actually persisting it (what the real
       // conversationEvent job handler does via message.service.ts) is what the dedup check reads,
       // so the second tick below needs that write to have actually happened.
@@ -178,7 +185,7 @@ describe('eventAssistant three facts on conversationWindowCountdown (live LLM, f
         remainingMs: 180000
       }
       const secondTick = await defaultAgentTypes.eventAssistant.onConversationEvent.call(agent, secondTickEvent)
-      expect(secondTick).toEqual([])
+      expect(secondTick.filter((r) => (r.message as { type?: string })?.type === 'threeFacts')).toEqual([])
     },
     testTimeout
   )
