@@ -72,15 +72,17 @@ const fetchConversation = async (messageBody, user) => {
       throw new ApiError(httpStatus.BAD_REQUEST, 'You cannot post in this conversation with your active pseudonym.')
     }
     if (!pseudoForConversation) {
-      const newPseudonyms = user.pseudonyms.map((x) => {
-        if (x.active) {
-          x.conversations.push(conversation._id)
-        }
-        return x
+      /* Atomic $addToSet, not a fetch-mutate-save: this agent/user document can be saved
+         concurrently from elsewhere (e.g. an agent answering a chat question at the same
+         moment its own periodic tick is persisting a generated response) — a plain .save()
+         here raced against that and threw a Mongoose VersionError, dropping the response. */
+      await user.updateOne(
+        { $addToSet: { 'pseudonyms.$[elem].conversations': conversation._id } },
+        { arrayFilters: [{ 'elem.active': true }] }
+      )
+      user.pseudonyms.forEach((x) => {
+        if (x.active && !x.conversations.includes(conversation._id)) x.conversations.push(conversation._id)
       })
-      user.pseudonyms.set(newPseudonyms)
-      user.markModified('pseudonyms')
-      await user.save()
     }
   }
   return conversation
