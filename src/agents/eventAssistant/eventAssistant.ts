@@ -201,6 +201,11 @@ Presenters:
   )
 }
 
+// A generated option renders as a button label, not a sentence — the client can't wrap or
+// truncate it sanely. Enforced by filtering the model's response after the fact (see
+// ensureWarmUpQuestionGenerated)
+const MAX_WARM_UP_OPTION_WORDS = 5
+
 /**
  * Generates and caches the warm-up question once so every participant gets identical text.
  * Normally populated eagerly on conversationWindowOpened; participantJoined falls back to
@@ -226,7 +231,10 @@ async function ensureWarmUpQuestionGenerated(
             .array(z.string())
             .min(2)
             .max(4)
-            .describe('2-4 short, distinct, genuine positions someone might actually hold on this question')
+            .describe(
+              `2-4 short, distinct, genuine positions someone might actually hold on this question. Each option ` +
+                `is a button label, not a sentence: at most ${MAX_WARM_UP_OPTION_WORDS} words, no punctuation at the end.`
+            )
         }
       : {})
   })
@@ -253,7 +261,7 @@ the event begins.
   that people won't just shrug at it.
 ${
   format === 'singleChoice'
-    ? '- Also write 2-4 distinct, genuine answer options a person might pick between — real positions, not strawmen or an "other" catch-all.'
+    ? `- Also write 2-4 distinct, genuine answer options a person might pick between — real positions, not strawmen or an "other" catch-all. Each option renders as a button label, not a sentence: at most ${MAX_WARM_UP_OPTION_WORDS} words, no trailing punctuation.`
     : '- This is open-ended: do not provide answer options, just the question.'
 }
 - Use only "they/them" pronouns when referring to any person, including presenters.
@@ -279,10 +287,17 @@ ${this.conversation.description ? `Description: ${this.conversation.description}
   }
   if (!result?.question) return null
 
+  // A wordy option degrades to no options at all (open text) rather than either rendering
+  // as an ugly button or discarding the whole question
+  const compliantOptions = result.options?.filter((option) => option.trim().split(/\s+/).length <= MAX_WARM_UP_OPTION_WORDS)
+
   // Omit the options key entirely rather than setting it to undefined — Mongo's driver
   // serializes an undefined value as null, which would make the cached text-format question
   // indistinguishable from a singleChoice one with an empty options array.
-  const generated = result.options ? { text: result.question, options: result.options } : { text: result.question }
+  const generated =
+    compliantOptions && compliantOptions.length >= 2
+      ? { text: result.question, options: compliantOptions }
+      : { text: result.question }
   return (await this.setGeneratedContentIfAbsent('warmUpQuestion', generated)) as { text: string; options?: string[] }
 }
 
@@ -324,13 +339,17 @@ async function buildWarmUpQuestionResponse(this, channel: IChannel): Promise<Age
 
   const options: PromptOption[] | undefined =
     format === 'singleChoice' && optionLabels?.length ? optionLabels.map((label) => ({ value: label, label })) : undefined
+  // Generation can fall back to no options even when singleChoice was requested (see
+  // ensureWarmUpQuestionGenerated) — reflect that in the reply format actually sent, rather
+  // than claiming singleChoice with nothing to choose from.
+  const effectiveFormat = options ? format : 'text'
 
   return {
     message: { text: questionText, type: 'warmUpQuestion' },
     messageType: 'json',
     channels: [channel],
     visible: true,
-    replyFormat: { type: format, ...(options ? { options } : {}) }
+    replyFormat: { type: effectiveFormat, ...(options ? { options } : {}) }
   }
 }
 

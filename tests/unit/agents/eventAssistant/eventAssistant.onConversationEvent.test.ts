@@ -319,6 +319,75 @@ describe('eventAssistant.onConversationEvent — warm-up question', () => {
     ])
   })
 
+  test('keeps singleChoice when every generated option is within the word limit', async () => {
+    mockGetChatPromptResponse.mockResolvedValue({
+      question: 'What brought you here?',
+      options: ['Curiosity', 'A friend invited me']
+    })
+    const context = buildContext({ channels: [pregameChannel, dmChannel] }, { warmUpQuestion: { format: 'singleChoice' } })
+
+    const result = await eventAssistant.onConversationEvent.call(context, countdownEvent())
+
+    expect(result).toEqual([
+      {
+        message: { text: 'What brought you here?', type: 'warmUpQuestion' },
+        messageType: 'json',
+        channels: [dmChannel],
+        visible: true,
+        replyFormat: {
+          type: 'singleChoice',
+          options: [
+            { value: 'Curiosity', label: 'Curiosity' },
+            { value: 'A friend invited me', label: 'A friend invited me' }
+          ]
+        }
+      }
+    ])
+  })
+
+  test('drops an over-limit option but keeps singleChoice when 2+ compliant options remain', async () => {
+    mockGetChatPromptResponse.mockResolvedValue({
+      question: 'What brought you here?',
+      options: ['Curiosity', 'A friend invited me', 'I am not entirely sure why I decided to show up today honestly']
+    })
+    const context = buildContext({ channels: [pregameChannel, dmChannel] }, { warmUpQuestion: { format: 'singleChoice' } })
+
+    const result = await eventAssistant.onConversationEvent.call(context, countdownEvent())
+
+    expect(context.setGeneratedContentIfAbsent).toHaveBeenCalledWith('warmUpQuestion', {
+      text: 'What brought you here?',
+      options: ['Curiosity', 'A friend invited me']
+    })
+    expect((result[0].replyFormat as { type: string; options?: unknown[] }).type).toBe('singleChoice')
+    expect((result[0].replyFormat as { options: unknown[] }).options).toHaveLength(2)
+  })
+
+  test('falls back to a plain text question when fewer than 2 generated options stay within the word limit', async () => {
+    mockGetChatPromptResponse.mockResolvedValue({
+      question: 'What brought you here?',
+      options: [
+        'I am not entirely sure why I decided to show up today honestly',
+        'Mostly just curious about the whole topic in general I suppose'
+      ]
+    })
+    const context = buildContext({ channels: [pregameChannel, dmChannel] }, { warmUpQuestion: { format: 'singleChoice' } })
+
+    const result = await eventAssistant.onConversationEvent.call(context, countdownEvent())
+
+    // No options key at all — not an empty array — see ensureWarmUpQuestionGenerated's comment
+    // on why Mongo would otherwise make this indistinguishable from an empty-options singleChoice.
+    expect(context.setGeneratedContentIfAbsent).toHaveBeenCalledWith('warmUpQuestion', { text: 'What brought you here?' })
+    expect(result).toEqual([
+      {
+        message: { text: 'What brought you here?', type: 'warmUpQuestion' },
+        messageType: 'json',
+        channels: [dmChannel],
+        visible: true,
+        replyFormat: { type: 'text' }
+      }
+    ])
+  })
+
   test('does not resend to a channel that already has a warm-up message', async () => {
     mockMessageFind.mockReturnValue({ select: () => ({ lean: () => Promise.resolve([{ channels: [dmChannel.name] }]) }) })
     const context = buildContext({ channels: [pregameChannel, dmChannel] })
