@@ -133,18 +133,17 @@ describe('Event Assistant explains a passage a participant highlighted', () => {
     expect(sections.visual).toBeNull()
   })
 
-  it('gives a drawable visual, with alt text and a caption, whenever it chooses one for a process', async () => {
-    const process = chunkAt(
-      'First the alert fires, then the on-call engineer triages it, then they roll back, and finally the team writes a postmortem.',
+  it('gives a drawable visual, with alt text and a caption, for a trend over time', async () => {
+    const trend = chunkAt(
+      'Our outage minutes fell from 400 in 2021 to 250 in 2022, then 90 in 2023, and just 20 last year.',
       20
     )
 
-    const { sections } = await explain(process, 'triages it')
+    const { sections } = await explain(trend, 'fell from 400')
 
-    if (sections.visual !== null) {
-      expect(sections.visual.description.length).toBeGreaterThan(0)
-      expect(sections.visual.altText.length).toBeGreaterThan(0)
-      expect(sections.visual.caption.length).toBeGreaterThan(0)
-    }
+    expect(sections.visual).not.toBeNull()
+    expect(sections.visual!.description.length).toBeGreaterThan(0)
+    expect(sections.visual!.altText.length).toBeGreaterThan(0)
+    expect(sections.visual!.caption.length).toBeGreaterThan(0)
   })
 })
