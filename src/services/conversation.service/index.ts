@@ -690,11 +690,14 @@ const findByIdFull = async (id, user) => {
         }) as any[]
       }
 
-      // strip agentConfig and adapter config from non-owners — these may contain API keys
+      // strip agentConfig, generatedContent, and adapter config from non-owners — agentConfig may
+      // contain API keys, and generatedContent can hold not-yet-delivered content (e.g. a cached
+      // warm-up question meant to arrive as a private DM, not be readable from this endpoint).
       let { agents, adapters } = cleanRet
       if (!isOwnerOrAdmin) {
         if (agents) {
-          agents = agents.map(({ agentConfig, ...rest }) => {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          agents = agents.map(({ agentConfig, generatedContent: _generatedContent, ...rest }) => {
             // Clients need the bot's name to label the chat, so it is the one key that survives.
             const botName = agentConfig?.botName
             return typeof botName === 'string' && botName !== '' ? { ...rest, agentConfig: { botName } } : rest

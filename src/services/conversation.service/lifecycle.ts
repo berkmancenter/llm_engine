@@ -166,6 +166,17 @@ export async function doStartConversation(conversation) {
     await adapterService.start(adapter)
   }
   await websocketGateway.broadcastConversationStarted(doc)
+
+  // Agents already active from the loop above, so unlike doStopConversation's runningAgentIds
+  // (captured before agents are switched off), the dispatcher's own active:true filter already
+  // finds them — no alsoNotify needed.
+  const topicId = doc.topic?._id?.toString() ?? doc.topic?.toString()
+  const topicIsPrivate = doc.topic?.private ?? true
+  await agentDispatcher.dispatch(
+    { type: 'conversationStarted', conversationId: doc._id.toString(), topicId },
+    { type: 'conversation', id: doc._id.toString(), topicId, topicIsPrivate }
+  )
+
   return doc
 }
 
