@@ -1,6 +1,6 @@
 import mongoose from 'mongoose'
 import { toJSON } from './plugins/index.js'
-import { IUnpackExplanation, UNPACK_EXPLANATION_STATUSES } from '../types/index.types.js'
+import { IUnpackPassageExplanation, UNPACK_EXPLANATION_STATUSES } from '../types/index.types.js'
 
 export const unpackRangeSchema = new mongoose.Schema(
   {
@@ -12,7 +12,7 @@ export const unpackRangeSchema = new mongoose.Schema(
   { _id: false }
 )
 
-const unpackExplanationSchema = new mongoose.Schema<IUnpackExplanation>(
+const unpackPassageExplanationSchema = new mongoose.Schema<IUnpackPassageExplanation>(
   {
     conversation: { type: mongoose.SchemaTypes.ObjectId, ref: 'Conversation', required: true, index: true },
     passageKey: { type: String, required: true, unique: true },
@@ -22,6 +22,8 @@ const unpackExplanationSchema = new mongoose.Schema<IUnpackExplanation>(
     passage: { start: Date, end: Date },
     status: { type: String, enum: UNPACK_EXPLANATION_STATUSES, required: true },
     generatingSince: { type: Date },
+    // The latest transcript moment the AI model saw; a row written right after the passage was spoken saw little
+    contextUntil: { type: Date },
     whatTheyreSaying: { type: String },
     whyItMatters: { type: String },
     terms: { type: [{ term: String, text: String, _id: false }], default: undefined },
@@ -34,7 +36,10 @@ const unpackExplanationSchema = new mongoose.Schema<IUnpackExplanation>(
   { timestamps: true }
 )
 
-unpackExplanationSchema.plugin(toJSON)
+unpackPassageExplanationSchema.plugin(toJSON)
 
-const UnpackExplanation = mongoose.model<IUnpackExplanation>('UnpackExplanation', unpackExplanationSchema)
-export default UnpackExplanation
+const UnpackPassageExplanation = mongoose.model<IUnpackPassageExplanation>(
+  'UnpackPassageExplanation',
+  unpackPassageExplanationSchema
+)
+export default UnpackPassageExplanation

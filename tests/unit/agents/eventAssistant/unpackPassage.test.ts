@@ -127,6 +127,18 @@ describe('buildPassage', () => {
       expect(passage.pieces.map(({ chunk: { _id } }) => _id)).toEqual([twoSentences._id, middle._id, closing._id])
     })
 
+    it.each([
+      ['a title', 'We asked Dr. Patel about it. Then we left.', 'about it', 'We asked Dr. Patel about it.'],
+      ['a dotted acronym', 'The U.S. Army ran it. Nobody objected.', 'ran it', 'The U.S. Army ran it.']
+    ])('does not end a sentence after %s', (_name, body, words, expected) => {
+      const said = chunk(body, 30)
+      const from = offsetOf(body, words)
+
+      const passage = buildPassage([said], range(said, from, said, from + words.length))
+
+      expect(passage.quote).toBe(expected)
+    })
+
     it('starts at the next chunk when the highlight begins at the very end of a chunk', () => {
       const passage = buildPassage(transcript, range(twoSentences, twoSentences.body.length, middle, 7))
 
@@ -245,6 +257,23 @@ describe('getPassageContext', () => {
 
     expect(after).toContain('Said before they asked.')
     expect(after).not.toContain('Said after they asked.')
+  })
+
+  it('says how far past the passage the transcript it returned reaches', async () => {
+    const quotedAt = Date.now() - 5 * 60 * SECOND
+    const quoted = await saveChunk('The passage itself.', quotedAt)
+    const passage = buildPassage([quoted], {
+      startMessageId: quoted._id.toString(),
+      startOffset: 0,
+      endMessageId: quoted._id.toString(),
+      endOffset: quoted.body.length
+    })
+
+    const early = await getPassageContext(conversationId, passage, new Date(quotedAt + 5 * SECOND))
+    const late = await getPassageContext(conversationId, passage, new Date())
+
+    expect(early.until).toEqual(new Date(quotedAt + 5 * SECOND))
+    expect(late.until).toEqual(new Date(quotedAt + UNPACK_CONTEXT_AFTER_SECONDS * SECOND))
   })
 })
 

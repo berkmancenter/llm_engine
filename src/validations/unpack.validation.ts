@@ -9,7 +9,8 @@ const selection = {
   startMessageId: Joi.string().custom(objectId).required(),
   startOffset: Joi.number().integer().min(0).required(),
   endMessageId: Joi.string().custom(objectId).required(),
-  endOffset: Joi.number().integer().min(0).required()
+  endOffset: Joi.number().integer().min(0).required(),
+  transcriptPasscode: Joi.string()
 }
 
 const previewPassage = {

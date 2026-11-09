@@ -25,11 +25,17 @@ jest.unstable_mockModule('../src/agents/helpers/llmChain.js', () => ({
 }))
 
 const { default: app } = await import('../../src/app.js')
-const { Agent, Channel, Conversation, Message, UnpackExplanation, UnpackRequest } = await import('../../src/models/index.js')
+const { Agent, Channel, Conversation, Message, UnpackPassageExplanation, UnpackRequest } = await import(
+  '../../src/models/index.js'
+)
 const { default: websocketGateway } = await import('../../src/websockets/websocketGateway.js')
 const { default: logger } = await import('../../src/config/logger.js')
-const { UNPACK_PREVIEWS_PER_MINUTE, settleBackgroundUnpacks } = await import('../../src/services/unpack.service.js')
-const { UNPACK_REPLIES } = await import('../../src/agents/eventAssistant/unpackHandler.js')
+const { default: messageService } = await import('../../src/services/message.service.js')
+const { default: schedule } = await import('../../src/jobs/schedule.js')
+const { default: JobHandlers } = await import('../../src/jobs/handlers/index.js')
+const { UNPACK_PREVIEWS_PER_MINUTE, UNPACK_TIMING, UNPACK_WHOLE_CHUNKS_PER_SEND, settleBackgroundUnpacks } = await import(
+  '../../src/services/unpack.service.js'
+)
 const { default: transcript } = await import('../../src/agents/helpers/transcript.js')
 
 jest.setTimeout(30000)
@@ -54,7 +60,11 @@ function deferred() {
   return { promise, resolve, reject }
 }
 
-async function createEvent({ features = [{ name: 'unpacker', enabled: true }], withBerkie = true } = {}) {
+async function createEvent({
+  features = [{ name: 'unpacker', enabled: true }],
+  withBerkie = true,
+  transcriptPasscode = null as string | null
+} = {}) {
   const conversation = await Conversation.create({
     name: 'Building Reliable Distributed Systems',
     owner: userOne._id,
@@ -64,7 +74,7 @@ async function createEvent({ features = [{ name: 'unpacker', enabled: true }], w
   })
   const berkie = withBerkie ? await Agent.create({ agentType: 'eventAssistant', conversation: conversation._id }) : null
   const channels = await Channel.create([
-    { name: 'transcript' },
+    { name: 'transcript', passcode: transcriptPasscode },
     { name: 'chat' },
     ...(berkie
       ? [{ name: `direct-${participant._id}-${berkie._id}`, direct: true, participants: [participant._id, berkie._id] }]
@@ -74,6 +84,16 @@ async function createEvent({ features = [{ name: 'unpacker', enabled: true }], w
   if (berkie) conversation.agents.push(berkie)
   await conversation.save()
   return { conversation, berkie, privateChat: channels[2] }
+}
+
+async function addPrivateChat(conversation, berkie, user) {
+  const channel = await Channel.create({
+    name: `direct-${user._id}-${berkie._id}`,
+    direct: true,
+    participants: [user._id, berkie._id]
+  })
+  await Conversation.updateOne({ _id: conversation._id }, { $push: { channels: channel._id } })
+  return channel
 }
 
 function saveChunk(conversation, body: string, secondsAgo: number) {
@@ -122,9 +142,13 @@ function cardsIn(channel) {
   return Message.find({ channels: channel.name, bodyType: 'json', 'body.type': 'unpack_explanation' })
 }
 
+const defaultTiming = { ...UNPACK_TIMING }
+
 beforeEach(async () => {
+  Object.assign(UNPACK_TIMING, defaultTiming)
+  jest.spyOn(schedule, 'unpackPendingAsk').mockResolvedValue(undefined)
   await UnpackRequest.syncIndexes()
-  await UnpackExplanation.syncIndexes()
+  await UnpackPassageExplanation.syncIndexes()
   await insertUsers([participant, userOne])
   await insertTopics([publicTopic])
   mockGetChatPromptResponse.mockReset()
@@ -220,9 +244,11 @@ describe('POST /v1/unpack/:conversationId/preview', () => {
         preview(conversation, selectionIn(quoted), userOneAccessToken)
       ])
       await waitFor(() => expect(mockGetChatPromptResponse).toHaveBeenCalled())
+      const info = jest.spyOn(logger, 'info')
       modelCall.resolve(sections)
       const [first, second] = await both
 
+      expect(info.mock.calls.some(([line]) => String(line).includes('cache=shared'))).toBe(true)
       expect(mockGetChatPromptResponse).toHaveBeenCalledTimes(1)
       expect(first.status).toBe(httpStatus.OK)
       expect(second.body.explanation).toEqual(first.body.explanation)
@@ -232,7 +258,7 @@ describe('POST /v1/unpack/:conversationId/preview', () => {
       const { conversation } = await createEvent()
       const { quoted } = await seedTranscript(conversation)
       const stuck = await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
-      await UnpackExplanation.updateOne(
+      await UnpackPassageExplanation.updateOne(
         { passageKey: { $exists: true } },
         { status: 'generating', generatingSince: new Date(Date.now() - 2 * 60 * SECOND) }
       )
@@ -265,13 +291,151 @@ describe('POST /v1/unpack/:conversationId/preview', () => {
       const retried = await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
 
       expect(failed.body.reason).toBe('unpackFailed')
+      expect(failed.body.message).not.toContain('Berkie')
       expect(retried.body.explanation.whatTheyreSaying).toBe(sections.whatTheyreSaying)
+      expect(mockGetChatPromptResponse).toHaveBeenCalledTimes(2)
+    })
+
+    it('answers unpackFailed before the load balancer gives up, and keeps the explanation for the retry', async () => {
+      const { conversation } = await createEvent()
+      const { quoted } = await seedTranscript(conversation)
+      UNPACK_TIMING.previewBudgetMs = 300
+      const modelCall = deferred()
+      mockGetChatPromptResponse.mockReturnValueOnce(modelCall.promise)
+
+      const slow = await preview(conversation, selectionIn(quoted)).expect(httpStatus.SERVICE_UNAVAILABLE)
+      modelCall.resolve(sections)
+      await settleBackgroundUnpacks()
+      const retried = await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
+
+      expect(slow.body.reason).toBe('unpackFailed')
+      expect(retried.body.explanation.whatTheyreSaying).toBe(sections.whatTheyreSaying)
+      expect(mockGetChatPromptResponse).toHaveBeenCalledTimes(1)
+    })
+
+    it('still answers unpackFailed when telling a waiting participant about the failure also fails', async () => {
+      const { conversation } = await createEvent()
+      const { quoted } = await seedTranscript(conversation)
+      const modelCall = deferred()
+      mockGetChatPromptResponse.mockReturnValueOnce(modelCall.promise)
+      const previewing = preview(conversation, selectionIn(quoted), userOneAccessToken).then((res) => res)
+      await waitFor(() => expect(mockGetChatPromptResponse).toHaveBeenCalled())
+      const sent = await send(conversation, selectionIn(quoted)).expect(httpStatus.ACCEPTED)
+      jest.spyOn(messageService, 'newMessageHandler').mockRejectedValueOnce(new Error('database down'))
+
+      modelCall.reject(new Error('model unavailable'))
+      const previewed = await previewing
+
+      expect(previewed.status).toBe(httpStatus.SERVICE_UNAVAILABLE)
+      expect(previewed.body.reason).toBe('unpackFailed')
+      expect((await UnpackRequest.findById(sent.body.askId))!.destination).toBeUndefined()
+    })
+  })
+
+  describe('when a stuck explanation is taken over', () => {
+    async function stuckThenTakenOver() {
+      const { conversation } = await createEvent()
+      const { quoted } = await seedTranscript(conversation)
+      const [first, second] = [deferred(), deferred()]
+      mockGetChatPromptResponse.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+      const stuck = preview(conversation, selectionIn(quoted)).then((res) => res)
+      await waitFor(() => expect(mockGetChatPromptResponse).toHaveBeenCalledTimes(1))
+      await UnpackPassageExplanation.updateOne({}, { generatingSince: new Date(Date.now() - 2 * 60 * SECOND) })
+      const takeover = preview(conversation, selectionIn(quoted), userOneAccessToken).then((res) => res)
+      await waitFor(() => expect(mockGetChatPromptResponse).toHaveBeenCalledTimes(2))
+      return { stuck, takeover, first, second }
+    }
+
+    it("does not delete the new writer's claim when the old writer fails", async () => {
+      const { stuck, takeover, first, second } = await stuckThenTakenOver()
+
+      first.reject(new Error('model unavailable'))
+      await stuck
+      second.resolve(sections)
+
+      expect((await takeover).status).toBe(httpStatus.OK)
+      expect(await UnpackPassageExplanation.findOne()).toMatchObject({ status: 'ready' })
+    })
+
+    it("does not overwrite the new writer's explanation when the old writer finishes last", async () => {
+      const { stuck, takeover, first, second } = await stuckThenTakenOver()
+      const newer = { ...sections, whatTheyreSaying: 'The newer explanation.' }
+
+      second.resolve(newer)
+      await takeover
+      first.resolve({ ...sections, whatTheyreSaying: 'The older explanation.' })
+      const old = await stuck
+
+      expect(old.body.explanation.whatTheyreSaying).toBe(newer.whatTheyreSaying)
+      expect(await UnpackPassageExplanation.findOne()).toMatchObject({ whatTheyreSaying: newer.whatTheyreSaying })
+    })
+
+    it('takes over a generating explanation that has no start time', async () => {
+      const { conversation } = await createEvent()
+      const { quoted } = await seedTranscript(conversation)
+      await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
+      await UnpackPassageExplanation.updateOne({}, { status: 'generating', $unset: { generatingSince: 1 } })
+
+      await preview(conversation, selectionIn(quoted), userOneAccessToken).expect(httpStatus.OK)
+
       expect(mockGetChatPromptResponse).toHaveBeenCalledTimes(2)
     })
   })
 
+  describe('keeping the transcript private', () => {
+    it('saves nothing when the transcript is cleared while the passage is being looked up', async () => {
+      const { conversation } = await createEvent()
+      const { quoted } = await seedTranscript(conversation)
+      const create = UnpackPassageExplanation.create.bind(UnpackPassageExplanation)
+      jest.spyOn(UnpackPassageExplanation, 'create').mockImplementationOnce(async (...args) => {
+        await transcript.clearTranscript(conversation)
+        return create(...args)
+      })
+
+      const res = await preview(conversation, selectionIn(quoted)).expect(httpStatus.BAD_REQUEST)
+
+      expect(res.body.reason).toBe('chunkNotInTranscript')
+      expect(await UnpackPassageExplanation.countDocuments()).toBe(0)
+      expect(await UnpackRequest.countDocuments()).toBe(0)
+    })
+
+    it('answers unpackFailed, not a server error, when the ask it found vanishes', async () => {
+      const { conversation } = await createEvent()
+      const { quoted } = await seedTranscript(conversation)
+      jest.spyOn(UnpackRequest, 'findOne').mockResolvedValue(null)
+      jest
+        .spyOn(UnpackRequest, 'create')
+        .mockRejectedValueOnce(Object.assign(new Error('E11000 duplicate key'), { code: 11000 }))
+
+      const res = await preview(conversation, selectionIn(quoted)).expect(httpStatus.SERVICE_UNAVAILABLE)
+
+      expect(res.body.reason).toBe('unpackFailed')
+    })
+  })
+
+  describe('when the explanation was written before the speaker finished the thought', () => {
+    it('rewrites it in the background once the transcript after the passage exists', async () => {
+      const { conversation } = await createEvent()
+      const { quoted } = await seedTranscript(conversation)
+      await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
+      const spokenAt = Date.now() - 3 * 60 * SECOND
+      await UnpackPassageExplanation.updateOne(
+        {},
+        { 'passage.end': new Date(spokenAt), contextUntil: new Date(spokenAt + 5 * SECOND) }
+      )
+      mockGetChatPromptResponse.mockResolvedValue({ ...sections, whyItMatters: 'Now with what came next.' })
+
+      const served = await preview(conversation, selectionIn(quoted), userOneAccessToken).expect(httpStatus.OK)
+      await settleBackgroundUnpacks()
+
+      expect(served.body.explanation.whyItMatters).toBe(sections.whyItMatters)
+      expect(mockGetChatPromptResponse).toHaveBeenCalledTimes(2)
+      expect(await UnpackPassageExplanation.findOne()).toMatchObject({ whyItMatters: 'Now with what came next.' })
+    })
+  })
+
   describe('refusals', () => {
-    it('refuses once the participant has previewed too many passages in the last minute, before any other work', async () => {
+    it('refuses once the participant has previewed too many passages in the last minute, before calling the AI model', async () => {
       const { conversation } = await createEvent()
       const { quoted } = await seedTranscript(conversation)
       await UnpackRequest.insertMany(
@@ -288,6 +452,88 @@ describe('POST /v1/unpack/:conversationId/preview', () => {
 
       expect(res.body.reason).toBe('rateLimited')
       expect(mockGetChatPromptResponse).not.toHaveBeenCalled()
+      expect(await UnpackRequest.countDocuments()).toBe(UNPACK_PREVIEWS_PER_MINUTE)
+    })
+
+    it('lets through only the limit when many different passages are previewed at once', async () => {
+      const { conversation } = await createEvent()
+      const sentences = Array.from({ length: UNPACK_PREVIEWS_PER_MINUTE + 5 }, (_, i) => `Point number ${i} matters.`)
+      const many = await saveChunk(conversation, sentences.join(' '), 30)
+
+      const responses = await Promise.all(sentences.map((sentence) => preview(conversation, selectionIn(many, sentence))))
+
+      const allowed = responses.filter(({ status }) => status === httpStatus.OK)
+      expect(allowed).toHaveLength(UNPACK_PREVIEWS_PER_MINUTE)
+      expect(responses.filter(({ status }) => status === httpStatus.TOO_MANY_REQUESTS)).toHaveLength(5)
+    })
+
+    it('answers a passage the participant already previewed even when they are at the limit', async () => {
+      const { conversation } = await createEvent()
+      const { quoted } = await seedTranscript(conversation)
+      const first = await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
+      await UnpackRequest.insertMany(
+        Array.from({ length: UNPACK_PREVIEWS_PER_MINUTE }, (_, i) => ({
+          conversation: conversation._id,
+          user: participant._id,
+          mode: 'passage',
+          status: 'previewed',
+          passageKey: `later-passage-${i}`
+        }))
+      )
+
+      const again = await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
+
+      expect(again.body.askId).toBe(first.body.askId)
+    })
+
+    it('refuses a selection spanning more transcript than one passage can hold, without a misleading reason', async () => {
+      const { conversation } = await createEvent()
+      const chunks = await Message.insertMany(
+        Array.from({ length: 1200 }, (_, i) => ({
+          conversation: conversation._id,
+          body: 'Yes.',
+          bodyType: 'text',
+          channels: ['transcript'],
+          pseudonym: 'Zoom captions',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          visible: true,
+          createdAt: new Date(Date.now() - (2000 - i) * SECOND)
+        }))
+      )
+      const [first, last] = [chunks[0], chunks[chunks.length - 1]]
+
+      const res = await preview(conversation, {
+        startMessageId: first._id.toString(),
+        startOffset: 0,
+        endMessageId: last._id.toString(),
+        endOffset: 3
+      }).expect(httpStatus.BAD_REQUEST)
+
+      expect(res.body.reason).toBe('selectionTooLong')
+    })
+
+    describe('on an event whose transcript has a passcode', () => {
+      it('refuses a participant who does not give it', async () => {
+        const { conversation } = await createEvent({ transcriptPasscode: 'letmein' })
+        const { quoted } = await seedTranscript(conversation)
+
+        const wrong = await preview(conversation, { ...selectionIn(quoted), transcriptPasscode: 'guess' }).expect(
+          httpStatus.FORBIDDEN
+        )
+        const missing = await send(conversation, selectionIn(quoted)).expect(httpStatus.FORBIDDEN)
+
+        expect(wrong.body.reason).toBe('wrongPasscode')
+        expect(missing.body.reason).toBe('wrongPasscode')
+        expect(wrong.body).not.toHaveProperty('explanation')
+        expect(mockGetChatPromptResponse).not.toHaveBeenCalled()
+      })
+
+      it('explains the passage for a participant who gives it', async () => {
+        const { conversation } = await createEvent({ transcriptPasscode: 'letmein' })
+        const { quoted } = await seedTranscript(conversation)
+
+        await preview(conversation, { ...selectionIn(quoted), transcriptPasscode: 'letmein' }).expect(httpStatus.OK)
+      })
     })
 
     it('does not count passages previewed over a minute ago', async () => {
@@ -441,6 +687,129 @@ describe('POST /v1/unpack/:conversationId/send', () => {
     expect(await cardsIn(privateChat)).toHaveLength(1)
   })
 
+  it('posts one card when two sends for a ready passage arrive at once', async () => {
+    const { conversation, privateChat } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
+
+    const [first, second] = await Promise.all([
+      send(conversation, selectionIn(quoted)),
+      send(conversation, selectionIn(quoted, 'Missing'))
+    ])
+
+    expect(first.body.messageId).toBe(second.body.messageId)
+    expect(await cardsIn(privateChat)).toHaveLength(1)
+  })
+
+  it('refuses, and lets the participant send again, when the card cannot be posted', async () => {
+    const { conversation, privateChat } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
+    await Conversation.updateOne({ _id: conversation._id }, { locked: true })
+
+    const refused = await send(conversation, selectionIn(quoted)).expect(httpStatus.BAD_REQUEST)
+    await Conversation.updateOne({ _id: conversation._id }, { locked: false })
+    const retried = await send(conversation, selectionIn(quoted)).expect(httpStatus.ACCEPTED)
+
+    expect(refused.body.message).toContain('locked')
+    expect(retried.body.status).toBe('sent')
+    const [card] = await cardsIn(privateChat)
+    expect(card._id.toString()).toBe(retried.body.messageId)
+  })
+
+  it('posts nothing new and starts no write when an already-sent passage has lost its explanation', async () => {
+    const { conversation } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
+    const first = await send(conversation, selectionIn(quoted)).expect(httpStatus.ACCEPTED)
+    await settleBackgroundUnpacks()
+    await UnpackPassageExplanation.deleteMany({})
+
+    const again = await send(conversation, selectionIn(quoted)).expect(httpStatus.ACCEPTED)
+
+    expect(again.body.messageId).toBe(first.body.messageId)
+    expect(await UnpackPassageExplanation.countDocuments()).toBe(0)
+  })
+
+  it("answers the preview without waiting for other participants' cards to post", async () => {
+    const { conversation } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    const modelCall = deferred()
+    mockGetChatPromptResponse.mockReturnValueOnce(modelCall.promise)
+    const previewing = preview(conversation, selectionIn(quoted), userOneAccessToken).then((res) => res)
+    await waitFor(() => expect(mockGetChatPromptResponse).toHaveBeenCalled())
+    await send(conversation, selectionIn(quoted)).expect(httpStatus.ACCEPTED)
+    const posting = deferred()
+    const post = messageService.newMessageHandler
+    jest.spyOn(messageService, 'newMessageHandler').mockImplementationOnce(async (...args) => {
+      await posting.promise
+      return post(...args)
+    })
+
+    modelCall.resolve(sections)
+
+    expect((await previewing).status).toBe(httpStatus.OK)
+    posting.resolve(undefined)
+  })
+
+  it('posts a card that is still waiting when its send started no write', async () => {
+    const { conversation, privateChat } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    const modelCall = deferred()
+    mockGetChatPromptResponse.mockReturnValueOnce(modelCall.promise)
+    const previewing = preview(conversation, selectionIn(quoted), userOneAccessToken).then((res) => res)
+    await waitFor(() => expect(mockGetChatPromptResponse).toHaveBeenCalled())
+    const updateOne = UnpackRequest.updateOne.bind(UnpackRequest)
+    jest.spyOn(UnpackRequest, 'updateOne').mockImplementationOnce(((...args) => {
+      modelCall.reject(new Error('model unavailable'))
+      return previewing.then(() => updateOne(...args))
+    }) as typeof UnpackRequest.updateOne)
+
+    await send(conversation, selectionIn(quoted)).expect(httpStatus.ACCEPTED)
+
+    await waitFor(async () => expect(await cardsIn(privateChat)).toHaveLength(1))
+  })
+
+  describe('when the server writing the explanation stops', () => {
+    it('schedules a check on a send that is still pending', async () => {
+      const { conversation } = await createEvent()
+      const { quoted } = await seedTranscript(conversation)
+
+      const res = await send(conversation, selectionIn(quoted)).expect(httpStatus.ACCEPTED)
+
+      expect(res.body.status).toBe('pending')
+      expect(schedule.unpackPendingAsk).toHaveBeenCalledWith(expect.any(Date), { askId: res.body.askId, attempt: 1 })
+    })
+
+    it('writes and posts the card when the check finds the explanation abandoned', async () => {
+      const { conversation, privateChat } = await createEvent()
+      const { quoted } = await seedTranscript(conversation)
+      const modelCall = deferred()
+      mockGetChatPromptResponse.mockReturnValueOnce(modelCall.promise)
+      const res = await send(conversation, selectionIn(quoted)).expect(httpStatus.ACCEPTED)
+      await waitFor(() => expect(mockGetChatPromptResponse).toHaveBeenCalled())
+      await UnpackPassageExplanation.updateOne({}, { generatingSince: new Date(Date.now() - 2 * 60 * SECOND) })
+
+      await JobHandlers.unpackPendingAsk({ attrs: { data: { askId: res.body.askId, attempt: 1 } } })
+
+      expect(await cardsIn(privateChat)).toHaveLength(1)
+      // Lets the abandoned write finish so afterEach can settle it
+      modelCall.resolve(sections)
+    })
+
+    it('does nothing when the card was already posted', async () => {
+      const { conversation, privateChat } = await createEvent()
+      const { quoted } = await seedTranscript(conversation)
+      await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
+      const res = await send(conversation, selectionIn(quoted)).expect(httpStatus.ACCEPTED)
+
+      await JobHandlers.unpackPendingAsk({ attrs: { data: { askId: res.body.askId, attempt: 1 } } })
+
+      expect(await cardsIn(privateChat)).toHaveLength(1)
+      expect(mockGetChatPromptResponse).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it('works without a preview: records the choice and posts once the explanation is written', async () => {
     const { conversation, privateChat } = await createEvent()
     const { quoted } = await seedTranscript(conversation)
@@ -485,7 +854,9 @@ describe('POST /v1/unpack/:conversationId/send', () => {
     modelCall.reject(new Error('model unavailable'))
 
     await waitFor(async () =>
-      expect(await Message.findOne({ channels: privateChat.name, body: UNPACK_REPLIES.failed })).not.toBeNull()
+      expect(
+        await Message.findOne({ channels: privateChat.name, body: { $regex: /couldn't unpack "Missing it eats the error/ } })
+      ).not.toBeNull()
     )
     const ask = await UnpackRequest.findById(res.body.askId)
     expect(ask).toMatchObject({ status: 'previewed' })
@@ -500,9 +871,59 @@ describe('POST /v1/unpack/:conversationId/send', () => {
     await send(conversation, selectionIn(quoted)).expect(httpStatus.ACCEPTED)
     await settleBackgroundUnpacks()
 
-    const wholeChunk = await UnpackExplanation.findOne({ quote: quoted.body })
+    const wholeChunk = await UnpackPassageExplanation.findOne({ quote: quoted.body })
     expect(wholeChunk).toMatchObject({ status: 'ready', whatTheyreSaying: sections.whatTheyreSaying })
     expect(mockGetChatPromptResponse).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps going past a chunk too long to explain whole', async () => {
+    const { conversation } = await createEvent()
+    const long = await saveChunk(conversation, `${'Words here. '.repeat(200)}That is the end of it.`, 60)
+    const short = await saveChunk(conversation, 'Short and clear.', 50)
+    const start = (long.body as string).indexOf('That is')
+
+    await send(conversation, {
+      startMessageId: long._id.toString(),
+      startOffset: start,
+      endMessageId: short._id.toString(),
+      endOffset: 5
+    }).expect(httpStatus.ACCEPTED)
+    await settleBackgroundUnpacks()
+
+    expect(await UnpackPassageExplanation.findOne({ quote: short.body })).toMatchObject({ status: 'ready' })
+  })
+
+  it(`explains at most ${UNPACK_WHOLE_CHUNKS_PER_SEND} whole chunks for one send`, async () => {
+    const { conversation } = await createEvent()
+    const chunks: { _id: mongoose.Types.ObjectId }[] = []
+    for (let i = 0; i < UNPACK_WHOLE_CHUNKS_PER_SEND + 2; i += 1) {
+      chunks.push(await saveChunk(conversation, `Part ${i} of the point.`, 60 - i))
+    }
+    const [first, last] = [chunks[0], chunks[chunks.length - 1]]
+
+    await send(conversation, {
+      startMessageId: first._id.toString(),
+      startOffset: 0,
+      endMessageId: last._id.toString(),
+      endOffset: 4
+    }).expect(httpStatus.ACCEPTED)
+    await settleBackgroundUnpacks()
+
+    expect(await UnpackPassageExplanation.countDocuments()).toBe(1 + UNPACK_WHOLE_CHUNKS_PER_SEND)
+  })
+
+  it('explains a chunk whole only after the first send about it', async () => {
+    const { conversation, berkie } = await createEvent()
+    await addPrivateChat(conversation, berkie, userOne)
+    const { quoted } = await seedTranscript(conversation)
+    await send(conversation, selectionIn(quoted)).expect(httpStatus.ACCEPTED)
+    await settleBackgroundUnpacks()
+    await UnpackPassageExplanation.deleteOne({ quote: quoted.body })
+
+    await send(conversation, selectionIn(quoted), userOneAccessToken).expect(httpStatus.ACCEPTED)
+    await settleBackgroundUnpacks()
+
+    expect(await UnpackPassageExplanation.findOne({ quote: quoted.body })).toBeNull()
   })
 
   it('accepts only Private Chat as a destination for now', async () => {
@@ -536,8 +957,29 @@ describe('deleting Unpacker rows with the transcript they quote', () => {
 
   async function expectOnlyOtherEventRowsLeft(otherEvent) {
     expect(await UnpackRequest.find().distinct('conversation')).toEqual([otherEvent._id])
-    expect(await UnpackExplanation.find().distinct('conversation')).toEqual([otherEvent._id])
+    expect(await UnpackPassageExplanation.find().distinct('conversation')).toEqual([otherEvent._id])
   }
+
+  it('removes the cards that quote it from Private Chat, and nothing else there', async () => {
+    const { conversation, privateChat } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    await send(conversation, selectionIn(quoted)).expect(httpStatus.ACCEPTED)
+    await settleBackgroundUnpacks()
+    await Message.create({
+      conversation: conversation._id,
+      body: 'A question of my own.',
+      bodyType: 'text',
+      channels: [privateChat.name],
+      pseudonym: 'Participant',
+      pseudonymId: new mongoose.Types.ObjectId(),
+      visible: true
+    })
+
+    await transcript.deleteTranscript(conversation)
+
+    expect(await cardsIn(privateChat)).toHaveLength(0)
+    expect(await Message.countDocuments({ channels: privateChat.name })).toBe(1)
+  })
 
   it.each([
     ['the transcript is cleared', (conversation) => transcript.clearTranscript(conversation)],

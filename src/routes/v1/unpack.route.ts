@@ -22,8 +22,9 @@ const router = express.Router()
  *       Explains the passage a participant selected and records their ask. The browser sends only chunk IDs and
  *       character positions; the server rebuilds the quote from the saved transcript and widens it to whole
  *       sentences, so people who select roughly the same words share one saved explanation. The first request
- *       for a passage waits for the AI model; later ones are answered from the saved copy. Each participant can
- *       preview a limited number of different passages per minute.
+ *       for a passage waits for the AI model, up to about 25 seconds before answering unpackFailed; the
+ *       explanation is still saved for a retry. Later requests are answered from the saved copy. Each
+ *       participant can preview a limited number of different passages per minute.
  *     tags: [Unpack]
  *     security:
  *       - bearerAuth: []
@@ -38,7 +39,9 @@ const router = express.Router()
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/UnpackSelection'
+ *             allOf:
+ *               - $ref: '#/components/schemas/UnpackSelection'
+ *               - $ref: '#/components/schemas/UnpackTranscriptPasscode'
  *     responses:
  *       200:
  *         description: The explanation, ready to preview
@@ -74,7 +77,9 @@ router
  *       Posts the saved explanation of a passage to the chosen destination as an `unpack_explanation` card from
  *       the event assistant. Works before the preview has finished, or without one: the choice is stored and the
  *       card posts as soon as the explanation is written (`status: pending`). Sending the same passage again
- *       posts nothing new and returns the existing card's message ID. Only `privateChat` is accepted for now.
+ *       posts nothing new and returns the existing card's message ID. If the card can't be posted, for example
+ *       because the event is locked, the request fails and can be sent again. Only `privateChat` is accepted
+ *       for now.
  *     tags: [Unpack]
  *     security:
  *       - bearerAuth: []
@@ -91,6 +96,7 @@ router
  *           schema:
  *             allOf:
  *               - $ref: '#/components/schemas/UnpackSelection'
+ *               - $ref: '#/components/schemas/UnpackTranscriptPasscode'
  *               - type: object
  *                 required:
  *                   - destination

@@ -1,6 +1,6 @@
 import mongoose from 'mongoose'
 import setupIntTest from '../utils/setupIntTest.js'
-import UnpackExplanation from '../../src/models/unpackExplanation.model.js'
+import UnpackPassageExplanation from '../../src/models/unpackPassageExplanation.model.js'
 
 setupIntTest()
 
@@ -13,13 +13,13 @@ const generating = () => ({
   generatingSince: new Date()
 })
 
-describe('UnpackExplanation model', () => {
+describe('UnpackPassageExplanation model', () => {
   beforeAll(async () => {
-    await UnpackExplanation.syncIndexes()
+    await UnpackPassageExplanation.syncIndexes()
   })
 
   it('saves a passage that is still being explained, before any AI output exists', async () => {
-    const saved = await UnpackExplanation.create(generating())
+    const saved = await UnpackPassageExplanation.create(generating())
 
     expect(saved.status).toBe('generating')
     expect(saved.whatTheyreSaying).toBeUndefined()
@@ -27,9 +27,9 @@ describe('UnpackExplanation model', () => {
 
   it('keeps one explanation per passage, so two requests at once cannot both call the AI model', async () => {
     const first = generating()
-    await UnpackExplanation.create(first)
+    await UnpackPassageExplanation.create(first)
 
-    await expect(UnpackExplanation.create({ ...generating(), passageKey: first.passageKey })).rejects.toThrow(
+    await expect(UnpackPassageExplanation.create({ ...generating(), passageKey: first.passageKey })).rejects.toThrow(
       /duplicate key/
     )
   })
@@ -38,11 +38,11 @@ describe('UnpackExplanation model', () => {
     const explanation = generating()
     delete explanation[field]
 
-    await expect(UnpackExplanation.create(explanation)).rejects.toThrow(mongoose.Error.ValidationError)
+    await expect(UnpackPassageExplanation.create(explanation)).rejects.toThrow(mongoose.Error.ValidationError)
   })
 
   it('stores a ready explanation with no visual', async () => {
-    const saved = await UnpackExplanation.create({
+    const saved = await UnpackPassageExplanation.create({
       ...generating(),
       status: 'ready',
       whatTheyreSaying: 'Missing the target uses up the budget for mistakes.',

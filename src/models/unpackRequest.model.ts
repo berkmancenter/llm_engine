@@ -1,7 +1,7 @@
 import mongoose from 'mongoose'
 import { toJSON } from './plugins/index.js'
 import { IUnpackRequest, UNPACK_DESTINATIONS, UNPACK_MODES, UNPACK_REQUEST_STATUSES } from '../types/index.types.js'
-import { unpackRangeSchema } from './unpackExplanation.model.js'
+import { unpackRangeSchema } from './unpackPassageExplanation.model.js'
 
 const unpackRequestSchema = new mongoose.Schema<IUnpackRequest>(
   {
@@ -13,7 +13,7 @@ const unpackRequestSchema = new mongoose.Schema<IUnpackRequest>(
     chunkIds: { type: [mongoose.SchemaTypes.ObjectId], ref: 'Message', default: [] },
     quote: { type: String, default: '' },
     passageKey: { type: String },
-    explanation: { type: mongoose.SchemaTypes.ObjectId, ref: 'UnpackExplanation' },
+    explanation: { type: mongoose.SchemaTypes.ObjectId, ref: 'UnpackPassageExplanation' },
     range: { type: unpackRangeSchema },
     requestMessage: { type: mongoose.SchemaTypes.ObjectId, ref: 'Message' },
     answerMessage: { type: mongoose.SchemaTypes.ObjectId, ref: 'Message' }
@@ -22,6 +22,7 @@ const unpackRequestSchema = new mongoose.Schema<IUnpackRequest>(
 )
 
 unpackRequestSchema.index({ conversation: 1, user: 1, createdAt: 1 })
+// Finds earlier sent asks about the same chunks
 unpackRequestSchema.index({ conversation: 1, chunkIds: 1 })
 // Partial, because "Catch me up" asks have no passage and one person can make many of them
 unpackRequestSchema.index(
