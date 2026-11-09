@@ -381,10 +381,8 @@ export interface UnpackEvent {
 
 export interface UnpackExplanation {
   type: 'unpack_explanation'
-  mode: UnpackMode
+  mode: 'passage'
   destination: UnpackDestination
-  // Only a "Catch me up" ask has a request message; passage asks come from the transcript
-  requestMessage?: string
   chunkIds: string[]
   passage: { start: string; end: string }
   quote: string
@@ -394,6 +392,38 @@ export interface UnpackExplanation {
   headline?: string
   range?: UnpackRange
   // plain-text copy for chat history and clients that can't render the card
+  text: string
+}
+
+export const CATCH_UP_REFUSAL_REASONS = [
+  'noTranscript',
+  'rateLimited',
+  'chunkNotInTranscript',
+  'passageTooLong',
+  'unpackFailed'
+] as const
+export type CatchUpRefusalReason = (typeof CATCH_UP_REFUSAL_REASONS)[number]
+
+export interface CatchUpSummarySections {
+  inShort: string
+  whatTheyCovered: string[]
+  // Null unless the speaker announced what's next; the prompt forbids guessing
+  comingUp: string | null
+}
+
+export interface CatchUpSummary extends CatchUpSummarySections {
+  type: 'catch_up_summary'
+  requestMessage: string
+  chunkIds: string[]
+  passage: { start: string; end: string }
+  // The newest passage ended over a minute before the request, so the summary covers older speech
+  earlierSpeech: boolean
+  text: string
+}
+
+export interface CatchUpRefused {
+  type: 'catch_up_refused'
+  reason: CatchUpRefusalReason
   text: string
 }
 
