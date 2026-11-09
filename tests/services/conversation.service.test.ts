@@ -2028,6 +2028,20 @@ describe('Conversation service methods', () => {
       ).rejects.toMatchObject({ statusCode: httpStatus.BAD_REQUEST, message: 'Cannot update an active conversation' })
     })
 
+    test('should reject updates to an event currently in its pre-event window', async () => {
+      await conversation.updateOne({
+        draft: false,
+        preEventMinutes: 15,
+        scheduledTime: new Date(Date.now() + 5 * 60 * 1000)
+      })
+      await expect(
+        conversationService.updateConversation({ id: conversation._id.toString(), name: 'New Name' }, registeredUser)
+      ).rejects.toMatchObject({
+        statusCode: httpStatus.BAD_REQUEST,
+        message: 'Cannot update a conversation during its pre-event window'
+      })
+    })
+
     /* Fix #1: auto-start and auto-stop jobs should be rescheduled when the event's
        scheduled times change. Before this fix, updating times had no effect on
        already-queued Agenda jobs. */
@@ -2357,6 +2371,56 @@ describe('Conversation service methods', () => {
 
       const agentsAfter = await Agent.find({ conversation: featureConv._id })
       expect(agentsAfter.map((a) => a.agentType)).not.toContain('backChannelInsights')
+    })
+
+    test('should apply preEventMinutes when the pregame feature is enabled via update', async () => {
+      /* pregame has no agents of its own (agents: []) — it only binds preEventMinutes onto the
+         conversation via propertyBindings. createConversationFromType applies conversationFields
+         at creation, but updateConversation's feature-reconciliation path previously never did. */
+      const pregameConv = await conversationService.createConversationFromType(
+        {
+          type: 'eventAssistant',
+          name: 'Pregame Via Update Test',
+          platforms: ['zoom'],
+          topicId: topicOne._id.toString(),
+          scheduledTime: new Date(Date.now() + 25200000),
+          properties: { zoomMeetingUrl: 'https://zoom.us/j/pregame-update-test' }
+        },
+        registeredUser
+      )
+      expect(pregameConv.preEventMinutes).toBeUndefined()
+
+      await conversationService.updateConversation(
+        { id: pregameConv._id.toString(), features: [{ name: 'pregame', config: { preEventMinutes: 20 } }] },
+        registeredUser
+      )
+
+      const updated = await Conversation.findById(pregameConv._id)
+      expect(updated!.preEventMinutes).toBe(20)
+    })
+
+    test('should clear preEventMinutes when the pregame feature is disabled via update', async () => {
+      const pregameConv = await conversationService.createConversationFromType(
+        {
+          type: 'eventAssistant',
+          name: 'Pregame Disable Via Update Test',
+          platforms: ['zoom'],
+          topicId: topicOne._id.toString(),
+          scheduledTime: new Date(Date.now() + 28800000),
+          properties: { zoomMeetingUrl: 'https://zoom.us/j/pregame-disable-test' },
+          features: [{ name: 'pregame', config: { preEventMinutes: 20 } }]
+        },
+        registeredUser
+      )
+      expect(pregameConv.preEventMinutes).toBe(20)
+
+      await conversationService.updateConversation(
+        { id: pregameConv._id.toString(), features: [{ name: 'pregame', enabled: false }] },
+        registeredUser
+      )
+
+      const updated = await Conversation.findById(pregameConv._id)
+      expect(updated!.preEventMinutes).toBeUndefined()
     })
 
     test('syncs slackBotUserId into the slack adapter config on a properties update', async () => {

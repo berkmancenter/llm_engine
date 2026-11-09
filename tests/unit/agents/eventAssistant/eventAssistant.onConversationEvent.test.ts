@@ -156,10 +156,10 @@ describe('eventAssistant.onConversationEvent — three facts on conversationWind
     const result = await eventAssistant.onConversationEvent.call(context, countdownEvent())
 
     expect(mockGetChatPromptResponse).toHaveBeenCalledTimes(1)
-    const [, , userPrompt] = mockGetChatPromptResponse.mock.calls[0]
-    expect(userPrompt).toContain('Dr. Vega')
-    expect(userPrompt).toContain('Astrobiologist studying exoplanet atmospheres.')
-    expect(userPrompt).toContain('A talk about the Fermi paradox.')
+    const [, , , inputParams] = mockGetChatPromptResponse.mock.calls[0]
+    expect(inputParams.presenterLines).toContain('Dr. Vega')
+    expect(inputParams.presenterLines).toContain('Astrobiologist studying exoplanet atmospheres.')
+    expect(inputParams.description).toContain('A talk about the Fermi paradox.')
 
     expect(result).toEqual([
       {
@@ -504,10 +504,10 @@ describe('eventAssistant.onConversationEvent — pregame recap on conversationSt
 
     const result = await eventAssistant.onConversationEvent.call(context, startedEvent())
 
-    const [, , userPrompt] = mockGetChatPromptResponse.mock.calls[0]
-    expect(userPrompt).toContain('Curious Badger: hey, excited for this one')
-    expect(userPrompt).toContain('mostly curiosity')
-    expect(userPrompt).toContain('a friend invited me')
+    const [, , , inputParams] = mockGetChatPromptResponse.mock.calls[0]
+    expect(inputParams.pregameChatText).toContain('Curious Badger: hey, excited for this one')
+    expect(inputParams.warmUpAnswersText).toContain('mostly curiosity')
+    expect(inputParams.warmUpAnswersText).toContain('a friend invited me')
 
     expect(result).toEqual([
       {
@@ -526,9 +526,9 @@ describe('eventAssistant.onConversationEvent — pregame recap on conversationSt
 
     await eventAssistant.onConversationEvent.call(context, startedEvent())
 
-    const [, , userPrompt] = mockGetChatPromptResponse.mock.calls[0]
-    expect(userPrompt).not.toContain('mostly curiosity')
-    expect(userPrompt).toContain('No warm-up answers.')
+    const [, , , inputParams] = mockGetChatPromptResponse.mock.calls[0]
+    expect(inputParams.warmUpAnswersText).not.toContain('mostly curiosity')
+    expect(inputParams.warmUpAnswersText).toBe('No warm-up answers.')
   })
 
   test('tells the model not to attribute pregame chat lines to specific pseudonyms', async () => {
@@ -551,8 +551,8 @@ describe('eventAssistant.onConversationEvent — pregame recap on conversationSt
     const result = await eventAssistant.onConversationEvent.call(context, startedEvent())
 
     expect(result).toHaveLength(1)
-    const [, , userPrompt] = mockGetChatPromptResponse.mock.calls[0]
-    expect(userPrompt).toContain('No warm-up answers.')
+    const [, , , inputParams] = mockGetChatPromptResponse.mock.calls[0]
+    expect(inputParams.warmUpAnswersText).toBe('No warm-up answers.')
   })
 
   test('returns [] if the LLM call throws', async () => {

@@ -175,14 +175,28 @@ while they wait.
     channelType: 'groupChat'
   })
 
-  const userPrompt = `Event: "${this.conversation.name}"
-${this.conversation.description ? `Description: ${this.conversation.description}` : ''}
+  // Event name/description and presenter bios are organizer-authored free text that may contain
+  // literal braces — passed as input variables rather than spliced into the template string
+  // itself, so LangChain's f-string parser never tries to resolve them as template placeholders.
+  const userTemplate = `Event: "{eventName}"
+{description}
 
 Presenters:
-${presenterLines}`
+{presenterLines}`
 
   const llm = await this.getLLM()
-  return getChatPromptResponse(llm, systemPrompt, userPrompt, {}, undefined, ThreeFactsSchema)
+  return getChatPromptResponse(
+    llm,
+    systemPrompt,
+    userTemplate,
+    {
+      eventName: this.conversation.name,
+      description: this.conversation.description ? `Description: ${this.conversation.description}` : '',
+      presenterLines
+    },
+    undefined,
+    ThreeFactsSchema
+  )
 }
 
 /**
@@ -448,14 +462,20 @@ pregame chat and the warm-up question, whether they were there for it or are jus
     channelType: 'groupChat'
   })
 
-  const userPrompt = `Pregame chat:
-${pregameChatText || 'No pregame chat activity.'}
+  // Pregame chat and warm-up answers are attendee-authored free text that may contain literal
+  // braces — passed as input variables rather than spliced into the template string itself, so
+  // LangChain's f-string parser never tries to resolve them as template placeholders.
+  const userTemplate = `Pregame chat:
+{pregameChatText}
 
 Warm-up question answers:
-${warmUpAnswersText || 'No warm-up answers.'}`
+{warmUpAnswersText}`
 
   const llm = await this.getLLM()
-  return getChatPromptResponse(llm, systemPrompt, userPrompt, {})
+  return getChatPromptResponse(llm, systemPrompt, userTemplate, {
+    pregameChatText: pregameChatText || 'No pregame chat activity.',
+    warmUpAnswersText: warmUpAnswersText || 'No warm-up answers.'
+  })
 }
 
 // Filter /mod and /escalate command messages and moderator_submitted replies from LLM history so
@@ -786,6 +806,7 @@ export default verify({
       // sent as a warm-up DM (same unconfigured check as isPreEventWindowOpen) — skip straight
       // past buildPregameRecapMessage's DB queries rather than running them just to find nothing.
       if (typeof this.conversation.preEventMinutes !== 'number' || this.conversation.preEventMinutes <= 0) return []
+      if (this.agentConfig?.groupChannelOpener === false) return []
 
       const channel = this.conversation.channels?.find((c) => c.name === currentGroupChannelName(this.conversation))
       if (!channel) return []

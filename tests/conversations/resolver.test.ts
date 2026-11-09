@@ -329,6 +329,75 @@ describe('resolveConversationType', () => {
     })
   })
 
+  describe('conversationFields', () => {
+    test('resolves a top-level property via $ref onto conversationFields', () => {
+      const type: ConversationType = {
+        ...baseType,
+        properties: [{ name: 'myProp', required: false, type: 'string', default: 'hello' }],
+        propertyBindings: [{ $ref: 'myProp' }]
+      }
+      const result = resolveConversationType({ properties: {} }, type)
+      expect(result.conversationFields).toEqual({ myProp: 'hello' })
+    })
+
+    test('supports a custom destination key via as', () => {
+      const type: ConversationType = {
+        ...baseType,
+        properties: [{ name: 'myProp', required: false, type: 'string', default: 'hello' }],
+        propertyBindings: [{ $ref: 'myProp', as: 'renamedProp' }]
+      }
+      const result = resolveConversationType({ properties: {} }, type)
+      expect(result.conversationFields).toEqual({ renamedProp: 'hello' })
+    })
+
+    test('resolves a feature-nested property via $ref onto conversationFields (preEventMinutes pattern)', () => {
+      const type: ConversationType = {
+        ...baseType,
+        properties: [],
+        features: [
+          {
+            name: 'pregame',
+            label: 'Pregame',
+            category: 'assistant',
+            userControlled: false,
+            default: false,
+            agents: [],
+            properties: [{ name: 'preEventMinutes', required: false, type: 'number', default: 15 }]
+          }
+        ],
+        propertyBindings: [{ $ref: 'pregame.preEventMinutes' }]
+      }
+      const result = resolveConversationType({ features: [{ name: 'pregame' }] }, type)
+      expect(result.conversationFields).toEqual({ preEventMinutes: 15 })
+    })
+
+    test('omits the field when the referenced feature is disabled', () => {
+      const type: ConversationType = {
+        ...baseType,
+        properties: [],
+        features: [
+          {
+            name: 'pregame',
+            label: 'Pregame',
+            category: 'assistant',
+            userControlled: false,
+            default: false,
+            agents: [],
+            properties: [{ name: 'preEventMinutes', required: false, type: 'number', default: 15 }]
+          }
+        ],
+        propertyBindings: [{ $ref: 'pregame.preEventMinutes' }]
+      }
+      const result = resolveConversationType({ features: [] }, type)
+      expect(result.conversationFields).toEqual({})
+    })
+
+    test('returns an empty object when the conversation type declares no propertyBindings', () => {
+      const result = resolveConversationType({ properties: { requiredProp: 'val' } }, baseType)
+      expect(result.conversationFields).toEqual({})
+    })
+  })
+
   describe('adapter resolution', () => {
     const typeWithAdapters: ConversationType = {
       ...baseType,
