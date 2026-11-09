@@ -217,9 +217,13 @@ export class BedrockChatWithUsage extends BedrockChat {
   }
 }
 
-export async function getBedrockChat(model, modelOptionss) {
+/** Accepts a family name like "sonnet" as well as a full model ID, the same as getModelChat. */
+export async function getBedrockChat(modelIdentifier: string, modelOptions) {
+  const model = resolveModelId(modelIdentifier)
+  const supportedModel = supportedModels.find((m) => m.llmModel === model)
   const aiConfig = {
-    ...modelOptionss,
+    ...(supportedModel?.defaultModelOptions || {}),
+    ...modelOptions,
     fetchFn: createClaudeFetchFn(model, 'bedrock'),
     model,
     baseUrl: config.llms.bedrock.baseUrl,
