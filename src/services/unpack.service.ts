@@ -2,7 +2,7 @@ import httpStatus from 'http-status'
 import mongoose from 'mongoose'
 import config from '../config/config.js'
 import logger from '../config/logger.js'
-import { Channel, Conversation, Message, UnpackPassageExplanation, UnpackRequest } from '../models/index.js'
+import { Channel, Conversation, UnpackPassageExplanation, UnpackRequest } from '../models/index.js'
 import ApiError from '../utils/ApiError.js'
 import assertMembership from '../utils/assertMembership.js'
 import { findMessages } from '../utils/messageVisibility.js'
@@ -183,8 +183,14 @@ async function resolvePassage(conversationId: mongoose.Types.ObjectId, selection
   return buildPassage(transcript, selection)
 }
 
-async function chunksStillSaved(chunkIds: mongoose.Types.ObjectId[]) {
-  return (await Message.countDocuments({ _id: { $in: chunkIds }, channels: TRANSCRIPT_CHANNEL })) === chunkIds.length
+async function chunksStillSaved(conversationId: mongoose.Types.ObjectId, chunkIds: mongoose.Types.ObjectId[]) {
+  const saved = await findMessages(
+    conversationId,
+    'model',
+    { _id: { $in: chunkIds }, channels: TRANSCRIPT_CHANNEL },
+    { select: '_id', lean: true }
+  )
+  return saved.length === chunkIds.length
 }
 
 const isDuplicateKey = (error) => error?.code === 11000
@@ -214,7 +220,7 @@ async function claimExplanation(conversationId: mongoose.Types.ObjectId, passage
       if (!isDuplicateKey(error)) throw error
       return claimExplanation(conversationId, passage)
     }
-    if (!(await chunksStillSaved(claimed.chunkIds))) {
+    if (!(await chunksStillSaved(conversationId, claimed.chunkIds))) {
       await UnpackPassageExplanation.deleteOne({ _id: claimed._id })
       throw transcriptGone()
     }
@@ -253,7 +259,7 @@ async function findOrCreateAsk(conversationId: mongoose.Types.ObjectId, user, pa
     if (!other) throw unpackFailed()
     return { ask: other, created: false }
   }
-  if (!(await chunksStillSaved(ask.chunkIds))) {
+  if (!(await chunksStillSaved(conversationId, ask.chunkIds))) {
     await UnpackRequest.deleteOne({ _id: ask._id })
     throw transcriptGone()
   }
