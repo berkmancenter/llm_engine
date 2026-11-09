@@ -60,10 +60,13 @@ function deferred() {
   return { promise, resolve, reject }
 }
 
+// The transcript passcode each test event got, so requests can send it the way the website does
+const transcriptPasscodes = new Map<string, string | null | undefined>()
+
 async function createEvent({
   features = [{ name: 'unpacker', enabled: true }],
   withBerkie = true,
-  transcriptPasscode = null as string | null
+  transcriptPasscode = undefined as string | null | undefined
 } = {}) {
   const conversation = await Conversation.create({
     name: 'Building Reliable Distributed Systems',
@@ -74,7 +77,7 @@ async function createEvent({
   })
   const berkie = withBerkie ? await Agent.create({ agentType: 'eventAssistant', conversation: conversation._id }) : null
   const channels = await Channel.create([
-    { name: 'transcript', passcode: transcriptPasscode },
+    { name: 'transcript', ...(transcriptPasscode !== undefined && { passcode: transcriptPasscode }) },
     { name: 'chat' },
     ...(berkie
       ? [{ name: `direct-${participant._id}-${berkie._id}`, direct: true, participants: [participant._id, berkie._id] }]
@@ -83,6 +86,7 @@ async function createEvent({
   conversation.channels.push(...channels)
   if (berkie) conversation.agents.push(berkie)
   await conversation.save()
+  transcriptPasscodes.set(conversation._id.toString(), channels[0].passcode)
   return { conversation, berkie, privateChat: channels[2] }
 }
 
@@ -127,15 +131,37 @@ function selectionIn(chunk, words = 'eats the') {
   }
 }
 
+function withPasscode(conversation, body) {
+  return { transcriptPasscode: transcriptPasscodes.get(conversation._id.toString()), ...body }
+}
+
 function preview(conversation, body, token = participantAccessToken) {
-  return request(app).post(`/v1/unpack/${conversation._id}/preview`).set('Authorization', `Bearer ${token}`).send(body)
+  return request(app)
+    .post(`/v1/unpack/${conversation._id}/preview`)
+    .set('Authorization', `Bearer ${token}`)
+    .send(withPasscode(conversation, body))
 }
 
 function send(conversation, body, token = participantAccessToken) {
   return request(app)
     .post(`/v1/unpack/${conversation._id}/send`)
     .set('Authorization', `Bearer ${token}`)
-    .send({ destination: 'privateChat', ...body })
+    .send(withPasscode(conversation, { destination: 'privateChat', ...body }))
+}
+
+function runPendingCheck(askId: string, attempt = 1) {
+  return JobHandlers.unpackPendingAsk({ attrs: { data: { askId, attempt } } })
+}
+
+function earlierAsks(conversation, count: number, extra: Record<string, unknown> = {}) {
+  return Array.from({ length: count }, (_, i) => ({
+    conversation: conversation._id,
+    user: participant._id,
+    mode: 'passage',
+    status: 'previewed',
+    passageKey: `earlier-passage-${i}`,
+    ...extra
+  }))
 }
 
 function cardsIn(channel) {
@@ -432,6 +458,26 @@ describe('POST /v1/unpack/:conversationId/preview', () => {
       expect(mockGetChatPromptResponse).toHaveBeenCalledTimes(2)
       expect(await UnpackPassageExplanation.findOne()).toMatchObject({ whyItMatters: 'Now with what came next.' })
     })
+
+    it('tries the rewrite again on a later preview when it fails', async () => {
+      const { conversation } = await createEvent()
+      const { quoted } = await seedTranscript(conversation)
+      await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
+      const spokenAt = Date.now() - 3 * 60 * SECOND
+      await UnpackPassageExplanation.updateOne(
+        {},
+        { 'passage.end': new Date(spokenAt), contextUntil: new Date(spokenAt + 5 * SECOND) }
+      )
+      mockGetChatPromptResponse.mockRejectedValueOnce(new Error('model unavailable'))
+      await preview(conversation, selectionIn(quoted), userOneAccessToken).expect(httpStatus.OK)
+      await settleBackgroundUnpacks()
+      mockGetChatPromptResponse.mockResolvedValue({ ...sections, whyItMatters: 'Now with what came next.' })
+
+      await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
+      await settleBackgroundUnpacks()
+
+      expect(await UnpackPassageExplanation.findOne()).toMatchObject({ whyItMatters: 'Now with what came next.' })
+    })
   })
 
   describe('refusals', () => {
@@ -452,7 +498,36 @@ describe('POST /v1/unpack/:conversationId/preview', () => {
 
       expect(res.body.reason).toBe('rateLimited')
       expect(mockGetChatPromptResponse).not.toHaveBeenCalled()
-      expect(await UnpackRequest.countDocuments()).toBe(UNPACK_PREVIEWS_PER_MINUTE)
+      expect(await UnpackRequest.countDocuments({ status: { $ne: 'refused' } })).toBe(UNPACK_PREVIEWS_PER_MINUTE)
+    })
+
+    it('refuses a passage whose ask another request saved over the limit and has not checked yet', async () => {
+      const { conversation } = await createEvent()
+      const { quoted } = await seedTranscript(conversation)
+      await UnpackRequest.insertMany(earlierAsks(conversation, UNPACK_PREVIEWS_PER_MINUTE))
+      // What a double click leaves: the first request saved this ask and is still counting
+      await UnpackRequest.create({
+        ...earlierAsks(conversation, 1)[0],
+        passageKey: `${quoted._id}:0-${quoted._id}:33`,
+        range: { startMessageId: quoted._id, startOffset: 0, endMessageId: quoted._id, endOffset: 33 }
+      })
+
+      const res = await preview(conversation, selectionIn(quoted)).expect(httpStatus.TOO_MANY_REQUESTS)
+
+      expect(res.body.reason).toBe('rateLimited')
+      expect(mockGetChatPromptResponse).not.toHaveBeenCalled()
+    })
+
+    it('lets a refused passage through once the minute has passed', async () => {
+      const { conversation } = await createEvent()
+      const { quoted } = await seedTranscript(conversation)
+      await UnpackRequest.insertMany(earlierAsks(conversation, UNPACK_PREVIEWS_PER_MINUTE))
+      await preview(conversation, selectionIn(quoted)).expect(httpStatus.TOO_MANY_REQUESTS)
+      await UnpackRequest.collection.updateMany({}, { $set: { createdAt: new Date(Date.now() - 2 * 60 * SECOND) } })
+
+      const res = await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
+
+      expect(await UnpackRequest.findById(res.body.askId)).toMatchObject({ status: 'previewed' })
     })
 
     it('lets through only the limit when many different passages are previewed at once', async () => {
@@ -512,16 +587,46 @@ describe('POST /v1/unpack/:conversationId/preview', () => {
       expect(res.body.reason).toBe('selectionTooLong')
     })
 
-    describe('on an event whose transcript has a passcode', () => {
-      it('refuses a participant who does not give it', async () => {
-        const { conversation } = await createEvent({ transcriptPasscode: 'letmein' })
+    it('accepts a short passage spread across many chunks with no words in them', async () => {
+      const { conversation } = await createEvent()
+      const first = await saveChunk(conversation, 'Missing it eats the error budget.', 3000)
+      await Message.insertMany(
+        Array.from({ length: 1100 }, (_, i) => ({
+          conversation: conversation._id,
+          body: ' ',
+          bodyType: 'text',
+          channels: ['transcript'],
+          pseudonym: 'Zoom captions',
+          pseudonymId: new mongoose.Types.ObjectId(),
+          visible: true,
+          createdAt: new Date(Date.now() - (2900 - i) * SECOND)
+        }))
+      )
+      const last = await saveChunk(conversation, 'Then the arguing starts.', 10)
+
+      const res = await preview(conversation, {
+        startMessageId: first._id.toString(),
+        startOffset: 0,
+        endMessageId: last._id.toString(),
+        endOffset: 4
+      }).expect(httpStatus.OK)
+
+      expect(res.body.explanation.quote).toBe('Missing it eats the error budget. Then the arguing starts.')
+    })
+
+    describe("checking the transcript's passcode", () => {
+      it('refuses a participant who does not give the passcode every transcript gets by default', async () => {
+        const { conversation } = await createEvent()
         const { quoted } = await seedTranscript(conversation)
 
         const wrong = await preview(conversation, { ...selectionIn(quoted), transcriptPasscode: 'guess' }).expect(
-          httpStatus.FORBIDDEN
+          httpStatus.BAD_REQUEST
         )
-        const missing = await send(conversation, selectionIn(quoted)).expect(httpStatus.FORBIDDEN)
+        const missing = await send(conversation, { ...selectionIn(quoted), transcriptPasscode: undefined }).expect(
+          httpStatus.BAD_REQUEST
+        )
 
+        expect(transcriptPasscodes.get(conversation._id.toString())).toEqual(expect.any(String))
         expect(wrong.body.reason).toBe('wrongPasscode')
         expect(missing.body.reason).toBe('wrongPasscode')
         expect(wrong.body).not.toHaveProperty('explanation')
@@ -533,6 +638,13 @@ describe('POST /v1/unpack/:conversationId/preview', () => {
         const { quoted } = await seedTranscript(conversation)
 
         await preview(conversation, { ...selectionIn(quoted), transcriptPasscode: 'letmein' }).expect(httpStatus.OK)
+      })
+
+      it('needs no passcode when the transcript has none', async () => {
+        const { conversation } = await createEvent({ transcriptPasscode: null })
+        const { quoted } = await seedTranscript(conversation)
+
+        await preview(conversation, { ...selectionIn(quoted), transcriptPasscode: undefined }).expect(httpStatus.OK)
       })
     })
 
@@ -575,6 +687,16 @@ describe('POST /v1/unpack/:conversationId/preview', () => {
       const { quoted } = await seedTranscript(conversation)
 
       await preview(conversation, selectionIn(quoted)).expect(httpStatus.FORBIDDEN)
+    })
+
+    it('does not tell someone outside a members-only event whether its Unpacker is on', async () => {
+      const { conversation } = await createEvent({ features: [{ name: 'unpacker', enabled: false }] })
+      await Conversation.updateOne({ _id: conversation._id }, { enforceMembership: true })
+      const { quoted } = await seedTranscript(conversation)
+
+      const res = await preview(conversation, selectionIn(quoted)).expect(httpStatus.FORBIDDEN)
+
+      expect(res.body).not.toHaveProperty('reason')
     })
 
     it('refuses an event with no assistant to explain it', async () => {
@@ -717,6 +839,40 @@ describe('POST /v1/unpack/:conversationId/send', () => {
     expect(card._id.toString()).toBe(retried.body.messageId)
   })
 
+  it('keeps the card, and posts no second one, when posting fails after the card was saved', async () => {
+    const { conversation, privateChat } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
+    const post = messageService.newMessageHandler
+    jest.spyOn(messageService, 'newMessageHandler').mockImplementationOnce(async (...args) => {
+      await post(...args)
+      throw new Error('broadcast failed')
+    })
+
+    const first = await send(conversation, selectionIn(quoted)).expect(httpStatus.ACCEPTED)
+    const second = await send(conversation, selectionIn(quoted)).expect(httpStatus.ACCEPTED)
+
+    expect(first.body.status).toBe('sent')
+    expect(second.body.messageId).toBe(first.body.messageId)
+    expect(await cardsIn(privateChat)).toHaveLength(1)
+  })
+
+  it('removes a card that finished posting after the transcript it quotes was cleared', async () => {
+    const { conversation, privateChat } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
+    const post = messageService.newMessageHandler
+    jest.spyOn(messageService, 'newMessageHandler').mockImplementationOnce(async (...args) => {
+      await transcript.clearTranscript(conversation)
+      return post(...args)
+    })
+
+    const res = await send(conversation, selectionIn(quoted)).expect(httpStatus.BAD_REQUEST)
+
+    expect(res.body.reason).toBe('chunkNotInTranscript')
+    expect(await cardsIn(privateChat)).toHaveLength(0)
+  })
+
   it('posts nothing new and starts no write when an already-sent passage has lost its explanation', async () => {
     const { conversation } = await createEvent()
     const { quoted } = await seedTranscript(conversation)
@@ -797,6 +953,65 @@ describe('POST /v1/unpack/:conversationId/send', () => {
       modelCall.resolve(sections)
     })
 
+    it('schedules one check however many times a pending passage is sent', async () => {
+      const { conversation } = await createEvent()
+      const { quoted } = await seedTranscript(conversation)
+      const modelCall = deferred()
+      mockGetChatPromptResponse.mockReturnValueOnce(modelCall.promise)
+
+      await send(conversation, selectionIn(quoted)).expect(httpStatus.ACCEPTED)
+      await waitFor(() => expect(mockGetChatPromptResponse).toHaveBeenCalled())
+      await send(conversation, selectionIn(quoted, 'Missing')).expect(httpStatus.ACCEPTED)
+
+      expect(schedule.unpackPendingAsk).toHaveBeenCalledTimes(1)
+      modelCall.resolve(sections)
+    })
+
+    it('posts the card on the check when posting it in the background failed', async () => {
+      const { conversation, privateChat } = await createEvent()
+      const { quoted } = await seedTranscript(conversation)
+      const modelCall = deferred()
+      mockGetChatPromptResponse.mockReturnValueOnce(modelCall.promise)
+      const res = await send(conversation, selectionIn(quoted)).expect(httpStatus.ACCEPTED)
+      await waitFor(() => expect(mockGetChatPromptResponse).toHaveBeenCalled())
+      await Conversation.updateOne({ _id: conversation._id }, { locked: true })
+      modelCall.resolve(sections)
+      await settleBackgroundUnpacks()
+      expect(await cardsIn(privateChat)).toHaveLength(0)
+      await Conversation.updateOne({ _id: conversation._id }, { locked: false })
+
+      await runPendingCheck(res.body.askId)
+
+      expect(await cardsIn(privateChat)).toHaveLength(1)
+    })
+
+    it('checks again later while the card still cannot be posted', async () => {
+      const { conversation, privateChat } = await createEvent()
+      const { quoted } = await seedTranscript(conversation)
+      const previewed = await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
+      await UnpackRequest.updateOne({ _id: previewed.body.askId }, { destination: 'privateChat' })
+      await Conversation.updateOne({ _id: conversation._id }, { locked: true })
+
+      await runPendingCheck(previewed.body.askId, 1)
+
+      expect(schedule.unpackPendingAsk).toHaveBeenCalledWith(expect.any(Date), { askId: previewed.body.askId, attempt: 2 })
+      expect(await cardsIn(privateChat)).toHaveLength(0)
+    })
+
+    it('tells the participant after the last check when the card still cannot be posted', async () => {
+      const { conversation, privateChat } = await createEvent()
+      const { quoted } = await seedTranscript(conversation)
+      const previewed = await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
+      await UnpackRequest.updateOne({ _id: previewed.body.askId }, { destination: 'privateChat' })
+      jest.spyOn(messageService, 'newMessageHandler').mockRejectedValueOnce(new Error('database down'))
+
+      await runPendingCheck(previewed.body.askId, 3)
+
+      expect(schedule.unpackPendingAsk).not.toHaveBeenCalled()
+      expect(await cardsIn(privateChat)).toHaveLength(0)
+      expect(await Message.findOne({ channels: privateChat.name, body: { $regex: /couldn't unpack/ } })).not.toBeNull()
+    })
+
     it('does nothing when the card was already posted', async () => {
       const { conversation, privateChat } = await createEvent()
       const { quoted } = await seedTranscript(conversation)
@@ -854,10 +1069,10 @@ describe('POST /v1/unpack/:conversationId/send', () => {
     modelCall.reject(new Error('model unavailable'))
 
     await waitFor(async () =>
-      expect(
-        await Message.findOne({ channels: privateChat.name, body: { $regex: /couldn't unpack "Missing it eats the error/ } })
-      ).not.toBeNull()
+      expect(await Message.findOne({ channels: privateChat.name, body: { $regex: /couldn't unpack/ } })).not.toBeNull()
     )
+    const reply = await Message.findOne({ channels: privateChat.name, body: { $regex: /couldn't unpack/ } })
+    expect(reply!.body).not.toContain('error budget')
     const ask = await UnpackRequest.findById(res.body.askId)
     expect(ask).toMatchObject({ status: 'previewed' })
     expect(ask!.destination).toBeUndefined()
@@ -910,6 +1125,23 @@ describe('POST /v1/unpack/:conversationId/send', () => {
     await settleBackgroundUnpacks()
 
     expect(await UnpackPassageExplanation.countDocuments()).toBe(1 + UNPACK_WHOLE_CHUNKS_PER_SEND)
+  })
+
+  it('still explains a chunk whole when only a "Catch me up" ask covered it before', async () => {
+    const { conversation } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    await UnpackRequest.create({
+      conversation: conversation._id,
+      user: userOne._id,
+      mode: 'lastMinute',
+      status: 'sent',
+      chunkIds: [quoted._id]
+    })
+
+    await send(conversation, selectionIn(quoted)).expect(httpStatus.ACCEPTED)
+    await settleBackgroundUnpacks()
+
+    expect(await UnpackPassageExplanation.findOne({ quote: quoted.body })).toMatchObject({ status: 'ready' })
   })
 
   it('explains a chunk whole only after the first send about it', async () => {
@@ -975,10 +1207,18 @@ describe('deleting Unpacker rows with the transcript they quote', () => {
       visible: true
     })
 
+    const [card] = await cardsIn(privateChat)
+    const hidden = jest.spyOn(websocketGateway, 'broadcastMessagesHidden').mockResolvedValue(undefined)
+
     await transcript.deleteTranscript(conversation)
 
     expect(await cardsIn(privateChat)).toHaveLength(0)
     expect(await Message.countDocuments({ channels: privateChat.name })).toBe(1)
+    expect(hidden).toHaveBeenCalledWith(
+      conversation._id.toString(),
+      { messageIds: [card._id.toString()], hidden: true, display: 'omit' },
+      [privateChat.name]
+    )
   })
 
   it.each([

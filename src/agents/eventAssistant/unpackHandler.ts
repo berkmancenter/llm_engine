@@ -5,7 +5,7 @@ import { formatTranscript } from '../helpers/llmInputFormatters.js'
 import PLAIN_LANGUAGE_TERM_RULES from '../helpers/plainLanguageRules.js'
 import UnpackRequest from '../../models/unpackRequest.model.js'
 import logger from '../../config/logger.js'
-import { AgentResponse, IChannel, UnpackExplanation, UnpackTerm } from '../../types/index.types.js'
+import { AgentResponse, IChannel, UnpackExplanation, UnpackPassageSections } from '../../types/index.types.js'
 
 // Transcript chunks only store when the speaker finished, so this counts chunks that ended in the window
 export const UNPACK_LAST_MINUTE_WINDOW_SECONDS = 60
@@ -69,11 +69,7 @@ export function toPlainText({
   whatTheyreSaying,
   whyItMatters,
   terms
-}: {
-  whatTheyreSaying: string
-  whyItMatters: string
-  terms: UnpackTerm[]
-}): string {
+}: Pick<UnpackPassageSections, 'whatTheyreSaying' | 'whyItMatters' | 'terms'>): string {
   const sections = [`What they're saying: ${whatTheyreSaying}`, `Why it matters here: ${whyItMatters}`]
   if (terms.length > 0) {
     sections.push(`Terms in this passage:\n${terms.map(({ term, text }) => `- ${term}: ${text}`).join('\n')}`)

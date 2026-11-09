@@ -8,8 +8,35 @@ import Conversation from '../../models/conversation.model.js'
 import Topic from '../../models/topic.model.js'
 import UnpackPassageExplanation from '../../models/unpackPassageExplanation.model.js'
 import UnpackRequest from '../../models/unpackRequest.model.js'
+import websocketGateway from '../../websockets/websocketGateway.js'
 
 export const TOPIC_TRANSCRIPT_COLLECTION_PREFIX = 'topic-transcript'
+
+/**
+ * Deletes Unpacker cards, all of an event's or the ones `filter` picks, and tells open clients to drop them.
+ * There is no deletion event, so this sends `message:hidden`, which clients already apply to Private Chat.
+ */
+async function deleteUnpackCards(conversationId, filter: Record<string, unknown> = {}) {
+  const cards = await Message.find({
+    ...filter,
+    conversation: conversationId,
+    bodyType: 'json',
+    'body.type': 'unpack_explanation'
+  })
+    .select('_id channels')
+    .lean()
+  if (cards.length === 0) return
+  await Message.deleteMany({ _id: { $in: cards.map(({ _id }) => _id) } })
+  try {
+    await websocketGateway.broadcastMessagesHidden(
+      conversationId.toString(),
+      { messageIds: cards.map(({ _id }) => _id.toString()), hidden: true, display: 'omit' },
+      [...new Set(cards.flatMap(({ channels }) => channels ?? []))]
+    )
+  } catch (error) {
+    logger.warn(`Could not tell clients that ${cards.length} Unpacker cards in ${conversationId} were deleted`, error)
+  }
+}
 
 /**
  * Unpacker rows and the cards posted from them quote the transcript, so they go when it does. Run it after
@@ -19,7 +46,7 @@ export const TOPIC_TRANSCRIPT_COLLECTION_PREFIX = 'topic-transcript'
 async function deleteUnpackRows(conversationId) {
   await UnpackRequest.deleteMany({ conversation: conversationId })
   await UnpackPassageExplanation.deleteMany({ conversation: conversationId })
-  await Message.deleteMany({ conversation: conversationId, bodyType: 'json', 'body.type': 'unpack_explanation' })
+  await deleteUnpackCards(conversationId)
 }
 
 /**
@@ -430,6 +457,7 @@ export default {
   deleteTranscript,
   deleteTopicCollection,
   deleteUnpackRows,
+  deleteUnpackCards,
   getTranscriptMessages,
   getTranscript
 }
