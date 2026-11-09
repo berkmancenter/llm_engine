@@ -123,6 +123,8 @@ router
  *         $ref: '#/components/responses/UnpackRefused'
  *       429:
  *         $ref: '#/components/responses/UnpackRefused'
+ *       503:
+ *         $ref: '#/components/responses/UnpackRefused'
  */
 router
   .route('/:conversationId/send')

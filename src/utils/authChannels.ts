@@ -23,7 +23,9 @@ export default async function authChannels(channels, conversation: IConversation
     const allowedChannel = allowedChannels?.find((c) => c.name === channel.name)
     if (!allowedChannel) throw new ApiError(httpStatus.BAD_REQUEST, `No such channel on this conversation: ${channel.name}`)
     if (allowedChannel.passcode && channel.passcode !== allowedChannel.passcode)
-      throw new ApiError(httpStatus.BAD_REQUEST, `Incorrect passcode for channel: ${channel.name}`)
+      throw new ApiError(httpStatus.BAD_REQUEST, `Incorrect passcode for channel: ${channel.name}`, {
+        reason: 'wrongPasscode'
+      })
     if (
       allowedChannel.direct &&
       (!user || !allowedChannel.participants.some((p) => p._id.toString() === user._id.toString()))

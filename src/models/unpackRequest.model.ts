@@ -24,6 +24,8 @@ const unpackRequestSchema = new mongoose.Schema<IUnpackRequest>(
 unpackRequestSchema.index({ conversation: 1, user: 1, createdAt: 1 })
 // Finds earlier sent asks about the same chunks
 unpackRequestSchema.index({ conversation: 1, chunkIds: 1 })
+// Finds everyone waiting on a passage's explanation when it is written or fails
+unpackRequestSchema.index({ passageKey: 1 })
 // Partial, because "Catch me up" asks have no passage and one person can make many of them
 unpackRequestSchema.index(
   { user: 1, passageKey: 1 },

@@ -365,7 +365,8 @@ components:
           type: string
           description: >-
             The transcript channel's passcode, the same one the client uses to read the transcript.
-            Required when the transcript has one.
+            Required when the transcript has one, which it does by default. A missing or wrong passcode
+            is refused with 400 and reason wrongPasscode.
 
     UnpackVisual:
       type: object
@@ -395,8 +396,9 @@ components:
         explanation:
           type: object
           description: >-
-            The saved explanation that send will post. whatTheyreSaying is written first, so a
-            preview can show its opening sentences.
+            The saved explanation. whatTheyreSaying is written first, so a preview can show its opening
+            sentences. Send posts the explanation as it is at that moment, which a background rewrite
+            with more of the following transcript may have changed since this preview.
           required:
             - range
             - chunkIds
@@ -485,7 +487,7 @@ components:
           description: >-
             Why the request was refused. rateLimited (429), too many passages in the last minute.
             unpackerOff (403), the event's unpacker feature is off. noAssistant (409), the event has
-            no assistant. wrongPasscode (403), the transcript has a passcode and the request did not
+            no assistant. wrongPasscode (400), the transcript has a passcode and the request did not
             give it. noPrivateChat (409), the participant has no Private Chat with the assistant.
             chunkNotInTranscript (400), a chunk ID is not in this event's transcript. offsetPastEnd
             (400), a position is past the end of its chunk. selectionBackwards (400), the selection
