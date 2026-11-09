@@ -1,18 +1,8 @@
 import mongoose from 'mongoose'
 import setupAgentTest from '../../utils/setupAgentTest.js'
-import defaultAgentTypes from '../../../src/agents/index.js'
-import {
-  createPublicTopic,
-  createUser,
-  createEventAssistantConversation,
-  createDirectMessage,
-  createMessage,
-  prepareMessagesForAgent
-} from '../../utils/agentTestHelpers.js'
-import Conversation from '../../../src/models/conversation.model.js'
-import UnpackRequest from '../../../src/models/unpackRequest.model.js'
 import { getModelChat } from '../../../src/agents/helpers/getModelChat.js'
 import { buildPassage, explainPassage } from '../../../src/agents/helpers/unpackPassage.js'
+import { summarizeCatchUp } from '../../../src/agents/eventAssistant/unpackHandler.js'
 
 jest.setTimeout(120000)
 
@@ -20,66 +10,36 @@ const testConfig = setupAgentTest('eventAssistant')
 
 const SECOND = 1000
 
-describe('Event Assistant unpacks the last minute of the talk', () => {
-  let user
-  let agent
-  let conversation
+describe('Event Assistant catches a participant up on the last minute', () => {
+  async function catchUp(lines: string[], { earlierSpeech = false } = {}) {
+    const now = Date.now()
+    const chunks = lines.map((body, i) => ({ body, createdAt: new Date(now - (lines.length - i) * 15 * SECOND) }))
+    const llm = await getModelChat(testConfig.llmPlatform, testConfig.llmModel, { maxTokens: 1000 })
+    return summarizeCatchUp(llm, { topic: 'Building Reliable Distributed Systems', chunks, earlierSpeech })
+  }
 
-  beforeEach(async () => {
-    user = await createUser('Curious Badger')
-    const topic = await createPublicTopic()
-    conversation = await createEventAssistantConversation(
-      {
-        name: 'Building Reliable Distributed Systems',
-        description: 'How engineering teams keep large services running.'
-      },
-      user,
-      topic,
-      new Date(Date.now() - 15 * 60 * SECOND),
-      testConfig.llmPlatform,
-      testConfig.llmModel
-    )
-    await Conversation.findByIdAndUpdate(conversation._id, { features: [{ name: 'unpacker', enabled: true }] })
-    ;[agent] = conversation.agents
+  it('summarizes in short, lists what they covered, and leaves "Coming up" empty when nothing is announced', async () => {
+    const sections = await catchUp([
+      'Every team here sets an SLO for each service it runs.',
+      'If you burn through your error budget, feature work stops until reliability recovers.',
+      'That tradeoff is the heart of how SRE teams negotiate with product managers.'
+    ])
+
+    expect(sections.inShort.length).toBeGreaterThan(0)
+    expect(sections.inShort.split(/(?<=[.!?])\s+/).length).toBeLessThanOrEqual(3)
+    expect(sections.whatTheyCovered.length).toBeGreaterThanOrEqual(2)
+    expect(sections.whatTheyCovered.length).toBeLessThanOrEqual(5)
+    expect(sections.comingUp).toBeNull()
   })
 
-  it('explains only the last minute, in plain language, and names the specialist terms', async () => {
-    const now = Date.now()
-    const said = (body: string, secondsAgo: number) =>
-      createMessage(body, user, conversation, ['transcript'], new Date(now - secondsAgo * SECOND))
-    const request = {
-      ...(await createDirectMessage(
-        { type: 'unpack_request', mode: 'lastMinute', text: 'Unpack the last minute' },
-        user,
-        conversation,
-        new Date(now)
-      )),
-      // the helper leaves IDs to the database, but a real request always arrives with one
-      _id: new mongoose.Types.ObjectId()
-    }
-    await prepareMessagesForAgent(
-      [
-        await said('Before we start, the pizza for lunch is in the back of the room.', 5 * 60),
-        await said('Every team here sets an SLO for each service it runs.', 50),
-        await said('If you burn through your error budget, feature work stops until reliability recovers.', 35),
-        await said('That tradeoff is the heart of how SRE teams negotiate with product managers.', 20),
-        request
-      ],
-      conversation,
-      agent
-    )
+  it('says what is coming up when the speaker announces it', async () => {
+    const sections = await catchUp([
+      'Every team here sets an SLO for each service it runs.',
+      'If you burn through your error budget, feature work stops until reliability recovers.',
+      'Next, let me show you the dashboard we use to track error budgets across forty teams.'
+    ])
 
-    const [reply] = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, request)
-
-    expect(reply.message.type).toBe('unpack_explanation')
-    expect(reply.message.chunkIds).toHaveLength(3)
-    expect(reply.message.quote).not.toMatch(/pizza/i)
-    expect(reply.message.whatTheyreSaying.length).toBeGreaterThan(0)
-    expect(reply.message.whyItMatters.length).toBeGreaterThan(0)
-    expect(reply.message.text).not.toMatch(/pizza/i)
-    const termNames = reply.message.terms.map(({ term }) => term).join(' ')
-    expect(termNames).toMatch(/SLO|error budget|SRE/i)
-    expect(await UnpackRequest.countDocuments({ conversation: conversation._id, user: user._id })).toBe(1)
+    expect(sections.comingUp).toMatch(/dashboard/i)
   })
 })
 
