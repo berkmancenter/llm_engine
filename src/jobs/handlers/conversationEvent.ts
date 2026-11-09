@@ -11,6 +11,8 @@ const conversationEventTriggerId = (event: ConversationEvent) => {
       return `event:conversationStopped:${event.conversationId}`
     case 'conversationWindowOpened':
       return `event:conversationWindowOpened:${event.conversationId}:${event.phase}`
+    case 'conversationWindowCountdown':
+      return `event:conversationWindowCountdown:${event.conversationId}:${event.phase}:${event.remainingMs}`
     default: {
       const _exhaustive: never = event
       throw new Error(`Unhandled event type: ${(_exhaustive as ConversationEvent).type}`)

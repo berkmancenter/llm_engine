@@ -31,6 +31,9 @@ const defineJob = {
   adapterPreStart: async () => {
     await agenda.define('adapterPreStart', JobHandlers.preStartAdapter)
   },
+  conversationWindowCountdown: async () => {
+    await agenda.define('conversationWindowCountdown', JobHandlers.conversationWindowCountdown)
+  },
   autoStopConversation: async (conversationId) => {
     await agenda.define(
       `autoStop - ${conversationId}`,

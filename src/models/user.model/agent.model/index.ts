@@ -53,6 +53,7 @@ export interface AgentMethods {
   pingLLM(): Promise<void>
   getLLM(): Promise<unknown>
   claimResponseTrigger(triggerId: string): Promise<boolean>
+  setGeneratedContentIfAbsent(key: string, value: unknown): Promise<unknown>
 }
 
 export type AgentDocument = HydratedDocument<IAgent, AgentMethods>
@@ -106,6 +107,11 @@ const agentSchema = new mongoose.Schema<IAgent, AgentModel>(
     },
     // optional flexible config object to store additional data needed for some agent types
     agentConfig: {
+      type: mongoose.Schema.Types.Mixed,
+      default: undefined
+    },
+    // output an agent type generated itself and wants to reuse rather than recompute — see IAgent
+    generatedContent: {
       type: mongoose.Schema.Types.Mixed,
       default: undefined
     },
@@ -272,6 +278,25 @@ agentSchema.method('claimResponseTrigger', async function (triggerId: string) {
     .updateOne({ _id: this._id, lastResponseTriggerId: { $ne: triggerId } }, { $set: { lastResponseTriggerId: triggerId } })
   this.lastResponseTriggerId = triggerId
   return result.modifiedCount > 0
+})
+
+/* Atomically sets generatedContent[key] only if unset, for content an agent type generates once
+   and wants every reader to see identically. Returns the value now stored under that key — the
+   caller's own `value` if it won the race to set it, or whatever a concurrent caller already
+   wrote if it lost — so every caller ends up in agreement regardless of who won. */
+agentSchema.method('setGeneratedContentIfAbsent', async function (key: string, value: unknown) {
+  const path = `generatedContent.${key}`
+  const claimed = await mongoose
+    .model<IAgent>('Agent')
+    .findOneAndUpdate({ _id: this._id, [path]: { $exists: false } }, { $set: { [path]: value } }, { new: true })
+    .lean()
+  if (claimed) {
+    this.generatedContent = claimed.generatedContent
+    return value
+  }
+  const existing = await mongoose.model<IAgent>('Agent').findById(this._id).select('generatedContent').lean()
+  this.generatedContent = existing?.generatedContent
+  return existing?.generatedContent?.[key] ?? value
 })
 
 // this method is the same for periodic invocation or for evaluating a new message from a user

@@ -132,14 +132,45 @@ function getMinContributionMs(
  * Returns an empty string if no conversationType is set.
  */
 function buildConversationContextSection(conversationContext: ConversationContext | undefined): string {
-  if (!conversationContext?.conversationType) return ''
+  if (!conversationContext) return ''
+  const { conversationType, purpose, rationale, centralQuestions, knownTensions, scope, desiredTakeaway } =
+    conversationContext
 
-  const lines: string[] = ['## Event Context']
-  const { conversationType, purpose } = conversationContext
-  const desc = purpose
-    ? `This is a ${conversationType.toLowerCase()}. Purpose: ${purpose}.`
-    : `This is a ${conversationType.toLowerCase()}.`
-  lines.push(desc)
+  // Built up directly from content, rather than gated by a separate "is there content" check,
+  // so an object that's present but empty (e.g. `scope: {}`) can't produce a header with nothing
+  // under it the way a truthiness check on the object itself would.
+  const lines: string[] = []
+
+  if (conversationType || purpose) {
+    let desc: string
+    if (conversationType && purpose) {
+      desc = `This is a ${conversationType.toLowerCase()}. Purpose: ${purpose}.`
+    } else if (conversationType) {
+      desc = `This is a ${conversationType.toLowerCase()}.`
+    } else {
+      desc = `Purpose: ${purpose}.`
+    }
+    lines.push(desc)
+  }
+
+  if (rationale) lines.push(`Why this session, now: ${rationale}`)
+
+  if (centralQuestions && centralQuestions.length > 0) {
+    lines.push(`Central question(s) this session is wrestling with: ${centralQuestions.join('; ')}`)
+  }
+
+  if (knownTensions && knownTensions.length > 0) {
+    lines.push(`Known tensions or disagreements worth surfacing: ${knownTensions.join('; ')}`)
+  }
+
+  if (scope) {
+    const scopeLines: string[] = []
+    if (scope.inScope && scope.inScope.length > 0) scopeLines.push(`In scope: ${scope.inScope.join(', ')}`)
+    if (scope.outOfScope && scope.outOfScope.length > 0) scopeLines.push(`Out of scope: ${scope.outOfScope.join(', ')}`)
+    if (scopeLines.length > 0) lines.push(scopeLines.join('\n'))
+  }
+
+  if (desiredTakeaway) lines.push(`What the organizer hopes people leave with: ${desiredTakeaway}`)
 
   if (conversationContext.audience) {
     const a = conversationContext.audience
@@ -162,10 +193,11 @@ function buildConversationContextSection(conversationContext: ConversationContex
         `- Sensitive domains: ${cs.domains.join(', ')} — avoid editorializing, taking sides, or making light of these topics`
       )
     }
-    lines.push(sensitivityLines.join('\n'))
+    if (sensitivityLines.length > 1) lines.push(sensitivityLines.join('\n'))
   }
 
-  return lines.join('\n')
+  if (lines.length === 0) return ''
+  return ['## Event Context', ...lines].join('\n')
 }
 
 /**
@@ -348,7 +380,17 @@ function composeSystemPrompt(
     modelInfo?: { llmModel?: string; llmPlatform?: string }
   } = {}
 ): string {
-  const { conversationContext, behaviorPolicy, goals, channelType, personalityName, goalPriorities, goalContext, platforms, modelInfo } = options
+  const {
+    conversationContext,
+    behaviorPolicy,
+    goals,
+    channelType,
+    personalityName,
+    goalPriorities,
+    goalContext,
+    platforms,
+    modelInfo
+  } = options
   const parts: string[] = [basePrompt]
 
   const operatorSection = buildOperatorContextSection()
@@ -364,7 +406,9 @@ function composeSystemPrompt(
   /* Universal rule: proper nouns named in this system prompt (platform names, tool names,
      the assistant's own name) are authoritative. Transcripts are speech-to-text and
      frequently garble proper nouns — never echo a transcript misspelling back to the user. */
-  parts.push('**Proper noun spelling:** Names of platforms, tools, and the assistant defined in this system prompt are authoritative. Transcripts are speech-to-text and may garble proper nouns — always use the system prompt spelling, never a transcript misspelling.')
+  parts.push(
+    '**Proper noun spelling:** Names of platforms, tools, and the assistant defined in this system prompt are authoritative. Transcripts are speech-to-text and may garble proper nouns — always use the system prompt spelling, never a transcript misspelling.'
+  )
 
   const contextSection = buildConversationContextSection(conversationContext)
   if (contextSection) parts.push(contextSection)
