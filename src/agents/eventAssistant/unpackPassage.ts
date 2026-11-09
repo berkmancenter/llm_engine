@@ -6,6 +6,7 @@ import { findMessages } from '../../utils/messageVisibility.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { formatTranscript } from '../helpers/llmInputFormatters.js'
 import PLAIN_LANGUAGE_TERM_RULES from '../helpers/plainLanguageRules.js'
+import { TRANSCRIPT_CHANNEL } from '../../conversations/eventAssistant.js'
 import { UnpackPassage, UnpackPassageSections, UnpackRange, UnpackTranscriptChunk } from '../../types/index.types.js'
 
 // Caps what one ask sends to the AI model and what one request can make the server load
@@ -50,11 +51,13 @@ const unpackPassageSectionsSchema = z.object({
 })
 
 const sentences = new Intl.Segmenter('en', { granularity: 'sentence' })
-// Intl.Segmenter ends a sentence at any period before a capital letter, so "Dr. Patel" would split in two
-const ENDS_WITH_ABBREVIATION = /(?:\b(?:Dr|Mr|Mrs|Ms|Prof|St|Jr|Sr|Gen|Sen|Rep|Gov|vs)\.|\b(?:[A-Z]\.){2,})\s*$/
+// Intl.Segmenter ends a sentence at any period before a capital letter, so "Dr. Patel" would split in two.
+// "etc." and "No." are left out because speakers often end a sentence with them.
+const ENDS_WITH_ABBREVIATION =
+  /(?:\b(?:Dr|Mr|Mrs|Ms|Prof|St|Jr|Sr|Gen|Sen|Rep|Gov|vs|cf)\.|\b(?:e\.g|i\.e)\.|\b(?:[A-Z]\.){2,})\s*$/
 const isSpace = (character: string) => /\s/.test(character)
 
-function sentenceSpans(text: string): { start: number; end: number }[] {
+function sentenceSpans(text: string) {
   const spans: { start: number; end: number }[] = []
   for (const { index, segment } of sentences.segment(text)) {
     const previous = spans[spans.length - 1]
@@ -71,13 +74,13 @@ function selectionError(reason: string, message: string) {
   return new ApiError(httpStatus.BAD_REQUEST, message, { reason })
 }
 
-function sentenceStart(text: string, offset: number): number {
-  return sentenceSpans(text).find(({ end }) => offset < end)?.start ?? text.length
+function sentenceStart(spans: ReturnType<typeof sentenceSpans>, text: string, offset: number): number {
+  return spans.find(({ end }) => offset < end)?.start ?? text.length
 }
 
-function sentenceEnd(text: string, offset: number): number {
+function sentenceEnd(spans: ReturnType<typeof sentenceSpans>, text: string, offset: number): number {
   if (offset === 0) return 0
-  return sentenceSpans(text).find(({ end }) => offset <= end)?.end ?? text.length
+  return spans.find(({ end }) => offset <= end)?.end ?? text.length
 }
 
 function skipSpacesForward(text: string, from: number, to: number): number {
@@ -124,10 +127,13 @@ export function buildPassage(transcript: UnpackTranscriptChunk[], selection: Unp
 
   const pieces = transcript.slice(startIndex, endIndex + 1).flatMap((chunk, i, selected) => {
     const text = chunk.body
+    const isFirst = i === 0
+    const isLast = i === selected.length - 1
+    const spans = isFirst || isLast ? sentenceSpans(text) : []
     let from = 0
     let to = text.length
-    if (i === 0) from = sentenceStart(text, skipSpacesForward(text, selection.startOffset, text.length))
-    if (i === selected.length - 1) to = sentenceEnd(text, skipSpacesBack(text, 0, selection.endOffset))
+    if (isFirst) from = sentenceStart(spans, text, skipSpacesForward(text, selection.startOffset, text.length))
+    if (isLast) to = sentenceEnd(spans, text, skipSpacesBack(text, 0, selection.endOffset))
     from = skipSpacesForward(text, from, to)
     to = skipSpacesBack(text, from, to)
     return from < to ? [{ chunk, from, to, text: text.slice(from, to) }] : []
@@ -151,7 +157,8 @@ export function buildPassage(transcript: UnpackTranscriptChunk[], selection: Unp
 }
 
 /**
- * The transcript around a passage, for the AI model to read but not explain.
+ * The transcript around a passage, for the AI model to read but not explain. That includes the sentences
+ * in the passage's own first and last chunks that fall outside it.
  * @param askedAt - when the participant asked; transcript after this is left out so every request
  *   for the same passage at the same moment sees the same context
  * @returns the surrounding transcript, and `until`, the latest moment it covers
@@ -161,25 +168,35 @@ export async function getPassageContext(
   passage: UnpackPassage,
   askedAt: Date
 ): Promise<{ before: string; after: string; until: Date }> {
-  const firstAt = new Date(passage.pieces[0].chunk.createdAt).getTime()
-  const lastAt = new Date(passage.pieces[passage.pieces.length - 1].chunk.createdAt).getTime()
+  const first = passage.pieces[0].chunk
+  const last = passage.pieces[passage.pieces.length - 1].chunk
+  const firstAt = new Date(first.createdAt).getTime()
+  const lastAt = new Date(last.createdAt).getTime()
   const until = new Date(Math.min(lastAt + UNPACK_CONTEXT_AFTER_SECONDS * 1000, askedAt.getTime()))
   const nearby = await findMessages(
     conversationId,
     'model',
     {
-      channels: 'transcript',
+      channels: TRANSCRIPT_CHANNEL,
       _id: { $nin: passage.pieces.map(({ chunk }) => chunk._id) },
       createdAt: {
         $gte: new Date(firstAt - UNPACK_CONTEXT_BEFORE_SECONDS * 1000),
         $lte: until
       }
     },
-    { select: 'body createdAt', sort: { createdAt: 1 }, lean: true }
+    { select: 'body createdAt', sort: { createdAt: 1, _id: 1 }, lean: true }
   )
+  const leadIn = first.body.slice(0, passage.range.startOffset).trim()
+  const followOn = last.body.slice(passage.range.endOffset).trim()
   return {
-    before: formatTranscript(nearby.filter((chunk) => chunk.createdAt.getTime() < firstAt)),
-    after: formatTranscript(nearby.filter((chunk) => chunk.createdAt.getTime() > lastAt)),
+    before: formatTranscript([
+      ...nearby.filter((chunk) => chunk.createdAt.getTime() < firstAt),
+      ...(leadIn ? [{ createdAt: first.createdAt, body: leadIn }] : [])
+    ]),
+    after: formatTranscript([
+      ...(followOn ? [{ createdAt: last.createdAt, body: followOn }] : []),
+      ...nearby.filter((chunk) => chunk.createdAt.getTime() > lastAt)
+    ]),
     until
   }
 }
