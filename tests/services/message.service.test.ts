@@ -217,6 +217,31 @@ describe('Message service methods', () => {
       expect(answerMessage!.answersPrompt!.toString()).toBe(promptMessage._id.toString())
     })
 
+    // Regression test: conversations on the pseudonym schema is a [String] path (see
+    // pseudonym.schema.ts), not [ObjectId] — the pin-this-conversation check must compare
+    // against those existing string entries without throwing, which an empty array (every
+    // other test here) never actually exercises.
+    test('pins a new conversation onto an active pseudonym that already has other conversations recorded', async () => {
+      const user = await createUser('Busy Bee')
+
+      const priorConversationData = { ...conversationOne, owner: user._id }
+      delete priorConversationData._id
+      const priorConversation = await Conversation.create(priorConversationData)
+      user.pseudonyms[0].conversations.push(priorConversation._id.toString())
+      await user.save()
+
+      const newConversationData = { ...conversationOne, owner: user._id }
+      delete newConversationData._id
+      const newConversation = await Conversation.create(newConversationData)
+
+      await expect(messageService.fetchConversation({ conversation: newConversation._id }, user)).resolves.toBeDefined()
+
+      const updatedUser = await User.findById(user._id)
+      const activePseudo = updatedUser!.pseudonyms.find((p) => p.active)!
+      expect(activePseudo.conversations).toContain(priorConversation._id.toString())
+      expect(activePseudo.conversations).toContain(newConversation._id.toString())
+    })
+
     // Regression test for the real-name feature: a real-name pseudonym entry can
     // scope `conversations` to a room (see userService.createUser) the same way an
     // ordinary pseudonym does, but it must never be picked up by this posting-gate

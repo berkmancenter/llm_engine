@@ -21,6 +21,13 @@ export default function (): AgentCapabilities {
         ]
       }
     ],
-    write: [{ type: 'ownConversation' as const }]
+    write: [{ type: 'ownConversation' as const }],
+    /* Needed for DM reachability during pregame (answering questions asked via DM before the
+       event starts) — previously inferred from having a perMessage trigger, now explicit. This
+       also schedules the periodic/proactive check-in trigger early, which respond() itself
+       guards against running until isPreEventWindowOpen is false (see respond()'s periodic
+       branch) — opting in here without that guard would have it proactively "checking in" on
+       participants before the event has even begun. */
+    activeDuringPhases: ['preEvent']
   }
 }
