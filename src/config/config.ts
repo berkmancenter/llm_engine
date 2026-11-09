@@ -50,7 +50,7 @@ export const parseSystemUsersEnv = (raw: string) =>
       }
     })
 
-const envVarsSchema = Joi.object()
+export const envVarsSchema = Joi.object()
   .keys({
     NODE_ENV: Joi.string().valid('production', 'development', 'test').required(),
     LOG_LEVEL: Joi.string().valid('debug', 'info', 'warn', 'error').allow('').optional(),
@@ -231,6 +231,9 @@ const envVarsSchema = Joi.object()
       .description('Model to use for core system LLM tasks (summaries, fun facts, etc.)'),
     UNPACK_LLM_MODEL: Joi.string()
       .default('us.anthropic.claude-sonnet-4-6')
+      // The Unpacker always calls Bedrock, and these family names resolve to OpenAI and Google models
+      .invalid('gpt', 'gemini')
+      .insensitive()
       .description('Bedrock model ID or family name (such as sonnet) for Unpacker explanations; pick a fast one'),
     IMAGE_GENERATION_LLM_MODEL: Joi.string()
       .default('gemini-3-pro-image')
