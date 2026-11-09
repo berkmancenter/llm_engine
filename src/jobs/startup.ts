@@ -28,6 +28,7 @@ export async function startJobs() {
     await defineJob.conversationCost()
     await defineJob.pollExpired()
     await defineJob.publicInviteResend()
+    await defineJob.unpackPendingAsk()
   }
 }
 

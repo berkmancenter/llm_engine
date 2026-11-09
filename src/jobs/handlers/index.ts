@@ -9,6 +9,7 @@ import pollHandlers from './poll.js'
 import resourceHandlers from './resource.js'
 import topicHandlers from './topic.js'
 import transcriptHandlers from './transcript.js'
+import unpackHandlers from './unpack.js'
 
 const JobHandlers = {
   // Agent handlers
@@ -45,7 +46,10 @@ const JobHandlers = {
   cleanUpTopics: topicHandlers.cleanUpTopics,
 
   // Organizer confirmation handlers
-  expireUnconfirmedConversations: organizerConfirmationHandlers.expireUnconfirmedConversations
+  expireUnconfirmedConversations: organizerConfirmationHandlers.expireUnconfirmedConversations,
+
+  // Unpacker handlers
+  unpackPendingAsk: unpackHandlers.unpackPendingAsk
 }
 
 export default JobHandlers

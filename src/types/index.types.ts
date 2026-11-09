@@ -353,7 +353,7 @@ export interface IUnpackRequest {
 }
 
 // One row per passage, shared by everyone who asks about it
-export interface IUnpackExplanation extends Partial<UnpackPassageSections> {
+export interface IUnpackPassageExplanation extends Partial<UnpackPassageSections> {
   _id: mongoose.Types.ObjectId
   conversation: mongoose.Types.ObjectId
   passageKey: string
@@ -363,9 +363,14 @@ export interface IUnpackExplanation extends Partial<UnpackPassageSections> {
   passage?: { start: Date; end: Date }
   status: UnpackExplanationStatus
   generatingSince?: Date
+  contextUntil?: Date
   createdAt?: Date
   updatedAt?: Date
 }
+
+// A row the AI model has finished: the only kind a card or preview can be built from
+export type ReadyUnpackPassageExplanation = IUnpackPassageExplanation &
+  UnpackPassageSections & { status: 'ready'; passage: { start: Date; end: Date } }
 
 export interface UnpackExplanation {
   type: 'unpack_explanation'

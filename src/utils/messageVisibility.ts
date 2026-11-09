@@ -221,6 +221,7 @@ export interface FindMessagesOptions {
   sort?: Record<string, 1 | -1>
   /** Plain objects instead of documents. */
   lean?: boolean
+  limit?: number
 }
 
 /**
@@ -238,6 +239,7 @@ export async function findMessages(
   let query: any = Message.find({ $and: [filter, { conversation: conversationId }, match] })
   if (options.select) query = query.select(options.select)
   if (options.sort) query = query.sort(options.sort)
+  if (options.limit) query = query.limit(options.limit)
   if (options.lean) return query.lean().exec()
   return query.exec()
 }

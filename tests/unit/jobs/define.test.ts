@@ -21,14 +21,16 @@ describe('job definitions set lockLifetime based on whether the job calls an LLM
     expect(agenda._definitions['batchTranscript - conversation-1'].lockLifetime).toBe(LLM_JOB_LOCK_LIFETIME)
   })
 
-  test('autoStop, summarizePdf, and conversationEvent get the extended lockLifetime', async () => {
+  test('autoStop, summarizePdf, conversationEvent, and unpackPendingAsk get the extended lockLifetime', async () => {
     await defineJob.autoStopConversation('conversation-1')
     await defineJob.summarizePdf()
     await defineJob.conversationEvent()
+    await defineJob.unpackPendingAsk()
 
     expect(agenda._definitions['autoStop - conversation-1'].lockLifetime).toBe(LLM_JOB_LOCK_LIFETIME)
     expect(agenda._definitions['summarize pdf'].lockLifetime).toBe(LLM_JOB_LOCK_LIFETIME)
     expect(agenda._definitions.conversationEvent.lockLifetime).toBe(LLM_JOB_LOCK_LIFETIME)
+    expect(agenda._definitions.unpackPendingAsk.lockLifetime).toBe(LLM_JOB_LOCK_LIFETIME)
   })
 
   test('jobs with no external LLM/embeddings call keep the default lockLifetime', async () => {

@@ -6,15 +6,20 @@ import { formatTime, formatTranscript } from './llmInputFormatters.js'
 import rag, { TRANSCRIPT_COLLECTION_PREFIX } from './rag.js'
 import Conversation from '../../models/conversation.model.js'
 import Topic from '../../models/topic.model.js'
-import UnpackExplanation from '../../models/unpackExplanation.model.js'
+import UnpackPassageExplanation from '../../models/unpackPassageExplanation.model.js'
 import UnpackRequest from '../../models/unpackRequest.model.js'
 
 export const TOPIC_TRANSCRIPT_COLLECTION_PREFIX = 'topic-transcript'
 
-// Unpacker rows quote the transcript, so they go when it does
+/**
+ * Unpacker rows and the cards posted from them quote the transcript, so they go when it does. Run it after
+ * the transcript messages are gone: an Unpacker request that saves a row in between then finds its chunks
+ * missing and removes the row itself.
+ */
 async function deleteUnpackRows(conversationId) {
   await UnpackRequest.deleteMany({ conversation: conversationId })
-  await UnpackExplanation.deleteMany({ conversation: conversationId })
+  await UnpackPassageExplanation.deleteMany({ conversation: conversationId })
+  await Message.deleteMany({ conversation: conversationId, bodyType: 'json', 'body.type': 'unpack_explanation' })
 }
 
 /**
@@ -352,8 +357,6 @@ async function clearTranscript(conversation) {
       logger.warn(`Failed to clear transcript from topic collection ${TOPIC_TRANSCRIPT_COLLECTION_PREFIX}-${topicId}`)
     }
   }
-  await deleteUnpackRows(conversation._id)
-
   // Find all messages for this conversation in transcript channel
   const messagesToDelete = await Message.find({
     conversation,
@@ -366,6 +369,7 @@ async function clearTranscript(conversation) {
   await Message.deleteMany({
     _id: { $in: messagesToDelete }
   })
+  await deleteUnpackRows(conversation._id)
 }
 
 async function deleteTranscript(conversation) {
@@ -390,8 +394,6 @@ async function deleteTranscript(conversation) {
       )
     }
   }
-  await deleteUnpackRows(conversation._id)
-
   // Find all messages for this conversation in transcript channel
   const messagesToDelete = await Message.find({
     conversation,
@@ -404,6 +406,7 @@ async function deleteTranscript(conversation) {
   await Message.deleteMany({
     _id: { $in: messagesToDelete }
   })
+  await deleteUnpackRows(conversation._id)
 }
 
 async function deleteTopicCollection(topic) {

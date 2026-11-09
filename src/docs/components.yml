@@ -358,6 +358,15 @@ components:
           type: integer
           minimum: 0
 
+    UnpackTranscriptPasscode:
+      type: object
+      properties:
+        transcriptPasscode:
+          type: string
+          description: >-
+            The transcript channel's passcode, the same one the client uses to read the transcript.
+            Required when the transcript has one.
+
     UnpackVisual:
       type: object
       required:
@@ -472,14 +481,16 @@ components:
             - selectionBackwards
             - selectionTooLong
             - unpackFailed
+            - wrongPasscode
           description: >-
             Why the request was refused. rateLimited (429), too many passages in the last minute.
             unpackerOff (403), the event's unpacker feature is off. noAssistant (409), the event has
-            no assistant. noPrivateChat (409), the participant has no Private Chat with the assistant.
+            no assistant. wrongPasscode (403), the transcript has a passcode and the request did not
+            give it. noPrivateChat (409), the participant has no Private Chat with the assistant.
             chunkNotInTranscript (400), a chunk ID is not in this event's transcript. offsetPastEnd
             (400), a position is past the end of its chunk. selectionBackwards (400), the selection
             starts after it ends or holds no words. selectionTooLong (400), the widened passage is
-            too long. unpackFailed (503), the AI model call failed; trying again can work. Missing
+            too long. unpackFailed (503), the AI model call failed or ran too long; trying again can work. Missing
             or malformed fields are refused with 400 and no reason.
 
     Pseudonym:

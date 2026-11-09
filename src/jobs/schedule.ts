@@ -136,6 +136,9 @@ const schedule = {
   },
   retryPublicInviteResend: async (runAt: Date, data: { membershipId: string; attempt: number }) => {
     await agenda.schedule(runAt, 'publicInviteResend', data)
+  },
+  unpackPendingAsk: async (runAt: Date, data: { askId: string; attempt: number }) => {
+    await agenda.schedule(runAt, 'unpackPendingAsk', data)
   }
 }
 
