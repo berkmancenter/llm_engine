@@ -129,7 +129,9 @@ describe('buildPassage', () => {
 
     it.each([
       ['a title', 'We asked Dr. Patel about it. Then we left.', 'about it', 'We asked Dr. Patel about it.'],
-      ['a dotted acronym', 'The U.S. Army ran it. Nobody objected.', 'ran it', 'The U.S. Army ran it.']
+      ['a dotted acronym', 'The U.S. Army ran it. Nobody objected.', 'ran it', 'The U.S. Army ran it.'],
+      ['"e.g."', 'Some cities, e.g. Paris, cap rents. Others do not.', 'cap rents', 'Some cities, e.g. Paris, cap rents.'],
+      ['"i.e."', 'One owner, i.e. Bob, signs off. Then it ships.', 'signs off', 'One owner, i.e. Bob, signs off.']
     ])('does not end a sentence after %s', (_name, body, words, expected) => {
       const said = chunk(body, 30)
       const from = offsetOf(body, words)
@@ -239,6 +241,24 @@ describe('getPassageContext', () => {
     expect(after).toContain('Where the speaker was going.')
     const everything = `${before}\n${after}`
     expect(everything).not.toMatch(/Too early|Too late|Group chat|Another event|The passage itself/)
+  })
+
+  it("includes the sentences that share the passage's chunks but fall outside it", async () => {
+    const quotedAt = Date.now() - 5 * 60 * SECOND
+    const quoted = await saveChunk('Setting up the point. The point itself. Where it leads.', quotedAt)
+    const from = offsetOf(quoted.body, 'The point')
+    const passage = buildPassage([quoted], {
+      startMessageId: quoted._id.toString(),
+      startOffset: from,
+      endMessageId: quoted._id.toString(),
+      endOffset: from + 'The point itself.'.length
+    })
+
+    const { before, after } = await getPassageContext(conversationId, passage, new Date())
+
+    expect(before).toContain('Setting up the point.')
+    expect(after).toContain('Where it leads.')
+    expect(`${before}\n${after}`).not.toContain('The point itself.')
   })
 
   it('stops at the moment the participant asked, so a slow request gets the same context', async () => {
