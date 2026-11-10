@@ -459,12 +459,7 @@ export default verify({
       recentTranscript,
       goalPriorities,
       backgroundReading
-    )) as unknown as (InterventionAnalysis & SocraticSlotFields) | null
-
-    if (!analysis) {
-      logger.debug(`${this.agentType} ${this._id}: no intervention opportunity detected`)
-      return []
-    }
+    )) as unknown as InterventionAnalysis & SocraticSlotFields
 
     if (analysis.goalId === 'none') {
       logger.debug(`${this.agentType} ${this._id}: decision returned goal none — no intervention`)

@@ -15,6 +15,17 @@ const mockFn = () => jest.fn<(...args: any[]) => any>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockRunSocraticStage = jest.fn<(...args: any[]) => Promise<any>>()
 
+// runInterventionAnalysis never resolves to null (see interventionHandler.ts) — a below-threshold
+// or shouldIntervene: false decision still comes back as a real analysis object, just with
+// goalId/sharedChatMessage normalized to 'none'/null, so its reasoning survives into the trace.
+const NO_INTERVENTION = {
+  shouldIntervene: false,
+  goalId: 'none',
+  reasoning: 'nothing notable',
+  confidenceScore: 0,
+  sharedChatMessage: null
+}
+
 jest.unstable_mockModule('../src/agents/helpers/socraticPipeline.js', () => ({
   default: mockRunSocraticStage
 }))
@@ -114,7 +125,7 @@ const readingArg = () => mockRunInterventionAnalysis.mock.calls[0][11] as string
 describe('proactiveGroupAgent socratic_probe reading prefetch', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    mockRunInterventionAnalysis.mockResolvedValue(null)
+    mockRunInterventionAnalysis.mockResolvedValue(NO_INTERVENTION)
     mockGetBackgroundContext.mockResolvedValue(PASSAGES)
     mockRunSocraticStage.mockResolvedValue({ message: 'A pipeline question?', source: 'writer' })
   })
@@ -325,7 +336,9 @@ describe('proactiveGroupAgent socratic_probe reading prefetch', () => {
   })
 
   it('builds the query from the transcript when chat is quiet, so a silent chat does not starve the prefetch', async () => {
-    const messages = [chatMessage('Ostrom argues trust emerges from repeated interaction', 5000, { channels: ['transcript'] })]
+    const messages = [
+      chatMessage('Ostrom argues trust emerges from repeated interaction', 5000, { channels: ['transcript'] })
+    ]
 
     await proactiveGroupAgent.respond.call(makeAgent({ messages }), history())
 
@@ -417,7 +430,7 @@ describe('proactiveGroupAgent socratic_probe question pipeline', () => {
   })
 
   it('asks the decision call for slots only when socratic_probe is eligible', async () => {
-    mockRunInterventionAnalysis.mockResolvedValue(null)
+    mockRunInterventionAnalysis.mockResolvedValue(NO_INTERVENTION)
     await proactiveGroupAgent.respond.call(makeAgent({ goals: ['socratic_probe', 'synthesize_discussion'] }), history())
     const withSocratic = mockRunInterventionAnalysis.mock.calls[0][2]
     expect(Object.keys(withSocratic.shape)).toEqual(expect.arrayContaining(['sourceLabel', 'concept', 'loadedWord']))

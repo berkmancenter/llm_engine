@@ -11,6 +11,17 @@ const mockValidateProfessionalism = jest.fn<(...args: any[]) => Promise<boolean>
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockFn = () => jest.fn<(...args: any[]) => any>()
 
+// runInterventionAnalysis never resolves to null (see interventionHandler.ts) — a below-threshold
+// or shouldIntervene: false decision still comes back as a real analysis object, just with
+// goalId/sharedChatMessage normalized to 'none'/null, so its reasoning survives into the trace.
+const NO_INTERVENTION = {
+  shouldIntervene: false,
+  goalId: 'none',
+  reasoning: 'nothing notable',
+  confidenceScore: 0,
+  sharedChatMessage: null
+}
+
 jest.unstable_mockModule('../src/agents/helpers/interventionHandler.js', () => ({
   runInterventionAnalysis: mockRunInterventionAnalysis,
   detectPrivateInterventionOpportunity: mockFn(),
@@ -184,7 +195,7 @@ describe('proactiveGroupAgent respond', () => {
         createdAt: new Date(now.getTime() - 3 * 60 * 1000) // 3 min ago (> 2 min default)
       })
       const agent = makeAgent({ messages: [oldOwnMessage] })
-      mockRunInterventionAnalysis.mockResolvedValue(null)
+      mockRunInterventionAnalysis.mockResolvedValue(NO_INTERVENTION)
 
       await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
 
@@ -200,7 +211,7 @@ describe('proactiveGroupAgent respond', () => {
         createdAt: new Date(now.getTime() - 30 * 1000) // 30 sec ago — would be rate-limited if counted
       })
       const agent = makeAgent({ messages: [otherAgentMessage] })
-      mockRunInterventionAnalysis.mockResolvedValue(null)
+      mockRunInterventionAnalysis.mockResolvedValue(NO_INTERVENTION)
 
       await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
 
@@ -216,7 +227,7 @@ describe('proactiveGroupAgent respond', () => {
         createdAt: new Date(now.getTime() - 30 * 1000)
       })
       const agent = makeAgent({ messages: [invisibleOwnMessage] })
-      mockRunInterventionAnalysis.mockResolvedValue(null)
+      mockRunInterventionAnalysis.mockResolvedValue(NO_INTERVENTION)
 
       await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
 
@@ -258,7 +269,7 @@ describe('proactiveGroupAgent respond', () => {
       const now = new Date()
       const agent = makeAgent({ startTime: new Date(now.getTime() - 10 * 60 * 1000) })
       mockGetTranscript.mockReturnValue('Part-time work is the future.')
-      mockRunInterventionAnalysis.mockResolvedValue(null)
+      mockRunInterventionAnalysis.mockResolvedValue(NO_INTERVENTION)
 
       await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
 
@@ -277,7 +288,7 @@ describe('proactiveGroupAgent respond', () => {
       const agent = makeAgent({ startTime: new Date(now.getTime() - 10 * 60 * 1000) })
       agent.agentConfig.transcriptWindow = 5 // 5 minutes
       mockGetTranscript.mockReturnValue('')
-      mockRunInterventionAnalysis.mockResolvedValue(null)
+      mockRunInterventionAnalysis.mockResolvedValue(NO_INTERVENTION)
 
       await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
 
@@ -290,7 +301,7 @@ describe('proactiveGroupAgent respond', () => {
       const now = new Date()
       const agent = makeAgent({ startTime: new Date(now.getTime() - 20 * 60 * 1000) })
       agent.agentConfig.goalPriorities = { synthesize_discussion: 80 }
-      mockRunInterventionAnalysis.mockResolvedValue(null)
+      mockRunInterventionAnalysis.mockResolvedValue(NO_INTERVENTION)
 
       await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
 
@@ -308,7 +319,7 @@ describe('proactiveGroupAgent respond', () => {
     it('passes undefined goalPriorities through when agentConfig has none set', async () => {
       const now = new Date()
       const agent = makeAgent({ startTime: new Date(now.getTime() - 20 * 60 * 1000) })
-      mockRunInterventionAnalysis.mockResolvedValue(null)
+      mockRunInterventionAnalysis.mockResolvedValue(NO_INTERVENTION)
 
       await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
 

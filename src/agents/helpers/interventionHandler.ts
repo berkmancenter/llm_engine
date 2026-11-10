@@ -121,7 +121,7 @@ export async function runInterventionAnalysis(
   recentTranscript?: string,
   goalPriorities?: Record<string, number>,
   backgroundReading?: string
-): Promise<InterventionAnalysis | null> {
+): Promise<InterventionAnalysis> {
   // Format conversation histories
   const sharedChatMessages = formatMultiUserConversationHistory(sharedChatHistory)
 
@@ -178,7 +178,15 @@ export async function runInterventionAnalysis(
 
   logger.debug(`Intervention opportunity analysis: ${JSON.stringify(analysis, null, 2)}`)
 
-  // Return null if shouldn't intervene or confidence too low.
+  // Below-threshold does NOT return null: the model already ran and its reasoning is real
+  // information about why it declined, same as an explicit goalId: 'none' decision — discarding
+  // it here (as this used to) meant a caller building a trace from the returned analysis could
+  // never see it, even though it's visible on the LLM call's own span. goalId/sharedChatMessage/
+  // directMessage are overridden to 'none'/null/null so this still reads as "don't intervene" to
+  // either caller: proactiveGroupAgent branches on goalId/sharedChatMessage, checkinHandler
+  // (via detectPrivateInterventionOpportunity, which just forwards this return value) branches
+  // on directMessage alone — leaving it untouched would let a model-proposed directMessage
+  // through even when shouldIntervene/confidence said not to.
   // Threshold is raised to 75 when socialSensitivity is 'high'.
   // Per-pattern minConfidence provides an additional floor applied per-call.
   const channelPolicy =
@@ -195,7 +203,11 @@ export async function runInterventionAnalysis(
   )
 
   if (!analysis.shouldIntervene || analysis.confidenceScore < effectiveThreshold) {
-    return null
+    analysis.shouldIntervene = false
+    analysis.goalId = 'none'
+    analysis.sharedChatMessage = null
+    analysis.directMessage = null
+    return analysis as InterventionAnalysis
   }
 
   const renderedUserPrompt = Object.entries(templateVars).reduce(
