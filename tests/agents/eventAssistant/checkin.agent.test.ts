@@ -8,7 +8,8 @@ import {
   loadPartTimeWorkTranscript,
   loadTestTranscript,
   prepareMessagesForAgent,
-  createCheckinConversation
+  createCheckinConversation,
+  respondFiltered
 } from '../../utils/agentTestHelpers.js'
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
 import transcript from '../../../src/agents/helpers/transcript.js'
@@ -78,7 +79,7 @@ describe('checkin handler tests', () => {
       null,
       directChannelNames
     )
-    return defaultAgentTypes.eventAssistant.respond.call(ag, conversationHistory, null)
+    return respondFiltered(defaultAgentTypes.eventAssistant, ag, conversationHistory, null)
   }
 
   function findCheckinForUser(responses, userId) {

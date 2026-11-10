@@ -9,7 +9,8 @@ import {
   createUser,
   loadPartTimeWorkTranscript,
   createMessage,
-  prepareMessagesForAgent
+  prepareMessagesForAgent,
+  respondFiltered
 } from '../../utils/agentTestHelpers.js'
 
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
@@ -107,7 +108,7 @@ describe('proactive group agent integration tests', () => {
           endTime: new Date(startTime.getTime() + 155 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         expect(Array.isArray(responses)).toBe(true)
       },
@@ -131,7 +132,7 @@ describe('proactive group agent integration tests', () => {
           endTime
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
         expect(Array.isArray(responses)).toBe(true)
         expect(getTranscriptSpy).toHaveBeenCalledWith(agent.conversation, 120, expect.any(Date))
       },
@@ -157,7 +158,7 @@ describe('proactive group agent integration tests', () => {
           endTime: new Date(startTime.getTime() + 155 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         expect(Array.isArray(responses)).toBe(true)
       },
@@ -181,7 +182,7 @@ describe('proactive group agent integration tests', () => {
           endTime: new Date(startTime.getTime() + 155 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         expect(Array.isArray(responses)).toBe(true)
       },
@@ -219,7 +220,7 @@ describe('proactive group agent integration tests', () => {
           endTime
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         expect(Array.isArray(responses)).toBe(true)
       },
@@ -261,7 +262,7 @@ describe('proactive group agent integration tests', () => {
           endTime
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         expect(responses.length).toBeGreaterThan(0)
       },
@@ -290,7 +291,7 @@ describe('proactive group agent integration tests', () => {
           endTime: new Date(startTime.getTime() + 300 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         if (responses.length > 0) {
           expect((responses[0].message as { text: string }).text).not.toContain(uniquePhrase)
@@ -334,7 +335,7 @@ describe('proactive group agent integration tests', () => {
           endTime: new Date(startTime.getTime() + 300 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         if (responses.length > 0) {
           expect(responses[0].goalId).toBeDefined()
@@ -367,7 +368,7 @@ describe('proactive group agent integration tests', () => {
           endTime: new Date(startTime.getTime() + 300 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         if (responses.length > 0) {
           const messageText = (responses[0].message as { text: string }).text.toLowerCase()
@@ -404,7 +405,7 @@ describe('proactive group agent integration tests', () => {
           endTime: new Date(startTime.getTime() + 300 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         expect(Array.isArray(responses)).toBe(true)
       },
@@ -443,7 +444,7 @@ describe('proactive group agent integration tests', () => {
           endTime: new Date(startTime.getTime() + 300 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         if (responses.length > 0) {
           const { message: rawMessage } = responses[0]
@@ -510,7 +511,7 @@ describe('proactive group agent integration tests', () => {
           endTime: new Date(startTime.getTime() + 180 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         if (responses.length > 0) {
           const { goalId } = responses[0]
@@ -566,7 +567,7 @@ describe('proactive group agent integration tests', () => {
           endTime: new Date(startTime.getTime() + 420 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         if (responses.length > 0) {
           const { goalId } = responses[0]
@@ -594,7 +595,7 @@ describe('proactive group agent integration tests', () => {
           endTime: new Date(startTime.getTime() + 300 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         if (responses.length > 0) {
           const { message: rawMessage } = responses[0]
@@ -627,7 +628,7 @@ describe('proactive group agent integration tests', () => {
             endTime: new Date(startTime.getTime() + endTimeSeconds * 1000)
           })
 
-          const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+          const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
           if (responses.length > 0) {
             const { goalId } = responses[0]

@@ -1136,6 +1136,18 @@ export async function prepareMessagesForAgent(messages: IMessage[], conversation
   return agent.conversation
 }
 
+/* Calling an agent type's respond() directly (as these tests do, bypassing the real
+   agent.model/index.ts wrapper) skips the filtering that wrapper normally applies before a
+   caller ever sees the result: a response flagged traceOnly carries an agent's reasoning for
+   the LangSmith trace even when it decided not to act, and is never meant to look like a real
+   intervention. Tests asserting on "did it actually say something" need the same filter the
+   real wrapper applies, or a traceOnly response (no message.text) can show up where a real one
+   was expected. */
+export async function respondFiltered(agentType, context, ...args: unknown[]) {
+  const responses = await agentType.respond.call(context, ...args)
+  return responses.filter((r) => !r.traceOnly)
+}
+
 export async function createProactiveGroupAgentConversation(
   conversationObj,
   owner,
