@@ -4,6 +4,11 @@ import ApiError from '../utils/ApiError.js'
 import { BehaviorPolicy, ConversationType, Feature, FeatureConfig, PropertyBinding } from '../types/index.types.js'
 import { isValidPropertyFormat } from './propertyFormats.js'
 
+// Registered here (not left to whichever other module happens to register it, e.g.
+// report.service.ts's own 'eq') since that one is registered inside a function, only once
+// that function has actually run
+handlebars.registerHelper('eq', (a, b) => a === b)
+
 const FACILITATIVE_GOALS = [
   'synthesize_discussion',
   'bridge_topics',

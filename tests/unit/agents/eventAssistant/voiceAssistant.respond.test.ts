@@ -43,7 +43,9 @@ describe('voiceAssistant.respond — agent:responding broadcast', () => {
 
     await voiceAssistant.respond.call(context, { messages: [] }, msg('hey Berkie what time is lunch'))
 
-    expect(broadcastSpy).toHaveBeenCalledWith('conv-1', 'agent-1')
+    // The extracted question (wake phrase stripped, first letter capitalized by
+    // extractVoiceQuestion) — not the raw message body. See voiceAssistant.ts's respond().
+    expect(broadcastSpy).toHaveBeenCalledWith('conv-1', 'agent-1', 'What time is lunch')
   })
 
   it('does not broadcast when the message has no voice trigger at all', async () => {

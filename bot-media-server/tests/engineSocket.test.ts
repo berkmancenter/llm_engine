@@ -56,12 +56,14 @@ function makeHooks(): EngineSocketHooks & {
   onChime: jest.Mock<() => void>
   onThinkingChime: jest.Mock<() => void>
   onAudioChunk: jest.Mock<(chunk: AudioChunk) => void>
+  onQuestion: jest.Mock<(text: string) => void>
 } {
   return {
     onStateChange: jest.fn<(state: 'idle' | 'hand-raised' | 'thinking' | 'speaking') => void>(),
     onChime: jest.fn<() => void>(),
     onThinkingChime: jest.fn<() => void>(),
-    onAudioChunk: jest.fn<(chunk: AudioChunk) => void>()
+    onAudioChunk: jest.fn<(chunk: AudioChunk) => void>(),
+    onQuestion: jest.fn<(text: string) => void>()
   }
 }
 
@@ -164,6 +166,36 @@ describe('engineSocket', () => {
 
     expect(hooks.onStateChange).toHaveBeenCalledWith('thinking')
     expect(hooks.onThinkingChime).toHaveBeenCalledTimes(1)
+  })
+
+  test('agent:responding fires onQuestion with the question llm_engine sent along with it', async () => {
+    const hooks = makeHooks()
+    const { auth } = makeAuth()
+    makeEngineSocket(
+      { llmEngineWsUrl: fakeLlmEngine.url, conversationId: 'conv-1', botName: 'TestBot', auth, tts: fakeTts },
+      hooks
+    )
+
+    const engineSocket = await engineServerSocketPromise
+    engineSocket.emit('agent:responding', { question: 'Hey TestBot, what event is this?' })
+    await wait(20)
+
+    expect(hooks.onQuestion).toHaveBeenCalledWith('Hey TestBot, what event is this?')
+  })
+
+  test('onQuestion fires with an empty string if agent:responding arrives with no question', async () => {
+    const hooks = makeHooks()
+    const { auth } = makeAuth()
+    makeEngineSocket(
+      { llmEngineWsUrl: fakeLlmEngine.url, conversationId: 'conv-1', botName: 'TestBot', auth, tts: fakeTts },
+      hooks
+    )
+
+    const engineSocket = await engineServerSocketPromise
+    engineSocket.emit('agent:responding', {})
+    await wait(20)
+
+    expect(hooks.onQuestion).toHaveBeenCalledWith('')
   })
 
   test('gives up and goes idle if no message:chunk arrives within the thinking timeout', async () => {
