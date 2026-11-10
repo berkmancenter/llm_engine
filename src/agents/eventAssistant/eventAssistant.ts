@@ -877,6 +877,14 @@ export default verify({
     return []
   },
 
+  // Splits the one shared respond() wrapper's trace name so numberCruncher's cost fetcher
+  // (conversationCost.ts, which groups spend by this exact run name) can tell periodic private
+  // check-ins apart from perMessage question-answering — previously indistinguishable under the
+  // bare agentType name shared by every agent type. Question-answering keeps that name as-is.
+  getTraceRunName(userMessage: IMessage | undefined) {
+    return userMessage ? this.agentType : `${this.agentType}:checkin`
+  },
+
   formatTraceInput(_conversationHistory: ConversationHistory, userMessage: IMessage | undefined) {
     const personality = this.agentConfig?.personality ?? (config.enableAgentPersonality ? 'sarcastic-expert' : null)
     if (!userMessage) {
