@@ -191,6 +191,56 @@ describe('professionalismValidator', () => {
     })
   })
 
+  describe('citing a source vs. addressing a person', () => {
+    it('should allow a question citing an author surname from assigned reading', async () => {
+      const message = 'In Okonkwo-Reyes, what role does quota crowding play in how a community forum stays active?'
+      const result = await validateProfessionalism(
+        llm,
+        message,
+        'Building Healthy Online Communities',
+        'socratic_probe',
+        'The group agreed that posting quotas keep a community healthy, with no dissent.'
+      )
+      expect(result).toBe(true)
+    })
+
+    it('should allow a question citing an author with a publication year', async () => {
+      const message = 'Ostrom (1990) complicates that claim — how does her account of commons governance change your answer?'
+      const result = await validateProfessionalism(
+        llm,
+        message,
+        'Governing the Commons',
+        'socratic_probe',
+        'The group converged on top-down rules as the only way to prevent overuse.'
+      )
+      expect(result).toBe(true)
+    })
+
+    it('should allow referencing the event speaker by name', async () => {
+      const message = 'Jessica mentioned handoff design earlier — does the quota approach undercut that?'
+      const result = await validateProfessionalism(
+        llm,
+        message,
+        'Why your company should consider part-time work',
+        'synthesize_discussion',
+        'Jessica is presenting on structuring part-time roles.'
+      )
+      expect(result).toBe(true)
+    })
+
+    it('should still reject a personal remark addressed to someone by name', async () => {
+      const message = 'Love the new haircut, Jessica! Now about that technical debt...'
+      const result = await validateProfessionalism(
+        llm,
+        message,
+        'AI Product Management Best Practices',
+        'PLAY',
+        'Discussion about product roadmaps and prioritization'
+      )
+      expect(result).toBe(false)
+    })
+  })
+
   describe('context-aware validation', () => {
     it('should be more permissive for relationship coaching events', async () => {
       const relationshipContext = {
