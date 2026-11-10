@@ -92,6 +92,21 @@ describe('runInterventionAnalysis threshold handling', () => {
     expect(result.directMessage).toBeNull()
   })
 
+  it('still sets context on a below-threshold decline, same as an above-threshold result', async () => {
+    mockGetChatPromptResponse.mockResolvedValue({
+      shouldIntervene: true,
+      goalId: 'synthesize_discussion',
+      reasoning: 'Low confidence in this read.',
+      sharedChatMessage: 'Anyone want to weigh in?',
+      directMessage: 'Hey, thoughts on this?',
+      confidenceScore: 10
+    })
+
+    const result = await run()
+
+    expect(result.context).toEqual(expect.any(String))
+  })
+
   it('also normalizes when the model itself sets shouldIntervene: false', async () => {
     mockGetChatPromptResponse.mockResolvedValue({
       shouldIntervene: false,

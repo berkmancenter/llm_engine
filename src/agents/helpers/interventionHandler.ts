@@ -202,23 +202,22 @@ export async function runInterventionAnalysis(
     `[interventionHandler] goalId=${analysis.goalId} confidence=${analysis.confidenceScore} threshold=${effectiveThreshold} (policy=${policyThreshold}, patternFloor=${patternFloor})`
   )
 
-  if (!analysis.shouldIntervene || analysis.confidenceScore < effectiveThreshold) {
-    analysis.shouldIntervene = false
-    analysis.goalId = 'none'
-    analysis.sharedChatMessage = null
-    analysis.directMessage = null
-    return analysis as InterventionAnalysis
-  }
-
   const renderedUserPrompt = Object.entries(templateVars).reduce(
     (prompt, [key, value]) =>
       // eslint-disable-next-line security/detect-non-literal-regexp
       prompt.replace(new RegExp(`\\{${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\}`, 'g'), value ?? ''),
     resolvedUserTemplate
   )
-
   const result = analysis as InterventionAnalysis
   result.context = renderedUserPrompt
+
+  if (!analysis.shouldIntervene || analysis.confidenceScore < effectiveThreshold) {
+    result.shouldIntervene = false
+    result.goalId = 'none'
+    result.sharedChatMessage = null
+    result.directMessage = null
+    return result
+  }
 
   return result
 }
