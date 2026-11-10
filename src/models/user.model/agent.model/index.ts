@@ -460,7 +460,11 @@ agentSchema.method('respond', async function (userMessage = null) {
   const tracedRespond = traceable(
     async () => {
       const result = await agentType.respond.call(this, conversationHistory, translatedMsg)
-      actualResponses = result
+      // traceOnly responses exist for the trace (getTraceMetadata/formatTraceOutput below still
+      // see the full, unfiltered `result`) and must never reach the job handler that turns
+      // ordinary responses into real Messages — filtered out here, once, rather than requiring
+      // every job handler that calls respond() to know about this case.
+      actualResponses = result.filter((r: AgentResponse<unknown>) => !r.traceOnly)
 
       // Update metadata with response-dependent data
       if (agentType.getTraceMetadata) {
