@@ -374,7 +374,7 @@ describe('proactiveGroupAgent respond', () => {
       expect((responses[0].message as { text: string }).text).toBe(analysisWithMessage.sharedChatMessage)
     })
 
-    it('returns [] when strict and professionalism check fails', async () => {
+    it('returns a traceOnly response, not a real message, when strict and professionalism check fails', async () => {
       const agent = makeUnratelimitedAgent('strict')
       mockRunInterventionAnalysis.mockResolvedValue(analysisWithMessage)
       mockValidateProfessionalism.mockResolvedValue(false)
@@ -382,10 +382,14 @@ describe('proactiveGroupAgent respond', () => {
       const responses = await proactiveGroupAgent.respond.call(agent, makeConversationHistory())
 
       expect(mockValidateProfessionalism).toHaveBeenCalled()
-      expect(responses).toEqual([])
+      expect(responses).toHaveLength(1)
+      expect(responses[0].traceOnly).toBe(true)
+      expect(responses[0].visible).toBe(false)
+      expect(responses[0].sharedChatMessage).toBeNull()
+      expect((responses[0].message as { reasoning: string }).reasoning).toBe(analysisWithMessage.reasoning)
     })
 
-    it('skips validateProfessionalism when analysis has no sharedChatMessage', async () => {
+    it('skips validateProfessionalism when analysis has no sharedChatMessage, returning a traceOnly response', async () => {
       const agent = makeUnratelimitedAgent('strict')
       mockRunInterventionAnalysis.mockResolvedValue({
         ...analysisWithMessage,
@@ -395,7 +399,9 @@ describe('proactiveGroupAgent respond', () => {
       const responses = await proactiveGroupAgent.respond.call(agent, makeConversationHistory())
 
       expect(mockValidateProfessionalism).not.toHaveBeenCalled()
-      expect(responses).toEqual([])
+      expect(responses).toHaveLength(1)
+      expect(responses[0].traceOnly).toBe(true)
+      expect(responses[0].visible).toBe(false)
     })
   })
 })

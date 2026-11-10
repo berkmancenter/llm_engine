@@ -278,7 +278,8 @@ describe('proactiveGroupAgent socratic_probe reading prefetch', () => {
     )
 
     expect(mockRunInterventionAnalysis).toHaveBeenCalled()
-    expect(responses).toEqual([])
+    expect(responses).toHaveLength(1)
+    expect(responses[0].traceOnly).toBe(true)
   })
 
   it('returns a socratic_probe intervention when passages were retrieved', async () => {
@@ -394,7 +395,9 @@ describe('proactiveGroupAgent socratic_probe question pipeline', () => {
       history()
     )
 
-    expect(responses).toEqual([])
+    expect(responses).toHaveLength(1)
+    expect(responses[0].traceOnly).toBe(true)
+    expect(responses[0].visible).toBe(false)
     expect(mockRunSocraticStage).not.toHaveBeenCalled()
   })
 
@@ -435,7 +438,8 @@ describe('proactiveGroupAgent socratic_probe question pipeline', () => {
 
     const responses = await proactiveGroupAgent.respond.call(makeAgent(), history())
 
-    expect(responses).toEqual([])
+    expect(responses).toHaveLength(1)
+    expect(responses[0].traceOnly).toBe(true)
     expect(mockRunSocraticStage).not.toHaveBeenCalled()
   })
 
@@ -465,7 +469,9 @@ describe('proactiveGroupAgent socratic_probe question pipeline', () => {
     mockRunInterventionAnalysis.mockResolvedValue(decision())
     mockRunSocraticStage.mockResolvedValue(null)
 
-    expect(await proactiveGroupAgent.respond.call(makeAgent(), history())).toEqual([])
+    const responses = await proactiveGroupAgent.respond.call(makeAgent(), history())
+    expect(responses).toHaveLength(1)
+    expect(responses[0].traceOnly).toBe(true)
   })
 
   it('does not run the stage for other goals', async () => {
