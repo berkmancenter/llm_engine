@@ -2,12 +2,7 @@ import { jest } from '@jest/globals'
 import request from 'supertest'
 import httpStatus from 'http-status'
 import mongoose from 'mongoose'
-import setupIntTest from '../utils/setupIntTest.js'
 import waitFor from '../utils/waitFor.js'
-import { insertUsers, participant, userOne } from '../fixtures/user.fixture.js'
-import { participantAccessToken, userOneAccessToken } from '../fixtures/token.fixture.js'
-import { insertTopics } from '../fixtures/topic.fixture.js'
-import { publicTopic } from '../fixtures/conversation.fixture.js'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockGetChatPromptResponse = jest.fn<(...args: any[]) => Promise<any>>()
@@ -24,6 +19,12 @@ jest.unstable_mockModule('../src/agents/helpers/llmChain.js', () => ({
   streamAgentAndReportChunks: jest.fn()
 }))
 
+// The fixtures load the agents, and the agents load llmChain, so they must come after its mock
+const { default: setupIntTest } = await import('../utils/setupIntTest.js')
+const { insertUsers, participant, userOne } = await import('../fixtures/user.fixture.js')
+const { participantAccessToken, userOneAccessToken } = await import('../fixtures/token.fixture.js')
+const { insertTopics } = await import('../fixtures/topic.fixture.js')
+const { publicTopic } = await import('../fixtures/conversation.fixture.js')
 const { default: app } = await import('../../src/app.js')
 const { Agent, Channel, Conversation, Message, UnpackPassageExplanation, UnpackRequest } = await import(
   '../../src/models/index.js'
@@ -37,6 +38,9 @@ const { UNPACK_PREVIEWS_PER_MINUTE, UNPACK_TIMING, UNPACK_WHOLE_CHUNKS_PER_SEND,
   '../../src/services/unpack.service.js'
 )
 const { default: transcript } = await import('../../src/agents/helpers/transcript.js')
+const { getAllConversationTypes, getConversationType, resetConversationTypes, setConversationTypes } = await import(
+  '../../src/conversations/index.js'
+)
 
 jest.setTimeout(30000)
 setupIntTest()
@@ -72,6 +76,7 @@ async function createEvent({
     name: 'Building Reliable Distributed Systems',
     owner: userOne._id,
     topic: publicTopic._id,
+    conversationType: 'eventAssistant',
     enableAgents: true,
     features
   })
@@ -185,6 +190,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await settleBackgroundUnpacks()
   jest.restoreAllMocks()
+  resetConversationTypes()
 })
 
 describe('POST /v1/unpack/:conversationId/preview', () => {
@@ -701,6 +707,25 @@ describe('POST /v1/unpack/:conversationId/preview', () => {
 
     it('refuses an event with no assistant to explain it', async () => {
       const { conversation } = await createEvent({ withBerkie: false })
+      const { quoted } = await seedTranscript(conversation)
+
+      const res = await preview(conversation, selectionIn(quoted)).expect(httpStatus.CONFLICT)
+
+      expect(res.body.reason).toBe('noAssistant')
+    })
+
+    it("answers only as the agent the event's conversation type names for the Unpacker", async () => {
+      const eventType = getConversationType('eventAssistant')!
+      setConversationTypes({
+        ...getAllConversationTypes(),
+        eventAssistant: {
+          ...eventType,
+          features: eventType.features?.map((feature) =>
+            feature.name === 'unpacker' ? { ...feature, respondingAgent: 'backChannelInsights' } : feature
+          )
+        }
+      })
+      const { conversation } = await createEvent()
       const { quoted } = await seedTranscript(conversation)
 
       const res = await preview(conversation, selectionIn(quoted)).expect(httpStatus.CONFLICT)

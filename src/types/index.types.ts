@@ -421,6 +421,9 @@ export interface IOrganizerConfirmation {
   updatedAt?: Date
 }
 
+// Every conversation type that records a live transcript stores it in a channel with this name
+export const TRANSCRIPT_CHANNEL = 'transcript' as const
+
 export const ChannelZodSchema = z.object({
   name: z.string(),
   passcode: z.string().nullable(),
@@ -561,6 +564,8 @@ export interface FeatureConfig {
   prerequisite?: string
   // Whether the participant can control this feature (toggle or slash command). false = runs automatically.
   userControlled: boolean
+  // Agent type that replies to participants who use this feature, for features that answer in its Private Chat
+  respondingAgent?: string
   // Present in /features responses. Absent in static type definitions.
   enabled?: boolean
 }

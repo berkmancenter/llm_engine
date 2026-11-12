@@ -12,7 +12,7 @@ import {
 import Conversation from '../../../src/models/conversation.model.js'
 import UnpackRequest from '../../../src/models/unpackRequest.model.js'
 import { getModelChat } from '../../../src/agents/helpers/getModelChat.js'
-import { buildPassage, explainPassage } from '../../../src/agents/eventAssistant/unpackPassage.js'
+import { buildPassage, explainPassage } from '../../../src/agents/helpers/unpackPassage.js'
 
 jest.setTimeout(120000)
 

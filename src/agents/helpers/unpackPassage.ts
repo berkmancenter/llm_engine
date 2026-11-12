@@ -3,11 +3,16 @@ import mongoose from 'mongoose'
 import { z } from 'zod'
 import ApiError from '../../utils/ApiError.js'
 import { findMessages } from '../../utils/messageVisibility.js'
-import { getChatPromptResponse } from '../helpers/llmChain.js'
-import { formatTranscript } from '../helpers/llmInputFormatters.js'
-import PLAIN_LANGUAGE_TERM_RULES from '../helpers/plainLanguageRules.js'
-import { TRANSCRIPT_CHANNEL } from '../../conversations/eventAssistant.js'
-import { UnpackPassage, UnpackPassageSections, UnpackRange, UnpackTranscriptChunk } from '../../types/index.types.js'
+import { getChatPromptResponse } from './llmChain.js'
+import { formatTranscript } from './llmInputFormatters.js'
+import PLAIN_LANGUAGE_TERM_RULES from './plainLanguageRules.js'
+import {
+  TRANSCRIPT_CHANNEL,
+  UnpackPassage,
+  UnpackPassageSections,
+  UnpackRange,
+  UnpackTranscriptChunk
+} from '../../types/index.types.js'
 
 // Caps what one ask sends to the AI model and what one request can make the server load
 export const UNPACK_PASSAGE_MAX_CHARACTERS = 2000
@@ -56,6 +61,24 @@ const sentences = new Intl.Segmenter('en', { granularity: 'sentence' })
 const ENDS_WITH_ABBREVIATION =
   /(?:\b(?:Dr|Mr|Mrs|Ms|Prof|St|Jr|Sr|Gen|Sen|Rep|Gov|vs|cf)\.|\b(?:e\.g|i\.e)\.|\b(?:[A-Z]\.){2,})\s*$/
 const isSpace = (character: string) => /\s/.test(character)
+
+// An event saved before the switch existed has no entry for it, which means off
+export function isUnpackerEnabled(conversation): boolean {
+  const feature = conversation.features?.find((f) => f.name === 'unpacker')
+  return feature ? feature.enabled !== false : false
+}
+
+export function toPlainText({
+  whatTheyreSaying,
+  whyItMatters,
+  terms
+}: Pick<UnpackPassageSections, 'whatTheyreSaying' | 'whyItMatters' | 'terms'>): string {
+  const sections = [`What they're saying: ${whatTheyreSaying}`, `Why it matters here: ${whyItMatters}`]
+  if (terms.length > 0) {
+    sections.push(`Terms in this passage:\n${terms.map(({ term, text }) => `- ${term}: ${text}`).join('\n')}`)
+  }
+  return sections.join('\n\n')
+}
 
 function sentenceSpans(text: string) {
   const spans: { start: number; end: number }[] = []
