@@ -13,17 +13,19 @@ import {
   buildPassage,
   explainPassage,
   getPassageContext,
+  isUnpackerEnabled,
+  toPlainText,
   UNPACK_CONTEXT_AFTER_SECONDS,
   UNPACK_PASSAGE_MAX_CHARACTERS
-} from '../agents/eventAssistant/unpackPassage.js'
-import { isUnpackerEnabled, toPlainText } from '../agents/eventAssistant/unpackHandler.js'
-import { TRANSCRIPT_CHANNEL } from '../conversations/eventAssistant.js'
+} from '../agents/helpers/unpackPassage.js'
+import { getConversationType } from '../conversations/index.js'
 import schedule from '../jobs/schedule.js'
 import messageService, { agentResponseToMessageData } from './message.service.js'
 import {
   IUnpackPassageExplanation,
   IUnpackRequest,
   ReadyUnpackPassageExplanation,
+  TRANSCRIPT_CHANNEL,
   UnpackDestination,
   UnpackExplanation,
   UnpackPassage,
@@ -57,7 +59,7 @@ export const UNPACK_TIMING = {
 
 interface UnpackEvent {
   conversation
-  berkie
+  assistant
   /** The sender's Private Chat, when the request already looked it up */
   senderPrivateChat?
 }
@@ -116,15 +118,18 @@ function isStale(explanation: IUnpackPassageExplanation) {
   return !explanation.generatingSince || explanation.generatingSince.getTime() < staleBefore
 }
 
-function findBerkie(conversation) {
-  return conversation.agents.find((agent) => agent.agentType === 'eventAssistant')
+function findAssistant(conversation) {
+  const conversationType = conversation.conversationType ? getConversationType(conversation.conversationType) : undefined
+  const respondingAgent = conversationType?.features?.find(({ name }) => name === 'unpacker')?.respondingAgent
+  if (!respondingAgent) return undefined
+  return conversation.agents.find((agent) => agent.agentType === respondingAgent)
 }
 
-function findPrivateChat(conversation, userId: mongoose.Types.ObjectId, berkie) {
+function findPrivateChat(conversation, userId: mongoose.Types.ObjectId, assistant) {
   return Channel.findOne({
     _id: { $in: conversation.channels },
     direct: true,
-    participants: { $all: [userId, berkie._id] }
+    participants: { $all: [userId, assistant._id] }
   })
 }
 
@@ -136,19 +141,19 @@ async function loadEvent(conversationId: string, user, transcriptPasscode?: stri
     throw unpackError(httpStatus.FORBIDDEN, 'unpackerOff', 'The Unpacker is not turned on for this event.')
   }
   await authChannels([{ name: TRANSCRIPT_CHANNEL, passcode: transcriptPasscode }], conversation._id, user)
-  const berkie = findBerkie(conversation)
-  if (!berkie) throw unpackError(httpStatus.CONFLICT, 'noAssistant', 'This event has no assistant to explain the talk.')
-  return { conversation, berkie }
+  const assistant = findAssistant(conversation)
+  if (!assistant) throw unpackError(httpStatus.CONFLICT, 'noAssistant', 'This event has no assistant to explain the talk.')
+  return { conversation, assistant }
 }
 
 async function loadEventForPosting(conversationId: mongoose.Types.ObjectId): Promise<UnpackEvent | null> {
   const conversation = await Conversation.findById(conversationId).populate('agents')
-  const berkie = conversation && findBerkie(conversation)
-  if (!berkie) {
+  const assistant = conversation && findAssistant(conversation)
+  if (!assistant) {
     logger.warn(`unpack: ${conversationId} has no assistant, so no cards were posted`)
     return null
   }
-  return { conversation, berkie }
+  return { conversation, assistant }
 }
 
 /**
@@ -342,13 +347,13 @@ async function postToPrivateChat(event: UnpackEvent, userId: mongoose.Types.Obje
   const known = event.senderPrivateChat
   const channel = known?.participants.some((participant) => participant.equals(userId))
     ? known
-    : await findPrivateChat(event.conversation, userId, event.berkie)
+    : await findPrivateChat(event.conversation, userId, event.assistant)
   if (!channel) {
     throw unpackError(httpStatus.CONFLICT, 'noPrivateChat', 'You have no Private Chat with the assistant in this event.')
   }
   await messageService.newMessageHandler(
-    agentResponseToMessageData({ visible: true, ...response, channels: [channel] }, event.berkie),
-    event.berkie
+    agentResponseToMessageData({ visible: true, ...response, channels: [channel] }, event.assistant),
+    event.assistant
   )
 }
 
@@ -609,7 +614,7 @@ const sendPassage = async (
   transcriptPasscode?: string
 ) => {
   const loaded = await loadEvent(conversationId, user, transcriptPasscode)
-  const senderPrivateChat = await findPrivateChat(loaded.conversation, user._id, loaded.berkie)
+  const senderPrivateChat = await findPrivateChat(loaded.conversation, user._id, loaded.assistant)
   if (!senderPrivateChat) {
     throw unpackError(httpStatus.CONFLICT, 'noPrivateChat', 'You have no Private Chat with the assistant in this event yet.')
   }

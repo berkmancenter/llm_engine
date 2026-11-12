@@ -25,7 +25,7 @@ const {
   UNPACK_CONTEXT_AFTER_SECONDS,
   UNPACK_CONTEXT_BEFORE_SECONDS,
   UNPACK_PASSAGE_MAX_CHARACTERS
-} = await import('../../../../src/agents/eventAssistant/unpackPassage.js')
+} = await import('../../../../src/agents/helpers/unpackPassage.js')
 const { default: Message } = await import('../../../../src/models/message.model.js')
 const { default: PLAIN_LANGUAGE_TERM_RULES } = await import('../../../../src/agents/helpers/plainLanguageRules.js')
 

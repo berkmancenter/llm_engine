@@ -4,7 +4,8 @@
  * open by channel passcode without sign-in; the event page link goes through the login screen.
  */
 import config from '../config/config.js'
-import { CHAT_CHANNEL, MODERATOR_CHANNEL, PREGAME_CHANNEL, TRANSCRIPT_CHANNEL } from '../conversations/eventAssistant.js'
+import { CHAT_CHANNEL, MODERATOR_CHANNEL, PREGAME_CHANNEL } from '../conversations/eventAssistant.js'
+import { TRANSCRIPT_CHANNEL } from '../types/index.types.js'
 
 /** Just enough of a Conversation to build its links; accepts a document or a plain object. */
 export interface LinkableConversation {
