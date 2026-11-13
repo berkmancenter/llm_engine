@@ -2,7 +2,14 @@ import httpStatus from 'http-status'
 import mongoose from 'mongoose'
 import ApiError from './ApiError.js'
 import Conversation from '../models/conversation.model.js'
-import { IConversation } from '../types/index.types.js'
+import { IChannel, IConversation } from '../types/index.types.js'
+
+export function assertChannelPasscode(channel: Pick<IChannel, 'name' | 'passcode'>, passcode?: string) {
+  if (channel.passcode && passcode !== channel.passcode)
+    throw new ApiError(httpStatus.BAD_REQUEST, `Incorrect passcode for channel: ${channel.name}`, {
+      reason: 'wrongPasscode'
+    })
+}
 
 export default async function authChannels(channels, conversation: IConversation | mongoose.Types.ObjectId | string, user?) {
   let allowedChannels
@@ -22,10 +29,7 @@ export default async function authChannels(channels, conversation: IConversation
   for (const channel of channels || []) {
     const allowedChannel = allowedChannels?.find((c) => c.name === channel.name)
     if (!allowedChannel) throw new ApiError(httpStatus.BAD_REQUEST, `No such channel on this conversation: ${channel.name}`)
-    if (allowedChannel.passcode && channel.passcode !== allowedChannel.passcode)
-      throw new ApiError(httpStatus.BAD_REQUEST, `Incorrect passcode for channel: ${channel.name}`, {
-        reason: 'wrongPasscode'
-      })
+    assertChannelPasscode(allowedChannel, channel.passcode)
     if (
       allowedChannel.direct &&
       (!user || !allowedChannel.participants.some((p) => p._id.toString() === user._id.toString()))
