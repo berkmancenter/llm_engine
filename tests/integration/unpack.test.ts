@@ -26,7 +26,7 @@ const { participantAccessToken, userOneAccessToken } = await import('../fixtures
 const { insertTopics } = await import('../fixtures/topic.fixture.js')
 const { publicTopic } = await import('../fixtures/conversation.fixture.js')
 const { default: app } = await import('../../src/app.js')
-const { Agent, Channel, Conversation, Message, UnpackPassageExplanation, UnpackRequest } = await import(
+const { Agent, Channel, Conversation, Message, UnpackPassageExplanation, UnpackRequest, User } = await import(
   '../../src/models/index.js'
 )
 const { default: websocketGateway } = await import('../../src/websockets/websocketGateway.js')
@@ -1326,6 +1326,52 @@ describe('deleting Unpacker rows with the transcript they quote', () => {
     )
   })
 
+  function saveCatchUpSummary(conversation, privateChat, quoted, createdAt = new Date()) {
+    return Message.create({
+      conversation: conversation._id,
+      body: {
+        type: 'catch_up_summary',
+        requestMessage: new mongoose.Types.ObjectId().toString(),
+        chunkIds: [quoted._id.toString()],
+        passage: { start: quoted.createdAt!.toISOString(), end: quoted.createdAt!.toISOString() },
+        earlierSpeech: false,
+        inShort: 'Missing the target uses up the error budget.',
+        whatTheyCovered: ['Error budgets'],
+        comingUp: null,
+        text: 'In short: Missing the target uses up the error budget.'
+      },
+      bodyType: 'json',
+      channels: [privateChat.name],
+      pseudonym: 'Berkie',
+      pseudonymId: new mongoose.Types.ObjectId(),
+      visible: true,
+      createdAt
+    })
+  }
+
+  it('removes catch-up summaries from Private Chat too', async () => {
+    const { conversation, privateChat } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    await saveCatchUpSummary(conversation, privateChat, quoted)
+    jest.spyOn(websocketGateway, 'broadcastMessagesHidden').mockResolvedValue(undefined)
+
+    await transcript.deleteTranscript(conversation)
+
+    expect(await Message.countDocuments({ channels: privateChat.name })).toBe(0)
+  })
+
+  it('removes catch-up summaries older than the retention period on the daily cleanup', async () => {
+    const { conversation, privateChat } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    const longAgo = new Date(Date.now() - 20 * 365 * 24 * 60 * 60 * SECOND)
+    await saveCatchUpSummary(conversation, privateChat, quoted, longAgo)
+    const recent = await saveCatchUpSummary(conversation, privateChat, quoted)
+
+    await JobHandlers.cleanUpTranscripts()
+
+    expect(await Message.find({ channels: privateChat.name }).distinct('_id')).toEqual([recent._id])
+  })
+
   it.each([
     ['the transcript is cleared', (conversation) => transcript.clearTranscript(conversation)],
     ['the transcript is deleted', (conversation) => transcript.deleteTranscript(conversation)]
@@ -1383,5 +1429,59 @@ describe('deleting Unpacker rows with the transcript they quote', () => {
 
     expect(await cardsIn(privateChat)).toHaveLength(0)
     await expectOnlyOtherEventRowsLeft(recentEvent)
+  })
+})
+
+describe('Catch me up, sent as a chat message to Berkie', () => {
+  const catchUp = {
+    inShort: 'Missing the reliability target uses up the budget for mistakes.',
+    whatTheyCovered: ['Every service has a reliability target', 'Missing it stops feature work'],
+    comingUp: null
+  }
+
+  it('posts a catch-up summary to Private Chat and records the request', async () => {
+    const { conversation, berkie, privateChat } = await createEvent()
+    const { quoted, after } = await seedTranscript(conversation)
+    const scheduled = jest.spyOn(schedule, 'agentResponse').mockResolvedValue(undefined)
+    mockGetChatPromptResponse.mockResolvedValueOnce(catchUp)
+
+    // Posting a chat message needs a pseudonym the fixture lacks, and agents ignore messages until activated
+    await User.updateOne(
+      { _id: participant._id },
+      { $push: { pseudonyms: { pseudonym: 'Curious Heron', token: 'participant-token', active: true } } }
+    )
+    await Agent.updateOne({ _id: berkie!._id }, { $set: { active: true } })
+
+    await request(app)
+      .post('/v1/messages')
+      .set('Authorization', `Bearer ${participantAccessToken}`)
+      .send({
+        conversation: conversation._id.toString(),
+        bodyType: 'json',
+        channels: [{ name: privateChat.name, passcode: privateChat.passcode }],
+        body: {
+          type: 'unpack_request',
+          mode: 'lastMinute',
+          text: 'Catch me up',
+          chunkIds: [after._id.toString(), quoted._id.toString()]
+        }
+      })
+      .expect(httpStatus.CREATED)
+    expect(scheduled).toHaveBeenCalledWith(expect.objectContaining({ agentId: berkie!._id }))
+    await JobHandlers.agentResponse({ attrs: { data: scheduled.mock.calls[0][0] } })
+
+    const sent = await Message.findOne({ channels: privateChat.name, 'body.type': 'unpack_request' }).lean()
+    const [reply] = await Message.find({ channels: privateChat.name, 'body.type': 'catch_up_summary' }).lean()
+    expect(reply.body).toMatchObject({
+      requestMessage: sent!._id.toString(),
+      chunkIds: [quoted._id.toString(), after._id.toString()],
+      earlierSpeech: false,
+      ...catchUp
+    })
+    const rows = await UnpackRequest.find({ conversation: conversation._id }).lean()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ mode: 'lastMinute', status: 'sent' })
+    expect(rows[0].user.equals(participant._id)).toBe(true)
+    expect(rows[0].answerMessage!.equals(reply._id)).toBe(true)
   })
 })

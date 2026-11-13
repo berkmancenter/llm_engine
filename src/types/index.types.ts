@@ -397,6 +397,7 @@ export interface UnpackExplanation {
 
 export const CATCH_UP_REFUSAL_REASONS = [
   'noTranscript',
+  'noPassagesSent',
   'rateLimited',
   'chunkNotInTranscript',
   'passageTooLong',
@@ -423,6 +424,7 @@ export interface CatchUpSummary extends CatchUpSummarySections {
 
 export interface CatchUpRefused {
   type: 'catch_up_refused'
+  requestMessage: string
   reason: CatchUpRefusalReason
   text: string
 }

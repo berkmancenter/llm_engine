@@ -7,6 +7,7 @@ import { formatTranscript } from '../helpers/llmInputFormatters.js'
 import PLAIN_LANGUAGE_TERM_RULES from '../helpers/plainLanguageRules.js'
 import UnpackRequest from '../../models/unpackRequest.model.js'
 import logger from '../../config/logger.js'
+import { findMessages } from '../../utils/messageVisibility.js'
 import {
   AgentResponse,
   CatchUpRefusalReason,
@@ -16,7 +17,7 @@ import {
   IChannel,
   UnpackTranscriptChunk
 } from '../../types/index.types.js'
-import { isUnpackerEnabled } from '../helpers/unpackPassage.js'
+import { chunksStillSaved, isUnpackerEnabled, TRANSCRIPT_TEXT_CHUNKS } from '../helpers/unpackPassage.js'
 
 // Transcript chunks only store when the speaker finished, so this compares chunk end times
 export const UNPACK_LAST_MINUTE_WINDOW_SECONDS = 60
@@ -30,14 +31,15 @@ const CATCH_UP_MAX_OUTPUT_TOKENS = 1000
 export const UNPACK_REPLIES: Record<CatchUpRefusalReason, string> = {
   noTranscript:
     "I haven't caught any of the talk yet, so there's nothing to catch you up on. Try again once the speaker has said a bit more.",
+  noPassagesSent: "I didn't get any part of the talk to catch you up on. Please try again in a moment.",
   rateLimited:
     "Let's give the speaker a little time to say more. Ask me again in a minute and I'll catch you up on what's new.",
   chunkNotInTranscript: "I couldn't find that part of the talk in this event's transcript. Please try again.",
   passageTooLong: "That's more of the talk than I can catch you up on at once. Please try again in a moment.",
-  unpackFailed: "Sorry, I couldn't unpack that just now. Please try again in a moment."
+  unpackFailed: "Sorry, I couldn't catch you up just now. Please try again in a moment."
 }
 
-const EARLIER_SPEECH_NOTE = 'Nothing was said in the last 60 seconds, so this covers what was said just before.'
+const EARLIER_SPEECH_NOTE = `Nothing was said in the last ${UNPACK_LAST_MINUTE_WINDOW_SECONDS} seconds, so this covers what was said just before.`
 
 export const CATCH_UP_SYSTEM_PROMPT = `You catch up a participant at a live event who lost track of the talk. You get the event topic, a note on when the passage was said, and a short passage of the live transcript. Transcription is automatic, so expect missing words and misheard terms, and work out what the speaker most likely meant.
 
@@ -61,8 +63,7 @@ const CATCH_UP_USER_TEMPLATE = `## Event topic:
 {transcript}`
 
 const RECENT_SPEECH_TIMING = 'The passage is the last minute of the talk, up to when the participant asked.'
-const EARLIER_SPEECH_TIMING =
-  'Nothing was said in the last 60 seconds before the participant asked, so this passage is from a little earlier.'
+const EARLIER_SPEECH_TIMING = `Nothing was said in the last ${UNPACK_LAST_MINUTE_WINDOW_SECONDS} seconds before the participant asked, so this passage is from a little earlier.`
 
 // Passage asks and Group Chat posts go through the unpack endpoints, never a chat message
 const unpackRequestBodySchema = z.object({
@@ -75,7 +76,7 @@ const unpackRequestBodySchema = z.object({
 
 const catchUpSummarySchema = z.object({
   inShort: z.string(),
-  whatTheyCovered: z.array(z.string()),
+  whatTheyCovered: z.array(z.string().min(1)).min(1),
   comingUp: z.string().nullable()
 })
 
@@ -83,18 +84,26 @@ export function isUnpackRequest(message): boolean {
   return message?.bodyType === 'json' && message?.body?.type === 'unpack_request'
 }
 
-function refusal(reason: CatchUpRefusalReason, channels: IChannel[]): AgentResponse<CatchUpRefused> {
+function refusal(reason: CatchUpRefusalReason, userMessage, channels: IChannel[]): AgentResponse<CatchUpRefused> {
   return {
     visible: true,
-    message: { type: 'catch_up_refused', reason, text: UNPACK_REPLIES[reason] },
+    message: {
+      type: 'catch_up_refused',
+      requestMessage: userMessage._id.toString(),
+      reason,
+      text: UNPACK_REPLIES[reason]
+    },
     messageType: 'json',
     channels
   }
 }
 
 function catchUpPlainText({ inShort, whatTheyCovered, comingUp }: CatchUpSummarySections, earlierSpeech: boolean) {
-  const sections = [`In short: ${inShort}`, `What they covered:\n${whatTheyCovered.map((point) => `- ${point}`).join('\n')}`]
+  const sections = [`In short: ${inShort}`]
   if (earlierSpeech) sections.unshift(EARLIER_SPEECH_NOTE)
+  if (whatTheyCovered.length > 0) {
+    sections.push(`What they covered:\n${whatTheyCovered.map((point) => `- ${point}`).join('\n')}`)
+  }
   if (comingUp) sections.push(`Coming up: ${comingUp}`)
   return sections.join('\n\n')
 }
@@ -110,34 +119,52 @@ function receivedAt(message): number {
   return createdAt >= idTime && createdAt < idTime + 2000 ? createdAt : idTime
 }
 
-// Counts request messages, saved before any job runs, so quick repeat taps can't all get through
+/**
+ * Counts request messages, saved before any job runs, so quick repeat taps can't all get through. Requests
+ * Berkie refused or couldn't parse never reached the AI model, so they don't count against a retry.
+ */
 function isRateLimited(conversation, userMessage, askedAt: Date): boolean {
   const windowStart = askedAt.getTime() - 60 * 1000
+  const refused = new Set(
+    (conversation.messages ?? [])
+      .filter((message) => message.bodyType === 'json' && message.body?.type === 'catch_up_refused')
+      .map((message) => message.body.requestMessage)
+  )
   const earlierRequests = (conversation.messages ?? []).filter((message) => {
     if (!isUnpackRequest(message) || message._id.equals(userMessage._id)) return false
+    if (refused.has(message._id.toString()) || !unpackRequestBodySchema.safeParse(message.body).success) return false
     const sentAt = receivedAt(message)
     return message.owner?._id?.equals(userMessage.owner) && sentAt >= windowStart && sentAt <= askedAt.getTime()
   })
   return earlierRequests.length >= UNPACK_REQUESTS_PER_MINUTE
 }
 
-function findTranscriptChunks(conversation, chunkIds: string[]): UnpackTranscriptChunk[] | null {
-  const transcript = new Map<string, UnpackTranscriptChunk>(
-    (conversation.messages ?? [])
-      .filter((message) => message.channels?.includes('transcript'))
-      .map((message) => [message._id.toString(), message])
+async function findTranscriptChunks(conversationId, chunkIds: string[]): Promise<UnpackTranscriptChunk[] | null> {
+  const uniqueIds = [...new Set(chunkIds)]
+  if (!uniqueIds.every((id) => mongoose.isValidObjectId(id))) return null
+  const chunks = await findMessages(
+    conversationId,
+    'model',
+    { _id: { $in: uniqueIds }, ...TRANSCRIPT_TEXT_CHUNKS },
+    { select: 'body createdAt', sort: { createdAt: 1, _id: 1 }, lean: true }
   )
-  const chunks = [...new Set(chunkIds)].map((id) => transcript.get(id))
-  if (chunks.some((chunk) => !chunk)) return null
-  return (chunks as UnpackTranscriptChunk[]).sort(
-    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  return chunks.length === uniqueIds.length ? chunks : null
+}
+
+async function latestTranscriptEnd(conversationId, askedAt: Date): Promise<Date | null> {
+  const [latest] = await findMessages(
+    conversationId,
+    'model',
+    { ...TRANSCRIPT_TEXT_CHUNKS, createdAt: { $lte: askedAt } },
+    { select: 'createdAt', sort: { createdAt: -1 }, limit: 1, lean: true }
   )
+  return latest ? new Date(latest.createdAt) : null
 }
 
 /**
  * Asks the AI model for a catch-up summary of a few transcript chunks.
- * @param earlierSpeech - true when the chunks ended over a minute before the participant asked, so the
- *   summary must not present them as just said
+ * @param earlierSpeech - true when nothing in the transcript ended in the minute before the participant
+ *   asked, so the summary must not present the chunks as just said
  */
 export async function summarizeCatchUp(
   llm,
@@ -193,19 +220,24 @@ export default async function handleUnpackRequest(agent, userMessage): Promise<A
 
   // The job queue can lag, so time counts from when the participant asked, not now
   const askedAt = new Date(receivedAt(userMessage))
-  if (isRateLimited(conversation, userMessage, askedAt)) return [refusal('rateLimited', channels)]
-  if (request.chunkIds.length === 0) return [refusal('noTranscript', channels)]
+  if (isRateLimited(conversation, userMessage, askedAt)) return [refusal('rateLimited', userMessage, channels)]
 
-  const chunks = findTranscriptChunks(conversation, request.chunkIds)
+  const latestEnd = await latestTranscriptEnd(conversation._id, askedAt)
+  if (request.chunkIds.length === 0) {
+    return [refusal(latestEnd ? 'noPassagesSent' : 'noTranscript', userMessage, channels)]
+  }
+
+  const chunks = await findTranscriptChunks(conversation._id, request.chunkIds)
   if (!chunks) {
     logger.warn(`unpack: request ${userMessage._id} named a chunk outside ${conversation._id}'s transcript`)
-    return [refusal('chunkNotInTranscript', channels)]
+    return [refusal('chunkNotInTranscript', userMessage, channels)]
   }
   const quote = chunks.map((chunk) => chunk.body).join(' ')
-  if (quote.length > UNPACK_CATCH_UP_MAX_CHARACTERS) return [refusal('passageTooLong', channels)]
+  if (quote.length > UNPACK_CATCH_UP_MAX_CHARACTERS) return [refusal('passageTooLong', userMessage, channels)]
 
-  const newestEndedAt = new Date(chunks[chunks.length - 1].createdAt).getTime()
-  const earlierSpeech = askedAt.getTime() - newestEndedAt > UNPACK_LAST_MINUTE_WINDOW_SECONDS * 1000
+  // A page that stopped updating can send old chunks while the speaker is still talking
+  const earlierSpeech =
+    latestEnd !== null && askedAt.getTime() - latestEnd.getTime() > UNPACK_LAST_MINUTE_WINDOW_SECONDS * 1000
 
   let sections: CatchUpSummarySections
   try {
@@ -213,7 +245,7 @@ export default async function handleUnpackRequest(agent, userMessage): Promise<A
     sections = await summarizeCatchUp(llm, { topic: conversation.name, chunks, earlierSpeech })
   } catch (error) {
     logger.error(`unpack: AI model call failed for request ${userMessage._id} in ${conversation._id}`, error)
-    return [refusal('unpackFailed', channels)]
+    return [refusal('unpackFailed', userMessage, channels)]
   }
 
   const chunkIds = chunks.map((chunk) => chunk._id)
@@ -225,7 +257,7 @@ export default async function handleUnpackRequest(agent, userMessage): Promise<A
     chunkIds: chunkIds.map((id) => id.toString()),
     passage: {
       start: new Date(chunks[0].createdAt).toISOString(),
-      end: new Date(newestEndedAt).toISOString()
+      end: new Date(chunks[chunks.length - 1].createdAt).toISOString()
     },
     earlierSpeech,
     ...sections,
@@ -233,8 +265,9 @@ export default async function handleUnpackRequest(agent, userMessage): Promise<A
   }
 
   // Written before the job saves the reply, so a failed reply save leaves answerMessage pointing at nothing
+  let row
   try {
-    await UnpackRequest.create({
+    row = await UnpackRequest.create({
       conversation: conversation._id,
       user: userMessage.owner,
       mode: request.mode,
@@ -247,6 +280,12 @@ export default async function handleUnpackRequest(agent, userMessage): Promise<A
     })
   } catch (error) {
     logger.error(`unpack: could not record request ${userMessage._id} in ${conversation._id}`, error)
+  }
+
+  // The transcript can be cleared during the AI call, after its cleanup already ran
+  if (!(await chunksStillSaved(conversation._id, chunkIds))) {
+    if (row) await UnpackRequest.deleteOne({ _id: row._id })
+    return [refusal('chunkNotInTranscript', userMessage, channels)]
   }
 
   return [{ visible: true, message, messageType: 'json', channels, messageId: answerId }]
