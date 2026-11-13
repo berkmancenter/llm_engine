@@ -23,7 +23,8 @@ import { chunksStillSaved, isUnpackerEnabled, TRANSCRIPT_TEXT_CHUNKS } from '../
 import ApiError from '../../utils/ApiError.js'
 import { assertChannelPasscode } from '../../utils/authChannels.js'
 
-// Transcript chunks only store when the speaker finished, so this compares chunk end times
+// Transcript chunks only store when the speaker finished, so this compares chunk end times.
+// Clients pick a request's chunks with this same window, so change it there too.
 export const UNPACK_LAST_MINUTE_WINDOW_SECONDS = 60
 // Each request is one AI model call, so this caps what one participant can spend
 export const UNPACK_REQUESTS_PER_MINUTE = 3

@@ -250,7 +250,8 @@ components:
           type: array
           description: >-
             IDs of the transcript messages to summarize, in any order. Usually the chunks that ended
-            within 60 seconds of the newest chunk. Send an empty list when the event has no
+            within 60 seconds of the newest chunk the participant was shown, the same window the
+            server uses for earlierSpeech. Send an empty list when the event has no
             transcript yet. When the chunks hold more than 3,000 characters, the oldest are left out
             until the rest fit.
           maxItems: 50
@@ -391,8 +392,9 @@ components:
         earlierSpeech:
           type: boolean
           description: >-
-            True when the newest chunk ended over 60 seconds before the request arrived, so the
-            summary covers speech from before the last minute.
+            True when no transcript chunk ended in the 60 seconds before the request arrived, so the
+            summary covers speech from before the last minute. A participant whose page is behind
+            gets false while the speaker is still talking.
         inShort:
           type: string
           description: Two or three sentences on what the speaker said.
