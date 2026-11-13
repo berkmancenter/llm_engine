@@ -2,6 +2,21 @@ import agenda from './index.js'
 import { ConversationPhase } from '../types/index.types.js'
 
 const schedule = {
+  retryArchiveEvent: async (conversationId: string) => {
+    const jobs = await agenda.jobs({ name: 'archiveEvent', 'data.conversationId': conversationId })
+    for (const job of jobs) {
+      if (!['failed', 'skipped'].includes(job.attrs.data.status)) continue
+      job.attrs.data = { conversationId, status: 'queued', attempts: 0 }
+      job.schedule(new Date())
+      await job.save()
+    }
+  },
+  archiveEvent: async (conversationId: string) => {
+    const job = agenda.create('archiveEvent', { conversationId, status: 'queued', attempts: 0 })
+    job.unique({ 'data.conversationId': conversationId }, { insertOnly: true })
+    job.schedule(new Date())
+    await job.save()
+  },
   /* periodicAgent/cronAgent share one job name across every agent (see define.ts), so the
      recurring-schedule identity has to come from data.agentId rather than from the name.
      agenda.every() can't express that: its upsert key is {name, type:'single'} with no data
