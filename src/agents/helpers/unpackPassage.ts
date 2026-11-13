@@ -97,6 +97,19 @@ function sentenceSpans(text: string) {
 }
 
 /** A refusal with a `reason` the client can match on, since several refusals share a status code. */
+export async function chunksStillSaved(
+  conversationId: mongoose.Types.ObjectId,
+  chunkIds: mongoose.Types.ObjectId[]
+): Promise<boolean> {
+  const saved = await findMessages(
+    conversationId,
+    'model',
+    { _id: { $in: chunkIds }, channels: TRANSCRIPT_CHANNEL },
+    { select: '_id', lean: true }
+  )
+  return saved.length === chunkIds.length
+}
+
 export function unpackError(status: number, reason: string, message: string) {
   return new ApiError(status, message, { reason })
 }
