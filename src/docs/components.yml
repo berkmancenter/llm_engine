@@ -251,7 +251,8 @@ components:
           description: >-
             IDs of the transcript messages to summarize, in any order. Usually the chunks that ended
             within 60 seconds of the newest chunk. Send an empty list when the event has no
-            transcript yet. Together the chunks can hold at most 3,000 characters.
+            transcript yet. When the chunks hold more than 3,000 characters, the oldest are left out
+            until the rest fit.
           items:
             type: string
         transcriptPasscode:
@@ -368,7 +369,9 @@ components:
           description: ID of the participant's request message.
         chunkIds:
           type: array
-          description: IDs of the transcript messages that were summarized, oldest first.
+          description: >-
+            IDs of the transcript messages that were summarized, oldest first. When the request named
+            more than 3,000 characters of transcript, only the newest chunks that fit are listed.
           items:
             type: string
         passage:
@@ -437,8 +440,8 @@ components:
             rateLimited, the participant already had 3 requests in the last minute that were not
             refused. chunkNotInTranscript, a chunk ID is not a transcript message of this event, or
             the transcript was deleted while the summary was being written. passageTooLong, the
-            chunks hold more than 3,000 characters. unpackFailed, the AI model call failed; trying
-            again can work.
+            newest chunk alone holds more than 3,000 characters. unpackFailed, the AI model call
+            failed; trying again can work.
         text:
           type: string
           description: A short reply to show the participant.

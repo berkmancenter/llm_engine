@@ -172,6 +172,19 @@ async function findTranscriptChunks(conversationId, chunkIds: string[]): Promise
   return chunks.length === uniqueIds.length ? chunks : null
 }
 
+// A catch-up is about what was said last, so the oldest chunks are the ones left out
+function newestChunksThatFit(chunks: UnpackTranscriptChunk[]): UnpackTranscriptChunk[] {
+  const kept: UnpackTranscriptChunk[] = []
+  // Starts at -1 because the quote joins chunks with one space fewer than there are chunks
+  let quoteLength = -1
+  for (const chunk of [...chunks].reverse()) {
+    quoteLength += chunk.body.length + 1
+    if (quoteLength > UNPACK_CATCH_UP_MAX_CHARACTERS) break
+    kept.unshift(chunk)
+  }
+  return kept
+}
+
 async function latestTranscriptEnd(conversationId, askedAt: Date): Promise<Date | null> {
   const [latest] = await findMessages(
     conversationId,
@@ -248,13 +261,14 @@ export default async function handleUnpackRequest(agent, userMessage): Promise<A
     return [refusal(latestEnd ? 'noPassagesSent' : 'noTranscript', userMessage, channels)]
   }
 
-  const chunks = await findTranscriptChunks(conversation._id, request.chunkIds)
-  if (!chunks) {
+  const namedChunks = await findTranscriptChunks(conversation._id, request.chunkIds)
+  if (!namedChunks) {
     logger.warn(`unpack: request ${userMessage._id} named a chunk outside ${conversation._id}'s transcript`)
     return [refusal('chunkNotInTranscript', userMessage, channels)]
   }
+  const chunks = newestChunksThatFit(namedChunks)
+  if (chunks.length === 0) return [refusal('passageTooLong', userMessage, channels)]
   const quote = chunks.map((chunk) => chunk.body).join(' ')
-  if (quote.length > UNPACK_CATCH_UP_MAX_CHARACTERS) return [refusal('passageTooLong', userMessage, channels)]
 
   // A page that stopped updating can send old chunks while the speaker is still talking
   const earlierSpeech =
