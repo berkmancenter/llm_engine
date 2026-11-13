@@ -631,6 +631,16 @@ describe('Event Assistant routing', () => {
     })
   })
 
+  it.each([
+    ['without chunkIds', { chunkIds: undefined }],
+    ['whose chunkIds is not a list', { chunkIds: 'not-a-list' }],
+    ['with a mode the server does not know', { mode: 'lastHour' }]
+  ])('rejects an unpack request %s before it is saved', async (_name, body) => {
+    const request = unpackMessage({ transcriptPasscode: TRANSCRIPT_PASSCODE, ...body })
+
+    await expect(eventAssistant.evaluate.call(buildAgent(), request)).rejects.toMatchObject({ statusCode: 400 })
+  })
+
   it('accepts an unpack request without a passcode when the transcript has none', async () => {
     const request = unpackMessage()
 

@@ -1,3 +1,4 @@
+import httpStatus from 'http-status'
 import mongoose from 'mongoose'
 import { z } from 'zod'
 import config from '../../config/config.js'
@@ -19,6 +20,7 @@ import {
   UnpackTranscriptChunk
 } from '../../types/index.types.js'
 import { chunksStillSaved, isUnpackerEnabled, TRANSCRIPT_TEXT_CHUNKS } from '../helpers/unpackPassage.js'
+import ApiError from '../../utils/ApiError.js'
 import { assertChannelPasscode } from '../../utils/authChannels.js'
 
 // Transcript chunks only store when the speaker finished, so this compares chunk end times
@@ -87,12 +89,17 @@ export function isUnpackRequest(message): boolean {
 }
 
 /**
- * Checks a catch-up request's transcript passcode, the same check the passage endpoint makes, and
- * returns the request without it so the passcode is never saved in chat history.
- * @throws ApiError 400 with reason wrongPasscode when the passcode is missing or wrong
+ * Checks a catch-up request's body and transcript passcode while it is being posted, the same checks
+ * the passage endpoint makes, and returns it without the passcode so that is never saved in chat history.
+ * @throws ApiError 400 for a malformed body, or with reason wrongPasscode for a missing or wrong passcode
  */
-export function withoutTranscriptPasscode(conversation, userMessage) {
+export function validateUnpackRequest(conversation, userMessage) {
   const { transcriptPasscode, ...body } = userMessage.body
+  const parsed = unpackRequestBodySchema.safeParse(body)
+  if (!parsed.success) {
+    const problems = parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(', ')
+    throw new ApiError(httpStatus.BAD_REQUEST, `Invalid catch-up request: ${problems}`)
+  }
   const transcript = conversation.channels?.find((channel) => channel.name === TRANSCRIPT_CHANNEL)
   if (transcript) assertChannelPasscode(transcript, transcriptPasscode)
   return { ...userMessage, body }

@@ -1510,4 +1510,29 @@ describe('Catch me up, sent as a chat message to Berkie', () => {
     expect(scheduled).not.toHaveBeenCalled()
     expect(await Message.countDocuments({ channels: privateChat.name })).toBe(0)
   })
+
+  it('refuses a catch-up request without chunkIds, and saves nothing', async () => {
+    const { conversation, berkie, privateChat } = await createEvent()
+    const scheduled = jest.spyOn(schedule, 'agentResponse').mockResolvedValue(undefined)
+    await readyToPost(berkie)
+
+    await request(app)
+      .post('/v1/messages')
+      .set('Authorization', `Bearer ${participantAccessToken}`)
+      .send({
+        conversation: conversation._id.toString(),
+        bodyType: 'json',
+        channels: [{ name: privateChat.name, passcode: privateChat.passcode }],
+        body: {
+          type: 'unpack_request',
+          mode: 'lastMinute',
+          text: 'Catch me up',
+          transcriptPasscode: transcriptPasscodes.get(conversation._id.toString())
+        }
+      })
+      .expect(httpStatus.BAD_REQUEST)
+
+    expect(scheduled).not.toHaveBeenCalled()
+    expect(await Message.countDocuments({ channels: privateChat.name })).toBe(0)
+  })
 })
