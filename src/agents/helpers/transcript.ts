@@ -50,6 +50,16 @@ async function deleteUnpackRows(conversationId) {
 }
 
 /**
+ * Deletes Unpacker rows and cards created before `cutoff`, across all events. The retention job runs this every
+ * time, so rows a failed transcript deletion left behind still go once they age past the cutoff.
+ */
+async function deleteUnpackRowsBefore(cutoff: Date) {
+  await UnpackRequest.deleteMany({ createdAt: { $lt: cutoff } })
+  await UnpackPassageExplanation.deleteMany({ createdAt: { $lt: cutoff } })
+  await Message.deleteMany({ bodyType: 'json', 'body.type': 'unpack_explanation', createdAt: { $lt: cutoff } })
+}
+
+/**
  * Convert time string into a Date object, inferring from the startTime
  */
 function toDate(timeString, startTime) {
@@ -457,6 +467,7 @@ export default {
   deleteTranscript,
   deleteTopicCollection,
   deleteUnpackRows,
+  deleteUnpackRowsBefore,
   deleteUnpackCards,
   getTranscriptMessages,
   getTranscript

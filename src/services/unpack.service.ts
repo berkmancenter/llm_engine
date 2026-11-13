@@ -1,3 +1,4 @@
+import { MemoryStore, type Options } from 'express-rate-limit'
 import httpStatus from 'http-status'
 import mongoose from 'mongoose'
 import config from '../config/config.js'
@@ -7,14 +8,18 @@ import ApiError from '../utils/ApiError.js'
 import assertMembership from '../utils/assertMembership.js'
 import authChannels from '../utils/authChannels.js'
 import { findMessages } from '../utils/messageVisibility.js'
-import { getBedrockChat } from '../agents/helpers/getModelChat.js'
+import sleep from '../utils/sleep.js'
+import { getBedrockChat, resolveBedrockModel } from '../agents/helpers/getModelChat.js'
 import transcript from '../agents/helpers/transcript.js'
 import {
   buildPassage,
   explainPassage,
   getPassageContext,
   isUnpackerEnabled,
+  selectionTooLong,
   toPlainText,
+  TRANSCRIPT_TEXT_CHUNKS,
+  unpackError,
   UNPACK_CONTEXT_AFTER_SECONDS,
   UNPACK_PASSAGE_MAX_CHARACTERS
 } from '../agents/helpers/unpackPassage.js'
@@ -23,20 +28,22 @@ import schedule from '../jobs/schedule.js'
 import messageService, { agentResponseToMessageData } from './message.service.js'
 import {
   IUnpackPassageExplanation,
-  IUnpackRequest,
   ReadyUnpackPassageExplanation,
-  TRANSCRIPT_CHANNEL,
   UnpackDestination,
+  UnpackEvent,
   UnpackExplanation,
   UnpackPassage,
   UnpackRange,
-  UnpackTranscriptChunk
+  UnpackTranscriptChunk,
+  TRANSCRIPT_CHANNEL
 } from '../types/index.types.js'
 
 // Higher than the "Catch me up" limit: someone reading along may pick several passages in a row
-export const UNPACK_PREVIEWS_PER_MINUTE = 10
-// Each whole-chunk explanation is an AI model call that no participant waits on or is rate limited for
-export const UNPACK_WHOLE_CHUNKS_PER_SEND = 3
+export const UNPACK_MODEL_CALLS_PER_MINUTE = 10
+const modelCallCounts = new MemoryStore()
+modelCallCounts.init({ windowMs: 60 * 1000 } as Options)
+// Resolved here so a model that doesn't run on Bedrock stops the server at startup, not every preview
+const UNPACK_MODEL = resolveBedrockModel(config.unpackLLMModel)
 const UNPACK_WAIT_POLL_MS = 250
 const UNPACK_WAIT_SLOW_POLL_MS = 1000
 const UNPACK_WAIT_FAST_POLLING_MS = 1000
@@ -57,27 +64,13 @@ export const UNPACK_TIMING = {
   pendingCheckDelayMs: 90 * 1000
 }
 
-interface UnpackEvent {
-  conversation
-  assistant
-  /** The sender's Private Chat, when the request already looked it up */
-  senderPrivateChat?
-}
-
 const backgroundWork = new Set<Promise<unknown>>()
-
-function unpackError(status: number, reason: string, message: string) {
-  return new ApiError(status, message, { reason })
-}
 
 const unpackFailed = () =>
   unpackError(httpStatus.SERVICE_UNAVAILABLE, 'unpackFailed', "The assistant couldn't explain that just now. Try again.")
 
 const transcriptGone = () =>
   unpackError(httpStatus.BAD_REQUEST, 'chunkNotInTranscript', 'The transcript this passage quotes was deleted.')
-
-const selectionTooLong = () =>
-  unpackError(httpStatus.BAD_REQUEST, 'selectionTooLong', `The passage is over ${UNPACK_PASSAGE_MAX_CHARACTERS} characters.`)
 
 function track(work: Promise<unknown>) {
   const tracked = work.catch(() => undefined).finally(() => backgroundWork.delete(tracked))
@@ -140,7 +133,7 @@ async function loadEvent(conversationId: string, user, transcriptPasscode?: stri
   if (!isUnpackerEnabled(conversation)) {
     throw unpackError(httpStatus.FORBIDDEN, 'unpackerOff', 'The Unpacker is not turned on for this event.')
   }
-  await authChannels([{ name: TRANSCRIPT_CHANNEL, passcode: transcriptPasscode }], conversation._id, user)
+  await authChannels([{ name: TRANSCRIPT_CHANNEL, passcode: transcriptPasscode }], conversation, user)
   const assistant = findAssistant(conversation)
   if (!assistant) throw unpackError(httpStatus.CONFLICT, 'noAssistant', 'This event has no assistant to explain the talk.')
   return { conversation, assistant }
@@ -171,7 +164,7 @@ async function loadSelectedChunks(conversationId: mongoose.Types.ObjectId, ends)
       conversationId,
       'model',
       {
-        channels: TRANSCRIPT_CHANNEL,
+        ...TRANSCRIPT_TEXT_CHUNKS,
         createdAt: { $gte: new Date(Math.min(...times)), $lte: new Date(Math.max(...times)) },
         ...(previous && {
           $or: [{ createdAt: { $gt: previous.createdAt } }, { createdAt: previous.createdAt, _id: { $gt: previous._id } }]
@@ -181,7 +174,7 @@ async function loadSelectedChunks(conversationId: mongoose.Types.ObjectId, ends)
     )
     chunks.push(...batch)
     for (const chunk of batch) {
-      if (!endIds.has(chunk._id.toString())) charactersBetween += String(chunk.body ?? '').trim().length
+      if (!endIds.has(chunk._id.toString())) charactersBetween += chunk.body.trim().length
     }
     if (charactersBetween > UNPACK_PASSAGE_MAX_CHARACTERS) throw selectionTooLong()
     if (batch.length < UNPACK_CHUNK_BATCH) return chunks
@@ -192,7 +185,7 @@ async function resolvePassage(conversationId: mongoose.Types.ObjectId, selection
   const ends = await findMessages(
     conversationId,
     'model',
-    { _id: { $in: [selection.startMessageId, selection.endMessageId] }, channels: TRANSCRIPT_CHANNEL },
+    { _id: { $in: [selection.startMessageId, selection.endMessageId] }, ...TRANSCRIPT_TEXT_CHUNKS },
     { select: 'createdAt', lean: true }
   )
   if (ends.length === 0) return buildPassage([], selection)
@@ -286,32 +279,23 @@ async function findOrCreateAsk(conversationId: mongoose.Types.ObjectId, user, pa
   return ask
 }
 
+async function needsModelCall(passageKey: string) {
+  const existing = await UnpackPassageExplanation.findOne({ passageKey }).select('status generatingSince').lean()
+  return !existing || (existing.status === 'generating' && isStale(existing))
+}
+
 /**
- * Counts recent passage asks up to this one, refused ones included. Refused asks are kept and marked, so a double
- * click that finds one is refused too. Asks saved at the same moment can get IDs out of order and both fit.
- * @returns the ask, set back to `previewed` once a refused one fits under the limit
+ * Counts a model call this participant is about to cause, and refuses it once they are over the limit. The count
+ * lives in memory, like the other rate limits, because a database count can miss a call another request is still
+ * saving and let a burst through. A restart clears it.
  */
-async function enforcePreviewLimit(ask) {
-  if (ask.status === 'sent') return ask
-  const recent = await UnpackRequest.countDocuments({
-    conversation: ask.conversation,
-    user: ask.user,
-    passageKey: { $type: 'string' },
-    createdAt: { $gte: new Date(Date.now() - 60 * 1000) },
-    _id: { $lte: ask._id }
-  })
-  if (recent > UNPACK_PREVIEWS_PER_MINUTE) {
-    await UnpackRequest.updateOne({ _id: ask._id, status: 'previewed' }, { status: 'refused' })
-    throw unpackError(
-      httpStatus.TOO_MANY_REQUESTS,
-      'rateLimited',
-      'Too many passages in the last minute. Try again shortly.'
-    )
-  }
-  if (ask.status !== 'refused') return ask
-  return (
-    (await UnpackRequest.findOneAndUpdate({ _id: ask._id, status: 'refused' }, { status: 'previewed' }, { new: true })) ??
-    UnpackRequest.findById(ask._id)
+async function enforceModelCallLimit(ask) {
+  const { totalHits } = await modelCallCounts.increment(`${ask.conversation}:${ask.user}`)
+  if (totalHits <= UNPACK_MODEL_CALLS_PER_MINUTE) return
+  throw unpackError(
+    httpStatus.TOO_MANY_REQUESTS,
+    'rateLimited',
+    'Too many new explanations in the last minute. Try again shortly.'
   )
 }
 
@@ -357,16 +341,10 @@ async function postToPrivateChat(event: UnpackEvent, userId: mongoose.Types.Obje
   )
 }
 
-type Poster = (event: UnpackEvent, userId: mongoose.Types.ObjectId, response) => Promise<void>
-const POSTERS: Partial<Record<UnpackDestination, Poster>> = { privateChat: postToPrivateChat }
-
-async function postToDestination(event: UnpackEvent, ask: IUnpackRequest, response) {
-  const post = ask.destination && POSTERS[ask.destination]
-  if (!post) throw new Error(`unpack: no way to post to ${ask.destination} yet`)
-  await post(event, ask.user, response)
-}
-
-/** Returns no explanation when another request took the claim over while the AI model was writing. */
+/**
+ * Returns no explanation when another writer saved first. That can be one that took the claim over after this
+ * call ran past the stale limit; whichever finishes first wins, so a slow answer isn't thrown away.
+ */
 async function writeExplanation(
   conversation,
   claimed: IUnpackPassageExplanation,
@@ -374,16 +352,17 @@ async function writeExplanation(
   askedAt: Date
 ): Promise<{ ready: ReadyUnpackPassageExplanation | null; modelMs: number }> {
   const claim = { _id: claimed._id, status: 'generating', generatingSince: claimed.generatingSince ?? null }
+  const stillGenerating = { _id: claimed._id, status: 'generating' }
   let ready: IUnpackPassageExplanation | null
   let modelMs = 0
   try {
     const { before, after, until } = await getPassageContext(conversation._id, passage, askedAt)
-    const llm = await getBedrockChat(config.unpackLLMModel, { maxTokens: UNPACK_MAX_OUTPUT_TOKENS })
+    const llm = await getBedrockChat(UNPACK_MODEL, { maxTokens: UNPACK_MAX_OUTPUT_TOKENS })
     const modelStartedAt = Date.now()
     const sections = await explainPassage(llm, { topic: conversation.name, passage, before, after })
     modelMs = Date.now() - modelStartedAt
     ready = await UnpackPassageExplanation.findOneAndUpdate(
-      claim,
+      stillGenerating,
       { ...sections, status: 'ready', contextUntil: until, $unset: { generatingSince: 1 } },
       { new: true }
     )
@@ -397,45 +376,6 @@ async function writeExplanation(
   // eslint-disable-next-line no-use-before-define
   runInBackground(postWaitingAsks(ready), `posting cards for ${passage.key}`)
   return { ready, modelMs }
-}
-
-async function startWholeChunkExplanations(ask) {
-  // Counts only earlier passage asks, so when several waiting cards post together the first one still starts this
-  const sentBefore = await UnpackRequest.distinct('chunkIds', {
-    conversation: ask.conversation,
-    chunkIds: { $in: ask.chunkIds },
-    mode: 'passage',
-    status: 'sent',
-    _id: { $lt: ask._id }
-  })
-  const sentIds = new Set(sentBefore.map((id) => id.toString()))
-  const firstSends = ask.chunkIds.filter((id) => !sentIds.has(id.toString())).slice(0, UNPACK_WHOLE_CHUNKS_PER_SEND)
-  if (firstSends.length === 0) return
-  const conversation = await Conversation.findById(ask.conversation).select('name')
-  if (!conversation) return
-  const chunks = await findMessages(
-    conversation._id,
-    'model',
-    { _id: { $in: firstSends }, channels: TRANSCRIPT_CHANNEL },
-    { select: 'body createdAt', lean: true }
-  )
-  for (const chunk of chunks) {
-    const id = chunk._id.toString()
-    let passage: UnpackPassage
-    try {
-      passage = buildPassage([chunk], { startMessageId: id, startOffset: 0, endMessageId: id, endOffset: chunk.body.length })
-    } catch (error) {
-      if (error instanceof ApiError && error.statusCode === httpStatus.BAD_REQUEST) continue
-      throw error
-    }
-    const claim = await claimExplanation(conversation._id, passage)
-    if (claim.mustWrite) {
-      runInBackground(
-        writeExplanation(conversation, claim.explanation, passage, new Date()),
-        `whole-chunk explanation of ${id}`
-      )
-    }
-  }
 }
 
 /**
@@ -452,7 +392,7 @@ async function postAsk(event: UnpackEvent, askId: mongoose.Types.ObjectId, expla
   )
   if (!ask) return
   try {
-    await postToDestination(event, ask, {
+    await postToPrivateChat(event, ask.user, {
       message: toCard(explanation, ask.destination!),
       messageType: 'json',
       messageId: answerId
@@ -473,7 +413,6 @@ async function postAsk(event: UnpackEvent, askId: mongoose.Types.ObjectId, expla
     await UnpackRequest.deleteOne({ _id: askId })
     throw transcriptGone()
   }
-  runInBackground(startWholeChunkExplanations(ask), `whole-chunk explanations for ask ${askId}`)
 }
 
 async function postWaitingAsks(explanation: ReadyUnpackPassageExplanation) {
@@ -501,12 +440,14 @@ async function failWaitingAsks(passageKey: string) {
   const event = await loadEventForPosting(waiting[0].conversation)
   for (const { _id } of waiting) {
     try {
+      // A request that claimed the passage again since will post these asks or fail them itself
+      if (await UnpackPassageExplanation.exists({ passageKey })) return
       const ask = await UnpackRequest.findOneAndUpdate(
         { _id, status: 'previewed', destination: { $exists: true } },
         { $unset: { destination: 1 } }
       )
       if (ask && event) {
-        await postToDestination(event, ask, { message: UNPACK_FAILED_REPLY, messageType: 'text' })
+        await postToPrivateChat(event, ask.user, { message: UNPACK_FAILED_REPLY, messageType: 'text' })
       }
     } catch (error) {
       logger.error(`unpack: could not tell ask ${_id} that its explanation failed`, error)
@@ -526,14 +467,28 @@ async function abandonClaim(claim, passageKey: string) {
   }
 }
 
-async function waitForExplanation(passageKey: string, deadline: number): Promise<ReadyUnpackPassageExplanation> {
+/** Waits for another request's write, and takes it over if that write stalls before the deadline. */
+async function waitForExplanation(
+  conversation,
+  passage: UnpackPassage,
+  deadline: number
+): Promise<ReadyUnpackPassageExplanation> {
   const startedAt = Date.now()
   while (Date.now() < deadline) {
     const pollMs = Date.now() - startedAt < UNPACK_WAIT_FAST_POLLING_MS ? UNPACK_WAIT_POLL_MS : UNPACK_WAIT_SLOW_POLL_MS
-    await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, Math.max(0, deadline - Date.now()))))
-    const explanation = await UnpackPassageExplanation.findOne({ passageKey })
+    await sleep(Math.min(pollMs, Math.max(0, deadline - Date.now())))
+    const explanation = await UnpackPassageExplanation.findOne({ passageKey: passage.key })
     if (!explanation) throw unpackFailed()
     if (isReady(explanation)) return explanation
+    if (isStale(explanation)) {
+      const claim = await claimExplanation(conversation._id, passage)
+      if (claim.mustWrite) {
+        const writing = writeExplanation(conversation, claim.explanation, passage, new Date())
+        track(writing)
+        const { ready } = await beforeDeadline(writing, deadline)
+        if (ready) return ready
+      }
+    }
   }
   throw unpackFailed()
 }
@@ -553,7 +508,7 @@ async function rewriteWithFullerContext(conversation, explanation: ReadyUnpackPa
   if (!claimed) return
   try {
     const { before, after, until } = await getPassageContext(conversation._id, passage, new Date())
-    const llm = await getBedrockChat(config.unpackLLMModel, { maxTokens: UNPACK_MAX_OUTPUT_TOKENS })
+    const llm = await getBedrockChat(UNPACK_MODEL, { maxTokens: UNPACK_MAX_OUTPUT_TOKENS })
     const sections = await explainPassage(llm, { topic: conversation.name, passage, before, after })
     await UnpackPassageExplanation.updateOne({ _id: explanation._id, status: 'ready' }, { ...sections, contextUntil: until })
   } catch (error) {
@@ -574,7 +529,8 @@ const previewPassage = async (conversationId: string, user, selection: UnpackRan
   const deadline = startedAt + UNPACK_TIMING.previewBudgetMs
   const { conversation } = await loadEvent(conversationId, user, transcriptPasscode)
   const passage = await resolvePassage(conversation._id, selection)
-  const ask = await enforcePreviewLimit(await findOrCreateAsk(conversation._id, user, passage))
+  const ask = await findOrCreateAsk(conversation._id, user, passage)
+  if (await needsModelCall(passage.key)) await enforceModelCallLimit(ask)
   const claim = await claimExplanation(conversation._id, passage)
 
   let explanation: ReadyUnpackPassageExplanation | null = isReady(claim.explanation) ? claim.explanation : null
@@ -588,14 +544,14 @@ const previewPassage = async (conversationId: string, user, selection: UnpackRan
     cache = 'miss'
   }
   if (!explanation) {
-    explanation = await waitForExplanation(passage.key, deadline)
+    explanation = await waitForExplanation(conversation, passage, deadline)
     if (cache === 'hit') cache = 'shared'
   } else if (cache === 'hit') {
     runInBackground(rewriteWithFullerContext(conversation, explanation, passage), `fuller explanation of ${passage.key}`)
   }
 
   logger.info(
-    `unpack: preview ${conversation._id} cache=${cache} model=${config.unpackLLMModel} totalMs=${
+    `unpack: preview ${conversation._id} cache=${cache} model=${UNPACK_MODEL} totalMs=${
       Date.now() - startedAt
     } modelMs=${modelMs}`
   )
@@ -614,16 +570,21 @@ const sendPassage = async (
   transcriptPasscode?: string
 ) => {
   const loaded = await loadEvent(conversationId, user, transcriptPasscode)
+  // Checked here because the post itself would refuse with a 400 a client can't tell apart from a bad request
+  if (loaded.conversation.locked) {
+    throw unpackError(httpStatus.CONFLICT, 'eventLocked', 'This event is locked, so nothing new can be posted in it.')
+  }
   const senderPrivateChat = await findPrivateChat(loaded.conversation, user._id, loaded.assistant)
   if (!senderPrivateChat) {
     throw unpackError(httpStatus.CONFLICT, 'noPrivateChat', 'You have no Private Chat with the assistant in this event yet.')
   }
   const event = { ...loaded, senderPrivateChat }
   const passage = await resolvePassage(event.conversation._id, selection)
-  const ask = await enforcePreviewLimit(await findOrCreateAsk(event.conversation._id, user, passage))
+  const ask = await findOrCreateAsk(event.conversation._id, user, passage)
 
   let storedDestination = false
   if (ask.status === 'previewed') {
+    if (await needsModelCall(passage.key)) await enforceModelCallLimit(ask)
     const stored = await UnpackRequest.updateOne({ _id: ask._id, status: 'previewed' }, { destination })
     storedDestination = stored.modifiedCount === 1
     // Claimed after the destination is stored, so any write that finishes or fails from now on includes this ask
@@ -639,7 +600,8 @@ const sendPassage = async (
   }
 
   const latest = await UnpackRequest.findById(ask._id)
-  if (latest?.status === 'sent') {
+  // `sent` is set before the card is saved, so a post still running elsewhere could yet fail and be undone
+  if (latest?.status === 'sent' && latest.answerMessage && (await cardSaved(latest.conversation, latest.answerMessage))) {
     return { askId: latest._id.toString(), status: 'sent', messageId: latest.answerMessage?.toString() }
   }
   // An earlier send that stored the same destination already scheduled the check
@@ -657,7 +619,7 @@ async function giveUpOnAsk(event: UnpackEvent, askId: string) {
     { _id: askId, status: 'previewed', destination: { $exists: true } },
     { $unset: { destination: 1 } }
   )
-  if (ask) await postToDestination(event, ask, { message: UNPACK_FAILED_REPLY, messageType: 'text' })
+  if (ask) await postToPrivateChat(event, ask.user, { message: UNPACK_FAILED_REPLY, messageType: 'text' })
 }
 
 /** Writes and posts the card for a passage the participant sent, returning false when it should be checked again. */

@@ -24,7 +24,8 @@ const router = express.Router()
  *       sentences, so people who select roughly the same words share one saved explanation. The first request
  *       for a passage waits for the AI model, up to about 25 seconds before answering unpackFailed; the
  *       explanation is still saved for a retry. Later requests are answered from the saved copy. Each
- *       participant can preview a limited number of different passages per minute.
+ *       participant can start a limited number of new explanations per minute; answers from the saved copy
+ *       don't count.
  *     tags: [Unpack]
  *     security:
  *       - bearerAuth: []
@@ -77,9 +78,10 @@ router
  *       Posts the saved explanation of a passage to the chosen destination as an `unpack_explanation` card from
  *       the event assistant. Works before the preview has finished, or without one: the choice is stored and the
  *       card posts as soon as the explanation is written (`status: pending`). Sending the same passage again
- *       posts nothing new and returns the existing card's message ID. If the card can't be posted, for example
- *       because the event is locked, the request fails and can be sent again. Only `privateChat` is accepted
- *       for now.
+ *       posts nothing new and returns the existing card's message ID. A locked event refuses the send with
+ *       eventLocked. If the card can't be posted for another reason, the request fails and can be sent again.
+ *       A send that has to start a new explanation counts toward the same per-minute limit as a preview. Only
+ *       `privateChat` is accepted for now.
  *     tags: [Unpack]
  *     security:
  *       - bearerAuth: []

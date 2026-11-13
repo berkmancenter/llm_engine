@@ -845,7 +845,11 @@ const deleteConversation = async (id, user) => {
   await Follower.deleteMany({ conversation })
   await Message.deleteMany({ conversation })
   // Also done by transcript.deleteTranscript, but that call above only logs a failure and carries on
-  await transcript.deleteUnpackRows(conversation._id)
+  try {
+    await transcript.deleteUnpackRows(conversation._id)
+  } catch (error) {
+    logger.error(`Failed to delete Unpacker rows for conversation ${conversation._id}`, error)
+  }
   await Agent.deleteMany({ conversation })
   await Adapter.deleteMany({ conversation })
   await ConversationMembership.deleteMany({ conversation: id })
