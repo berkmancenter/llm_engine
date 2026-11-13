@@ -205,6 +205,31 @@ Return a JSON object:
 Return ONLY raw JSON. No markdown, no backticks, no explanation.`
 }
 
+/* A no-intervention tick (the common case) returns this instead of [] so the model's reasoning
+   for staying quiet still reaches the LangSmith trace — in prod, with debug logging off, it
+   would otherwise only exist in the (unlogged) logger.debug calls below. traceOnly tells
+   agent.model/index.ts's respond() wrapper to keep it out of the job handler that turns ordinary
+   responses into real Messages, while formatTraceOutput still reads it like any other response. */
+function buildTraceOnlyResponse(analysis: InterventionAnalysis) {
+  return {
+    // Spread at the top level too, matching the real-intervention response below — so
+    // formatTraceOutput's existing r.reasoning/r.confidenceScore/etc. reads need no special
+    // case for this path. sharedChatMessage is nulled out regardless of what the model proposed:
+    // this response represents nothing having actually been sent.
+    ...analysis,
+    sharedChatMessage: null,
+    visible: false,
+    traceOnly: true,
+    messageType: 'json',
+    message: {
+      goalId: analysis.goalId,
+      reasoning: analysis.reasoning,
+      confidenceScore: analysis.confidenceScore,
+      detectedPattern: analysis.detectedPattern
+    }
+  }
+}
+
 async function executePoll(
   this: IAgent & { getLLM: () => Promise<unknown> },
   analysis: InterventionAnalysis,
@@ -235,7 +260,7 @@ async function executePoll(
   } catch (error) {
     logger.error('proactiveGroupAgent: Failed to create poll via tool', error)
   }
-  return []
+  return [buildTraceOnlyResponse(analysis)]
 }
 
 function resolveActiveGoals(conversation: { goals?: string[]; behaviorPolicy?: BehaviorPolicy }): ConversationGoal[] {
@@ -434,26 +459,21 @@ export default verify({
       recentTranscript,
       goalPriorities,
       backgroundReading
-    )) as unknown as (InterventionAnalysis & SocraticSlotFields) | null
-
-    if (!analysis) {
-      logger.debug(`${this.agentType} ${this._id}: no intervention opportunity detected`)
-      return []
-    }
+    )) as unknown as InterventionAnalysis & SocraticSlotFields
 
     if (analysis.goalId === 'none') {
       logger.debug(`${this.agentType} ${this._id}: decision returned goal none — no intervention`)
-      return []
+      return [buildTraceOnlyResponse(analysis)]
     }
 
     if (analysis.goalId === SOCRATIC_GOAL_ID && !backgroundReading) {
       logger.warn(`${this.name}: ${SOCRATIC_GOAL_ID} chosen without retrieved passages — discarding`)
-      return []
+      return [buildTraceOnlyResponse(analysis)]
     }
 
     if (analysis.goalId === SOCRATIC_GOAL_ID && backgroundReading) {
       const question = await buildSocraticQuestion.call(this, analysis, sharedChatHistory, backgroundReading)
-      if (!question) return []
+      if (!question) return [buildTraceOnlyResponse(analysis)]
       analysis.sharedChatMessage = question
     }
 
@@ -468,7 +488,7 @@ export default verify({
       )
       if (!isAppropriate) {
         logger.warn(`${this.name}: intervention rejected by professionalism guardrail (goal: ${analysis.goalId})`)
-        return []
+        return [buildTraceOnlyResponse(analysis)]
       }
     }
 
@@ -482,7 +502,7 @@ export default verify({
 
     if (!analysis.sharedChatMessage) {
       logger.warn(`${this.name}: shouldIntervene=true (${analysis.goalId}) but sharedChatMessage is missing — suppressing`)
-      return []
+      return [buildTraceOnlyResponse(analysis)]
     }
 
     logger.info(`${this.name}: Detected ${analysis.goalId} opportunity — ${analysis.detectedPattern}`)
@@ -509,7 +529,10 @@ export default verify({
   },
 
   formatTraceOutput(responses: InterventionAnalysis[]) {
-    if (responses.length === 0) return { goalId: 'none', messageSent: null, context: null }
+    // Includes traceOnly responses (buildTraceOnlyResponse above) — those carry the model's
+    // reasoning for staying quiet the same shape as a real intervention does, so no separate
+    // branch is needed here; only a genuine "no analysis ran at all" tick reaches length === 0.
+    if (responses.length === 0) return { goalId: 'none', messageSent: null, context: null, reasoning: null }
     const r = responses[0]
     const activeGoals = getGroupChatGoals(resolveActiveGoals(this.conversation))
     const matchedGoal = activeGoals.find((g) => g.id === r.goalId) ?? null

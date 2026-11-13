@@ -457,10 +457,21 @@ agentSchema.method('respond', async function (userMessage = null) {
     costPhase: 'liveEvent' as const
   }
 
+  // Lets an agent type split the one trace name its shared respond() wrapper would otherwise
+  // stamp identically on every call (e.g. eventAssistant's perMessage question-answering vs its
+  // periodic private-checkin loop) — numberCruncher's cost fetcher groups spend by this exact
+  // run name (conversationCost.ts), so this is the lever that actually changes its cost rollup.
+  // Defaults to the agent type name, unchanged for every agent type that doesn't opt in.
+  const runName = agentType.getTraceRunName?.call(this, translatedMsg) ?? this.agentType
+
   const tracedRespond = traceable(
     async () => {
       const result = await agentType.respond.call(this, conversationHistory, translatedMsg)
-      actualResponses = result
+      // traceOnly responses exist for the trace (getTraceMetadata/formatTraceOutput below still
+      // see the full, unfiltered `result`) and must never reach the job handler that turns
+      // ordinary responses into real Messages — filtered out here, once, rather than requiring
+      // every job handler that calls respond() to know about this case.
+      actualResponses = result.filter((r: AgentResponse<unknown>) => !r.traceOnly)
 
       // Update metadata with response-dependent data
       if (agentType.getTraceMetadata) {
@@ -485,7 +496,7 @@ agentSchema.method('respond', async function (userMessage = null) {
       return result
     },
     {
-      name: this.agentType,
+      name: runName,
       metadata: traceMetadata
     }
   )

@@ -9,7 +9,8 @@ import {
   loadTheLineTranscript,
   createMessage,
   prepareMessagesForAgent,
-  createProactiveGroupAgentConversation
+  createProactiveGroupAgentConversation,
+  respondFiltered
 } from '../../utils/agentTestHelpers.js'
 
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
@@ -87,7 +88,7 @@ describe(`proactive group agent catalyst tests`, () => {
           endTime: new Date(startTime.getTime() + 825 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         // Bold data-backed claim with room still silent — should provoke discussion
         if (responses.length > 0) {
@@ -118,7 +119,7 @@ describe(`proactive group agent catalyst tests`, () => {
           endTime: new Date(startTime.getTime() + 450 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         // Lots of data just presented, but room is passive - should provoke discussion or run a poll
         if (responses.length > 0) {
@@ -174,7 +175,7 @@ describe(`proactive group agent catalyst tests`, () => {
           endTime: new Date(startTime.getTime() + 525 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         // Genuine debate already in progress — agent should stay out of it
         if (responses.length > 0) {
@@ -208,7 +209,7 @@ describe(`proactive group agent catalyst tests`, () => {
           endTime: new Date(startTime.getTime() + 380 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         // Breathing room after emotional peak - good moment for warm play_commentary
         if (responses.length > 0) {
@@ -251,7 +252,7 @@ describe(`proactive group agent catalyst tests`, () => {
           endTime: new Date(startTime.getTime() + 530 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         // Perfect moment for witty play_commentary on surprising data
         if (responses.length > 0) {
@@ -282,7 +283,7 @@ describe(`proactive group agent catalyst tests`, () => {
           endTime: new Date(startTime.getTime() + 275 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         // Should NOT use witty play_commentary during emotionally raw moments
         if (responses.length > 0) {
@@ -313,7 +314,7 @@ describe(`proactive group agent catalyst tests`, () => {
           endTime: new Date(startTime.getTime() + 390 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         // Transition moments are good for play_commentary
         if (responses.length > 0) {
@@ -347,7 +348,7 @@ describe(`proactive group agent catalyst tests`, () => {
           endTime: new Date(startTime.getTime() + 450 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         if (responses.length > 0) {
           const { goalId } = responses[0]
@@ -390,7 +391,7 @@ describe(`proactive group agent catalyst tests`, () => {
           endTime: new Date(startTime.getTime() + 22 * 60 * 1000) // just after voting solicitation at 21:45
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(workshopAgent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, workshopAgent, conversationHistory)
 
         if (responses.length > 0) {
           const { goalId } = responses[0]
@@ -441,7 +442,7 @@ describe(`proactive group agent catalyst tests`, () => {
           endTime: new Date(startTime.getTime() + 840 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         // Active discussion but entirely one-sided — no one is questioning the claim.
         // challenge_consensus should surface the unexamined counterargument.
@@ -497,7 +498,7 @@ describe(`proactive group agent catalyst tests`, () => {
           endTime: new Date(startTime.getTime() + 850 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         // Both sides are present and being engaged — challenge_consensus has nothing to introduce.
         if (responses.length > 0) {
@@ -559,7 +560,7 @@ describe(`proactive group agent catalyst tests`, () => {
           endTime: new Date(startTime.getTime() + 750 * 1000) // just after 12:30
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(lineAgent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, lineAgent, conversationHistory)
 
         if (responses.length > 0) {
           const { goalId } = responses[0]
@@ -586,7 +587,7 @@ describe(`proactive group agent catalyst tests`, () => {
           endTime: new Date(startTime.getTime() + 505 * 1000) // 08:25 — just a few lines in
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(lineAgent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, lineAgent, conversationHistory)
 
         // With only an opening question and no substantive speaker positions yet,
         // missing_perspective has nothing to act on — expect no intervention

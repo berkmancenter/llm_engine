@@ -127,7 +127,11 @@ async function resolveEventConditions(
     .join('\n')
 
   for (const [condition, { passed, detail }] of entries) {
-    logger.debug(`[checkinHandler] event condition "${condition.slice(0, 60)}…": ${passed ? 'PASS' : 'FAIL'}${detail ? ` — ${detail}` : ''}`)
+    logger.debug(
+      `[checkinHandler] event condition "${condition.slice(0, 60)}…": ${passed ? 'PASS' : 'FAIL'}${
+        detail ? ` — ${detail}` : ''
+      }`
+    )
   }
 
   return { results, summary }
@@ -225,11 +229,36 @@ function getCheckinDmAnalysisSchema(activeGoals: ConversationGoal[]) {
   })
 }
 
+/* A participant whose analysis ran but didn't lead to a check-in returns this instead of null,
+   so their reasoning still reaches the LangSmith trace via eventAssistant's own
+   formatTraceOutput (which already maps an array of per-participant {participant, reasoning,
+   ...} entries for message.type 'checkin' — matched here so a traceOnly entry is picked up the
+   same way a real one is, whichever ends up first in the array). traceOnly keeps it out of the
+   job handler that turns ordinary responses into real Messages (see agent.model/index.ts). */
+function buildTraceOnlyCheckinResponse(analysis: InterventionAnalysis, participantPseudonym: string) {
+  return {
+    visible: false,
+    traceOnly: true,
+    messageType: 'json',
+    message: { type: 'checkin', goalId: analysis.goalId, reasoning: analysis.reasoning },
+    participantPseudonym,
+    goalId: analysis.goalId,
+    reasoning: analysis.reasoning,
+    confidenceScore: analysis.confidenceScore,
+    detectedPattern: analysis.detectedPattern,
+    context: analysis.context
+  }
+}
+
 /**
  * Processes a single participant's DM channel: applies goal filters, calls the LLM,
- * validates hallucinations, and returns a response object or null.
+ * validates hallucinations, and returns a response object or null (or, if an analysis ran but
+ * didn't result in a check-in, a traceOnly response carrying its reasoning — see above). Named
+ * export (alongside the default buildCheckinResponses) so tests can exercise its three return
+ * paths directly, without needing to separately satisfy every one of buildCheckinResponses' own
+ * upstream gates (rate limiting, active goals, event conditions) just to reach them.
  */
-async function processParticipant(
+export async function processParticipant(
   this: AgentLike & { _id: string; agentType: string },
   channel: IChannel,
   conversationHistory: ConversationHistory,
@@ -264,7 +293,9 @@ async function processParticipant(
       : 'No messages yet from this participant.'
 
   const { behaviorPolicy, conversationContext } = this.conversation
-  const personalityName = (this.agentConfig?.personality as string | null | undefined) ?? (config.enableAgentPersonality ? 'sarcastic-expert' : null)
+  const personalityName =
+    (this.agentConfig?.personality as string | null | undefined) ??
+    (config.enableAgentPersonality ? 'sarcastic-expert' : null)
   const systemPrompt = buildCheckinSystemPrompt(goalsToPursue, behaviorPolicy, conversationContext, personalityName)
   const schema = getCheckinDmAnalysisSchema(goalsToPursue)
 
@@ -282,9 +313,14 @@ async function processParticipant(
     recentTranscript
   )) as unknown as InterventionAnalysis | null
 
-  if (!analysis?.directMessage) {
-    logger.debug(`${this.agentType} ${this._id}: no check-in warranted for ${participantPseudonym}`)
+  if (!analysis) {
+    logger.debug(`${this.agentType} ${this._id}: rate limited for ${participantPseudonym} — skipping`)
     return null
+  }
+
+  if (!analysis.directMessage) {
+    logger.debug(`${this.agentType} ${this._id}: no check-in warranted for ${participantPseudonym}`)
+    return buildTraceOnlyCheckinResponse(analysis, participantPseudonym)
   }
 
   // Verify any cited cross-participant messages are real — mirrors backChannel hallucination filtering.
@@ -298,7 +334,7 @@ async function processParticipant(
           analysis.sourceMessages
         )}`
       )
-      return null
+      return buildTraceOnlyCheckinResponse(analysis, participantPseudonym)
     }
   }
 

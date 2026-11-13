@@ -1085,6 +1085,12 @@ export interface AgentResponse<T> {
   /* Saves the reply under this ID, for an agent that has to record a link to its own reply
      before the job handler persists it. */
   messageId?: mongoose.Types.ObjectId
+  /* Carries data into the LangSmith trace (formatTraceOutput/getTraceMetadata both still see
+     every response, this flag included) without ever becoming a real Message — the agent
+     model's own respond() wrapper filters these out before returning to the job handler that
+     would otherwise persist them. For an agent whose analysis is worth recording even on a tick
+     where it decides not to say anything. */
+  traceOnly?: boolean
 }
 
 /* The raw counts an analytics source fetcher returns for one event, before we
