@@ -217,6 +217,19 @@ export class BedrockChatWithUsage extends BedrockChat {
   }
 }
 
+/**
+ * Resolves a model name for a caller that always goes to Bedrock, refusing one the supported list runs elsewhere.
+ * A full ID the list doesn't know is kept, since Bedrock serves models this file never lists.
+ */
+export function resolveBedrockModel(modelIdentifier: string): string {
+  const model = resolveModelId(modelIdentifier)
+  const platform = supportedModels.find((m) => m.llmModel === model)?.llmPlatform
+  if (platform && platform !== 'bedrock') {
+    throw new Error(`${modelIdentifier} runs on ${platform}, not Bedrock`)
+  }
+  return model
+}
+
 /** Accepts a family name like "sonnet" as well as a full model ID, the same as getModelChat. */
 export async function getBedrockChat(modelIdentifier: string, modelOptions) {
   const model = resolveModelId(modelIdentifier)
@@ -253,7 +266,7 @@ export async function getModelChat(platform: LlmPlatforms, model, modelOptions =
     return getPerspectiveChat()
   }
   if (platform === 'bedrock') {
-    return getBedrockChat(resolvedModel, options)
+    return getBedrockChat(model, modelOptions)
   }
   if (platform === 'google') {
     return getGoogleChat(resolvedModel, options)
