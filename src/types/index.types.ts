@@ -280,9 +280,9 @@ export interface IAgentIntroduction {
 // Later Unpacker modes and destinations are added to these lists, never renamed
 export const UNPACK_MODES = ['lastMinute', 'passage'] as const
 export type UnpackMode = (typeof UNPACK_MODES)[number]
-export const UNPACK_DESTINATIONS = ['privateChat', 'groupChat'] as const
+export const UNPACK_DESTINATIONS = ['privateChat'] as const
 export type UnpackDestination = (typeof UNPACK_DESTINATIONS)[number]
-export const UNPACK_REQUEST_STATUSES = ['previewed', 'sent', 'refused'] as const
+export const UNPACK_REQUEST_STATUSES = ['previewed', 'sent'] as const
 export type UnpackRequestStatus = (typeof UNPACK_REQUEST_STATUSES)[number]
 export const UNPACK_EXPLANATION_STATUSES = ['generating', 'ready'] as const
 export type UnpackExplanationStatus = (typeof UNPACK_EXPLANATION_STATUSES)[number]
@@ -371,6 +371,13 @@ export interface IUnpackPassageExplanation extends Partial<UnpackPassageSections
 // A row the AI model has finished: the only kind a card or preview can be built from
 export type ReadyUnpackPassageExplanation = IUnpackPassageExplanation &
   UnpackPassageSections & { status: 'ready'; range: IUnpackStoredRange; passage: { start: Date; end: Date } }
+
+// What posting an Unpacker card needs: the event, its assistant, and the sender's Private Chat when already found
+export interface UnpackEvent {
+  conversation
+  assistant
+  senderPrivateChat?
+}
 
 export interface UnpackExplanation {
   type: 'unpack_explanation'

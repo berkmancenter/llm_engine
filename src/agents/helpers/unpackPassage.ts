@@ -21,6 +21,9 @@ export const UNPACK_CONTEXT_BEFORE_SECONDS = 120
 export const UNPACK_CONTEXT_AFTER_SECONDS = 60
 const UNPACK_MAX_TERMS = 3
 
+// Transcript chunks the Unpacker can quote; a chunk saved with a structured body has no text to select
+export const TRANSCRIPT_TEXT_CHUNKS = { channels: TRANSCRIPT_CHANNEL, body: { $type: 'string' } }
+
 export const UNPACK_PASSAGE_SYSTEM_PROMPT = `You help a participant at a live event understand a passage they picked from the live transcript. You get the event topic, the passage, and the transcript from just before and just after it. Transcription is automatic, so expect missing words and misheard terms, and work out what the speaker most likely meant.
 
 Write these, in this order:
@@ -93,9 +96,17 @@ function sentenceSpans(text: string) {
   return spans
 }
 
-function selectionError(reason: string, message: string) {
-  return new ApiError(httpStatus.BAD_REQUEST, message, { reason })
+/** A refusal with a `reason` the client can match on, since several refusals share a status code. */
+export function unpackError(status: number, reason: string, message: string) {
+  return new ApiError(status, message, { reason })
 }
+
+function selectionError(reason: string, message: string) {
+  return unpackError(httpStatus.BAD_REQUEST, reason, message)
+}
+
+export const selectionTooLong = () =>
+  selectionError('selectionTooLong', `The passage is over ${UNPACK_PASSAGE_MAX_CHARACTERS} characters.`)
 
 function sentenceStart(spans: ReturnType<typeof sentenceSpans>, text: string, offset: number): number {
   return spans.find(({ end }) => offset < end)?.start ?? text.length
@@ -164,9 +175,7 @@ export function buildPassage(transcript: UnpackTranscriptChunk[], selection: Unp
   if (pieces.length === 0) throw selectionError('selectionBackwards', 'The selection has no words in it.')
 
   const quote = pieces.map(({ text }) => text).join(' ')
-  if (quote.length > UNPACK_PASSAGE_MAX_CHARACTERS) {
-    throw selectionError('selectionTooLong', `The passage is over ${UNPACK_PASSAGE_MAX_CHARACTERS} characters.`)
-  }
+  if (quote.length > UNPACK_PASSAGE_MAX_CHARACTERS) throw selectionTooLong()
 
   const first = pieces[0]
   const last = pieces[pieces.length - 1]
@@ -200,7 +209,7 @@ export async function getPassageContext(
     conversationId,
     'model',
     {
-      channels: TRANSCRIPT_CHANNEL,
+      ...TRANSCRIPT_TEXT_CHUNKS,
       _id: { $nin: passage.pieces.map(({ chunk }) => chunk._id) },
       createdAt: {
         $gte: new Date(firstAt - UNPACK_CONTEXT_BEFORE_SECONDS * 1000),

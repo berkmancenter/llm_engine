@@ -290,7 +290,7 @@ components:
           enum: [lastMinute, passage]
         destination:
           type: string
-          enum: [privateChat, groupChat]
+          enum: [privateChat]
         requestMessage:
           type: string
           description: ID of the participant's request message. Only "Catch me up" replies have one.
@@ -478,6 +478,7 @@ components:
             - unpackerOff
             - noAssistant
             - noPrivateChat
+            - eventLocked
             - chunkNotInTranscript
             - offsetPastEnd
             - selectionBackwards
@@ -485,10 +486,12 @@ components:
             - unpackFailed
             - wrongPasscode
           description: >-
-            Why the request was refused. rateLimited (429), too many passages in the last minute.
+            Why the request was refused. rateLimited (429), the participant started too many new
+            explanations in the last minute; answers from a saved explanation don't count.
             unpackerOff (403), the event's unpacker feature is off. noAssistant (409), the event has
             no assistant. wrongPasscode (400), the transcript has a passcode and the request did not
             give it. noPrivateChat (409), the participant has no Private Chat with the assistant.
+            eventLocked (409), the event is locked, so no card can be posted.
             chunkNotInTranscript (400), a chunk ID is not in this event's transcript. offsetPastEnd
             (400), a position is past the end of its chunk. selectionBackwards (400), the selection
             starts after it ends or holds no words. selectionTooLong (400), the widened passage is

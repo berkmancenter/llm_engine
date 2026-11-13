@@ -45,6 +45,12 @@ const cleanUpTranscripts = async () => {
   const transcriptCutoff = new Date(Date.now() - durationMs)
 
   try {
+    await transcript.deleteUnpackRowsBefore(transcriptCutoff)
+  } catch (error) {
+    logger.error('Could not delete Unpacker rows older than the transcript retention period', error)
+  }
+
+  try {
     // Step 1: Find all messages in 'transcript' channel older than 3 months
     const oldTranscriptMessages = await Message.find({
       channels: { $in: ['transcript'] },

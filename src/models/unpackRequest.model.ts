@@ -21,7 +21,6 @@ const unpackRequestSchema = new mongoose.Schema<IUnpackRequest>(
   { timestamps: { createdAt: true, updatedAt: false } }
 )
 
-unpackRequestSchema.index({ conversation: 1, user: 1, createdAt: 1 })
 // Finds earlier sent asks about the same chunks
 unpackRequestSchema.index({ conversation: 1, chunkIds: 1 })
 // Finds everyone waiting on a passage's explanation when it is written or fails
