@@ -1439,20 +1439,17 @@ describe('Catch me up, sent as a chat message to Berkie', () => {
     comingUp: null
   }
 
-  it('posts a catch-up summary to Private Chat and records the request', async () => {
-    const { conversation, berkie, privateChat } = await createEvent()
-    const { quoted, after } = await seedTranscript(conversation)
-    const scheduled = jest.spyOn(schedule, 'agentResponse').mockResolvedValue(undefined)
-    mockGetChatPromptResponse.mockResolvedValueOnce(catchUp)
-
-    // Posting a chat message needs a pseudonym the fixture lacks, and agents ignore messages until activated
+  // Posting a chat message needs a pseudonym the fixture lacks, and agents ignore messages until activated
+  async function readyToPost(berkie) {
     await User.updateOne(
       { _id: participant._id },
       { $push: { pseudonyms: { pseudonym: 'Curious Heron', token: 'participant-token', active: true } } }
     )
-    await Agent.updateOne({ _id: berkie!._id }, { $set: { active: true } })
+    await Agent.updateOne({ _id: berkie._id }, { $set: { active: true } })
+  }
 
-    await request(app)
+  function postCatchUp(conversation, privateChat, chunks, transcriptPasscode) {
+    return request(app)
       .post('/v1/messages')
       .set('Authorization', `Bearer ${participantAccessToken}`)
       .send({
@@ -1463,14 +1460,30 @@ describe('Catch me up, sent as a chat message to Berkie', () => {
           type: 'unpack_request',
           mode: 'lastMinute',
           text: 'Catch me up',
-          chunkIds: [after._id.toString(), quoted._id.toString()]
+          chunkIds: chunks.map(({ _id }) => _id.toString()),
+          transcriptPasscode
         }
       })
-      .expect(httpStatus.CREATED)
+  }
+
+  it('posts a catch-up summary to Private Chat and records the request', async () => {
+    const { conversation, berkie, privateChat } = await createEvent()
+    const { quoted, after } = await seedTranscript(conversation)
+    const scheduled = jest.spyOn(schedule, 'agentResponse').mockResolvedValue(undefined)
+    mockGetChatPromptResponse.mockResolvedValueOnce(catchUp)
+    await readyToPost(berkie)
+
+    await postCatchUp(
+      conversation,
+      privateChat,
+      [after, quoted],
+      transcriptPasscodes.get(conversation._id.toString())
+    ).expect(httpStatus.CREATED)
     expect(scheduled).toHaveBeenCalledWith(expect.objectContaining({ agentId: berkie!._id }))
     await JobHandlers.agentResponse({ attrs: { data: scheduled.mock.calls[0][0] } })
 
     const sent = await Message.findOne({ channels: privateChat.name, 'body.type': 'unpack_request' }).lean()
+    expect(sent!.body).not.toHaveProperty('transcriptPasscode')
     const [reply] = await Message.find({ channels: privateChat.name, 'body.type': 'catch_up_summary' }).lean()
     expect(reply.body).toMatchObject({
       requestMessage: sent!._id.toString(),
@@ -1483,5 +1496,18 @@ describe('Catch me up, sent as a chat message to Berkie', () => {
     expect(rows[0]).toMatchObject({ mode: 'lastMinute', status: 'sent' })
     expect(rows[0].user.equals(participant._id)).toBe(true)
     expect(rows[0].answerMessage!.equals(reply._id)).toBe(true)
+  })
+
+  it('refuses a catch-up request with the wrong transcript passcode, and saves nothing', async () => {
+    const { conversation, berkie, privateChat } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    const scheduled = jest.spyOn(schedule, 'agentResponse').mockResolvedValue(undefined)
+    await readyToPost(berkie)
+
+    const res = await postCatchUp(conversation, privateChat, [quoted], 'not-the-code').expect(httpStatus.BAD_REQUEST)
+
+    expect(res.body.reason).toBe('wrongPasscode')
+    expect(scheduled).not.toHaveBeenCalled()
+    expect(await Message.countDocuments({ channels: privateChat.name })).toBe(0)
   })
 })

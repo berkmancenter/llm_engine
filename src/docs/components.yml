@@ -253,6 +253,13 @@ components:
             transcript yet. Together the chunks can hold at most 3,000 characters.
           items:
             type: string
+        transcriptPasscode:
+          type: string
+          description: >-
+            The transcript channel's passcode, the same one the client uses to read the transcript.
+            Required when the transcript has one, which it does by default. A missing or wrong passcode
+            is refused with 400 and reason wrongPasscode, and the request message is not saved. The
+            passcode is removed before the message is saved, so it never appears in chat history.
         destination:
           type: string
           enum: [privateChat]

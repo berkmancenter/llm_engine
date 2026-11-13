@@ -15,9 +15,11 @@ import {
   CatchUpSummary,
   CatchUpSummarySections,
   IChannel,
+  TRANSCRIPT_CHANNEL,
   UnpackTranscriptChunk
 } from '../../types/index.types.js'
 import { chunksStillSaved, isUnpackerEnabled, TRANSCRIPT_TEXT_CHUNKS } from '../helpers/unpackPassage.js'
+import { assertChannelPasscode } from '../../utils/authChannels.js'
 
 // Transcript chunks only store when the speaker finished, so this compares chunk end times
 export const UNPACK_LAST_MINUTE_WINDOW_SECONDS = 60
@@ -82,6 +84,18 @@ const catchUpSummarySchema = z.object({
 
 export function isUnpackRequest(message): boolean {
   return message?.bodyType === 'json' && message?.body?.type === 'unpack_request'
+}
+
+/**
+ * Checks a catch-up request's transcript passcode, the same check the passage endpoint makes, and
+ * returns the request without it so the passcode is never saved in chat history.
+ * @throws ApiError 400 with reason wrongPasscode when the passcode is missing or wrong
+ */
+export function withoutTranscriptPasscode(conversation, userMessage) {
+  const { transcriptPasscode, ...body } = userMessage.body
+  const transcript = conversation.channels?.find((channel) => channel.name === TRANSCRIPT_CHANNEL)
+  if (transcript) assertChannelPasscode(transcript, transcriptPasscode)
+  return { ...userMessage, body }
 }
 
 function refusal(reason: CatchUpRefusalReason, userMessage, channels: IChannel[]): AgentResponse<CatchUpRefused> {

@@ -40,6 +40,7 @@ setupIntTest()
 const SECOND = 1000
 const userId = new mongoose.Types.ObjectId()
 const privateChat = { name: `direct-${userId}-agent`, direct: true }
+const TRANSCRIPT_PASSCODE = 'transcript-code'
 
 const summary = {
   inShort: 'Teams set a reliability target for each service. Missing it uses up their budget for mistakes.',
@@ -47,14 +48,18 @@ const summary = {
   comingUp: 'A demo of the dashboard teams use to track this.'
 }
 
-function buildAgent({ features = [{ name: 'unpacker', enabled: true }], messages = [] as unknown[] } = {}) {
+function buildAgent({
+  features = [{ name: 'unpacker', enabled: true }],
+  messages = [] as unknown[],
+  transcriptPasscode = TRANSCRIPT_PASSCODE as string | null
+} = {}) {
   return {
     agentConfig: { botName: 'Berkie' },
     conversation: {
       _id: new mongoose.Types.ObjectId(),
       name: 'Reliability engineering',
       features,
-      channels: [privateChat, { name: 'chat' }, { name: 'transcript' }],
+      channels: [privateChat, { name: 'chat' }, { name: 'transcript', passcode: transcriptPasscode }],
       messages
     },
     // Catch-ups run on the Unpacker model setting, so the assistant's own model must never be asked for
@@ -597,11 +602,41 @@ describe('handleUnpackRequest', () => {
 
 describe('Event Assistant routing', () => {
   it('accepts an unpack request in evaluate() instead of handing a JSON body to the slash-command parser', async () => {
-    const request = unpackMessage()
+    const request = unpackMessage({ transcriptPasscode: TRANSCRIPT_PASSCODE })
 
     const evaluation = await eventAssistant.evaluate.call(buildAgent(), request)
 
-    expect(evaluation).toMatchObject({ action: AgentMessageActions.CONTRIBUTE, userMessage: request })
+    expect(evaluation).toMatchObject({ action: AgentMessageActions.CONTRIBUTE })
+  })
+
+  it('drops the transcript passcode from an unpack request before it is saved', async () => {
+    const request = unpackMessage({ transcriptPasscode: TRANSCRIPT_PASSCODE })
+
+    const evaluation = await eventAssistant.evaluate.call(buildAgent(), request)
+
+    const { transcriptPasscode, ...bodyWithoutPasscode } = request.body as Record<string, unknown>
+    expect(transcriptPasscode).toBe(TRANSCRIPT_PASSCODE)
+    expect(evaluation.userMessage).toEqual({ ...request, body: bodyWithoutPasscode })
+  })
+
+  it.each([
+    ['a wrong', { transcriptPasscode: 'not-the-code' }],
+    ['no', {}]
+  ])('rejects an unpack request with %s transcript passcode, like the passage endpoint', async (_name, passcode) => {
+    const request = unpackMessage(passcode)
+
+    await expect(eventAssistant.evaluate.call(buildAgent(), request)).rejects.toMatchObject({
+      statusCode: 400,
+      reason: 'wrongPasscode'
+    })
+  })
+
+  it('accepts an unpack request without a passcode when the transcript has none', async () => {
+    const request = unpackMessage()
+
+    const evaluation = await eventAssistant.evaluate.call(buildAgent({ transcriptPasscode: null }), request)
+
+    expect(evaluation).toMatchObject({ action: AgentMessageActions.CONTRIBUTE })
   })
 
   it('answers an unpack request with a catch-up summary, not as an ordinary question', async () => {

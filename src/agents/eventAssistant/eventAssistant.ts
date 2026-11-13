@@ -25,7 +25,7 @@ import getDefaultEventAssistantToolNames from './eventAssistantDefaultTools.js'
 import generateImageResponse from './imageGenerator.js'
 import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from '../helpers/slashCommandParser.js'
 import generateMindMap from './mindMapGenerator.js'
-import handleUnpackRequest, { isUnpackRequest } from './unpackHandler.js'
+import handleUnpackRequest, { isUnpackRequest, withoutTranscriptPasscode } from './unpackHandler.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 import { loadGoal } from '../../goals/loader.js'
 import { GROUP_CHAT_CHANNELS, isGroupChatMessage, currentGroupChannelName } from '../helpers/groupChatChannel.js'
@@ -618,7 +618,7 @@ export default verify({
 
     if (isUnpackRequest(userMessage)) {
       return {
-        userMessage,
+        userMessage: withoutTranscriptPasscode(this.conversation, userMessage),
         action: AgentMessageActions.CONTRIBUTE,
         userContributionVisible: true,
         suggestion: undefined
