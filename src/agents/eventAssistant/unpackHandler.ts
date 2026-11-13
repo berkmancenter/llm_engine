@@ -29,6 +29,8 @@ export const UNPACK_LAST_MINUTE_WINDOW_SECONDS = 60
 export const UNPACK_REQUESTS_PER_MINUTE = 3
 // A minute of fast speech is about 1,000 characters; whole chunks can start well before the minute
 export const UNPACK_CATCH_UP_MAX_CHARACTERS = 3000
+// A minute of talk is rarely more than 20 chunks; this only bounds the database lookup
+const UNPACK_CATCH_UP_MAX_CHUNKS = 50
 const CATCH_UP_MAX_POINTS = 5
 const CATCH_UP_MAX_OUTPUT_TOKENS = 1000
 
@@ -74,7 +76,7 @@ const unpackRequestBodySchema = z.object({
   type: z.literal('unpack_request'),
   mode: z.literal('lastMinute'),
   text: z.string(),
-  chunkIds: z.array(z.string()),
+  chunkIds: z.array(z.string()).max(UNPACK_CATCH_UP_MAX_CHUNKS),
   destination: z.literal('privateChat').default('privateChat')
 })
 
