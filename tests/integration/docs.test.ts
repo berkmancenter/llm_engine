@@ -50,6 +50,7 @@ describe('OpenAPI route', () => {
       expect(UnpackRequestBody.properties.type.enum).toEqual(['unpack_request'])
       expect(UnpackRequestBody.required).toEqual(expect.arrayContaining(['type', 'mode', 'text', 'chunkIds']))
       expect(UnpackRequestBody.properties.chunkIds.type).toBe('array')
+      expect(UnpackRequestBody.properties.chunkIds.maxItems).toBe(50)
       expect(UnpackRequestBody.properties.transcriptPasscode.type).toBe('string')
       expect(UnpackExplanation.properties.type.enum).toEqual(['unpack_explanation'])
       expect(UnpackExplanation.required).toEqual(

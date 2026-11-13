@@ -104,6 +104,10 @@ function unpackMessage(body: Record<string, unknown> = {}, overrides: Record<str
   }
 }
 
+function chunkIdList(count: number) {
+  return Array.from({ length: count }, () => new mongoose.Types.ObjectId().toString())
+}
+
 function catchUpRequest(chunks: { _id: mongoose.Types.ObjectId }[], overrides: Record<string, unknown> = {}) {
   return unpackMessage({ chunkIds: chunks.map(({ _id }) => _id.toString()) }, overrides)
 }
@@ -656,11 +660,20 @@ describe('Event Assistant routing', () => {
   it.each([
     ['without chunkIds', { chunkIds: undefined }],
     ['whose chunkIds is not a list', { chunkIds: 'not-a-list' }],
-    ['with a mode the server does not know', { mode: 'lastHour' }]
+    ['with a mode the server does not know', { mode: 'lastHour' }],
+    ['naming more than 50 chunks', { chunkIds: chunkIdList(51) }]
   ])('rejects an unpack request %s before it is saved', async (_name, body) => {
     const request = unpackMessage({ transcriptPasscode: TRANSCRIPT_PASSCODE, ...body })
 
     await expect(eventAssistant.evaluate.call(buildAgent(), request)).rejects.toMatchObject({ statusCode: 400 })
+  })
+
+  it('accepts an unpack request naming 50 chunks', async () => {
+    const request = unpackMessage({ transcriptPasscode: TRANSCRIPT_PASSCODE, chunkIds: chunkIdList(50) })
+
+    const evaluation = await eventAssistant.evaluate.call(buildAgent(), request)
+
+    expect(evaluation).toMatchObject({ action: AgentMessageActions.CONTRIBUTE })
   })
 
   it('accepts an unpack request without a passcode when the transcript has none', async () => {

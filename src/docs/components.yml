@@ -253,6 +253,7 @@ components:
             within 60 seconds of the newest chunk. Send an empty list when the event has no
             transcript yet. When the chunks hold more than 3,000 characters, the oldest are left out
             until the rest fit.
+          maxItems: 50
           items:
             type: string
         transcriptPasscode:
