@@ -230,6 +230,11 @@ export function resolveBedrockModel(modelIdentifier: string): string {
   return model
 }
 
+/** The platform and full model ID a trace should record for a call made with getBedrockChat. */
+export function bedrockTraceModel(modelIdentifier: string) {
+  return { llmModel: resolveBedrockModel(modelIdentifier), llmPlatform: 'bedrock' }
+}
+
 /** Accepts a family name like "sonnet" as well as a full model ID, the same as getModelChat. */
 export async function getBedrockChat(modelIdentifier: string, modelOptions) {
   const model = resolveModelId(modelIdentifier)

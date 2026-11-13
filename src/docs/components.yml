@@ -404,25 +404,33 @@ components:
         when it can't answer an UnpackRequestBody message.
       required:
         - type
+        - requestMessage
         - reason
         - text
       properties:
         type:
           type: string
           enum: [catch_up_refused]
+        requestMessage:
+          type: string
+          description: ID of the participant's request message this refusal answers.
         reason:
           type: string
           enum:
             - noTranscript
+            - noPassagesSent
             - rateLimited
             - chunkNotInTranscript
             - passageTooLong
             - unpackFailed
           description: >-
-            Why the request was refused. noTranscript, chunkIds was empty. rateLimited, the
-            participant sent more than 3 requests in the last minute. chunkNotInTranscript, a chunk
-            ID is not a transcript message of this event. passageTooLong, the chunks hold more than
-            3,000 characters. unpackFailed, the AI model call failed; trying again can work.
+            Why the request was refused. noTranscript, chunkIds was empty and the event has no
+            transcript yet. noPassagesSent, chunkIds was empty but the event has a transcript.
+            rateLimited, the participant already had 3 requests in the last minute that were not
+            refused. chunkNotInTranscript, a chunk ID is not a transcript message of this event, or
+            the transcript was deleted while the summary was being written. passageTooLong, the
+            chunks hold more than 3,000 characters. unpackFailed, the AI model call failed; trying
+            again can work.
         text:
           type: string
           description: A short reply to show the participant.

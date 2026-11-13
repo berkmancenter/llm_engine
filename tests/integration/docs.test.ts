@@ -92,8 +92,10 @@ describe('OpenAPI route', () => {
       )
       expect(CatchUpSummary.properties.comingUp.nullable).toBe(true)
       expect(CatchUpRefused.properties.type.enum).toEqual(['catch_up_refused'])
+      expect(CatchUpRefused.required).toEqual(expect.arrayContaining(['requestMessage', 'reason', 'text']))
       expect(CatchUpRefused.properties.reason.enum).toEqual([
         'noTranscript',
+        'noPassagesSent',
         'rateLimited',
         'chunkNotInTranscript',
         'passageTooLong',
