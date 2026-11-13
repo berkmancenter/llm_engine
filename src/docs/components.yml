@@ -229,7 +229,8 @@ components:
         Message body (sent with bodyType "json") asking the event assistant to catch the participant
         up on the transcript chunks listed in chunkIds. Send it to the participant's direct channel
         with the assistant. The assistant answers with a CatchUpSummary, or a CatchUpRefused that
-        says why it can't. Ignored unless the event's "unpacker" feature is on.
+        says why it can't. A body that doesn't match this schema is refused with 400 and isn't saved.
+        Ignored unless the event's "unpacker" feature is on.
       required:
         - type
         - mode
