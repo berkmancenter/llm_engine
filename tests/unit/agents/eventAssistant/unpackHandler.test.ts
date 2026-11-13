@@ -427,12 +427,34 @@ describe('handleUnpackRequest', () => {
       expect(await UnpackRequest.countDocuments()).toBe(0)
     })
 
-    it(`refuses passages that total over ${UNPACK_CATCH_UP_MAX_CHARACTERS} characters`, async () => {
+    it(`summarizes only the newest chunks that fit in ${UNPACK_CATCH_UP_MAX_CHARACTERS} characters`, async () => {
       const now = Date.now()
       const agent = buildAgent()
-      const half = 'a'.repeat(UNPACK_CATCH_UP_MAX_CHARACTERS / 2)
-      const chunks = [await saveChunk(agent, half, 30, now), await saveChunk(agent, half, 20, now)]
-      const request = catchUpRequest(chunks)
+      const half = UNPACK_CATCH_UP_MAX_CHARACTERS / 2
+      const oldest = await saveChunk(agent, 'a'.repeat(half), 40, now)
+      const middle = await saveChunk(agent, 'b'.repeat(half), 30, now)
+      // One shorter, so the two newest plus the space joining them fit exactly
+      const newest = await saveChunk(agent, 'c'.repeat(half - 1), 20, now)
+      const request = catchUpRequest([oldest, middle, newest])
+
+      const [reply] = await handleUnpackRequest(agent, request)
+
+      expect(reply.message).toMatchObject({
+        type: 'catch_up_summary',
+        chunkIds: [middle._id.toString(), newest._id.toString()],
+        passage: { start: middle.createdAt!.toISOString(), end: newest.createdAt!.toISOString() }
+      })
+      expect(mockGetChatPromptResponse.mock.calls[0][3].transcript).not.toContain(oldest.body)
+      const [row] = await UnpackRequest.find().lean()
+      expect(row.quote).toBe(`${middle.body} ${newest.body}`)
+    })
+
+    it(`refuses when the newest chunk alone is over ${UNPACK_CATCH_UP_MAX_CHARACTERS} characters`, async () => {
+      const now = Date.now()
+      const agent = buildAgent()
+      const earlier = await saveChunk(agent, 'Short and sweet.', 30, now)
+      const huge = await saveChunk(agent, 'a'.repeat(UNPACK_CATCH_UP_MAX_CHARACTERS + 1), 20, now)
+      const request = catchUpRequest([earlier, huge])
 
       const [reply] = await handleUnpackRequest(agent, request)
 
