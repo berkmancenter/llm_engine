@@ -1153,6 +1153,8 @@ describe('POST /v1/unpack/:conversationId/send', () => {
       const { conversation, privateChat } = await createEvent()
       const { quoted } = await seedTranscript(conversation)
       const previewed = await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
+      // Otherwise the preview's background posting can see the destination and post before the event locks
+      await settleBackgroundUnpacks()
       await UnpackRequest.updateOne({ _id: previewed.body.askId }, { destination: 'privateChat' })
       await Conversation.updateOne({ _id: conversation._id }, { locked: true })
 
@@ -1166,6 +1168,7 @@ describe('POST /v1/unpack/:conversationId/send', () => {
       const { conversation, privateChat } = await createEvent()
       const { quoted } = await seedTranscript(conversation)
       const previewed = await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
+      await settleBackgroundUnpacks()
       await UnpackRequest.updateOne({ _id: previewed.body.askId }, { destination: 'privateChat' })
       jest.spyOn(messageService, 'newMessageHandler').mockRejectedValueOnce(new Error('database down'))
 
