@@ -135,7 +135,7 @@ separate and is intentionally outside this change.
 - Cross-repository HTTP test uses this engine's compiled delivery client against
   the real archive API app with synthetic content and a temporary inbox.
 
-## Live acceptance gate — OPEN (PR #400)
+## Live acceptance gate — run complete, sign-off pending (PR #400)
 
 Automated tests do not close this gate. Keep `BKC_ARCHIVE_EXPORT_ENABLED=false`
 for general production use until the deployment operator records the evidence and
@@ -143,20 +143,38 @@ sign-off below. A controlled acceptance run must temporarily enable the flag on
 the selected engine runtime after the API prerequisites are verified; turn it off
 again if acceptance fails or sign-off is still pending.
 
-- [ ] Deploy [paired wiki PR #2](https://github.com/berkmancenter/bkc-archive-wiki/pull/2),
+- [x] Deploy [paired wiki PR #2](https://github.com/berkmancenter/bkc-archive-wiki/pull/2),
       build/restart the API, and record its deployed revision. Preserve inbox/receipts.
-- [ ] Deploy this engine revision with export disabled; record the revision and host.
-- [ ] Set `BKC_ARCHIVE_API_URL` and matching engine/API tokens; verify authenticated
+- [x] Deploy this engine revision with export disabled; record the revision and host.
+- [x] Set `BKC_ARCHIVE_API_URL` and matching engine/API tokens; verify authenticated
       reachability from the engine host. Never include token values in evidence.
-- [ ] Temporarily enable export for the controlled run. Stop one real eligible public
+- [x] Temporarily enable export for the controlled run. Stop one real eligible public
       event; record its conversation ID, delivered job status/log, and draft path.
-- [ ] Enqueue that ID twice; verify `already_delivered` and exactly one private draft.
+      (Run against an already completed public event through the backfill command
+      instead of stopping a live one.)
+- [x] Enqueue that ID twice; verify `already_delivered` and exactly one private draft.
       Confirm the draft contains the summary, without chat/transcripts/attendee lists.
 - [ ] Record operator, timestamp, evidence location and pass/fail result below.
       Only a passing, signed-off result permits leaving export enabled for normal use.
 
-Acceptance record (pending):
-- Operator / timestamp: pending
-- Wiki revision / engine revision / runtime: pending
-- Public event ID / draft path / evidence link: pending
-- Result / rollout sign-off: **OPEN — not yet performed**
+Acceptance record:
+
+- Operator / timestamp: Brendan A. Miller, 2026-11-14 02:06 UTC (enqueue and delivery)
+- Wiki revision / engine revision / runtime: wiki `a624c6c` on the archive VM
+  (rolled 2026-11-13); engine `7b8a862b` on the web instance group, with the export
+  flag enabled in the app env secret (version 12) for the run
+- Public event ID / draft path / evidence: event `6aeb7dfce7e37fa52712b0aa`, draft
+  `inbox/conversations/event-38dbed8050d7b8cdb1176225d9579314ea780eb62665e38db241af26fb403ce5.md`.
+  Evidence: the engine log line `Archive export delivered event=<id> path=<path>`;
+  the persisted job (`delivered`, `attempts: 1`) and exactly one `archiveEvent` job;
+  a second `--enqueue` reporting `already_delivered`; exactly one file in the archive
+  inbox (mode `0600`, no temporary files); and the draft's frontmatter keys and
+  headings checked by the operator (`type`, `status: draft`, `title`, `date`,
+  `source`, `source_id`, `participants`, `filed`; summary headings only, with no
+  transcript, chat or attendee sections).
+- Result: **passed.** The first dry run against production data failed on an
+  unregistered `Topic` model in the backfill command, fixed in #449 and covered by
+  #449 and #450 before this run.
+- Rollout sign-off: **pending operator sign-off.** The export flag is currently
+  enabled in production for this event and for events stopped after it. Record the
+  sign-off here, or set the flag back to `false`.
