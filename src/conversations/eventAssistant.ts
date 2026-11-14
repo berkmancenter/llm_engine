@@ -1,11 +1,10 @@
 import { supportedModels } from '../agents/helpers/getModelChat.js'
 import adapterTypes from '../adapters/config.js'
-import { ConversationType, Direction } from '../types/index.types.js'
+import { ConversationType, Direction, TRANSCRIPT_CHANNEL } from '../types/index.types.js'
 import config from '../config/config.js'
 
 export const ZOOM_MEETING_URL_PROPERTY = 'zoomMeetingUrl' as const
 
-export const TRANSCRIPT_CHANNEL = 'transcript' as const
 export const PARTICIPANT_CHANNEL = 'participant' as const
 export const MODERATOR_CHANNEL = 'moderator' as const
 export const CHAT_CHANNEL = 'chat' as const
@@ -186,6 +185,7 @@ const eventAssistant: ConversationType = {
       userControlled: true,
       default: false,
       agents: [],
+      respondingAgent: 'eventAssistant',
       properties: []
     },
     {

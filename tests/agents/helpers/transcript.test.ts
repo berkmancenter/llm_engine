@@ -3,6 +3,8 @@ import transcript, { TOPIC_TRANSCRIPT_COLLECTION_PREFIX } from '../../../src/age
 import rag, { TRANSCRIPT_COLLECTION_PREFIX } from '../../../src/agents/helpers/rag.js'
 import Conversation from '../../../src/models/conversation.model.js'
 import Message from '../../../src/models/message.model.js'
+import UnpackPassageExplanation from '../../../src/models/unpackPassageExplanation.model.js'
+import UnpackRequest from '../../../src/models/unpackRequest.model.js'
 
 const { searchTranscript, loadTranscriptIntoVectorStore } = transcript
 
@@ -1214,9 +1216,7 @@ describe('transcript', () => {
 
       expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
         `${TRANSCRIPT_COLLECTION_PREFIX}-${convId}`,
-        expect.arrayContaining([
-          'Jonathan Smith is a speaker, presenter, and panelist at this event. Climate researcher.'
-        ]),
+        expect.arrayContaining(['Jonathan Smith is a speaker, presenter, and panelist at this event. Climate researcher.']),
         expect.any(Object)
       )
     })
@@ -1225,7 +1225,7 @@ describe('transcript', () => {
       const conversation = {
         _id: convId,
         name: convName,
-        moderators: [{ name: 'Saoirse Ó Briain', bio: 'Senior editor.', alternateName: 'Sorsha O\'Brien' }]
+        moderators: [{ name: 'Saoirse Ó Briain', bio: 'Senior editor.', alternateName: "Sorsha O'Brien" }]
       }
 
       await transcript.loadEventMetadataIntoVectorStore(conversation)
@@ -1250,9 +1250,7 @@ describe('transcript', () => {
 
       expect(ragAddToVectorStoreSpy).toHaveBeenCalledWith(
         `${TRANSCRIPT_COLLECTION_PREFIX}-${convId}`,
-        expect.arrayContaining([
-          'Saoirse Ó Briain is the moderator, facilitator, and host of this event. Senior editor.'
-        ]),
+        expect.arrayContaining(['Saoirse Ó Briain is the moderator, facilitator, and host of this event. Senior editor.']),
         expect.any(Object)
       )
     })
@@ -1272,6 +1270,9 @@ describe('transcript', () => {
         })
       } as any)
       messageDeleteManySpy = jest.spyOn(Message, 'deleteMany').mockResolvedValue({} as any)
+      // The fake conversation ID isn't an ObjectId, so the Unpacker cleanup would fail to cast it
+      jest.spyOn(UnpackRequest, 'deleteMany').mockResolvedValue({} as any)
+      jest.spyOn(UnpackPassageExplanation, 'deleteMany').mockResolvedValue({} as any)
     })
 
     afterEach(() => {
@@ -1279,6 +1280,8 @@ describe('transcript', () => {
       ragRemoveFromVectorStoreSpy.mockRestore()
       messageFindSpy.mockRestore()
       messageDeleteManySpy.mockRestore()
+      jest.mocked(UnpackRequest.deleteMany).mockRestore()
+      jest.mocked(UnpackPassageExplanation.deleteMany).mockRestore()
     })
 
     it('should clear only transcript content from vector store and preserve metadata', async () => {
@@ -1354,6 +1357,9 @@ describe('transcript', () => {
         })
       } as any)
       messageDeleteManySpy = jest.spyOn(Message, 'deleteMany').mockResolvedValue({} as any)
+      // The fake conversation ID isn't an ObjectId, so the Unpacker cleanup would fail to cast it
+      jest.spyOn(UnpackRequest, 'deleteMany').mockResolvedValue({} as any)
+      jest.spyOn(UnpackPassageExplanation, 'deleteMany').mockResolvedValue({} as any)
     })
 
     afterEach(() => {
@@ -1361,6 +1367,8 @@ describe('transcript', () => {
       ragRemoveFromVectorStoreDeleteSpy.mockRestore()
       messageFindSpy.mockRestore()
       messageDeleteManySpy.mockRestore()
+      jest.mocked(UnpackRequest.deleteMany).mockRestore()
+      jest.mocked(UnpackPassageExplanation.deleteMany).mockRestore()
     })
 
     it('should delete entire per-conversation collection from vector store including metadata', async () => {

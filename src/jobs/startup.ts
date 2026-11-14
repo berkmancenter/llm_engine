@@ -29,6 +29,7 @@ export async function startJobs() {
     await defineJob.archiveEvent()
     await defineJob.pollExpired()
     await defineJob.publicInviteResend()
+    await defineJob.unpackPendingAsk()
   }
 }
 

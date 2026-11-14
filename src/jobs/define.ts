@@ -80,6 +80,9 @@ const defineJob = {
   },
   publicInviteResend: async () => {
     await agenda.define('publicInviteResend', JobHandlers.publicInviteResend)
+  },
+  unpackPendingAsk: async () => {
+    await agenda.define('unpackPendingAsk', { lockLifetime: LLM_JOB_LOCK_LIFETIME }, JobHandlers.unpackPendingAsk)
   }
 }
 
