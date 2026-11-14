@@ -12,6 +12,7 @@ on:
       - 'tests/unit/services/archiveEvent.service.test.ts'
       - 'tests/unit/services/conversationService.lifecycle.summary.test.ts'
       - 'tests/unit/scripts/backfillArchiveEvents.test.ts'
+      - 'tests/unit/scripts/archiveExportModelRegistration.test.ts'
       - '.github/workflows/archive-export.yml'
   workflow_dispatch:
 permissions:
@@ -46,6 +47,7 @@ jobs:
           tests/unit/jobs/archiveEvent.test.ts
           tests/unit/jobs/archiveEvent.schedule.test.ts
           tests/unit/scripts/backfillArchiveEvents.test.ts
+          tests/unit/scripts/archiveExportModelRegistration.test.ts
           tests/unit/jobs/define.test.ts
           tests/unit/jobs/startup.test.ts
           tests/unit/services/conversationService.lifecycle.summary.test.ts

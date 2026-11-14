@@ -25,6 +25,7 @@ jest.unstable_mockModule('mongoose', () => ({
   default: { connect, disconnect, isValidObjectId: (id: string) => /^[a-f0-9]{24}$/.test(id) }
 }))
 jest.unstable_mockModule('../src/models/conversation.model.js', () => ({ default: { find } }))
+jest.unstable_mockModule('../src/models/topic.model.js', () => ({ default: {} }))
 jest.unstable_mockModule('../src/config/config.js', () => ({ default: config }))
 jest.unstable_mockModule('../src/jobs/index.js', () => ({ default: { jobs, close } }))
 jest.unstable_mockModule('../src/jobs/schedule.js', () => ({ default: { archiveEvent, retryArchiveEvent } }))

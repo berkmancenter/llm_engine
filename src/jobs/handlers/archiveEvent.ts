@@ -1,5 +1,6 @@
 import type { Job } from 'agenda'
 import Conversation from '../../models/conversation.model.js'
+import '../../models/topic.model.js' // registers Topic, which the query below populates
 import config from '../../config/config.js'
 import logger from '../../config/logger.js'
 import {

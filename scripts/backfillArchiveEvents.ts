@@ -4,6 +4,7 @@ import mongoose from 'mongoose'
 import { pathToFileURL } from 'node:url'
 import config from '../src/config/config.js'
 import Conversation from '../src/models/conversation.model.js'
+import '../src/models/topic.model.js' // registers Topic, which the query below populates
 import agenda from '../src/jobs/index.js'
 import schedule from '../src/jobs/schedule.js'
 import { archiveEventEligibility, type ArchiveEvent } from '../src/services/archiveEvent.service.js'
