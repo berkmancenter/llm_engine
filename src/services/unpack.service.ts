@@ -13,6 +13,7 @@ import { getBedrockChat, resolveBedrockModel } from '../agents/helpers/getModelC
 import transcript from '../agents/helpers/transcript.js'
 import {
   buildPassage,
+  chunksStillSaved,
   explainPassage,
   getPassageContext,
   isUnpackerEnabled,
@@ -190,16 +191,6 @@ async function resolvePassage(conversationId: mongoose.Types.ObjectId, selection
   )
   if (ends.length === 0) return buildPassage([], selection)
   return buildPassage(await loadSelectedChunks(conversationId, ends), selection)
-}
-
-async function chunksStillSaved(conversationId: mongoose.Types.ObjectId, chunkIds: mongoose.Types.ObjectId[]) {
-  const saved = await findMessages(
-    conversationId,
-    'model',
-    { _id: { $in: chunkIds }, channels: TRANSCRIPT_CHANNEL },
-    { select: '_id', lean: true }
-  )
-  return saved.length === chunkIds.length
 }
 
 async function cardSaved(conversationId: mongoose.Types.ObjectId, messageId: mongoose.Types.ObjectId) {

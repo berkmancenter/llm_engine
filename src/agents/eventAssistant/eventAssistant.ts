@@ -14,7 +14,7 @@ import renderAgentTemplate from '../helpers/renderAgentTemplate.js'
 import access from '../../auth/access.js'
 
 import Message from '../../models/message.model.js'
-import { defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
+import { bedrockTraceModel, defaultLLMModel, defaultLLMPlatform } from '../helpers/getModelChat.js'
 import { eventAssistantLLMTemplates, eventAssistantLlmTemplateVars, answerQuestion } from './eventQuestionHandler.js'
 import { composeSystemPrompt } from '../helpers/promptComposer.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
@@ -25,7 +25,7 @@ import getDefaultEventAssistantToolNames from './eventAssistantDefaultTools.js'
 import generateImageResponse from './imageGenerator.js'
 import { parseSlashCommands, hasCommand, extractMessageText, SlashCommand } from '../helpers/slashCommandParser.js'
 import generateMindMap from './mindMapGenerator.js'
-import handleUnpackRequest, { isUnpackRequest } from './unpackHandler.js'
+import handleUnpackRequest, { isUnpackRequest, validateUnpackRequest } from './unpackHandler.js'
 import { checkBotIntent, matchBotMention, normalizeBotMention } from '../helpers/intentChecks.js'
 import { loadGoal } from '../../goals/loader.js'
 import { GROUP_CHAT_CHANNELS, isGroupChatMessage, currentGroupChannelName } from '../helpers/groupChatChannel.js'
@@ -618,7 +618,7 @@ export default verify({
 
     if (isUnpackRequest(userMessage)) {
       return {
-        userMessage,
+        userMessage: validateUnpackRequest(this.conversation, userMessage),
         action: AgentMessageActions.CONTRIBUTE,
         userContributionVisible: true,
         suggestion: undefined
@@ -938,11 +938,14 @@ export default verify({
         topic: this.conversation.name
       }
     }
-    return {
+    const metadata = {
       conversationHistory,
       channels: userMessage?.channels,
       promptType: responses[0]?.promptType,
       topic: responses[0]?.topic
     }
+    // Catch-ups skip the assistant's own model, so the trace would otherwise name the wrong one
+    if (isUnpackRequest(userMessage)) return { ...metadata, ...bedrockTraceModel(config.unpackLLMModel) }
+    return metadata
   }
 })

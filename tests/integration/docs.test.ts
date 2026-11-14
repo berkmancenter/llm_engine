@@ -48,7 +48,10 @@ describe('OpenAPI route', () => {
       const { UnpackRequestBody, UnpackExplanation } = res.body.components.schemas
 
       expect(UnpackRequestBody.properties.type.enum).toEqual(['unpack_request'])
-      expect(UnpackRequestBody.required).toEqual(expect.arrayContaining(['type', 'mode', 'text']))
+      expect(UnpackRequestBody.required).toEqual(expect.arrayContaining(['type', 'mode', 'text', 'chunkIds']))
+      expect(UnpackRequestBody.properties.chunkIds.type).toBe('array')
+      expect(UnpackRequestBody.properties.chunkIds.maxItems).toBe(50)
+      expect(UnpackRequestBody.properties.transcriptPasscode.type).toBe('string')
       expect(UnpackExplanation.properties.type.enum).toEqual(['unpack_explanation'])
       expect(UnpackExplanation.required).toEqual(
         expect.arrayContaining(['whatTheyreSaying', 'whyItMatters', 'terms', 'chunkIds', 'passage', 'text'])
@@ -68,8 +71,38 @@ describe('OpenAPI route', () => {
       expect(schemas.UnpackError.properties.reason.enum).toEqual(
         expect.arrayContaining(['selectionTooLong', 'unpackFailed'])
       )
-      expect(schemas.UnpackExplanation.properties.mode.enum).toEqual(['lastMinute', 'passage'])
-      expect(schemas.UnpackExplanation.required).not.toContain('requestMessage')
+      expect(schemas.UnpackExplanation.properties.mode.enum).toEqual(['passage'])
+      expect(schemas.UnpackExplanation.properties).not.toHaveProperty('requestMessage')
+    })
+
+    test('describes the catch-up summary and refusal message bodies', async () => {
+      const res = await request(app).get('/v1/openapi.json').expect(httpStatus.OK)
+      const { CatchUpSummary, CatchUpRefused } = res.body.components.schemas
+
+      expect(CatchUpSummary.properties.type.enum).toEqual(['catch_up_summary'])
+      expect(CatchUpSummary.required).toEqual(
+        expect.arrayContaining([
+          'inShort',
+          'whatTheyCovered',
+          'comingUp',
+          'chunkIds',
+          'passage',
+          'earlierSpeech',
+          'requestMessage',
+          'text'
+        ])
+      )
+      expect(CatchUpSummary.properties.comingUp.nullable).toBe(true)
+      expect(CatchUpRefused.properties.type.enum).toEqual(['catch_up_refused'])
+      expect(CatchUpRefused.required).toEqual(expect.arrayContaining(['requestMessage', 'reason', 'text']))
+      expect(CatchUpRefused.properties.reason.enum).toEqual([
+        'noTranscript',
+        'noPassagesSent',
+        'rateLimited',
+        'chunkNotInTranscript',
+        'passageTooLong',
+        'unpackFailed'
+      ])
     })
   })
 })
