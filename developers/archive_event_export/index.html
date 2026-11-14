@@ -431,10 +431,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#live-acceptance-gate-open-pr-400" class="md-nav__link">
+  <a href="#live-acceptance-gate-run-complete-sign-off-pending-pr-400" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Live acceptance gate — OPEN (PR #400)
+        Live acceptance gate — run complete, sign-off pending (PR #400)
       
     </span>
   </a>
@@ -568,30 +568,49 @@ separate and is intentionally outside this change.</p>
 <li>Cross-repository HTTP test uses this engine's compiled delivery client against
   the real archive API app with synthetic content and a temporary inbox.</li>
 </ul>
-<h2 id="live-acceptance-gate-open-pr-400">Live acceptance gate — OPEN (PR #400)</h2>
+<h2 id="live-acceptance-gate-run-complete-sign-off-pending-pr-400">Live acceptance gate — run complete, sign-off pending (PR #400)</h2>
 <p>Automated tests do not close this gate. Keep <code>BKC_ARCHIVE_EXPORT_ENABLED=false</code>
 for general production use until the deployment operator records the evidence and
 sign-off below. A controlled acceptance run must temporarily enable the flag on
 the selected engine runtime after the API prerequisites are verified; turn it off
 again if acceptance fails or sign-off is still pending.</p>
 <ul class="task-list">
-<li class="task-list-item"><label class="task-list-control"><input type="checkbox"/><span class="task-list-indicator"></span></label> Deploy <a href="https://github.com/berkmancenter/bkc-archive-wiki/pull/2">paired wiki PR #2</a>,
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" checked/><span class="task-list-indicator"></span></label> Deploy <a href="https://github.com/berkmancenter/bkc-archive-wiki/pull/2">paired wiki PR #2</a>,
       build/restart the API, and record its deployed revision. Preserve inbox/receipts.</li>
-<li class="task-list-item"><label class="task-list-control"><input type="checkbox"/><span class="task-list-indicator"></span></label> Deploy this engine revision with export disabled; record the revision and host.</li>
-<li class="task-list-item"><label class="task-list-control"><input type="checkbox"/><span class="task-list-indicator"></span></label> Set <code>BKC_ARCHIVE_API_URL</code> and matching engine/API tokens; verify authenticated
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" checked/><span class="task-list-indicator"></span></label> Deploy this engine revision with export disabled; record the revision and host.</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" checked/><span class="task-list-indicator"></span></label> Set <code>BKC_ARCHIVE_API_URL</code> and matching engine/API tokens; verify authenticated
       reachability from the engine host. Never include token values in evidence.</li>
-<li class="task-list-item"><label class="task-list-control"><input type="checkbox"/><span class="task-list-indicator"></span></label> Temporarily enable export for the controlled run. Stop one real eligible public
-      event; record its conversation ID, delivered job status/log, and draft path.</li>
-<li class="task-list-item"><label class="task-list-control"><input type="checkbox"/><span class="task-list-indicator"></span></label> Enqueue that ID twice; verify <code>already_delivered</code> and exactly one private draft.
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" checked/><span class="task-list-indicator"></span></label> Temporarily enable export for the controlled run. Stop one real eligible public
+      event; record its conversation ID, delivered job status/log, and draft path.
+      (Run against an already completed public event through the backfill command
+      instead of stopping a live one.)</li>
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" checked/><span class="task-list-indicator"></span></label> Enqueue that ID twice; verify <code>already_delivered</code> and exactly one private draft.
       Confirm the draft contains the summary, without chat/transcripts/attendee lists.</li>
 <li class="task-list-item"><label class="task-list-control"><input type="checkbox"/><span class="task-list-indicator"></span></label> Record operator, timestamp, evidence location and pass/fail result below.
       Only a passing, signed-off result permits leaving export enabled for normal use.</li>
 </ul>
-<p>Acceptance record (pending):
-- Operator / timestamp: pending
-- Wiki revision / engine revision / runtime: pending
-- Public event ID / draft path / evidence link: pending
-- Result / rollout sign-off: <strong>OPEN — not yet performed</strong></p>
+<p>Acceptance record:</p>
+<ul>
+<li>Operator / timestamp: Brendan A. Miller, 2026-11-14 02:06 UTC (enqueue and delivery)</li>
+<li>Wiki revision / engine revision / runtime: wiki <code>a624c6c</code> on the archive VM
+  (rolled 2026-11-13); engine <code>7b8a862b</code> on the web instance group, with the export
+  flag enabled in the app env secret (version 12) for the run</li>
+<li>Public event ID / draft path / evidence: event <code>6aeb7dfce7e37fa52712b0aa</code>, draft
+  <code>inbox/conversations/event-38dbed8050d7b8cdb1176225d9579314ea780eb62665e38db241af26fb403ce5.md</code>.
+  Evidence: the engine log line <code>Archive export delivered event=&lt;id&gt; path=&lt;path&gt;</code>;
+  the persisted job (<code>delivered</code>, <code>attempts: 1</code>) and exactly one <code>archiveEvent</code> job;
+  a second <code>--enqueue</code> reporting <code>already_delivered</code>; exactly one file in the archive
+  inbox (mode <code>0600</code>, no temporary files); and the draft's frontmatter keys and
+  headings checked by the operator (<code>type</code>, <code>status: draft</code>, <code>title</code>, <code>date</code>,
+  <code>source</code>, <code>source_id</code>, <code>participants</code>, <code>filed</code>; summary headings only, with no
+  transcript, chat or attendee sections).</li>
+<li>Result: <strong>passed.</strong> The first dry run against production data failed on an
+  unregistered <code>Topic</code> model in the backfill command, fixed in #449 and covered by
+  #449 and #450 before this run.</li>
+<li>Rollout sign-off: <strong>pending operator sign-off.</strong> The export flag is currently
+  enabled in production for this event and for events stopped after it. Record the
+  sign-off here, or set the flag back to <code>false</code>.</li>
+</ul>
 
 
 
