@@ -92,6 +92,11 @@ describe('checkinHandler processParticipant', () => {
     expect(result.visible).toBe(false)
     expect((result.message as { type: string }).type).toBe('checkin')
     expect(result.reasoning).toBe('Nothing concerning in their recent messages.')
+    // detectPrivateInterventionOpportunity is mocked here, so it never ran the real
+    // below-threshold branch that sets declineReason — falls back to a generic reason instead.
+    expect(result.declineReason).toBe('no_direct_message')
+    expect(result.proposedGoalId).toBe('none')
+    expect(result.proposedMessage).toBeNull()
   })
 
   it('returns a traceOnly response, not null, when a cited cross-participant claim is hallucinated', async () => {
@@ -109,6 +114,10 @@ describe('checkinHandler processParticipant', () => {
     expect(result).not.toBeNull()
     expect(result.traceOnly).toBe(true)
     expect(result.reasoning).toBe('They seem to be echoing a sentiment others raised.')
+    expect(result.declineReason).toBe('hallucination_filtered')
+    // Reached only once directMessage was already a real, non-null draft — preserved here
+    // since detectPrivateInterventionOpportunity is mocked and never set proposedMessage itself.
+    expect(result.proposedMessage).toBe('A few others mentioned feeling the same.')
   })
 
   it('returns a real, visible response when a check-in is warranted', async () => {

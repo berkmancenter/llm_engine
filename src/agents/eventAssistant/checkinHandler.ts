@@ -9,7 +9,7 @@ import {
 } from '../../types/index.types.js'
 
 import getConversationHistory from '../helpers/getConversationHistory.js'
-import { detectPrivateInterventionOpportunity, InterventionAnalysis } from '../helpers/interventionHandler.js'
+import { detectPrivateInterventionOpportunity, InterventionAnalysis, DeclineReason } from '../helpers/interventionHandler.js'
 import { formatDmHistoryByChannel } from '../helpers/llmInputFormatters.js'
 import transcript from '../helpers/transcript.js'
 import logger from '../../config/logger.js'
@@ -234,8 +234,16 @@ function getCheckinDmAnalysisSchema(activeGoals: ConversationGoal[]) {
    formatTraceOutput (which already maps an array of per-participant {participant, reasoning,
    ...} entries for message.type 'checkin' — matched here so a traceOnly entry is picked up the
    same way a real one is, whichever ends up first in the array). traceOnly keeps it out of the
-   job handler that turns ordinary responses into real Messages (see agent.model/index.ts). */
-function buildTraceOnlyCheckinResponse(analysis: InterventionAnalysis, participantPseudonym: string) {
+   job handler that turns ordinary responses into real Messages (see agent.model/index.ts).
+   context is deliberately left out: it's the full prompt sent for this participant (all their
+   private messages, the last 100 group chat messages, the transcript), already on that model
+   call's own LangSmith span. One periodic tick runs this per participant, so including it here
+   would save a full prompt per non-check-in participant into a single trace entry. */
+function buildTraceOnlyCheckinResponse(
+  analysis: InterventionAnalysis,
+  participantPseudonym: string,
+  declineReason: DeclineReason
+) {
   return {
     visible: false,
     traceOnly: true,
@@ -246,7 +254,10 @@ function buildTraceOnlyCheckinResponse(analysis: InterventionAnalysis, participa
     reasoning: analysis.reasoning,
     confidenceScore: analysis.confidenceScore,
     detectedPattern: analysis.detectedPattern,
-    context: analysis.context
+    proposedGoalId: analysis.proposedGoalId ?? analysis.goalId ?? null,
+    proposedMessage: analysis.proposedMessage ?? analysis.directMessage ?? null,
+    confidenceThreshold: analysis.confidenceThreshold ?? null,
+    declineReason
   }
 }
 
@@ -320,7 +331,7 @@ export async function processParticipant(
 
   if (!analysis.directMessage) {
     logger.debug(`${this.agentType} ${this._id}: no check-in warranted for ${participantPseudonym}`)
-    return buildTraceOnlyCheckinResponse(analysis, participantPseudonym)
+    return buildTraceOnlyCheckinResponse(analysis, participantPseudonym, analysis.declineReason ?? 'no_direct_message')
   }
 
   // Verify any cited cross-participant messages are real — mirrors backChannel hallucination filtering.
@@ -334,7 +345,7 @@ export async function processParticipant(
           analysis.sourceMessages
         )}`
       )
-      return buildTraceOnlyCheckinResponse(analysis, participantPseudonym)
+      return buildTraceOnlyCheckinResponse(analysis, participantPseudonym, 'hallucination_filtered')
     }
   }
 

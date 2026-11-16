@@ -8,6 +8,24 @@ import logger from '../../config/logger.js'
 import { getConfidenceThreshold, getEffectiveMinConfidence, getMinContributionMs } from './promptComposer.js'
 
 /**
+ * Why a tick ended up sending nothing, for a traceOnly response to show alongside the model's own
+ * `reasoning` (which only ever explains the model's read of the conversation, not which gate — if
+ * any — went on to suppress it). The first two are set by runInterventionAnalysis itself; the rest
+ * by proactiveGroupAgent/checkinHandler's trace-only response builders, for a suppression that
+ * happens after this function already returned a real, above-threshold analysis.
+ */
+export type DeclineReason =
+  | 'model_declined'
+  | 'below_threshold'
+  | 'socratic_no_reading'
+  | 'socratic_writer_failed'
+  | 'professionalism_rejected'
+  | 'message_missing'
+  | 'poll_creation_failed'
+  | 'no_direct_message'
+  | 'hallucination_filtered'
+
+/**
  * Analysis result from intervention detection — shared across proactiveGroupAgent and checkinHandler.
  */
 export interface InterventionAnalysis {
@@ -21,6 +39,18 @@ export interface InterventionAnalysis {
   affectedUsers?: number | null
   sourceMessages?: { participant: string; text: string }[] | null
   context?: string
+  /* The fields below exist so a traceOnly response (built by proactiveGroupAgent's
+     buildTraceOnlyResponse / checkinHandler's buildTraceOnlyCheckinResponse) can show what was
+     suppressed and why, instead of just the normalized "did nothing" shape. */
+  // The goal/message the model actually proposed, captured here only when this below-threshold
+  // check is what suppressed it — a later suppression (professionalism, missing message, ...)
+  // reads goalId/sharedChatMessage/directMessage directly instead, since those are still intact.
+  proposedGoalId?: string | null
+  proposedMessage?: string | null
+  // The effective threshold this confidenceScore was measured against, set only alongside
+  // proposedGoalId/proposedMessage above.
+  confidenceThreshold?: number
+  declineReason?: DeclineReason | null
 }
 
 export const USER_TEMPLATE = `## Event Topic:
@@ -212,6 +242,10 @@ export async function runInterventionAnalysis(
   result.context = renderedUserPrompt
 
   if (!analysis.shouldIntervene || analysis.confidenceScore < effectiveThreshold) {
+    result.proposedGoalId = result.goalId ?? null
+    result.proposedMessage = (channelType === 'dm' ? result.directMessage : result.sharedChatMessage) ?? null
+    result.confidenceThreshold = effectiveThreshold
+    result.declineReason = !result.shouldIntervene ? 'model_declined' : 'below_threshold'
     result.shouldIntervene = false
     result.goalId = 'none'
     result.sharedChatMessage = null

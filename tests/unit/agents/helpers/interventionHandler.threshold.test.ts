@@ -38,7 +38,7 @@ function makeContext() {
 
 const history = { start: new Date(), end: new Date(), messages: [] }
 
-async function run() {
+async function run(channelType: 'dm' | 'groupChat' = 'groupChat') {
   return runInterventionAnalysis.call(
     makeContext(),
     history,
@@ -49,7 +49,7 @@ async function run() {
     undefined,
     undefined,
     undefined,
-    'groupChat'
+    channelType
   )
 }
 
@@ -105,6 +105,56 @@ describe('runInterventionAnalysis threshold handling', () => {
     const result = await run()
 
     expect(result.context).toEqual(expect.any(String))
+  })
+
+  it('captures what the model proposed (groupChat) before normalizing it away', async () => {
+    mockGetChatPromptResponse.mockResolvedValue({
+      shouldIntervene: true,
+      goalId: 'synthesize_discussion',
+      reasoning: 'Low confidence in this read.',
+      sharedChatMessage: 'Anyone want to weigh in?',
+      directMessage: 'Hey, thoughts on this?',
+      confidenceScore: 10
+    })
+
+    const result = await run('groupChat')
+
+    expect(result.proposedGoalId).toBe('synthesize_discussion')
+    expect(result.proposedMessage).toBe('Anyone want to weigh in?')
+    expect(result.confidenceThreshold).toBe(60)
+    expect(result.declineReason).toBe('below_threshold')
+  })
+
+  it('captures the directMessage (not sharedChatMessage) as proposedMessage for a dm channel', async () => {
+    mockGetChatPromptResponse.mockResolvedValue({
+      shouldIntervene: true,
+      goalId: 'synthesize_discussion',
+      reasoning: 'Low confidence in this read.',
+      sharedChatMessage: 'Anyone want to weigh in?',
+      directMessage: 'Hey, thoughts on this?',
+      confidenceScore: 10
+    })
+
+    const result = await run('dm')
+
+    expect(result.proposedMessage).toBe('Hey, thoughts on this?')
+  })
+
+  it('marks declineReason as model_declined (not below_threshold) when the model itself declines', async () => {
+    mockGetChatPromptResponse.mockResolvedValue({
+      shouldIntervene: false,
+      goalId: 'synthesize_discussion',
+      reasoning: 'Nothing worth surfacing right now.',
+      sharedChatMessage: 'A draft the model decided not to send.',
+      directMessage: null,
+      confidenceScore: 95
+    })
+
+    const result = await run('groupChat')
+
+    expect(result.declineReason).toBe('model_declined')
+    expect(result.proposedGoalId).toBe('synthesize_discussion')
+    expect(result.proposedMessage).toBe('A draft the model decided not to send.')
   })
 
   it('also normalizes when the model itself sets shouldIntervene: false', async () => {
