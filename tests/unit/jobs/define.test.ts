@@ -31,6 +31,11 @@ describe('job definitions set lockLifetime based on whether the job calls an LLM
     expect(agenda._definitions.conversationEvent.lockLifetime).toBe(LLM_JOB_LOCK_LIFETIME)
   })
 
+  test('archive delivery uses a lock longer than its 15-second HTTP timeout', async () => {
+    await defineJob.archiveEvent()
+    expect(agenda._definitions.archiveEvent.lockLifetime).toBe(60000)
+  })
+
   test('jobs with no external LLM/embeddings call keep the default lockLifetime', async () => {
     await defineJob.autoStartConversation()
     await defineJob.cleanUpTranscripts()

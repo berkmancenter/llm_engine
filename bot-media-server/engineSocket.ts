@@ -28,6 +28,10 @@ export interface EngineSocketHooks {
   onChime: () => void
   onThinkingChime: () => void
   onAudioChunk: (chunk: AudioChunk) => void
+  // Fired right as 'thinking' starts, with the text that triggered this response (e.g.
+  // "Hey <botName>, ..."), when llm_engine sent one along with agent:responding (see
+  // websocketGateway.ts's broadcastAgentResponding) — '' otherwise.
+  onQuestion: (text: string) => void
 }
 
 // How long 'thinking' is allowed to sit with no message:chunk before giving up and going back
@@ -205,7 +209,7 @@ export function createEngineSocket(config: EngineSocketConfig, hooks: EngineSock
   // later moment (a moderator's live "go ahead" flushing the held response via call-upon), so
   // this only ever moves the state to 'thinking', never ahead of where call-upon/flush already
   // took it.
-  socket.on('agent:responding', () => {
+  socket.on('agent:responding', ({ question }: { question?: string } = {}) => {
     // Only meaningful from idle. A second question can trigger its own respond() call (and
     // its own agent:responding) while the first response is still hand-raised or speaking —
     // pendingQueue happily queues that up, but visually dropping back to 'thinking' would
@@ -217,6 +221,7 @@ export function createEngineSocket(config: EngineSocketConfig, hooks: EngineSock
       return
     }
     log(`${conversationId} agent:responding — thinking`)
+    hooks.onQuestion(question ?? '')
     setState('thinking')
     hooks.onThinkingChime()
     clearTimeout(thinkingTimeout)

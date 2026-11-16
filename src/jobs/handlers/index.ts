@@ -1,3 +1,4 @@
+import archiveEventHandlers from './archiveEvent.js'
 import agentHandlers from './agent.js'
 import conceptGraphHandlers from './conceptGraph.js'
 import conversationHandlers from './conversation.js'
@@ -11,6 +12,7 @@ import topicHandlers from './topic.js'
 import transcriptHandlers from './transcript.js'
 
 const JobHandlers = {
+  archiveEvent: archiveEventHandlers.archiveEvent,
   // Agent handlers
   agentResponse: agentHandlers.agentResponse,
   periodicAgent: agentHandlers.periodicAgent,

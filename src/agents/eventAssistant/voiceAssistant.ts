@@ -150,8 +150,12 @@ export default verify({
     // Past this point we're committed to producing a real response (LLM-generated or a
     // verbatim announcement read) that will actually stream chunks to bot-media clients.
     if (voiceTarget) {
+      // questionText, not userMessage.body — it's what the agent is actually answering (already
+      // confirmed non-empty above), and it's correct even for the bare-trigger case (someone
+      // says "hey <botName>" and the question itself arrives in the next message) — body alone
+      // would only ever have that second message's text, missing the wake phrase either way.
       websocketGateway
-        .broadcastAgentResponding(conversationId, this._id.toString())
+        .broadcastAgentResponding(conversationId, this._id.toString(), questionText)
         .catch((err) => logger.warn(`Voice assistant: failed to broadcast agent:responding: ${err}`))
     }
 

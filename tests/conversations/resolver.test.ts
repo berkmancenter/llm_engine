@@ -441,6 +441,80 @@ describe('resolveConversationType', () => {
       expect(result.adapters[0]).toMatchObject({ config: { meetingUrl: 'https://zoom.us/j/456' } })
     })
 
+    // The 'eq' helper (registered once, module-level, in resolver.ts itself — not borrowed
+    // from report.service.ts's own 'eq', which is registered inside a function and so isn't
+    // reliably available this early) is what lets adapter config templates do equality
+    // comparisons, which plain {{#if}} truthy checks can't express. See eventAssistant.ts's
+    // 'nextspace,zoom' block for the real usage this backs (botMediaMode keyed off
+    // voiceOutput's own voiceDestination sub-property).
+    describe('the eq helper', () => {
+      const typeWithEq: ConversationType = {
+        ...baseType,
+        properties: [{ name: 'mode', required: false, type: 'string', default: 'a' }],
+        adapters: {
+          zoom: {
+            type: 'zoom',
+            config: { matched: "{{#if (eq properties.mode 'a')}}yes{{else}}no{{/if}}" }
+          }
+        }
+      }
+
+      test('resolves the #if branch when the compared values are equal', () => {
+        const result = resolveConversationType({ platforms: ['zoom'], properties: { mode: 'a' } }, typeWithEq)
+        expect(result.adapters[0]).toMatchObject({ config: { matched: 'yes' } })
+      })
+
+      test('resolves the {{else}} branch when the compared values differ', () => {
+        const result = resolveConversationType({ platforms: ['zoom'], properties: { mode: 'b' } }, typeWithEq)
+        expect(result.adapters[0]).toMatchObject({ config: { matched: 'no' } })
+      })
+
+      test("works against a nested property path, e.g. a feature's own sub-property", () => {
+        const typeWithFeatureAndEq: ConversationType = {
+          ...baseType,
+          properties: [],
+          features: [
+            {
+              name: 'myFeature',
+              label: 'My Feature',
+              category: 'assistant',
+              userControlled: false,
+              default: false,
+              agents: [],
+              properties: [{ name: 'interval', required: false, type: 'number', default: 5 }]
+            }
+          ],
+          adapters: {
+            zoom: {
+              type: 'zoom',
+              config: { fast: '{{#if (eq properties.myFeature.interval 1)}}yes{{else}}no{{/if}}' }
+            }
+          }
+        }
+
+        const fast = resolveConversationType(
+          { platforms: ['zoom'], features: [{ name: 'myFeature', config: { interval: 1 } }] },
+          typeWithFeatureAndEq
+        )
+        expect(fast.adapters[0]).toMatchObject({ config: { fast: 'yes' } })
+
+        const slow = resolveConversationType(
+          { platforms: ['zoom'], features: [{ name: 'myFeature', config: { interval: 5 } }] },
+          typeWithFeatureAndEq
+        )
+        expect(slow.adapters[0]).toMatchObject({ config: { fast: 'no' } })
+
+        // The feature disabled entirely: properties.myFeature is false, so .interval is simply
+        // undefined — never equal to 1 — same safety property voiceOutput/voiceDestination
+        // relies on (can't accidentally match a comparison value via an absent feature).
+        const disabled = resolveConversationType(
+          { platforms: ['zoom'], features: [{ name: 'myFeature', enabled: false }] },
+          typeWithFeatureAndEq
+        )
+        expect(disabled.adapters[0]).toMatchObject({ config: { fast: 'no' } })
+      })
+    })
+
     test('returns empty adapters when no match and no default', () => {
       const type: ConversationType = { ...baseType, properties: [], adapters: { zoom: { type: 'zoom' } } }
       const result = resolveConversationType({ platforms: ['web'] }, type)

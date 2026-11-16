@@ -254,9 +254,13 @@ class WebsocketGateway {
    * fire once there's actual content. Deliberately generic (not tied to voice, Slack, or any
    * one client): any client in the conversation's room can use this as a "the agent noticed
    * and is processing" cue, e.g. bot-media-server's "thinking" animation.
+   * @param question - the message that triggered this response, verbatim, when the caller has
+   *   one (e.g. voiceAssistant.ts's voice trigger) — lets a client display what was asked
+   *   without having to guess from whatever it last saw go by on some channel, which could be
+   *   stale or unrelated by the time this actually fires.
    */
-  async broadcastAgentResponding(conversationId: string, agentId: string) {
-    await this.broadcast(conversationId, 'agent:responding', { conversationId, agentId })
+  async broadcastAgentResponding(conversationId: string, agentId: string, question?: string) {
+    await this.broadcast(conversationId, 'agent:responding', { conversationId, agentId, question })
   }
 
   /**

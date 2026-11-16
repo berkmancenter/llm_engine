@@ -18,14 +18,159 @@ const PAGE = `<!DOCTYPE html>
   #bot {
     position: absolute;
     display: block;
+    /* Explicit, not just DOM order: the character's own drawn shape (inside its viewBox,
+       letterboxed per the frame's actual aspect ratio) can reach into the overlay regions
+       below even though its bounding box nominally leaves room for them — a narrower frame
+       (e.g. Zoom's fullscreen window vs. a browser iframe) lets the character fill more of
+       state-full's 100%/100% box, so this can't be solved by sizing math alone. */
+    z-index: 0;
     transition: width .5s ease, height .5s ease, left .5s ease, top .5s ease;
   }
-  #bot.state-idle { width: 44vw; height: 24.75vw; left: calc(100% - 44vw - 3vw); top: calc(100% - 24.75vw - 3vw); }
-  #bot.state-full { width: 100%; height: 100%; left: 0; top: 0; }
+  /* Bottom margin leaves room for nameBadge below (its own 3vw frame gap + its text height),
+     vs. just 3vw when there's no badge to make room for. */
+  #bot.state-idle { width: 48vw; height: 27vw; left: calc(100% - 48vw - 3vw); top: calc(100% - 27vw - 12vw); }
+  /* Sized the same vw-both-dimensions way as idle (matching the viewBox ratio, see the comment
+     above) rather than 100%/100% of the frame's own box — that let the character's shape
+     follow whatever aspect ratio the surrounding frame happened to have instead of its own, so
+     it could reach further into the state badge/question text above and below in a narrower
+     frame (e.g. Zoom fullscreen) than in a wider one (a browser iframe). Smaller, centered,
+     leaves a predictable margin for both overlays regardless of the frame's own shape — see
+     stateBadge/questionBox for how each claims its own share of that margin. */
+  #bot.state-full { width: 70vw; height: 39.4vw; left: calc(50% - 35vw); top: calc(50% - 19.7vw); }
+
+  /* Sits right under the idle corner tile — same width/left so it's centered under it — and
+     only makes sense then: hidden once a non-idle state takes over the full frame (see
+     .overlay above, which is the opposite visibility rule for the same reason). */
+  #nameBadge {
+    position: absolute;
+    z-index: 1;
+    bottom: 3vw;
+    width: 48vw;
+    left: calc(100% - 48vw - 3vw);
+    text-align: center;
+    color: #4747CB;
+    font-weight: 700;
+    font-size: 5.8vw;
+    opacity: 1;
+    pointer-events: none;
+    transition: opacity .35s ease;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  body.state-non-idle #nameBadge { opacity: 0; }
+
+  /* Both overlays only make sense once the character has taken over the full frame (see
+     #bot.state-full above) — hidden rather than removed so they can fade rather than pop. */
+  .overlay {
+    position: absolute;
+    z-index: 1;
+    left: 50%;
+    transform: translateX(-50%);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .35s ease;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  body.state-non-idle .overlay { opacity: 1; }
+
+  #stateBadge {
+    top: 2.5%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5em;
+    min-width: 55%;
+    background: #4747CB;
+    color: #fff;
+    font-weight: 700;
+    font-size: 4.5vw;
+    padding: 0.5em 1.1em;
+    /* em, not a fixed px — ties the radius to this pill's own (vw-scaled) font-size so it stays
+       a true capsule (comfortably over half its own height, ~1.1em) at any frame size, instead
+       of a fixed px value that would look barely-rounded blown up on a huge screen. */
+    border-radius: 2em;
+    white-space: nowrap;
+  }
+  /* Hidden by default: Recall.ai's headless browser (the Zoom camera feed) has no color-emoji
+     font, so the emoji text here would render as a missing-glyph box — shown again below for
+     the narrow/iframe case, which runs in a normal browser with real emoji support. */
+  #stateBadge .icon { font-size: 1.15em; line-height: 1; display: none; }
+
+  /* bottom pulled in further than stateBadge's top is (2% vs. 2.5%): this box is two lines
+     (label + text) against stateBadge's one, so the same gap from #bot reads as tighter here
+     unless it claims more of its own edge margin to compensate. */
+  #questionBox {
+    bottom: 2%;
+    min-width: 72%;
+    max-width: 92%;
+    background: #16162E;
+    color: #fff;
+    /* em, not px — ties corner rounding to this box's own (vw-scaled) font-size so it reads
+       the same proportionally whether this page is a thumbnail-sized iframe or a fullscreen
+       Zoom camera, instead of a fixed-px radius that'd vanish at a large enough size. */
+    border-radius: 0.5em;
+    padding: 0.7em 1.1em;
+  }
+  #questionLabel {
+    color: #A8B2F5;
+    font-weight: 700;
+    font-size: 2vw;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 0.3em;
+  }
+  #questionText { font-size: 3.2vw; line-height: 1.3; }
+
+  /* A browser-iframe embed runs far narrower than Zoom's fullscreen camera feed, with no
+     matching reduction in height — tall and narrow rather than roughly landscape. The overlap
+     composition above assumes landscape (bot centered, text pinned to the top/bottom edges
+     around it); here there's vertical room to spare, so instead of fighting over the same
+     pixels, badge/bot/question stack in normal flow with absolute sizing (no vw tie to the
+     wide-frame math above). 400px is well clear of any iframe embed and well under Zoom's. */
+  @media (max-width: 400px) {
+    /* Idle (just the bot, tucked in its corner above the name badge) already works at any
+       frame width with the base absolute layout above — it's only the non-idle composition
+       (badge + bot + question all visible together) that needs the narrow-frame treatment, so
+       everything below is scoped to body.state-non-idle and idle is left untouched. */
+    body.state-non-idle {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2vh;
+      padding: 3vh 4vw;
+    }
+    body.state-non-idle #bot,
+    body.state-non-idle .overlay {
+      position: static;
+      left: auto;
+      top: auto;
+      bottom: auto;
+      transform: none;
+    }
+    body.state-non-idle #bot.state-full { width: 90vw; height: auto; aspect-ratio: 1805 / 1016; }
+    #stateBadge .icon { display: inline-block; }
+    /* auto margins (not justify-content) so the bot's own slack-absorbing space is the one
+       that grows with extra frame height — badge/question stay flush against it (plus the
+       small gap above) instead of all three spreading apart evenly. */
+    body.state-non-idle #bot { order: 2; margin: auto 0; }
+    body.state-non-idle #stateBadge {
+      order: 1;
+      min-width: 0;
+      max-width: 85%;
+      white-space: normal;
+      text-align: center;
+      font-size: 26px;
+    }
+    body.state-non-idle #questionBox { order: 4; }
+    #questionLabel { font-size: 18px; }
+    #questionText { font-size: 32px; }
+  }
 </style>
 </head>
 <body>
-<svg id="bot" class="state-idle" viewBox="-583 -299 2400 1350" role="img" aria-label="Bot">
+<div id="stateBadge" class="overlay"><span id="stateIcon" class="icon"></span><span id="stateLabel"></span></div>
+<div id="questionBox" class="overlay"><div id="questionLabel">Asked</div><div id="questionText"></div></div>
+<div id="nameBadge"></div>
+<svg id="bot" class="state-idle" viewBox="-286 -215 1805 1016" role="img" aria-label="Bot">
   <defs>
     <clipPath id="visorClip"><rect x="153" y="153" width="929" height="447" rx="223"/></clipPath>
     <linearGradient id="shimmerGrad" x1="0" x2="1" y1="0" y2="0">
@@ -72,6 +217,17 @@ const PAGE = `<!DOCTYPE html>
   const glow = document.getElementById('glow')
   const shimmer = document.getElementById('shimmer')
   const dotEls = [...document.getElementById('dots').children]
+  const stateIcon = document.getElementById('stateIcon')
+  const stateLabel = document.getElementById('stateLabel')
+  const questionText = document.getElementById('questionText')
+  const nameBadge = document.getElementById('nameBadge')
+
+  // icon + label for the top badge — idle has none, since the badge is hidden then anyway.
+  const STATE_BADGE = {
+    thinking: { icon: '💭', label: 'Thinking' },
+    'hand-raised': { icon: '🖐️', label: 'Hand raised' },
+    speaking: { icon: '🔊', label: 'Speaking' }
+  }
 
   const botState = { current: 'idle', handRaisedAt: 0 }
   const cur = { lx: 0, ly: 0, eyeS: 1, tilt: 0, hand: 0, mouth: 0, glow: 0, shimmer: 0, dots: 0 }
@@ -246,14 +402,21 @@ const PAGE = `<!DOCTYPE html>
     botState.current = state
     bot.classList.toggle('state-idle', state === 'idle')
     bot.classList.toggle('state-full', state !== 'idle')
+    document.body.classList.toggle('state-non-idle', state !== 'idle')
+    const badge = STATE_BADGE[state]
+    if (badge) {
+      stateIcon.textContent = badge.icon
+      stateLabel.textContent = badge.label
+    }
   }
 
   const params = new URLSearchParams(location.search)
   const audioEnabled = params.get('audio') !== 'false'
+  const botName = params.get('botName')
+  if (botName) nameBadge.textContent = botName
 
   if (audioEnabled) {
     const conversationId = params.get('conversationId')
-    const botName = params.get('botName')
     const transcriptPasscode = params.get('transcriptPasscode')
     // audio=false never reaches this branch, so no socket.io connection is opened at all
     // for it — no llm_engine socket gets created server-side (see browserIO.on('connection')).
@@ -300,6 +463,9 @@ const PAGE = `<!DOCTYPE html>
     })
 
     socket.on('state', ({ state }) => setBotState(state))
+    socket.on('question', ({ question }) => {
+      questionText.textContent = question
+    })
     socket.on('audio:chunk', (chunk) => {
       audioQueue.push(chunk)
     })

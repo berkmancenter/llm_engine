@@ -6,8 +6,7 @@ import { Direction } from '../types/index.types.js'
 import Message from '../models/message.model.js'
 
 /* 'none': no bot-media-server camera at all. 'silent': camera shown, idle animation, no audio
-   pipeline. 'voice': camera shown, speaking the voiceAssistant's responses aloud. See
-   deployMeetingBot for how this is derived and how it can be overridden per adapter. */
+   pipeline. 'voice': camera shown, speaking the voiceAssistant's responses aloud. */
 type BotMediaMode = 'none' | 'silent' | 'voice'
 
 const defaultBotName = 'LLM Engine'
@@ -101,26 +100,19 @@ async function deployMeetingBot() {
   }
   const chatIntroMessage = chatIntroTexts.length > 0 ? chatIntroTexts.join('\n') : null
 
-  const voiceOutputEnabled = Boolean(this.conversation.features?.find((f) => f.name === 'voiceOutput')?.enabled)
-  // A transcription-only adapter (no dmChannels, no chatChannels) never interacts with
-  // participants directly, so a visible camera presence has nothing to show for it even when
-  // voiceOutput is off — only give it a camera when it can either speak or otherwise engage.
-  const hasInteractiveChannels = Boolean(this.dmChannels?.length) || Boolean(this.chatChannels?.length)
-  // Internal rollout control, not a conversation property — settable only via direct DB write.
-  // voiceOutput always wins over this override: it only ever decides 'silent' vs 'none' for a
-  // bot whose feature is off (e.g. an incident kill switch, or holding a camera back
-  // pre-launch). It can't promote a bot to 'voice' on its own, because the agent's own speech
-  // capability is baked in separately, from that same feature, at agent-creation time — a
-  // camera claiming audio is on with no feature-enabled agent behind it would speak to no one.
-  // With no RECALL_OUTPUT_MEDIA_URL configured there's no webpage to run any mode on at all, so
-  // that collapses everything straight to 'none' regardless of what the above would otherwise pick.
+  // Honors whatever botMediaMode the adapter config gives (including 'none' — not currently
+  // set by any conversation type, but nothing stops it being set directly on an adapter's own
+  // config), falling back to 'silent' if it's missing. With no RECALL_OUTPUT_MEDIA_URL
+  // configured there's no webpage to run any mode on at all, so that forces 'none' regardless
+  // of the above.
+  const { botMediaMode } = this.config
   let mode: BotMediaMode
   if (!config.recall.outputMediaUrl) {
     mode = 'none'
-  } else if (voiceOutputEnabled) {
-    mode = 'voice'
+  } else if (botMediaMode) {
+    mode = botMediaMode
   } else {
-    mode = this.config.botMediaMode ?? (hasInteractiveChannels ? 'silent' : 'none')
+    mode = 'silent'
   }
 
   const options = {

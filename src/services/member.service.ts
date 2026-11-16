@@ -155,12 +155,12 @@ const importMembersFromCsv = async (conversationId: string, buffer: Buffer, acti
 
     const operations = rows.map((row) => ({
       updateOne: {
-        filter: { conversation: conversationId, email: row.email },
+        filter: { conversation: conversation._id, email: row.email },
         update: {
-          $set: { conversation: conversationId, email: row.email, name: row.name, bio: row.bio, interests: row.interests },
+          $set: { conversation: conversation._id, email: row.email, name: row.name, bio: row.bio, interests: row.interests },
           // Only applied when inserting: re-import must never re-invite, revive a removed
           // status, or touch joined/userAccount on an existing record.
-          $setOnInsert: { inviteState: 'pending', joined: false, status: 'active' }
+          $setOnInsert: { inviteState: 'pending', joined: false, status: 'active' } as const
         },
         upsert: true
       }

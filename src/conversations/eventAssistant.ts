@@ -203,11 +203,35 @@ const eventAssistant: ConversationType = {
       label: 'Voice Responses',
       description:
         'Speaks the assistant\'s answer aloud when someone asks it a question by voice (e.g. "Hey <botName>, ..."). Chat responses always stay text-only, regardless of this setting.',
-      default: false,
+      default: true,
       category: 'assistant',
       userControlled: false,
       agents: [],
-      properties: []
+      properties: [
+        {
+          name: 'voiceDestination',
+          label: 'Where the Bot Speaks',
+          required: false,
+          type: 'enum',
+          options: [
+            {
+              name: 'presentation',
+              label: 'NextSpace Presentation View',
+              description: 'The bot speaks in NextSpace presentation view. Keeps Zoom camera idle.'
+            },
+            {
+              name: 'zoom',
+              label: 'Zoom',
+              description:
+                'The bot speaks directly in Zoom (e.g. a hybrid or in-person meeting where Zoom itself is projected to the room).'
+            }
+          ],
+          validationKeys: ['name'],
+          // Only meaningful once NextSpace is in the mix — a Zoom-only conversation has no
+          // other venue to defer to
+          showForPlatforms: ['nextspace']
+        }
+      ]
     },
     {
       name: 'pregame',
@@ -325,12 +349,16 @@ const eventAssistant: ConversationType = {
     { name: PREGAME_CHANNEL }
   ],
   adapters: {
-    // Fully remote: Zoom only — moderator DMs sent via Zoom
+    // Fully remote: Zoom only — moderator DMs sent via Zoom. botMediaMode is computed from the
+    // voiceOutput feature itself here (rather than left to zoom.ts, which has no opinion on it)
+    // since Zoom's camera is the sole presence in this combo: it should speak when voiceOutput
+    // is on, and otherwise just sit idle rather than being hidden entirely.
     zoom: {
       type: 'zoom',
       config: {
         meetingUrl: '{{{properties.zoomMeetingUrl}}}',
-        botName: '{{properties.botName}}'
+        botName: '{{properties.botName}}',
+        botMediaMode: '{{#if properties.voiceOutput}}voice{{else}}silent{{/if}}'
       },
       dmChannels: [
         {
@@ -361,12 +389,18 @@ const eventAssistant: ConversationType = {
         }
       ]
     },
-    // Hybrid: Zoom + NextSpace — moderator DMs handled by NextSpace, not Zoom
+    // Hybrid: Zoom + NextSpace — moderator DMs handled by NextSpace, not Zoom. botMediaMode
+    // defers to voiceOutput's own voiceDestination sub-property: stays 'silent' (NextSpace's
+    // presentation view speaks instead) unless the organizer explicitly chose 'zoom' there.
+    // If voiceOutput is off entirely, properties.voiceOutput is false and accessing
+    // .voiceDestination.name on it is simply undefined — never equal to "zoom", so this still
+    // correctly resolves to 'silent' with no separate "is voice even on" check needed.
     'nextspace,zoom': {
       type: 'zoom',
       config: {
         meetingUrl: '{{{properties.zoomMeetingUrl}}}',
-        botName: '{{properties.botName}}'
+        botName: '{{properties.botName}}',
+        botMediaMode: "{{#if (eq properties.voiceOutput.voiceDestination.name 'zoom')}}voice{{else}}silent{{/if}}"
       },
       dmChannels: [
         {
@@ -390,11 +424,16 @@ const eventAssistant: ConversationType = {
       ]
     },
     default: {
-      // Zoom transcription only - assume DMs are coming through web or websocket APIs
+      // Catch-all, most commonly hit for NextSpace alone (no 'zoom' in platforms) — NextSpace
+      // handles chat/DMs over its own connection, so no dmChannels/chatChannels here; Zoom is
+      // still deployed purely for transcription. Zoom's own camera stays idle by default, but
+      // same voiceDestination override as the 'nextspace,zoom' hybrid below: an organizer can
+      // still choose to have the bot speak directly in Zoom instead.
       type: 'zoom',
       config: {
         meetingUrl: '{{{properties.zoomMeetingUrl}}}',
-        botName: '{{properties.botName}}'
+        botName: '{{properties.botName}}',
+        botMediaMode: "{{#if (eq properties.voiceOutput.voiceDestination.name 'zoom')}}voice{{else}}none{{/if}}"
       },
       audioChannels: [
         {

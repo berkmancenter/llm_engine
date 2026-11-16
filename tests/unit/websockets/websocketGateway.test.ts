@@ -97,7 +97,18 @@ describe('websocketGateway conversation broadcasts', () => {
 
       expect(broadcastSpy).toHaveBeenCalledWith('conv-1', 'agent:responding', {
         conversationId: 'conv-1',
-        agentId: 'agent-1'
+        agentId: 'agent-1',
+        question: undefined
+      })
+    })
+
+    test('includes the triggering question verbatim when the caller has one', async () => {
+      await websocketGateway.broadcastAgentResponding('conv-1', 'agent-1', 'Hey Berkie, what event is this?')
+
+      expect(broadcastSpy).toHaveBeenCalledWith('conv-1', 'agent:responding', {
+        conversationId: 'conv-1',
+        agentId: 'agent-1',
+        question: 'Hey Berkie, what event is this?'
       })
     })
   })
