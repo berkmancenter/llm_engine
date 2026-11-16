@@ -285,6 +285,9 @@ describe('interventionHandler', () => {
 
       expect(result).not.toBeNull()
       expect(result!.confidenceScore).toBe(60)
+      // runInterventionAnalysis always returns an object now, so not.toBeNull() alone can't fail —
+      // goalId is what actually proves the pass-through path ran instead of the decline path.
+      expect(result!.goalId).toBe('synthesize_discussion')
     })
 
     it('normalizes to a declined analysis when socialSensitivity is high and confidence is below 75', async () => {
@@ -328,6 +331,7 @@ describe('interventionHandler', () => {
       )
 
       expect(result).not.toBeNull()
+      expect(result!.goalId).toBe('synthesize_discussion')
     })
 
     it('normalizes to a declined analysis when confidence is below the goal minConfidence floor', async () => {
@@ -412,6 +416,7 @@ describe('interventionHandler', () => {
 
       expect(result).not.toBeNull()
       expect(result!.confidenceScore).toBe(80)
+      expect(result!.goalId).toBe('synthesize_discussion')
     })
   })
 })
