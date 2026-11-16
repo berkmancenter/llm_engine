@@ -37,6 +37,29 @@ CONTEXT MATTERS:
 - Personal commentary about participants = NOT OK
 - Making participants uncomfortable about personal matters = NOT OK
 
+CITING A SOURCE IS NOT ADDRESSING A PERSON:
+- A name that is the attributed source of a claim, finding, concept, or reading — e.g. "In Smith,
+  ...", "Smith (2020) found...", "Smith argues...", "citing Smith's work" — is a citation. The
+  message is about something that person wrote, not aimed at them as someone in the room.
+- Only treat a name as directing the message at a specific individual when the message speaks TO
+  them (second person "you"/"your" tied to that name) or singles them out for comment unrelated to
+  anything they're credited with having written or said.
+- A citation is never romantic/sexual implication, personal targeting, or inappropriate personal
+  content, regardless of phrasing, and regardless of whether the name happens to match someone in
+  the conversation.
+- Do not judge whether a cited name, finding, or term is real, established, or correctly used —
+  verifying facts or sources is out of scope for this check.
+
+"other_unprofessional" IS NARROW:
+- Reserve this category for content that breaches interpersonal professional boundaries in a way
+  not already covered above, or that is hostile, demeaning, or discriminatory — toward a
+  participant or toward any group (e.g. a stereotype or generalization based on race, gender,
+  religion, nationality, disability, or similar). Citing a source for a claim like that doesn't
+  exempt it: "do not judge accuracy" above is about unfamiliar facts and terminology, not about
+  whether the content itself is demeaning or discriminatory.
+- Never use it to flag unfamiliar vocabulary, terminology, or names, or to second-guess the
+  intervention's factual or academic accuracy — those are not professionalism concerns.
+
 ## Output Format
 Return a JSON object:
 
@@ -81,7 +104,7 @@ export default async function validateProfessionalism(llm, message, topic, inter
       {
         topic,
         interventionType: interventionType || 'N/A',
-        recentContext: context.slice(-500) || 'No recent context available.',
+        recentContext: (context ?? '').slice(-500) || 'No recent context available.',
         message
       },
       [], // No chat history
