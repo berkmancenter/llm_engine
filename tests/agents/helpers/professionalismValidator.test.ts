@@ -189,6 +189,15 @@ describe('professionalismValidator', () => {
       )
       expect(result).toBe(true)
     })
+
+    it('should still reject an inappropriate message when context is omitted, not fail open', async () => {
+      // context is optional on the signature — omitting it used to throw inside the LLM call
+      // (undefined has no .slice), which the outer try/catch swallows and fails open on,
+      // letting the message through unchecked instead of actually being validated.
+      const message = "Before we discuss architecture, I'm curious - are you single?"
+      const result = await validateProfessionalism(llm, message, baseContext.topic, baseContext.interventionType)
+      expect(result).toBe(false)
+    })
   })
 
   describe('citing a source vs. addressing a person', () => {

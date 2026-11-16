@@ -104,7 +104,7 @@ export default async function validateProfessionalism(llm, message, topic, inter
       {
         topic,
         interventionType: interventionType || 'N/A',
-        recentContext: context.slice(-500) || 'No recent context available.',
+        recentContext: (context ?? '').slice(-500) || 'No recent context available.',
         message
       },
       [], // No chat history
