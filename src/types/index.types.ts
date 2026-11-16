@@ -1086,10 +1086,10 @@ export interface AgentResponse<T> {
      before the job handler persists it. */
   messageId?: mongoose.Types.ObjectId
   /* Carries data into the LangSmith trace (formatTraceOutput/getTraceMetadata both still see
-     every response, this flag included) without ever becoming a real Message — the agent
-     model's own respond() wrapper filters these out before returning to the job handler that
-     would otherwise persist them. For an agent whose analysis is worth recording even on a tick
-     where it decides not to say anything. */
+     every response, this flag included) without ever becoming a real Message — withoutTraceOnly()
+     (agent.model/index.ts) filters these out of respond()/onConversationEvent()/introduce()'s
+     return value before a job handler can persist them. For an agent whose analysis is worth
+     recording even on a tick where it decides not to say anything. */
   traceOnly?: boolean
 }
 
