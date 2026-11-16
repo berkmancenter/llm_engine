@@ -87,6 +87,54 @@ describe('agent model LangSmith trace metadata (conversationId, costPhase)', () 
     )
   })
 
+  it("respond() keeps a traceOnly response out of its return value (agent-model/index.ts's own filter, not a test helper)", async () => {
+    const mockRespond = jest
+      .fn<(...args: unknown[]) => Promise<unknown[]>>()
+      .mockResolvedValue([
+        { traceOnly: true, visible: false, message: { reasoning: 'stayed quiet this tick' } },
+        { visible: true, message: 'a real reply', channels: [] }
+      ])
+    setAgentTypes({ traceMetadataTestType: { ...TEST_AGENT_TYPE, respond: mockRespond } })
+
+    const agent = new Agent({
+      agentType: 'traceMetadataTestType',
+      conversation,
+      llmModel: 'gpt-4',
+      llmPlatform: 'openai',
+      active: true
+    })
+    await agent.save()
+
+    const responses = await agent.respond()
+
+    expect(responses).toHaveLength(1)
+    expect(responses[0]).toMatchObject({ message: 'a real reply' })
+  })
+
+  it("uses an agent type's getTraceRunName hook to split its trace name, the way eventAssistant's own hook splits off 'eventAssistant:checkin'", async () => {
+    const getTraceRunName = jest.fn((userMessage) =>
+      userMessage ? 'traceMetadataTestType' : 'traceMetadataTestType:checkin'
+    )
+    setAgentTypes({ traceMetadataTestType: { ...TEST_AGENT_TYPE, getTraceRunName } })
+
+    const agent = new Agent({
+      agentType: 'traceMetadataTestType',
+      conversation,
+      llmModel: 'gpt-4',
+      llmPlatform: 'openai',
+      active: true
+    })
+    await agent.save()
+
+    await agent.respond()
+
+    expect(getTraceRunName).toHaveBeenCalledWith(null)
+    expect(mockTraceable).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ name: 'traceMetadataTestType:checkin' })
+    )
+  })
+
   it('onConversationEvent() tags the trace with the STOPPED conversation id and costPhase postEvent', async () => {
     const mockOnConversationEvent = jest.fn<(...args: unknown[]) => Promise<unknown[]>>().mockResolvedValue([])
     setAgentTypes({
