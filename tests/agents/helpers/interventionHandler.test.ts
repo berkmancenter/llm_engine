@@ -259,20 +259,23 @@ describe('interventionHandler', () => {
       jest.clearAllMocks()
     })
 
-    it('returns null when shouldIntervene is false', async () => {
+    it('normalizes to a declined analysis when shouldIntervene is false', async () => {
       mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ shouldIntervene: false, confidenceScore: 90 }))
 
       const result = await runInterventionAnalysis.call(makeContext(), sharedChatHistory, 'system', schema, null, undefined)
 
-      expect(result).toBeNull()
+      expect(result.shouldIntervene).toBe(false)
+      expect(result.goalId).toBe('none')
+      expect(result.sharedChatMessage).toBeNull()
     })
 
-    it('returns null when confidence is below the default threshold of 60', async () => {
+    it('normalizes to a declined analysis when confidence is below the default threshold of 60', async () => {
       mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 59 }))
 
       const result = await runInterventionAnalysis.call(makeContext(), sharedChatHistory, 'system', schema, null, undefined)
 
-      expect(result).toBeNull()
+      expect(result.shouldIntervene).toBe(false)
+      expect(result.goalId).toBe('none')
     })
 
     it('returns analysis when confidence meets the default threshold of 60', async () => {
@@ -282,9 +285,12 @@ describe('interventionHandler', () => {
 
       expect(result).not.toBeNull()
       expect(result!.confidenceScore).toBe(60)
+      // runInterventionAnalysis always returns an object now, so not.toBeNull() alone can't fail —
+      // goalId is what actually proves the pass-through path ran instead of the decline path.
+      expect(result!.goalId).toBe('synthesize_discussion')
     })
 
-    it('returns null when socialSensitivity is high and confidence is below 75', async () => {
+    it('normalizes to a declined analysis when socialSensitivity is high and confidence is below 75', async () => {
       mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 70 }))
       const behaviorPolicy = {
         channels: { groupChat: { proactivePolicy: { initiativeLevel: 'moderatelyProactive' as const, socialSensitivity: 'high' as const } } }
@@ -302,7 +308,8 @@ describe('interventionHandler', () => {
         behaviorPolicy
       )
 
-      expect(result).toBeNull()
+      expect(result.shouldIntervene).toBe(false)
+      expect(result.goalId).toBe('none')
     })
 
     it('returns analysis when socialSensitivity is high and confidence meets the 75 threshold', async () => {
@@ -324,9 +331,10 @@ describe('interventionHandler', () => {
       )
 
       expect(result).not.toBeNull()
+      expect(result!.goalId).toBe('synthesize_discussion')
     })
 
-    it('returns null when confidence is below the goal minConfidence floor', async () => {
+    it('normalizes to a declined analysis when confidence is below the goal minConfidence floor', async () => {
       mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 70 }))
       const activeGoals = [{ id: 'synthesize_discussion', triggers: { minConfidence: 80 } }] as ConversationGoal[]
 
@@ -341,12 +349,13 @@ describe('interventionHandler', () => {
         activeGoals
       )
 
-      expect(result).toBeNull()
+      expect(result.shouldIntervene).toBe(false)
+      expect(result.goalId).toBe('none')
     })
 
     it('uses the higher of policyThreshold and patternFloor as the effective threshold', async () => {
       // policy threshold = 75 (high sensitivity), patternFloor = 65 → effective = 75
-      // confidence 70 is below 75 → null
+      // confidence 70 is below 75 → declined
       mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 70 }))
       const behaviorPolicy = {
         channels: { groupChat: { proactivePolicy: { initiativeLevel: 'moderatelyProactive' as const, socialSensitivity: 'high' as const } } }
@@ -365,12 +374,13 @@ describe('interventionHandler', () => {
         behaviorPolicy
       )
 
-      expect(result).toBeNull()
+      expect(result.shouldIntervene).toBe(false)
+      expect(result.goalId).toBe('none')
     })
 
     it('uses the patternFloor when it exceeds the policy threshold', async () => {
       // policy threshold = 60 (default), patternFloor = 80 → effective = 80
-      // confidence 75 is below 80 → null
+      // confidence 75 is below 80 → declined
       mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 75 }))
       const activeGoals = [{ id: 'synthesize_discussion', triggers: { minConfidence: 80 } }] as ConversationGoal[]
 
@@ -385,7 +395,8 @@ describe('interventionHandler', () => {
         activeGoals
       )
 
-      expect(result).toBeNull()
+      expect(result.shouldIntervene).toBe(false)
+      expect(result.goalId).toBe('none')
     })
 
     it('returns the analysis when confidence meets the effective threshold', async () => {
@@ -405,6 +416,7 @@ describe('interventionHandler', () => {
 
       expect(result).not.toBeNull()
       expect(result!.confidenceScore).toBe(80)
+      expect(result!.goalId).toBe('synthesize_discussion')
     })
   })
 })

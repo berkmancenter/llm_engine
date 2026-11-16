@@ -6,7 +6,8 @@ import {
   createUser,
   createMessage,
   prepareMessagesForAgent,
-  createProactiveGroupAgentConversation
+  createProactiveGroupAgentConversation,
+  respondFiltered
 } from '../../utils/agentTestHelpers.js'
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
 import { findCopiedNgram } from '../../../src/agents/helpers/socraticChecks.js'
@@ -118,7 +119,7 @@ describe('proactive group agent socratic_probe tests (reading 2)', () => {
       channels: ['chat'],
       endTime: new Date(startTime.getTime() + 900 * 1000)
     })
-    const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, history)
+    const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, history)
     console.log(
       'socratic_probe responses:',
       JSON.stringify(responses.map((r) => [r.goalId, (r.message as { text?: string })?.text, r.sourceLabel, r.concept, r.loadedWord]))

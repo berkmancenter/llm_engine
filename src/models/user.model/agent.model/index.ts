@@ -358,6 +358,14 @@ agentSchema.method('evaluate', async function (userMessage = null) {
   return agentEvaluation
 })
 
+/* Shared by every path that turns an agent type's AgentResponse[] into persisted Messages —
+   respond(), onConversationEvent(), and introduce() below — so a traceOnly response (see its
+   own doc comment in types/index.types.ts) can never reach one of them by only being filtered
+   out of some. */
+function withoutTraceOnly(responses: Array<AgentResponse<unknown>>): Array<AgentResponse<unknown>> {
+  return responses.filter((r) => !r.traceOnly)
+}
+
 agentSchema.method('respond', async function (userMessage = null) {
   if (!this.active) return []
   await populateMessagesForModel(this.conversation, ['channels'])
@@ -457,10 +465,21 @@ agentSchema.method('respond', async function (userMessage = null) {
     costPhase: 'liveEvent' as const
   }
 
+  // Lets an agent type split the one trace name its shared respond() wrapper would otherwise
+  // stamp identically on every call (e.g. eventAssistant's perMessage question-answering vs its
+  // periodic private-checkin loop) — numberCruncher's cost fetcher groups spend by this exact
+  // run name (conversationCost.ts), so this is the lever that actually changes its cost rollup.
+  // Defaults to the agent type name, unchanged for every agent type that doesn't opt in.
+  const runName = agentType.getTraceRunName?.call(this, translatedMsg) ?? this.agentType
+
   const tracedRespond = traceable(
     async () => {
       const result = await agentType.respond.call(this, conversationHistory, translatedMsg)
-      actualResponses = result
+      // traceOnly responses exist for the trace (getTraceMetadata/formatTraceOutput below still
+      // see the full, unfiltered `result`) and must never reach the job handler that turns
+      // ordinary responses into real Messages — filtered out here, once, rather than requiring
+      // every job handler that calls respond() to know about this case.
+      actualResponses = withoutTraceOnly(result)
 
       // Update metadata with response-dependent data
       if (agentType.getTraceMetadata) {
@@ -485,7 +504,7 @@ agentSchema.method('respond', async function (userMessage = null) {
       return result
     },
     {
-      name: this.agentType,
+      name: runName,
       metadata: traceMetadata
     }
   )
@@ -649,7 +668,7 @@ agentSchema.method('onConversationEvent', async function (evt: ConversationEvent
       costPhase
     }
   })
-  return tracedHandler(evt)
+  return withoutTraceOnly(await tracedHandler(evt))
 })
 
 agentSchema.method('introduce', async function (channel, adapterType?) {
@@ -665,7 +684,7 @@ agentSchema.method('introduce', async function (channel, adapterType?) {
   const agentType = agentTypes[this.agentType]
   if (!agentType.introduce) return []
 
-  const responses = await agentType.introduce.call(this, channel, adapterType)
+  const responses = withoutTraceOnly(await agentType.introduce.call(this, channel, adapterType))
   logger.debug(`[agent.introduce] responses count: ${responses.length}`)
   return responses
 })

@@ -9,7 +9,8 @@ import {
   loadPartTimeWorkTranscript,
   loadTestTranscript,
   createMessage,
-  prepareMessagesForAgent
+  prepareMessagesForAgent,
+  respondFiltered
 } from '../../utils/agentTestHelpers.js'
 
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
@@ -155,7 +156,7 @@ describe(`proactive group agent facilitative tests`, () => {
           endTime: new Date(startTime.getTime() + 400 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         // Strong pattern should trigger intervention, but allow for LLM variance
         if (responses.length === 0) {
@@ -238,7 +239,7 @@ describe(`proactive group agent facilitative tests`, () => {
           endTime: new Date(startTime.getTime() + 400 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         // Assert intervention occurred - accept synthesize_discussion, surface_signal, or invite_quieter_voices
         // (all are valid for surfacing private concerns that diverge from public enthusiasm)
@@ -329,7 +330,7 @@ describe(`proactive group agent facilitative tests`, () => {
           endTime: new Date(startTime.getTime() + 400 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         if (responses.length > 0) {
           const { goalId, message: rawMessage } = responses[0]
@@ -390,7 +391,7 @@ describe(`proactive group agent facilitative tests`, () => {
           endTime: new Date(startTime.getTime() + 850 * 1000) // ~14 min, covers smallest viable job at 10:33
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         if (responses.length > 0 && responses[0].goalId === 'clarify_confusion') {
           console.log('Detected clarify_confusion:', (responses[0].message as { text: string }).text)
@@ -453,7 +454,7 @@ describe(`proactive group agent facilitative tests`, () => {
           endTime: new Date(startTime.getTime() + 720 * 1000) // 12 min window
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         // bridge_topics is context-dependent — accept bridge_topics or no intervention
         if (responses.length > 0) {
@@ -509,7 +510,7 @@ describe(`proactive group agent facilitative tests`, () => {
           endTime: new Date(startTime.getTime() + 400 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         if (responses.length > 0 && responses[0].goalId === 'structure_conversation') {
           console.log('Detected structure_conversation:', (responses[0].message as { text: string }).text)
@@ -645,7 +646,7 @@ describe(`proactive group agent facilitative tests`, () => {
           endTime: getMpMessageTime(520)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(mpAgent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, mpAgent, conversationHistory)
 
         expect(responses.length).toBeGreaterThan(0)
         const { goalId, message: rawMessage } = responses[0]
@@ -683,11 +684,14 @@ describe(`proactive group agent facilitative tests`, () => {
           endTime: getMpMessageTime(150)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(mpAgent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, mpAgent, conversationHistory)
 
         // Positions not yet established — should not trigger missing_perspective
         if (responses.length > 0) {
-          console.log(`Unexpected intervention on thin transcript: ${responses[0].goalId}:`, (responses[0].message as { text: string }).text)
+          console.log(
+            `Unexpected intervention on thin transcript: ${responses[0].goalId}:`,
+            (responses[0].message as { text: string }).text
+          )
           expect(responses[0].goalId).not.toBe('missing_perspective')
         }
       },
@@ -731,13 +735,16 @@ describe(`proactive group agent facilitative tests`, () => {
           endTime: getMpMessageTime(520)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(mpAgent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, mpAgent, conversationHistory)
 
         // Semantic non-duplication can't be reliably asserted with keyword matching —
         // the model may reference Jordan's angle while genuinely introducing a different one.
         // Log for manual review; the scenario still exercises the guardrail path.
         if (responses.length > 0) {
-          console.log(`After Jordan raised labor view — ${responses[0].goalId}:`, (responses[0].message as { text: string }).text)
+          console.log(
+            `After Jordan raised labor view — ${responses[0].goalId}:`,
+            (responses[0].message as { text: string }).text
+          )
         } else {
           console.log('No intervention after Jordan raised labor view')
         }
@@ -786,14 +793,16 @@ describe(`proactive group agent facilitative tests`, () => {
           endTime: new Date(startTime.getTime() + 500 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         // Should detect this as a good question to surface
         expect(responses.length).toBeGreaterThan(0)
         console.log('Agent response about healthcare:', (responses[0].message as { text: string }).text)
         expect(responses[0].goalId).toBe('surface_signal')
         // Should not expose individual questions verbatim
-        expect((responses[0].message as { text: string }).text).not.toContain('How do you handle health insurance for part-time workers')
+        expect((responses[0].message as { text: string }).text).not.toContain(
+          'How do you handle health insurance for part-time workers'
+        )
       },
       testTimeout
     )
@@ -837,7 +846,7 @@ describe(`proactive group agent facilitative tests`, () => {
           endTime: new Date(startTime.getTime() + 500 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         // May intervene to acknowledge this is resonating with many
         if (responses.length > 0) {
@@ -887,7 +896,7 @@ describe(`proactive group agent facilitative tests`, () => {
           endTime: new Date(startTime.getTime() + 800 * 1000) // ~13 min, covers smallest viable job at 10:33
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         if (responses.length > 0 && responses[0].goalId === 'clarify_confusion') {
           console.log('Detected clarify_confusion about terminology:', (responses[0].message as { text: string }).text)
@@ -952,7 +961,7 @@ describe(`proactive group agent facilitative tests`, () => {
           endTime: new Date(startTime.getTime() + 500 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         // Strong pattern should trigger intervention, but allow for LLM variance
         if (responses.length === 0) {
@@ -1017,13 +1026,15 @@ describe(`proactive group agent facilitative tests`, () => {
           endTime: new Date(startTime.getTime() + 450 * 1000)
         })
 
-        const responses = await defaultAgentTypes.proactiveGroupAgent.respond.call(agent, conversationHistory)
+        const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, conversationHistory)
 
         // May detect as invite_quieter_voices or surface_signal
         if (responses.length > 0) {
           console.log(`Detected ${responses[0].goalId} about skepticism:`, (responses[0].message as { text: string }).text)
           // Should create space for skepticism without exposing individuals
-          expect((responses[0].message as { text: string }).text).not.toContain("I'm skeptical this would work in manufacturing")
+          expect((responses[0].message as { text: string }).text).not.toContain(
+            "I'm skeptical this would work in manufacturing"
+          )
           expect((responses[0].message as { text: string }).text).not.toContain('I have serious doubts')
         }
       },

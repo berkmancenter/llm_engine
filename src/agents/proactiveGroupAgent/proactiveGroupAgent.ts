@@ -15,7 +15,8 @@ import {
   USER_TEMPLATE,
   interventionLlmTemplateVars,
   runInterventionAnalysis,
-  InterventionAnalysis
+  InterventionAnalysis,
+  DeclineReason
 } from '../helpers/interventionHandler.js'
 import getConversationHistory from '../helpers/getConversationHistory.js'
 import logger from '../../config/logger.js'
@@ -205,6 +206,42 @@ Return a JSON object:
 Return ONLY raw JSON. No markdown, no backticks, no explanation.`
 }
 
+/* A no-intervention tick (the common case) returns this instead of [] so the model's reasoning
+   for staying quiet still reaches the LangSmith trace — in prod, with debug logging off, it
+   would otherwise only exist in the (unlogged) logger.debug calls below. traceOnly tells
+   agent.model/index.ts's respond() wrapper to keep it out of the job handler that turns ordinary
+   responses into real Messages, while formatTraceOutput still reads it like any other response.
+   declineReason says which gate suppressed this tick — reasoning stays the model's own, unedited
+   explanation; proposedGoalId/proposedMessage fall back to the still-intact goalId/sharedChatMessage
+   for a suppression that happens after a below-threshold decline would have already cleared them
+   (professionalism rejection, a missing draft, ...). context is dropped: it's the full prompt sent
+   to the model, already on that call's own LangSmith span, and keeping it here would duplicate it
+   in every non-intervention tick. */
+function buildTraceOnlyResponse(analysis: InterventionAnalysis, declineReason: DeclineReason) {
+  return {
+    // Spread at the top level too, matching the real-intervention response below — so
+    // formatTraceOutput's existing r.reasoning/r.confidenceScore/etc. reads need no special
+    // case for this path. sharedChatMessage is nulled out regardless of what the model proposed:
+    // this response represents nothing having actually been sent.
+    ...analysis,
+    sharedChatMessage: null,
+    context: undefined,
+    proposedGoalId: analysis.proposedGoalId ?? analysis.goalId ?? null,
+    proposedMessage: analysis.proposedMessage ?? analysis.sharedChatMessage ?? null,
+    declineReason,
+    visible: false,
+    traceOnly: true,
+    messageType: 'json',
+    message: {
+      goalId: analysis.goalId,
+      reasoning: analysis.reasoning,
+      confidenceScore: analysis.confidenceScore,
+      detectedPattern: analysis.detectedPattern,
+      declineReason
+    }
+  }
+}
+
 async function executePoll(
   this: IAgent & { getLLM: () => Promise<unknown> },
   analysis: InterventionAnalysis,
@@ -235,7 +272,7 @@ async function executePoll(
   } catch (error) {
     logger.error('proactiveGroupAgent: Failed to create poll via tool', error)
   }
-  return []
+  return [buildTraceOnlyResponse(analysis, 'poll_creation_failed')]
 }
 
 function resolveActiveGoals(conversation: { goals?: string[]; behaviorPolicy?: BehaviorPolicy }): ConversationGoal[] {
@@ -434,26 +471,21 @@ export default verify({
       recentTranscript,
       goalPriorities,
       backgroundReading
-    )) as unknown as (InterventionAnalysis & SocraticSlotFields) | null
-
-    if (!analysis) {
-      logger.debug(`${this.agentType} ${this._id}: no intervention opportunity detected`)
-      return []
-    }
+    )) as unknown as InterventionAnalysis & SocraticSlotFields
 
     if (analysis.goalId === 'none') {
       logger.debug(`${this.agentType} ${this._id}: decision returned goal none — no intervention`)
-      return []
+      return [buildTraceOnlyResponse(analysis, analysis.declineReason ?? 'below_threshold')]
     }
 
     if (analysis.goalId === SOCRATIC_GOAL_ID && !backgroundReading) {
       logger.warn(`${this.name}: ${SOCRATIC_GOAL_ID} chosen without retrieved passages — discarding`)
-      return []
+      return [buildTraceOnlyResponse(analysis, 'socratic_no_reading')]
     }
 
     if (analysis.goalId === SOCRATIC_GOAL_ID && backgroundReading) {
       const question = await buildSocraticQuestion.call(this, analysis, sharedChatHistory, backgroundReading)
-      if (!question) return []
+      if (!question) return [buildTraceOnlyResponse(analysis, 'socratic_writer_failed')]
       analysis.sharedChatMessage = question
     }
 
@@ -468,7 +500,7 @@ export default verify({
       )
       if (!isAppropriate) {
         logger.warn(`${this.name}: intervention rejected by professionalism guardrail (goal: ${analysis.goalId})`)
-        return []
+        return [buildTraceOnlyResponse(analysis, 'professionalism_rejected')]
       }
     }
 
@@ -482,7 +514,7 @@ export default verify({
 
     if (!analysis.sharedChatMessage) {
       logger.warn(`${this.name}: shouldIntervene=true (${analysis.goalId}) but sharedChatMessage is missing — suppressing`)
-      return []
+      return [buildTraceOnlyResponse(analysis, 'message_missing')]
     }
 
     logger.info(`${this.name}: Detected ${analysis.goalId} opportunity — ${analysis.detectedPattern}`)
@@ -509,7 +541,10 @@ export default verify({
   },
 
   formatTraceOutput(responses: InterventionAnalysis[]) {
-    if (responses.length === 0) return { goalId: 'none', messageSent: null, context: null }
+    // Includes traceOnly responses (buildTraceOnlyResponse above) — those carry the model's
+    // reasoning for staying quiet the same shape as a real intervention does, so no separate
+    // branch is needed here; only a genuine "no analysis ran at all" tick reaches length === 0.
+    if (responses.length === 0) return { goalId: 'none', messageSent: null, context: null, reasoning: null }
     const r = responses[0]
     const activeGoals = getGroupChatGoals(resolveActiveGoals(this.conversation))
     const matchedGoal = activeGoals.find((g) => g.id === r.goalId) ?? null
@@ -520,7 +555,13 @@ export default verify({
       confidenceScore: r.confidenceScore,
       detectedPattern: r.detectedPattern,
       messageSent: r.sharedChatMessage,
-      context: r.context
+      context: r.context,
+      // Only set on a traceOnly response — what was suppressed, why, and the threshold it was
+      // measured against (when a confidence check is what suppressed it).
+      declineReason: r.declineReason ?? null,
+      proposedGoalId: r.proposedGoalId ?? null,
+      proposedMessage: r.proposedMessage ?? null,
+      confidenceThreshold: r.confidenceThreshold ?? null
     }
   },
 

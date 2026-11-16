@@ -10,6 +10,7 @@ import {
   PromptOption
 } from '../../types/index.types.js'
 import buildCheckinResponses from './checkinHandler.js'
+import { DeclineReason } from '../helpers/interventionHandler.js'
 import renderAgentTemplate from '../helpers/renderAgentTemplate.js'
 import access from '../../auth/access.js'
 
@@ -543,6 +544,11 @@ type TraceResponse = {
   promptType?: string
   topic?: string
   channels?: IChannel[]
+  // Only set on a traceOnly checkin response — see checkinHandler's buildTraceOnlyCheckinResponse.
+  declineReason?: DeclineReason | null
+  proposedGoalId?: string | null
+  proposedMessage?: string | null
+  confidenceThreshold?: number | null
 }
 
 export default verify({
@@ -877,6 +883,14 @@ export default verify({
     return []
   },
 
+  // Splits the one shared respond() wrapper's trace name so numberCruncher's cost fetcher
+  // (conversationCost.ts, which groups spend by this exact run name) can tell periodic private
+  // check-ins apart from perMessage question-answering — previously indistinguishable under the
+  // bare agentType name shared by every agent type. Question-answering keeps that name as-is.
+  getTraceRunName(userMessage: IMessage | undefined) {
+    return userMessage ? this.agentType : `${this.agentType}:checkin`
+  },
+
   formatTraceInput(_conversationHistory: ConversationHistory, userMessage: IMessage | undefined) {
     const personality = this.agentConfig?.personality ?? (config.enableAgentPersonality ? 'sarcastic-expert' : null)
     if (!userMessage) {
@@ -924,7 +938,13 @@ export default verify({
           detectedPattern: r.detectedPattern,
           reasoning: r.reasoning,
           messageSent: (r.message as { text?: string })?.text,
-          context: r.context
+          context: r.context,
+          // Only set on a traceOnly response — what was suppressed, why, and the threshold it
+          // was measured against (when a confidence check is what suppressed it).
+          declineReason: r.declineReason ?? null,
+          proposedGoalId: r.proposedGoalId ?? null,
+          proposedMessage: r.proposedMessage ?? null,
+          confidenceThreshold: r.confidenceThreshold ?? null
         }
       })
     }
