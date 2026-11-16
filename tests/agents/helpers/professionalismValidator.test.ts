@@ -239,6 +239,19 @@ describe('professionalismValidator', () => {
       )
       expect(result).toBe(false)
     })
+
+    it('should reject a discriminatory stereotype even when attributed to a cited study', async () => {
+      const message =
+        "Smith (2019) found that women are inherently worse at analytical reasoning than men — does that track with what you're seeing on your team?"
+      const result = await validateProfessionalism(
+        llm,
+        message,
+        'Building High-Performing Engineering Teams',
+        'challenge_consensus',
+        'The group was discussing how to structure code review assignments.'
+      )
+      expect(result).toBe(false)
+    })
   })
 
   describe('context-aware validation', () => {

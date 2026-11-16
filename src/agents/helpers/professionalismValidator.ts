@@ -52,8 +52,11 @@ CITING A SOURCE IS NOT ADDRESSING A PERSON:
 
 "other_unprofessional" IS NARROW:
 - Reserve this category for content that breaches interpersonal professional boundaries in a way
-  not already covered above (e.g. hostile, demeaning, or discriminatory language toward a
-  participant).
+  not already covered above, or that is hostile, demeaning, or discriminatory — toward a
+  participant or toward any group (e.g. a stereotype or generalization based on race, gender,
+  religion, nationality, disability, or similar). Citing a source for a claim like that doesn't
+  exempt it: "do not judge accuracy" above is about unfamiliar facts and terminology, not about
+  whether the content itself is demeaning or discriminatory.
 - Never use it to flag unfamiliar vocabulary, terminology, or names, or to second-guess the
   intervention's factual or academic accuracy — those are not professionalism concerns.
 
