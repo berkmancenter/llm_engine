@@ -71,6 +71,14 @@ const CATCH_UP_USER_TEMPLATE = `## Event topic:
 
 const RECENT_SPEECH_TIMING = 'The passage is the last minute of the talk, up to when the participant asked.'
 const EARLIER_SPEECH_TIMING = `Nothing was said in the last ${UNPACK_LAST_MINUTE_WINDOW_SECONDS} seconds before the participant asked, so this passage is from a little earlier.`
+const BEHIND_SPEAKER_TIMING = `This passage ended over ${UNPACK_LAST_MINUTE_WINDOW_SECONDS} seconds before the participant asked, and the speaker has said more since that is not included here.`
+
+function catchUpTiming(chunks: Pick<UnpackTranscriptChunk, 'createdAt'>[], askedAt: Date, earlierSpeech: boolean) {
+  if (earlierSpeech) return EARLIER_SPEECH_TIMING
+  const newestEnd = new Date(chunks[chunks.length - 1].createdAt).getTime()
+  const passageIsBehind = askedAt.getTime() - newestEnd > UNPACK_LAST_MINUTE_WINDOW_SECONDS * 1000
+  return passageIsBehind ? BEHIND_SPEAKER_TIMING : RECENT_SPEECH_TIMING
+}
 
 // Passage asks and Group Chat posts go through the unpack endpoints, never a chat message
 const unpackRequestBodySchema = z.object({
@@ -202,14 +210,21 @@ async function latestTranscriptEnd(conversationId, askedAt: Date): Promise<Date 
  * Asks the AI model for a catch-up summary of a few transcript chunks.
  * @param earlierSpeech - true when nothing in the transcript ended in the minute before the participant
  *   asked, so the summary must not present the chunks as just said
+ * @param askedAt - when the participant asked; chunks that ended well before it come from a page that is behind
  */
 export async function summarizeCatchUp(
   llm,
   {
     topic,
     chunks,
+    askedAt,
     earlierSpeech
-  }: { topic: string; chunks: Pick<UnpackTranscriptChunk, 'body' | 'createdAt'>[]; earlierSpeech: boolean }
+  }: {
+    topic: string
+    chunks: Pick<UnpackTranscriptChunk, 'body' | 'createdAt'>[]
+    askedAt: Date
+    earlierSpeech: boolean
+  }
 ): Promise<CatchUpSummarySections> {
   const sections = await getChatPromptResponse(
     llm,
@@ -217,7 +232,7 @@ export async function summarizeCatchUp(
     CATCH_UP_USER_TEMPLATE,
     {
       topic,
-      timing: earlierSpeech ? EARLIER_SPEECH_TIMING : RECENT_SPEECH_TIMING,
+      timing: catchUpTiming(chunks, askedAt, earlierSpeech),
       transcript: formatTranscript(chunks)
     },
     [],
@@ -280,7 +295,7 @@ export default async function handleUnpackRequest(agent, userMessage): Promise<A
   let sections: CatchUpSummarySections
   try {
     const llm = await getBedrockChat(config.unpackLLMModel, { maxTokens: CATCH_UP_MAX_OUTPUT_TOKENS })
-    sections = await summarizeCatchUp(llm, { topic: conversation.name, chunks, earlierSpeech })
+    sections = await summarizeCatchUp(llm, { topic: conversation.name, chunks, askedAt, earlierSpeech })
   } catch (error) {
     logger.error(`unpack: AI model call failed for request ${userMessage._id} in ${conversation._id}`, error)
     return [refusal('unpackFailed', userMessage, channels)]

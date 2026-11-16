@@ -15,7 +15,12 @@ describe('Event Assistant catches a participant up on the last minute', () => {
     const now = Date.now()
     const chunks = lines.map((body, i) => ({ body, createdAt: new Date(now - (lines.length - i) * 15 * SECOND) }))
     const llm = await getModelChat(testConfig.llmPlatform, testConfig.llmModel, { maxTokens: 1000 })
-    return summarizeCatchUp(llm, { topic: 'Building Reliable Distributed Systems', chunks, earlierSpeech })
+    return summarizeCatchUp(llm, {
+      topic: 'Building Reliable Distributed Systems',
+      chunks,
+      askedAt: new Date(now),
+      earlierSpeech
+    })
   }
 
   it('summarizes in short, lists what they covered, and leaves "Coming up" empty when nothing is announced', async () => {

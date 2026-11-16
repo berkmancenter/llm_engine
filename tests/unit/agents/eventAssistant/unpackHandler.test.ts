@@ -327,6 +327,20 @@ describe('handleUnpackRequest', () => {
       expect((reply.message as CatchUpSummary).chunkIds).toEqual([stale._id.toString()])
     })
 
+    it("tells the AI model a lagging page's passage is not the last minute, without claiming silence", async () => {
+      const now = Date.now()
+      const agent = buildAgent()
+      const stale = await saveChunk(agent, 'We track every service against an SLO.', 90, now)
+      await saveChunk(agent, 'Said after the page stopped updating.', 10, now)
+
+      await handleUnpackRequest(agent, catchUpRequest([stale], { createdAt: new Date(now) }))
+
+      const [, , , inputs] = mockGetChatPromptResponse.mock.calls[0]
+      expect(inputs.timing).not.toMatch(/last minute/i)
+      expect(inputs.timing).not.toMatch(/nothing was said/i)
+      expect(inputs.timing).toMatch(/said more since/i)
+    })
+
     it("counts from when the participant asked, not when Berkie's job runs", async () => {
       const askedAt = Date.now() - 5 * 60 * SECOND
       const agent = buildAgent()
