@@ -1494,6 +1494,14 @@ export interface OnDemandComputation {
   result: MessageActivityCount | MessageLengthStats
 }
 
+/* The event and question an on-demand answer responds to. The fact-checker needs both: a plain
+   correct answer names the event and restates the question's own terms ("more than three
+   times"), and neither appears among the numbers it checks against. */
+export interface OnDemandQuestion {
+  eventName: string
+  question: string
+}
+
 /* The bundle of numbers the recap card and the curating LLM both read for one
    event. Participation (from our own database) is always present and exact. Tracked
    sessions are a separate layer (one entry per analytics source that has stored
