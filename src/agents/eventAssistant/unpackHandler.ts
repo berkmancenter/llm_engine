@@ -5,7 +5,8 @@ import { formatTranscript } from '../helpers/llmInputFormatters.js'
 import PLAIN_LANGUAGE_TERM_RULES from '../helpers/plainLanguageRules.js'
 import UnpackRequest from '../../models/unpackRequest.model.js'
 import logger from '../../config/logger.js'
-import { AgentResponse, IChannel, UNPACK_DESTINATIONS, UNPACK_MODES, UnpackExplanation } from '../../types/index.types.js'
+import { AgentResponse, IChannel, UnpackExplanation } from '../../types/index.types.js'
+import { isUnpackerEnabled, toPlainText } from '../helpers/unpackPassage.js'
 
 // Transcript chunks only store when the speaker finished, so this counts chunks that ended in the window
 export const UNPACK_LAST_MINUTE_WINDOW_SECONDS = 60
@@ -37,11 +38,12 @@ const UNPACK_USER_TEMPLATE = `## Event topic:
 ## Transcript passage:
 {transcript}`
 
+// Passage asks and Group Chat posts go through the unpack endpoints, never a chat message
 const unpackRequestBodySchema = z.object({
   type: z.literal('unpack_request'),
-  mode: z.enum(UNPACK_MODES),
+  mode: z.literal('lastMinute'),
   text: z.string(),
-  destination: z.enum(UNPACK_DESTINATIONS).default('privateChat')
+  destination: z.literal('privateChat').default('privateChat')
 })
 
 const unpackExplanationSchema = z.object({
@@ -54,22 +56,8 @@ export function isUnpackRequest(message): boolean {
   return message?.bodyType === 'json' && message?.body?.type === 'unpack_request'
 }
 
-// An event saved before the switch existed has no entry for it, which means off
-function isUnpackerEnabled(conversation): boolean {
-  const feature = conversation.features?.find((f) => f.name === 'unpacker')
-  return feature ? feature.enabled !== false : false
-}
-
 function textReply(text: string, channels: IChannel[]): AgentResponse<string> {
   return { visible: true, message: text, messageType: 'text', channels }
-}
-
-function toPlainText({ whatTheyreSaying, whyItMatters, terms }: z.infer<typeof unpackExplanationSchema>): string {
-  const sections = [`What they're saying: ${whatTheyreSaying}`, `Why it matters here: ${whyItMatters}`]
-  if (terms.length > 0) {
-    sections.push(`Terms in this passage:\n${terms.map(({ term, text }) => `- ${term}: ${text}`).join('\n')}`)
-  }
-  return sections.join('\n\n')
 }
 
 function getTranscriptWindow(conversation, end: Date) {
@@ -179,6 +167,7 @@ export default async function handleUnpackRequest(agent, userMessage): Promise<A
       conversation: conversation._id,
       user: userMessage.owner,
       mode: request.mode,
+      status: 'sent',
       destination: request.destination,
       chunkIds,
       quote,

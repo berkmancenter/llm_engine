@@ -6,6 +6,7 @@ import messagesRoute from './messages.route.js'
 import topicsRoute from './topics.route.js'
 import conversationsRoute from './conversations.route.js'
 import transcriptRoute from './transcript.route.js'
+import unpackRoute from './unpack.route.js'
 import resourcesRoute from './resources.route.js'
 import membersRoute from './members.route.js'
 import configRoute from './config.route.js'
@@ -44,6 +45,10 @@ const defaultRoutes = [
   {
     path: '/transcript',
     route: transcriptRoute
+  },
+  {
+    path: '/unpack',
+    route: unpackRoute
   },
   {
     path: '/resources',

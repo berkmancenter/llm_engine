@@ -278,22 +278,34 @@ export interface IAgentIntroduction {
 }
 
 // Later Unpacker modes and destinations are added to these lists, never renamed
-export const UNPACK_MODES = ['lastMinute'] as const
+export const UNPACK_MODES = ['lastMinute', 'passage'] as const
 export type UnpackMode = (typeof UNPACK_MODES)[number]
 export const UNPACK_DESTINATIONS = ['privateChat'] as const
 export type UnpackDestination = (typeof UNPACK_DESTINATIONS)[number]
+export const UNPACK_REQUEST_STATUSES = ['previewed', 'sent'] as const
+export type UnpackRequestStatus = (typeof UNPACK_REQUEST_STATUSES)[number]
+export const UNPACK_EXPLANATION_STATUSES = ['generating', 'ready'] as const
+export type UnpackExplanationStatus = (typeof UNPACK_EXPLANATION_STATUSES)[number]
 
-// Stores the user ID, never a pseudonym, since one user can hold several pseudonyms
-export interface IUnpackRequest {
-  conversation: mongoose.Types.ObjectId
-  user: mongoose.Types.ObjectId
-  mode: UnpackMode
-  destination: UnpackDestination
-  chunkIds: mongoose.Types.ObjectId[]
+// Offsets count UTF-16 code units (JavaScript string indexes) into each chunk's saved body
+export interface UnpackRange {
+  startMessageId: string
+  startOffset: number
+  endMessageId: string
+  endOffset: number
+}
+
+export interface UnpackTranscriptChunk {
+  _id: mongoose.Types.ObjectId
+  body: string
+  createdAt: Date
+}
+
+export interface UnpackPassage {
+  key: string
+  range: UnpackRange
+  pieces: { chunk: UnpackTranscriptChunk; text: string }[]
   quote: string
-  requestMessage?: mongoose.Types.ObjectId
-  answerMessage: mongoose.Types.ObjectId
-  createdAt?: Date
 }
 
 export interface UnpackTerm {
@@ -301,17 +313,86 @@ export interface UnpackTerm {
   text: string
 }
 
+export interface UnpackVisual {
+  description: string
+  altText: string
+  caption: string
+}
+
+export interface UnpackPassageSections {
+  whatTheyreSaying: string
+  whyItMatters: string
+  terms: UnpackTerm[]
+  headline: string
+  visual: UnpackVisual | null
+}
+
+interface IUnpackStoredRange {
+  startMessageId: mongoose.Types.ObjectId
+  startOffset: number
+  endMessageId: mongoose.Types.ObjectId
+  endOffset: number
+}
+
+// Stores the user ID, never a pseudonym, since one user can hold several pseudonyms
+export interface IUnpackRequest {
+  conversation: mongoose.Types.ObjectId
+  user: mongoose.Types.ObjectId
+  mode: UnpackMode
+  status: UnpackRequestStatus
+  // A passage ask can pick its destination while the explanation is still being written
+  destination?: UnpackDestination
+  chunkIds: mongoose.Types.ObjectId[]
+  quote: string
+  passageKey?: string
+  explanation?: mongoose.Types.ObjectId
+  range?: IUnpackStoredRange
+  requestMessage?: mongoose.Types.ObjectId
+  answerMessage?: mongoose.Types.ObjectId
+  createdAt?: Date
+}
+
+// One row per passage, shared by everyone who asks about it
+export interface IUnpackPassageExplanation extends Partial<UnpackPassageSections> {
+  _id: mongoose.Types.ObjectId
+  conversation: mongoose.Types.ObjectId
+  passageKey: string
+  range?: IUnpackStoredRange
+  chunkIds: mongoose.Types.ObjectId[]
+  quote: string
+  passage?: { start: Date; end: Date }
+  status: UnpackExplanationStatus
+  generatingSince?: Date
+  contextUntil?: Date
+  createdAt?: Date
+  updatedAt?: Date
+}
+
+// A row the AI model has finished: the only kind a card or preview can be built from
+export type ReadyUnpackPassageExplanation = IUnpackPassageExplanation &
+  UnpackPassageSections & { status: 'ready'; range: IUnpackStoredRange; passage: { start: Date; end: Date } }
+
+// What posting an Unpacker card needs: the event, its assistant, and the sender's Private Chat when already found
+export interface UnpackEvent {
+  conversation
+  assistant
+  senderPrivateChat?
+}
+
 export interface UnpackExplanation {
   type: 'unpack_explanation'
   mode: UnpackMode
   destination: UnpackDestination
-  requestMessage: string
+  // Only a "Catch me up" ask has a request message; passage asks come from the transcript
+  requestMessage?: string
   chunkIds: string[]
   passage: { start: string; end: string }
   quote: string
   whatTheyreSaying: string
   whyItMatters: string
   terms: UnpackTerm[]
+  headline?: string
+  range?: UnpackRange
   // plain-text copy for chat history and clients that can't render the card
   text: string
 }
@@ -346,6 +427,9 @@ export interface IOrganizerConfirmation {
   createdAt?: Date
   updatedAt?: Date
 }
+
+// Every conversation type that records a live transcript stores it in a channel with this name
+export const TRANSCRIPT_CHANNEL = 'transcript' as const
 
 export const ChannelZodSchema = z.object({
   name: z.string(),
@@ -487,6 +571,8 @@ export interface FeatureConfig {
   prerequisite?: string
   // Whether the participant can control this feature (toggle or slash command). false = runs automatically.
   userControlled: boolean
+  // Agent type that replies to participants who use this feature, for features that answer in its Private Chat
+  respondingAgent?: string
   // Present in /features responses. Absent in static type definitions.
   enabled?: boolean
 }

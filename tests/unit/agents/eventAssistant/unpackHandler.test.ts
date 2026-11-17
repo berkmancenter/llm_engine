@@ -161,8 +161,9 @@ describe('handleUnpackRequest', () => {
       const rows = await UnpackRequest.find({ conversation: agent.conversation._id })
       expect(rows).toHaveLength(1)
       expect(rows[0].user.equals(userId)).toBe(true)
+      expect(rows[0].status).toBe('sent')
       expect(rows[0].requestMessage!.equals(request._id)).toBe(true)
-      expect(rows[0].answerMessage.equals(reply.messageId!)).toBe(true)
+      expect(rows[0].answerMessage!.equals(reply.messageId!)).toBe(true)
       expect(rows[0].chunkIds).toHaveLength(2)
     })
 
@@ -208,10 +209,14 @@ describe('handleUnpackRequest', () => {
       expect(mockGetChatPromptResponse).not.toHaveBeenCalled()
     })
 
-    it('stays silent for a mode this version does not support', async () => {
+    it.each([
+      ['a mode this version does not support', { mode: 'selection' }],
+      ['a passage ask, which has its own endpoint', { mode: 'passage' }],
+      ['a Group Chat destination, which chat messages cannot use', { destination: 'groupChat' }]
+    ])('stays silent for %s', async (_name, body) => {
       const agent = buildAgent({ messages: lastMinuteTranscript(Date.now()) })
 
-      expect(await handleUnpackRequest(agent, unpackMessage({ mode: 'selection' }))).toEqual([])
+      expect(await handleUnpackRequest(agent, unpackMessage(body))).toEqual([])
       expect(mockGetChatPromptResponse).not.toHaveBeenCalled()
     })
 

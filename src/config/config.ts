@@ -229,6 +229,9 @@ const envVarsSchema = Joi.object()
     CORE_LLM_MODEL: Joi.string()
       .default('us.anthropic.claude-haiku-4-5-20251001-v1:0')
       .description('Model to use for core system LLM tasks (summaries, fun facts, etc.)'),
+    UNPACK_LLM_MODEL: Joi.string()
+      .default('us.anthropic.claude-sonnet-4-6')
+      .description('Bedrock model ID or family name (such as sonnet) for Unpacker explanations; pick a fast one'),
     IMAGE_GENERATION_LLM_MODEL: Joi.string()
       .default('gemini-3-pro-image')
       .description('Model to use for image generation tasks'),
@@ -416,6 +419,7 @@ const config = {
   classificationLLMModel: envVars.CLASSIFICATION_LLM_MODEL,
   coreLLMPlatform: envVars.CORE_LLM_PLATFORM,
   coreLLMModel: envVars.CORE_LLM_MODEL,
+  unpackLLMModel: envVars.UNPACK_LLM_MODEL,
   imageGenerationLLMModel: envVars.IMAGE_GENERATION_LLM_MODEL,
   semanticScholar: {
     apiKey: envVars.SEMANTIC_SCHOLAR_API_KEY

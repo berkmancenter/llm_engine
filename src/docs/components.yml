@@ -265,14 +265,15 @@ components:
     UnpackExplanation:
       type: object
       description: >-
-        Message body (bodyType "json") the event assistant sends in reply to an UnpackRequestBody.
-        If no transcript arrived in the window, or the participant sent too many requests in the
-        last minute, the assistant sends a short text message instead.
+        Message body (bodyType "json") the event assistant posts with an explanation. A "Catch me up"
+        reply (mode lastMinute) answers an UnpackRequestBody message. A passage card (mode passage)
+        comes from the send endpoint and has no request message. If no transcript arrived in the
+        window, or the participant sent too many requests in the last minute, the assistant sends a
+        short text message instead.
       required:
         - type
         - mode
         - destination
-        - requestMessage
         - chunkIds
         - passage
         - quote
@@ -286,13 +287,13 @@ components:
           enum: [unpack_explanation]
         mode:
           type: string
-          enum: [lastMinute]
+          enum: [lastMinute, passage]
         destination:
           type: string
           enum: [privateChat]
         requestMessage:
           type: string
-          description: ID of the participant's request message.
+          description: ID of the participant's request message. Only "Catch me up" replies have one.
         chunkIds:
           type: array
           description: IDs of the transcript messages that were explained, oldest first.
@@ -323,9 +324,179 @@ components:
           description: Specialist terms in the passage. Empty when there are none.
           items:
             $ref: '#/components/schemas/UnpackTerm'
+        headline:
+          type: string
+          description: Short title for sharing the explanation with the room. Passage cards only.
+        range:
+          $ref: '#/components/schemas/UnpackSelection'
         text:
           type: string
           description: Plain-text version of all sections, for chat history and clients that can't render the card.
+
+    UnpackSelection:
+      type: object
+      description: >-
+        A passage of the live transcript. Offsets are JavaScript string positions (UTF-16 code units)
+        into each transcript chunk's saved body; the end is exclusive. In a request this is what the
+        participant selected; in a response it is that selection widened to whole sentences.
+      required:
+        - startMessageId
+        - startOffset
+        - endMessageId
+        - endOffset
+      properties:
+        startMessageId:
+          type: string
+          description: ID of the transcript chunk the passage starts in.
+        startOffset:
+          type: integer
+          minimum: 0
+        endMessageId:
+          type: string
+          description: ID of the transcript chunk the passage ends in. Can be the start chunk.
+        endOffset:
+          type: integer
+          minimum: 0
+
+    UnpackTranscriptPasscode:
+      type: object
+      properties:
+        transcriptPasscode:
+          type: string
+          description: >-
+            The transcript channel's passcode, the same one the client uses to read the transcript.
+            Required when the transcript has one, which it does by default. A missing or wrong passcode
+            is refused with 400 and reason wrongPasscode.
+
+    UnpackVisual:
+      type: object
+      required:
+        - description
+        - altText
+        - caption
+      properties:
+        description:
+          type: string
+          description: What an image model should draw.
+        altText:
+          type: string
+          description: Screen-reader description of the finished image.
+        caption:
+          type: string
+
+    UnpackPreview:
+      type: object
+      required:
+        - askId
+        - explanation
+      properties:
+        askId:
+          type: string
+          description: ID of this participant's ask about the passage. Previewing the same passage again returns the same ID.
+        explanation:
+          type: object
+          description: >-
+            The saved explanation. whatTheyreSaying is written first, so a preview can show its opening
+            sentences. Send posts the explanation as it is at that moment, which a background rewrite
+            with more of the following transcript may have changed since this preview.
+          required:
+            - range
+            - chunkIds
+            - passage
+            - quote
+            - whatTheyreSaying
+            - whyItMatters
+            - terms
+            - headline
+            - visual
+          properties:
+            range:
+              $ref: '#/components/schemas/UnpackSelection'
+            chunkIds:
+              type: array
+              items:
+                type: string
+            passage:
+              type: object
+              required:
+                - start
+                - end
+              properties:
+                start:
+                  type: string
+                  format: date-time
+                end:
+                  type: string
+                  format: date-time
+            quote:
+              type: string
+              description: The widened passage, rebuilt from the saved transcript.
+            whatTheyreSaying:
+              type: string
+            whyItMatters:
+              type: string
+            terms:
+              type: array
+              description: At most three specialist terms. Empty when there are none.
+              items:
+                $ref: '#/components/schemas/UnpackTerm'
+            headline:
+              type: string
+            visual:
+              description: Null when a visual would not help.
+              nullable: true
+              allOf:
+                - $ref: '#/components/schemas/UnpackVisual'
+
+    UnpackSendResult:
+      type: object
+      required:
+        - askId
+        - status
+      properties:
+        askId:
+          type: string
+        status:
+          type: string
+          enum: [sent, pending]
+          description: pending means the card posts as soon as the explanation is written.
+        messageId:
+          type: string
+          description: ID of the posted card, when status is sent.
+
+    UnpackError:
+      type: object
+      properties:
+        code:
+          type: number
+        message:
+          type: string
+        reason:
+          type: string
+          enum:
+            - rateLimited
+            - unpackerOff
+            - noAssistant
+            - noPrivateChat
+            - eventLocked
+            - chunkNotInTranscript
+            - offsetPastEnd
+            - selectionBackwards
+            - selectionTooLong
+            - unpackFailed
+            - wrongPasscode
+          description: >-
+            Why the request was refused. rateLimited (429), the participant started too many new
+            explanations in the last minute; answers from a saved explanation don't count.
+            unpackerOff (403), the event's unpacker feature is off. noAssistant (409), the event has
+            no assistant. wrongPasscode (400), the transcript has a passcode and the request did not
+            give it. noPrivateChat (409), the participant has no Private Chat with the assistant.
+            eventLocked (409), the event is locked, so no card can be posted.
+            chunkNotInTranscript (400), a chunk ID is not in this event's transcript. offsetPastEnd
+            (400), a position is past the end of its chunk. selectionBackwards (400), the selection
+            starts after it ends or holds no words. selectionTooLong (400), the widened passage is
+            too long. unpackFailed (503), the AI model call failed or ran too long; trying again can work. Missing
+            or malformed fields are refused with 400 and no reason.
 
     Pseudonym:
       type: object
@@ -857,6 +1028,9 @@ components:
         userControlled:
           type: boolean
           description: Whether the participant can control this feature (toggle or slash command). false = runs automatically.
+        respondingAgent:
+          type: string
+          description: Agent type that replies to participants who use this feature, for features that answer in its Private Chat.
         enabled:
           type: boolean
           description: Whether this feature is active for this conversation. Present in /features responses; absent means fall back to the type's default.
@@ -1989,6 +2163,16 @@ components:
           example:
             code: 403
             message: Forbidden
+    UnpackRefused:
+      description: The Unpacker refused the request; reason says why.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/UnpackError'
+          example:
+            code: 400
+            message: startOffset is past the end of its chunk.
+            reason: offsetPastEnd
     NotFound:
       description: Not found
       content:
