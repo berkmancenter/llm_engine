@@ -49,6 +49,10 @@ CITING A SOURCE IS NOT ADDRESSING A PERSON:
   the conversation.
 - Do not judge whether a cited name, finding, or term is real, established, or correctly used —
   verifying facts or sources is out of scope for this check.
+- An unfamiliar author name or specialized-sounding term is NOT evidence the agent "invented" or
+  "fabricated" a source to lend false authority — never reject a message on that basis. Treat
+  every cited name and term as real and legitimate; whether it actually is belongs to a
+  fact-checking pass elsewhere in the pipeline, never to this check.
 
 "other_unprofessional" IS NARROW:
 - Reserve this category for content that breaches interpersonal professional boundaries in a way
