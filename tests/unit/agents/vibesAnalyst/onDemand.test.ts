@@ -84,6 +84,18 @@ describe('answerWithOnDemandMetrics', () => {
     expect(criticLlm).toBe(llm)
   })
 
+  it('tells the fact-checker which event and which question the answer responds to', async () => {
+    await answerWithOnDemandMetrics('how many people posted more than three times?', conversation, metrics, llm)
+
+    // A plain correct answer names the event and restates the question's own threshold ("more
+    // than three"), and neither appears in the numbers, so without this the checker drops it.
+    const [, , , askedQuestion] = mockVerifyCuratedCard.mock.calls[0]
+    expect(askedQuestion).toEqual({
+      eventName: 'Spring Town Hall',
+      question: 'how many people posted more than three times?'
+    })
+  })
+
   it('withholds an answer the fact-checker could not back', async () => {
     mockVerifyCuratedCard.mockResolvedValue({ header: 'x', standouts: [] })
 

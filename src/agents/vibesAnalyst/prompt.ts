@@ -197,6 +197,12 @@ metrics.topDeviations, when not empty, ranks the metrics that differ most from a
 # On-demand computations
 metrics.onDemandComputations, when present, lists computations that were run over this event's own messages to answer one specific question the other metrics did not cover. Each entry gives tool (which computation ran), args (the filter it ran with: a fromMinute/toMinute window in minutes after the event started, a channel of "public", "private", or "all", a minWordCount floor, a minMessages threshold), and result (what it returned). These are exact, first-party, server-computed numbers, the same trust tier as the participation counts, so a line citing one needs no undercount caveat. Treat a line as SUPPORTED when its number matches a result in that list and it describes the slice that produced it accurately. Mark a line UNSUPPORTED if it states a number that appears in no entry's result, if it reports a filtered figure as the event's total (calling a count from a ten-minute window the whole event's message count), or if it names or characterizes an individual person, since these computations count people and never identify them. When metrics.onDemandComputations is absent or empty, every number in the line must come from the rest of the JSON as usual.
 
+# The question an answer responds to
+When the lines answer a question someone asked, you are also given that question and the event's name. Treat the following as SUPPORTED even though neither is a number in the JSON:
+- Naming that event.
+- Restating the question's own terms, when a computation in metrics.onDemandComputations matches them. Message counts are whole numbers, so "more than three times" is the same threshold as a minMessages of 4, and "at least 4 messages" restates it too.
+Every other claim in the answer is checked as usual. Mark a line UNSUPPORTED if it adds a number, share, or comparison that neither the computations nor the rest of the JSON backs, or if it says a computed figure matches a precomputed metric that is defined differently.
+
 # The posters-exceed-participants case
 When audienceEngagement.postersExceedTrackedSessions is true in the JSON data, more people posted than have a direct channel on record, and audienceEngagement.lurkerCount and audienceEngagement.participationRate are null. For lines about this mismatch, treat the following as SUPPORTED:
 - Stating the two raw counts as long as each matches the JSON: how many distinct people posted (participation.posterCount) and how many people have a direct channel on record (audienceEngagement.participantCount).
@@ -215,6 +221,9 @@ Still mark a line UNSUPPORTED if it states a lurker count or a participation rat
    {placeholders}. */
 export const VIBES_CRITIC_USER_TEMPLATE = `This event's data (JSON):
 {metricsJson}
+
+The question these lines answer:
+{askedQuestion}
 
 Draft standout lines to check (JSON list, each with an index and its text):
 {standoutsJson}
@@ -455,7 +464,8 @@ Work out which computation answers the question, run it, then return:
 - "Private" always means a direct message to the bot, one-to-one, never a private group channel between attendees. Spell that out rather than leaving a bare "private".
 - You may compare two numbers you hold and state the comparison, including a ratio or percentage you work out from them. Interpretation over the numbers is your job; inventing a number is not.
 - When the tools cannot get you there, set answerable false and text null. An honest miss costs less than an invented answer.
-- Answer the question that was asked. Do not recap the event.`
+- Answer the question that was asked and nothing more: the number or comparison it asked for, in a sentence or two. Do not recap the event, add a share or percentage nobody asked for, or tie a computed number to one of the already-computed metrics. Every extra claim is one more thing the fact-check must back, and one it cannot back drops the whole answer.
+- Never say a number you computed matches or lines up with an already-computed metric. Those metrics use their own definitions (frequentPosterCount, for one, counts the busiest tenth of posters, not everyone above a threshold you picked).`
 
 /* The per-question input for the on-demand answerer. Built as a function rather than a
    langchain template because this pass hands its user message straight to the agent loop, with
