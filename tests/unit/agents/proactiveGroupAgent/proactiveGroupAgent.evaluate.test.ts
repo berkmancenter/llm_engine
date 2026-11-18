@@ -1,6 +1,6 @@
 /* Covers proactiveGroupAgent.evaluate()'s three-way gate: this agent is proactive
-   (triggers.periodic.proactive), so the framework's own "no new messages" skip never
-   applies to it — see agent.model/index.ts. Some of its goals (provoke_participation,
+   (triggers.periodic.proactive, or a cron trigger), so the framework's own "no new messages"
+   skip never applies to it — see agent.model/index.ts. Some of its goals (provoke_participation,
    play_commentary, poll_reveal, missing_perspective) trigger ON chat silence, so the gate
    must distinguish "nothing anywhere" from "chat quiet but a silence-compatible goal is
    eligible" from "chat has activity". No LLM calls involved — evaluate() never reaches
@@ -44,12 +44,23 @@ function makeAgent(
 }
 
 describe('proactiveGroupAgent evaluate', () => {
-  it('rejects when chat and transcript are both quiet', async () => {
-    const agent = makeAgent({ messages: [] })
+  it('rejects when chat and transcript are both quiet and no eligible goal is silence-compatible', async () => {
+    const agent = makeAgent({ goals: ['synthesize_discussion'], messages: [] })
 
     const result = await proactiveGroupAgent.evaluate.call(agent, null)
 
     expect(result.action).toBe(AgentMessageActions.REJECT)
+  })
+
+  it('contributes when chat and transcript are both quiet but a silence-compatible goal is eligible', async () => {
+    // The case the gate used to miss: this is the normal steady state for an async, chat-only
+    // conversation (e.g. a Slack community) with no transcript channel at all, not just an
+    // edge case within a live event, which auto-stop bounds separately.
+    const agent = makeAgent({ goals: ['provoke_participation'], messages: [] })
+
+    const result = await proactiveGroupAgent.evaluate.call(agent, null)
+
+    expect(result.action).toBe(AgentMessageActions.CONTRIBUTE)
   })
 
   it('contributes when chat has recent activity, regardless of goals', async () => {
@@ -119,7 +130,7 @@ describe('proactiveGroupAgent evaluate', () => {
   it('respects a custom transcriptWindow from agentConfig', async () => {
     const now = new Date()
     const agent = makeAgent({
-      goals: ['provoke_participation'],
+      goals: ['synthesize_discussion'], // not silence-compatible, so this isolates the window check
       transcriptWindow: 2, // 2 minutes
       messages: [makeMessage({ channels: ['transcript'], createdAt: new Date(now.getTime() - 5 * 60 * 1000) })]
     })
