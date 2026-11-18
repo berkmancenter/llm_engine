@@ -1,8 +1,9 @@
 import { z } from 'zod'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
+import logger from '../../config/logger.js'
 import { buildChartCandidates } from './curate.js'
 import { VIBES_CRITIC_SYSTEM_PROMPT, VIBES_CRITIC_USER_TEMPLATE } from './prompt.js'
-import { ConversationMetrics, CuratedVibesChart, CuratedVibesData } from '../../types/index.types.js'
+import { ConversationMetrics, CuratedVibesChart, CuratedVibesData, OnDemandQuestion } from '../../types/index.types.js'
 
 /* What the critic returns: one verdict per standout it was shown. `reasoning` comes
    first so the model works through each claim, and any ratio arithmetic, before it
@@ -67,13 +68,23 @@ export function dropUnbackedCharts(card: CuratedVibesData, metrics: Conversation
   return { ...card, standouts }
 }
 
+// LangChain throws on an unfilled template variable, so a recap still fills the question slot.
+const NO_QUESTION = 'None. These lines are a recap, not an answer to a question.'
+
+function describeAskedQuestion(askedQuestion?: OnDemandQuestion): string {
+  if (!askedQuestion) return NO_QUESTION
+  return `These lines answer a question someone asked about the event named "${askedQuestion.eventName}":
+${askedQuestion.question}`
+}
+
 /* Asks a second model to fact-check the prose against the metrics and report which
    standouts are unsupported. The standouts are sent numbered so the critic can
    point back at each by index. Returns the per-standout verdicts. */
 async function critiqueStandouts(
   card: CuratedVibesData,
   metrics: ConversationMetrics,
-  llm
+  llm,
+  askedQuestion?: OnDemandQuestion
 ): Promise<z.infer<typeof CriticSchema>['verdicts']> {
   const numberedStandouts = card.standouts.map((standout, index) => ({ index, text: standout.text }))
 
@@ -83,7 +94,8 @@ async function critiqueStandouts(
     VIBES_CRITIC_USER_TEMPLATE,
     {
       metricsJson: JSON.stringify(metrics),
-      standoutsJson: JSON.stringify(numberedStandouts)
+      standoutsJson: JSON.stringify(numberedStandouts),
+      askedQuestion: describeAskedQuestion(askedQuestion)
     },
     undefined,
     CriticSchema
@@ -99,16 +111,28 @@ async function critiqueStandouts(
  * whose prose the metrics do not back, and those standouts are dropped. A flagged
  * standout is removed rather than rewritten, so nothing unsupported reaches the
  * host.
+ *
+ * Pass `askedQuestion` when the card answers someone's question rather than recapping the event;
+ * without it the critic rejects an answer for naming the event or restating the question.
  */
 export default async function verifyCuratedCard(
   card: CuratedVibesData,
   metrics: ConversationMetrics,
-  llm
+  llm,
+  askedQuestion?: OnDemandQuestion
 ): Promise<CuratedVibesData> {
   const chartChecked = dropUnbackedCharts(card, metrics)
 
-  const verdicts = await critiqueStandouts(chartChecked, metrics, llm)
-  const unsupportedIndexes = new Set(verdicts.filter((verdict) => !verdict.supported).map((verdict) => verdict.index))
+  const verdicts = await critiqueStandouts(chartChecked, metrics, llm, askedQuestion)
+  const unsupported = verdicts.filter((verdict) => !verdict.supported)
+  for (const verdict of unsupported) {
+    logger.warn(
+      `Vibes Analyst fact-check dropped "${chartChecked.standouts[verdict.index]?.text}": ${
+        verdict.issue ?? verdict.reasoning
+      }`
+    )
+  }
+  const unsupportedIndexes = new Set(unsupported.map((verdict) => verdict.index))
 
   const standouts = chartChecked.standouts.filter((_, index) => !unsupportedIndexes.has(index))
 

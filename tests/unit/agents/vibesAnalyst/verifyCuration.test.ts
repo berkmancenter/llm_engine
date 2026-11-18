@@ -1,7 +1,20 @@
-import { dropUnbackedCharts } from '../../../../src/agents/vibesAnalyst/verifyCuration.js'
-import { buildChartCandidates } from '../../../../src/agents/vibesAnalyst/curate.js'
+import { jest } from '@jest/globals'
 import { ConversationMetrics, CuratedVibesData } from '../../../../src/types/index.types.js'
 import makeMetrics from '../../../utils/metricsFixture.js'
+
+// The critic model call is the only LLM dependency, so it is the only mock.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockGetChatPromptResponse = jest.fn<(...args: any[]) => Promise<any>>()
+
+jest.unstable_mockModule('../src/agents/helpers/llmChain.js', () => ({
+  getChatPromptResponse: mockGetChatPromptResponse
+}))
+
+const { default: verifyCuratedCard, dropUnbackedCharts } = await import(
+  '../../../../src/agents/vibesAnalyst/verifyCuration.js'
+)
+const { buildChartCandidates } = await import('../../../../src/agents/vibesAnalyst/curate.js')
+const { default: logger } = await import('../../../../src/config/logger.js')
 
 /* Minimal metrics with enough to build at least the activity and channel-split
    charts, so the test can attach a real chart and a fabricated one. */
@@ -76,5 +89,50 @@ describe('dropUnbackedCharts', () => {
     const result = dropUnbackedCharts(card, metrics)
 
     expect(result.standouts[0]).toEqual({ text: 'Half the registrants spoke up' })
+  })
+})
+
+describe('verifyCuratedCard', () => {
+  const llm = { fake: true }
+  const answerCard: CuratedVibesData = {
+    header: 'Answer about Spring Town Hall',
+    standouts: [{ text: '4 people posted more than three times during the Spring Town Hall.' }]
+  }
+
+  beforeEach(() => {
+    jest.restoreAllMocks()
+    mockGetChatPromptResponse.mockReset()
+    mockGetChatPromptResponse.mockResolvedValue({ verdicts: [{ index: 0, reasoning: 'matches', supported: true }] })
+  })
+
+  it('shows the critic the event and the question an on-demand answer responds to', async () => {
+    await verifyCuratedCard(answerCard, makeMetrics(), llm, {
+      eventName: 'Spring Town Hall',
+      question: 'how many people posted more than three times?'
+    })
+
+    const [, , , inputParams] = mockGetChatPromptResponse.mock.calls[0]
+    expect(inputParams.askedQuestion).toContain('Spring Town Hall')
+    expect(inputParams.askedQuestion).toContain('how many people posted more than three times?')
+  })
+
+  it('tells the critic a recap answers no question', async () => {
+    await verifyCuratedCard(answerCard, makeMetrics(), llm)
+
+    const [, , , inputParams] = mockGetChatPromptResponse.mock.calls[0]
+    expect(inputParams.askedQuestion).not.toContain('Spring Town Hall')
+  })
+
+  it('logs why the critic dropped a standout', async () => {
+    const warn = jest.spyOn(logger, 'warn').mockImplementation(() => logger)
+    mockGetChatPromptResponse.mockResolvedValue({
+      verdicts: [{ index: 0, reasoning: 'no backing', supported: false, issue: 'states 69% but no count backs it' }]
+    })
+
+    const result = await verifyCuratedCard(answerCard, makeMetrics(), llm)
+
+    expect(result.standouts).toEqual([])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('states 69% but no count backs it'))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(answerCard.standouts[0].text))
   })
 })

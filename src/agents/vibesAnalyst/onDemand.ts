@@ -55,7 +55,8 @@ export default async function answerWithOnDemandMetrics(
     const verified = await verifyCuratedCard(
       { header: `Answer about ${conversation.name}`, standouts: [{ text: answer.text }] },
       { ...metrics, onDemandComputations: computations },
-      llm
+      llm,
+      { eventName: conversation.name, question }
     )
 
     if (verified.standouts.length === 0) {
