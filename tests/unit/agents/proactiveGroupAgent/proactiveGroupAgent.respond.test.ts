@@ -78,6 +78,7 @@ function makeAgent(
     minContributionMinutes?: number
     safetyPosture?: 'standard' | 'strict'
     startTime?: Date
+    channels?: Array<{ name: string; direct?: boolean }>
   } = {}
 ) {
   const startTime = overrides.startTime ?? new Date(Date.now() - 20 * 60 * 1000) // 20 min ago
@@ -110,7 +111,7 @@ function makeAgent(
           }
         }
       },
-      channels: [{ name: 'chat', direct: false }],
+      channels: overrides.channels ?? [{ name: 'chat', direct: false }],
       messages: overrides.messages ?? [],
       conversationContext: undefined
     }
@@ -328,6 +329,32 @@ describe('proactiveGroupAgent respond', () => {
 
       const systemPrompt = callArgs[1] as string
       expect(systemPrompt).not.toContain('Preferred pattern')
+    })
+  })
+
+  describe('system prompt framing by transcript channel presence', () => {
+    it('uses the live-event opener and speaker/transcript judgment when a transcript channel exists', async () => {
+      const now = new Date()
+      const agent = makeAgent({ channels: [{ name: 'chat' }, { name: 'transcript' }] })
+      mockRunInterventionAnalysis.mockResolvedValue(NO_INTERVENTION)
+
+      await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
+
+      const systemPrompt = mockRunInterventionAnalysis.mock.calls[0][1] as string
+      expect(systemPrompt).toContain('You are an AI facilitator during a live event')
+      expect(systemPrompt).toContain('A speaker actively presenting is not the same as participants being active')
+    })
+
+    it('uses a neutral opener and drops speaker/transcript judgment when there is no transcript channel', async () => {
+      const now = new Date()
+      const agent = makeAgent({ channels: [{ name: 'chat' }] })
+      mockRunInterventionAnalysis.mockResolvedValue(NO_INTERVENTION)
+
+      await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
+
+      const systemPrompt = mockRunInterventionAnalysis.mock.calls[0][1] as string
+      expect(systemPrompt).toContain('You are an AI facilitator for this discussion')
+      expect(systemPrompt).not.toContain('A speaker actively presenting is not the same as participants being active')
     })
   })
 
