@@ -354,13 +354,13 @@ export default verify({
     }
 
     if (evt.type === 'conversationStopped') {
-      const conv = await Conversation.findById(evt.conversationId).select('name summary').lean()
-      if (!conv?.summary) return []
+      const conv = await Conversation.findById(evt.conversationId).select('name postEventAnalysis.summary').lean()
+      if (!conv?.postEventAnalysis?.summary) return []
       const name = conv.name ?? 'An event'
       return [
         {
           visible: true,
-          message: `*${name}* just wrapped up. Here's a summary:\n\n${conv.summary}\n\n*Have questions about the event? Ask me anything.*`,
+          message: `*${name}* just wrapped up. Here's a summary:\n\n${conv.postEventAnalysis.summary}\n\n*Have questions about the event? Ask me anything.*`,
           messageType: 'text' as const,
           channels: responseChannels
         }

@@ -8,7 +8,7 @@ import Message from './message.model.js'
 import { hiddenMessagesMatch } from '../utils/messageVisibility.js'
 import transcriptSchema from './schemas/transcript.schema.js'
 import announcementSchema from './schemas/announcement.schema.js'
-import provenanceSchema from './schemas/provenance.schema.js'
+import postEventAnalysisSchema from './schemas/postEventAnalysis.schema.js'
 
 interface ConversationMethods {
   messageCount(): number
@@ -220,15 +220,9 @@ const conversationSchema = new mongoose.Schema<IConversation, ConversationModel>
       type: [announcementSchema],
       default: []
     },
-    summary: {
-      type: String,
-      default: ''
-    },
-    /* What `summary` was generated from. Absent on summaries written before this existed: unknown, not clean. */
-    summaryProvenance: {
-      type: provenanceSchema,
-      default: undefined,
-      private: true
+    postEventAnalysis: {
+      type: postEventAnalysisSchema,
+      default: undefined
     },
     goals: {
       type: [String],

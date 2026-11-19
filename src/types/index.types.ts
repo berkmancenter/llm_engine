@@ -23,6 +23,19 @@ export interface GenerationProvenance {
   quoteSources?: Array<{ ref: string; messageIds: Array<mongoose.Types.ObjectId | string> }>
 }
 
+/* Everything an LLM extracts from a conversation once it stops, grouped so each new postEvent
+   artifact (see costPhase: 'postEvent') is one more key here instead of another top-level field
+   on Conversation. Each piece of content keeps its own provenance, since that describes what THAT
+   extraction was built from, not the group as a whole. */
+export interface PostEventAnalysis {
+  summary?: string
+  summaryProvenance?: GenerationProvenance
+  /* Questions or ideas genuinely discussed in this meeting that could benefit from further
+     discussion. */
+  openThreads?: string[]
+  openThreadsProvenance?: GenerationProvenance
+}
+
 /* The structured fields an Outlook invite's .ics attachment states outright, parsed by the email
    webhook with no LLM involved. uid identifies a recurring series (every instance shares one) and
    pairs with startDate to recognize an invite already handled. */
@@ -831,8 +844,7 @@ export interface IConversation {
   createdAt?: Date
   updatedAt?: Date
   messageCount(): number
-  summary?: string
-  summaryProvenance?: GenerationProvenance
+  postEventAnalysis?: PostEventAnalysis
   goals?: string[]
   conversationContext?: ConversationContext
   behaviorPolicy?: BehaviorPolicy

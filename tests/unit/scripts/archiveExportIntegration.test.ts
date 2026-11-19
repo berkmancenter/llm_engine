@@ -32,7 +32,7 @@ const completed = (topic: ObjectId, overrides: Record<string, unknown> = {}) => 
   enforceMembership: false,
   startTime: new Date('2026-01-02T10:00:00Z'),
   endTime: new Date('2026-01-02T11:00:00Z'),
-  summary: 'A public summary.',
+  postEventAnalysis: { summary: 'A public summary.' },
   presenters: [{ name: 'Ada' }],
   topic,
   ...overrides
@@ -55,7 +55,7 @@ async function seed() {
     deletedTopic: completed(deletedTopic),
     locked: completed(publicTopic, { locked: true }),
     enforceMembership: completed(publicTopic, { enforceMembership: true }),
-    noSummary: completed(publicTopic, { summary: '' }),
+    noSummary: completed(publicTopic, { postEventAnalysis: { summary: '' } }),
     active: completed(publicTopic, { active: true }),
     draft: completed(publicTopic, { draft: true })
   }
