@@ -34,6 +34,10 @@ jobs:
       JWT_SECRET: local-test-only
       BEDROCK_API_KEY: local-test-only
       BEDROCK_BASE_URL: http://127.0.0.1:1
+      # On Linux, onnxruntime-node's install script downloads CUDA binaries from GitHub
+      # releases, outside yarn.lock's checks, and fails the install when they are missing.
+      # Nothing here runs on a GPU, so skip that download.
+      ONNXRUNTIME_NODE_INSTALL_CUDA: skip
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
