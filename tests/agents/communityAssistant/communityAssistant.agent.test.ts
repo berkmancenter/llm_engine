@@ -596,7 +596,7 @@ A single mom of two children with primary custody, she is passionate about findi
     })
 
     it('returns empty when notifications does not include event_ended, even with a summary', async () => {
-      await stoppedConversation.updateOne({ summary: 'Key takeaways from the event.' })
+      await stoppedConversation.updateOne({ postEventAnalysis: { summary: 'Key takeaways from the event.' } })
 
       // agent (from outer beforeEach) has no notifications configured
       const responses = await defaultAgentTypes.communityAssistant.onConversationEvent.call(agent, {
@@ -615,7 +615,7 @@ A single mom of two children with primary custody, she is passionate about findi
     })
 
     it('posts a summary message when event_ended is enabled and the conversation has a summary', async () => {
-      await stoppedConversation.updateOne({ summary: 'Key takeaways from the event.' })
+      await stoppedConversation.updateOne({ postEventAnalysis: { summary: 'Key takeaways from the event.' } })
 
       const responses = await defaultAgentTypes.communityAssistant.onConversationEvent.call(notifyAgent, {
         type: 'conversationStopped',
@@ -628,7 +628,7 @@ A single mom of two children with primary custody, she is passionate about findi
     })
 
     it('posts to the chat channel when one exists', async () => {
-      await stoppedConversation.updateOne({ summary: 'A summary.' })
+      await stoppedConversation.updateOne({ postEventAnalysis: { summary: 'A summary.' } })
 
       const responses = await defaultAgentTypes.communityAssistant.onConversationEvent.call(notifyAgent, {
         type: 'conversationStopped',
