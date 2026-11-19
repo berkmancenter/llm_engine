@@ -179,6 +179,37 @@ describe('runInterventionAnalysis tool resolution', () => {
     expect(result.declineReason).toBe('tool_goal_ungrounded')
   })
 
+  it("discards goal A when only goal B's declared tool was actually invoked this tick", async () => {
+    mockGetTools.mockResolvedValue([{ name: 'event_history' }, { name: 'resource_search' }])
+    mockGetAgentStructuredResponse.mockResolvedValue({
+      ...DECISION,
+      goalId: 'goal_a',
+      sharedChatMessage: 'Should never be sent.',
+      toolTrace: { invoked: true, calls: [{ name: 'resource_search', args: {} }] }
+    })
+
+    const result = await run([makeGoal('goal_a', ['event_history']), makeGoal('goal_b', ['resource_search'])])
+
+    expect(result.shouldIntervene).toBe(false)
+    expect(result.goalId).toBe('none')
+    expect(result.sharedChatMessage).toBeNull()
+    expect(result.declineReason).toBe('tool_goal_ungrounded')
+  })
+
+  it("passes through goal A when its own declared tool was invoked, even with goal B's tool also resolved", async () => {
+    mockGetTools.mockResolvedValue([{ name: 'event_history' }, { name: 'resource_search' }])
+    mockGetAgentStructuredResponse.mockResolvedValue({
+      ...DECISION,
+      goalId: 'goal_a',
+      toolTrace: { invoked: true, calls: [{ name: 'event_history', args: {} }] }
+    })
+
+    const result = await run([makeGoal('goal_a', ['event_history']), makeGoal('goal_b', ['resource_search'])])
+
+    expect(result.goalId).toBe('goal_a')
+    expect(result.declineReason).toBeUndefined()
+  })
+
   it('discards a tool-dependent goal chosen when no tools resolved at all (falls back to the plain call)', async () => {
     mockGetTools.mockResolvedValue([])
     mockGetChatPromptResponse.mockResolvedValue({
