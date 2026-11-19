@@ -9,7 +9,7 @@ export interface ArchiveEvent {
   enforceMembership?: boolean
   startTime?: Date | string
   endTime?: Date | string
-  summary?: string
+  postEventAnalysis?: { summary?: string }
   presenters?: Array<{ name?: string }>
   topic?: { private?: boolean; isDeleted?: boolean } | null
 }
@@ -20,7 +20,7 @@ export function archiveEventEligibility(event: ArchiveEvent | null): string | nu
   if (event.active !== false || !event.endTime || event.draft !== false) return 'not_completed'
   if (event.locked || event.enforceMembership) return 'restricted_event'
   if (event.topic?.private !== false || event.topic?.isDeleted !== false) return 'nonpublic_topic'
-  if (!event.summary?.trim()) return 'no_summary'
+  if (!event.postEventAnalysis?.summary?.trim()) return 'no_summary'
   return null
 }
 
@@ -32,7 +32,7 @@ export function archiveEventPayload(event: ArchiveEvent) {
     source_id: event._id.toString(),
     title: event.name?.trim() || 'Untitled event',
     date: new Date(event.startTime || event.endTime!).toISOString().slice(0, 10),
-    markdown: event.summary!.trim(),
+    markdown: event.postEventAnalysis!.summary!.trim(),
     participants: (event.presenters || []).map((p) => p.name?.trim()).filter((name): name is string => !!name)
   }
 }

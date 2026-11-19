@@ -130,11 +130,11 @@ describe('post-stop summary', () => {
     expect(promptText()).toContain(CONTROL)
     expect(promptText()).not.toContain(CANARY)
     const stored = await Conversation.findById(conversationOne._id)
-    expect(stored!.summary).not.toContain(CANARY)
-    expectProvenanceOf(stored!.summaryProvenance)
-    expect(stored!.summaryProvenance!.generator).toBe('conversationSummary')
+    expect(stored!.postEventAnalysis?.summary).not.toContain(CANARY)
+    expectProvenanceOf(stored!.postEventAnalysis?.summaryProvenance)
+    expect(stored!.postEventAnalysis?.summaryProvenance!.generator).toBe('conversationSummary')
     // private, like the hidden flag: never serialized to a client
-    expect(stored!.toJSON()).not.toHaveProperty('summaryProvenance')
+    expect(stored!.toJSON().postEventAnalysis).not.toHaveProperty('summaryProvenance')
   })
 })
 

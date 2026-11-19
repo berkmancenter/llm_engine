@@ -22,10 +22,12 @@ export default async function backfillArchiveEvents(args: string[]) {
       active: false,
       draft: false,
       endTime: { $ne: null },
-      summary: { $exists: true, $ne: '' },
+      'postEventAnalysis.summary': { $exists: true, $ne: '' },
       conversationType: { $in: ['eventAssistant', 'backChannel'] }
     })
-      .select('name conversationType active draft locked enforceMembership startTime endTime summary presenters topic')
+      .select(
+        'name conversationType active draft locked enforceMembership startTime endTime postEventAnalysis.summary presenters topic'
+      )
       .populate({ path: 'topic', select: 'private isDeleted' })
       .sort({ endTime: -1, _id: 1 })
       .limit(limit)

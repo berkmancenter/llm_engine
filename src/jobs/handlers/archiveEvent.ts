@@ -33,7 +33,9 @@ export async function archiveEvent(job: Job<ArchiveEventJobData>) {
       return
     }
     const event = (await Conversation.findById(id)
-      .select('name conversationType active draft locked enforceMembership startTime endTime summary presenters topic')
+      .select(
+        'name conversationType active draft locked enforceMembership startTime endTime postEventAnalysis.summary presenters topic'
+      )
       .populate({ path: 'topic', select: 'private isDeleted' })
       .lean()) as ArchiveEvent | null
     const reason = archiveEventEligibility(event)

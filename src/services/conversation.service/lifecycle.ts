@@ -274,12 +274,14 @@ export async function doStopConversation(conversation) {
 
           logger.info(`Conversation summary generated for conversation ${doc._id}`)
 
-          doc.summary = structuredSummary
-          doc.summaryProvenance = await buildProvenance(
-            'conversationSummary',
-            [doc._id],
-            [...transcriptMessages, ...chatHistory.messages]
-          )
+          doc.postEventAnalysis = {
+            summary: structuredSummary,
+            summaryProvenance: await buildProvenance(
+              'conversationSummary',
+              [doc._id],
+              [...transcriptMessages, ...chatHistory.messages]
+            )
+          }
         }
       } else logger.warn(`No conversation document found for conversation ${doc._id}`)
     } else logger.warn(`No owner found for conversation ${doc._id}`)
@@ -288,7 +290,7 @@ export async function doStopConversation(conversation) {
 
   // Queue only after the summary is persisted. The worker rechecks public/event
   // eligibility; export is independent of chat assistants and notification settings.
-  if (config.bkcArchive.exportEnabled && doc.summary) {
+  if (config.bkcArchive.exportEnabled && doc.postEventAnalysis?.summary) {
     try {
       await schedule.archiveEvent(doc._id.toString())
       logger.info(`Archive export queued event=${doc._id}`)
