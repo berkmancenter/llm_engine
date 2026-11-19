@@ -404,9 +404,14 @@ export default verify({
     // Grace buffer accounts for LLM execution time between the rate-limit check and message creation.
     // When minInterval equals the timer period, dissolve the check entirely (grace = minInterval)
     // so every cycle is eligible. When minInterval exceeds the timer period, use a small fixed
-    // buffer for LLM latency only — preserving the intent of the longer minimum.
-    const timerPeriodMs = (this.triggers?.periodic?.timerPeriod ?? 120) * 1000
-    const RATE_LIMIT_GRACE_MS = minInterval <= timerPeriodMs ? minInterval : 30 * 1000
+    // buffer for LLM latency only — preserving the intent of the longer minimum. Only a real
+    // triggers.periodic gives a tick cadence to compare against — a cron trigger's expression has
+    // no fixed period at all (and may not even have a regular one, e.g. "0 9,17 * * *"), so
+    // guessing one here would either wrongly dissolve the check or wrongly shorten it. Falling
+    // back to the small fixed grace (the same path used when minInterval is the longer one) keeps
+    // the rate limit real regardless of the cron cadence an operator configures.
+    const timerPeriodMs = this.triggers?.periodic?.timerPeriod ? this.triggers.periodic.timerPeriod * 1000 : undefined
+    const RATE_LIMIT_GRACE_MS = timerPeriodMs !== undefined && minInterval <= timerPeriodMs ? minInterval : 30 * 1000
     if (now - baseline < minInterval - RATE_LIMIT_GRACE_MS) {
       logger.debug(
         `${this.name}: Rate limited — last intervention ${Math.round((now - baseline) / 1000)}s ago (min ${
