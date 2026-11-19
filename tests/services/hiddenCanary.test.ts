@@ -84,7 +84,9 @@ const ids = (list: any[] = []) => list.map((id) => id.toString())
  */
 beforeEach(async () => {
   mockGetChatPromptResponse.mockReset()
-  mockGetChatPromptResponse.mockResolvedValue('A summary')
+  // doStopConversation's open-threads extraction (lifecycle.ts) shares this mock and always
+  // passes a structuredOutputSchema (6th arg), unlike the plain-string summary call.
+  mockGetChatPromptResponse.mockImplementation(async (...args: any[]) => (args[5] ? { openThreads: [] } : 'A summary'))
   s = await seedHideScenario()
   await Message.updateOne({ _id: s.authorMsg._id }, { body: `${CANARY_AUTHOR} said something` })
   await Message.updateOne({ _id: s.reply._id }, { body: `${CANARY_REPLY} under the hidden author` })
