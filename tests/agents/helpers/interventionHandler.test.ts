@@ -9,7 +9,9 @@ const mockGetChatPromptResponse = jest.fn<(...args: any[]) => Promise<any>>()
 const mockGetTranscript = jest.fn<(...args: any[]) => string>().mockReturnValue('transcript text')
 
 jest.unstable_mockModule('../src/agents/helpers/llmChain.js', () => ({
-  getChatPromptResponse: mockGetChatPromptResponse
+  getChatPromptResponse: mockGetChatPromptResponse,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getAgentStructuredResponse: jest.fn<(...args: any[]) => Promise<any>>()
 }))
 
 jest.unstable_mockModule('../src/agents/helpers/transcript.js', () => ({
@@ -22,6 +24,15 @@ jest.unstable_mockModule('../src/agents/helpers/transcript.js', () => ({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     deleteTranscript: jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue(undefined)
   }
+}))
+
+// None of these tests use a goal that declares tools, so this is never actually called —
+// mocked only so importing interventionHandler.js doesn't pull in the real registry.
+jest.unstable_mockModule('../src/agents/tools/registry.js', () => ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getTools: jest.fn<(...args: any[]) => Promise<any[]>>().mockResolvedValue([]),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  buildToolsGuidance: jest.fn<(...args: any[]) => Promise<string>>().mockResolvedValue('')
 }))
 
 const {
@@ -293,7 +304,11 @@ describe('interventionHandler', () => {
     it('normalizes to a declined analysis when socialSensitivity is high and confidence is below 75', async () => {
       mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 70 }))
       const behaviorPolicy = {
-        channels: { groupChat: { proactivePolicy: { initiativeLevel: 'moderatelyProactive' as const, socialSensitivity: 'high' as const } } }
+        channels: {
+          groupChat: {
+            proactivePolicy: { initiativeLevel: 'moderatelyProactive' as const, socialSensitivity: 'high' as const }
+          }
+        }
       }
 
       const result = await runInterventionAnalysis.call(
@@ -315,7 +330,11 @@ describe('interventionHandler', () => {
     it('returns analysis when socialSensitivity is high and confidence meets the 75 threshold', async () => {
       mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 75 }))
       const behaviorPolicy = {
-        channels: { groupChat: { proactivePolicy: { initiativeLevel: 'moderatelyProactive' as const, socialSensitivity: 'high' as const } } }
+        channels: {
+          groupChat: {
+            proactivePolicy: { initiativeLevel: 'moderatelyProactive' as const, socialSensitivity: 'high' as const }
+          }
+        }
       }
 
       const result = await runInterventionAnalysis.call(
@@ -358,7 +377,11 @@ describe('interventionHandler', () => {
       // confidence 70 is below 75 → declined
       mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 70 }))
       const behaviorPolicy = {
-        channels: { groupChat: { proactivePolicy: { initiativeLevel: 'moderatelyProactive' as const, socialSensitivity: 'high' as const } } }
+        channels: {
+          groupChat: {
+            proactivePolicy: { initiativeLevel: 'moderatelyProactive' as const, socialSensitivity: 'high' as const }
+          }
+        }
       }
       const activeGoals = [{ id: 'synthesize_discussion', triggers: { minConfidence: 65 } }] as ConversationGoal[]
 

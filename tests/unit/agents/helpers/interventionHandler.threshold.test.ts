@@ -25,6 +25,13 @@ jest.unstable_mockModule('../src/agents/helpers/transcript.js', () => ({
   }
 }))
 
+// None of these tests use a goal that declares tools, so this is never actually called —
+// mocked only so importing interventionHandler.js doesn't pull in the real registry.
+jest.unstable_mockModule('../src/agents/tools/registry.js', () => ({
+  getTools: mockFn().mockResolvedValue([]),
+  buildToolsGuidance: mockFn().mockResolvedValue('')
+}))
+
 const { runInterventionAnalysis } = await import('../../../../src/agents/helpers/interventionHandler.js')
 
 function makeContext() {

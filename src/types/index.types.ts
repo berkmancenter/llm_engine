@@ -704,6 +704,11 @@ export interface ConversationGoal {
     pollInstructions?: string
   }
   examples: string[]
+  /* Named tools (see src/agents/tools/registry.ts) this goal needs available to make its own
+     decision — resolved generically by runInterventionAnalysis, not special-cased per goal. A
+     goal chosen without the agent loop actually invoking one of these is treated as ungrounded
+     and discarded, the same as any other decline. */
+  tools?: string[]
 }
 
 export interface ConversationContext {

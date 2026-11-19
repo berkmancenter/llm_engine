@@ -79,6 +79,7 @@ function makeAgent(
     safetyPosture?: 'standard' | 'strict'
     startTime?: Date
     channels?: Array<{ name: string; direct?: boolean }>
+    goals?: string[]
   } = {}
 ) {
   const startTime = overrides.startTime ?? new Date(Date.now() - 20 * 60 * 1000) // 20 min ago
@@ -94,7 +95,7 @@ function makeAgent(
     conversation: {
       name: 'Test Conversation',
       startTime,
-      goals: ['synthesize_discussion'],
+      goals: overrides.goals ?? ['synthesize_discussion'],
       behaviorPolicy: {
         globalPolicy: {
           tone: 'warmSupportive' as const,
