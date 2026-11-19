@@ -443,9 +443,12 @@ export default verify({
       }
     }
 
-    const eligibleGoals = backgroundReading ? groupChatGoals : groupChatGoals.filter((g) => g.id !== SOCRATIC_GOAL_ID)
+    const eligibleGoals = groupChatGoals.filter((g) => {
+      if (g.id === SOCRATIC_GOAL_ID) return !!backgroundReading
+      return true
+    })
     if (eligibleGoals.length === 0) {
-      logger.debug(`${this.name}: only ${SOCRATIC_GOAL_ID} is active and no reading passages were retrieved — skipping`)
+      logger.debug(`${this.name}: no eligible goal has what it needs to fire this tick — skipping`)
       return []
     }
 
