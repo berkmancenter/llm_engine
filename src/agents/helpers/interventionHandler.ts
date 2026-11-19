@@ -226,10 +226,14 @@ export async function runInterventionAnalysis(
   // stays empty and the plain, non-tool-calling call below runs exactly as it always has.
   const neededToolNames = [...new Set((activeGoals ?? []).flatMap((g) => g.tools ?? []))]
   const toolContext = { topicIds: this.agentConfig?.topicIds, activeConversationId: this.conversation?._id?.toString() }
-  const tools = neededToolNames.length > 0 ? await getTools(neededToolNames, toolContext) : []
+  const { tools, resolvedNames } =
+    neededToolNames.length > 0 ? await getTools(neededToolNames, toolContext) : { tools: [], resolvedNames: [] }
   let resolvedSystemPrompt = baseSystemPrompt
   if (tools.length > 0) {
-    const toolsGuidance = await buildToolsGuidance(neededToolNames, toolContext)
+    // Guidance is built from resolvedNames, not neededToolNames: a name that didn't actually
+    // resolve to a tool (e.g. event_history with no topics available) shouldn't advertise
+    // usage instructions for a tool the model doesn't have.
+    const toolsGuidance = await buildToolsGuidance(resolvedNames, toolContext)
     if (toolsGuidance) resolvedSystemPrompt = `${baseSystemPrompt}\n\n${toolsGuidance}`
   }
 
