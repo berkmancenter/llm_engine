@@ -112,4 +112,16 @@ describe('runInterventionAnalysis backgroundReading', () => {
       `## Background Reading:\n{backgroundReading}\n\n## Additional Context:\n{additionalContext}\n\n${USER_TEMPLATE}`
     )
   })
+
+  // A string replacement (rather than a replacer function) would have treated "$&" inside this
+  // value as "re-insert the matched {additionalContext} placeholder" instead of literal text,
+  // corrupting the actual rendered prompt — not just a display/trace field.
+  it('renders a template var containing regex replacement syntax ($&) literally, not as a pattern', async () => {
+    const dollarAmpersand = 'the going rate is $& per attendee'
+    const result = await run(undefined, { additionalContext: dollarAmpersand })
+
+    const [, , , vars] = mockGetChatPromptResponse.mock.calls[0]
+    expect(vars.additionalContext).toBe(dollarAmpersand)
+    expect(result?.context).toContain(dollarAmpersand)
+  })
 })
