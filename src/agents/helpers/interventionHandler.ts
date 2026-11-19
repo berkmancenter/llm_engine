@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { BehaviorPolicy, ConversationHistory, ConversationGoal, IChannel } from '../../types/index.types.js'
 import { formatMultiUserConversationHistory, formatDmHistoryByChannel } from './llmInputFormatters.js'
 import transcript from './transcript.js'
-import { getChatPromptResponse, getAgentStructuredResponse } from './llmChain.js'
+import { getChatPromptResponse, getAgentStructuredResponse, AgentToolCallTrace } from './llmChain.js'
 import { getTools, buildToolsGuidance } from '../tools/registry.js'
 
 import logger from '../../config/logger.js'
@@ -247,7 +247,7 @@ export async function runInterventionAnalysis(
           [], // No chat history - we provide full context in the prompt
           schema
         )
-  ) as z.infer<typeof schema> & { toolTrace?: { invoked: boolean } }
+  ) as z.infer<typeof schema> & { toolTrace?: AgentToolCallTrace }
 
   logger.debug(`Intervention opportunity analysis: ${JSON.stringify(analysis, null, 2)}`)
 
@@ -272,11 +272,18 @@ export async function runInterventionAnalysis(
   const effectiveThreshold = Math.max(policyThreshold, patternFloor)
 
   // A goal that declares tool dependencies can never be trusted ungrounded: if it was chosen but
-  // the agent loop never actually invoked a tool this tick (no topicIds configured, a resolved
-  // tool returned nothing, or the model just didn't bother), treat it the same as a decline —
-  // generic across every tool-dependent goal, so no goal-specific "did I actually retrieve
-  // something" check needs to live in the calling agent.
-  const ungroundedToolGoal = Boolean(matchedGoal?.tools?.length) && !analysis.toolTrace?.invoked
+  // the agent loop never actually invoked one of ITS OWN declared tools this tick (no topicIds
+  // configured, a resolved tool returned nothing, the model called a different active goal's
+  // tool instead, or it just didn't bother), treat it the same as a decline — generic across
+  // every tool-dependent goal, so no goal-specific "did I actually retrieve something" check
+  // needs to live in the calling agent. Checked against toolTrace.calls (which tool(s) were
+  // actually invoked), not just .invoked (whether any tool was invoked by anyone this tick) —
+  // two active goals can each declare a different tool, and the model choosing goal A is only
+  // grounded if A's own tool ran, not merely because goal B's did.
+  const invokedToolNames = new Set((analysis.toolTrace?.calls ?? []).map((call) => call.name))
+  const ungroundedToolGoal = Boolean(
+    matchedGoal?.tools?.length && !matchedGoal.tools.some((toolName) => invokedToolNames.has(toolName))
+  )
 
   logger.debug(
     `[interventionHandler] goalId=${analysis.goalId} confidence=${analysis.confidenceScore} threshold=${effectiveThreshold} (policy=${policyThreshold}, patternFloor=${patternFloor})`
