@@ -3,7 +3,14 @@ import { jest } from '@jest/globals'
 /* runInterventionAnalysis resolves ConversationGoal.tools generically via the shared tool
    registry (src/agents/tools/registry.ts) instead of each tool-needing goal special-casing its
    own retrieval in the calling agent. A tick where no active goal declares tools must stay on
-   the plain, non-tool-calling path, byte-identical to before this mechanism existed. */
+   the plain, non-tool-calling path, byte-identical to before this mechanism existed.
+
+   Tools are resolved per goal (one registry key at a time, cached), not as one batched union
+   call — so each resolved tool's real LangChain name can be attributed back to the goal whose
+   own registry key produced it. That's what lets the generic "was this goal's own retrieval
+   actually grounded" check tell apart "goal A's own tool ran" from "some other eligible goal's
+   tool happened to run instead". Mocks below are keyed by the single registry name each
+   resolveKey() call passes, to actually exercise that per-key resolution. */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockGetChatPromptResponse = jest.fn<(...args: any[]) => Promise<any>>()
@@ -59,6 +66,24 @@ function makeGoal(id: string, tools?: string[]) {
   }
 }
 
+type FakeResolved = { tools: Array<{ name: string }>; resolvedNames: string[] }
+
+// The real registry names used by resurface_past_discussion, mapped to the real LangChain tool
+// name(s) each one resolves to — a different namespace, which is the whole point being tested.
+const FAKE_REGISTRY: Record<string, FakeResolved> = {
+  event_history: { tools: [{ name: 'search_topic_transcripts' }], resolvedNames: ['event_history'] },
+  open_threads: { tools: [{ name: 'list_open_threads' }], resolvedNames: ['open_threads'] },
+  resource_search: { tools: [{ name: 'search_resources' }], resolvedNames: ['resource_search'] }
+}
+const EMPTY_RESOLVED: FakeResolved = { tools: [], resolvedNames: [] }
+
+// getTools is now called once per registry key (see resolveKey in interventionHandler.ts), so
+// the mock must branch on which single key it was asked for, not return one blanket value.
+function useFakeRegistry(overrides: Record<string, FakeResolved> = {}) {
+  const registry = { ...FAKE_REGISTRY, ...overrides }
+  mockGetTools.mockImplementation(async (names: string[]) => registry[names[0]] ?? EMPTY_RESOLVED)
+}
+
 const history = { start: new Date(), end: new Date(), messages: [] }
 const DECISION = { shouldIntervene: true, goalId: 'x', reasoning: 'r', confidenceScore: 100 }
 
@@ -96,40 +121,40 @@ describe('runInterventionAnalysis tool resolution', () => {
     expect(mockGetChatPromptResponse).toHaveBeenCalled()
   })
 
-  it('resolves the declared tools and switches to the tool-enabled call when a goal needs them', async () => {
-    mockGetTools.mockResolvedValue({ tools: [{ name: 'list_open_threads' }], resolvedNames: ['open_threads'] })
+  it('resolves each declared registry key individually and switches to the tool-enabled call', async () => {
+    useFakeRegistry()
     const context = makeContext({ agentConfig: { topicIds: ['t1'] }, conversationId: 'conv-1' })
 
     await run([makeGoal('resurface_past_discussion', ['event_history', 'open_threads'])], context)
 
-    expect(mockGetTools).toHaveBeenCalledWith(
-      expect.arrayContaining(['event_history', 'open_threads']),
-      expect.objectContaining({ topicIds: ['t1'], activeConversationId: 'conv-1' })
-    )
+    expect(mockGetTools).toHaveBeenCalledWith(['event_history'], expect.objectContaining({ topicIds: ['t1'] }))
+    expect(mockGetTools).toHaveBeenCalledWith(['open_threads'], expect.objectContaining({ topicIds: ['t1'] }))
     expect(mockGetChatPromptResponse).not.toHaveBeenCalled()
-    expect(mockGetAgentStructuredResponse).toHaveBeenCalledWith(
-      expect.anything(),
-      [{ name: 'list_open_threads' }],
-      expect.any(String),
-      expect.any(String),
-      expect.anything(),
-      undefined,
-      20,
-      { returnToolTrace: true }
-    )
+    const [, boundTools] = mockGetAgentStructuredResponse.mock.calls[0]
+    expect(boundTools.map((t) => t.name).sort()).toEqual(['list_open_threads', 'search_topic_transcripts'])
   })
 
-  it('dedupes tool names declared by more than one active goal', async () => {
-    mockGetTools.mockResolvedValue({ tools: [{ name: 'event_history' }], resolvedNames: ['event_history'] })
+  it("caches a registry key shared by two goals instead of re-resolving it for the second goal's own request", async () => {
+    useFakeRegistry()
 
     await run([makeGoal('a', ['event_history']), makeGoal('b', ['event_history', 'resource_search'])])
 
-    const [names] = mockGetTools.mock.calls[0]
-    expect(names.sort()).toEqual(['event_history', 'resource_search'])
+    expect(mockGetTools).toHaveBeenCalledTimes(2)
+    expect(mockGetTools).toHaveBeenCalledWith(['event_history'], expect.anything())
+    expect(mockGetTools).toHaveBeenCalledWith(['resource_search'], expect.anything())
+  })
+
+  it('binds the deduped union of every resolved tool, even when two goals share one', async () => {
+    useFakeRegistry()
+
+    await run([makeGoal('a', ['event_history']), makeGoal('b', ['event_history', 'resource_search'])])
+
+    const [, boundTools] = mockGetAgentStructuredResponse.mock.calls[0]
+    expect(boundTools.map((t) => t.name).sort()).toEqual(['search_resources', 'search_topic_transcripts'])
   })
 
   it('appends tool guidance to the system prompt when tools resolve to something', async () => {
-    mockGetTools.mockResolvedValue({ tools: [{ name: 'event_history' }], resolvedNames: ['event_history'] })
+    useFakeRegistry()
     mockBuildToolsGuidance.mockResolvedValue('Guidance about event_history.')
 
     await run([makeGoal('resurface_past_discussion', ['event_history'])])
@@ -139,7 +164,7 @@ describe('runInterventionAnalysis tool resolution', () => {
   })
 
   it('builds guidance only from names that actually resolved, not every name requested', async () => {
-    mockGetTools.mockResolvedValue({ tools: [{ name: 'event_history' }], resolvedNames: ['event_history'] })
+    useFakeRegistry({ resource_search: EMPTY_RESOLVED })
 
     await run([makeGoal('goal_a', ['event_history']), makeGoal('goal_b', ['resource_search'])])
 
@@ -147,7 +172,7 @@ describe('runInterventionAnalysis tool resolution', () => {
   })
 
   it('leaves the system prompt unchanged when a declared tool resolves to nothing (e.g. no topicIds)', async () => {
-    mockGetTools.mockResolvedValue({ tools: [], resolvedNames: [] })
+    useFakeRegistry({ event_history: EMPTY_RESOLVED })
 
     await run([makeGoal('resurface_past_discussion', ['event_history'])])
 
@@ -156,12 +181,12 @@ describe('runInterventionAnalysis tool resolution', () => {
     expect(systemPrompt).toBe('SYSTEM')
   })
 
-  it('passes through a tool-dependent goal chosen with an actual tool call', async () => {
-    mockGetTools.mockResolvedValue({ tools: [{ name: 'event_history' }], resolvedNames: ['event_history'] })
+  it('passes through a tool-dependent goal chosen with its own declared tool actually invoked', async () => {
+    useFakeRegistry()
     mockGetAgentStructuredResponse.mockResolvedValue({
       ...DECISION,
       goalId: 'resurface_past_discussion',
-      toolTrace: { invoked: true, calls: [{ name: 'event_history', args: {} }] }
+      toolTrace: { invoked: true, calls: [{ name: 'search_topic_transcripts', args: {} }] }
     })
 
     const result = await run([makeGoal('resurface_past_discussion', ['event_history'])])
@@ -171,7 +196,7 @@ describe('runInterventionAnalysis tool resolution', () => {
   })
 
   it('discards a tool-dependent goal chosen without any tool actually being invoked', async () => {
-    mockGetTools.mockResolvedValue({ tools: [{ name: 'event_history' }], resolvedNames: ['event_history'] })
+    useFakeRegistry()
     mockGetAgentStructuredResponse.mockResolvedValue({
       ...DECISION,
       goalId: 'resurface_past_discussion',
@@ -187,16 +212,18 @@ describe('runInterventionAnalysis tool resolution', () => {
     expect(result.declineReason).toBe('tool_goal_ungrounded')
   })
 
+  // The precise case this mechanism exists for: two eligible goals each declare a DIFFERENT
+  // tool. The model calls goal B's tool but ends up choosing goal A — goal A's own retrieval
+  // never actually happened, so it must be discarded even though *a* tool call occurred this
+  // tick. Checking "was any tool invoked" (rather than "was THIS goal's own tool invoked") would
+  // wrongly let this through.
   it("discards goal A when only goal B's declared tool was actually invoked this tick", async () => {
-    mockGetTools.mockResolvedValue({
-      tools: [{ name: 'event_history' }, { name: 'resource_search' }],
-      resolvedNames: ['event_history', 'resource_search']
-    })
+    useFakeRegistry()
     mockGetAgentStructuredResponse.mockResolvedValue({
       ...DECISION,
       goalId: 'goal_a',
       sharedChatMessage: 'Should never be sent.',
-      toolTrace: { invoked: true, calls: [{ name: 'resource_search', args: {} }] }
+      toolTrace: { invoked: true, calls: [{ name: 'search_resources', args: {} }] }
     })
 
     const result = await run([makeGoal('goal_a', ['event_history']), makeGoal('goal_b', ['resource_search'])])
@@ -207,15 +234,12 @@ describe('runInterventionAnalysis tool resolution', () => {
     expect(result.declineReason).toBe('tool_goal_ungrounded')
   })
 
-  it("passes through goal A when its own declared tool was invoked, even with goal B's tool also resolved", async () => {
-    mockGetTools.mockResolvedValue({
-      tools: [{ name: 'event_history' }, { name: 'resource_search' }],
-      resolvedNames: ['event_history', 'resource_search']
-    })
+  it("passes through goal A when its own declared tool was invoked, even with goal B's tool also bound", async () => {
+    useFakeRegistry()
     mockGetAgentStructuredResponse.mockResolvedValue({
       ...DECISION,
       goalId: 'goal_a',
-      toolTrace: { invoked: true, calls: [{ name: 'event_history', args: {} }] }
+      toolTrace: { invoked: true, calls: [{ name: 'search_topic_transcripts', args: {} }] }
     })
 
     const result = await run([makeGoal('goal_a', ['event_history']), makeGoal('goal_b', ['resource_search'])])
@@ -225,7 +249,7 @@ describe('runInterventionAnalysis tool resolution', () => {
   })
 
   it('discards a tool-dependent goal chosen when no tools resolved at all (falls back to the plain call)', async () => {
-    mockGetTools.mockResolvedValue({ tools: [], resolvedNames: [] })
+    useFakeRegistry({ event_history: EMPTY_RESOLVED })
     mockGetChatPromptResponse.mockResolvedValue({
       ...DECISION,
       goalId: 'resurface_past_discussion',

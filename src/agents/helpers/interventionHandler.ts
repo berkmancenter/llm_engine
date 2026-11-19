@@ -1,9 +1,10 @@
 import { z } from 'zod'
+import type { StructuredToolInterface } from '@langchain/core/tools'
 import { BehaviorPolicy, ConversationHistory, ConversationGoal, IChannel } from '../../types/index.types.js'
 import { formatMultiUserConversationHistory, formatDmHistoryByChannel } from './llmInputFormatters.js'
 import transcript from './transcript.js'
 import { getChatPromptResponse, getAgentStructuredResponse, AgentToolCallTrace } from './llmChain.js'
-import { getTools, buildToolsGuidance } from '../tools/registry.js'
+import { getTools, buildToolsGuidance, type ResolvedTools } from '../tools/registry.js'
 
 import logger from '../../config/logger.js'
 import { getConfidenceThreshold, getEffectiveMinConfidence, getMinContributionMs } from './promptComposer.js'
@@ -224,16 +225,44 @@ export async function runInterventionAnalysis(
   // eventAssistant already use — so goal-specific retrieval code never has to live in the
   // calling agent. Ticks where no active goal declares tools are completely unaffected: tools
   // stays empty and the plain, non-tool-calling call below runs exactly as it always has.
-  const neededToolNames = [...new Set((activeGoals ?? []).flatMap((g) => g.tools ?? []))]
+  //
+  // Each distinct registry key is resolved once (deduped up front, so two goals sharing a key
+  // never double-resolves it), then everything else — the bound tool list, the guidance names,
+  // and which actual tool names belong to which goal — is just read back off that. The last part
+  // is what lets "was this goal's own retrieval grounded" be checked precisely below, instead of
+  // "did anyone call any tool this tick" (which would let a different eligible goal's unrelated
+  // tool call ground a goal that never actually looked anything up itself).
   const toolContext = { topicIds: this.agentConfig?.topicIds, activeConversationId: this.conversation?._id?.toString() }
-  const { tools, resolvedNames } =
-    neededToolNames.length > 0 ? await getTools(neededToolNames, toolContext) : { tools: [], resolvedNames: [] }
+  const neededKeys = [...new Set((activeGoals ?? []).flatMap((g) => g.tools ?? []))]
+  const resolvedByKey = new Map(
+    await Promise.all(
+      neededKeys.map(async (key): Promise<[string, ResolvedTools]> => [key, await getTools([key], toolContext)])
+    )
+  )
+
+  const toolsByName = new Map<string, StructuredToolInterface>()
+  const resolvedKeyNames = new Set<string>()
+  for (const { tools: keyTools, resolvedNames } of resolvedByKey.values()) {
+    keyTools.forEach((tool) => toolsByName.set(tool.name, tool))
+    resolvedNames.forEach((name) => resolvedKeyNames.add(name))
+  }
+  const tools = [...toolsByName.values()]
+
+  const toolNamesByGoalId = new Map(
+    (activeGoals ?? [])
+      .filter((goal) => goal.tools?.length)
+      .map((goal) => {
+        const ownToolNames = goal.tools!.flatMap((key) => resolvedByKey.get(key)?.tools.map((t) => t.name) ?? [])
+        return [goal.id, new Set(ownToolNames)] as const
+      })
+  )
+
   let resolvedSystemPrompt = baseSystemPrompt
   if (tools.length > 0) {
-    // Guidance is built from resolvedNames, not neededToolNames: a name that didn't actually
-    // resolve to a tool (e.g. event_history with no topics available) shouldn't advertise
-    // usage instructions for a tool the model doesn't have.
-    const toolsGuidance = await buildToolsGuidance(resolvedNames, toolContext)
+    // Guidance is built from resolvedKeyNames, not every goal's declared keys: a name that
+    // didn't actually resolve to a tool (e.g. event_history with no topics available) shouldn't
+    // advertise usage instructions for a tool the model doesn't have.
+    const toolsGuidance = await buildToolsGuidance([...resolvedKeyNames], toolContext)
     if (toolsGuidance) resolvedSystemPrompt = `${baseSystemPrompt}\n\n${toolsGuidance}`
   }
 
@@ -277,17 +306,17 @@ export async function runInterventionAnalysis(
 
   // A goal that declares tool dependencies can never be trusted ungrounded: if it was chosen but
   // the agent loop never actually invoked one of ITS OWN declared tools this tick (no topicIds
-  // configured, a resolved tool returned nothing, the model called a different active goal's
+  // configured, a resolved tool returned nothing, the model called a different eligible goal's
   // tool instead, or it just didn't bother), treat it the same as a decline — generic across
   // every tool-dependent goal, so no goal-specific "did I actually retrieve something" check
-  // needs to live in the calling agent. Checked against toolTrace.calls (which tool(s) were
-  // actually invoked), not just .invoked (whether any tool was invoked by anyone this tick) —
-  // two active goals can each declare a different tool, and the model choosing goal A is only
-  // grounded if A's own tool ran, not merely because goal B's did.
+  // needs to live in the calling agent. Checked against the goal's own resolved tool names
+  // (toolNamesByGoalId, built above from its own registry keys), not just "was any tool invoked
+  // by anyone this tick" — two eligible goals can each declare a different tool, and the model
+  // choosing goal A is only actually grounded if A's own tool ran, not merely because goal B's did.
   const invokedToolNames = new Set((analysis.toolTrace?.calls ?? []).map((call) => call.name))
-  const ungroundedToolGoal = Boolean(
-    matchedGoal?.tools?.length && !matchedGoal.tools.some((toolName) => invokedToolNames.has(toolName))
-  )
+  const matchedGoalOwnToolNames = matchedGoal ? toolNamesByGoalId.get(matchedGoal.id) : undefined
+  const ungroundedToolGoal =
+    Boolean(matchedGoal?.tools?.length) && ![...(matchedGoalOwnToolNames ?? [])].some((name) => invokedToolNames.has(name))
 
   logger.debug(
     `[interventionHandler] goalId=${analysis.goalId} confidence=${analysis.confidenceScore} threshold=${effectiveThreshold} (policy=${policyThreshold}, patternFloor=${patternFloor})`
