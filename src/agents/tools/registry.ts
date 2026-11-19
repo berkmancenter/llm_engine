@@ -59,6 +59,16 @@ export async function buildToolsGuidance(names: string[], context?: ToolContext)
   return sections.length > 0 ? `${sections.join('\n\n')}\n\n` : ''
 }
 
+export interface ResolvedTools {
+  tools: StructuredToolInterface[]
+  /* Which of the requested names actually produced a tool, as distinct from the final (deduped)
+     tool list: the same underlying tool can come from more than one aliased name, and a
+     different requested name can resolve to nothing at all (e.g. event_history with no topics
+     available). Lets a caller show guidance only for a tool it actually has, rather than for
+     every name it merely asked for. */
+  resolvedNames: string[]
+}
+
 /**
  * Resolve an array of tool names into LangChain tool instances.
  * Unknown names are logged as warnings and skipped.
@@ -69,8 +79,9 @@ export async function buildToolsGuidance(names: string[], context?: ToolContext)
  * cache-eligible prefix is `tools` + `system` combined, so a duplicated schema isn't
  * just wasted tokens on every call, it's wasted tokens on every CACHED call too.
  */
-export async function getTools(names: string[], context?: ToolContext): Promise<StructuredToolInterface[]> {
+export async function getTools(names: string[], context?: ToolContext): Promise<ResolvedTools> {
   const tools: StructuredToolInterface[] = []
+  const resolvedNames: string[] = []
   const seenNames = new Set<string>()
   for (const name of names) {
     const factory = factories.get(name)
@@ -80,13 +91,16 @@ export async function getTools(names: string[], context?: ToolContext): Promise<
     }
     const result = await Promise.resolve(factory(context))
     const resolved = Array.isArray(result) ? result : [result]
+    let addedAny = false
     for (const tool of resolved) {
       if (seenNames.has(tool.name)) continue
       seenNames.add(tool.name)
       tools.push(tool)
+      addedAny = true
     }
+    if (addedAny) resolvedNames.push(name)
   }
-  return tools
+  return { tools, resolvedNames }
 }
 
 /**

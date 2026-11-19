@@ -459,7 +459,8 @@ export async function answerQuestion(userMessage, conversationHistory, options?)
   }
 
   const toolNames = series ? [...configuredToolNames, 'event_history'] : configuredToolNames
-  const tools = toolNames.length > 0 ? await getTools(toolNames, toolContext) : []
+  const resolved = toolNames.length > 0 ? await getTools(toolNames, toolContext) : undefined
+  const tools = resolved?.tools ?? []
   const hasWebSearch = toolNames.includes('web_search')
 
   const channelType = isGroupChatMessage(userMessage?.channels) ? 'groupChat' : 'dm'

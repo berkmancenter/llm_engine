@@ -237,7 +237,7 @@ describe('eventHistory tools', () => {
     it('honors activeConversationId end-to-end when built through the tool registry', async () => {
       // Verifies the registry forwards activeConversationId into createEventHistoryTools, not just
       // that the factory returns tools — exercises the same path the eventAssistant uses at runtime.
-      const registryTools = await getTools(['event_history'], {
+      const { tools: registryTools } = await getTools(['event_history'], {
         topics: [{ id: topic._id.toString(), name: topic.name }],
         activeConversationId: conv2._id.toString()
       })

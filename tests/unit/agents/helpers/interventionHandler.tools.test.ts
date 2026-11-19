@@ -10,7 +10,7 @@ const mockGetChatPromptResponse = jest.fn<(...args: any[]) => Promise<any>>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockGetAgentStructuredResponse = jest.fn<(...args: any[]) => Promise<any>>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockGetTools = jest.fn<(...args: any[]) => Promise<any[]>>()
+const mockGetTools = jest.fn<(...args: any[]) => Promise<any>>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockBuildToolsGuidance = jest.fn<(...args: any[]) => Promise<string>>()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -97,7 +97,7 @@ describe('runInterventionAnalysis tool resolution', () => {
   })
 
   it('resolves the declared tools and switches to the tool-enabled call when a goal needs them', async () => {
-    mockGetTools.mockResolvedValue([{ name: 'list_open_threads' }])
+    mockGetTools.mockResolvedValue({ tools: [{ name: 'list_open_threads' }], resolvedNames: ['open_threads'] })
     const context = makeContext({ agentConfig: { topicIds: ['t1'] }, conversationId: 'conv-1' })
 
     await run([makeGoal('resurface_past_discussion', ['event_history', 'open_threads'])], context)
@@ -120,7 +120,7 @@ describe('runInterventionAnalysis tool resolution', () => {
   })
 
   it('dedupes tool names declared by more than one active goal', async () => {
-    mockGetTools.mockResolvedValue([{ name: 'event_history' }])
+    mockGetTools.mockResolvedValue({ tools: [{ name: 'event_history' }], resolvedNames: ['event_history'] })
 
     await run([makeGoal('a', ['event_history']), makeGoal('b', ['event_history', 'resource_search'])])
 
@@ -129,7 +129,7 @@ describe('runInterventionAnalysis tool resolution', () => {
   })
 
   it('appends tool guidance to the system prompt when tools resolve to something', async () => {
-    mockGetTools.mockResolvedValue([{ name: 'event_history' }])
+    mockGetTools.mockResolvedValue({ tools: [{ name: 'event_history' }], resolvedNames: ['event_history'] })
     mockBuildToolsGuidance.mockResolvedValue('Guidance about event_history.')
 
     await run([makeGoal('resurface_past_discussion', ['event_history'])])
@@ -138,8 +138,16 @@ describe('runInterventionAnalysis tool resolution', () => {
     expect(systemPrompt).toBe('SYSTEM\n\nGuidance about event_history.')
   })
 
+  it('builds guidance only from names that actually resolved, not every name requested', async () => {
+    mockGetTools.mockResolvedValue({ tools: [{ name: 'event_history' }], resolvedNames: ['event_history'] })
+
+    await run([makeGoal('goal_a', ['event_history']), makeGoal('goal_b', ['resource_search'])])
+
+    expect(mockBuildToolsGuidance).toHaveBeenCalledWith(['event_history'], expect.anything())
+  })
+
   it('leaves the system prompt unchanged when a declared tool resolves to nothing (e.g. no topicIds)', async () => {
-    mockGetTools.mockResolvedValue([])
+    mockGetTools.mockResolvedValue({ tools: [], resolvedNames: [] })
 
     await run([makeGoal('resurface_past_discussion', ['event_history'])])
 
@@ -149,7 +157,7 @@ describe('runInterventionAnalysis tool resolution', () => {
   })
 
   it('passes through a tool-dependent goal chosen with an actual tool call', async () => {
-    mockGetTools.mockResolvedValue([{ name: 'event_history' }])
+    mockGetTools.mockResolvedValue({ tools: [{ name: 'event_history' }], resolvedNames: ['event_history'] })
     mockGetAgentStructuredResponse.mockResolvedValue({
       ...DECISION,
       goalId: 'resurface_past_discussion',
@@ -163,7 +171,7 @@ describe('runInterventionAnalysis tool resolution', () => {
   })
 
   it('discards a tool-dependent goal chosen without any tool actually being invoked', async () => {
-    mockGetTools.mockResolvedValue([{ name: 'event_history' }])
+    mockGetTools.mockResolvedValue({ tools: [{ name: 'event_history' }], resolvedNames: ['event_history'] })
     mockGetAgentStructuredResponse.mockResolvedValue({
       ...DECISION,
       goalId: 'resurface_past_discussion',
@@ -180,7 +188,10 @@ describe('runInterventionAnalysis tool resolution', () => {
   })
 
   it("discards goal A when only goal B's declared tool was actually invoked this tick", async () => {
-    mockGetTools.mockResolvedValue([{ name: 'event_history' }, { name: 'resource_search' }])
+    mockGetTools.mockResolvedValue({
+      tools: [{ name: 'event_history' }, { name: 'resource_search' }],
+      resolvedNames: ['event_history', 'resource_search']
+    })
     mockGetAgentStructuredResponse.mockResolvedValue({
       ...DECISION,
       goalId: 'goal_a',
@@ -197,7 +208,10 @@ describe('runInterventionAnalysis tool resolution', () => {
   })
 
   it("passes through goal A when its own declared tool was invoked, even with goal B's tool also resolved", async () => {
-    mockGetTools.mockResolvedValue([{ name: 'event_history' }, { name: 'resource_search' }])
+    mockGetTools.mockResolvedValue({
+      tools: [{ name: 'event_history' }, { name: 'resource_search' }],
+      resolvedNames: ['event_history', 'resource_search']
+    })
     mockGetAgentStructuredResponse.mockResolvedValue({
       ...DECISION,
       goalId: 'goal_a',
@@ -211,7 +225,7 @@ describe('runInterventionAnalysis tool resolution', () => {
   })
 
   it('discards a tool-dependent goal chosen when no tools resolved at all (falls back to the plain call)', async () => {
-    mockGetTools.mockResolvedValue([])
+    mockGetTools.mockResolvedValue({ tools: [], resolvedNames: [] })
     mockGetChatPromptResponse.mockResolvedValue({
       ...DECISION,
       goalId: 'resurface_past_discussion',
