@@ -7,7 +7,9 @@ import {
   formatSingleUserConversationHistory,
   formatMultiUserConversationHistory,
   formatTime,
-  formatTranscript
+  formatTranscript,
+  formatAbsoluteDateTime,
+  formatRecency
 } from '../../../src/agents/helpers/llmInputFormatters.js'
 import { IChannel, IMessage } from '../../../src/types/index.types.js'
 import getConversationHistory from '../../../src/agents/helpers/getConversationHistory.js'
@@ -95,8 +97,11 @@ describe('LLM Input Formatter Tests', () => {
     const formattedMessages = formatMultiUserConversationHistory(convHistory)
     // Just the two most recent messages should be returned
     expect(formattedMessages).toEqual([
-      { role: 'user', content: "AI Curious College Student: But how do we define consciousness? Isn't it just simulation?" },
-      { role: 'user', content: 'Pro AI Urban Woman: Are you breathing?' }
+      {
+        role: 'user',
+        content: "[just now] AI Curious College Student: But how do we define consciousness? Isn't it just simulation?"
+      },
+      { role: 'user', content: '[just now] Pro AI Urban Woman: Are you breathing?' }
     ])
   })
 
@@ -107,9 +112,12 @@ describe('LLM Input Formatter Tests', () => {
     const convHistory = getConversationHistory([msg1, msg2, msg3], { count: 100 })
     const formattedMessages = formatMultiUserConversationHistory(convHistory)
     expect(formattedMessages).toEqual([
-      { role: 'user', content: 'Pro AI Urban Woman: I think AI should have rights if it demonstrates consciousness.' },
-      { role: 'assistant', content: "But how do we define consciousness? Isn't it just simulation?" },
-      { role: 'user', content: 'Pro AI Urban Woman: Are you breathing?' }
+      {
+        role: 'user',
+        content: '[just now] Pro AI Urban Woman: I think AI should have rights if it demonstrates consciousness.'
+      },
+      { role: 'assistant', content: "[just now] But how do we define consciousness? Isn't it just simulation?" },
+      { role: 'user', content: '[just now] Pro AI Urban Woman: Are you breathing?' }
     ])
   })
 
@@ -182,10 +190,10 @@ describe('LLM Input Formatter Tests', () => {
     const convHistory = getConversationHistory([msg1, msg2, msg3], { count: 100 })
     const formattedMessages = formatMultiUserConversationHistory(convHistory)
     expect(formattedMessages).toEqual([
-      { role: 'user', content: 'Pro AI Urban Woman: I think AI should have rights.' },
-      { role: 'user', content: 'Curious Corgi: What is part-time work?' },
-      { role: 'assistant', content: 'Part-time work is working fewer hours than a full-time schedule.' },
-      { role: 'user', content: 'Pro AI Urban Woman: Interesting!' }
+      { role: 'user', content: '[just now] Pro AI Urban Woman: I think AI should have rights.' },
+      { role: 'user', content: '[just now] Curious Corgi: What is part-time work?' },
+      { role: 'assistant', content: '[just now] Part-time work is working fewer hours than a full-time schedule.' },
+      { role: 'user', content: '[just now] Pro AI Urban Woman: Interesting!' }
     ])
   })
 
@@ -204,8 +212,8 @@ describe('LLM Input Formatter Tests', () => {
     const convHistory = getConversationHistory([msg1], { count: 100 })
     const formattedMessages = formatMultiUserConversationHistory(convHistory)
     expect(formattedMessages).toEqual([
-      { role: 'user', content: 'User: What is part-time work?' },
-      { role: 'assistant', content: 'Part-time work is working fewer hours than a full-time schedule.' }
+      { role: 'user', content: '[just now] User: What is part-time work?' },
+      { role: 'assistant', content: '[just now] Part-time work is working fewer hours than a full-time schedule.' }
     ])
   })
 
@@ -219,7 +227,7 @@ describe('LLM Input Formatter Tests', () => {
     )
     const convHistory = getConversationHistory([msg1], { count: 100 })
     const formattedMessages = formatMultiUserConversationHistory(convHistory)
-    expect(formattedMessages).toEqual([{ role: 'assistant', content: 'Some agent response' }])
+    expect(formattedMessages).toEqual([{ role: 'assistant', content: '[just now] Some agent response' }])
   })
 
   it('should render poll choices in multi-user conversation history', async () => {
@@ -246,9 +254,9 @@ describe('LLM Input Formatter Tests', () => {
       {
         role: 'assistant',
         content:
-          'Let us find out what you think!\n[Poll: "Best programming language?"]\nChoices:\n- TypeScript\n- Python\n- Rust'
+          '[just now] Let us find out what you think!\n[Poll: "Best programming language?"]\nChoices:\n- TypeScript\n- Python\n- Rust'
       },
-      { role: 'user', content: 'Pro AI Urban Woman: Great poll!' }
+      { role: 'user', content: '[just now] Pro AI Urban Woman: Great poll!' }
     ])
   })
 
@@ -295,9 +303,12 @@ describe('LLM Input Formatter Tests', () => {
     const convHistory = getConversationHistory([msg1, msg2, msg3], { count: 100 })
     const formattedMessages = formatMultiUserConversationHistory(convHistory)
     expect(formattedMessages).toEqual([
-      { role: 'user', content: 'Pro AI Urban Woman: I think AI should have rights if it demonstrates consciousness.' },
-      { role: 'assistant', content: "But how do we define consciousness? Isn't it just simulation?" },
-      { role: 'user', content: 'Pro AI Urban Woman: Are you breathing?' }
+      {
+        role: 'user',
+        content: '[just now] Pro AI Urban Woman: I think AI should have rights if it demonstrates consciousness.'
+      },
+      { role: 'assistant', content: "[just now] But how do we define consciousness? Isn't it just simulation?" },
+      { role: 'user', content: '[just now] Pro AI Urban Woman: Are you breathing?' }
     ])
   })
 
@@ -558,8 +569,8 @@ describe('LLM Input Formatter Tests', () => {
 
       expect(result).toBe(
         '[DM — Curious Corgi]\n' +
-          'Curious Corgi: "Hello, I have a question."\n' +
-          'Assistant (to Curious Corgi): "Happy to help — what is it?"'
+          '[just now] Curious Corgi: "Hello, I have a question."\n' +
+          '[just now] Assistant (to Curious Corgi): "Happy to help — what is it?"'
       )
     })
 
@@ -641,6 +652,42 @@ describe('LLM Input Formatter Tests', () => {
       const result = formatDmHistoryByChannel([agentOnly], [dmChannel('dm-ghost')])
 
       expect(result).toContain('Assistant (to Participant):')
+    })
+  })
+
+  describe('formatAbsoluteDateTime', () => {
+    it('combines the ISO date with a 12-hour clock time, in UTC by default', () => {
+      expect(formatAbsoluteDateTime(new Date('2026-11-20T14:30:45Z'))).toBe('2026-11-20 2:30:45 PM')
+    })
+
+    it('respects a given timezone', () => {
+      // UTC 14:30 = EST 9:30 AM
+      expect(formatAbsoluteDateTime(new Date('2026-11-20T14:30:45Z'), 'America/New_York')).toBe('2026-11-20 9:30:45 AM')
+    })
+  })
+
+  describe('formatRecency', () => {
+    const now = new Date('2026-11-20T12:00:00Z')
+
+    it('returns "just now" for anything under a minute', () => {
+      expect(formatRecency(new Date('2026-11-20T11:59:31Z'), now)).toBe('just now')
+      expect(formatRecency(now, now)).toBe('just now')
+    })
+
+    it('clamps a future date (clock skew) to "just now" rather than a negative label', () => {
+      expect(formatRecency(new Date('2026-11-20T12:05:00Z'), now)).toBe('just now')
+    })
+
+    it('delegates minute/hour/day phrasing to timeDiffHuman within the first week', () => {
+      expect(formatRecency(new Date('2026-11-20T11:55:00Z'), now)).toBe('5 minutes ago')
+      expect(formatRecency(new Date('2026-11-20T10:00:00Z'), now)).toBe('2 hours ago')
+      expect(formatRecency(new Date('2026-11-19T12:00:00Z'), now)).toBe('yesterday')
+      expect(formatRecency(new Date('2026-11-17T12:00:00Z'), now)).toBe('3 days ago')
+    })
+
+    it('falls back to an absolute date once a week has passed, rather than "last week"/"N weeks ago"', () => {
+      expect(formatRecency(new Date('2026-11-13T12:00:00Z'), now)).toBe('on 2026-11-13')
+      expect(formatRecency(new Date('2026-01-01T12:00:00Z'), now)).toBe('on 2026-01-01')
     })
   })
 })

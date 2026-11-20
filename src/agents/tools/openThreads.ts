@@ -3,7 +3,7 @@ import { z } from 'zod'
 import Conversation from '../../models/conversation.model.js'
 import { findMessages } from '../../utils/messageVisibility.js'
 import getConversationHistory from '../helpers/getConversationHistory.js'
-import { formatMultiUserConversationHistory } from '../helpers/llmInputFormatters.js'
+import { formatMultiUserConversationHistory, formatAbsoluteDateTime } from '../helpers/llmInputFormatters.js'
 import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { getModelChat, coreLLMPlatform, coreLLMModel } from '../helpers/getModelChat.js'
 import {
@@ -12,14 +12,11 @@ import {
 } from '../../services/conversation.service/openThreadsCriteria.js'
 
 const OPEN_THREADS_LIMIT = 20 // safety valve, not expected to matter for a normal-sized series
-// A conversation "concluding" doesn't by itself guarantee its content has faded from view — it
-// could have ended minutes ago. So this floor applies to both tiers: a tier-1 past conversation
-// must have actually ENDED this long ago, and tier-2's live extraction never even sees chat
-// messages this recent — in neither case should something still fresh in view get resurfaced as
-// if it were a dormant thread.
+// Applies to both tiers: a tier-1 conversation must have ended this long ago, and tier-2
+// never sees chat this recent — neither should resurface something still fresh in view.
 const MIN_THREAD_AGE_MS = 3 * 24 * 60 * 60 * 1000 // 3 days
 
-const GROUP_CHAT_USER_TEMPLATE = `Group Chat History:\n{sharedChat}`
+const GROUP_CHAT_USER_TEMPLATE = `Current Time: {currentTime}\n\nGroup Chat History:\n{sharedChat}`
 
 export interface OpenThreadsToolOptions {
   topicIds: string[]
@@ -27,14 +24,9 @@ export interface OpenThreadsToolOptions {
 }
 
 /**
- * `list_open_threads`: questions/ideas worth revisiting later, searched in priority order so the
- * model only ever sees one list. First, questions each past conversation's stop-time extraction
- * already identified (see lifecycle.ts's openThreadsExtraction) across every past conversation in
- * this conversation's topic(s) — cheap, since that judgment already happened once. Only when none
- * of those are available does it fall back to applying the same judgment live, on the fly, to this
- * conversation's own group chat history — the only option for an ongoing community conversation
- * that never "stops" and so never gets a stop-time extraction of its own. Pairs with event_history,
- * which grounds a chosen one with a real excerpt from that specific conversation's transcript.
+ * `list_open_threads`: past-discussion candidates. Tier 1: cached stop-time extractions from
+ * past conversations; tier 2 (fallback): the same judgment applied live to this conversation's
+ * own chat history when no past conversation has any. Pairs with event_history to ground one.
  */
 export default function createOpenThreadsTools(options: OpenThreadsToolOptions): StructuredToolInterface[] {
   const { topicIds, activeConversationId } = options
@@ -85,7 +77,7 @@ export default function createOpenThreadsTools(options: OpenThreadsToolOptions):
         llm,
         OPEN_THREADS_EXTRACTION_PROMPT,
         GROUP_CHAT_USER_TEMPLATE,
-        { sharedChat },
+        { sharedChat, currentTime: formatAbsoluteDateTime(chatHistory.end ?? new Date()) },
         undefined,
         openThreadsSchema
       )

@@ -1,6 +1,7 @@
 import logger from '../../config/logger.js'
 import { IMessage, IChannel, ConversationHistory, ConversationHistorySettings } from '../../types/index.types'
 import getConversationHistory from './getConversationHistory.js'
+import timeDiffHuman from '../../utils/timeDiffHuman.js'
 
 function formatTime(date, timezone = 'UTC') {
   return date.toLocaleTimeString('en-US', {
@@ -9,6 +10,22 @@ function formatTime(date, timezone = 'UTC') {
     second: '2-digit',
     timeZone: timezone
   })
+}
+
+/** Date + clock time, e.g. "2026-11-20 11:40:52 AM" — one "current time" anchor, not per-message. */
+export function formatAbsoluteDateTime(date: Date, timezone = 'UTC'): string {
+  return `${date.toISOString().slice(0, 10)} ${formatTime(date, timezone)}`
+}
+
+const RECENCY_LABEL_CUTOFF_MS = 7 * 24 * 60 * 60 * 1000 // 1 week
+
+/** Coarsens with distance ("5 min ago" → "yesterday" → "on 2026-11-13" past a week) — a model
+ * can't reconstruct real calendar distance from "3 weeks ago" the way it can from a date. */
+export function formatRecency(targetDate: Date, baseDate: Date = new Date()): string {
+  const diffMs = Math.max(0, baseDate.getTime() - targetDate.getTime())
+  if (diffMs < 60_000) return 'just now'
+  if (diffMs >= RECENCY_LABEL_CUTOFF_MS) return `on ${targetDate.toISOString().slice(0, 10)}`
+  return timeDiffHuman(targetDate, baseDate)
 }
 
 function formatTranscriptMessage(message, timezone = 'UTC') {
@@ -113,8 +130,10 @@ function formatSingleUserConversationHistory(conversationHistory: ConversationHi
 }
 
 function formatMultiUserConversationHistory(conversationHistory: ConversationHistory) {
+  const now = conversationHistory.end ?? new Date()
   return conversationHistory.messages?.flatMap((message) => {
     const messageText = extractMessageText(message)
+    const label = message.createdAt ? `[${formatRecency(message.createdAt, now)}] ` : ''
     if (message.fromAgent) {
       // For voice assistant responses, prepend the original question so other agents
       // see the full exchange rather than an unexplained answer
@@ -122,14 +141,14 @@ function formatMultiUserConversationHistory(conversationHistory: ConversationHis
       if (body?.source === 'voice' && body?.sourceMessage) {
         const asker = (body.sourcePseudonym as string) || 'User'
         return [
-          { role: 'user', content: `${asker}: ${body.sourceMessage}` },
-          { role: 'assistant', content: messageText }
+          { role: 'user', content: `${label}${asker}: ${body.sourceMessage}` },
+          { role: 'assistant', content: `${label}${messageText}` }
         ]
       }
-      return { role: 'assistant', content: messageText }
+      return { role: 'assistant', content: `${label}${messageText}` }
     }
     // For multi-user environments, include the pseudonym in the content
-    return { role: 'user', content: `${message.pseudonym}: ${messageText}` }
+    return { role: 'user', content: `${label}${message.pseudonym}: ${messageText}` }
   })
 }
 
@@ -145,7 +164,7 @@ function formatMultiUserConversationHistory(conversationHistory: ConversationHis
  *
  * Returns a plain string suitable for use as an LLM template variable.
  */
-function formatDmHistoryByChannel(messages: IMessage[], dmChannels: IChannel[]): string {
+function formatDmHistoryByChannel(messages: IMessage[], dmChannels: IChannel[], now: Date = new Date()): string {
   const channelBuckets = new Map<string, IMessage[]>()
   for (const ch of dmChannels) {
     channelBuckets.set(ch.name, [])
@@ -175,7 +194,10 @@ function formatDmHistoryByChannel(messages: IMessage[], dmChannels: IChannel[]):
 
     const lines = msgs.map((msg) => {
       const text = extractMessageText(msg)
-      return msg.fromAgent ? `Assistant (to ${participantPseudonym}): "${text}"` : `${participantPseudonym}: "${text}"`
+      const label = msg.createdAt ? `[${formatRecency(msg.createdAt, now)}] ` : ''
+      return msg.fromAgent
+        ? `${label}Assistant (to ${participantPseudonym}): "${text}"`
+        : `${label}${participantPseudonym}: "${text}"`
     })
 
     sections.push(`[DM — ${participantPseudonym}]\n${lines.join('\n')}`)
