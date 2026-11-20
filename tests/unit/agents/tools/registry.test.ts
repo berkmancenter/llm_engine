@@ -26,19 +26,19 @@ describe('Tool Registry', () => {
   })
 
   test('should resolve web_search to tool instance', async () => {
-    const { tools } = await getTools(['web_search'])
+    const tools = await getTools(['web_search'])
     expect(tools).toHaveLength(1)
     expect(tools[0].name).toBe('web_search')
   })
 
   test('should resolve tavily_search alias to web_search tool', async () => {
-    const { tools } = await getTools(['tavily_search'])
+    const tools = await getTools(['tavily_search'])
     expect(tools).toHaveLength(1)
     expect(tools[0].name).toBe('web_search')
   })
 
   test('should resolve multiple tools at once', async () => {
-    const { tools } = await getTools(['web_search', 'search_semantic_scholar'])
+    const tools = await getTools(['web_search', 'search_semantic_scholar'])
     expect(tools).toHaveLength(2)
     const names = tools.map((t) => t.name)
     expect(names).toContain('web_search')
@@ -46,18 +46,18 @@ describe('Tool Registry', () => {
   })
 
   test('should skip unknown tool names with a warning', async () => {
-    const { tools } = await getTools(['web_search', 'nonexistent_tool'])
+    const tools = await getTools(['web_search', 'nonexistent_tool'])
     expect(tools).toHaveLength(1)
     expect(tools[0].name).toBe('web_search')
   })
 
   test('should return empty array for all unknown names', async () => {
-    const { tools } = await getTools(['does_not_exist', 'also_missing'])
+    const tools = await getTools(['does_not_exist', 'also_missing'])
     expect(tools).toHaveLength(0)
   })
 
   test('should return empty array for empty input', async () => {
-    const { tools } = await getTools([])
+    const tools = await getTools([])
     expect(tools).toHaveLength(0)
   })
 
@@ -65,7 +65,7 @@ describe('Tool Registry', () => {
     const mockTool = { name: 'custom_test_tool' } as unknown as StructuredToolInterface
     registerTool('custom_test_tool', () => mockTool)
 
-    const { tools } = await getTools(['custom_test_tool'])
+    const tools = await getTools(['custom_test_tool'])
     expect(tools).toHaveLength(1)
     expect(tools[0].name).toBe('custom_test_tool')
   })
@@ -82,7 +82,7 @@ describe('Tool Registry', () => {
   })
 
   test('event_history factory should return empty array without topics context', async () => {
-    const { tools } = await getTools(['event_history'])
+    const tools = await getTools(['event_history'])
     expect(tools).toHaveLength(0)
   })
 
@@ -108,7 +108,7 @@ describe('Tool Registry', () => {
   })
 
   test('event_history factory returns the three tools when topics are provided', async () => {
-    const { tools } = await getTools(['event_history'], { topics: [{ id: '507f1f77bcf86cd799439011', name: 'My Series' }] })
+    const tools = await getTools(['event_history'], { topics: [{ id: '507f1f77bcf86cd799439011', name: 'My Series' }] })
     const names = tools.map((t) => t.name)
     expect(names).toEqual(
       expect.arrayContaining(['get_event_list', 'search_topic_transcripts', 'search_conversation_transcript'])
@@ -116,7 +116,7 @@ describe('Tool Registry', () => {
   })
 
   test('event_history factory accepts activeConversationId context without error', async () => {
-    const { tools } = await getTools(['event_history'], {
+    const tools = await getTools(['event_history'], {
       topics: [{ id: '507f1f77bcf86cd799439011', name: 'My Series' }],
       activeConversationId: '507f1f77bcf86cd799439012'
     })
@@ -124,12 +124,12 @@ describe('Tool Registry', () => {
   })
 
   test('member_bios factory returns search_members and get_member when activeConversationId is provided', async () => {
-    const { tools } = await getTools(['member_bios'], { activeConversationId: '507f1f77bcf86cd799439012' })
+    const tools = await getTools(['member_bios'], { activeConversationId: '507f1f77bcf86cd799439012' })
     expect(tools.map((t) => t.name)).toEqual(['search_members', 'get_member'])
   })
 
   test('member_bios factory returns empty array without activeConversationId in context', async () => {
-    const { tools } = await getTools(['member_bios'], {})
+    const tools = await getTools(['member_bios'], {})
     expect(tools).toHaveLength(0)
   })
 
@@ -141,12 +141,12 @@ describe('Tool Registry', () => {
   })
 
   test('resource_search factory returns search_resources when activeConversationId is provided', async () => {
-    const { tools } = await getTools(['resource_search'], { activeConversationId: '507f1f77bcf86cd799439012' })
+    const tools = await getTools(['resource_search'], { activeConversationId: '507f1f77bcf86cd799439012' })
     expect(tools.map((t) => t.name)).toEqual(['search_resources'])
   })
 
   test('resource_search factory returns empty array without activeConversationId in context', async () => {
-    const { tools } = await getTools(['resource_search'], {})
+    const tools = await getTools(['resource_search'], {})
     expect(tools).toHaveLength(0)
   })
 

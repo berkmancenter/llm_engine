@@ -109,7 +109,7 @@ async function measureToolsSchema() {
     const llm = await getBedrockChat('us.anthropic.claude-opus-4-6-v1', {})
     // event_history needs a topics context to bind any tools at all (see registry.ts) — give
     // it one fake topic so it's included in this "bind everything" measurement.
-    const { tools } = await getTools(listRegisteredTools(), {
+    const tools = await getTools(listRegisteredTools(), {
       topics: [{ id: 'fake', name: 'Fake Topic' }],
       activeConversationId: 'fake'
     })
