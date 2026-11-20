@@ -15,6 +15,11 @@ const OPEN_THREADS_LIMIT = 20 // safety valve, not expected to matter for a norm
 // Applies to both tiers: a tier-1 conversation must have ended this long ago, and tier-2
 // never sees chat this recent — neither should resurface something still fresh in view.
 const MIN_THREAD_AGE_MS = 3 * 24 * 60 * 60 * 1000 // 3 days
+// Tier 2 only: without this, a long-lived community channel's entire chat history (minus the
+// last MIN_THREAD_AGE_MS) would be re-sent to the extraction LLM on every tick where tier 1 has
+// nothing cached, growing unbounded over the channel's lifetime. Also doubles as a relevance
+// floor — a thread quiet for two months is arguably stale rather than worth resurfacing.
+const MAX_THREAD_AGE_MS = 60 * 24 * 60 * 60 * 1000 // 60 days
 
 const GROUP_CHAT_USER_TEMPLATE = `Current Time: {currentTime}\n\nGroup Chat History:\n{sharedChat}`
 
@@ -63,7 +68,7 @@ export default function createOpenThreadsTools(options: OpenThreadsToolOptions):
 
       const messages = await findMessages(activeConversationId, 'model', {
         channels: { $in: ['chat'] },
-        createdAt: { $lt: recencyCutoff }
+        createdAt: { $lt: recencyCutoff, $gte: new Date(Date.now() - MAX_THREAD_AGE_MS) }
       })
       const sortedMessages = messages.sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0))
       const chatHistory = getConversationHistory(sortedMessages, { channels: ['chat'] })

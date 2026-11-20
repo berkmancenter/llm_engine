@@ -294,6 +294,30 @@ describe('list_open_threads live group-chat fallback', () => {
     expect(sharedChat).not.toContain('Did anyone catch the game last night?')
   })
 
+  it('excludes chat messages older than the maximum thread age from the live fallback', async () => {
+    const user = await createUser('Test User')
+    const topic = await createPublicTopic()
+    const conversation = await createConversation({ name: 'Ongoing Chat' }, user, topic)
+    await seedChatMessages(
+      conversation._id,
+      ['Does anyone remember what we decided about the venue deposit?'],
+      new Date(Date.now() - 75 * 24 * 60 * 60 * 1000) // well past the 60-day cap
+    )
+    await seedChatMessages(conversation._id, ['Does anyone know our actual budget ceiling for this?'])
+    mockGetChatPromptResponse.mockResolvedValue({ openThreads: [] })
+
+    const [tool] = createOpenThreadsTools({
+      topicIds: [topic._id.toString()],
+      activeConversationId: conversation._id.toString()
+    })
+    await tool.invoke({})
+
+    const [, , , inputParams] = mockGetChatPromptResponse.mock.calls[0]
+    const { sharedChat } = inputParams as { sharedChat: string }
+    expect(sharedChat).toContain('Does anyone know our actual budget ceiling for this?')
+    expect(sharedChat).not.toContain('Does anyone remember what we decided about the venue deposit?')
+  })
+
   it('prioritizes a past conversation’s own open threads over the live chat fallback', async () => {
     const user = await createUser('Test User')
     const topic = await createPublicTopic()
