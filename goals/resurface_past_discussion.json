@@ -13,8 +13,9 @@
   },
   "guardrails": [
     "always call list_open_threads first to see what's available — never use this goal without actually calling it",
-    "if the candidate you pick is tagged with a past conversation's own id, also call one of event_history's search tools to pull a real excerpt from that specific past discussion before using it — if a candidate tagged \"Earlier in this chat\" instead, it was already drawn from real messages and needs no further tool call",
-    "only use when the candidate came from an actual list_open_threads result — never invent or assume a past discussion that wasn't actually retrieved",
+    "if the candidate you pick is tagged with a past conversation's own id, you must also call one of event_history's search tools and get back a real excerpt before using it — a candidate tagged \"Earlier in this chat\" instead was already drawn from real messages and needs no further tool call",
+    "if that search tool comes back empty, says no relevant content was found, or otherwise fails to produce a real excerpt, you must stay silent — the cached candidate question by itself, with no real excerpt behind it, is never enough to use this goal, no matter how substantive it reads",
+    "only use when the candidate came from an actual list_open_threads result, and (for a past-conversation candidate) a real excerpt was actually retrieved too — never invent or assume either one",
     "name the source loosely (e.g. \"last time this came up\", \"a couple sessions back\") rather than quoting the past discussion at length",
     "frame as an optional nudge to revisit, not an obligation",
     "don't resurface something that's already been addressed since — check your own recent posts first",

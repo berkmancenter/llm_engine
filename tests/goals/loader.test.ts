@@ -158,7 +158,10 @@ describe('resurface_past_discussion', () => {
     expect(guardrails).toMatch(/always call list_open_threads first/i)
     expect(guardrails).toMatch(/also call one of event_history's search tools/i)
     expect(guardrails).toMatch(/earlier in this chat.*needs no further tool call/i)
-    expect(guardrails).toMatch(/never invent or assume a past discussion that wasn't actually retrieved/i)
+    // A substantive-sounding cached candidate alone is never enough once a real excerpt is
+    // required but the grounding search comes back empty.
+    expect(guardrails).toMatch(/if that search tool comes back empty.*you must stay silent/i)
+    expect(guardrails).toMatch(/never invent or assume either one/i)
   })
 
   test('is included among groupChat goals', () => {
