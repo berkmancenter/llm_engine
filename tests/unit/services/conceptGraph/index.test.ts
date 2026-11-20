@@ -11,7 +11,9 @@ describe('formatPollLine', () => {
       21
     )
 
-    expect(line).toBe('Poll (13 of 21 attendees responded): "Does the trust registry model scale?" — Yes 8 (62%), No 5 (38%)')
+    expect(line).toBe(
+      'Poll (13 of 21 attendees responded): "Does the trust registry model scale?" — Yes 8 (62%), No 5 (38%)'
+    )
   })
 
   it('falls back to a bare response count when the attendee denominator is untrustworthy', () => {

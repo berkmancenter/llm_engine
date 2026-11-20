@@ -94,7 +94,14 @@ describe('conversationCost service', () => {
       const unpricedPhases = {
         liveEvent: makeAggregate({
           models: [
-            { model: 'llama3-local', llmCalls: 1, promptTokens: 200, completionTokens: 40, estimatedCostUSD: 0, priced: false }
+            {
+              model: 'llama3-local',
+              llmCalls: 1,
+              promptTokens: 200,
+              completionTokens: 40,
+              estimatedCostUSD: 0,
+              priced: false
+            }
           ],
           hasUnpricedCalls: true
         }),

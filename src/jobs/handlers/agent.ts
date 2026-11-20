@@ -81,7 +81,9 @@ const periodicAgent = async (job) => {
      here self-heals any already-orphaned schedule instead of repeating the failure forever;
      cancelling both names is harmless when the other doesn't match. */
   if (!agent || !agent.active) {
-    logger.warn(`${agent ? 'Found inactive' : 'Could not find'} agent ${agentId}; cancelling orphaned ${job.attrs.name} schedule`)
+    logger.warn(
+      `${agent ? 'Found inactive' : 'Could not find'} agent ${agentId}; cancelling orphaned ${job.attrs.name} schedule`
+    )
     await schedule.cancelPeriodicAgent(agentId)
     await schedule.cancelCronAgent(agentId)
     return

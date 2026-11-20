@@ -23,10 +23,7 @@ describe('renderAgentTemplate', () => {
   })
 
   it('interpolates a nested property via dot notation', () => {
-    const result = renderAgentTemplate(
-      "Welcome to {{conversation.name}}!",
-      agentData as Record<string, unknown>
-    )
+    const result = renderAgentTemplate('Welcome to {{conversation.name}}!', agentData as Record<string, unknown>)
     expect(result).toBe('Welcome to My Test Event!')
   })
 
@@ -39,10 +36,7 @@ describe('renderAgentTemplate', () => {
   })
 
   it('interpolates a deeply nested agentConfig property', () => {
-    const result = renderAgentTemplate(
-      'Config value: {{agentConfig.someValue}}',
-      agentData as Record<string, unknown>
-    )
+    const result = renderAgentTemplate('Config value: {{agentConfig.someValue}}', agentData as Record<string, unknown>)
     expect(result).toBe('Config value: configured-value')
   })
 
@@ -56,10 +50,7 @@ describe('renderAgentTemplate', () => {
       ...agentData,
       conversation: { name: 'Event & Workshop', description: '' }
     }
-    const result = renderAgentTemplate(
-      'Welcome to {{conversation.name}}!',
-      agentWithSpecialChars as Record<string, unknown>
-    )
+    const result = renderAgentTemplate('Welcome to {{conversation.name}}!', agentWithSpecialChars as Record<string, unknown>)
     expect(result).toBe('Welcome to Event & Workshop!')
   })
 

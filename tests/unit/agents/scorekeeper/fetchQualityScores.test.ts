@@ -19,7 +19,7 @@ jest.unstable_mockModule('langsmith', () => ({
 }))
 
 // Import config before fetchQualityScores so we can control langsmith settings
-const config = ((await import('../../../../src/config/config.js')).default) as any
+const config = (await import('../../../../src/config/config.js')).default as any
 const { fetchQualityScores } = await import('../../../../src/agents/scorekeeper/fetchQualityScores.js')
 
 const RUN_1 = 'aaaaaaaa-0000-0000-0000-000000000001'
@@ -72,10 +72,9 @@ describe('fetchQualityScores()', () => {
 
   it('computes per-evaluator mean correctly', async () => {
     mockListRuns.mockReturnValue(asyncItems([{ id: RUN_1 }, { id: RUN_2 }]))
-    mockListFeedback.mockReturnValue(asyncItems([
-      makeFeedback(RUN_1, 'quality.correctness', 0.8),
-      makeFeedback(RUN_2, 'quality.correctness', 0.6)
-    ]))
+    mockListFeedback.mockReturnValue(
+      asyncItems([makeFeedback(RUN_1, 'quality.correctness', 0.8), makeFeedback(RUN_2, 'quality.correctness', 0.6)])
+    )
 
     const result = await fetchQualityScores('conv-1')
     const evaluator = result!.evaluators.find((e) => e.key === 'quality.correctness')!
@@ -86,11 +85,13 @@ describe('fetchQualityScores()', () => {
 
   it('computes per-evaluator min correctly', async () => {
     mockListRuns.mockReturnValue(asyncItems([{ id: RUN_1 }, { id: RUN_2 }, { id: RUN_3 }]))
-    mockListFeedback.mockReturnValue(asyncItems([
-      makeFeedback(RUN_1, 'compliance.tone', 0.9),
-      makeFeedback(RUN_2, 'compliance.tone', 0.3),
-      makeFeedback(RUN_3, 'compliance.tone', 0.7)
-    ]))
+    mockListFeedback.mockReturnValue(
+      asyncItems([
+        makeFeedback(RUN_1, 'compliance.tone', 0.9),
+        makeFeedback(RUN_2, 'compliance.tone', 0.3),
+        makeFeedback(RUN_3, 'compliance.tone', 0.7)
+      ])
+    )
 
     const result = await fetchQualityScores('conv-1')
     expect(result!.evaluators[0].min).toBeCloseTo(0.3)
@@ -98,11 +99,13 @@ describe('fetchQualityScores()', () => {
 
   it('counts per-evaluator lowScoreCount for scores below 0.5', async () => {
     mockListRuns.mockReturnValue(asyncItems([{ id: RUN_1 }, { id: RUN_2 }, { id: RUN_3 }]))
-    mockListFeedback.mockReturnValue(asyncItems([
-      makeFeedback(RUN_1, 'compliance.tone', 0.8),
-      makeFeedback(RUN_2, 'compliance.tone', 0.4),
-      makeFeedback(RUN_3, 'compliance.tone', 0.2)
-    ]))
+    mockListFeedback.mockReturnValue(
+      asyncItems([
+        makeFeedback(RUN_1, 'compliance.tone', 0.8),
+        makeFeedback(RUN_2, 'compliance.tone', 0.4),
+        makeFeedback(RUN_3, 'compliance.tone', 0.2)
+      ])
+    )
 
     const result = await fetchQualityScores('conv-1')
     expect(result!.evaluators[0].lowScoreCount).toBe(2)
@@ -110,10 +113,9 @@ describe('fetchQualityScores()', () => {
 
   it('computes overall mean as mean of per-key means', async () => {
     mockListRuns.mockReturnValue(asyncItems([{ id: RUN_1 }]))
-    mockListFeedback.mockReturnValue(asyncItems([
-      makeFeedback(RUN_1, 'quality.correctness', 0.8),
-      makeFeedback(RUN_1, 'compliance.tone', 0.6)
-    ]))
+    mockListFeedback.mockReturnValue(
+      asyncItems([makeFeedback(RUN_1, 'quality.correctness', 0.8), makeFeedback(RUN_1, 'compliance.tone', 0.6)])
+    )
 
     const result = await fetchQualityScores('conv-1')
     expect(result!.overallMean).toBeCloseTo(0.7)
@@ -122,10 +124,9 @@ describe('fetchQualityScores()', () => {
   it('sets tracesScored to number of runs that received feedback, not total traces listed', async () => {
     // 3 runs listed, but only 2 get feedback
     mockListRuns.mockReturnValue(asyncItems([{ id: RUN_1 }, { id: RUN_2 }, { id: RUN_3 }]))
-    mockListFeedback.mockReturnValue(asyncItems([
-      makeFeedback(RUN_1, 'quality.correctness', 0.8),
-      makeFeedback(RUN_2, 'quality.correctness', 0.6)
-    ]))
+    mockListFeedback.mockReturnValue(
+      asyncItems([makeFeedback(RUN_1, 'quality.correctness', 0.8), makeFeedback(RUN_2, 'quality.correctness', 0.6)])
+    )
 
     const result = await fetchQualityScores('conv-1')
     expect(result!.tracesScored).toBe(2)
@@ -133,10 +134,9 @@ describe('fetchQualityScores()', () => {
 
   it('identifies a trace as low-score when any evaluator score is below 0.5', async () => {
     mockListRuns.mockReturnValue(asyncItems([{ id: RUN_1 }]))
-    mockListFeedback.mockReturnValue(asyncItems([
-      makeFeedback(RUN_1, 'quality.correctness', 0.9),
-      makeFeedback(RUN_1, 'compliance.tone', 0.3)
-    ]))
+    mockListFeedback.mockReturnValue(
+      asyncItems([makeFeedback(RUN_1, 'quality.correctness', 0.9), makeFeedback(RUN_1, 'compliance.tone', 0.3)])
+    )
 
     const result = await fetchQualityScores('conv-1')
     expect(result!.totalLowScoreCount).toBe(1)
@@ -147,10 +147,9 @@ describe('fetchQualityScores()', () => {
 
   it('does not flag a trace when all scores are at or above 0.5', async () => {
     mockListRuns.mockReturnValue(asyncItems([{ id: RUN_1 }]))
-    mockListFeedback.mockReturnValue(asyncItems([
-      makeFeedback(RUN_1, 'quality.correctness', 0.5),
-      makeFeedback(RUN_1, 'compliance.tone', 0.8)
-    ]))
+    mockListFeedback.mockReturnValue(
+      asyncItems([makeFeedback(RUN_1, 'quality.correctness', 0.5), makeFeedback(RUN_1, 'compliance.tone', 0.8)])
+    )
 
     const result = await fetchQualityScores('conv-1')
     expect(result!.totalLowScoreCount).toBe(0)
@@ -159,10 +158,9 @@ describe('fetchQualityScores()', () => {
 
   it('sorts low-score traces worst-first', async () => {
     mockListRuns.mockReturnValue(asyncItems([{ id: RUN_1 }, { id: RUN_2 }]))
-    mockListFeedback.mockReturnValue(asyncItems([
-      makeFeedback(RUN_1, 'compliance.tone', 0.4),
-      makeFeedback(RUN_2, 'compliance.tone', 0.1)
-    ]))
+    mockListFeedback.mockReturnValue(
+      asyncItems([makeFeedback(RUN_1, 'compliance.tone', 0.4), makeFeedback(RUN_2, 'compliance.tone', 0.1)])
+    )
 
     const result = await fetchQualityScores('conv-1')
     expect(result!.lowScoreTraces[0].runId).toBe(RUN_2)
@@ -172,9 +170,7 @@ describe('fetchQualityScores()', () => {
   it('caps lowScoreTraces at 5 but reports the true total in totalLowScoreCount', async () => {
     const runs = Array.from({ length: 8 }, (_, i) => ({ id: `run-${i}` }))
     mockListRuns.mockReturnValue(asyncItems(runs))
-    mockListFeedback.mockReturnValue(asyncItems(
-      runs.map((r) => makeFeedback(r.id, 'compliance.tone', 0.1))
-    ))
+    mockListFeedback.mockReturnValue(asyncItems(runs.map((r) => makeFeedback(r.id, 'compliance.tone', 0.1))))
 
     const result = await fetchQualityScores('conv-1')
     expect(result!.lowScoreTraces).toHaveLength(5)
@@ -202,10 +198,9 @@ describe('fetchQualityScores()', () => {
 
   it('skips feedback entries with null score', async () => {
     mockListRuns.mockReturnValue(asyncItems([{ id: RUN_1 }]))
-    mockListFeedback.mockReturnValue(asyncItems([
-      { run_id: RUN_1, key: 'quality.correctness', score: null },
-      makeFeedback(RUN_1, 'compliance.tone', 0.8)
-    ]))
+    mockListFeedback.mockReturnValue(
+      asyncItems([{ run_id: RUN_1, key: 'quality.correctness', score: null }, makeFeedback(RUN_1, 'compliance.tone', 0.8)])
+    )
 
     const result = await fetchQualityScores('conv-1')
     expect(result!.evaluators).toHaveLength(1)
@@ -214,17 +209,15 @@ describe('fetchQualityScores()', () => {
 
   it('sorts evaluators alphabetically by key', async () => {
     mockListRuns.mockReturnValue(asyncItems([{ id: RUN_1 }]))
-    mockListFeedback.mockReturnValue(asyncItems([
-      makeFeedback(RUN_1, 'quality.correctness', 0.8),
-      makeFeedback(RUN_1, 'compliance.tone', 0.7),
-      makeFeedback(RUN_1, 'accuracy.factual', 0.9)
-    ]))
+    mockListFeedback.mockReturnValue(
+      asyncItems([
+        makeFeedback(RUN_1, 'quality.correctness', 0.8),
+        makeFeedback(RUN_1, 'compliance.tone', 0.7),
+        makeFeedback(RUN_1, 'accuracy.factual', 0.9)
+      ])
+    )
 
     const result = await fetchQualityScores('conv-1')
-    expect(result!.evaluators.map((e) => e.key)).toEqual([
-      'accuracy.factual',
-      'compliance.tone',
-      'quality.correctness'
-    ])
+    expect(result!.evaluators.map((e) => e.key)).toEqual(['accuracy.factual', 'compliance.tone', 'quality.correctness'])
   })
 })

@@ -51,7 +51,12 @@ describe('threadContinuesFromAgent', () => {
     )
 
     const result = await threadContinuesFromAgent(
-      { _id: new mongoose.Types.ObjectId(), conversation: conversationId, parentMessage: parent._id, body: 'Test Fancy Vibes #3' } as never,
+      {
+        _id: new mongoose.Types.ObjectId(),
+        conversation: conversationId,
+        parentMessage: parent._id,
+        body: 'Test Fancy Vibes #3'
+      } as never,
       conversationId.toString(),
       agentId.toString()
     )
@@ -82,7 +87,12 @@ describe('threadContinuesFromAgent', () => {
     )
 
     const result = await threadContinuesFromAgent(
-      { _id: new mongoose.Types.ObjectId(), conversation: conversationId, parentMessage: parent._id, body: 'ok thanks' } as never,
+      {
+        _id: new mongoose.Types.ObjectId(),
+        conversation: conversationId,
+        parentMessage: parent._id,
+        body: 'ok thanks'
+      } as never,
       conversationId.toString(),
       agentId.toString()
     )
@@ -110,7 +120,12 @@ describe('threadContinuesFromAgent', () => {
     )
 
     const result = await threadContinuesFromAgent(
-      { _id: new mongoose.Types.ObjectId(), conversation: conversationId, parentMessage: parent._id, body: 'Test Fancy Vibes #3' } as never,
+      {
+        _id: new mongoose.Types.ObjectId(),
+        conversation: conversationId,
+        parentMessage: parent._id,
+        body: 'Test Fancy Vibes #3'
+      } as never,
       conversationId.toString(),
       agentId.toString()
     )

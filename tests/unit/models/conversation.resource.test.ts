@@ -19,7 +19,7 @@ describe('hasPdf plugin', () => {
   const buildSchema = (name: string) => {
     const schema = new mongoose.Schema({
       title: { type: String, required: true },
-      fileName: { type: String, private: true },
+      fileName: { type: String, private: true }
     })
     schema.plugin(toJSON)
     schema.plugin(hasPdf)

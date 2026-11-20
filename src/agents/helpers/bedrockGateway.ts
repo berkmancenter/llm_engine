@@ -33,11 +33,7 @@ export type BedrockInvokeMethod = 'invoke' | 'invoke-with-response-stream'
  *
  * @throws if the model id contains characters that are not valid in a Bedrock model id.
  */
-export function buildBedrockInvokeUrl(
-  baseUrl: string,
-  modelId: string,
-  method: BedrockInvokeMethod = 'invoke'
-): string {
+export function buildBedrockInvokeUrl(baseUrl: string, modelId: string, method: BedrockInvokeMethod = 'invoke'): string {
   if (!BEDROCK_MODEL_ID_PATTERN.test(modelId)) {
     throw new Error(`Invalid Bedrock model id: "${modelId}"`)
   }
