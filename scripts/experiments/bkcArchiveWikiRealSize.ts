@@ -69,7 +69,7 @@ async function measureToolsSchema(toolNames: string[]) {
 
   try {
     const llm = await getBedrockChat('us.anthropic.claude-opus-4-6-v1', {})
-    const { tools } = await getTools(toolNames)
+    const tools = await getTools(toolNames)
     const agent = createAgent({ model: llm, tools, systemPrompt: new SystemMessage('placeholder') })
     try {
       await agent.invoke({ messages: [{ role: 'user', content: 'hi' }] }, { recursionLimit: 3 })

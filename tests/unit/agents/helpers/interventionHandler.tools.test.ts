@@ -66,19 +66,19 @@ function makeGoal(id: string, tools?: string[]) {
   }
 }
 
-type FakeResolved = { tools: Array<{ name: string }>; resolvedNames: string[] }
+type FakeResolved = Array<{ name: string }>
 
 // The real registry names used by resurface_past_discussion, mapped to the real LangChain tool
 // name(s) each one resolves to — a different namespace, which is the whole point being tested.
 const FAKE_REGISTRY: Record<string, FakeResolved> = {
-  event_history: { tools: [{ name: 'search_topic_transcripts' }], resolvedNames: ['event_history'] },
-  open_threads: { tools: [{ name: 'list_open_threads' }], resolvedNames: ['open_threads'] },
-  resource_search: { tools: [{ name: 'search_resources' }], resolvedNames: ['resource_search'] }
+  event_history: [{ name: 'search_topic_transcripts' }],
+  open_threads: [{ name: 'list_open_threads' }],
+  resource_search: [{ name: 'search_resources' }]
 }
-const EMPTY_RESOLVED: FakeResolved = { tools: [], resolvedNames: [] }
+const EMPTY_RESOLVED: FakeResolved = []
 
-// getTools is now called once per registry key (see resolveKey in interventionHandler.ts), so
-// the mock must branch on which single key it was asked for, not return one blanket value.
+// getTools is called once per registry key (see interventionHandler.ts), so the mock must
+// branch on which single key it was asked for, not return one blanket value.
 function useFakeRegistry(overrides: Record<string, FakeResolved> = {}) {
   const registry = { ...FAKE_REGISTRY, ...overrides }
   mockGetTools.mockImplementation(async (names: string[]) => registry[names[0]] ?? EMPTY_RESOLVED)

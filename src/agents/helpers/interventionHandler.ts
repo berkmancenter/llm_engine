@@ -4,7 +4,7 @@ import { BehaviorPolicy, ConversationHistory, ConversationGoal, IChannel } from 
 import { formatMultiUserConversationHistory, formatDmHistoryByChannel } from './llmInputFormatters.js'
 import transcript from './transcript.js'
 import { getChatPromptResponse, getAgentStructuredResponse, AgentToolCallTrace } from './llmChain.js'
-import { getTools, buildToolsGuidance, type ResolvedTools } from '../tools/registry.js'
+import { getTools, buildToolsGuidance } from '../tools/registry.js'
 
 import logger from '../../config/logger.js'
 import { getConfidenceThreshold, getEffectiveMinConfidence, getMinContributionMs } from './promptComposer.js'
@@ -236,15 +236,15 @@ export async function runInterventionAnalysis(
   const neededKeys = [...new Set((activeGoals ?? []).flatMap((g) => g.tools ?? []))]
   const resolvedByKey = new Map(
     await Promise.all(
-      neededKeys.map(async (key): Promise<[string, ResolvedTools]> => [key, await getTools([key], toolContext)])
+      neededKeys.map(async (key): Promise<[string, StructuredToolInterface[]]> => [key, await getTools([key], toolContext)])
     )
   )
 
   const toolsByName = new Map<string, StructuredToolInterface>()
-  const resolvedKeyNames = new Set<string>()
-  for (const { tools: keyTools, resolvedNames } of resolvedByKey.values()) {
+  const resolvedKeyNames: string[] = []
+  for (const [key, keyTools] of resolvedByKey) {
+    if (keyTools.length > 0) resolvedKeyNames.push(key)
     keyTools.forEach((tool) => toolsByName.set(tool.name, tool))
-    resolvedNames.forEach((name) => resolvedKeyNames.add(name))
   }
   const tools = [...toolsByName.values()]
 
@@ -252,7 +252,7 @@ export async function runInterventionAnalysis(
     (activeGoals ?? [])
       .filter((goal) => goal.tools?.length)
       .map((goal) => {
-        const ownToolNames = goal.tools!.flatMap((key) => resolvedByKey.get(key)?.tools.map((t) => t.name) ?? [])
+        const ownToolNames = goal.tools!.flatMap((key) => resolvedByKey.get(key)?.map((t) => t.name) ?? [])
         return [goal.id, new Set(ownToolNames)] as const
       })
   )
@@ -262,7 +262,7 @@ export async function runInterventionAnalysis(
     // Guidance is built from resolvedKeyNames, not every goal's declared keys: a name that
     // didn't actually resolve to a tool (e.g. event_history with no topics available) shouldn't
     // advertise usage instructions for a tool the model doesn't have.
-    const toolsGuidance = await buildToolsGuidance([...resolvedKeyNames], toolContext)
+    const toolsGuidance = await buildToolsGuidance(resolvedKeyNames, toolContext)
     if (toolsGuidance) resolvedSystemPrompt = `${baseSystemPrompt}\n\n${toolsGuidance}`
   }
 
