@@ -138,6 +138,36 @@ describe('socratic_probe', () => {
   })
 })
 
+describe('resurface_past_discussion', () => {
+  test('loads as a silence-compatible groupChat text goal that declares its tools', () => {
+    const goal = loadGoal('resurface_past_discussion')
+    expect(goal).toMatchObject({
+      id: 'resurface_past_discussion',
+      channel: 'groupChat',
+      silenceCompatible: true,
+      outputContract: { format: 'text' },
+      tools: ['event_history', 'open_threads']
+    })
+    expect(goal.triggers.minConfidence).toBe(65)
+    expect(goal.guardrails.length).toBeGreaterThan(0)
+    expect(goal.examples.length).toBeGreaterThan(0)
+  })
+
+  test('requires calling list_open_threads, and conditionally grounding a past-conversation candidate', () => {
+    const guardrails = loadGoal('resurface_past_discussion').guardrails.join('\n')
+    expect(guardrails).toMatch(/always call list_open_threads first/i)
+    expect(guardrails).toMatch(/also call one of event_history's search tools/i)
+    expect(guardrails).toMatch(/earlier in this chat.*needs no further tool call/i)
+    expect(guardrails).toMatch(/never invent or assume a past discussion that wasn't actually retrieved/i)
+  })
+
+  test('is included among groupChat goals', () => {
+    const goals = loadGoals(['resurface_past_discussion', 'private_reassure'])
+    const result = getGroupChatGoals(goals)
+    expect(result.map((g) => g.id)).toEqual(['resurface_past_discussion'])
+  })
+})
+
 describe('listGoalIds', () => {
   test('includes known goal ids from both channels', () => {
     const ids = listGoalIds()
@@ -145,6 +175,7 @@ describe('listGoalIds', () => {
     expect(ids).toContain('private_reassure')
     expect(ids).toContain('missing_perspective')
     expect(ids).toContain('socratic_probe')
+    expect(ids).toContain('resurface_past_discussion')
   })
 
   test('does not include the schema.json file as a goal id', () => {
