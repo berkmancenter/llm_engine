@@ -62,7 +62,19 @@ describe('bot-media-server app (integration)', () => {
   // Shared by beforeEach (the common case, default config) and any test that needs a
   // non-default config (e.g. a short thinkingTimeoutMs) — those call it again after closing
   // what beforeEach already set up.
-  async function setup(overrides: Partial<Parameters<typeof startBotMediaApp>[0]> = {}) {
+  async function setup(
+    overrides: Partial<Parameters<typeof startBotMediaApp>[0]> = {},
+    // Simulates a conversation whose transcript channel has a real passcode configured and was
+    // supplied correctly — the common case every test above this point assumes. The dedicated
+    // 'browser passcode verification' tests below override this to exercise rejection/
+    // no-passcode-configured/timeout instead.
+    verifyPasscodeHandler: (payload: unknown, ack?: (result: unknown) => void) => void = (_payload, ack) =>
+      ack?.({ ok: true, passcodeRequired: true }),
+    // false for the tests expecting verification to reject this connection — 'ready' never
+    // fires for those, so awaiting it here would hang the setup itself rather than let the
+    // test observe the rejection.
+    { expectReady = true }: { expectReady?: boolean } = {}
+  ) {
     fakeLlmEngine = await startFakeLlmEngine()
     engineConnectionCount = 0
     let resolveEngineConnected: (socket: ServerSocket) => void
@@ -72,6 +84,7 @@ describe('bot-media-server app (integration)', () => {
     fakeLlmEngine.io.on('connection', (socket) => {
       engineConnectionCount += 1
       socket.on('conversation:join', (_payload, ack) => ack?.({ ok: true }))
+      socket.on('channel:verifyPasscode', verifyPasscodeHandler)
       resolveEngineConnected(socket)
     })
 
@@ -88,6 +101,12 @@ describe('bot-media-server app (integration)', () => {
 
     const { port } = app.httpServer.address() as AddressInfo
     browser = connectBrowser(port)
+    // Passcode verification is a real round trip to llm_engine (the fake server above), so a
+    // browser is no longer admitted to its room in the same tick its transport connects —
+    // 'ready' is bot-media-server's own signal that admission actually finished; every test
+    // below that emits something expecting the (shared) browser to receive it depends on this
+    // having already happened, not just on the engine socket being connected.
+    if (expectReady) await waitForEvent(browser, 'ready')
   }
 
   beforeEach(setup)
@@ -311,6 +330,49 @@ describe('bot-media-server app (integration)', () => {
       expect(engineConnectionCount).toBe(2)
 
       reconnected.close()
+    })
+  })
+
+  describe('browser passcode verification', () => {
+    test('disconnects a browser when its passcode fails verification', async () => {
+      await app.stop()
+      await new Promise<void>((resolve) => fakeLlmEngine.httpServer.close(() => resolve()))
+      await setup({}, (_payload, ack) => ack?.({ ok: false, reason: 'wrongPasscode' }), { expectReady: false })
+
+      await waitForEvent(browser, 'disconnect')
+      expect(browser.connected).toBe(false)
+    })
+
+    test('disconnects a browser if verification never acks (fails closed, not open)', async () => {
+      await app.stop()
+      await new Promise<void>((resolve) => fakeLlmEngine.httpServer.close(() => resolve()))
+      // No ack call at all here — simulates llm_engine never responding.
+      await setup({ verifyPasscodeTimeoutMs: 50 }, () => {}, { expectReady: false })
+
+      await waitForEvent(browser, 'disconnect')
+      expect(browser.connected).toBe(false)
+    })
+
+    test('still relays state/audio but withholds the question for a conversation with no passcode configured', async () => {
+      await app.stop()
+      await new Promise<void>((resolve) => fakeLlmEngine.httpServer.close(() => resolve()))
+      await setup({}, (_payload, ack) => ack?.({ ok: true, passcodeRequired: false }))
+      const engineSideSocket = await engineConnected
+
+      const thinkingStatePromise = waitForEvent<{ state: string }>(browser, 'state')
+      let sawQuestion = false
+      browser.once('question', () => {
+        sawQuestion = true
+      })
+
+      engineSideSocket.emit('agent:responding', { question: 'Hey TestBot, what event is this?' })
+
+      // The connection itself still works, and non-question events still arrive — only the
+      // specifically more sensitive payload is withheld, and only because there was no real
+      // passcode to have verified this (or any) connection against in the first place.
+      expect((await thinkingStatePromise).state).toBe('thinking')
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(sawQuestion).toBe(false)
     })
   })
 })

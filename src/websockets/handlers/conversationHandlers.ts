@@ -125,6 +125,29 @@ export default (io, socket) => {
     )
     if (typeof callback === 'function') callback({ intros })
   })
+  /* A side-effect-free passcode check — unlike conversation:join/channel:join, never joins a
+     room or generates agent intros, so it's safe to call once per incoming client rather than
+     once per (shared, service-account-authenticated) connection. Written as a plain function,
+     not wrapped in catchAsync: catchAsync's error path calls a `next` callback that socket.io
+     never supplies for a bare `socket.on(event, handler)` registration (only socket.use()
+     middleware gets one), so a thrown error there is silently swallowed — exactly the behavior
+     this handler exists to avoid. Always acks, success or failure, so the caller (bot-media-server,
+     deciding whether to admit a browser socket) never has to infer the answer from silence. */
+  const verifyChannelPasscode = async (data, callback) => {
+    try {
+      const conversation = await Conversation.findById(data.conversationId).select('channels').populate('channels')
+      if (!conversation) {
+        if (typeof callback === 'function') callback({ ok: false, reason: 'notFound' })
+        return
+      }
+      const allowedChannel = conversation.channels?.find((c) => c.name === data.channel)
+      const passcodeRequired = !!allowedChannel?.passcode
+      await authChannels([{ name: data.channel, passcode: data.passcode }], conversation, data.user)
+      if (typeof callback === 'function') callback({ ok: true, passcodeRequired })
+    } catch (err) {
+      if (typeof callback === 'function') callback({ ok: false, reason: err.reason ?? 'invalid' })
+    }
+  }
   /* Only the bare room (and the admin room): Socket.io gives a client no room attribution on a received event,
      so a client moving between conversations has to leave the old room to stop hearing
      conversation-level events for it. Channel rooms are still dropped on disconnect. */
@@ -143,6 +166,7 @@ export default (io, socket) => {
   socket.on('topic:leave', leaveTopic)
   socket.on('channel:join', joinChannel)
   socket.on('conversation:join', joinConversation)
+  socket.on('channel:verifyPasscode', verifyChannelPasscode)
   socket.on('conversation:leave', leaveConversation)
   socket.on('topic:disconnect', () => {
     logger.info('Socket disconnecting from topic.')

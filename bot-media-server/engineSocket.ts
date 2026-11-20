@@ -58,6 +58,60 @@ export interface EngineSocket {
   queue: PendingQueue<AudioChunk>
 }
 
+export interface VerifyPasscodeResult {
+  ok: boolean
+  // Only meaningful when ok is true: whether the channel actually has a passcode configured.
+  // false means there was nothing to check (channel.model.ts documents `passcode: null` as a
+  // supported way to leave one unset) — ok:true in that case is not proof of anything about
+  // who's asking, unlike a real passcode match. Callers should treat the two differently for
+  // anything more sensitive than what was already openly broadcast before this existed.
+  passcodeRequired?: boolean
+  reason?: string
+}
+
+const VERIFY_PASSCODE_TIMEOUT_MS = 5_000
+
+/**
+ * Asks llm_engine, over this conversation's own engine socket connection, whether `passcode`
+ * is correct for `channel` — side-effect-free on llm_engine's side (no room join, no agent
+ * intros), unlike conversation:join/channel:join, so it's safe to call once per incoming
+ * browser rather than once per (shared) engine socket connection. Resolves `{ ok: false,
+ * reason: 'timeout' }` rather than hanging forever if llm_engine never acks (socket.io-client
+ * buffers the emit and retries silently across a reconnect, so a slow/disconnected engine
+ * socket would otherwise leave the caller waiting indefinitely) — callers should treat a
+ * timeout the same as an explicit rejection: this is an auth gate, not a soft check, so it
+ * must fail closed rather than admit a client just because verification itself was slow.
+ */
+export function verifyChannelPasscode(
+  socket: Socket,
+  auth: AuthManager,
+  conversationId: string,
+  channel: string,
+  passcode?: string,
+  // Overridable so tests don't have to wait VERIFY_PASSCODE_TIMEOUT_MS for real — same reasoning
+  // as EngineSocketConfig.thinkingTimeoutMs above.
+  timeoutMs: number = VERIFY_PASSCODE_TIMEOUT_MS
+): Promise<VerifyPasscodeResult> {
+  return new Promise((resolve) => {
+    let settled = false
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      resolve({ ok: false, reason: 'timeout' })
+    }, timeoutMs)
+    socket.emit(
+      'channel:verifyPasscode',
+      { conversationId, token: auth.getAccessToken(), channel, passcode },
+      (ack: VerifyPasscodeResult) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve(ack ?? { ok: false, reason: 'noAck' })
+      }
+    )
+  })
+}
+
 export function createEngineSocket(config: EngineSocketConfig, hooks: EngineSocketHooks): EngineSocket {
   const log = config.onLog ?? (() => {})
   const { conversationId, botName } = config
