@@ -129,7 +129,9 @@ describe('concept graph node shape', () => {
   it('accepts a gloss and a foldedFrom list on a concept', () => {
     const { error, value } = validate(
       graph({
-        concepts: [{ id: 'c1', label: 'Trust Registry', gloss: 'A registry participants check.', foldedFrom: ['Registry Interop'] }],
+        concepts: [
+          { id: 'c1', label: 'Trust Registry', gloss: 'A registry participants check.', foldedFrom: ['Registry Interop'] }
+        ],
         contributions: []
       })
     )

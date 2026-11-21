@@ -6,9 +6,7 @@ function makeData(overrides: Partial<QualityReportData> = {}): QualityReportData
   return {
     conversationName: 'AI in Education',
     conversationId: 'conv-1',
-    evaluators: [
-      { key: 'quality.correctness', mean: 0.85, min: 0.6, count: 10, lowScoreCount: 0 }
-    ],
+    evaluators: [{ key: 'quality.correctness', mean: 0.85, min: 0.6, count: 10, lowScoreCount: 0 }],
     overallMean: 0.85,
     tracesScored: 10,
     lowScoreTraces: [],
@@ -65,9 +63,11 @@ describe('renderQualityReportCard()', () => {
     })
 
     it('formats underscore-separated names as title case', () => {
-      const blocks = renderQualityReportCard(makeData({
-        evaluators: [{ key: 'compliance.intervention_appropriateness', mean: 0.7, min: 0.5, count: 5, lowScoreCount: 0 }]
-      }))
+      const blocks = renderQualityReportCard(
+        makeData({
+          evaluators: [{ key: 'compliance.intervention_appropriateness', mean: 0.7, min: 0.5, count: 5, lowScoreCount: 0 }]
+        })
+      )
       const table = findSection(blocks, (t) => t.includes('```'))
       expect(table.text?.text).toContain('Intervention Appropriateness')
     })
@@ -79,36 +79,44 @@ describe('renderQualityReportCard()', () => {
     })
 
     it('renders 🟢 for mean >= 0.7', () => {
-      const blocks = renderQualityReportCard(makeData({
-        evaluators: [{ key: 'quality.correctness', mean: 0.7, min: 0.7, count: 1, lowScoreCount: 0 }]
-      }))
+      const blocks = renderQualityReportCard(
+        makeData({
+          evaluators: [{ key: 'quality.correctness', mean: 0.7, min: 0.7, count: 1, lowScoreCount: 0 }]
+        })
+      )
       const table = findSection(blocks, (t) => t.includes('```'))
       expect(table.text?.text).toContain('🟢')
     })
 
     it('renders 🟡 for mean >= 0.5 and < 0.7', () => {
-      const blocks = renderQualityReportCard(makeData({
-        evaluators: [{ key: 'quality.correctness', mean: 0.65, min: 0.5, count: 1, lowScoreCount: 0 }]
-      }))
+      const blocks = renderQualityReportCard(
+        makeData({
+          evaluators: [{ key: 'quality.correctness', mean: 0.65, min: 0.5, count: 1, lowScoreCount: 0 }]
+        })
+      )
       const table = findSection(blocks, (t) => t.includes('```'))
       expect(table.text?.text).toContain('🟡')
     })
 
     it('renders 🔴 for mean < 0.5', () => {
-      const blocks = renderQualityReportCard(makeData({
-        evaluators: [{ key: 'quality.correctness', mean: 0.3, min: 0.1, count: 1, lowScoreCount: 1 }]
-      }))
+      const blocks = renderQualityReportCard(
+        makeData({
+          evaluators: [{ key: 'quality.correctness', mean: 0.3, min: 0.1, count: 1, lowScoreCount: 1 }]
+        })
+      )
       const table = findSection(blocks, (t) => t.includes('```'))
       expect(table.text?.text).toContain('🔴')
     })
 
     it('groups multiple evaluators under their shared category', () => {
-      const blocks = renderQualityReportCard(makeData({
-        evaluators: [
-          { key: 'quality.correctness', mean: 0.8, min: 0.6, count: 5, lowScoreCount: 0 },
-          { key: 'quality.relevance', mean: 0.7, min: 0.5, count: 5, lowScoreCount: 0 }
-        ]
-      }))
+      const blocks = renderQualityReportCard(
+        makeData({
+          evaluators: [
+            { key: 'quality.correctness', mean: 0.8, min: 0.6, count: 5, lowScoreCount: 0 },
+            { key: 'quality.relevance', mean: 0.7, min: 0.5, count: 5, lowScoreCount: 0 }
+          ]
+        })
+      )
       const text = findSection(blocks, (t) => t.includes('```')).text?.text ?? ''
       expect(text).toContain('quality')
       expect(text).toContain('Correctness')
@@ -116,34 +124,42 @@ describe('renderQualityReportCard()', () => {
     })
 
     it('renders evaluators with no category (no dot) without a category separator', () => {
-      const blocks = renderQualityReportCard(makeData({
-        evaluators: [{ key: 'interventionAppropriateness', mean: 0.9, min: 0.7, count: 5, lowScoreCount: 0 }]
-      }))
+      const blocks = renderQualityReportCard(
+        makeData({
+          evaluators: [{ key: 'interventionAppropriateness', mean: 0.9, min: 0.7, count: 5, lowScoreCount: 0 }]
+        })
+      )
       const text = findSection(blocks, (t) => t.includes('```')).text?.text ?? ''
       expect(text).toContain('Intervention Appropriateness')
       expect(text).not.toContain('──')
     })
 
     it('renders delta arrows when deltas are provided', () => {
-      const blocks = renderQualityReportCard(makeData({
-        deltas: { 'quality.correctness': 0.12 }
-      }))
+      const blocks = renderQualityReportCard(
+        makeData({
+          deltas: { 'quality.correctness': 0.12 }
+        })
+      )
       const text = findSection(blocks, (t) => t.includes('```')).text?.text ?? ''
       expect(text).toContain('↑ +0.12')
     })
 
     it('renders ↓ arrow for negative delta', () => {
-      const blocks = renderQualityReportCard(makeData({
-        deltas: { 'quality.correctness': -0.15 }
-      }))
+      const blocks = renderQualityReportCard(
+        makeData({
+          deltas: { 'quality.correctness': -0.15 }
+        })
+      )
       const text = findSection(blocks, (t) => t.includes('```')).text?.text ?? ''
       expect(text).toContain('↓ -0.15')
     })
 
     it('renders → when delta is below the display threshold', () => {
-      const blocks = renderQualityReportCard(makeData({
-        deltas: { 'quality.correctness': 0.01 }
-      }))
+      const blocks = renderQualityReportCard(
+        makeData({
+          deltas: { 'quality.correctness': 0.01 }
+        })
+      )
       const text = findSection(blocks, (t) => t.includes('```')).text?.text ?? ''
       expect(text).toContain('→')
     })
@@ -160,33 +176,43 @@ describe('renderQualityReportCard()', () => {
   describe('Trending Down section', () => {
     it('is not rendered when deltas are absent', () => {
       const blocks = renderQualityReportCard(makeData())
-      expect(blocks.some((b) => b.type === 'section' && (b as SectionBlock).text?.text?.includes('Trending Down'))).toBe(false)
+      expect(blocks.some((b) => b.type === 'section' && (b as SectionBlock).text?.text?.includes('Trending Down'))).toBe(
+        false
+      )
     })
 
     it('is not rendered when no evaluator is below the threshold', () => {
-      const blocks = renderQualityReportCard(makeData({
-        deltas: { 'quality.correctness': -0.05 }
-      }))
-      expect(blocks.some((b) => b.type === 'section' && (b as SectionBlock).text?.text?.includes('Trending Down'))).toBe(false)
+      const blocks = renderQualityReportCard(
+        makeData({
+          deltas: { 'quality.correctness': -0.05 }
+        })
+      )
+      expect(blocks.some((b) => b.type === 'section' && (b as SectionBlock).text?.text?.includes('Trending Down'))).toBe(
+        false
+      )
     })
 
     it('appears when an evaluator delta is at or below -0.10', () => {
-      const blocks = renderQualityReportCard(makeData({
-        deltas: { 'quality.correctness': -0.10 }
-      }))
+      const blocks = renderQualityReportCard(
+        makeData({
+          deltas: { 'quality.correctness': -0.1 }
+        })
+      )
       const section = findSection(blocks, (t) => t.includes('Trending Down'))
       expect(section.text?.text).toContain('Correctness')
       expect(section.text?.text).toContain('-0.10')
     })
 
     it('lists trending-down evaluators worst-first', () => {
-      const blocks = renderQualityReportCard(makeData({
-        evaluators: [
-          { key: 'quality.correctness', mean: 0.6, min: 0.4, count: 5, lowScoreCount: 1 },
-          { key: 'quality.relevance', mean: 0.5, min: 0.3, count: 5, lowScoreCount: 2 }
-        ],
-        deltas: { 'quality.correctness': -0.11, 'quality.relevance': -0.20 }
-      }))
+      const blocks = renderQualityReportCard(
+        makeData({
+          evaluators: [
+            { key: 'quality.correctness', mean: 0.6, min: 0.4, count: 5, lowScoreCount: 1 },
+            { key: 'quality.relevance', mean: 0.5, min: 0.3, count: 5, lowScoreCount: 2 }
+          ],
+          deltas: { 'quality.correctness': -0.11, 'quality.relevance': -0.2 }
+        })
+      )
       const text = findSection(blocks, (t) => t.includes('Trending Down')).text?.text ?? ''
       expect(text.indexOf('Relevance')).toBeLessThan(text.indexOf('Correctness'))
     })
@@ -195,22 +221,36 @@ describe('renderQualityReportCard()', () => {
   describe('Needs Review section', () => {
     it('is not rendered when there are no low-score traces', () => {
       const blocks = renderQualityReportCard(makeData({ lowScoreTraces: [], totalLowScoreCount: 0 }))
-      expect(blocks.some((b) => b.type === 'section' && (b as SectionBlock).text?.text?.includes('Needs Review'))).toBe(false)
+      expect(blocks.some((b) => b.type === 'section' && (b as SectionBlock).text?.text?.includes('Needs Review'))).toBe(
+        false
+      )
     })
 
     it('appears when there are low-score traces', () => {
-      const blocks = renderQualityReportCard(makeData({
-        lowScoreTraces: [{ runId: 'r1', url: 'https://smith.langchain.com/r1', lowScores: [{ key: 'compliance.tone', score: 0.2 }] }],
-        totalLowScoreCount: 1
-      }))
+      const blocks = renderQualityReportCard(
+        makeData({
+          lowScoreTraces: [
+            { runId: 'r1', url: 'https://smith.langchain.com/r1', lowScores: [{ key: 'compliance.tone', score: 0.2 }] }
+          ],
+          totalLowScoreCount: 1
+        })
+      )
       expect(findSection(blocks, (t) => t.includes('Needs Review'))).toBeDefined()
     })
 
     it('shows the total count and a link when url is available', () => {
-      const blocks = renderQualityReportCard(makeData({
-        lowScoreTraces: [{ runId: 'run-abc123', url: 'https://smith.langchain.com/run-abc123', lowScores: [{ key: 'compliance.tone', score: 0.2 }] }],
-        totalLowScoreCount: 1
-      }))
+      const blocks = renderQualityReportCard(
+        makeData({
+          lowScoreTraces: [
+            {
+              runId: 'run-abc123',
+              url: 'https://smith.langchain.com/run-abc123',
+              lowScores: [{ key: 'compliance.tone', score: 0.2 }]
+            }
+          ],
+          totalLowScoreCount: 1
+        })
+      )
       const text = findSection(blocks, (t) => t.includes('Needs Review')).text?.text ?? ''
       expect(text).toContain('1 trace')
       expect(text).toContain('https://smith.langchain.com/run-abc123')
@@ -219,10 +259,12 @@ describe('renderQualityReportCard()', () => {
     })
 
     it('falls back to a truncated run ID when url is null', () => {
-      const blocks = renderQualityReportCard(makeData({
-        lowScoreTraces: [{ runId: 'abcdefgh-1234', url: null, lowScores: [{ key: 'compliance.tone', score: 0.3 }] }],
-        totalLowScoreCount: 1
-      }))
+      const blocks = renderQualityReportCard(
+        makeData({
+          lowScoreTraces: [{ runId: 'abcdefgh-1234', url: null, lowScores: [{ key: 'compliance.tone', score: 0.3 }] }],
+          totalLowScoreCount: 1
+        })
+      )
       const text = findSection(blocks, (t) => t.includes('Needs Review')).text?.text ?? ''
       expect(text).toContain('abcdefgh')
     })
@@ -233,21 +275,24 @@ describe('renderQualityReportCard()', () => {
         url: null,
         lowScores: [{ key: 'compliance.tone', score: 0.1 }]
       }))
-      const text = findSection(
-        renderQualityReportCard(makeData({ lowScoreTraces: traces, totalLowScoreCount: 23 })),
-        (t) => t.includes('Needs Review')
-      ).text?.text ?? ''
+      const text =
+        findSection(renderQualityReportCard(makeData({ lowScoreTraces: traces, totalLowScoreCount: 23 })), (t) =>
+          t.includes('Needs Review')
+        ).text?.text ?? ''
       expect(text).toContain('showing worst 5 of 23')
     })
 
     it('does not show the "showing worst" suffix when all low-score traces fit', () => {
-      const text = findSection(
-        renderQualityReportCard(makeData({
-          lowScoreTraces: [{ runId: 'r1', url: null, lowScores: [{ key: 'compliance.tone', score: 0.3 }] }],
-          totalLowScoreCount: 1
-        })),
-        (t) => t.includes('Needs Review')
-      ).text?.text ?? ''
+      const text =
+        findSection(
+          renderQualityReportCard(
+            makeData({
+              lowScoreTraces: [{ runId: 'r1', url: null, lowScores: [{ key: 'compliance.tone', score: 0.3 }] }],
+              totalLowScoreCount: 1
+            })
+          ),
+          (t) => t.includes('Needs Review')
+        ).text?.text ?? ''
       expect(text).not.toContain('showing worst')
     })
   })
@@ -282,18 +327,40 @@ describe('renderQualityReportCard()', () => {
     })
 
     it('inserts Trending Down section when a delta is below threshold', () => {
-      const blocks = renderQualityReportCard(makeData({
-        deltas: { 'quality.correctness': -0.15 }
-      }))
-      expect(blocks.map((b) => b.type)).toEqual(['header', 'section', 'divider', 'section', 'divider', 'section', 'divider', 'context'])
+      const blocks = renderQualityReportCard(
+        makeData({
+          deltas: { 'quality.correctness': -0.15 }
+        })
+      )
+      expect(blocks.map((b) => b.type)).toEqual([
+        'header',
+        'section',
+        'divider',
+        'section',
+        'divider',
+        'section',
+        'divider',
+        'context'
+      ])
     })
 
     it('inserts Needs Review section when low-score traces exist', () => {
-      const blocks = renderQualityReportCard(makeData({
-        lowScoreTraces: [{ runId: 'r1', url: null, lowScores: [{ key: 'k', score: 0.1 }] }],
-        totalLowScoreCount: 1
-      }))
-      expect(blocks.map((b) => b.type)).toEqual(['header', 'section', 'divider', 'section', 'divider', 'section', 'divider', 'context'])
+      const blocks = renderQualityReportCard(
+        makeData({
+          lowScoreTraces: [{ runId: 'r1', url: null, lowScores: [{ key: 'k', score: 0.1 }] }],
+          totalLowScoreCount: 1
+        })
+      )
+      expect(blocks.map((b) => b.type)).toEqual([
+        'header',
+        'section',
+        'divider',
+        'section',
+        'divider',
+        'section',
+        'divider',
+        'context'
+      ])
     })
   })
 })

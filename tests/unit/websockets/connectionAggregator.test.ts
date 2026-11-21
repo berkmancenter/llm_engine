@@ -29,7 +29,7 @@ describe('connectionAggregator', () => {
     expect(aggregator.getTotal()).toBe(0)
   })
 
-  it('drops a worker\'s count when it exits, instead of leaving it stale forever', () => {
+  it("drops a worker's count when it exits, instead of leaving it stale forever", () => {
     const aggregator = createConnectionAggregator()
     aggregator.onMessage(1, { type: 'connectionCount', count: 10 })
     aggregator.onMessage(2, { type: 'connectionCount', count: 5 })

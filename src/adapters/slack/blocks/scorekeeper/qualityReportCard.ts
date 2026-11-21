@@ -1,9 +1,13 @@
 import type { KnownBlock } from '@slack/types'
-import type { QualityReportData, QualityReportEvaluatorScore, QualityReportLowScoreTrace } from '../../../../types/index.types.js'
+import type {
+  QualityReportData,
+  QualityReportEvaluatorScore,
+  QualityReportLowScoreTrace
+} from '../../../../types/index.types.js'
 
 const SEPARATOR_WIDTH = 46
 const DELTA_MIN_DISPLAY = 0.02
-const TRENDING_DOWN_THRESHOLD = -0.10
+const TRENDING_DOWN_THRESHOLD = -0.1
 
 function scoreBar(mean: number): string {
   const filled = Math.round(mean * 10)
@@ -77,10 +81,12 @@ function buildScoreTable(evaluators: QualityReportEvaluatorScore[], deltas?: Rec
 }
 
 function lowScoreLine(o: QualityReportLowScoreTrace): string {
-  const scores = o.lowScores.map(({ key, score }) => {
-    const { name } = parseKey(key)
-    return `${formatName(name)}: ${score.toFixed(2)}`
-  }).join(', ')
+  const scores = o.lowScores
+    .map(({ key, score }) => {
+      const { name } = parseKey(key)
+      return `${formatName(name)}: ${score.toFixed(2)}`
+    })
+    .join(', ')
   const link = o.url ? `<${o.url}|view trace>` : `run \`${o.runId.slice(0, 8)}\``
   return `• ${link} — ${scores}`
 }
@@ -139,7 +145,9 @@ export default function renderQualityReportCard(data: QualityReportData): KnownB
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `*:warning: Needs Review* (${total} trace${total === 1 ? '' : 's'} with scores below 0.5${suffix})\n${data.lowScoreTraces.map(lowScoreLine).join('\n')}`
+        text: `*:warning: Needs Review* (${total} trace${
+          total === 1 ? '' : 's'
+        } with scores below 0.5${suffix})\n${data.lowScoreTraces.map(lowScoreLine).join('\n')}`
       }
     })
   }
@@ -154,13 +162,14 @@ export default function renderQualityReportCard(data: QualityReportData): KnownB
     timeZoneName: 'short'
   })
 
-  const baselineNote = data.baselineSampleCount !== undefined
-    ? ` · Trends vs. 30-day avg (${data.baselineSampleCount} reports)`
-    : ''
+  const baselineNote =
+    data.baselineSampleCount !== undefined ? ` · Trends vs. 30-day avg (${data.baselineSampleCount} reports)` : ''
 
   blocks.push({
     type: 'context',
-    elements: [{ type: 'mrkdwn', text: `Generated at ${generatedAt} · Scores from LangSmith online evaluators${baselineNote}` }]
+    elements: [
+      { type: 'mrkdwn', text: `Generated at ${generatedAt} · Scores from LangSmith online evaluators${baselineNote}` }
+    ]
   })
 
   return blocks

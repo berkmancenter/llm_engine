@@ -7,7 +7,17 @@ export interface ConversationTemplate {
 
 export const TEMPLATES: Record<string, ConversationTemplate> = {
   publicAcademicLecture: {
-    goals: ['surface_signal', 'invite_quieter_voices', 'bridge_topics', 'provoke_participation', 'synthesize_discussion', 'private_reassure', 'private_not_alone', 'private_interest_bridge', 'private_transcript_hook'],
+    goals: [
+      'surface_signal',
+      'invite_quieter_voices',
+      'bridge_topics',
+      'provoke_participation',
+      'synthesize_discussion',
+      'private_reassure',
+      'private_not_alone',
+      'private_interest_bridge',
+      'private_transcript_hook'
+    ],
     behaviorPolicy: {
       globalPolicy: {
         tone: 'professional',
@@ -42,7 +52,16 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
   },
 
   classroomLecture: {
-    goals: ['clarify_confusion', 'surface_signal', 'structure_conversation', 'invite_quieter_voices', 'private_reassure', 'private_not_alone', 'private_interest_bridge', 'private_transcript_hook'],
+    goals: [
+      'clarify_confusion',
+      'surface_signal',
+      'structure_conversation',
+      'invite_quieter_voices',
+      'private_reassure',
+      'private_not_alone',
+      'private_interest_bridge',
+      'private_transcript_hook'
+    ],
     behaviorPolicy: {
       globalPolicy: {
         tone: 'warmSupportive',
@@ -78,7 +97,17 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
   },
 
   companyMeeting: {
-    goals: ['surface_signal', 'synthesize_discussion', 'poll_reveal', 'structure_conversation', 'invite_quieter_voices', 'private_reassure', 'private_not_alone', 'private_interest_bridge', 'private_transcript_hook'],
+    goals: [
+      'surface_signal',
+      'synthesize_discussion',
+      'poll_reveal',
+      'structure_conversation',
+      'invite_quieter_voices',
+      'private_reassure',
+      'private_not_alone',
+      'private_interest_bridge',
+      'private_transcript_hook'
+    ],
     behaviorPolicy: {
       globalPolicy: {
         tone: 'clearNeutral',
@@ -114,7 +143,18 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
   },
 
   casualCommunityEvent: {
-    goals: ['play_commentary', 'provoke_participation', 'challenge_consensus', 'surface_signal', 'invite_quieter_voices', 'bridge_topics', 'private_reassure', 'private_not_alone', 'private_interest_bridge', 'private_transcript_hook'],
+    goals: [
+      'play_commentary',
+      'provoke_participation',
+      'challenge_consensus',
+      'surface_signal',
+      'invite_quieter_voices',
+      'bridge_topics',
+      'private_reassure',
+      'private_not_alone',
+      'private_interest_bridge',
+      'private_transcript_hook'
+    ],
     behaviorPolicy: {
       globalPolicy: {
         tone: 'playful',
@@ -150,7 +190,19 @@ export const TEMPLATES: Record<string, ConversationTemplate> = {
   },
 
   publicPanelDiscussion: {
-    goals: ['provoke_participation', 'challenge_consensus', 'missing_perspective', 'surface_signal', 'invite_quieter_voices', 'synthesize_discussion', 'bridge_topics', 'private_reassure', 'private_not_alone', 'private_interest_bridge', 'private_transcript_hook'],
+    goals: [
+      'provoke_participation',
+      'challenge_consensus',
+      'missing_perspective',
+      'surface_signal',
+      'invite_quieter_voices',
+      'synthesize_discussion',
+      'bridge_topics',
+      'private_reassure',
+      'private_not_alone',
+      'private_interest_bridge',
+      'private_transcript_hook'
+    ],
     behaviorPolicy: {
       globalPolicy: {
         tone: 'warmSupportive',

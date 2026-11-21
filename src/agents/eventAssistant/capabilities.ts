@@ -14,11 +14,7 @@ export default function (): AgentCapabilities {
     read: [
       {
         type: 'ownConversation' as const,
-        events: [
-          'conversationWindowCountdown' as const,
-          'conversationWindowOpened' as const,
-          'conversationStarted' as const
-        ]
+        events: ['conversationWindowCountdown' as const, 'conversationWindowOpened' as const, 'conversationStarted' as const]
       }
     ],
     write: [{ type: 'ownConversation' as const }],

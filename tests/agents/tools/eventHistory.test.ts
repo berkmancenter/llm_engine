@@ -286,7 +286,8 @@ describe('eventHistory tools', () => {
 // ---------------------------------------------------------------------------
 
 describe('get_event_list – Chroma-indexed conversation filtering', () => {
-  let topic; let user
+  let topic
+  let user
 
   beforeEach(async () => {
     user = await createUser('Chroma Filter Test User')
@@ -294,18 +295,8 @@ describe('get_event_list – Chroma-indexed conversation filtering', () => {
   })
 
   it('excludes conversations that have no indexed transcript data in Chroma', async () => {
-    const conv1 = await createConversation(
-      { name: 'Indexed Part-Time Work' },
-      user,
-      topic,
-      new Date('2025-01-01T18:00:00Z')
-    )
-    const conv2 = await createConversation(
-      { name: 'Indexed Aliens' },
-      user,
-      topic,
-      new Date('2025-02-01T18:00:00Z')
-    )
+    const conv1 = await createConversation({ name: 'Indexed Part-Time Work' }, user, topic, new Date('2025-01-01T18:00:00Z'))
+    const conv2 = await createConversation({ name: 'Indexed Aliens' }, user, topic, new Date('2025-02-01T18:00:00Z'))
     await createConversation({ name: 'Not Indexed Event' }, user, topic, new Date('2025-03-01T18:00:00Z'))
 
     await loadPartTimeWorkTranscript(conv1, true)
@@ -339,7 +330,11 @@ describe('get_event_list – Chroma-indexed conversation filtering', () => {
 })
 
 describe('get_event_list – ordinal session ordering (most-recent-first)', () => {
-  let topic; let user; let convOlder; let convNewer; let currentConv
+  let topic
+  let user
+  let convOlder
+  let convNewer
+  let currentConv
 
   beforeEach(async () => {
     user = await createUser('Ordinal Test User')
@@ -393,10 +388,12 @@ describe('get_event_list – ordinal session ordering (most-recent-first)', () =
     const eventList = JSON.parse(await tools.find((t) => t.name === 'get_event_list')!.invoke({}))
     const twoSessionsAgoId = eventList[1].id
 
-    const result = await tools.find((t) => t.name === 'search_conversation_transcript')!.invoke({
-      conversationId: twoSessionsAgoId,
-      query: 'aliens film cinema'
-    })
+    const result = await tools
+      .find((t) => t.name === 'search_conversation_transcript')!
+      .invoke({
+        conversationId: twoSessionsAgoId,
+        query: 'aliens film cinema'
+      })
     console.log('ordinal 2-sessions-ago transcript:', result.slice(0, 200))
 
     expect(result).not.toBe('No relevant content found in that event.')
@@ -405,7 +402,11 @@ describe('get_event_list – ordinal session ordering (most-recent-first)', () =
 })
 
 describe('get_event_list – calendar date filtering', () => {
-  let topic; let user; let convRecent; let convMidMonth; let convOld
+  let topic
+  let user
+  let convRecent
+  let convMidMonth
+  let convOld
 
   beforeEach(async () => {
     user = await createUser('Calendar Test User')
@@ -432,9 +433,11 @@ describe('get_event_list – calendar date filtering', () => {
     const topicRefs: TopicRef[] = [{ id: topic._id.toString(), name: topic.name }]
     const tools = createEventHistoryTools(topicRefs)
     const result = JSON.parse(
-      await tools.find((t) => t.name === 'get_event_list')!.invoke({
-        since: threeDaysAgo.toISOString().slice(0, 10)
-      })
+      await tools
+        .find((t) => t.name === 'get_event_list')!
+        .invoke({
+          since: threeDaysAgo.toISOString().slice(0, 10)
+        })
     )
 
     expect(result).toHaveLength(1)
@@ -450,10 +453,12 @@ describe('get_event_list – calendar date filtering', () => {
     const topicRefs: TopicRef[] = [{ id: topic._id.toString(), name: topic.name }]
     const tools = createEventHistoryTools(topicRefs)
     const result = JSON.parse(
-      await tools.find((t) => t.name === 'get_event_list')!.invoke({
-        since: twelveDaysAgo.toISOString().slice(0, 10),
-        until: fourDaysAgo.toISOString().slice(0, 10)
-      })
+      await tools
+        .find((t) => t.name === 'get_event_list')!
+        .invoke({
+          since: twelveDaysAgo.toISOString().slice(0, 10),
+          until: fourDaysAgo.toISOString().slice(0, 10)
+        })
     )
 
     expect(result).toHaveLength(1)

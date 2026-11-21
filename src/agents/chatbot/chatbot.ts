@@ -73,10 +73,9 @@ export default verify({
       personalityName = 'sarcastic-expert'
     }
 
-    const systemPrompt = composeSystemPrompt(
-      BASE_SYSTEM_PROMPT.replace('{botName}', this.agentConfig.botName),
-      { personalityName }
-    )
+    const systemPrompt = composeSystemPrompt(BASE_SYSTEM_PROMPT.replace('{botName}', this.agentConfig.botName), {
+      personalityName
+    })
 
     const response = await getChatPromptResponse(
       llm,

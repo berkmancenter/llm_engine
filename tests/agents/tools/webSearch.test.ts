@@ -3,9 +3,7 @@ import type { WebSearchResult, WebSearchParams } from '../../../src/agents/tools
 
 describe('Web Search Abstraction', () => {
   test('searchWeb delegates to the configured provider', async () => {
-    const mockResults: WebSearchResult[] = [
-      { title: 'Test', url: 'https://example.com', content: 'snippet', score: 0.9 }
-    ]
+    const mockResults: WebSearchResult[] = [{ title: 'Test', url: 'https://example.com', content: 'snippet', score: 0.9 }]
     const mockProvider = jest.fn<Promise<WebSearchResult[]>, [WebSearchParams]>().mockResolvedValue(mockResults)
 
     registerWebSearchProvider('test_provider', () => mockProvider)

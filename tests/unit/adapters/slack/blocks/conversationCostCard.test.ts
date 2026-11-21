@@ -9,7 +9,14 @@ function makeAggregate(overrides: Record<string, unknown> = {}) {
     totalCompletionTokens: 3000,
     llmCallCount: 9,
     models: [
-      { model: 'claude-sonnet', llmCalls: 9, promptTokens: 150000, completionTokens: 3000, estimatedCostUSD: 1.2, priced: true }
+      {
+        model: 'claude-sonnet',
+        llmCalls: 9,
+        promptTokens: 150000,
+        completionTokens: 3000,
+        estimatedCostUSD: 1.2,
+        priced: true
+      }
     ],
     agents: [{ agentType: 'eventAssistant', llmCalls: 9, estimatedCostUSD: 1.2 }],
     hasUnpricedCalls: false,
@@ -34,7 +41,14 @@ const data: ConversationCostData = {
     totalCompletionTokens: 3500,
     llmCallCount: 12,
     models: [
-      { model: 'claude-sonnet', llmCalls: 9, promptTokens: 150000, completionTokens: 3000, estimatedCostUSD: 1.2, priced: true },
+      {
+        model: 'claude-sonnet',
+        llmCalls: 9,
+        promptTokens: 150000,
+        completionTokens: 3000,
+        estimatedCostUSD: 1.2,
+        priced: true
+      },
       { model: 'gpt-test', llmCalls: 3, promptTokens: 31500, completionTokens: 500, estimatedCostUSD: 0.2702, priced: true }
     ],
     agents: [
