@@ -882,10 +882,17 @@ A single mom of two children with primary custody, she is passionate about findi
 
       expect(responses).toHaveLength(1)
       console.log('Group chat question from DM:', responses[0].message)
+      const message = responses[0].message.toLowerCase()
       // Should reference the group chat topic
-      expect(responses[0].message.toLowerCase()).toMatch(/rooftop|garden|permit/)
-      // Should not describe the DM conversation as group chat activity
-      expect(responses[0].message.toLowerCase()).not.toMatch(/pineapple|pizza/)
+      expect(message).toMatch(/rooftop|garden|permit/)
+      // A separate aside circling back to the DM's own topic is fine — the bot is still in
+      // that DM conversation. What matters is that it doesn't misattribute the DM content as
+      // group chat activity, so check sentence-by-sentence rather than for mere co-occurrence.
+      const groupChatSentences = message.split(/(?<=[.!?])\s+/).filter((sentence) => /rooftop|garden|permit/.test(sentence))
+      expect(groupChatSentences.length).toBeGreaterThan(0)
+      for (const sentence of groupChatSentences) {
+        expect(sentence).not.toMatch(/pineapple|pizza/)
+      }
     })
 
     it('uses shared chat history as context when answering a voice question', async () => {

@@ -1156,7 +1156,14 @@ export async function createProactiveGroupAgentConversation(
   llmPlatform?,
   llmModel?,
   additionalUsers: (typeof owner)[] = [],
-  goals: string[] = []
+  goals: string[] = [],
+  agentConfig: Record<string, unknown> = {},
+  // 'transcript' here (as for socratic_probe's live-event tests) makes hasLiveTranscript true in
+  // proactiveGroupAgent.ts, which frames the system prompt around a live event ("the opening
+  // phase", "a speaker actively presenting", etc.) — wrong for an async, chat-only community like
+  // slackCommunityAssistant, which never creates a transcript channel at all. Pass ['chat'] for
+  // that case.
+  channelNames: string[] = ['transcript', 'chat']
 ) {
   const conversation = await createConversation(conversationObj, owner, topic, startTime)
   conversation.goals = goals
@@ -1167,7 +1174,8 @@ export async function createProactiveGroupAgentConversation(
     agentType: 'proactiveGroupAgent',
     conversation,
     llmPlatform,
-    llmModel
+    llmModel,
+    agentConfig
   })
 
   const allUsers = [owner, ...additionalUsers]
@@ -1177,7 +1185,7 @@ export async function createProactiveGroupAgentConversation(
     participants: [user, agent]
   }))
 
-  const channels = await Channel.create([{ name: 'transcript' }, { name: 'chat' }, ...directChannels])
+  const channels = await Channel.create([...channelNames.map((name) => ({ name })), ...directChannels])
   conversation.channels.push(...channels)
   await agent.save()
   conversation.agents.push(agent)

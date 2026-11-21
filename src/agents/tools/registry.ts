@@ -7,6 +7,7 @@ import Topic from '../../models/topic.model.js'
 import { bkcArchiveWikiTools, buildArchiveWikiToolsPrompt } from './bkcArchiveWiki.js'
 import createMemberBioTools, { buildMemberBioToolsPrompt } from './memberBios.js'
 import createResourceSearchTools, { buildResourceSearchToolsPrompt } from './resourceSearch.js'
+import createOpenThreadsTools from './openThreads.js'
 
 /**
  * A factory that returns one or more LangChain tools, optionally async.
@@ -160,3 +161,17 @@ registerTool('resource_search', (context) => {
   return createResourceSearchTools({ conversationId })
 })
 registerToolPrompt('resource_search', (context) => buildResourceSearchToolsPrompt(context))
+
+// Open threads each past conversation's stop-time extraction flagged as worth revisiting (see
+// lifecycle.ts), falling back to a live equivalent over this conversation's own group chat
+// history when no past conversation has any — pairs with event_history, which grounds a chosen
+// one with a real transcript excerpt. Backs proactiveGroupAgent's resurface_past_discussion goal.
+registerTool('open_threads', (context) => {
+  const topicIds = Array.isArray(context?.topicIds) ? (context.topicIds as string[]) : []
+  const activeConversationId = typeof context?.activeConversationId === 'string' ? context.activeConversationId : undefined
+  if (topicIds.length === 0 && !activeConversationId) {
+    logger.warn('Tool registry: open_threads requested but no topicIds or activeConversationId in context')
+    return []
+  }
+  return createOpenThreadsTools({ topicIds, activeConversationId })
+})
