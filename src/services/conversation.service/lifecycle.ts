@@ -1,4 +1,5 @@
 import httpStatus from 'http-status'
+import { z } from 'zod'
 import { traceable } from 'langsmith/traceable'
 import config from '../../config/config.js'
 import ApiError from '../../utils/ApiError.js'
@@ -39,6 +40,19 @@ const SUMMARIZATION_PROMPT = `
   - The participant messages are from attendees in a group chat either on Zoom or within a custom-built front-end app. Messages labelled "AI Assistant" are from automated assistants — ignore them entirely, do not mention or attribute them.
   - Only include a section about group chat if there were meaningful participant contributions. If the chat was empty or contained only AI Assistant messages, omit it entirely.
   - If the transcript is very sparse or empty, do not infer content from the event description — instead state that the event did not have sufficient recorded content to summarize.`
+
+const OPEN_THREADS_EXTRACTION_PROMPT = `
+  Identify up to 4 questions or ideas that were genuinely discussed during this conversation and could benefit from further discussion later — not everything that was covered, only things worth revisiting.
+
+  - Each item should be a single, well-formed question or statement that stands alone without needing this meeting's own context (e.g. "What's the actual budget ceiling for the vendor contract?", not "the budget thing from earlier").
+  - Only include something that was actually raised and discussed, even briefly — never invent a topic that wasn't part of the conversation.
+  - Skip anything that was fully resolved, decided, or answered during the conversation.
+  - If nothing meets this bar, return an empty list — do not force a result.
+  - The content is made up of a transcript (what speakers said) and participant chat messages. Messages labelled "AI Assistant" are from automated assistants — ignore them entirely.`
+
+const openThreadsSchema = z.object({
+  openThreads: z.array(z.string()).max(4)
+})
 
 export const updateTranscriptStatus = async (
   conversation,
@@ -274,12 +288,47 @@ export async function doStopConversation(conversation) {
 
           logger.info(`Conversation summary generated for conversation ${doc._id}`)
 
-          doc.summary = structuredSummary
-          doc.summaryProvenance = await buildProvenance(
-            'conversationSummary',
-            [doc._id],
-            [...transcriptMessages, ...chatHistory.messages]
-          )
+          doc.postEventAnalysis = {
+            summary: structuredSummary,
+            summaryProvenance: await buildProvenance(
+              'conversationSummary',
+              [doc._id],
+              [...transcriptMessages, ...chatHistory.messages]
+            )
+          }
+
+          const openThreadsResult = await traceable(
+            async () =>
+              getChatPromptResponse(
+                llm,
+                OPEN_THREADS_EXTRACTION_PROMPT,
+                `
+            Event Transcript: {transcript},
+            Shared Chat: {sharedChat},
+            Speaker(s): {speakers},
+            Moderator(s): {moderators},
+            Event Description: {eventDescription}
+          `,
+                { transcript, sharedChat, speakers, moderators, eventDescription },
+                undefined,
+                openThreadsSchema
+              ),
+            {
+              name: 'openThreadsExtraction',
+              metadata: { conversationId: doc._id.toString(), costPhase: 'postEvent' as const }
+            }
+          )()
+
+          logger.info(`Open threads extracted for conversation ${doc._id}: ${openThreadsResult.openThreads.length} found`)
+
+          if (openThreadsResult.openThreads.length > 0) {
+            doc.postEventAnalysis.openThreads = openThreadsResult.openThreads
+            doc.postEventAnalysis.openThreadsProvenance = await buildProvenance(
+              'openThreadsExtraction',
+              [doc._id],
+              [...transcriptMessages, ...chatHistory.messages]
+            )
+          }
         }
       } else logger.warn(`No conversation document found for conversation ${doc._id}`)
     } else logger.warn(`No owner found for conversation ${doc._id}`)
@@ -288,7 +337,7 @@ export async function doStopConversation(conversation) {
 
   // Queue only after the summary is persisted. The worker rechecks public/event
   // eligibility; export is independent of chat assistants and notification settings.
-  if (config.bkcArchive.exportEnabled && doc.summary) {
+  if (config.bkcArchive.exportEnabled && doc.postEventAnalysis?.summary) {
     try {
       await schedule.archiveEvent(doc._id.toString())
       logger.info(`Archive export queued event=${doc._id}`)

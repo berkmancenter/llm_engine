@@ -7,7 +7,7 @@ const event = {
   active: false,
   draft: false,
   endTime: new Date('2026-10-14'),
-  summary: 'Summary',
+  postEventAnalysis: { summary: 'Summary' },
   topic: { private: false, isDeleted: false }
 }
 const lean = jest.fn<() => Promise<unknown[]>>()

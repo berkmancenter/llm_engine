@@ -11,7 +11,12 @@ import { jest } from '@jest/globals'
 const mockTraceable = jest.fn<(...args: any[]) => any>((fn) => fn)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockGetCurrentRunTree = jest.fn<(...args: any[]) => any>()
-const mockGetChatPromptResponse = jest.fn<(...args: unknown[]) => Promise<string>>().mockResolvedValue('Mock summary')
+// The summary call passes no structuredOutputSchema (6th arg) and expects a plain string back;
+// the open-threads extraction call always passes one and expects a structured object — same
+// mocked function, so it must branch on that to give each caller a shape it can use.
+const mockGetChatPromptResponse = jest
+  .fn<(...args: unknown[]) => Promise<unknown>>()
+  .mockImplementation(async (...args: unknown[]) => (args[5] ? { openThreads: [] } : 'Mock summary'))
 
 jest.unstable_mockModule('langsmith/traceable', () => ({
   traceable: mockTraceable,

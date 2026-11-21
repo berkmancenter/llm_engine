@@ -4,6 +4,7 @@ import type { MigrationContext, MigrationDb } from './context.js'
 import renameLegacyAgentJobNames from './20260824000000-rename-legacy-agent-job-names.js'
 import migrateLegacyUserRoles from './20260825000000-migrate-legacy-user-roles.js'
 import backfillUnpackRequestStatus from './20261109000000-backfill-unpack-request-status.js'
+import nestConversationSummary from './20261118000000-nest-conversation-summary.js'
 
 /* Every migration this project has ever needed, hand-listed in the order it must run -
    deliberately not glob-discovered off the filesystem, so the run order is exactly this
@@ -12,7 +13,7 @@ import backfillUnpackRequestStatus from './20261109000000-backfill-unpack-reques
    `name` is the durable identity umzug records in the `migrations` collection to decide
    what's already applied - renaming or reordering an entry here makes it look unapplied
    everywhere it already ran. */
-const migrations = [renameLegacyAgentJobNames, migrateLegacyUserRoles, backfillUnpackRequestStatus]
+const migrations = [renameLegacyAgentJobNames, migrateLegacyUserRoles, backfillUnpackRequestStatus, nestConversationSummary]
 
 /* Turns one umzug log event (a plain object like { event: 'migrating', name: '...' }) into
    a single readable line, since the project logger prints a string/format, not an object. */

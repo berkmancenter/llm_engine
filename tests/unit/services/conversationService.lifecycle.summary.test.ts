@@ -1,6 +1,11 @@
 import { jest } from '@jest/globals'
 
-const mockGetChatPromptResponse = jest.fn<(...args: unknown[]) => Promise<string>>().mockResolvedValue('Mock summary')
+// The summary call passes no structuredOutputSchema (6th arg) and expects a plain string back;
+// the new open-threads extraction call always passes one and expects a structured object —
+// same mocked function, so it must branch on that to give each caller a shape it can use.
+const mockGetChatPromptResponse = jest
+  .fn<(...args: unknown[]) => Promise<unknown>>()
+  .mockImplementation(async (...args: unknown[]) => (args[5] ? { openThreads: [] } : 'Mock summary'))
 
 jest.unstable_mockModule('langsmith/traceable', () => ({
   traceable: (fn) => fn,
@@ -82,7 +87,7 @@ describe('doStopConversation summary generation', () => {
 
     const updated = await Conversation.findById(conversation._id)
     expect(mockGetChatPromptResponse).toHaveBeenCalled()
-    expect(updated!.summary).toBe('Mock summary')
+    expect(updated!.postEventAnalysis?.summary).toBe('Mock summary')
   })
 
   test('queues archive delivery after persisting the summary when enabled', async () => {
@@ -92,7 +97,7 @@ describe('doStopConversation summary generation', () => {
     config.bkcArchive.exportEnabled = true
     const queued = jest.spyOn(schedule, 'archiveEvent').mockImplementation(async (id) => {
       const saved = await Conversation.findById(id)
-      expect(saved!.summary).toBe('Mock summary')
+      expect(saved!.postEventAnalysis?.summary).toBe('Mock summary')
     })
     try {
       await doStopConversation(conversation)
@@ -119,7 +124,7 @@ describe('doStopConversation summary generation', () => {
       await expect(doStopConversation(conversation)).resolves.toBe(conversation)
       const saved = await Conversation.findById(conversation._id)
       expect(saved!.active).toBe(false)
-      expect(saved!.summary).toBe('Mock summary')
+      expect(saved!.postEventAnalysis?.summary).toBe('Mock summary')
       expect(queued).toHaveBeenCalledWith(conversation._id.toString())
       expect(logged).toHaveBeenCalledWith(`Archive export enqueue failed event=${conversation._id}`)
       expect(dispatch).toHaveBeenCalledWith(
@@ -151,8 +156,8 @@ describe('doStopConversation summary generation', () => {
       expect(queued).not.toHaveBeenCalled()
       const saved = await Conversation.findById(conversation._id)
       expect(saved!.active).toBe(false)
-      if (messages === 20) expect(saved!.summary).toBe('Mock summary')
-      else expect(saved!.summary).toBeFalsy()
+      if (messages === 20) expect(saved!.postEventAnalysis?.summary).toBe('Mock summary')
+      else expect(saved!.postEventAnalysis?.summary).toBeFalsy()
     } finally {
       config.bkcArchive.exportEnabled = previous
       queued.mockRestore()
