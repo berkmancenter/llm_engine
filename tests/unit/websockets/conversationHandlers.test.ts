@@ -151,6 +151,92 @@ describe('conversation:leave', () => {
   })
 })
 
+/* Side-effect-free on purpose (no room join, no agent intros) — see bot-media-server's
+   engineSocket.ts, which calls this once per incoming browser connection to decide whether to
+   admit it, rather than inferring trust from its own shared, service-account-authenticated
+   connection to this socket. Always acks, success or failure — unlike conversation:join, which
+   silently drops the ack on a thrown error (see the catchAsync comment above), this handler
+   never relies on that path at all. */
+describe('channel:verifyPasscode', () => {
+  let conversation
+  let user
+
+  beforeEach(async () => {
+    await insertUsers([userOne])
+    const topic = newPublicTopic()
+    await insertTopics([topic])
+    user = { _id: userOne._id, email: userOne.email }
+    conversation = await Conversation.create({
+      name: 'Passcode verification room',
+      owner: userOne._id,
+      topic: topic._id,
+      enableDMs: [],
+      enableAgents: false
+    })
+  })
+
+  it('acks ok with passcodeRequired true when the supplied passcode matches', async () => {
+    const channel = await Channel.create({ name: 'transcript', conversation: conversation._id, passcode: 'open-sesame' })
+    conversation.channels = [channel._id]
+    await conversation.save()
+    const { handlers } = registerWithFakeSocket()
+
+    const ack = await new Promise((resolve) =>
+      handlers['channel:verifyPasscode'](
+        { conversationId: conversation._id, channel: 'transcript', passcode: 'open-sesame', user },
+        resolve
+      )
+    )
+
+    expect(ack).toEqual({ ok: true, passcodeRequired: true })
+  })
+
+  it('acks ok:false with a reason when the supplied passcode is wrong', async () => {
+    const channel = await Channel.create({ name: 'transcript', conversation: conversation._id, passcode: 'open-sesame' })
+    conversation.channels = [channel._id]
+    await conversation.save()
+    const { handlers } = registerWithFakeSocket()
+
+    const ack = await new Promise((resolve) =>
+      handlers['channel:verifyPasscode'](
+        { conversationId: conversation._id, channel: 'transcript', passcode: 'wrong-guess', user },
+        resolve
+      )
+    )
+
+    expect(ack).toEqual({ ok: false, reason: 'wrongPasscode' })
+  })
+
+  it('acks ok with passcodeRequired false when the channel has no passcode configured, regardless of what was supplied', async () => {
+    const channel = await Channel.create({ name: 'transcript', conversation: conversation._id, passcode: null })
+    conversation.channels = [channel._id]
+    await conversation.save()
+    const { handlers } = registerWithFakeSocket()
+
+    const ack = await new Promise((resolve) =>
+      handlers['channel:verifyPasscode'](
+        { conversationId: conversation._id, channel: 'transcript', passcode: undefined, user },
+        resolve
+      )
+    )
+
+    expect(ack).toEqual({ ok: true, passcodeRequired: false })
+  })
+
+  it('acks ok:false when the conversation does not exist', async () => {
+    const { handlers } = registerWithFakeSocket()
+
+    const ack = await new Promise((resolve) =>
+      handlers['channel:verifyPasscode'](
+        { conversationId: new mongoose.Types.ObjectId(), channel: 'transcript', passcode: 'anything', user },
+        resolve
+      )
+    )
+
+    expect(ack).toEqual({ ok: false, reason: 'notFound' })
+  })
+})
+
 /* The per-user room receives preferences:updated, so a client must not be able to join
    another account's room by sending that account's id. */
 describe('user:join', () => {

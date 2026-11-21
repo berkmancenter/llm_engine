@@ -16,7 +16,7 @@ import { Server as SocketIOServer } from 'socket.io'
 import { Socket } from 'socket.io-client'
 import { AuthManager } from './auth.js'
 import { PendingQueue, CALL_UPON_TTL_MS } from './pendingQueue.js'
-import { createEngineSocket, AudioChunk } from './engineSocket.js'
+import { createEngineSocket, verifyChannelPasscode, AudioChunk } from './engineSocket.js'
 import PAGE from './page.js'
 
 const __dir = path.dirname(fileURLToPath(import.meta.url))
@@ -56,6 +56,10 @@ export interface BotMediaAppConfig {
   // engineSocket.ts's THINKING_TIMEOUT_MS for the default and rationale. Overridable here so
   // tests don't have to wait for the real default.
   thinkingTimeoutMs?: number
+  // How long a new browser connection's passcode check may take before it's treated as a
+  // failure — see engineSocket.ts's verifyChannelPasscode. Overridable for the same reason as
+  // thinkingTimeoutMs above.
+  verifyPasscodeTimeoutMs?: number
   onLog?: (message: string) => void
 }
 
@@ -110,7 +114,10 @@ export async function startBotMediaApp(config: BotMediaAppConfig): Promise<BotMe
     })
   })
 
-  const browserIO = new SocketIOServer(httpServer, { cors: { origin: '*' } })
+  // Both real clients (the Recall camera page, NextSpace's iframe) load their own script from
+  // this server, so they're same-origin and need no CORS exception. Leaving this wildcard open
+  // only ever helped a client socket.io itself has no way to tell apart from an attacker's.
+  const browserIO = new SocketIOServer(httpServer)
 
   // Tracked so a reconnecting browser (see 'connection' below) can be caught back up to
   // 'thinking' — unlike hand-raised, that state isn't reflected in the pending queue (nothing
@@ -121,6 +128,13 @@ export async function startBotMediaApp(config: BotMediaAppConfig): Promise<BotMe
   // onQuestion) — kept alongside lastStates so a reconnecting browser mid-'thinking'/
   // 'hand-raised' can be resynced with it too, not just the bare state.
   const lastQuestions = new Map<string, string>()
+  // Learned once per conversation, the first time any browser's handshake passcode is verified
+  // (see verifyChannelPasscode below) — whether the transcript channel actually has one
+  // configured. false means there was nothing to check, so a verified connection there proves
+  // nothing about who's asking; onQuestion below uses this to withhold the participant's actual
+  // words from a conversation with no real secret to have gated them on, even though the
+  // connection itself (state/audio, already broadcast openly before this) stays unchanged.
+  const passcodeRequired = new Map<string, boolean>()
 
   function pushState(conversationId: string, state: 'idle' | 'hand-raised' | 'thinking' | 'speaking') {
     log(`${conversationId} state → ${state}`)
@@ -150,6 +164,10 @@ export async function startBotMediaApp(config: BotMediaAppConfig): Promise<BotMe
         onThinkingChime: () => browserIO.to(conversationId).emit('audio:chime:thinking'),
         onAudioChunk: (chunk) => browserIO.to(conversationId).emit('audio:chunk', chunk),
         onQuestion: (question) => {
+          // Suppressed entirely for a conversation with no real passcode to have verified a
+          // connection against — see passcodeRequired above. Never populating lastQuestions
+          // here also keeps the reconnect-replay branches below from having anything to send.
+          if (!passcodeRequired.get(conversationId)) return
           lastQuestions.set(conversationId, question)
           browserIO.to(conversationId).emit('question', { question })
         }
@@ -159,7 +177,29 @@ export async function startBotMediaApp(config: BotMediaAppConfig): Promise<BotMe
     pendingQueues.set(conversationId, queue)
   }
 
-  browserIO.on('connection', (socket) => {
+  function clearConversationState(conversationId: string) {
+    engineSockets.get(conversationId)?.disconnect()
+    engineSockets.delete(conversationId)
+    pendingQueues.delete(conversationId)
+    lastStates.delete(conversationId)
+    lastQuestions.delete(conversationId)
+    passcodeRequired.delete(conversationId)
+  }
+
+  // Tears down a conversation's engine socket/held state immediately rather than waiting out
+  // reconnectGraceMs — only safe to call when the browserIO room is confirmed empty, since a
+  // rejected connection (see 'connection' below) never reaches the normal 'disconnect' handler
+  // that otherwise does this after a grace period.
+  function teardownIfEmpty(conversationId: string) {
+    const room = browserIO.sockets.adapter.rooms.get(conversationId)
+    if (room && room.size > 0) return
+    const pendingTeardown = teardownTimers.get(conversationId)
+    if (pendingTeardown) clearTimeout(pendingTeardown)
+    teardownTimers.delete(conversationId)
+    clearConversationState(conversationId)
+  }
+
+  browserIO.on('connection', async (socket) => {
     const conversationId = socket.handshake.query.conversationId as string
     const botName = socket.handshake.query.botName as string
     const transcriptPasscode = socket.handshake.query.transcriptPasscode as string | undefined
@@ -168,7 +208,44 @@ export async function startBotMediaApp(config: BotMediaAppConfig): Promise<BotMe
       return
     }
 
+    // The engine socket must already exist to verify anything over it — but its existence
+    // (a bare connection) carries no trust of its own; conversation:join's own channel-passcode
+    // check (see createEngineSocketFor/engineSocket.ts's join()) only ever reflects whichever
+    // passcode the FIRST browser for this conversation happened to send, not this one. Each
+    // browser's own passcode is checked independently here, before it's ever added to the room
+    // that receives state/audio/question — admitting it first and checking after would already
+    // be too late.
+    if (!engineSockets.has(conversationId)) {
+      createEngineSocketFor(conversationId, botName, { transcriptPasscode })
+    }
+    const engineSocket = engineSockets.get(conversationId)!
+
+    const verification = await verifyChannelPasscode(
+      engineSocket,
+      config.auth,
+      conversationId,
+      'transcript',
+      transcriptPasscode,
+      config.verifyPasscodeTimeoutMs
+    )
+    if (!verification.ok) {
+      log(`${conversationId} rejected an unauthenticated browser connection (${verification.reason ?? 'unknown'})`)
+      socket.disconnect()
+      teardownIfEmpty(conversationId)
+      return
+    }
+    // Set even when already true for this conversation — cheap, and keeps this the single
+    // place that ever writes it rather than requiring a has-it-been-set-yet check.
+    passcodeRequired.set(conversationId, verification.passcodeRequired ?? false)
+
     socket.join(conversationId)
+    // Verification is a real round trip to llm_engine, so a browser is no longer admitted to
+    // the room in the same tick its transport connects, the way it was before this check
+    // existed — a client (or test) that assumes otherwise and sends something immediately
+    // after its own 'connect' can race ahead of this. This is the one honest signal that
+    // admission actually finished; anything depending on order should wait for it instead of
+    // inferring readiness from when its own socket opened.
+    socket.emit('ready')
 
     // A reconnect (most commonly a page refresh) landing before the grace period below
     // elapsed — cancel the pending teardown so the existing engine socket/held audio, still
@@ -180,9 +257,10 @@ export async function startBotMediaApp(config: BotMediaAppConfig): Promise<BotMe
       log(`${conversationId} reconnected within the grace period — resuming the existing session`)
     }
 
-    if (!engineSockets.has(conversationId)) {
-      createEngineSocketFor(conversationId, botName, { transcriptPasscode })
-    } else if (pendingQueues.get(conversationId)?.hasPending()) {
+    // The engine socket itself (and so this conversation's pendingQueues/lastStates entries)
+    // was already ensured above, before verification — nothing left to create here, just the
+    // mid-response resync a second/reconnecting browser needs.
+    if (pendingQueues.get(conversationId)?.hasPending()) {
       // A response is still held from before this connection existed (the reused-session case
       // above, or a second browser joining an already-active conversation) — without this, the
       // page starts assuming idle until the next real transition. A response already flushed to
@@ -221,11 +299,7 @@ export async function startBotMediaApp(config: BotMediaAppConfig): Promise<BotMe
       log(`${conversationId} last client disconnected — waiting up to ${reconnectGraceMs}ms for a reconnect`)
       const timer = setTimeout(() => {
         teardownTimers.delete(conversationId)
-        engineSockets.get(conversationId)?.disconnect()
-        engineSockets.delete(conversationId)
-        pendingQueues.delete(conversationId)
-        lastStates.delete(conversationId)
-        lastQuestions.delete(conversationId)
+        clearConversationState(conversationId)
         // queue.reset()/idle is already triggered via the engine socket's own disconnect handler
         log(`${conversationId} no reconnect within the grace period, engine socket closed`)
       }, reconnectGraceMs)
