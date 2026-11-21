@@ -1,9 +1,10 @@
 import { jest } from '@jest/globals'
 
-/* runInterventionAnalysis is shared by proactiveGroupAgent and checkinHandler. The optional
-   backgroundReading argument must add a "## Background Reading:" section to the USER prompt only
-   when given, leaving every other caller's prompt untouched. The LLM chain is mocked, so we
-   inspect the exact template and vars handed to it. */
+/* runInterventionAnalysis is shared by proactiveGroupAgent and checkinHandler. Both the
+   backgroundReading argument and extraTemplateVars.additionalContext add their own section to the
+   USER prompt only when given, leaving every other caller's prompt (and every caller that
+   supplies neither) untouched. The LLM chain is mocked, so we inspect the exact template and vars
+   handed to it. */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockGetChatPromptResponse = jest.fn<(...args: any[]) => Promise<any>>()
@@ -22,6 +23,13 @@ jest.unstable_mockModule('../src/agents/helpers/transcript.js', () => ({
   }
 }))
 
+// None of these tests use a goal that declares tools, so this is never actually called —
+// mocked only so importing interventionHandler.js doesn't pull in the real registry.
+jest.unstable_mockModule('../src/agents/tools/registry.js', () => ({
+  getTools: mockFn().mockResolvedValue([]),
+  buildToolsGuidance: mockFn().mockResolvedValue('')
+}))
+
 const { runInterventionAnalysis, USER_TEMPLATE } = await import('../../../../src/agents/helpers/interventionHandler.js')
 
 const PASSAGES = 'Title: Governing the Commons\nSnippet: fabricated {braces} passage'
@@ -38,7 +46,7 @@ function makeContext() {
 const history = { start: new Date(), end: new Date(), messages: [] }
 const analysis = { shouldIntervene: true, goalId: 'x', reasoning: 'r', confidenceScore: 100 }
 
-async function run(backgroundReading?: string) {
+async function run(backgroundReading?: string, extraTemplateVars?: Record<string, string>) {
   return runInterventionAnalysis.call(
     makeContext(),
     history,
@@ -46,7 +54,7 @@ async function run(backgroundReading?: string) {
     {} as never,
     null,
     undefined,
-    undefined,
+    extraTemplateVars,
     undefined,
     undefined,
     'groupChat',
@@ -78,5 +86,42 @@ describe('runInterventionAnalysis backgroundReading', () => {
     const [, , userTemplate, vars] = mockGetChatPromptResponse.mock.calls[0]
     expect(userTemplate).toBe(USER_TEMPLATE)
     expect(vars).not.toHaveProperty('backgroundReading')
+  })
+
+  it('leaves the prompt unchanged when no extraTemplateVars is supplied', async () => {
+    await run()
+
+    const [, , userTemplate, vars] = mockGetChatPromptResponse.mock.calls[0]
+    expect(userTemplate).toBe(USER_TEMPLATE)
+    expect(vars).not.toHaveProperty('additionalContext')
+  })
+
+  it('prepends an Additional Context section when extraTemplateVars.additionalContext is supplied', async () => {
+    await run(undefined, { additionalContext: 'What is our budget ceiling?' })
+
+    const [, , userTemplate, vars] = mockGetChatPromptResponse.mock.calls[0]
+    expect(userTemplate).toBe(`## Additional Context:\n{additionalContext}\n\n${USER_TEMPLATE}`)
+    expect(vars.additionalContext).toBe('What is our budget ceiling?')
+  })
+
+  it('prepends both sections, background reading first, when both are supplied', async () => {
+    await run(PASSAGES, { additionalContext: 'What is our budget ceiling?' })
+
+    const [, , userTemplate] = mockGetChatPromptResponse.mock.calls[0]
+    expect(userTemplate).toBe(
+      `## Background Reading:\n{backgroundReading}\n\n## Additional Context:\n{additionalContext}\n\n${USER_TEMPLATE}`
+    )
+  })
+
+  // A string replacement (rather than a replacer function) would have treated "$&" inside this
+  // value as "re-insert the matched {additionalContext} placeholder" instead of literal text,
+  // corrupting the actual rendered prompt — not just a display/trace field.
+  it('renders a template var containing regex replacement syntax ($&) literally, not as a pattern', async () => {
+    const dollarAmpersand = 'the going rate is $& per attendee'
+    const result = await run(undefined, { additionalContext: dollarAmpersand })
+
+    const [, , , vars] = mockGetChatPromptResponse.mock.calls[0]
+    expect(vars.additionalContext).toBe(dollarAmpersand)
+    expect(result?.context).toContain(dollarAmpersand)
   })
 })

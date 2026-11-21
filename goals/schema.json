@@ -4,16 +4,7 @@
   "title": "InterventionPattern",
   "description": "A reusable, context-free building block for AI social behavior in group or private conversations.",
   "type": "object",
-  "required": [
-    "id",
-    "label",
-    "description",
-    "channel",
-    "triggers",
-    "guardrails",
-    "outputContract",
-    "examples"
-  ],
+  "required": ["id", "label", "description", "channel", "triggers", "guardrails", "outputContract", "examples"],
   "additionalProperties": false,
   "properties": {
     "id": {
@@ -30,10 +21,7 @@
     },
     "channel": {
       "type": "string",
-      "enum": [
-        "groupChat",
-        "dm"
-      ],
+      "enum": ["groupChat", "dm"],
       "description": "Which channel this pattern operates in."
     },
     "silenceCompatible": {
@@ -43,10 +31,7 @@
     },
     "triggers": {
       "type": "object",
-      "required": [
-        "conditions",
-        "minConfidence"
-      ],
+      "required": ["conditions", "minConfidence"],
       "additionalProperties": false,
       "properties": {
         "conditions": {
@@ -102,9 +87,7 @@
     },
     "outputContract": {
       "type": "object",
-      "required": [
-        "format"
-      ],
+      "required": ["format"],
       "additionalProperties": false,
       "properties": {
         "format": {
@@ -142,6 +125,13 @@
       },
       "minItems": 1,
       "description": "Concrete example outputs demonstrating this pattern in practice."
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Named tools (see src/agents/tools/registry.ts) this goal needs available to make its own decision, resolved generically at decision time rather than special-cased per goal in the calling agent."
     }
   }
 }

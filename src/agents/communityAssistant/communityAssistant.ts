@@ -1,4 +1,3 @@
-import type { StructuredToolInterface } from '@langchain/core/tools'
 import { getAgentStructuredResponse, getChatPromptResponse } from '../helpers/llmChain.js'
 import verify from '../helpers/verify.js'
 import { AgentMessageActions, ConversationHistory } from '../../types/index.types.js'
@@ -264,7 +263,7 @@ export default verify({
           : 'No shared chat messages yet.'
     }
 
-    const tools: StructuredToolInterface[] = await getTools(toolNames, toolContext)
+    const tools = await getTools(toolNames, toolContext)
 
     // Skip the paid embedding call (and the Chroma collection it would create on first touch)
     // for rooms with no uploaded PDFs — mirrors eventQuestionHandler.ts's hasBackground check,

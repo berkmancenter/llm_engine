@@ -78,6 +78,11 @@ function makeAgent(
     minContributionMinutes?: number
     safetyPosture?: 'standard' | 'strict'
     startTime?: Date
+    channels?: Array<{ name: string; direct?: boolean }>
+    goals?: string[]
+    // Omitted by default, same as every cron-triggered agent (Triggers.cron has no numeric
+    // period at all) — only set this to exercise a real periodic trigger's own timerPeriod.
+    triggers?: { periodic?: { timerPeriod: number } }
   } = {}
 ) {
   const startTime = overrides.startTime ?? new Date(Date.now() - 20 * 60 * 1000) // 20 min ago
@@ -89,11 +94,12 @@ function makeAgent(
     agentType: 'proactiveGroupAgent',
     _id: 'test-agent-id',
     agentConfig: { personality: null } as Record<string, unknown>,
+    ...(overrides.triggers ? { triggers: overrides.triggers } : {}),
     getLLM: mockFn().mockResolvedValue({}),
     conversation: {
       name: 'Test Conversation',
       startTime,
-      goals: ['synthesize_discussion'],
+      goals: overrides.goals ?? ['synthesize_discussion'],
       behaviorPolicy: {
         globalPolicy: {
           tone: 'warmSupportive' as const,
@@ -110,7 +116,7 @@ function makeAgent(
           }
         }
       },
-      channels: [{ name: 'chat', direct: false }],
+      channels: overrides.channels ?? [{ name: 'chat', direct: false }],
       messages: overrides.messages ?? [],
       conversationContext: undefined
     }
@@ -262,6 +268,46 @@ describe('proactiveGroupAgent respond', () => {
       expect(responses).toEqual([])
       expect(mockRunInterventionAnalysis).not.toHaveBeenCalled()
     })
+
+    it('still rate-limits with no triggers.periodic (e.g. a cron trigger) even when minContributionMinutes is small', async () => {
+      const now = new Date()
+      // 1 min ago, inside a 2-min minContributionMinutes — with no triggers.periodic to compare
+      // against, this used to fall back to a guessed 120s "timer period" that happened to equal
+      // the 2-min interval and silently dissolve the check (RATE_LIMIT_GRACE_MS === minInterval).
+      const recentOwnMessage = makeMessage({
+        fromAgent: true,
+        visible: true,
+        pseudonym: AGENT_NAME,
+        createdAt: new Date(now.getTime() - 60 * 1000)
+      })
+      const agent = makeAgent({ messages: [recentOwnMessage], minContributionMinutes: 2 })
+      expect(agent).not.toHaveProperty('triggers')
+
+      const responses = await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
+
+      expect(responses).toEqual([])
+      expect(mockRunInterventionAnalysis).not.toHaveBeenCalled()
+    })
+
+    it('dissolves the check for a real periodic trigger whose timerPeriod equals minContributionMinutes', async () => {
+      const now = new Date()
+      const recentOwnMessage = makeMessage({
+        fromAgent: true,
+        visible: true,
+        pseudonym: AGENT_NAME,
+        createdAt: new Date(now.getTime() - 60 * 1000) // 1 min ago — would be rate-limited above
+      })
+      const agent = makeAgent({
+        messages: [recentOwnMessage],
+        minContributionMinutes: 2,
+        triggers: { periodic: { timerPeriod: 120 } }
+      })
+      mockRunInterventionAnalysis.mockResolvedValue(NO_INTERVENTION)
+
+      await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
+
+      expect(mockRunInterventionAnalysis).toHaveBeenCalled()
+    })
   })
 
   describe('transcript window', () => {
@@ -328,6 +374,32 @@ describe('proactiveGroupAgent respond', () => {
 
       const systemPrompt = callArgs[1] as string
       expect(systemPrompt).not.toContain('Preferred pattern')
+    })
+  })
+
+  describe('system prompt framing by transcript channel presence', () => {
+    it('uses the live-event opener and speaker/transcript judgment when a transcript channel exists', async () => {
+      const now = new Date()
+      const agent = makeAgent({ channels: [{ name: 'chat' }, { name: 'transcript' }] })
+      mockRunInterventionAnalysis.mockResolvedValue(NO_INTERVENTION)
+
+      await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
+
+      const systemPrompt = mockRunInterventionAnalysis.mock.calls[0][1] as string
+      expect(systemPrompt).toContain('You are an AI facilitator during a live event')
+      expect(systemPrompt).toContain('A speaker actively presenting is not the same as participants being active')
+    })
+
+    it('uses a neutral opener and drops speaker/transcript judgment when there is no transcript channel', async () => {
+      const now = new Date()
+      const agent = makeAgent({ channels: [{ name: 'chat' }] })
+      mockRunInterventionAnalysis.mockResolvedValue(NO_INTERVENTION)
+
+      await proactiveGroupAgent.respond.call(agent, makeConversationHistory(now))
+
+      const systemPrompt = mockRunInterventionAnalysis.mock.calls[0][1] as string
+      expect(systemPrompt).toContain('You are an AI facilitator for this discussion')
+      expect(systemPrompt).not.toContain('A speaker actively presenting is not the same as participants being active')
     })
   })
 

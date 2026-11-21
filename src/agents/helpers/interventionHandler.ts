@@ -1,8 +1,10 @@
 import { z } from 'zod'
+import type { StructuredToolInterface } from '@langchain/core/tools'
 import { BehaviorPolicy, ConversationHistory, ConversationGoal, IChannel } from '../../types/index.types.js'
 import { formatMultiUserConversationHistory, formatDmHistoryByChannel } from './llmInputFormatters.js'
 import transcript from './transcript.js'
-import { getChatPromptResponse } from './llmChain.js'
+import { getChatPromptResponse, getAgentStructuredResponse, AgentToolCallTrace } from './llmChain.js'
+import { getTools, buildToolsGuidance } from '../tools/registry.js'
 
 import logger from '../../config/logger.js'
 import { getConfidenceThreshold, getEffectiveMinConfidence, getMinContributionMs } from './promptComposer.js'
@@ -17,6 +19,10 @@ import { getConfidenceThreshold, getEffectiveMinConfidence, getMinContributionMs
 export type DeclineReason =
   | 'model_declined'
   | 'below_threshold'
+  // A goal declared tools it needs (ConversationGoal.tools) but the agent loop never actually
+  // invoked one this tick — generic across every tool-dependent goal, set by
+  // runInterventionAnalysis itself rather than a goal-specific check in the calling agent.
+  | 'tool_goal_ungrounded'
   | 'socratic_no_reading'
   | 'socratic_writer_failed'
   | 'professionalism_rejected'
@@ -177,11 +183,17 @@ export async function runInterventionAnalysis(
   const agentRecentPosts = getAgentRecentPosts(sharedChatHistory, this.name, 5)
 
   const baseUserTemplate = userTemplate ?? this.llmTemplates.user ?? USER_TEMPLATE
-  // Reading passages ride in the user prompt (not the system prompt) so the system prompt stays
-  // byte-stable for prompt caching. Omitted entirely when the caller has none.
-  const resolvedUserTemplate = backgroundReading
-    ? `## Background Reading:\n{backgroundReading}\n\n${baseUserTemplate}`
-    : baseUserTemplate
+  // Reading passages and ad hoc caller context ride in the user prompt (not the system prompt)
+  // so the system prompt stays byte-stable for prompt caching. Each is prepended only when the
+  // caller actually has one, so a caller with neither renders byte-identical to before either
+  // existed.
+  const resolvedUserTemplate =
+    [
+      backgroundReading && `## Background Reading:\n{backgroundReading}\n\n`,
+      extraTemplateVars?.additionalContext && `## Additional Context:\n{additionalContext}\n\n`
+    ]
+      .filter(Boolean)
+      .join('') + baseUserTemplate
 
   const templateVars = {
     topic: this.conversation.name,
@@ -196,15 +208,79 @@ export async function runInterventionAnalysis(
     ...extraTemplateVars
   }
 
+  const renderedUserPrompt = Object.entries(templateVars).reduce(
+    (prompt, [key, value]) =>
+      // A string replacement here would let unsanitized chat text containing "$&", "$$", "$`" or
+      // "$'" be interpreted as a replacement pattern (e.g. "$&" re-inserts the matched "{key}"
+      // placeholder) rather than substituted literally. A replacer function's return value is
+      // never pattern-interpreted, so this is the actual prompt sent to the model, not just a
+      // trace field: it has to carry arbitrary participant text through unchanged.
+      // eslint-disable-next-line security/detect-non-literal-regexp
+      prompt.replace(new RegExp(`\\{${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\}`, 'g'), () => value ?? ''),
+    resolvedUserTemplate
+  )
+
+  // A goal can declare named tools it needs to make its own decision (ConversationGoal.tools),
+  // resolved generically via the shared tool registry — the same one communityAssistant and
+  // eventAssistant already use — so goal-specific retrieval code never has to live in the
+  // calling agent. Ticks where no active goal declares tools are completely unaffected: tools
+  // stays empty and the plain, non-tool-calling call below runs exactly as it always has.
+  //
+  // Each distinct registry key is resolved once (deduped up front, so two goals sharing a key
+  // never double-resolves it), then everything else — the bound tool list, the guidance names,
+  // and which actual tool names belong to which goal — is just read back off that. The last part
+  // is what lets "was this goal's own retrieval grounded" be checked precisely below, instead of
+  // "did anyone call any tool this tick" (which would let a different eligible goal's unrelated
+  // tool call ground a goal that never actually looked anything up itself).
+  const toolContext = { topicIds: this.agentConfig?.topicIds, activeConversationId: this.conversation?._id?.toString() }
+  const neededKeys = [...new Set((activeGoals ?? []).flatMap((g) => g.tools ?? []))]
+  const resolvedByKey = new Map(
+    await Promise.all(
+      neededKeys.map(async (key): Promise<[string, StructuredToolInterface[]]> => [key, await getTools([key], toolContext)])
+    )
+  )
+
+  const toolsByName = new Map<string, StructuredToolInterface>()
+  const resolvedKeyNames: string[] = []
+  for (const [key, keyTools] of resolvedByKey) {
+    if (keyTools.length > 0) resolvedKeyNames.push(key)
+    keyTools.forEach((tool) => toolsByName.set(tool.name, tool))
+  }
+  const tools = [...toolsByName.values()]
+
+  const toolNamesByGoalId = new Map(
+    (activeGoals ?? [])
+      .filter((goal) => goal.tools?.length)
+      .map((goal) => {
+        const ownToolNames = goal.tools!.flatMap((key) => resolvedByKey.get(key)?.map((t) => t.name) ?? [])
+        return [goal.id, new Set(ownToolNames)] as const
+      })
+  )
+
+  let resolvedSystemPrompt = baseSystemPrompt
+  if (tools.length > 0) {
+    // Guidance is built from resolvedKeyNames, not every goal's declared keys: a name that
+    // didn't actually resolve to a tool (e.g. event_history with no topics available) shouldn't
+    // advertise usage instructions for a tool the model doesn't have.
+    const toolsGuidance = await buildToolsGuidance(resolvedKeyNames, toolContext)
+    if (toolsGuidance) resolvedSystemPrompt = `${baseSystemPrompt}\n\n${toolsGuidance}`
+  }
+
   const llm = await this.getLLM()
-  const analysis = (await getChatPromptResponse(
-    llm,
-    baseSystemPrompt,
-    resolvedUserTemplate,
-    templateVars,
-    [], // No chat history - we provide full context in the prompt
-    schema
-  )) as z.infer<typeof schema>
+  const analysis = (
+    tools.length > 0
+      ? await getAgentStructuredResponse(llm, tools, resolvedSystemPrompt, renderedUserPrompt, schema, undefined, 20, {
+          returnToolTrace: true
+        })
+      : await getChatPromptResponse(
+          llm,
+          resolvedSystemPrompt,
+          resolvedUserTemplate,
+          templateVars,
+          [], // No chat history - we provide full context in the prompt
+          schema
+        )
+  ) as z.infer<typeof schema> & { toolTrace?: AgentToolCallTrace }
 
   logger.debug(`Intervention opportunity analysis: ${JSON.stringify(analysis, null, 2)}`)
 
@@ -228,24 +304,36 @@ export async function runInterventionAnalysis(
   const patternFloor = matchedGoal ? getEffectiveMinConfidence(matchedGoal, goalPriorities) : 0
   const effectiveThreshold = Math.max(policyThreshold, patternFloor)
 
+  // A goal that declares tool dependencies can never be trusted ungrounded: if it was chosen but
+  // the agent loop never actually invoked one of ITS OWN declared tools this tick (no topicIds
+  // configured, a resolved tool returned nothing, the model called a different eligible goal's
+  // tool instead, or it just didn't bother), treat it the same as a decline — generic across
+  // every tool-dependent goal, so no goal-specific "did I actually retrieve something" check
+  // needs to live in the calling agent. Checked against the goal's own resolved tool names
+  // (toolNamesByGoalId, built above from its own registry keys), not just "was any tool invoked
+  // by anyone this tick" — two eligible goals can each declare a different tool, and the model
+  // choosing goal A is only actually grounded if A's own tool ran, not merely because goal B's did.
+  const invokedToolNames = new Set((analysis.toolTrace?.calls ?? []).map((call) => call.name))
+  const matchedGoalOwnToolNames = matchedGoal ? toolNamesByGoalId.get(matchedGoal.id) : undefined
+  const ungroundedToolGoal =
+    Boolean(matchedGoal?.tools?.length) && ![...(matchedGoalOwnToolNames ?? [])].some((name) => invokedToolNames.has(name))
+
   logger.debug(
     `[interventionHandler] goalId=${analysis.goalId} confidence=${analysis.confidenceScore} threshold=${effectiveThreshold} (policy=${policyThreshold}, patternFloor=${patternFloor})`
   )
 
-  const renderedUserPrompt = Object.entries(templateVars).reduce(
-    (prompt, [key, value]) =>
-      // eslint-disable-next-line security/detect-non-literal-regexp
-      prompt.replace(new RegExp(`\\{${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\}`, 'g'), value ?? ''),
-    resolvedUserTemplate
-  )
   const result = analysis as InterventionAnalysis
   result.context = renderedUserPrompt
 
-  if (!analysis.shouldIntervene || analysis.confidenceScore < effectiveThreshold) {
+  if (!analysis.shouldIntervene || analysis.confidenceScore < effectiveThreshold || ungroundedToolGoal) {
     result.proposedGoalId = result.goalId ?? null
     result.proposedMessage = (channelType === 'dm' ? result.directMessage : result.sharedChatMessage) ?? null
     result.confidenceThreshold = effectiveThreshold
-    result.declineReason = !result.shouldIntervene ? 'model_declined' : 'below_threshold'
+    result.declineReason = (() => {
+      if (!result.shouldIntervene) return 'model_declined'
+      if (ungroundedToolGoal) return 'tool_goal_ungrounded'
+      return 'below_threshold'
+    })()
     result.shouldIntervene = false
     result.goalId = 'none'
     result.sharedChatMessage = null
