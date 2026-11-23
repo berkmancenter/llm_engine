@@ -61,6 +61,37 @@ describe('nest-conversation-summary migration', () => {
     expect(doc!.postEventAnalysis).toBeUndefined()
   })
 
+  it('keeps a summary already written in the new shape and only unsets the old fields', async () => {
+    const provenance = (generatedAt: Date) => ({
+      sourceMessageIds: [],
+      authorIds: [],
+      generator: 'conversationSummary',
+      generatedAt
+    })
+    const firstStop = new Date(Date.now() - 24 * 60 * 60 * 1000) // 1 day ago
+    const secondStop = new Date()
+    const { insertedId } = await conversations().insertOne(
+      legacyConversation({
+        summary: 'Summary from the first stop.',
+        summaryProvenance: provenance(firstStop),
+        postEventAnalysis: {
+          summary: 'Summary from the second stop.',
+          summaryProvenance: provenance(secondStop),
+          openThreads: ['Still open?']
+        }
+      })
+    )
+
+    await migration.up(params())
+
+    const raw = await conversations().findOne({ _id: insertedId })
+    expect(raw!.postEventAnalysis.summary).toBe('Summary from the second stop.')
+    expect(raw!.postEventAnalysis.summaryProvenance.generatedAt).toEqual(secondStop)
+    expect(raw!.postEventAnalysis.openThreads).toEqual(['Still open?'])
+    expect(raw).not.toHaveProperty('summary')
+    expect(raw).not.toHaveProperty('summaryProvenance')
+  })
+
   it('down moves summary and its provenance back to the top level', async () => {
     const { insertedId } = await conversations().insertOne(
       legacyConversation({

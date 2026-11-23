@@ -571,7 +571,10 @@ describe('proactive group agent integration tests', () => {
 
         if (responses.length > 0) {
           const { goalId } = responses[0]
-          console.log(`[healthy discussion] Optional intervention: ${goalId}:`, (responses[0].message as { text: string }).text)
+          console.log(
+            `[healthy discussion] Optional intervention: ${goalId}:`,
+            (responses[0].message as { text: string }).text
+          )
         }
         expect(Array.isArray(responses)).toBe(true)
       },

@@ -15,7 +15,11 @@ import Artifact from '../../models/artifact.model/artifact.js'
 import { CONCEPT_GRAPH_ARTIFACT } from '../../models/artifact.model/conceptGraphArtifact.js'
 import { getModelChat, coreLLMModel, coreLLMPlatform } from '../../agents/helpers/getModelChat.js'
 import { getChatPromptResponse } from '../../agents/helpers/llmChain.js'
-import { computeParticipation, countChannelParticipants, computeAudienceEngagement } from '../conversationAnalytics.service.js'
+import {
+  computeParticipation,
+  countChannelParticipants,
+  computeAudienceEngagement
+} from '../conversationAnalytics.service.js'
 import artifactService from '../artifact.service.js'
 import buildProvenance from '../../utils/provenance.js'
 import { LLM_JOB_LOCK_LIFETIME } from '../../jobs/lockLifetime.js'
@@ -125,20 +129,25 @@ export const formatPollLine = (
    "closed" — generateConceptGraph only ever runs after the conversation itself is inactive
    (see respondPoll's own active-conversation guard in poll.service), so every poll belonging
    to it already has permanently final results. */
-const loadPolls = async (
-  conversation
-): Promise<{ pollId: string; createdAt: Date; text: string; question: string }[]> => {
+const loadPolls = async (conversation): Promise<{ pollId: string; createdAt: Date; text: string; question: string }[]> => {
   const conversationId = new mongoose.Types.ObjectId(conversation._id.toString())
-  const polls = (await Poll.find({ conversation: conversationId })
-    .select('title createdAt')
-    .lean()
-    .exec()) as unknown as { _id: mongoose.Types.ObjectId; title: string; createdAt: Date }[]
+  const polls = (await Poll.find({ conversation: conversationId }).select('title createdAt').lean().exec()) as unknown as {
+    _id: mongoose.Types.ObjectId
+    title: string
+    createdAt: Date
+  }[]
   if (polls.length === 0) return []
 
   const pollIds = polls.map((p) => p._id)
   const [choices, responses] = await Promise.all([
-    PollChoice.find({ poll: { $in: pollIds } }).select('poll text').lean().exec(),
-    PollResponse.find({ poll: { $in: pollIds } }).select('poll choice').lean().exec()
+    PollChoice.find({ poll: { $in: pollIds } })
+      .select('poll text')
+      .lean()
+      .exec(),
+    PollResponse.find({ poll: { $in: pollIds } })
+      .select('poll choice')
+      .lean()
+      .exec()
   ])
 
   const choicesByPoll = new Map<string, { id: string; text: string }[]>()
@@ -179,8 +188,7 @@ const loadPolls = async (
        10 attendees responded"), so that poll falls back to reporting its raw response
        count instead. */
     const totalResponses = pollChoices.reduce((sum, c) => sum + c.count, 0)
-    const trustedAttendeeCount =
-      attendeeCount !== undefined && totalResponses > attendeeCount ? undefined : attendeeCount
+    const trustedAttendeeCount = attendeeCount !== undefined && totalResponses > attendeeCount ? undefined : attendeeCount
     return {
       pollId: poll._id.toString(),
       createdAt: poll.createdAt,
@@ -410,9 +418,7 @@ const applyIdentityScreen = async (
     /* Free-form model prose, same risk category as a statement — screened the same way,
        and the same "smallest thing that carries the risk" rule applies: a flagged gloss
        costs its own sentence, not the concept it describes. */
-    ...payload.concepts
-      .filter((c) => c.gloss)
-      .map((c) => ({ text: c.gloss!, kind: 'gloss' as const, id: c.id })),
+    ...payload.concepts.filter((c) => c.gloss).map((c) => ({ text: c.gloss!, kind: 'gloss' as const, id: c.id })),
     ...payload.originPrompts.map((p) => ({ text: p.text, kind: 'prompt' as const, id: p.id }))
   ]
 
@@ -537,11 +543,7 @@ export const generateConceptGraph = async (conversationId: string, caller: IBase
     })
   }
 
-  const assembled = assembleGraph(
-    results,
-    { sourceTexts: texts, knownIdentities },
-    { conversationId, sourceRefs, pollRefs }
-  )
+  const assembled = assembleGraph(results, { sourceTexts: texts, knownIdentities }, { conversationId, sourceRefs, pollRefs })
 
   /* The exact checks inside assembleGraph have run by here; this is the pass that catches
      what no list could — an unrecorded name, an identifying affiliation. Only the free text
@@ -999,7 +1001,12 @@ export const enqueueGeneration = async (
 
   const name = conversationId
     ? (await Conversation.findById(conversationId).select('name').lean().exec())?.name
-    : (await Topic.findOne({ _id: topicId, isDeleted: { $ne: true } }).select('name').lean().exec())?.name
+    : (
+        await Topic.findOne({ _id: topicId, isDeleted: { $ne: true } })
+          .select('name')
+          .lean()
+          .exec()
+      )?.name
 
   const artifact = await Artifact.create({
     __t: CONCEPT_GRAPH_ARTIFACT,

@@ -13,6 +13,8 @@ export const OPEN_THREADS_EXTRACTION_PROMPT = `
   - If nothing meets this bar, return an empty list — do not force a result.
   - The content is made up of a transcript (what speakers said) and participant chat messages. Messages labelled "AI Assistant" are from automated assistants — ignore them entirely.`
 
+export const MAX_OPEN_THREADS = 4
+// No .max() here: a schema mismatch fails the whole answer, so extra items are trimmed in code.
 export const openThreadsSchema = z.object({
-  openThreads: z.array(z.string()).max(4)
+  openThreads: z.array(z.string())
 })

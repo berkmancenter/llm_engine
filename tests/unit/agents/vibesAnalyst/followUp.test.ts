@@ -44,7 +44,12 @@ describe('resolveFollowUpContext', () => {
     )
 
     const result = await resolveFollowUpContext(
-      { _id: new mongoose.Types.ObjectId(), conversation: conversationId, parentMessage: parent._id, body: 'so how many lurked?' } as never,
+      {
+        _id: new mongoose.Types.ObjectId(),
+        conversation: conversationId,
+        parentMessage: parent._id,
+        body: 'so how many lurked?'
+      } as never,
       conversationId.toString()
     )
 
@@ -70,7 +75,12 @@ describe('resolveFollowUpContext', () => {
     )
 
     const result = await resolveFollowUpContext(
-      { _id: new mongoose.Types.ObjectId(), conversation: conversationId, parentMessage: parent._id, body: 'and the rest?' } as never,
+      {
+        _id: new mongoose.Types.ObjectId(),
+        conversation: conversationId,
+        parentMessage: parent._id,
+        body: 'and the rest?'
+      } as never,
       conversationId.toString()
     )
 
@@ -102,7 +112,12 @@ describe('resolveFollowUpContext', () => {
     )
 
     const result = await resolveFollowUpContext(
-      { _id: new mongoose.Types.ObjectId(), conversation: conversationId, parentMessage: parent._id, body: 'and now?' } as never,
+      {
+        _id: new mongoose.Types.ObjectId(),
+        conversation: conversationId,
+        parentMessage: parent._id,
+        body: 'and now?'
+      } as never,
       conversationId.toString()
     )
 
@@ -143,7 +158,12 @@ describe('resolveFollowUpContext', () => {
     )
 
     const result = await resolveFollowUpContext(
-      { _id: new mongoose.Types.ObjectId(), conversation: conversationId, parentMessage: parent._id, body: 'and now?' } as never,
+      {
+        _id: new mongoose.Types.ObjectId(),
+        conversation: conversationId,
+        parentMessage: parent._id,
+        body: 'and now?'
+      } as never,
       conversationId.toString()
     )
 
@@ -185,7 +205,12 @@ describe('resolveDisambiguationContext', () => {
     )
 
     const result = await resolveDisambiguationContext(
-      { _id: new mongoose.Types.ObjectId(), conversation: conversationId, parentMessage: parent._id, body: 'Test Fancy Vibes #3' } as never,
+      {
+        _id: new mongoose.Types.ObjectId(),
+        conversation: conversationId,
+        parentMessage: parent._id,
+        body: 'Test Fancy Vibes #3'
+      } as never,
       conversationId.toString()
     )
 
@@ -205,7 +230,12 @@ describe('resolveDisambiguationContext', () => {
     )
 
     const result = await resolveDisambiguationContext(
-      { _id: new mongoose.Types.ObjectId(), conversation: conversationId, parentMessage: parent._id, body: 'so how many lurked?' } as never,
+      {
+        _id: new mongoose.Types.ObjectId(),
+        conversation: conversationId,
+        parentMessage: parent._id,
+        body: 'so how many lurked?'
+      } as never,
       conversationId.toString()
     )
 

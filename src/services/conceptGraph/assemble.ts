@@ -194,13 +194,7 @@ export const aliasedKey = (label: string, aliases: string[][] = []): string => {
 export const assembleGraph = (
   results: ExtractionResult[],
   safety: StatementCheckInput,
-  {
-    conversationId,
-    sourceRefs = new Map(),
-    pollRefs = new Map(),
-    aliases = [],
-    foldedGroups = []
-  }: AssemblyOptions = {}
+  { conversationId, sourceRefs = new Map(), pollRefs = new Map(), aliases = [], foldedGroups = [] }: AssemblyOptions = {}
 ): { payload: ConceptGraphPayload; report: AssemblyReport } => {
   const report: AssemblyReport = {
     droppedConcepts: 0,

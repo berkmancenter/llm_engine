@@ -13,9 +13,16 @@ import type { MigrationContext } from './context.js'
 
 const conversations = (db: MigrationContext['db']) => db.collection('conversations')
 
+/* Run this after deploying the code that writes postEventAnalysis, not before. Run first, any
+   event that stops before the deploy is saved in the old shape, and umzug never re-runs an applied
+   migration. Running it late is safe: $rename would overwrite a newer postEventAnalysis.summary,
+   so the filter skips those documents and the second update just drops their stale copy. */
 export const up: MigrationFn<MigrationContext> = async ({ context: { db } }) => {
   const moved = await conversations(db).updateMany(
-    { $or: [{ summary: { $exists: true, $ne: '' } }, { summaryProvenance: { $exists: true } }] },
+    {
+      'postEventAnalysis.summary': { $exists: false },
+      $or: [{ summary: { $exists: true, $ne: '' } }, { summaryProvenance: { $exists: true } }]
+    },
     { $rename: { summary: 'postEventAnalysis.summary', summaryProvenance: 'postEventAnalysis.summaryProvenance' } }
   )
 

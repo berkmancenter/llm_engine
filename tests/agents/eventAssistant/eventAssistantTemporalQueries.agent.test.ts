@@ -90,11 +90,7 @@ describe('eventAssistant temporal reference resolution (series history)', () => 
   it(
     'answers "2 sessions ago" with content from Session A (aliens), not Session B',
     async () => {
-      const msg = await createDirectMessage(
-        'What was discussed 2 sessions ago?',
-        user,
-        conversation
-      )
+      const msg = await createDirectMessage('What was discussed 2 sessions ago?', user, conversation)
       console.log(`Q: ${msg.body}`)
 
       const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)
@@ -113,11 +109,7 @@ describe('eventAssistant temporal reference resolution (series history)', () => 
   it(
     'answers "last week" with content from Session B (part-time work / Jessica Drain)',
     async () => {
-      const msg = await createDirectMessage(
-        'What was the session last week about?',
-        user,
-        conversation
-      )
+      const msg = await createDirectMessage('What was the session last week about?', user, conversation)
       console.log(`Q: ${msg.body}`)
 
       const responses = await defaultAgentTypes.eventAssistant.respond.call(agent, { messages: [] }, msg)

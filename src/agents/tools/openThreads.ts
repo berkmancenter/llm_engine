@@ -8,6 +8,7 @@ import { getChatPromptResponse } from '../helpers/llmChain.js'
 import { getModelChat, coreLLMPlatform, coreLLMModel } from '../helpers/getModelChat.js'
 import {
   OPEN_THREADS_EXTRACTION_PROMPT,
+  MAX_OPEN_THREADS,
   openThreadsSchema
 } from '../../services/conversation.service/openThreadsCriteria.js'
 
@@ -78,7 +79,7 @@ export default function createOpenThreadsTools(options: OpenThreadsToolOptions):
           .join('\n') || 'No participant chat messages.'
 
       const llm = await getModelChat(coreLLMPlatform, coreLLMModel, { maxTokens: 2000 })
-      const { openThreads } = await getChatPromptResponse(
+      const extraction = await getChatPromptResponse(
         llm,
         OPEN_THREADS_EXTRACTION_PROMPT,
         GROUP_CHAT_USER_TEMPLATE,
@@ -86,6 +87,7 @@ export default function createOpenThreadsTools(options: OpenThreadsToolOptions):
         undefined,
         openThreadsSchema
       )
+      const openThreads = extraction.openThreads.slice(0, MAX_OPEN_THREADS)
 
       if (openThreads.length === 0) return 'No open threads are available yet.'
 

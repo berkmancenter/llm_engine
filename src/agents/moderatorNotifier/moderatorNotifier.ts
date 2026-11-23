@@ -356,7 +356,11 @@ ${results.map((r) => `* ${r.label}: ${r.count}`).join('\n')}`
     await Promise.all(
       dmChannels.map((c) => (c as unknown as { populate(path: string): Promise<void> }).populate('participants'))
     )
-    const privateMessagesText = formatDmHistoryByChannel(privateHistory.messages, dmChannels, privateHistory.end ?? new Date())
+    const privateMessagesText = formatDmHistoryByChannel(
+      privateHistory.messages,
+      dmChannels,
+      privateHistory.end ?? new Date()
+    )
 
     const recentTranscript = transcript.getTranscript(this.conversation, 600, conversationHistory.end)
     const allMessages = [...sharedChatMessages.map((m) => m.content), privateMessagesText].join('\n')

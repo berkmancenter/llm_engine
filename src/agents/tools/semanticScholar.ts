@@ -96,7 +96,9 @@ async function fetchWithRetry(url: string, options: Parameters<typeof fetch>[1],
         }
         const retryAfter = response.headers.get('Retry-After')
         const delay = retryAfter ? parseInt(retryAfter, 10) * 1000 : RETRY_BASE_DELAY_MS * 2 ** attempt
-        logger.warn(`Semantic Scholar rate limited (${context}); retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`)
+        logger.warn(
+          `Semantic Scholar rate limited (${context}); retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`
+        )
         clearTimeout(timeout)
         await new Promise((resolve) => setTimeout(resolve, delay))
         continue
@@ -118,7 +120,9 @@ async function fetchWithRetry(url: string, options: Parameters<typeof fetch>[1],
       if (error instanceof Error && error.name === 'AbortError') {
         logger.error(`Semantic Scholar request timed out (${context})`)
       } else {
-        logger.error(`Semantic Scholar request failed (${context}): ${error instanceof Error ? error.message : String(error)}`)
+        logger.error(
+          `Semantic Scholar request failed (${context}): ${error instanceof Error ? error.message : String(error)}`
+        )
       }
       return null
     } finally {
@@ -194,7 +198,9 @@ export async function getRecommendations(params: RecommendationParams): Promise<
     const allowed = p.publicationTypes && p.publicationTypes.some((t) => allowedPublicationTypes.has(t))
     if (!allowed) {
       logger.debug(
-        `Filtered out recommendation "${p.title}" (paperId: ${p.paperId}, publicationTypes: ${JSON.stringify(p.publicationTypes)})`
+        `Filtered out recommendation "${p.title}" (paperId: ${p.paperId}, publicationTypes: ${JSON.stringify(
+          p.publicationTypes
+        )})`
       )
     }
     return allowed

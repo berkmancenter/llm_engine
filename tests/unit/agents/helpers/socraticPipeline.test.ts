@@ -157,6 +157,6 @@ describe('runSocraticStage', () => {
   it('uses the concept template when there is no loaded word', async () => {
     wire({ writer: () => ({ question: LEAKY }) })
     const result = await runSocraticStage(input({ slots: { ...slots, loadedWord: null } }))
-    expect(result?.message).toBe("How does Okonkwo-Reyes treat quota crowding?")
+    expect(result?.message).toBe('How does Okonkwo-Reyes treat quota crowding?')
   })
 })

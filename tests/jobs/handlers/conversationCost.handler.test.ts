@@ -40,10 +40,7 @@ describe('conversationCost handler', () => {
 
     await handlers.conversationCost(makeJob())
 
-    expect(trackSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ _id: conversation._id }),
-      { topicIsPrivate: false }
-    )
+    expect(trackSpy).toHaveBeenCalledWith(expect.objectContaining({ _id: conversation._id }), { topicIsPrivate: false })
   })
 
   test('steps aside when an active Number Cruncher agent exists, to avoid a duplicate settle-poll', async () => {

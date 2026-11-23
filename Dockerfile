@@ -5,6 +5,7 @@ FROM node:22-slim AS deps
 WORKDIR /app
 RUN corepack enable
 COPY package.json yarn.lock .yarnrc.yml* ./
+ENV ONNXRUNTIME_NODE_INSTALL_CUDA=skip
 RUN yarn install --frozen-lockfile
 
 # --- build: compile TypeScript with tsc ---
@@ -25,6 +26,7 @@ FROM node:22-slim AS prod-deps
 WORKDIR /app
 RUN corepack enable
 COPY package.json yarn.lock .yarnrc.yml* ./
+ENV ONNXRUNTIME_NODE_INSTALL_CUDA=skip
 RUN yarn install --frozen-lockfile --production
 
 # --- runtime: minimal final image ---
