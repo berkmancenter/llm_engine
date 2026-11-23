@@ -20,7 +20,9 @@ describe('startJobs', () => {
     // Stub out the individual define/schedule calls: this test is only about the agenda.start()
     // wiring, not about re-verifying job definition/scheduling (covered elsewhere) or writing
     // real cron job documents to the shared test database.
-    Object.keys(defineJob).forEach((key) => jest.spyOn(defineJob, key as keyof typeof defineJob).mockResolvedValue(undefined))
+    Object.keys(defineJob).forEach((key) =>
+      jest.spyOn(defineJob, key as keyof typeof defineJob).mockResolvedValue(undefined)
+    )
     Object.keys(schedule).forEach((key) => jest.spyOn(schedule, key as keyof typeof schedule).mockResolvedValue(undefined))
 
     await startJobs()

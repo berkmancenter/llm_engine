@@ -76,10 +76,7 @@ describe('resolveSummonedEvent', () => {
   })
 
   it('still flags ambiguity when the exact same title is used by more than one event', () => {
-    const candidates = [
-      ev('1', 'Weekly Standup', 'Team A', 100),
-      ev('2', 'Weekly Standup', 'Team B', 10)
-    ]
+    const candidates = [ev('1', 'Weekly Standup', 'Team A', 100), ev('2', 'Weekly Standup', 'Team B', 10)]
 
     const result = resolveSummonedEvent({ eventQuery: 'Weekly Standup', latestInTopic: false }, candidates)
 

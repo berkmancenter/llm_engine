@@ -64,6 +64,11 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
  */
 router
   .route('/:conversationId/:resourceId/pdf')
-  .post(auth('updateConversation'), upload.single('pdf'), validate(resourceValidation.uploadPdf), resourceController.uploadPdf)
+  .post(
+    auth('updateConversation'),
+    upload.single('pdf'),
+    validate(resourceValidation.uploadPdf),
+    resourceController.uploadPdf
+  )
 
 export default router

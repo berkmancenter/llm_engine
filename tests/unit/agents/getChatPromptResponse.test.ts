@@ -10,7 +10,10 @@ import { getChatPromptResponse } from '../../../src/agents/helpers/llmChain.js'
    with modelName attached so shouldUseStructuredOutput routes it down the non-Bedrock path.
    Returns a fake AIMessage-shaped object that StringOutputParser can extract text from. */
 function fakeLlm() {
-  return Object.assign(RunnableLambda.from(async () => ({ content: 'ok' })), { modelName: 'gpt-4o' })
+  return Object.assign(
+    RunnableLambda.from(async () => ({ content: 'ok' })),
+    { modelName: 'gpt-4o' }
+  )
 }
 
 /* Stands in for a Claude-family model: the anthropic model name routes llmChain down the

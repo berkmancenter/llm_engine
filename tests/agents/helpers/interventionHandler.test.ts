@@ -293,7 +293,11 @@ describe('interventionHandler', () => {
     it('normalizes to a declined analysis when socialSensitivity is high and confidence is below 75', async () => {
       mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 70 }))
       const behaviorPolicy = {
-        channels: { groupChat: { proactivePolicy: { initiativeLevel: 'moderatelyProactive' as const, socialSensitivity: 'high' as const } } }
+        channels: {
+          groupChat: {
+            proactivePolicy: { initiativeLevel: 'moderatelyProactive' as const, socialSensitivity: 'high' as const }
+          }
+        }
       }
 
       const result = await runInterventionAnalysis.call(
@@ -315,7 +319,11 @@ describe('interventionHandler', () => {
     it('returns analysis when socialSensitivity is high and confidence meets the 75 threshold', async () => {
       mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 75 }))
       const behaviorPolicy = {
-        channels: { groupChat: { proactivePolicy: { initiativeLevel: 'moderatelyProactive' as const, socialSensitivity: 'high' as const } } }
+        channels: {
+          groupChat: {
+            proactivePolicy: { initiativeLevel: 'moderatelyProactive' as const, socialSensitivity: 'high' as const }
+          }
+        }
       }
 
       const result = await runInterventionAnalysis.call(
@@ -358,7 +366,11 @@ describe('interventionHandler', () => {
       // confidence 70 is below 75 → declined
       mockGetChatPromptResponse.mockResolvedValue(makeAnalysis({ confidenceScore: 70 }))
       const behaviorPolicy = {
-        channels: { groupChat: { proactivePolicy: { initiativeLevel: 'moderatelyProactive' as const, socialSensitivity: 'high' as const } } }
+        channels: {
+          groupChat: {
+            proactivePolicy: { initiativeLevel: 'moderatelyProactive' as const, socialSensitivity: 'high' as const }
+          }
+        }
       }
       const activeGoals = [{ id: 'synthesize_discussion', triggers: { minConfidence: 65 } }] as ConversationGoal[]
 

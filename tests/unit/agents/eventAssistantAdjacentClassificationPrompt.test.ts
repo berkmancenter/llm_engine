@@ -136,4 +136,3 @@ describe('event assistant tool-aware classification prompt', () => {
     })
   })
 })
-

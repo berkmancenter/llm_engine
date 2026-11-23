@@ -131,7 +131,6 @@ describe('voice assistant CI tests', () => {
   )
 })
 
-
 describe('voiceAssistant parseOutput', () => {
   function makeVoiceMessage(text: string, sourceMessage: string, sourcePseudonym?: string) {
     return new Message({

@@ -122,7 +122,9 @@ describe('proactive group agent socratic_probe tests (reading 2)', () => {
     const responses = await respondFiltered(defaultAgentTypes.proactiveGroupAgent, agent, history)
     console.log(
       'socratic_probe responses:',
-      JSON.stringify(responses.map((r) => [r.goalId, (r.message as { text?: string })?.text, r.sourceLabel, r.concept, r.loadedWord]))
+      JSON.stringify(
+        responses.map((r) => [r.goalId, (r.message as { text?: string })?.text, r.sourceLabel, r.concept, r.loadedWord])
+      )
     )
     return responses
   }

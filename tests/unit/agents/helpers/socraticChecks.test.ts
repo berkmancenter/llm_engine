@@ -190,7 +190,7 @@ describe('one ask per question', () => {
   it.each([
     'How does Okonkwo-Reyes treat quota crowding?',
     'What part does Okonkwo-Reyes give to quota crowding in a forum like ours?',
-    'In Okonkwo-Reyes\'s paper, how is quota crowding treated?',
+    "In Okonkwo-Reyes's paper, how is quota crowding treated?",
     // a short alternative inside one ask is a single choice
     'Is quota crowding closer to how Okonkwo-Reyes frames it, or something different?'
   ])('accepts a single ask: %s', (text) => {
@@ -218,9 +218,7 @@ describe('renderSocraticTemplate', () => {
   })
 
   it('falls back to the concept, and quotes a long title as the source', () => {
-    expect(renderSocraticTemplate(slots)).toBe(
-      "How does Okonkwo-Reyes treat quota crowding?"
-    )
+    expect(renderSocraticTemplate(slots)).toBe('How does Okonkwo-Reyes treat quota crowding?')
     expect(renderSocraticTemplate({ ...slots, sourceLabel: 'Quota Crowding in Volunteer Forums' })).toContain(
       "'Quota Crowding in Volunteer Forums'"
     )

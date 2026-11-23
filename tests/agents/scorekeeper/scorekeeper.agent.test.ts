@@ -211,7 +211,7 @@ describe('scorekeeper agent respond()', () => {
   })
 
   describe('baseline deltas', () => {
-    async function seedBaselineReports(count: number, mean = 0.70) {
+    async function seedBaselineReports(count: number, mean = 0.7) {
       const yesterday = new Date()
       yesterday.setUTCDate(yesterday.getUTCDate() - 1)
       yesterday.setUTCHours(0, 0, 0, 0)
@@ -240,7 +240,7 @@ describe('scorekeeper agent respond()', () => {
     })
 
     it('includes deltas and baselineSampleCount when 5+ baseline reports exist', async () => {
-      await seedBaselineReports(5, 0.70)
+      await seedBaselineReports(5, 0.7)
       mockConversations([{ _id: CONV_ID, name: CONV_NAME, topic: { private: false } }])
       mockFetchQualityScores.mockResolvedValue(
         makeScores({
@@ -256,7 +256,7 @@ describe('scorekeeper agent respond()', () => {
     })
 
     it('excludes the current conversation from the baseline calculation', async () => {
-      await seedBaselineReports(5, 0.70)
+      await seedBaselineReports(5, 0.7)
       // Also seed a report for CONV_ID with a very different mean — should not skew baseline
       const yesterday = new Date()
       yesterday.setUTCDate(yesterday.getUTCDate() - 1)
@@ -265,8 +265,8 @@ describe('scorekeeper agent respond()', () => {
         conversationId: CONV_ID,
         conversationName: CONV_NAME,
         reportDate: yesterday,
-        evaluators: [{ key: 'compliance.tone', mean: 0.10, min: 0.0, count: 10, lowScoreCount: 8 }],
-        overallMean: 0.10,
+        evaluators: [{ key: 'compliance.tone', mean: 0.1, min: 0.0, count: 10, lowScoreCount: 8 }],
+        overallMean: 0.1,
         tracesScored: 10,
         totalLowScoreCount: 8
       })

@@ -23,11 +23,13 @@ function makeMessage(overrides: { fromAgent?: boolean; channels?: string[]; crea
   }
 }
 
-function makeAgent(overrides: {
-  messages?: ReturnType<typeof makeMessage>[]
-  goals?: string[]
-  transcriptWindow?: number
-} = {}) {
+function makeAgent(
+  overrides: {
+    messages?: ReturnType<typeof makeMessage>[]
+    goals?: string[]
+    transcriptWindow?: number
+  } = {}
+) {
   return {
     name: AGENT_NAME,
     agentType: 'proactiveGroupAgent',

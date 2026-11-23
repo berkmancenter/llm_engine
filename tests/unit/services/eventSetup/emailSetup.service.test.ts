@@ -400,7 +400,7 @@ describe('emailSetup.service', () => {
 
     // The core spoofing protection: From alone is trivially fakeable, so a relay-domain sender
     // whose signature can't be verified must not get to pick its own organizer via Reply-To.
-    it('rejects a relay sender\'s Reply-To when the From domain is not DKIM-verified (possible spoof)', async () => {
+    it("rejects a relay sender's Reply-To when the From domain is not DKIM-verified (possible spoof)", async () => {
       const replyTo = `jen@${allowedDomain}`
       await insertUsers([newUser(replyTo)])
 
@@ -598,7 +598,12 @@ describe('emailSetup.service', () => {
       // click rather than treated as immediately trustworthy, regardless of what else is complete.
       expect(conversation!.source?.pendingOrganizerConfirmation).toBe(true)
       expect(conversation!.draft).toBe(true)
-      expect(sendOrganizerConfirmationSpy).toHaveBeenCalledWith(organizer.email, expect.anything(), expect.anything(), expect.anything())
+      expect(sendOrganizerConfirmationSpy).toHaveBeenCalledWith(
+        organizer.email,
+        expect.anything(),
+        expect.anything(),
+        expect.anything()
+      )
       expect(sendEventCreatedSpy).not.toHaveBeenCalled()
     })
 

@@ -76,7 +76,9 @@ export default function renderConversationCostCard(data: ConversationCostData): 
     `• *During the event:* $${formatUSD(data.liveEvent.estimatedCostUSD)} (${data.liveEvent.llmCallCount} calls)`
   ]
   if (data.postEvent.llmCallCount > 0) {
-    phaseLines.push(`• *After it ended:* $${formatUSD(data.postEvent.estimatedCostUSD)} (${data.postEvent.llmCallCount} calls)`)
+    phaseLines.push(
+      `• *After it ended:* $${formatUSD(data.postEvent.estimatedCostUSD)} (${data.postEvent.llmCallCount} calls)`
+    )
   }
   blocks.push({ type: 'section', text: { type: 'mrkdwn', text: phaseLines.join('\n') } })
 
@@ -90,7 +92,9 @@ export default function renderConversationCostCard(data: ConversationCostData): 
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `:warning: ${unpricedCount} model${unpricedCount === 1 ? '' : 's'} could not be priced by LangSmith — the actual total is higher than shown.`
+        text: `:warning: ${unpricedCount} model${
+          unpricedCount === 1 ? '' : 's'
+        } could not be priced by LangSmith — the actual total is higher than shown.`
       }
     })
   }

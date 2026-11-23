@@ -36,7 +36,9 @@ describe('proposeConsolidations', () => {
       folds: [{ into: 'Trust Registry', fold: ['Revocation Latency'] }]
     })
 
-    expect(await proposeConsolidations({}, CANDIDATES, CENTRAL, 'topic1')).toEqual([['Trust Registry', 'Revocation Latency']])
+    expect(await proposeConsolidations({}, CANDIDATES, CENTRAL, 'topic1')).toEqual([
+      ['Trust Registry', 'Revocation Latency']
+    ])
   })
 
   it('drops a fold whose survivor was not offered as a central concept', async () => {
@@ -72,7 +74,9 @@ describe('proposeConsolidations', () => {
       folds: [{ into: 'Trust Registry', fold: ['Revocation Latency', 'Something Invented'] }]
     })
 
-    expect(await proposeConsolidations({}, CANDIDATES, CENTRAL, 'topic1')).toEqual([['Trust Registry', 'Revocation Latency']])
+    expect(await proposeConsolidations({}, CANDIDATES, CENTRAL, 'topic1')).toEqual([
+      ['Trust Registry', 'Revocation Latency']
+    ])
   })
 
   it('treats an empty answer as the normal case, not a failure', async () => {
