@@ -10,10 +10,10 @@ Mocking section before adding any mock.
 
 There are two Jest configs with **non-overlapping** `testMatch` globs:
 
-| Command | Config | Runs | Excludes |
-| --- | --- | --- | --- |
-| `npm test` | `jest.config.ts` | everything under `tests/**` | `tests/agents/**`, `tests/**/development/**` |
-| `npm run test:agents` | `jest.agent.config.ts` | only `tests/agents/**` | `tests/agents/development/**` |
+| Command               | Config                 | Runs                        | Excludes                                     |
+| --------------------- | ---------------------- | --------------------------- | -------------------------------------------- |
+| `npm test`            | `jest.config.ts`       | everything under `tests/**` | `tests/agents/**`, `tests/**/development/**` |
+| `npm run test:agents` | `jest.agent.config.ts` | only `tests/agents/**`      | `tests/agents/development/**`                |
 
 - The **main** suite (`npm test`) is the default. It covers unit tests, service/model
   tests, HTTP integration tests, handlers, jobs, adapters. Agent behavior is stubbed,
@@ -72,7 +72,7 @@ agent types whose `respond`/`evaluate`/`start`/`stop` are `jest.fn()`s:
 import { setAgentTypes } from '../../src/models/user.model/agent.model/index.js'
 const mockRespond = jest.fn()
 const mockEvaluate = jest.fn()
-setAgentTypes({ myTestAgent: { respond: mockRespond, evaluate: mockEvaluate, /* ... */ } })
+setAgentTypes({ myTestAgent: { respond: mockRespond, evaluate: mockEvaluate /* ... */ } })
 ```
 
 This is how `agent.model.test.ts` and `conversation.service.test.ts` keep the LLM out
@@ -101,7 +101,7 @@ another organizer the links to someone else's active meeting" test does.
 ### ✅ Module mocking: `jest.unstable_mockModule` + `await import` (in this order)
 
 This is the **only** reliable way to mock an ES module. The mock declaration must come
-first, and the module under test must be imported *dynamically after it*:
+first, and the module under test must be imported _dynamically after it_:
 
 ```ts
 import { jest } from '@jest/globals'
@@ -184,6 +184,11 @@ const testConfig = setupAgentTest('eventAssistant') // returns { llmPlatform, ll
   build agents/conversations at the model the suite is targeting.
 - These tests are slow and nondeterministic (real model). Bump the timeout:
   `jest.setTimeout(120000)`.
+- **Failed agent tests retry twice** (`tests/agentSetup.ts`, loaded only by
+  `jest.agent.config.ts`), so one off model answer doesn't fail CI. A test that fails all
+  three tries is a real failure, and the log shows each failed try. `beforeEach` hooks rerun
+  before a retry, but module-level variables don't reset, so don't let a test depend on state
+  its own earlier try left behind. A test that keeps passing only on a retry still needs fixing.
 - `tests/utils/agentTestHelpers.ts` has factories for the common setups:
   `createEventAssistantConversation`, `createBackChannelConversation`,
   `loadTestTranscript` / `load*Transcript`, `createUser`, `createMessage`, etc. Build
@@ -201,11 +206,11 @@ import { setAgentTypes } from '../../src/models/user.model/agent.model/index.js'
 import { setAdapterTypes, defaultAdapterTypes } from '.../adapter.model/index.js'
 
 afterAll(() => {
-  setAgentTypes(defaultAgentTypes)     // restore — REQUIRED if you called setAgentTypes()
+  setAgentTypes(defaultAgentTypes) // restore — REQUIRED if you called setAgentTypes()
   setAdapterTypes(defaultAdapterTypes) // same for adapter types
 })
 afterEach(async () => {
-  jest.clearAllMocks()                 // reset jest.fn() call history between tests
+  jest.clearAllMocks() // reset jest.fn() call history between tests
 })
 ```
 

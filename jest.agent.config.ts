@@ -2,7 +2,7 @@ export default {
   preset: 'ts-jest',
   testEnvironment: 'node',
   testMatch: ['**/tests/agents/**/*.test.ts', '!**/tests/agents/development/**/*.test.ts'],
-  setupFilesAfterEnv: ['./tests/setup.ts'],
+  setupFilesAfterEnv: ['./tests/setup.ts', './tests/agentSetup.ts'],
   reporters: ['default'],
   extensionsToTreatAsEsm: ['.ts'],
   globalSetup: './jest.agent.globalSetup.js',
