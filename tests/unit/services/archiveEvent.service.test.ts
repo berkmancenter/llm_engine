@@ -13,7 +13,7 @@ const event = {
   active: false,
   draft: false,
   endTime: new Date('2026-10-14'),
-  summary: 'Saved summary',
+  postEventAnalysis: { summary: 'Saved summary' },
   presenters: [{ name: 'Speaker' }],
   topic: { private: false, isDeleted: false }
 }
@@ -30,7 +30,7 @@ test('eligibility fails closed for private, missing, restricted, live and nonsum
     { locked: true },
     { active: true },
     { draft: true },
-    { summary: '' },
+    { postEventAnalysis: { summary: '' } },
     { conversationType: 'communityRoom' },
     { endTime: undefined }
   ]) {

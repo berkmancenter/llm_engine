@@ -84,7 +84,9 @@ const ids = (list: any[] = []) => list.map((id) => id.toString())
  */
 beforeEach(async () => {
   mockGetChatPromptResponse.mockReset()
-  mockGetChatPromptResponse.mockResolvedValue('A summary')
+  // doStopConversation's open-threads extraction (lifecycle.ts) shares this mock and always
+  // passes a structuredOutputSchema (6th arg), unlike the plain-string summary call.
+  mockGetChatPromptResponse.mockImplementation(async (...args: any[]) => (args[5] ? { openThreads: [] } : 'A summary'))
   s = await seedHideScenario()
   await Message.updateOne({ _id: s.authorMsg._id }, { body: `${CANARY_AUTHOR} said something` })
   await Message.updateOne({ _id: s.reply._id }, { body: `${CANARY_REPLY} under the hidden author` })
@@ -130,11 +132,11 @@ describe('post-stop summary', () => {
     expect(promptText()).toContain(CONTROL)
     expect(promptText()).not.toContain(CANARY)
     const stored = await Conversation.findById(conversationOne._id)
-    expect(stored!.summary).not.toContain(CANARY)
-    expectProvenanceOf(stored!.summaryProvenance)
-    expect(stored!.summaryProvenance!.generator).toBe('conversationSummary')
+    expect(stored!.postEventAnalysis?.summary).not.toContain(CANARY)
+    expectProvenanceOf(stored!.postEventAnalysis?.summaryProvenance)
+    expect(stored!.postEventAnalysis?.summaryProvenance!.generator).toBe('conversationSummary')
     // private, like the hidden flag: never serialized to a client
-    expect(stored!.toJSON()).not.toHaveProperty('summaryProvenance')
+    expect(stored!.toJSON().postEventAnalysis).not.toHaveProperty('summaryProvenance')
   })
 })
 
