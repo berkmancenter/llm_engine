@@ -50,8 +50,10 @@ const OPEN_THREADS_EXTRACTION_PROMPT = `
   - If nothing meets this bar, return an empty list — do not force a result.
   - The content is made up of a transcript (what speakers said) and participant chat messages. Messages labelled "AI Assistant" are from automated assistants — ignore them entirely.`
 
+const MAX_OPEN_THREADS = 4
+// No .max() here: a schema mismatch fails the whole answer, so extra items are trimmed in code.
 const openThreadsSchema = z.object({
-  openThreads: z.array(z.string()).max(4)
+  openThreads: z.array(z.string())
 })
 
 export const updateTranscriptStatus = async (
@@ -297,37 +299,43 @@ export async function doStopConversation(conversation) {
             )
           }
 
-          const openThreadsResult = await traceable(
-            async () =>
-              getChatPromptResponse(
-                llm,
-                OPEN_THREADS_EXTRACTION_PROMPT,
-                `
+          // `active` is already saved as false, so a throw here would lose the summary with no retry.
+          try {
+            const openThreadsResult = await traceable(
+              async () =>
+                getChatPromptResponse(
+                  llm,
+                  OPEN_THREADS_EXTRACTION_PROMPT,
+                  `
             Event Transcript: {transcript},
             Shared Chat: {sharedChat},
             Speaker(s): {speakers},
             Moderator(s): {moderators},
             Event Description: {eventDescription}
           `,
-                { transcript, sharedChat, speakers, moderators, eventDescription },
-                undefined,
-                openThreadsSchema
-              ),
-            {
-              name: 'openThreadsExtraction',
-              metadata: { conversationId: doc._id.toString(), costPhase: 'postEvent' as const }
+                  { transcript, sharedChat, speakers, moderators, eventDescription },
+                  undefined,
+                  openThreadsSchema
+                ),
+              {
+                name: 'openThreadsExtraction',
+                metadata: { conversationId: doc._id.toString(), costPhase: 'postEvent' as const }
+              }
+            )()
+            const openThreads = openThreadsResult.openThreads.slice(0, MAX_OPEN_THREADS)
+
+            logger.info(`Open threads extracted for conversation ${doc._id}: ${openThreads.length} found`)
+
+            if (openThreads.length > 0) {
+              doc.postEventAnalysis.openThreads = openThreads
+              doc.postEventAnalysis.openThreadsProvenance = await buildProvenance(
+                'openThreadsExtraction',
+                [doc._id],
+                [...transcriptMessages, ...chatHistory.messages]
+              )
             }
-          )()
-
-          logger.info(`Open threads extracted for conversation ${doc._id}: ${openThreadsResult.openThreads.length} found`)
-
-          if (openThreadsResult.openThreads.length > 0) {
-            doc.postEventAnalysis.openThreads = openThreadsResult.openThreads
-            doc.postEventAnalysis.openThreadsProvenance = await buildProvenance(
-              'openThreadsExtraction',
-              [doc._id],
-              [...transcriptMessages, ...chatHistory.messages]
-            )
+          } catch (err) {
+            logger.error(`Open threads extraction failed for conversation ${doc._id}; saving summary without them`, err)
           }
         }
       } else logger.warn(`No conversation document found for conversation ${doc._id}`)

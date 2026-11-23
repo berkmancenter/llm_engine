@@ -37,6 +37,7 @@ const { publicTopic } = await import('../../fixtures/conversation.fixture.js')
 const { insertTopics } = await import('../../fixtures/topic.fixture.js')
 const { Conversation, Message } = await import('../../../src/models/index.js')
 const { doStopConversation } = await import('../../../src/services/conversation.service/lifecycle.js')
+const { default: agentDispatcher } = await import('../../../src/jobs/agentDispatcher.js')
 
 setupIntTest()
 
@@ -107,6 +108,48 @@ describe('doStopConversation open-threads extraction', () => {
     const updated = await Conversation.findById(conversation._id)
     expect(updated!.postEventAnalysis?.openThreads).toBeFalsy()
     expect(updated!.postEventAnalysis?.openThreadsProvenance).toBeFalsy()
+  })
+
+  test('saves the summary and finishes the stop when open-thread extraction fails', async () => {
+    mockGetChatPromptResponse.mockImplementation(async (...args: unknown[]) => {
+      if (args[5]) throw new Error('LLM unavailable')
+      return 'Mock summary'
+    })
+    const conversation = await makeConversation()
+    await seedTranscriptMessages(conversation._id, 20)
+    const dispatch = jest.spyOn(agentDispatcher, 'dispatch').mockResolvedValue(undefined)
+
+    try {
+      await expect(doStopConversation(conversation)).resolves.toBe(conversation)
+
+      const updated = await Conversation.findById(conversation._id)
+      expect(updated!.postEventAnalysis?.summary).toBe('Mock summary')
+      expect(updated!.postEventAnalysis?.openThreads).toBeFalsy()
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'conversationStopped', conversationId: conversation._id.toString() }),
+        expect.any(Object),
+        expect.any(Object)
+      )
+    } finally {
+      dispatch.mockRestore()
+    }
+  })
+
+  test('keeps the first 4 open threads when the model returns more', async () => {
+    const fiveThreads = ['Thread 1?', 'Thread 2?', 'Thread 3?', 'Thread 4?', 'Thread 5?']
+    // The real helper throws when the model's answer fails the schema it was given, so this
+    // fake validates against that schema too; otherwise a too-strict schema would go unnoticed.
+    mockGetChatPromptResponse.mockImplementation(async (...args: unknown[]) =>
+      args[5] ? (args[5] as { parse: (value: unknown) => unknown }).parse({ openThreads: fiveThreads }) : 'Mock summary'
+    )
+    const conversation = await makeConversation()
+    await seedTranscriptMessages(conversation._id, 20)
+
+    await doStopConversation(conversation)
+
+    const updated = await Conversation.findById(conversation._id)
+    expect(updated!.postEventAnalysis?.summary).toBe('Mock summary')
+    expect(updated!.postEventAnalysis?.openThreads).toEqual(fiveThreads.slice(0, 4))
   })
 
   test('still extracts open threads when the conversation has no topic', async () => {
