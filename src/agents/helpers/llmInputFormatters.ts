@@ -142,10 +142,11 @@ function formatMultiUserConversationHistory(conversationHistory: ConversationHis
         const asker = (body.sourcePseudonym as string) || 'User'
         return [
           { role: 'user', content: `${label}${asker}: ${body.sourceMessage}` },
-          { role: 'assistant', content: `${label}${messageText}` }
+          { role: 'assistant', content: messageText }
         ]
       }
-      return { role: 'assistant', content: `${label}${messageText}` }
+      // Chat agents replay these as the model's own past turns; a label here gets copied into its reply.
+      return { role: 'assistant', content: messageText }
     }
     // For multi-user environments, include the pseudonym in the content
     return { role: 'user', content: `${label}${message.pseudonym}: ${messageText}` }

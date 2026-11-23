@@ -116,8 +116,24 @@ describe('LLM Input Formatter Tests', () => {
         role: 'user',
         content: '[just now] Pro AI Urban Woman: I think AI should have rights if it demonstrates consciousness.'
       },
-      { role: 'assistant', content: "[just now] But how do we define consciousness? Isn't it just simulation?" },
+      { role: 'assistant', content: "But how do we define consciousness? Isn't it just simulation?" },
       { role: 'user', content: '[just now] Pro AI Urban Woman: Are you breathing?' }
+    ])
+  })
+
+  // These entries are replayed to the model as its own earlier turns, so a label here teaches it
+  // to open its next reply with one.
+  it('labels user turns with recency but leaves assistant turns unlabeled', async () => {
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000)
+    const msg1 = await createMessage('What is part-time work?', 'Curious Corgi', twoHoursAgo)
+    const msg2 = await createMessage('Fewer hours than full time.', 'BOT', twoHoursAgo, true)
+    const convHistory = getConversationHistory([msg1, msg2], { count: 100 })
+
+    const formattedMessages = formatMultiUserConversationHistory(convHistory)
+
+    expect(formattedMessages).toEqual([
+      { role: 'user', content: '[2 hours ago] Curious Corgi: What is part-time work?' },
+      { role: 'assistant', content: 'Fewer hours than full time.' }
     ])
   })
 
@@ -192,7 +208,7 @@ describe('LLM Input Formatter Tests', () => {
     expect(formattedMessages).toEqual([
       { role: 'user', content: '[just now] Pro AI Urban Woman: I think AI should have rights.' },
       { role: 'user', content: '[just now] Curious Corgi: What is part-time work?' },
-      { role: 'assistant', content: '[just now] Part-time work is working fewer hours than a full-time schedule.' },
+      { role: 'assistant', content: 'Part-time work is working fewer hours than a full-time schedule.' },
       { role: 'user', content: '[just now] Pro AI Urban Woman: Interesting!' }
     ])
   })
@@ -213,7 +229,7 @@ describe('LLM Input Formatter Tests', () => {
     const formattedMessages = formatMultiUserConversationHistory(convHistory)
     expect(formattedMessages).toEqual([
       { role: 'user', content: '[just now] User: What is part-time work?' },
-      { role: 'assistant', content: '[just now] Part-time work is working fewer hours than a full-time schedule.' }
+      { role: 'assistant', content: 'Part-time work is working fewer hours than a full-time schedule.' }
     ])
   })
 
@@ -227,7 +243,7 @@ describe('LLM Input Formatter Tests', () => {
     )
     const convHistory = getConversationHistory([msg1], { count: 100 })
     const formattedMessages = formatMultiUserConversationHistory(convHistory)
-    expect(formattedMessages).toEqual([{ role: 'assistant', content: '[just now] Some agent response' }])
+    expect(formattedMessages).toEqual([{ role: 'assistant', content: 'Some agent response' }])
   })
 
   it('should render poll choices in multi-user conversation history', async () => {
@@ -254,7 +270,7 @@ describe('LLM Input Formatter Tests', () => {
       {
         role: 'assistant',
         content:
-          '[just now] Let us find out what you think!\n[Poll: "Best programming language?"]\nChoices:\n- TypeScript\n- Python\n- Rust'
+          'Let us find out what you think!\n[Poll: "Best programming language?"]\nChoices:\n- TypeScript\n- Python\n- Rust'
       },
       { role: 'user', content: '[just now] Pro AI Urban Woman: Great poll!' }
     ])
@@ -307,7 +323,7 @@ describe('LLM Input Formatter Tests', () => {
         role: 'user',
         content: '[just now] Pro AI Urban Woman: I think AI should have rights if it demonstrates consciousness.'
       },
-      { role: 'assistant', content: "[just now] But how do we define consciousness? Isn't it just simulation?" },
+      { role: 'assistant', content: "But how do we define consciousness? Isn't it just simulation?" },
       { role: 'user', content: '[just now] Pro AI Urban Woman: Are you breathing?' }
     ])
   })
