@@ -22,16 +22,35 @@ const MIN_THREAD_AGE_MS = 3 * 24 * 60 * 60 * 1000 // 3 days
 // floor — a thread quiet for two months is arguably stale rather than worth resurfacing.
 const MAX_THREAD_AGE_MS = 60 * 24 * 60 * 60 * 1000 // 60 days
 
+// A busy channel can post thousands of messages in 60 days; this keeps the extraction prompt small.
+const MAX_LIVE_THREAD_MESSAGES = 200
+// Candidates come from chat at least 3 days old, so they barely change between proactive ticks.
+const LIVE_THREADS_CACHE_TTL_MS = 6 * 60 * 60 * 1000 // 6 hours
+
 const GROUP_CHAT_USER_TEMPLATE = `Current Time: {currentTime}\n\nGroup Chat History:\n{sharedChat}`
 
 type ToolResult = [string, { grounding: boolean }]
 const NO_OPEN_THREADS: ToolResult = ['No open threads are available yet.', { grounding: false }]
 
+const liveThreadsCache = new Map<string, { expiresAt: number; result: ToolResult }>()
+
+function pruneExpiredLiveThreads() {
+  const now = Date.now()
+  for (const [conversationId, entry] of liveThreadsCache) {
+    if (entry.expiresAt <= now) liveThreadsCache.delete(conversationId)
+  }
+}
+
 async function extractLiveOpenThreads(activeConversationId: string, recencyCutoff: Date): Promise<ToolResult> {
-  const messages = await findMessages(activeConversationId, 'model', {
-    channels: { $in: ['chat'] },
-    createdAt: { $lt: recencyCutoff, $gte: new Date(Date.now() - MAX_THREAD_AGE_MS) }
-  })
+  const messages = await findMessages(
+    activeConversationId,
+    'model',
+    {
+      channels: { $in: ['chat'] },
+      createdAt: { $lt: recencyCutoff, $gte: new Date(Date.now() - MAX_THREAD_AGE_MS) }
+    },
+    { sort: { createdAt: -1 }, limit: MAX_LIVE_THREAD_MESSAGES }
+  )
   const sortedMessages = messages.sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0))
   const chatHistory = getConversationHistory(sortedMessages, { channels: ['chat'] })
   const sharedChat =
@@ -109,7 +128,13 @@ export default function createOpenThreadsTools(options: OpenThreadsToolOptions):
 
       if (!activeConversationId) return NO_OPEN_THREADS
 
-      return extractLiveOpenThreads(activeConversationId, recencyCutoff)
+      const cached = liveThreadsCache.get(activeConversationId)
+      if (cached && cached.expiresAt > Date.now()) return cached.result
+
+      const result = await extractLiveOpenThreads(activeConversationId, recencyCutoff)
+      pruneExpiredLiveThreads()
+      liveThreadsCache.set(activeConversationId, { expiresAt: Date.now() + LIVE_THREADS_CACHE_TTL_MS, result })
+      return result
     },
     {
       name: 'list_open_threads',

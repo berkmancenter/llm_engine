@@ -345,6 +345,45 @@ describe('list_open_threads live group-chat fallback', () => {
     )
     expect(mockGetChatPromptResponse).not.toHaveBeenCalled()
   })
+
+  it('reuses a recent live extraction instead of calling the model again on the next tick', async () => {
+    const user = await createUser('Test User')
+    const topic = await createPublicTopic()
+    const conversation = await createConversation({ name: 'Ongoing Chat' }, user, topic)
+    await seedChatMessages(conversation._id, ['Does anyone know our actual budget ceiling for this?'])
+    mockGetChatPromptResponse.mockResolvedValue({ openThreads: ['What is our actual budget ceiling?'] })
+    const [tool] = createOpenThreadsTools({
+      topicIds: [topic._id.toString()],
+      activeConversationId: conversation._id.toString()
+    })
+
+    const first = await tool.invoke({})
+    const second = await tool.invoke({})
+
+    expect(second).toBe(first)
+    expect(mockGetChatPromptResponse).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends only the most recent 200 chat messages in the window to the live extraction', async () => {
+    const user = await createUser('Test User')
+    const topic = await createPublicTopic()
+    const conversation = await createConversation({ name: 'Ongoing Chat' }, user, topic)
+    const bodies = Array.from({ length: 201 }, (_, i) => `Message number ${i}.`)
+    await seedChatMessages(conversation._id, bodies)
+    mockGetChatPromptResponse.mockResolvedValue({ openThreads: [] })
+    const [tool] = createOpenThreadsTools({
+      topicIds: [topic._id.toString()],
+      activeConversationId: conversation._id.toString()
+    })
+
+    await tool.invoke({})
+
+    const [, , , inputParams] = mockGetChatPromptResponse.mock.calls[0]
+    const { sharedChat } = inputParams as { sharedChat: string }
+    expect(sharedChat).not.toContain('Message number 0.')
+    expect(sharedChat).toContain('Message number 1.')
+    expect(sharedChat).toContain('Message number 200.')
+  })
 })
 
 describe('list_open_threads grounding artifact', () => {
