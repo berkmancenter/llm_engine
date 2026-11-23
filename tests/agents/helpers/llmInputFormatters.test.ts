@@ -694,11 +694,19 @@ describe('LLM Input Formatter Tests', () => {
       expect(formatRecency(new Date('2026-11-20T12:05:00Z'), now)).toBe('just now')
     })
 
-    it('delegates minute/hour/day phrasing to timeDiffHuman within the first week', () => {
+    it('phrases minutes, hours, and days within the first week', () => {
       expect(formatRecency(new Date('2026-11-20T11:55:00Z'), now)).toBe('5 minutes ago')
       expect(formatRecency(new Date('2026-11-20T10:00:00Z'), now)).toBe('2 hours ago')
       expect(formatRecency(new Date('2026-11-19T12:00:00Z'), now)).toBe('yesterday')
       expect(formatRecency(new Date('2026-11-17T12:00:00Z'), now)).toBe('3 days ago')
+    })
+
+    it('rounds down to the last whole unit instead of up to the next one', () => {
+      expect(formatRecency(new Date('2026-11-20T10:30:00Z'), now)).toBe('1 hour ago')
+      expect(formatRecency(new Date('2026-11-19T23:00:00Z'), now)).toBe('13 hours ago')
+      expect(formatRecency(new Date('2026-11-19T13:00:00Z'), now)).toBe('23 hours ago')
+      expect(formatRecency(new Date('2026-11-16T12:00:00Z'), now)).toBe('4 days ago')
+      expect(formatRecency(new Date('2026-11-13T13:00:00Z'), now)).toBe('6 days ago')
     })
 
     it('falls back to an absolute date once a week has passed, rather than "last week"/"N weeks ago"', () => {

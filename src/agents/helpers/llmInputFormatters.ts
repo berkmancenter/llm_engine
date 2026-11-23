@@ -1,7 +1,6 @@
 import logger from '../../config/logger.js'
 import { IMessage, IChannel, ConversationHistory, ConversationHistorySettings } from '../../types/index.types'
 import getConversationHistory from './getConversationHistory.js'
-import timeDiffHuman from '../../utils/timeDiffHuman.js'
 
 function formatTime(date, timezone = 'UTC') {
   return date.toLocaleTimeString('en-US', {
@@ -18,6 +17,7 @@ export function formatAbsoluteDateTime(date: Date, timezone = 'UTC'): string {
 }
 
 const RECENCY_LABEL_CUTOFF_MS = 7 * 24 * 60 * 60 * 1000 // 1 week
+const recencyFormatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
 
 /** Coarsens with distance ("5 min ago" → "yesterday" → "on 2026-11-13" past a week) — a model
  * can't reconstruct real calendar distance from "3 weeks ago" the way it can from a date. */
@@ -25,7 +25,12 @@ export function formatRecency(targetDate: Date, baseDate: Date = new Date()): st
   const diffMs = Math.max(0, baseDate.getTime() - targetDate.getTime())
   if (diffMs < 60_000) return 'just now'
   if (diffMs >= RECENCY_LABEL_CUTOFF_MS) return `on ${targetDate.toISOString().slice(0, 10)}`
-  return timeDiffHuman(targetDate, baseDate)
+  // Floor, not timeDiffHuman's rounding: rounding turns 4 days into "last week" and 13 hours into "yesterday".
+  const minutes = Math.floor(diffMs / 60_000)
+  if (minutes < 60) return recencyFormatter.format(-minutes, 'minute')
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return recencyFormatter.format(-hours, 'hour')
+  return recencyFormatter.format(-Math.floor(hours / 24), 'day')
 }
 
 function formatTranscriptMessage(message, timezone = 'UTC') {
