@@ -353,6 +353,65 @@ describe('bot-media-server app (integration)', () => {
       expect(browser.connected).toBe(false)
     })
 
+    test('tears the session down when a browser leaves mid-verification (never joins a dead socket)', async () => {
+      await app.stop()
+      await new Promise<void>((resolve) => fakeLlmEngine.httpServer.close(() => resolve()))
+      const acks: ((result: unknown) => void)[] = []
+      await setup(
+        {},
+        (_payload, ack) => {
+          if (ack) acks.push(ack)
+        },
+        { expectReady: false }
+      )
+      const engineSideSocket = await engineConnected
+      const engineDisconnected = new Promise<void>((resolve) => engineSideSocket.once('disconnect', () => resolve()))
+      while (acks.length < 1) await new Promise((resolve) => setTimeout(resolve, 10))
+
+      browser.close()
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      acks[0]({ ok: true, passcodeRequired: true })
+
+      await engineDisconnected
+      expect(app.browserIO.sockets.adapter.rooms.get('conv-1')).toBeUndefined()
+    })
+
+    test('a rejected browser does not tear down a session another browser is still verifying for', async () => {
+      await app.stop()
+      await new Promise<void>((resolve) => fakeLlmEngine.httpServer.close(() => resolve()))
+      const acks: ((result: unknown) => void)[] = []
+      await setup(
+        {},
+        (_payload, ack) => {
+          if (ack) acks.push(ack)
+        },
+        { expectReady: false }
+      )
+      const engineSideSocket = await engineConnected
+      let engineDisconnected = false
+      engineSideSocket.on('disconnect', () => {
+        engineDisconnected = true
+      })
+      const { port } = app.httpServer.address() as AddressInfo
+      const second = connectBrowser(port)
+      try {
+        while (acks.length < 2) await new Promise((resolve) => setTimeout(resolve, 10))
+
+        const firstClosed = waitForEvent(browser, 'disconnect')
+        acks[0]({ ok: false, reason: 'wrongPasscode' })
+        await firstClosed
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        expect(engineDisconnected).toBe(false)
+
+        const ready = waitForEvent(second, 'ready')
+        acks[1]({ ok: true, passcodeRequired: true })
+        await ready
+        expect(engineDisconnected).toBe(false)
+      } finally {
+        second.close()
+      }
+    })
+
     test('still relays state/audio but withholds the question for a conversation with no passcode configured', async () => {
       await app.stop()
       await new Promise<void>((resolve) => fakeLlmEngine.httpServer.close(() => resolve()))

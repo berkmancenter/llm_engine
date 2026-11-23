@@ -145,6 +145,9 @@ export async function startBotMediaApp(config: BotMediaAppConfig): Promise<BotMe
   const engineSockets = new Map<string, Socket>()
   const pendingQueues = new Map<string, PendingQueue<AudioChunk>>()
   const teardownTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  // Browsers currently awaiting passcode verification, per conversation. They aren't in the
+  // room yet, so an empty room alone doesn't mean nobody is about to be admitted.
+  const verificationsInFlight = new Map<string, number>()
 
   function createEngineSocketFor(conversationId: string, botName: string, passcodes: { transcriptPasscode?: string } = {}) {
     const { socket, queue } = createEngineSocket(
@@ -191,11 +194,12 @@ export async function startBotMediaApp(config: BotMediaAppConfig): Promise<BotMe
   // rejected connection (see 'connection' below) never reaches the normal 'disconnect' handler
   // that otherwise does this after a grace period.
   function teardownIfEmpty(conversationId: string) {
+    // Other browsers mid-verification still need the session; the last one to finish re-runs this.
+    if ((verificationsInFlight.get(conversationId) ?? 0) > 0) return
     const room = browserIO.sockets.adapter.rooms.get(conversationId)
     if (room && room.size > 0) return
-    const pendingTeardown = teardownTimers.get(conversationId)
-    if (pendingTeardown) clearTimeout(pendingTeardown)
-    teardownTimers.delete(conversationId)
+    // A pending grace timer already owns this teardown (and a reconnect may still cancel it).
+    if (teardownTimers.has(conversationId)) return
     clearConversationState(conversationId)
   }
 
@@ -215,30 +219,46 @@ export async function startBotMediaApp(config: BotMediaAppConfig): Promise<BotMe
     // browser's own passcode is checked independently here, before it's ever added to the room
     // that receives state/audio/question — admitting it first and checking after would already
     // be too late.
-    if (!engineSockets.has(conversationId)) {
-      createEngineSocketFor(conversationId, botName, { transcriptPasscode })
-    }
-    const engineSocket = engineSockets.get(conversationId)!
+    verificationsInFlight.set(conversationId, (verificationsInFlight.get(conversationId) ?? 0) + 1)
+    let admitted = false
+    try {
+      admitted = await (async () => {
+        if (!engineSockets.has(conversationId)) {
+          createEngineSocketFor(conversationId, botName, { transcriptPasscode })
+        }
+        const engineSocket = engineSockets.get(conversationId)!
 
-    const verification = await verifyChannelPasscode(
-      engineSocket,
-      config.auth,
-      conversationId,
-      'transcript',
-      transcriptPasscode,
-      config.verifyPasscodeTimeoutMs
-    )
-    if (!verification.ok) {
-      log(`${conversationId} rejected an unauthenticated browser connection (${verification.reason ?? 'unknown'})`)
-      socket.disconnect()
-      teardownIfEmpty(conversationId)
-      return
-    }
-    // Set even when already true for this conversation — cheap, and keeps this the single
-    // place that ever writes it rather than requiring a has-it-been-set-yet check.
-    passcodeRequired.set(conversationId, verification.passcodeRequired ?? false)
+        const verification = await verifyChannelPasscode(
+          engineSocket,
+          config.auth,
+          conversationId,
+          'transcript',
+          transcriptPasscode,
+          config.verifyPasscodeTimeoutMs
+        )
+        if (!verification.ok) {
+          log(`${conversationId} rejected an unauthenticated browser connection (${verification.reason ?? 'unknown'})`)
+          socket.disconnect()
+          return false
+        }
+        // The browser left while verification was in flight: its 'disconnect' already fired, before
+        // the handler below was registered, so never join the dead socket.
+        if (socket.disconnected) return false
+        // Set even when already true for this conversation — cheap, and keeps this the single
+        // place that ever writes it rather than requiring a has-it-been-set-yet check.
+        passcodeRequired.set(conversationId, verification.passcodeRequired ?? false)
 
-    socket.join(conversationId)
+        socket.join(conversationId)
+        return true
+      })()
+    } finally {
+      const remaining = (verificationsInFlight.get(conversationId) ?? 1) - 1
+      if (remaining > 0) verificationsInFlight.set(conversationId, remaining)
+      else verificationsInFlight.delete(conversationId)
+      // Covers a rejected or already-gone browser: nothing else will tear down for them.
+      if (remaining === 0) teardownIfEmpty(conversationId)
+    }
+    if (!admitted) return
     // Verification is a real round trip to llm_engine, so a browser is no longer admitted to
     // the room in the same tick its transport connects, the way it was before this check
     // existed — a client (or test) that assumes otherwise and sends something immediately
