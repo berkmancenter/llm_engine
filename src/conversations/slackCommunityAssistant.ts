@@ -159,6 +159,15 @@ const slackCommunityAssistant: ConversationType = {
         { $ref: 'topicIds', as: 'agentConfig.topicIds' },
         { $ref: 'proactiveCronExpression', as: 'triggers.cron.expression' },
         { $ref: 'proactiveCronTimezone', as: 'triggers.cron.timezone' },
+        // evaluate() only counts chat inside this window as recent. The type's 10-minute default
+        // suits a 2-minute live-event timer; a daily cron needs a day, or it misses earlier chat.
+        {
+          name: 'proactiveActivityWindowMinutes',
+          required: false,
+          type: 'number',
+          default: 24 * 60,
+          as: 'agentConfig.transcriptWindow'
+        },
         // This conversation has no 'transcript' channel, so scope history to 'chat'.
         {
           name: 'proactiveHistoryChannels',

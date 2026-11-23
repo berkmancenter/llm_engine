@@ -9,6 +9,8 @@
 
 import { AgentMessageActions } from '../../../../src/types/index.types.js'
 import proactiveGroupAgent from '../../../../src/agents/proactiveGroupAgent/proactiveGroupAgent.js'
+import resolveConversationType from '../../../../src/conversations/resolver.js'
+import slackCommunityAssistant from '../../../../src/conversations/slackCommunityAssistant.js'
 
 const AGENT_NAME = 'Proactive Group Agent'
 
@@ -138,6 +140,45 @@ describe('proactiveGroupAgent evaluate', () => {
     const result = await proactiveGroupAgent.evaluate.call(agent, null)
 
     // transcript message is outside the 2-minute window → both channels quiet → reject
+    expect(result.action).toBe(AgentMessageActions.REJECT)
+  })
+})
+
+describe('proactiveGroupAgent evaluate as configured by slackCommunityAssistant', () => {
+  const HOUR_MS = 60 * 60 * 1000
+
+  // Merges the type's agentConfig defaults under the resolved instance config, the same way the
+  // agent model's pre-validate hook does, so the test sees the window a real Slack agent gets.
+  function makeSlackAgent(messages: ReturnType<typeof makeMessage>[]) {
+    const resolved = resolveConversationType(
+      { properties: { slackChannel: 'C123', slackWorkspace: 'T123', slackBotToken: 'xoxb-test' } },
+      slackCommunityAssistant
+    )
+    const instance = resolved.agentTypes.find((a) => a.name === 'proactiveGroupAgent')!.properties as {
+      agentConfig?: Record<string, unknown>
+    }
+    return {
+      name: AGENT_NAME,
+      agentType: 'proactiveGroupAgent',
+      _id: 'test-agent-id',
+      agentConfig: { ...proactiveGroupAgent.agentConfig, ...instance.agentConfig },
+      conversation: { goals: ['synthesize_discussion'], behaviorPolicy: undefined, messages }
+    }
+  }
+
+  it('contributes on the daily tick when members chatted earlier that day', async () => {
+    const agent = makeSlackAgent([makeMessage({ channels: ['chat'], createdAt: new Date(Date.now() - 3 * HOUR_MS) })])
+
+    const result = await proactiveGroupAgent.evaluate.call(agent, null)
+
+    expect(result.action).toBe(AgentMessageActions.CONTRIBUTE)
+  })
+
+  it('still rejects when the only chat is older than a day and no goal is silence-compatible', async () => {
+    const agent = makeSlackAgent([makeMessage({ channels: ['chat'], createdAt: new Date(Date.now() - 30 * HOUR_MS) })])
+
+    const result = await proactiveGroupAgent.evaluate.call(agent, null)
+
     expect(result.action).toBe(AgentMessageActions.REJECT)
   })
 })
