@@ -117,7 +117,11 @@ jobs:
 
           echo "Waiting for app health check to pass..."
           HEALTH_CHECK_PASSED=false
-          for i in {1..10}; do
+          # 20 * 3s = ~60s budget (was 10 * 3s = ~27-30s) - startup has gotten intermittently
+          # slower on CI runners without a corresponding code-side cause found, so this is margin
+          # against runner noise (cold Docker layer cache, shared-runner contention, Mongo
+          # service container variance), not a fix for a located regression.
+          for i in {1..20}; do
             if curl --fail --silent http://localhost:3000/v1/health; then
               echo "App is healthy"
               HEALTH_CHECK_PASSED=true
