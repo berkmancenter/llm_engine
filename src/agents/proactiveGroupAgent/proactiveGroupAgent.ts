@@ -161,7 +161,7 @@ function getProactiveSchema(goals: ConversationGoal[]) {
   })
 }
 
-function getProactiveGroupSystemPrompt(goals: ConversationGoal[]): string {
+function getProactiveGroupSystemPrompt(goals: ConversationGoal[], hasLiveTranscript: boolean): string {
   const goalIdsList = [...goals.map((g) => `"${g.id}"`), '"none"'].join(' | ')
   const readingRule = goals.some((g) => g.id === SOCRATIC_GOAL_ID)
     ? `
@@ -169,7 +169,19 @@ function getProactiveGroupSystemPrompt(goals: ConversationGoal[]): string {
 - For "${SOCRATIC_GOAL_ID}" do not write the question yourself: set sharedChatMessage to the single word "question" (a separate step writes the message from your slots, without seeing the passage). Instead fill: "sourceLabel" (just the author surname or the title, e.g. "Ostrom", with no year or full citation), "concept" (a short noun phrase of 1-4 words copied verbatim from the passage that NAMES the passage's topic or a term it uses, e.g. "procedural legitimacy" or "monitoring costs"; never the name of a phenomenon it found, an outcome, a sentence, a trend, or anything with a number or a verb like fell/rose/found/dropped/hurt/lower), and "loadedWord" (a word the group keeps repeating that the passage treats differently, otherwise null). Leave these null for other goals.`
     : ''
 
-  return `You are an AI facilitator during a live event. You read participant messages and the live transcript, then decide whether to post in the shared group chat.
+  const opener = hasLiveTranscript
+    ? 'You are an AI facilitator during a live event. You read participant messages and the live transcript, then decide whether to post in the shared group chat.'
+    : 'You are an AI facilitator for this discussion. You read participant messages and decide whether to post in the shared group chat.'
+
+  // Only meaningful with a live transcript/speaker feed — an async chat-only conversation has
+  // no "room" distinct from the chat itself, and no single opening-phase-of-an-event moment.
+  const transcriptJudgment = hasLiveTranscript
+    ? `
+- A speaker actively presenting is not the same as participants being active. If the transcript shows a speaker talking but there are few or no participant messages in chat, that is a passive room — consider whether a goal applies rather than waiting for participants to engage first.
+- Do not treat the opening phase of an event as a reason to withhold. A silent room during introductions is a valid state to act on — you do not need to wait for substantive topic discussion to begin before checking whether a goal applies.`
+    : ''
+
+  return `${opener}
 
 ## Rules
 
@@ -182,9 +194,7 @@ PRIVACY:
 
 JUDGMENT:
 - Intervene only when a trigger condition is clearly and currently true — not potentially true, not soon-to-be-true. "This discussion might stall" is not a trigger. "Participation is currently low with no back-and-forth" is a trigger.
-- If participants are actively exchanging substantive messages with each other, stay quiet. This applies even if you could add something useful — adding to a working discussion is not your role.
-- A speaker actively presenting is not the same as participants being active. If the transcript shows a speaker talking but there are few or no participant messages in chat, that is a passive room — consider whether a goal applies rather than waiting for participants to engage first.
-- Do not treat the opening phase of an event as a reason to withhold. A silent room during introductions is a valid state to act on — you do not need to wait for substantive topic discussion to begin before checking whether a goal applies.
+- If participants are actively exchanging substantive messages with each other, stay quiet. This applies even if you could add something useful — adding to a working discussion is not your role.${transcriptJudgment}
 - Prioritize the present moment. History is context; act on what just happened.
 - Don't re-raise a theme that has already run its course or that you've made recently without meaningful development since.
 - Vary the goals you apply. Don't overuse any single one.${readingRule}
@@ -318,36 +328,28 @@ export default verify({
   },
 
   async evaluate(userMessage: unknown) {
-    // This agent is proactive (triggers.periodic.proactive), so the framework's own
-    // evaluate() never applies its "no new messages" skip — see agent.model/index.ts.
-    // Some of this agent's goals (provoke_participation, play_commentary, poll_reveal,
-    // missing_perspective) trigger ON chat silence, so a blanket "skip if quiet" gate
-    // would disable their entire purpose. This checks chat and transcript separately and
-    // only skips when neither has anything for ANY eligible goal to react to.
+    // Proactive (periodic.proactive or cron), so the framework's "no new messages" skip never
+    // applies here. Skips only when no eligible goal is silenceCompatible, regardless of
+    // transcript activity — auto-stop already bounds how long a live event sits in real silence.
     const windowMs = ((this.agentConfig?.transcriptWindow as number | undefined) ?? 10) * 60 * 1000
     const cutoff = Date.now() - windowMs
     const messages = (this.conversation.messages ?? []) as IMessage[]
     const hasRecentChat = messages.some(
       (m) => !m.fromAgent && m.channels?.includes('chat') && m.createdAt && m.createdAt.getTime() >= cutoff
     )
-    const hasRecentTranscript = messages.some(
-      (m) => m.channels?.includes('transcript') && m.createdAt && m.createdAt.getTime() >= cutoff
-    )
 
-    if (!hasRecentChat && !hasRecentTranscript) {
-      logger.debug(`${this.name}: chat and transcript both quiet — skipping`)
-      return {
-        action: AgentMessageActions.REJECT,
-        userMessage,
-        userContributionVisible: false,
-        suggestion: undefined
-      }
-    }
-    if (!hasRecentChat && hasRecentTranscript) {
+    if (!hasRecentChat) {
+      const hasRecentTranscript = messages.some(
+        (m) => m.channels?.includes('transcript') && m.createdAt && m.createdAt.getTime() >= cutoff
+      )
       const groupChatGoals = getGroupChatGoals(resolveActiveGoals(this.conversation))
       const silenceCompatible = groupChatGoals.some((g) => g.silenceCompatible)
       if (!silenceCompatible) {
-        logger.debug(`${this.name}: chat quiet, no silence-compatible goal eligible — skipping`)
+        logger.debug(
+          `${this.name}: chat quiet${
+            hasRecentTranscript ? ' (transcript active)' : ' and transcript quiet'
+          }, no silence-compatible goal eligible — skipping`
+        )
         return {
           action: AgentMessageActions.REJECT,
           userMessage,
@@ -402,9 +404,14 @@ export default verify({
     // Grace buffer accounts for LLM execution time between the rate-limit check and message creation.
     // When minInterval equals the timer period, dissolve the check entirely (grace = minInterval)
     // so every cycle is eligible. When minInterval exceeds the timer period, use a small fixed
-    // buffer for LLM latency only — preserving the intent of the longer minimum.
-    const timerPeriodMs = (this.triggers?.periodic?.timerPeriod ?? 120) * 1000
-    const RATE_LIMIT_GRACE_MS = minInterval <= timerPeriodMs ? minInterval : 30 * 1000
+    // buffer for LLM latency only — preserving the intent of the longer minimum. Only a real
+    // triggers.periodic gives a tick cadence to compare against — a cron trigger's expression has
+    // no fixed period at all (and may not even have a regular one, e.g. "0 9,17 * * *"), so
+    // guessing one here would either wrongly dissolve the check or wrongly shorten it. Falling
+    // back to the small fixed grace (the same path used when minInterval is the longer one) keeps
+    // the rate limit real regardless of the cron cadence an operator configures.
+    const timerPeriodMs = this.triggers?.periodic?.timerPeriod ? this.triggers.periodic.timerPeriod * 1000 : undefined
+    const RATE_LIMIT_GRACE_MS = timerPeriodMs !== undefined && minInterval <= timerPeriodMs ? minInterval : 30 * 1000
     if (now - baseline < minInterval - RATE_LIMIT_GRACE_MS) {
       logger.debug(
         `${this.name}: Rate limited — last intervention ${Math.round((now - baseline) / 1000)}s ago (min ${
@@ -441,13 +448,17 @@ export default verify({
       }
     }
 
-    const eligibleGoals = backgroundReading ? groupChatGoals : groupChatGoals.filter((g) => g.id !== SOCRATIC_GOAL_ID)
+    const eligibleGoals = groupChatGoals.filter((g) => {
+      if (g.id === SOCRATIC_GOAL_ID) return !!backgroundReading
+      return true
+    })
     if (eligibleGoals.length === 0) {
-      logger.debug(`${this.name}: only ${SOCRATIC_GOAL_ID} is active and no reading passages were retrieved — skipping`)
+      logger.debug(`${this.name}: no eligible goal has what it needs to fire this tick — skipping`)
       return []
     }
 
-    const systemPrompt = composeSystemPrompt(getProactiveGroupSystemPrompt(eligibleGoals), {
+    const hasLiveTranscript = this.conversation.channels.some((c: IChannel) => c.name === 'transcript')
+    const systemPrompt = composeSystemPrompt(getProactiveGroupSystemPrompt(eligibleGoals, hasLiveTranscript), {
       conversationContext: this.conversation.conversationContext,
       behaviorPolicy: this.conversation.behaviorPolicy,
       goals: eligibleGoals,

@@ -729,16 +729,16 @@ ${parser.getFormatInstructions()}`
     ? await streamAgentAndReportChunks(agent, messages, recursionLimit, options.onChunk)
     : await agent.invoke({ messages }, { recursionLimit })
 
-  const wantTrace = options?.returnToolTrace === true && responseSchema == null
-  const toolTrace = wantTrace ? extractToolCallTraceFromAgentResult(agentResult) : undefined
+  const toolTrace = options?.returnToolTrace === true ? extractToolCallTraceFromAgentResult(agentResult) : undefined
 
   const outputChain = createAgentOutputChain(responseSchema)
   const out = await outputChain.invoke(agentResult)
 
-  if (toolTrace !== undefined) {
-    return { text: out as string, toolTrace }
-  }
-  return out
+  if (toolTrace === undefined) return out
+  // No responseSchema: out is the raw text response, wrapped alongside the trace. With a
+  // responseSchema: out is already the parsed structured object — the trace is merged onto it
+  // directly rather than wrapped, so callers can keep destructuring the schema's own fields.
+  return responseSchema == null ? { text: out as string, toolTrace } : { ...(out as object), toolTrace }
 }
 
 export {

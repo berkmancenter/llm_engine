@@ -8,7 +8,19 @@ const mockMessageExists = jest.fn<(...args: any[]) => Promise<any>>()
 const mockMessageFind = jest.fn<(...args: any[]) => any>()
 
 jest.unstable_mockModule('../src/agents/helpers/llmChain.js', () => ({
-  getChatPromptResponse: mockGetChatPromptResponse
+  getChatPromptResponse: mockGetChatPromptResponse,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getAgentStructuredResponse: jest.fn<(...args: any[]) => Promise<any>>()
+}))
+
+// eventAssistant.ts imports interventionHandler.js's DeclineReason type (not erased at runtime
+// since it's a plain import, not `import type`), which transitively loads the real tool registry —
+// mocked only so that import doesn't pull in the real one; no test here exercises tool resolution.
+jest.unstable_mockModule('../src/agents/tools/registry.js', () => ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getTools: jest.fn<(...args: any[]) => Promise<any[]>>().mockResolvedValue([]),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  buildToolsGuidance: jest.fn<(...args: any[]) => Promise<string>>().mockResolvedValue('')
 }))
 
 jest.unstable_mockModule('../src/models/message.model.js', () => ({

@@ -116,6 +116,21 @@ const slackCommunityAssistant: ConversationType = {
         'The human-readable name of the group channel (e.g. #community-chat). When set, the assistant uses this name in context so it can correctly identify the channel when users refer to it by name.',
       required: false,
       type: 'string'
+    },
+    {
+      name: 'proactiveCronExpression',
+      label: 'Proactive Facilitation Schedule (cron)',
+      description: 'Standard 5-field cron expression for how often the assistant checks for a facilitation opportunity.',
+      required: false,
+      type: 'string',
+      default: '0 11 * * *'
+    },
+    {
+      name: 'proactiveCronTimezone',
+      label: 'Proactive Facilitation Schedule Timezone',
+      required: false,
+      type: 'string',
+      default: 'America/New_York'
     }
   ],
   // internal
@@ -131,6 +146,36 @@ const slackCommunityAssistant: ConversationType = {
         { $ref: 'topicIds', as: 'agentConfig.topicIds' },
         { $ref: 'periodicMemberIntros', as: 'agentConfig.periodicMemberIntros' },
         { $ref: 'groupChatName', as: 'agentConfig.groupChatName' }
+      ]
+    },
+    {
+      // cron, not periodic — avoids drift from rescheduling relative to "now" after every
+      // process restart. Every triggers.* path below must be set explicitly (including the
+      // top-level conversationHistorySettings binding further down), or it bypasses defaultTriggers.
+      name: 'proactiveGroupAgent',
+      properties: [
+        { $ref: 'llmModel.llmModel' },
+        { $ref: 'llmModel.llmPlatform' },
+        { $ref: 'topicIds', as: 'agentConfig.topicIds' },
+        { $ref: 'proactiveCronExpression', as: 'triggers.cron.expression' },
+        { $ref: 'proactiveCronTimezone', as: 'triggers.cron.timezone' },
+        // evaluate() only counts chat inside this window as recent. The type's 10-minute default
+        // suits a 2-minute live-event timer; a daily cron needs a day, or it misses earlier chat.
+        {
+          name: 'proactiveActivityWindowMinutes',
+          required: false,
+          type: 'number',
+          default: 24 * 60,
+          as: 'agentConfig.transcriptWindow'
+        },
+        // This conversation has no 'transcript' channel, so scope history to 'chat'.
+        {
+          name: 'proactiveHistoryChannels',
+          required: false,
+          type: 'array',
+          default: ['chat'],
+          as: 'conversationHistorySettings.channels'
+        }
       ]
     }
   ],
