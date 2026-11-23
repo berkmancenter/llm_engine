@@ -346,3 +346,60 @@ describe('list_open_threads live group-chat fallback', () => {
     expect(mockGetChatPromptResponse).not.toHaveBeenCalled()
   })
 })
+
+describe('list_open_threads grounding artifact', () => {
+  const listToolFor = (topicIds: string[], activeConversationId?: string) =>
+    createOpenThreadsTools({ topicIds, activeConversationId })[0]
+
+  const invokeAsToolCall = async (tool: Awaited<ReturnType<typeof createOpenThreadsTools>>[number]) =>
+    (await tool.invoke({ id: 'call-1', name: tool.name, args: {}, type: 'tool_call' })) as {
+      content: string
+      artifact?: { grounding?: boolean }
+    }
+
+  beforeEach(() => {
+    mockGetChatPromptResponse.mockReset()
+  })
+
+  it('marks a past-conversation listing as not grounding on its own, since it still needs a transcript excerpt', async () => {
+    const user = await createUser('Test User')
+    const topic = await createPublicTopic()
+    await createConversation(
+      {
+        name: 'Budget Review',
+        endTime: new Date('2025-03-01T19:00:00Z'),
+        postEventAnalysis: { openThreads: ['What is our ceiling for the Hendricks grant?'] }
+      },
+      user,
+      topic,
+      new Date('2025-03-01T18:00:00Z')
+    )
+
+    const message = await invokeAsToolCall(listToolFor([topic._id.toString()]))
+
+    expect(message.content).toContain('What is our ceiling for the Hendricks grant?')
+    expect(message.artifact).toEqual({ grounding: false })
+  })
+
+  it('marks an empty listing as not grounding', async () => {
+    const topic = await createPublicTopic()
+
+    const message = await invokeAsToolCall(listToolFor([topic._id.toString()]))
+
+    expect(message.content).toBe('No open threads are available yet.')
+    expect(message.artifact).toEqual({ grounding: false })
+  })
+
+  it("marks a live chat candidate as grounding, since it was drawn from this chat's real messages", async () => {
+    const user = await createUser('Test User')
+    const topic = await createPublicTopic()
+    const conversation = await createConversation({ name: 'Ongoing Chat' }, user, topic)
+    await seedChatMessages(conversation._id, ['Does anyone know our actual budget ceiling for this?'])
+    mockGetChatPromptResponse.mockResolvedValue({ openThreads: ['What is our actual budget ceiling?'] })
+
+    const message = await invokeAsToolCall(listToolFor([topic._id.toString()], conversation._id.toString()))
+
+    expect(message.content).toContain('[Earlier in this chat')
+    expect(message.artifact).toEqual({ grounding: true })
+  })
+})

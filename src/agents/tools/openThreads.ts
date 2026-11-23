@@ -24,6 +24,46 @@ const MAX_THREAD_AGE_MS = 60 * 24 * 60 * 60 * 1000 // 60 days
 
 const GROUP_CHAT_USER_TEMPLATE = `Current Time: {currentTime}\n\nGroup Chat History:\n{sharedChat}`
 
+type ToolResult = [string, { grounding: boolean }]
+const NO_OPEN_THREADS: ToolResult = ['No open threads are available yet.', { grounding: false }]
+
+async function extractLiveOpenThreads(activeConversationId: string, recencyCutoff: Date): Promise<ToolResult> {
+  const messages = await findMessages(activeConversationId, 'model', {
+    channels: { $in: ['chat'] },
+    createdAt: { $lt: recencyCutoff, $gte: new Date(Date.now() - MAX_THREAD_AGE_MS) }
+  })
+  const sortedMessages = messages.sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0))
+  const chatHistory = getConversationHistory(sortedMessages, { channels: ['chat'] })
+  const sharedChat =
+    formatMultiUserConversationHistory(chatHistory)
+      .map((m) => (m.role === 'assistant' ? `AI Assistant: ${m.content}` : m.content))
+      .join('\n') || 'No participant chat messages.'
+
+  const llm = await getModelChat(coreLLMPlatform, coreLLMModel, { maxTokens: 2000 })
+  const extraction = await getChatPromptResponse(
+    llm,
+    OPEN_THREADS_EXTRACTION_PROMPT,
+    GROUP_CHAT_USER_TEMPLATE,
+    { sharedChat, currentTime: formatAbsoluteDateTime(chatHistory.end ?? new Date()) },
+    undefined,
+    openThreadsSchema
+  )
+  const openThreads = extraction.openThreads.slice(0, MAX_OPEN_THREADS)
+
+  if (openThreads.length === 0) return NO_OPEN_THREADS
+
+  // The most recent message actually considered — i.e. the last point this was touched
+  // before going quiet — is a more useful anchor than the oldest one for judging how
+  // dormant this candidate actually is.
+  const lastConsidered = sortedMessages.at(-1)?.createdAt
+  const date = lastConsidered ? new Date(lastConsidered).toISOString().slice(0, 10) : 'unknown date'
+
+  const listing = openThreads
+    .map((question) => `[Earlier in this chat — ${date} — id: ${activeConversationId}] ${question}`)
+    .join('\n')
+  return [listing, { grounding: true }]
+}
+
 export interface OpenThreadsToolOptions {
   topicIds: string[]
   activeConversationId?: string
@@ -51,7 +91,7 @@ export default function createOpenThreadsTools(options: OpenThreadsToolOptions):
         .lean()
 
       if (pastConversations.length > 0) {
-        return pastConversations
+        const listing = pastConversations
           .flatMap((conversation) =>
             (conversation.postEventAnalysis?.openThreads ?? []).map((question) => {
               const date = conversation.startTime
@@ -63,43 +103,13 @@ export default function createOpenThreadsTools(options: OpenThreadsToolOptions):
             })
           )
           .join('\n')
+        // Each of these still needs a transcript excerpt before it can be used.
+        return [listing, { grounding: false }] as ToolResult
       }
 
-      if (!activeConversationId) return 'No open threads are available yet.'
+      if (!activeConversationId) return NO_OPEN_THREADS
 
-      const messages = await findMessages(activeConversationId, 'model', {
-        channels: { $in: ['chat'] },
-        createdAt: { $lt: recencyCutoff, $gte: new Date(Date.now() - MAX_THREAD_AGE_MS) }
-      })
-      const sortedMessages = messages.sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0))
-      const chatHistory = getConversationHistory(sortedMessages, { channels: ['chat'] })
-      const sharedChat =
-        formatMultiUserConversationHistory(chatHistory)
-          .map((m) => (m.role === 'assistant' ? `AI Assistant: ${m.content}` : m.content))
-          .join('\n') || 'No participant chat messages.'
-
-      const llm = await getModelChat(coreLLMPlatform, coreLLMModel, { maxTokens: 2000 })
-      const extraction = await getChatPromptResponse(
-        llm,
-        OPEN_THREADS_EXTRACTION_PROMPT,
-        GROUP_CHAT_USER_TEMPLATE,
-        { sharedChat, currentTime: formatAbsoluteDateTime(chatHistory.end ?? new Date()) },
-        undefined,
-        openThreadsSchema
-      )
-      const openThreads = extraction.openThreads.slice(0, MAX_OPEN_THREADS)
-
-      if (openThreads.length === 0) return 'No open threads are available yet.'
-
-      // The most recent message actually considered — i.e. the last point this was touched
-      // before going quiet — is a more useful anchor than the oldest one for judging how
-      // dormant this candidate actually is.
-      const lastConsidered = sortedMessages.at(-1)?.createdAt
-      const date = lastConsidered ? new Date(lastConsidered).toISOString().slice(0, 10) : 'unknown date'
-
-      return openThreads
-        .map((question) => `[Earlier in this chat — ${date} — id: ${activeConversationId}] ${question}`)
-        .join('\n')
+      return extractLiveOpenThreads(activeConversationId, recencyCutoff)
     },
     {
       name: 'list_open_threads',
@@ -111,7 +121,8 @@ export default function createOpenThreadsTools(options: OpenThreadsToolOptions):
         'call get_event_list first) to pull a real excerpt before using it. An entry tagged "Earlier in this ' +
         'chat" was already drawn directly from this conversation\'s real messages — chat history is not ' +
         'searchable by that tool, so no further retrieval call is needed or possible for it.',
-      schema: z.object({})
+      schema: z.object({}),
+      responseFormat: 'content_and_artifact'
     }
   )
 

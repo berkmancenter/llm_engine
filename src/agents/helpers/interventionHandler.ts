@@ -325,7 +325,13 @@ export async function runInterventionAnalysis(
   // (toolNamesByGoalId, built above from its own registry keys), not just "was any tool invoked
   // by anyone this tick" — two eligible goals can each declare a different tool, and the model
   // choosing goal A is only actually grounded if A's own tool ran, not merely because goal B's did.
-  const invokedToolNames = new Set((analysis.toolTrace?.calls ?? []).map((call) => call.name))
+  // A tool can mark a result `{ grounding: false }` when it only lists candidates that still need a
+  // follow-up lookup, so that call alone doesn't count.
+  const invokedToolNames = new Set(
+    (analysis.toolTrace?.calls ?? [])
+      .filter((call) => (call.artifact as { grounding?: boolean } | undefined)?.grounding !== false)
+      .map((call) => call.name)
+  )
   const matchedGoalOwnToolNames = matchedGoal ? toolNamesByGoalId.get(matchedGoal.id) : undefined
   const ungroundedToolGoal =
     Boolean(matchedGoal?.tools?.length) && ![...(matchedGoalOwnToolNames ?? [])].some((name) => invokedToolNames.has(name))

@@ -34,6 +34,29 @@ describe('extractToolCallTraceFromAgentResult', () => {
     ])
   })
 
+  test("attaches each tool result's artifact to the call that produced it", () => {
+    const agentResult = {
+      messages: [
+        {
+          _getType: () => 'ai',
+          tool_calls: [
+            { id: 'call-1', name: 'list_open_threads', args: {} },
+            { id: 'call-2', name: 'web_search', args: { query: 'q' } }
+          ]
+        },
+        { _getType: () => 'tool', tool_call_id: 'call-1', artifact: { grounding: false } },
+        { _getType: () => 'tool', tool_call_id: 'call-2' }
+      ]
+    }
+
+    const trace = extractToolCallTraceFromAgentResult(agentResult)
+
+    expect(trace.calls).toEqual([
+      { name: 'list_open_threads', args: {}, artifact: { grounding: false } },
+      { name: 'web_search', args: { query: 'q' } }
+    ])
+  })
+
   test('skips tool call entries without a name', () => {
     const agentResult = {
       messages: [

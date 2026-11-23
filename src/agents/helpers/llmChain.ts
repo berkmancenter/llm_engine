@@ -209,7 +209,7 @@ function createAgentOutputChain(responseSchema?) {
   return RunnableSequence.from([logAndExtractStep, parseStep])
 }
 
-export type AgentToolCallTraceEntry = { name: string; args: unknown }
+export type AgentToolCallTraceEntry = { name: string; args: unknown; artifact?: unknown }
 
 export type AgentToolCallTrace = { invoked: boolean; calls: AgentToolCallTraceEntry[] }
 
@@ -217,12 +217,22 @@ export type AgentToolCallTrace = { invoked: boolean; calls: AgentToolCallTraceEn
  * Collect tool calls from a LangChain agent invoke result (for observability / debug).
  */
 function extractToolCallTraceFromAgentResult(agentResult: { messages: unknown[] }): AgentToolCallTrace {
+  const artifactsByCallId = new Map<string, unknown>()
+  for (const msg of agentResult.messages) {
+    const typed = msg as { _getType?: () => string; tool_call_id?: string; artifact?: unknown }
+    if (typed._getType?.() === 'tool' && typed.tool_call_id && typed.artifact !== undefined) {
+      artifactsByCallId.set(typed.tool_call_id, typed.artifact)
+    }
+  }
+
   const calls: AgentToolCallTraceEntry[] = []
   for (const msg of agentResult.messages) {
-    const typed = msg as { _getType?: () => string; tool_calls?: Array<{ name?: string; args?: unknown }> }
+    const typed = msg as { _getType?: () => string; tool_calls?: Array<{ id?: string; name?: string; args?: unknown }> }
     if (typed._getType?.() === 'ai') {
       for (const tc of typed.tool_calls || []) {
-        if (tc?.name) calls.push({ name: tc.name, args: tc.args })
+        if (!tc?.name) continue
+        const artifact = tc.id ? artifactsByCallId.get(tc.id) : undefined
+        calls.push({ name: tc.name, args: tc.args, ...(artifact !== undefined ? { artifact } : {}) })
       }
     }
   }
