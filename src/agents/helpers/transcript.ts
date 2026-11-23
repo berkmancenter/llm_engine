@@ -12,6 +12,8 @@ import websocketGateway from '../../websockets/websocketGateway.js'
 
 export const TOPIC_TRANSCRIPT_COLLECTION_PREFIX = 'topic-transcript'
 
+const UNPACK_CARD_TYPES = ['unpack_explanation', 'catch_up_summary']
+
 /**
  * Deletes Unpacker cards, all of an event's or the ones `filter` picks, and tells open clients to drop them.
  * There is no deletion event, so this sends `message:hidden`, which clients already apply to Private Chat.
@@ -21,7 +23,7 @@ async function deleteUnpackCards(conversationId, filter: Record<string, unknown>
     ...filter,
     conversation: conversationId,
     bodyType: 'json',
-    'body.type': 'unpack_explanation'
+    'body.type': { $in: UNPACK_CARD_TYPES }
   })
     .select('_id channels')
     .lean()
@@ -56,7 +58,11 @@ async function deleteUnpackRows(conversationId) {
 async function deleteUnpackRowsBefore(cutoff: Date) {
   await UnpackRequest.deleteMany({ createdAt: { $lt: cutoff } })
   await UnpackPassageExplanation.deleteMany({ createdAt: { $lt: cutoff } })
-  await Message.deleteMany({ bodyType: 'json', 'body.type': 'unpack_explanation', createdAt: { $lt: cutoff } })
+  await Message.deleteMany({
+    bodyType: 'json',
+    'body.type': { $in: UNPACK_CARD_TYPES },
+    createdAt: { $lt: cutoff }
+  })
 }
 
 /**
