@@ -286,7 +286,8 @@ components:
       type: object
       description: >-
         Message body (bodyType "json") the event assistant posts with an explanation of a passage a
-        participant highlighted. It comes from the send endpoint.
+        participant highlighted. It comes from the send endpoint (Private Chat) or the share endpoint
+        (Group Chat). A Group Chat post never names the participant who shared it.
       required:
         - type
         - mode
@@ -307,7 +308,7 @@ components:
           enum: [passage]
         destination:
           type: string
-          enum: [privateChat]
+          enum: [privateChat, groupChat]
         chunkIds:
           type: array
           description: IDs of the transcript messages that were explained, oldest first.
@@ -343,9 +344,36 @@ components:
           description: Short title for sharing the explanation with the room. Passage cards only.
         range:
           $ref: '#/components/schemas/UnpackSelection'
+        footer:
+          type: string
+          description: >-
+            Group Chat posts only. Says why the assistant posted it, without naming anyone, for example
+            "A participant asked Berkie to share this." Show it as written; other kinds of post will use other text.
         text:
           type: string
-          description: Plain-text version of all sections, for chat history and clients that can't render the card.
+          description: >-
+            Plain-text version of all sections, for chat history and clients that can't render the card. Ends with
+            the footer when there is one.
+
+    UnpackAlreadyPosted:
+      type: object
+      description: >-
+        Message body (bodyType "json") the event assistant posts in a participant's Private Chat when they share
+        a passage that Group Chat already has a post about. Nothing new is posted to Group Chat.
+      required:
+        - type
+        - groupChatMessageId
+        - text
+      properties:
+        type:
+          type: string
+          enum: [unpack_already_posted]
+        groupChatMessageId:
+          type: string
+          description: ID of the existing Group Chat post (in the chat channel) to link to.
+        text:
+          type: string
+          description: The note to show, "This was already explained in Group Chat."
 
     CatchUpSummary:
       type: object
@@ -580,6 +608,25 @@ components:
           type: string
           description: ID of the posted card, when status is sent.
 
+    UnpackShareResult:
+      type: object
+      required:
+        - askId
+        - status
+        - messageId
+      properties:
+        askId:
+          type: string
+        status:
+          type: string
+          enum: [sent, alreadyPosted]
+          description: >-
+            sent, the card was posted to Group Chat. alreadyPosted, a Group Chat post already covers part of this
+            passage, so nothing was posted and the participant got an UnpackAlreadyPosted note in Private Chat.
+        messageId:
+          type: string
+          description: ID of the Group Chat post, the new one when sent and the existing one when alreadyPosted.
+
     UnpackError:
       type: object
       properties:
@@ -591,9 +638,12 @@ components:
           type: string
           enum:
             - rateLimited
+            - groupChatRateLimited
             - unpackerOff
             - noAssistant
             - noPrivateChat
+            - noGroupChat
+            - cardNotFound
             - eventLocked
             - chunkNotInTranscript
             - offsetPastEnd
@@ -607,6 +657,9 @@ components:
             unpackerOff (403), the event's unpacker feature is off. noAssistant (409), the event has
             no assistant. wrongPasscode (400), the transcript has a passcode and the request did not
             give it. noPrivateChat (409), the participant has no Private Chat with the assistant.
+            groupChatRateLimited (429), the participant already posted to Group Chat in this event in the last
+            2 minutes. noGroupChat (409), the event has no Group Chat. cardNotFound (404), the message to share
+            is not one of the participant's Private Chat cards in this event.
             eventLocked (409), the event is locked, so no card can be posted.
             chunkNotInTranscript (400), a chunk ID is not in this event's transcript. offsetPastEnd
             (400), a position is past the end of its chunk. selectionBackwards (400), the selection

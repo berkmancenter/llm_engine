@@ -81,7 +81,7 @@ router
  *       posts nothing new and returns the existing card's message ID. A locked event refuses the send with
  *       eventLocked. If the card can't be posted for another reason, the request fails and can be sent again.
  *       A send that has to start a new explanation counts toward the same per-minute limit as a preview. Only
- *       `privateChat` is accepted for now.
+ *       `privateChat` is accepted: Group Chat posts start from a Private Chat card, through the share call.
  *     tags: [Unpack]
  *     security:
  *       - bearerAuth: []
@@ -131,5 +131,67 @@ router
 router
   .route('/:conversationId/send')
   .post(auth('createMessage'), validate(unpackValidation.sendPassage), unpackController.sendPassage)
+
+/**
+ * @swagger
+ * /unpack/{conversationId}/share:
+ *   post:
+ *     summary: Share a Private Chat explanation card to Group Chat
+ *     description: >
+ *       Posts a copy of one of the participant's own `unpack_explanation` cards from Private Chat to Group Chat,
+ *       as the event assistant and without the participant's name. The copy is the card as the participant saw
+ *       it, with `destination: groupChat` and a `footer`. Group Chat never gets two posts about the same
+ *       transcript: if a post already covers any chunk of this passage, nothing is posted, the answer is
+ *       `status: alreadyPosted` with that post's message ID, and the assistant sends the participant an
+ *       UnpackAlreadyPosted note in Private Chat. Each participant can post to Group Chat once every 2 minutes
+ *       per event; an alreadyPosted answer doesn't count.
+ *     tags: [Unpack]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             allOf:
+ *               - $ref: '#/components/schemas/UnpackTranscriptPasscode'
+ *               - type: object
+ *                 required:
+ *                   - messageId
+ *                 properties:
+ *                   messageId:
+ *                     type: string
+ *                     description: ID of the participant's Private Chat `unpack_explanation` card.
+ *     responses:
+ *       202:
+ *         description: The card was posted to Group Chat, or a post about the same passage already exists
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UnpackShareResult'
+ *       400:
+ *         $ref: '#/components/responses/UnpackRefused'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/UnpackRefused'
+ *       404:
+ *         $ref: '#/components/responses/UnpackRefused'
+ *       409:
+ *         $ref: '#/components/responses/UnpackRefused'
+ *       429:
+ *         $ref: '#/components/responses/UnpackRefused'
+ *       503:
+ *         $ref: '#/components/responses/UnpackRefused'
+ */
+router
+  .route('/:conversationId/share')
+  .post(auth('createMessage'), validate(unpackValidation.sharePassage), unpackController.sharePassage)
 
 export default router

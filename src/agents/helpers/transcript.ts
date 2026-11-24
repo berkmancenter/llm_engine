@@ -6,13 +6,14 @@ import { formatTime, formatTranscript } from './llmInputFormatters.js'
 import rag, { TRANSCRIPT_COLLECTION_PREFIX } from './rag.js'
 import Conversation from '../../models/conversation.model.js'
 import Topic from '../../models/topic.model.js'
+import UnpackGroupPost from '../../models/unpackGroupPost.model.js'
 import UnpackPassageExplanation from '../../models/unpackPassageExplanation.model.js'
 import UnpackRequest from '../../models/unpackRequest.model.js'
 import websocketGateway from '../../websockets/websocketGateway.js'
 
 export const TOPIC_TRANSCRIPT_COLLECTION_PREFIX = 'topic-transcript'
 
-const UNPACK_CARD_TYPES = ['unpack_explanation', 'catch_up_summary']
+const UNPACK_CARD_TYPES = ['unpack_explanation', 'catch_up_summary', 'unpack_already_posted']
 
 /**
  * Deletes Unpacker cards, all of an event's or the ones `filter` picks, and tells open clients to drop them.
@@ -48,6 +49,7 @@ async function deleteUnpackCards(conversationId, filter: Record<string, unknown>
 async function deleteUnpackRows(conversationId) {
   await UnpackRequest.deleteMany({ conversation: conversationId })
   await UnpackPassageExplanation.deleteMany({ conversation: conversationId })
+  await UnpackGroupPost.deleteMany({ conversation: conversationId })
   await deleteUnpackCards(conversationId)
 }
 
@@ -58,6 +60,7 @@ async function deleteUnpackRows(conversationId) {
 async function deleteUnpackRowsBefore(cutoff: Date) {
   await UnpackRequest.deleteMany({ createdAt: { $lt: cutoff } })
   await UnpackPassageExplanation.deleteMany({ createdAt: { $lt: cutoff } })
+  await UnpackGroupPost.deleteMany({ createdAt: { $lt: cutoff } })
   await Message.deleteMany({
     bodyType: 'json',
     'body.type': { $in: UNPACK_CARD_TYPES },

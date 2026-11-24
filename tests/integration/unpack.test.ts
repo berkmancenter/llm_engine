@@ -21,22 +21,20 @@ jest.unstable_mockModule('../src/agents/helpers/llmChain.js', () => ({
 
 // The fixtures load the agents, and the agents load llmChain, so they must come after its mock
 const { default: setupIntTest } = await import('../utils/setupIntTest.js')
-const { insertUsers, participant, userOne } = await import('../fixtures/user.fixture.js')
-const { participantAccessToken, userOneAccessToken } = await import('../fixtures/token.fixture.js')
+const { insertUsers, participant, userOne, userTwo } = await import('../fixtures/user.fixture.js')
+const { participantAccessToken, userOneAccessToken, userTwoAccessToken } = await import('../fixtures/token.fixture.js')
 const { insertTopics } = await import('../fixtures/topic.fixture.js')
 const { publicTopic } = await import('../fixtures/conversation.fixture.js')
 const { default: app } = await import('../../src/app.js')
-const { Agent, Channel, Conversation, Message, UnpackPassageExplanation, UnpackRequest, User } = await import(
-  '../../src/models/index.js'
-)
+const { Agent, Channel, Conversation, Message, UnpackGroupPost, UnpackPassageExplanation, UnpackRequest, User } =
+  await import('../../src/models/index.js')
 const { default: websocketGateway } = await import('../../src/websockets/websocketGateway.js')
 const { default: logger } = await import('../../src/config/logger.js')
 const { default: messageService } = await import('../../src/services/message.service.js')
 const { default: schedule } = await import('../../src/jobs/schedule.js')
 const { default: JobHandlers } = await import('../../src/jobs/handlers/index.js')
-const { UNPACK_MODEL_CALLS_PER_MINUTE, UNPACK_TIMING, settleBackgroundUnpacks } = await import(
-  '../../src/services/unpack.service.js'
-)
+const { UNPACK_GROUP_CHAT_POST_WINDOW_MS, UNPACK_MODEL_CALLS_PER_MINUTE, UNPACK_TIMING, settleBackgroundUnpacks } =
+  await import('../../src/services/unpack.service.js')
 const { default: transcript } = await import('../../src/agents/helpers/transcript.js')
 const { getAllConversationTypes, getConversationType, resetConversationTypes, setConversationTypes } = await import(
   '../../src/conversations/index.js'
@@ -144,6 +142,21 @@ function send(conversation, body, token = participantAccessToken) {
     .send(withPasscode(conversation, { destination: 'privateChat', ...body }))
 }
 
+function share(conversation, messageId: string, token = participantAccessToken) {
+  return request(app)
+    .post(`/v1/unpack/${conversation._id}/share`)
+    .set('Authorization', `Bearer ${token}`)
+    .send(withPasscode(conversation, { messageId }))
+}
+
+// Sends a passage to Private Chat and returns the card's message ID, the way the website gets it
+async function cardFor(conversation, selection, token = participantAccessToken) {
+  const sent = await send(conversation, selection, token).expect(httpStatus.ACCEPTED)
+  await settleBackgroundUnpacks()
+  const ask = await UnpackRequest.findById(sent.body.askId)
+  return ask!.answerMessage!.toString()
+}
+
 function runPendingCheck(askId: string, attempt = 1) {
   return JobHandlers.unpackPendingAsk({ attrs: { data: { askId, attempt } } })
 }
@@ -173,7 +186,8 @@ beforeEach(async () => {
   jest.spyOn(schedule, 'unpackPendingAsk').mockResolvedValue(undefined)
   await UnpackRequest.syncIndexes()
   await UnpackPassageExplanation.syncIndexes()
-  await insertUsers([participant, userOne])
+  await UnpackGroupPost.syncIndexes()
+  await insertUsers([participant, userOne, userTwo])
   await insertTopics([publicTopic])
   mockGetChatPromptResponse.mockReset()
   mockGetChatPromptResponse.mockResolvedValue(sections)
@@ -226,7 +240,7 @@ describe('POST /v1/unpack/:conversationId/preview', () => {
     const ask = await UnpackRequest.findById(res.body.askId)
     expect(ask).toMatchObject({ mode: 'passage', status: 'previewed', quote: 'Missing it eats the error budget.' })
     expect(ask!.user.equals(participant._id)).toBe(true)
-    expect(ask!.destination).toBeUndefined()
+    expect(ask!.destinations).toEqual([])
   })
 
   it('logs one timing line per preview, saying whether the answer came from the cache', async () => {
@@ -353,7 +367,7 @@ describe('POST /v1/unpack/:conversationId/preview', () => {
 
       expect(previewed.status).toBe(httpStatus.SERVICE_UNAVAILABLE)
       expect(previewed.body.reason).toBe('unpackFailed')
-      expect((await UnpackRequest.findById(sent.body.askId))!.destination).toBeUndefined()
+      expect((await UnpackRequest.findById(sent.body.askId))!.destinations).toEqual([])
     })
   })
 
@@ -455,7 +469,7 @@ describe('POST /v1/unpack/:conversationId/preview', () => {
       modelCall.reject(new Error('model unavailable'))
       await previewing
 
-      expect((await UnpackRequest.findById(sent.body.askId))!.destination).toBe('privateChat')
+      expect((await UnpackRequest.findById(sent.body.askId))!.destinations).toEqual(['privateChat'])
       expect(await Message.findOne({ channels: privateChat.name, body: { $regex: /couldn't unpack/ } })).toBeNull()
     })
 
@@ -899,7 +913,8 @@ describe('POST /v1/unpack/:conversationId/send', () => {
     })
     expect(card.body).not.toHaveProperty('requestMessage')
     const ask = await UnpackRequest.findById(previewed.body.askId)
-    expect(ask).toMatchObject({ status: 'sent', destination: 'privateChat' })
+    expect(ask).toMatchObject({ status: 'sent' })
+    expect(ask!.destinations).toEqual(['privateChat'])
     expect(ask!.answerMessage!.toString()).toBe(res.body.messageId)
   })
 
@@ -971,7 +986,7 @@ describe('POST /v1/unpack/:conversationId/send', () => {
     const retried = await send(conversation, selectionIn(quoted)).expect(httpStatus.ACCEPTED)
 
     expect(refused.body.reason).toBe('eventLocked')
-    expect(askWhileLocked!.destination).toBeUndefined()
+    expect(askWhileLocked!.destinations).toEqual([])
     expect(retried.body.status).toBe('sent')
     const [card] = await cardsIn(privateChat)
     expect(card._id.toString()).toBe(retried.body.messageId)
@@ -1000,7 +1015,7 @@ describe('POST /v1/unpack/:conversationId/send', () => {
 
     expect(res.body.reason).toBe('rateLimited')
     expect(mockGetChatPromptResponse).not.toHaveBeenCalled()
-    expect((await UnpackRequest.findOne({ passageKey: { $regex: `^${quoted._id}` } }))!.destination).toBeUndefined()
+    expect((await UnpackRequest.findOne({ passageKey: { $regex: `^${quoted._id}` } }))!.destinations).toEqual([])
   })
 
   it('keeps the card, and posts no second one, when posting fails after the card was saved', async () => {
@@ -1155,7 +1170,7 @@ describe('POST /v1/unpack/:conversationId/send', () => {
       const previewed = await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
       // Otherwise the preview's background posting can see the destination and post before the event locks
       await settleBackgroundUnpacks()
-      await UnpackRequest.updateOne({ _id: previewed.body.askId }, { destination: 'privateChat' })
+      await UnpackRequest.updateOne({ _id: previewed.body.askId }, { destinations: ['privateChat'] })
       await Conversation.updateOne({ _id: conversation._id }, { locked: true })
 
       await runPendingCheck(previewed.body.askId, 1)
@@ -1169,7 +1184,7 @@ describe('POST /v1/unpack/:conversationId/send', () => {
       const { quoted } = await seedTranscript(conversation)
       const previewed = await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
       await settleBackgroundUnpacks()
-      await UnpackRequest.updateOne({ _id: previewed.body.askId }, { destination: 'privateChat' })
+      await UnpackRequest.updateOne({ _id: previewed.body.askId }, { destinations: ['privateChat'] })
       jest.spyOn(messageService, 'newMessageHandler').mockRejectedValueOnce(new Error('database down'))
 
       await runPendingCheck(previewed.body.askId, 3)
@@ -1242,7 +1257,7 @@ describe('POST /v1/unpack/:conversationId/send', () => {
     expect(reply!.body).not.toContain('error budget')
     const ask = await UnpackRequest.findById(res.body.askId)
     expect(ask).toMatchObject({ status: 'previewed' })
-    expect(ask!.destination).toBeUndefined()
+    expect(ask!.destinations).toEqual([])
   })
 
   it('explains only the sent passage, starting no extra AI model calls for the chunks it touches', async () => {
@@ -1263,13 +1278,6 @@ describe('POST /v1/unpack/:conversationId/send', () => {
     expect(mockGetChatPromptResponse).toHaveBeenCalledTimes(1)
   })
 
-  it('accepts only Private Chat as a destination for now', async () => {
-    const { conversation } = await createEvent()
-    const { quoted } = await seedTranscript(conversation)
-
-    await send(conversation, { ...selectionIn(quoted), destination: 'groupChat' }).expect(httpStatus.BAD_REQUEST)
-  })
-
   it('refuses a participant who has no Private Chat with the assistant', async () => {
     const { conversation, privateChat } = await createEvent()
     await Channel.deleteOne({ _id: privateChat._id })
@@ -1281,20 +1289,328 @@ describe('POST /v1/unpack/:conversationId/send', () => {
   })
 })
 
+describe('POST /v1/unpack/:conversationId/share', () => {
+  async function addPrivateChat(conversation, berkie, user) {
+    const channel = await Channel.create({
+      name: `direct-${user._id}-${berkie._id}`,
+      direct: true,
+      participants: [user._id, berkie._id]
+    })
+    conversation.channels.push(channel)
+    await conversation.save()
+    return channel
+  }
+
+  const groupChat = { name: 'chat' }
+
+  it("posts the card to Group Chat as the assistant, with a footer using the event's bot name and no participant name", async () => {
+    const { conversation, berkie } = await createEvent()
+    await Agent.updateOne({ _id: berkie!._id }, { 'agentConfig.botName': 'Sage' })
+    const footer = 'A participant asked Sage to share this.'
+    const { quoted } = await seedTranscript(conversation)
+    const cardId = await cardFor(conversation, selectionIn(quoted))
+
+    const res = await share(conversation, cardId).expect(httpStatus.ACCEPTED)
+
+    const [post] = await cardsIn(groupChat)
+    expect(res.body).toEqual({ askId: expect.any(String), status: 'sent', messageId: post._id.toString() })
+    expect(post.fromAgent).toBe(true)
+    expect(post.pseudonym).toBe(berkie!.pseudonyms[0].pseudonym)
+    expect(post.owner!.toString()).toBe(berkie!._id.toString())
+    expect(post.body).toMatchObject({
+      type: 'unpack_explanation',
+      mode: 'passage',
+      destination: 'groupChat',
+      quote: 'Missing it eats the error budget.',
+      chunkIds: [quoted._id.toString()],
+      headline: sections.headline,
+      footer,
+      text: expect.stringContaining(`\n\n${footer}`)
+    })
+    expect(JSON.stringify(post.body)).not.toContain(participant._id.toString())
+  })
+
+  it("posts the card's text as the participant saw it, not a newer saved explanation", async () => {
+    const { conversation } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    const cardId = await cardFor(conversation, selectionIn(quoted))
+    await UnpackPassageExplanation.updateMany({}, { whatTheyreSaying: 'A rewrite written after the card was posted.' })
+
+    await share(conversation, cardId).expect(httpStatus.ACCEPTED)
+
+    const [post] = await cardsIn(groupChat)
+    expect(post.body).toMatchObject({ whatTheyreSaying: sections.whatTheyreSaying })
+  })
+
+  it('records Group Chat on the ask, next to Private Chat', async () => {
+    const { conversation } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    const cardId = await cardFor(conversation, selectionIn(quoted))
+
+    const res = await share(conversation, cardId).expect(httpStatus.ACCEPTED)
+
+    const ask = await UnpackRequest.findById(res.body.askId)
+    expect(ask!.destinations).toEqual(['privateChat', 'groupChat'])
+    expect(ask!.answerMessage!.toString()).toBe(cardId)
+    const [row] = await UnpackGroupPost.find()
+    expect(row).toMatchObject({ status: 'posted', chunkIds: [quoted._id] })
+    expect(row.message.toString()).toBe(res.body.messageId)
+  })
+
+  it('posts once when two people share the same passage at the same moment, and tells the other it was already explained', async () => {
+    const { conversation, berkie } = await createEvent()
+    const otherPrivateChat = await addPrivateChat(conversation, berkie, userTwo)
+    const { quoted } = await seedTranscript(conversation)
+    const firstCard = await cardFor(conversation, selectionIn(quoted))
+    const secondCard = await cardFor(conversation, selectionIn(quoted, 'error budget'), userTwoAccessToken)
+
+    const results = await Promise.all([share(conversation, firstCard), share(conversation, secondCard, userTwoAccessToken)])
+
+    const posts = await cardsIn(groupChat)
+    expect(posts).toHaveLength(1)
+    expect(results.map(({ status }) => status)).toEqual([httpStatus.ACCEPTED, httpStatus.ACCEPTED])
+    expect(results.map(({ body }) => body.status).sort()).toEqual(['alreadyPosted', 'sent'])
+    expect(results.map(({ body }) => body.messageId)).toEqual([posts[0]._id.toString(), posts[0]._id.toString()])
+    const refusedChat =
+      results[0].body.status === 'alreadyPosted' ? `direct-${participant._id}-${berkie!._id}` : otherPrivateChat.name
+    const note = await Message.findOne({ 'body.type': 'unpack_already_posted' })
+    expect(note!.body).toEqual({
+      type: 'unpack_already_posted',
+      groupChatMessageId: posts[0]._id.toString(),
+      text: 'This was already explained in Group Chat.'
+    })
+    expect(note!.channels).toEqual([refusedChat])
+    expect(await UnpackGroupPost.countDocuments()).toBe(1)
+  })
+
+  it('posts nothing when another post lands between its check and its write, and sends the note instead', async () => {
+    const { conversation, berkie } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    const cardId = await cardFor(conversation, selectionIn(quoted))
+    const otherPost = await UnpackGroupPost.create({
+      conversation: conversation._id,
+      chunkIds: [quoted._id],
+      message: new mongoose.Types.ObjectId(),
+      status: 'posted'
+    })
+    // The stale answer a racing request sees when it checks just before the other request saves its row
+    const findOne = UnpackGroupPost.findOne.bind(UnpackGroupPost)
+    jest
+      .spyOn(UnpackGroupPost, 'findOne')
+      .mockImplementationOnce((() => ({ sort: async () => null })) as unknown as typeof UnpackGroupPost.findOne)
+      .mockImplementation(findOne)
+
+    const res = await share(conversation, cardId).expect(httpStatus.ACCEPTED)
+
+    expect(res.body).toMatchObject({ status: 'alreadyPosted', messageId: otherPost.message.toString() })
+    expect(await cardsIn(groupChat)).toHaveLength(0)
+    expect(await UnpackGroupPost.countDocuments()).toBe(1)
+    const note = await Message.findOne({ 'body.type': 'unpack_already_posted' })
+    expect(note!.channels).toEqual([`direct-${participant._id}-${berkie!._id}`])
+  })
+
+  it('refuses a passage that shares even one chunk with an earlier post', async () => {
+    const { conversation, berkie } = await createEvent()
+    await addPrivateChat(conversation, berkie, userTwo)
+    const { before, quoted } = await seedTranscript(conversation)
+    await share(conversation, await cardFor(conversation, selectionIn(quoted))).expect(httpStatus.ACCEPTED)
+    const spanning = {
+      startMessageId: before._id.toString(),
+      startOffset: 0,
+      endMessageId: quoted._id.toString(),
+      endOffset: 10
+    }
+
+    const res = await share(conversation, await cardFor(conversation, spanning, userTwoAccessToken), userTwoAccessToken)
+
+    expect(res.body.status).toBe('alreadyPosted')
+    expect(await cardsIn(groupChat)).toHaveLength(1)
+  })
+
+  it('lets a participant post once every two minutes', async () => {
+    const { conversation } = await createEvent()
+    const { before, quoted } = await seedTranscript(conversation)
+    const firstCard = await cardFor(conversation, selectionIn(quoted))
+    const secondCard = await cardFor(conversation, selectionIn(before, 'sets an SLO'))
+    await share(conversation, firstCard).expect(httpStatus.ACCEPTED)
+
+    const refused = await share(conversation, secondCard).expect(httpStatus.TOO_MANY_REQUESTS)
+
+    expect(refused.body.reason).toBe('groupChatRateLimited')
+    expect(await cardsIn(groupChat)).toHaveLength(1)
+    const realNow = Date.now
+    jest.spyOn(Date, 'now').mockImplementation(() => realNow() + UNPACK_GROUP_CHAT_POST_WINDOW_MS + SECOND)
+    await share(conversation, secondCard).expect(httpStatus.ACCEPTED)
+    expect(await cardsIn(groupChat)).toHaveLength(2)
+  })
+
+  it('does not use up the limit when the passage was already in Group Chat', async () => {
+    const { conversation, berkie } = await createEvent()
+    await addPrivateChat(conversation, berkie, userTwo)
+    const { before, quoted } = await seedTranscript(conversation)
+    await share(conversation, await cardFor(conversation, selectionIn(quoted))).expect(httpStatus.ACCEPTED)
+    const duplicate = await cardFor(conversation, selectionIn(quoted), userTwoAccessToken)
+    const different = await cardFor(conversation, selectionIn(before, 'sets an SLO'), userTwoAccessToken)
+
+    expect((await share(conversation, duplicate, userTwoAccessToken)).body.status).toBe('alreadyPosted')
+
+    const res = await share(conversation, different, userTwoAccessToken).expect(httpStatus.ACCEPTED)
+    expect(res.body.status).toBe('sent')
+  })
+
+  it('removes its row when posting fails before the post is saved, so sharing again works', async () => {
+    const { conversation } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    const cardId = await cardFor(conversation, selectionIn(quoted))
+    jest.spyOn(messageService, 'newMessageHandler').mockRejectedValueOnce(new Error('database down'))
+
+    await share(conversation, cardId).expect(httpStatus.INTERNAL_SERVER_ERROR)
+
+    expect(await UnpackGroupPost.countDocuments()).toBe(0)
+    const res = await share(conversation, cardId).expect(httpStatus.ACCEPTED)
+    expect(res.body.status).toBe('sent')
+  })
+
+  it('clears a post a stopped server left half made once it is over a minute old', async () => {
+    const { conversation } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    const cardId = await cardFor(conversation, selectionIn(quoted))
+    await UnpackGroupPost.create({
+      conversation: conversation._id,
+      chunkIds: [quoted._id],
+      message: new mongoose.Types.ObjectId(),
+      status: 'posting',
+      createdAt: new Date(Date.now() - 2 * 60 * SECOND)
+    })
+
+    const res = await share(conversation, cardId).expect(httpStatus.ACCEPTED)
+
+    expect(res.body.status).toBe('sent')
+    expect(await UnpackGroupPost.countDocuments()).toBe(1)
+  })
+
+  it('treats a post that is still being made as already posted', async () => {
+    const { conversation } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    const cardId = await cardFor(conversation, selectionIn(quoted))
+    const inProgress = await UnpackGroupPost.create({
+      conversation: conversation._id,
+      chunkIds: [quoted._id],
+      message: new mongoose.Types.ObjectId(),
+      status: 'posting'
+    })
+
+    const res = await share(conversation, cardId).expect(httpStatus.ACCEPTED)
+
+    expect(res.body).toMatchObject({ status: 'alreadyPosted', messageId: inProgress.message.toString() })
+  })
+
+  it("refuses a card that isn't the participant's own", async () => {
+    const { conversation, berkie } = await createEvent()
+    await addPrivateChat(conversation, berkie, userTwo)
+    const { quoted } = await seedTranscript(conversation)
+    const someoneElsesCard = await cardFor(conversation, selectionIn(quoted))
+
+    const res = await share(conversation, someoneElsesCard, userTwoAccessToken).expect(httpStatus.NOT_FOUND)
+
+    expect(res.body.reason).toBe('cardNotFound')
+    expect(await cardsIn(groupChat)).toHaveLength(0)
+  })
+
+  it('refuses a message that is not an Unpacker card', async () => {
+    const { conversation } = await createEvent()
+    await seedTranscript(conversation)
+    const chatMessage = await Message.create({
+      conversation: conversation._id,
+      body: 'Just a chat message.',
+      bodyType: 'text',
+      channels: ['chat'],
+      pseudonym: 'Participant',
+      pseudonymId: new mongoose.Types.ObjectId(),
+      visible: true
+    })
+
+    const res = await share(conversation, chatMessage._id.toString()).expect(httpStatus.NOT_FOUND)
+
+    expect(res.body.reason).toBe('cardNotFound')
+  })
+
+  it('refuses an event with no Group Chat', async () => {
+    const { conversation } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    const cardId = await cardFor(conversation, selectionIn(quoted))
+    await Channel.deleteMany({ name: 'chat' })
+
+    const res = await share(conversation, cardId).expect(httpStatus.CONFLICT)
+
+    expect(res.body.reason).toBe('noGroupChat')
+  })
+
+  it('refuses a share while the event is locked', async () => {
+    const { conversation } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    const cardId = await cardFor(conversation, selectionIn(quoted))
+    await Conversation.updateOne({ _id: conversation._id }, { locked: true })
+
+    const res = await share(conversation, cardId).expect(httpStatus.CONFLICT)
+
+    expect(res.body.reason).toBe('eventLocked')
+    expect(await UnpackGroupPost.countDocuments()).toBe(0)
+  })
+
+  it('refuses a share without the transcript passcode', async () => {
+    const { conversation } = await createEvent({ transcriptPasscode: 'secret' })
+    const { quoted } = await seedTranscript(conversation)
+    const cardId = await cardFor(conversation, selectionIn(quoted))
+
+    const res = await request(app)
+      .post(`/v1/unpack/${conversation._id}/share`)
+      .set('Authorization', `Bearer ${participantAccessToken}`)
+      .send({ messageId: cardId })
+      .expect(httpStatus.BAD_REQUEST)
+
+    expect(res.body.reason).toBe('wrongPasscode')
+  })
+
+  it('removes a post that finished after the transcript it quotes was cleared', async () => {
+    const { conversation } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    const cardId = await cardFor(conversation, selectionIn(quoted))
+    const post = messageService.newMessageHandler
+    jest.spyOn(messageService, 'newMessageHandler').mockImplementationOnce(async (...args) => {
+      const saved = await post(...args)
+      await Message.deleteMany({ channels: 'transcript' })
+      return saved
+    })
+    jest.spyOn(websocketGateway, 'broadcastMessagesHidden').mockResolvedValue(undefined)
+
+    const res = await share(conversation, cardId).expect(httpStatus.BAD_REQUEST)
+
+    expect(res.body.reason).toBe('chunkNotInTranscript')
+    expect(await cardsIn(groupChat)).toHaveLength(0)
+    expect(await UnpackGroupPost.countDocuments()).toBe(0)
+  })
+})
+
 describe('deleting Unpacker rows with the transcript they quote', () => {
   async function eventWithUnpackRows() {
     const { conversation } = await createEvent()
     const { quoted } = await seedTranscript(conversation)
-    await preview(conversation, selectionIn(quoted)).expect(httpStatus.OK)
     const { conversation: otherEvent } = await createEvent()
     const { quoted: otherQuoted } = await seedTranscript(otherEvent)
-    await preview(otherEvent, selectionIn(otherQuoted)).expect(httpStatus.OK)
+    for (const [event, chunk] of [
+      [conversation, quoted],
+      [otherEvent, otherQuoted]
+    ]) {
+      await share(event, await cardFor(event, selectionIn(chunk))).expect(httpStatus.ACCEPTED)
+    }
     return { conversation, otherEvent }
   }
 
   async function expectOnlyOtherEventRowsLeft(otherEvent) {
     expect(await UnpackRequest.find().distinct('conversation')).toEqual([otherEvent._id])
     expect(await UnpackPassageExplanation.find().distinct('conversation')).toEqual([otherEvent._id])
+    expect(await UnpackGroupPost.find().distinct('conversation')).toEqual([otherEvent._id])
   }
 
   it('removes the cards that quote it from Private Chat, and nothing else there', async () => {
@@ -1324,6 +1640,29 @@ describe('deleting Unpacker rows with the transcript they quote', () => {
       { messageIds: [card._id.toString()], hidden: true, display: 'omit' },
       [privateChat.name]
     )
+  })
+
+  it('removes Group Chat posts and "already explained" notes too', async () => {
+    const { conversation, berkie } = await createEvent()
+    const { quoted } = await seedTranscript(conversation)
+    const cardId = await cardFor(conversation, selectionIn(quoted))
+    await share(conversation, cardId).expect(httpStatus.ACCEPTED)
+    await Message.create({
+      conversation: conversation._id,
+      body: { type: 'unpack_already_posted', groupChatMessageId: cardId, text: 'This was already explained in Group Chat.' },
+      bodyType: 'json',
+      channels: [`direct-${participant._id}-${berkie!._id}`],
+      pseudonym: 'Berkie',
+      pseudonymId: new mongoose.Types.ObjectId(),
+      visible: true
+    })
+    const hidden = jest.spyOn(websocketGateway, 'broadcastMessagesHidden').mockResolvedValue(undefined)
+
+    await transcript.deleteTranscript(conversation)
+
+    expect(await Message.countDocuments({ conversation: conversation._id, bodyType: 'json' })).toBe(0)
+    expect(await UnpackGroupPost.countDocuments()).toBe(0)
+    expect(hidden.mock.calls[0][2]).toEqual(expect.arrayContaining(['chat']))
   })
 
   function saveCatchUpSummary(conversation, privateChat, quoted, createdAt = new Date()) {
@@ -1413,17 +1752,17 @@ describe('deleting Unpacker rows with the transcript they quote', () => {
   it('removes rows and cards older than the retention period on the daily cleanup, even after their transcript is gone', async () => {
     const { conversation, privateChat } = await createEvent()
     const { quoted } = await seedTranscript(conversation)
-    await send(conversation, selectionIn(quoted)).expect(httpStatus.ACCEPTED)
-    await settleBackgroundUnpacks()
+    await share(conversation, await cardFor(conversation, selectionIn(quoted))).expect(httpStatus.ACCEPTED)
     const longAgo = new Date(Date.now() - 20 * 365 * 24 * 60 * 60 * SECOND)
     await UnpackRequest.collection.updateMany({}, { $set: { createdAt: longAgo } })
     await UnpackPassageExplanation.collection.updateMany({}, { $set: { createdAt: longAgo } })
+    await UnpackGroupPost.collection.updateMany({}, { $set: { createdAt: longAgo } })
     await Message.collection.updateMany({ 'body.type': 'unpack_explanation' }, { $set: { createdAt: longAgo } })
     // An earlier cleanup deleted the transcript, then failed before it reached the Unpacker rows
     await Message.deleteMany({ channels: 'transcript' })
     const { conversation: recentEvent } = await createEvent()
     const { quoted: recentQuote } = await seedTranscript(recentEvent)
-    await preview(recentEvent, selectionIn(recentQuote)).expect(httpStatus.OK)
+    await share(recentEvent, await cardFor(recentEvent, selectionIn(recentQuote))).expect(httpStatus.ACCEPTED)
 
     await JobHandlers.cleanUpTranscripts()
 
@@ -1493,7 +1832,7 @@ describe('Catch me up, sent as a chat message to Berkie', () => {
     })
     const rows = await UnpackRequest.find({ conversation: conversation._id }).lean()
     expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({ mode: 'lastMinute', status: 'sent' })
+    expect(rows[0]).toMatchObject({ mode: 'lastMinute', status: 'sent', destinations: ['privateChat'] })
     expect(rows[0].user.equals(participant._id)).toBe(true)
     expect(rows[0].answerMessage!.equals(reply._id)).toBe(true)
   })
