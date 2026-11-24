@@ -355,7 +355,7 @@ export interface IUnpackRequest {
   user: mongoose.Types.ObjectId
   mode: UnpackMode
   status: UnpackRequestStatus
-  // Set before posting, so a Private Chat destination can wait here while the explanation is still being written
+  // Private Chat is added before posting, so it can wait here while the explanation is written; Group Chat after
   destinations: UnpackDestination[]
   chunkIds: mongoose.Types.ObjectId[]
   quote: string
@@ -387,6 +387,8 @@ export interface IUnpackPassageExplanation extends Partial<UnpackPassageSections
 export interface IUnpackGroupPost {
   _id: mongoose.Types.ObjectId
   conversation: mongoose.Types.ObjectId
+  // Lets a participant who shares their own card again get their post back instead of a note
+  ask: mongoose.Types.ObjectId
   chunkIds: mongoose.Types.ObjectId[]
   message: mongoose.Types.ObjectId
   status: UnpackGroupPostStatus

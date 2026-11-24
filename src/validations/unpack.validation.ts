@@ -28,7 +28,8 @@ const sharePassage = {
   params,
   body: Joi.object().keys({
     messageId: Joi.string().custom(objectId).required(),
-    transcriptPasscode: Joi.string()
+    transcriptPasscode: Joi.string(),
+    chatPasscode: Joi.string()
   })
 }
 

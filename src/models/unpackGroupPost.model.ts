@@ -5,6 +5,7 @@ import { IUnpackGroupPost, UNPACK_GROUP_POST_STATUSES } from '../types/index.typ
 const unpackGroupPostSchema = new mongoose.Schema<IUnpackGroupPost>(
   {
     conversation: { type: mongoose.SchemaTypes.ObjectId, ref: 'Conversation', required: true, index: true },
+    ask: { type: mongoose.SchemaTypes.ObjectId, ref: 'UnpackRequest', required: true },
     chunkIds: { type: [mongoose.SchemaTypes.ObjectId], ref: 'Message', required: true },
     message: { type: mongoose.SchemaTypes.ObjectId, ref: 'Message', required: true },
     status: { type: String, enum: UNPACK_GROUP_POST_STATUSES, required: true }

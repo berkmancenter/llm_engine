@@ -104,8 +104,9 @@ const createMessage = async (messageBody, user, conversation) => {
   }
 
   const message = await Message.create({
-    // The websocket path passes client bodies through unvalidated, so only agents may choose an ID
+    // The websocket path passes client bodies through unvalidated, so only agents may choose an ID or post hidden
     ...(user.agentType && messageBody._id !== undefined && { _id: messageBody._id }),
+    ...(user.agentType && messageBody.hiddenByAdmin === true && { hiddenByAdmin: true }),
     body: messageBody.body,
     ...(messageBody.bodyType !== undefined && { bodyType: messageBody.bodyType }),
     ...(messageBody.createdAt !== undefined && { createdAt: messageBody.createdAt }),
@@ -545,6 +546,7 @@ export const agentResponseToMessageData = (response, agent) => ({
      later thread reply can answer a follow-up question about the same numbers. */
   ...(response.metricsContext !== undefined && { metricsContext: response.metricsContext }),
   ...(response.provenance !== undefined && { provenance: response.provenance }),
+  ...(response.hiddenByAdmin === true && { hiddenByAdmin: true }),
   source: { type: 'agent', ...(response.proactive === true && { proactive: true }) }
 })
 

@@ -6,6 +6,7 @@ setupIntTest()
 
 const post = (chunkIds: mongoose.Types.ObjectId[]) => ({
   conversation: new mongoose.Types.ObjectId(),
+  ask: new mongoose.Types.ObjectId(),
   chunkIds,
   message: new mongoose.Types.ObjectId(),
   status: 'posting'
@@ -27,6 +28,12 @@ describe('UnpackGroupPost model', () => {
     await UnpackGroupPost.create(post([new mongoose.Types.ObjectId()]))
 
     await expect(UnpackGroupPost.create(post([new mongoose.Types.ObjectId()]))).resolves.toBeDefined()
+  })
+
+  it('rejects a post without the ask it came from', async () => {
+    await expect(UnpackGroupPost.create({ ...post([new mongoose.Types.ObjectId()]), ask: undefined })).rejects.toThrow(
+      mongoose.Error.ValidationError
+    )
   })
 
   it('rejects a status it does not know', async () => {

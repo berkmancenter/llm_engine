@@ -15,12 +15,30 @@ export const TOPIC_TRANSCRIPT_COLLECTION_PREFIX = 'topic-transcript'
 
 const UNPACK_CARD_TYPES = ['unpack_explanation', 'catch_up_summary', 'unpack_already_posted']
 
+/** Every message replying to these, directly or through other replies: a thread can't outlive its post. */
+async function findThreadReplies(parentIds) {
+  const replies: { _id; channels?: string[] }[] = []
+  const seen = new Set(parentIds.map(String))
+  let parents = parentIds
+  while (parents.length > 0) {
+    const found = await Message.find({ parentMessage: { $in: parents } })
+      .select('_id channels')
+      .lean()
+    // Skipping messages already collected means a reply chain that loops back can't keep this running forever
+    const unseen = found.filter(({ _id }) => !seen.has(String(_id)))
+    unseen.forEach(({ _id }) => seen.add(String(_id)))
+    replies.push(...unseen)
+    parents = unseen.map(({ _id }) => _id)
+  }
+  return replies
+}
+
 /**
- * Deletes Unpacker cards, all of an event's or the ones `filter` picks, and tells open clients to drop them.
- * There is no deletion event, so this sends `message:hidden`, which clients already apply to Private Chat.
+ * Deletes Unpacker cards, all of an event's or the ones `filter` picks, with any thread replies under them, and tells
+ * open clients to drop them. There is no deletion event, so this sends `message:hidden` to each channel they were in.
  */
 async function deleteUnpackCards(conversationId, filter: Record<string, unknown> = {}) {
-  const cards = await Message.find({
+  const found = await Message.find({
     ...filter,
     conversation: conversationId,
     bodyType: 'json',
@@ -28,7 +46,8 @@ async function deleteUnpackCards(conversationId, filter: Record<string, unknown>
   })
     .select('_id channels')
     .lean()
-  if (cards.length === 0) return
+  if (found.length === 0) return
+  const cards = [...found, ...(await findThreadReplies(found.map(({ _id }) => _id)))]
   await Message.deleteMany({ _id: { $in: cards.map(({ _id }) => _id) } })
   try {
     await websocketGateway.broadcastMessagesHidden(
@@ -61,11 +80,15 @@ async function deleteUnpackRowsBefore(cutoff: Date) {
   await UnpackRequest.deleteMany({ createdAt: { $lt: cutoff } })
   await UnpackPassageExplanation.deleteMany({ createdAt: { $lt: cutoff } })
   await UnpackGroupPost.deleteMany({ createdAt: { $lt: cutoff } })
-  await Message.deleteMany({
+  const cards = await Message.find({
     bodyType: 'json',
     'body.type': { $in: UNPACK_CARD_TYPES },
     createdAt: { $lt: cutoff }
   })
+    .select('_id')
+    .lean()
+  const replies = await findThreadReplies(cards.map(({ _id }) => _id))
+  await Message.deleteMany({ _id: { $in: [...cards, ...replies].map(({ _id }) => _id) } })
 }
 
 /**

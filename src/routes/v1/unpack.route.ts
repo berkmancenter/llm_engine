@@ -142,9 +142,13 @@ router
  *       as the event assistant and without the participant's name. The copy is the card as the participant saw
  *       it, with `destination: groupChat` and a `footer`. Group Chat never gets two posts about the same
  *       transcript: if a post already covers any chunk of this passage, nothing is posted, the answer is
- *       `status: alreadyPosted` with that post's message ID, and the assistant sends the participant an
- *       UnpackAlreadyPosted note in Private Chat. Each participant can post to Group Chat once every 2 minutes
- *       per event; an alreadyPosted answer doesn't count.
+ *       `status: alreadyPosted` with that post's message ID, and the assistant sends the participant one
+ *       UnpackAlreadyPosted note in Private Chat per existing post. If that post is still being made, the call
+ *       waits for it, and answers unpackFailed (503) if it isn't done in 10 seconds. Sharing a card that was
+ *       already posted from the same card answers `status: sent` with the existing post's ID. Each participant
+ *       can post to Group Chat once every 2 minutes per event, counted from their last post that went
+ *       through; an alreadyPosted answer doesn't count. Sharing opens when the event starts, so a share in the
+ *       pre-event window is refused with eventNotStarted.
  *     tags: [Unpack]
  *     security:
  *       - bearerAuth: []
@@ -168,6 +172,12 @@ router
  *                   messageId:
  *                     type: string
  *                     description: ID of the participant's Private Chat `unpack_explanation` card.
+ *                   chatPasscode:
+ *                     type: string
+ *                     description: >-
+ *                       The Group Chat channel's passcode, the same one the client uses to read Group Chat.
+ *                       Required when Group Chat has one, which it does by default. A missing or wrong
+ *                       passcode is refused with 400 and reason wrongPasscode.
  *     responses:
  *       202:
  *         description: The card was posted to Group Chat, or a post about the same passage already exists
