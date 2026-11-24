@@ -262,6 +262,42 @@ describe('runInterventionAnalysis tool resolution', () => {
     expect(result.declineReason).toBe('tool_goal_ungrounded')
   })
 
+  it('discards a tool-dependent goal whose only own tool call reported it grounded nothing', async () => {
+    useFakeRegistry()
+    mockGetAgentStructuredResponse.mockResolvedValue({
+      ...DECISION,
+      goalId: 'resurface_past_discussion',
+      sharedChatMessage: 'Should never be sent.',
+      toolTrace: { invoked: true, calls: [{ name: 'list_open_threads', args: {}, artifact: { grounding: false } }] }
+    })
+
+    const result = await run([makeGoal('resurface_past_discussion', ['event_history', 'open_threads'])])
+
+    expect(result.goalId).toBe('none')
+    expect(result.sharedChatMessage).toBeNull()
+    expect(result.declineReason).toBe('tool_goal_ungrounded')
+  })
+
+  it('passes through once a grounding call follows one that reported it grounded nothing', async () => {
+    useFakeRegistry()
+    mockGetAgentStructuredResponse.mockResolvedValue({
+      ...DECISION,
+      goalId: 'resurface_past_discussion',
+      toolTrace: {
+        invoked: true,
+        calls: [
+          { name: 'list_open_threads', args: {}, artifact: { grounding: false } },
+          { name: 'search_topic_transcripts', args: {} }
+        ]
+      }
+    })
+
+    const result = await run([makeGoal('resurface_past_discussion', ['event_history', 'open_threads'])])
+
+    expect(result.goalId).toBe('resurface_past_discussion')
+    expect(result.declineReason).toBeUndefined()
+  })
+
   it('does not discard a goal with no declared tools even without a tool call', async () => {
     const result = await run([makeGoal('x')])
 

@@ -1,0 +1,30 @@
+{
+  "id": "resurface_past_discussion",
+  "label": "Resurface Past Discussion",
+  "description": "Surfaces a question or idea from a past discussion that was discussed but could benefit from further discussion, independent of what the current conversation is about.",
+  "channel": "groupChat",
+  "silenceCompatible": true,
+  "triggers": {
+    "conditions": [
+      "a worthwhile open thread from a past discussion is available",
+      "it's a reasonable moment to introduce something new into the conversation"
+    ],
+    "minConfidence": 65
+  },
+  "guardrails": [
+    "always call list_open_threads first to see what's available — never use this goal without actually calling it",
+    "if the candidate you pick is tagged with a past conversation's own id, you must also call one of event_history's search tools and get back a real excerpt before using it — a candidate tagged \"Earlier in this chat\" instead was already drawn from real messages and needs no further tool call",
+    "if that search tool comes back empty, says no relevant content was found, or otherwise fails to produce a real excerpt, you must stay silent — the cached candidate question by itself, with no real excerpt behind it, is never enough to use this goal, no matter how substantive it reads",
+    "only use when the candidate came from an actual list_open_threads result, and (for a past-conversation candidate) a real excerpt was actually retrieved too — never invent or assume either one",
+    "name the source loosely (e.g. \"last time this came up\", \"a couple sessions back\") rather than quoting the past discussion at length",
+    "frame as an optional nudge to revisit, not an obligation",
+    "don't resurface something that's already been addressed since — check your own recent posts first",
+    "prefer the most recent relevant discussion when multiple candidates are plausible"
+  ],
+  "outputContract": { "format": "text" },
+  "examples": [
+    "This came up before and feels relevant again: what's our actual budget ceiling for this? Worth picking back up?",
+    "This echoes something from a couple sessions back that never got fully explored: who owns the vendor relationship going forward?"
+  ],
+  "tools": ["event_history", "open_threads"]
+}

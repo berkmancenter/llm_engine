@@ -37,7 +37,10 @@ const eventConditionSchema = z.object({
   detail: z.string().nullable().describe('Optional elaboration — e.g. the specific topic or aspect that makes this true')
 })
 
-const CHECKIN_USER_TEMPLATE = `## Event Topic:
+const CHECKIN_USER_TEMPLATE = `## Current Time:
+{currentTime}
+
+## Event Topic:
 {topic}
 
 ## You are writing to:
@@ -300,7 +303,7 @@ export async function processParticipant(
 
   const thisParticipantHistory =
     participantDmHistory.messages.length > 0
-      ? formatDmHistoryByChannel(participantDmHistory.messages, [channel])
+      ? formatDmHistoryByChannel(participantDmHistory.messages, [channel], participantDmHistory.end ?? new Date())
       : 'No messages yet from this participant.'
 
   const { behaviorPolicy, conversationContext } = this.conversation
