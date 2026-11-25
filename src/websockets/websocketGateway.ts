@@ -161,6 +161,17 @@ class WebsocketGateway {
     await this.broadcast(conversationId, 'message:hidden', payload, [], [getAdminRoomId(conversationId)])
   }
 
+  /**
+   * Ids only. Unlike hiding, deleting goes to the admin room too, so moderators drop the messages instead of keeping a
+   * greyed-out copy they could unhide.
+   */
+  async broadcastMessagesDeleted(conversationId: string, messageIds: string[], channels: string[]) {
+    await this.broadcast(conversationId, 'message:deleted', { messageIds }, channels, [
+      getRoomId(conversationId),
+      getAdminRoomId(conversationId)
+    ])
+  }
+
   /** Toast trigger for the hidden author, sent to their own user room. */
   async broadcastHiddenNotice(
     conversationId: string,
