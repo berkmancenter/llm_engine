@@ -135,7 +135,7 @@ separate and is intentionally outside this change.
 - Cross-repository HTTP test uses this engine's compiled delivery client against
   the real archive API app with synthetic content and a temporary inbox.
 
-## Live acceptance gate — run complete, sign-off pending (PR #400)
+## Live acceptance gate — passed and signed off (PR #400)
 
 Automated tests do not close this gate. Keep `BKC_ARCHIVE_EXPORT_ENABLED=false`
 for general production use until the deployment operator records the evidence and
@@ -154,7 +154,7 @@ again if acceptance fails or sign-off is still pending.
       instead of stopping a live one.)
 - [x] Enqueue that ID twice; verify `already_delivered` and exactly one private draft.
       Confirm the draft contains the summary, without chat/transcripts/attendee lists.
-- [ ] Record operator, timestamp, evidence location and pass/fail result below.
+- [x] Record operator, timestamp, evidence location and pass/fail result below.
       Only a passing, signed-off result permits leaving export enabled for normal use.
 
 Acceptance record:
@@ -175,6 +175,6 @@ Acceptance record:
 - Result: **passed.** The first dry run against production data failed on an
   unregistered `Topic` model in the backfill command, fixed in #449 and covered by
   #449 and #450 before this run.
-- Rollout sign-off: **pending operator sign-off.** The export flag is currently
-  enabled in production for this event and for events stopped after it. Record the
-  sign-off here, or set the flag back to `false`.
+- Rollout sign-off: **signed off** by Brendan A. Miller, 2026-11-24. The export flag
+  stays enabled in production for events stopped after the acceptance event. Past
+  events are exported only by an explicit, bounded backfill.
