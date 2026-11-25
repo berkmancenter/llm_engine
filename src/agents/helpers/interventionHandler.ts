@@ -1,7 +1,12 @@
 import { z } from 'zod'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import { BehaviorPolicy, ConversationHistory, ConversationGoal, IChannel } from '../../types/index.types.js'
-import { formatMultiUserConversationHistory, formatDmHistoryByChannel } from './llmInputFormatters.js'
+import {
+  formatMultiUserConversationHistory,
+  formatDmHistoryByChannel,
+  formatAbsoluteDateTime,
+  formatRecency
+} from './llmInputFormatters.js'
 import transcript from './transcript.js'
 import { getChatPromptResponse, getAgentStructuredResponse, AgentToolCallTrace } from './llmChain.js'
 import { getTools, buildToolsGuidance } from '../tools/registry.js'
@@ -59,7 +64,10 @@ export interface InterventionAnalysis {
   declineReason?: DeclineReason | null
 }
 
-export const USER_TEMPLATE = `## Event Topic:
+export const USER_TEMPLATE = `## Current Time:
+{currentTime}
+
+## Event Topic:
 {topic}
 
 ## Recent Transcript:
@@ -84,6 +92,7 @@ Analyze the current state and determine if an intervention is warranted. Follow 
 export const interventionLlmTemplateVars = {
   system: [],
   user: [
+    { name: 'currentTime', description: 'The current date/time, as an anchor for judging message recency' },
     { name: 'topic', description: 'The event topic' },
     { name: 'recentTranscript', description: 'Transcript from the event' },
     { name: 'retrievedChunks', description: 'Relevant retrieved context from RAG search' },
@@ -123,11 +132,12 @@ function getAgentRecentPosts(conversationHistory: ConversationHistory, agentName
     return 'None yet - this would be your first intervention.'
   }
 
+  const now = conversationHistory.end ?? new Date()
   return agentPosts
     .map((msg) => {
-      const timestamp = msg.createdAt?.toISOString() || 'unknown'
+      const label = msg.createdAt ? formatRecency(msg.createdAt, now) : 'unknown'
       const body = typeof msg.body === 'string' ? msg.body : JSON.stringify(msg.body)
-      return `[${timestamp}] ${body}`
+      return `[${label}] ${body}`
     })
     .join('\n')
 }
@@ -159,6 +169,7 @@ export async function runInterventionAnalysis(
   backgroundReading?: string
 ): Promise<InterventionAnalysis> {
   // Format conversation histories
+  const now = sharedChatHistory.end ?? new Date()
   const sharedChatMessages = formatMultiUserConversationHistory(sharedChatHistory)
 
   // Format DM history grouped by channel so agent messages show their recipient.
@@ -169,7 +180,7 @@ export async function runInterventionAnalysis(
     dmChannels.map((c) => (c as unknown as { populate(path: string): Promise<void> }).populate('participants'))
   )
   const privateMessagesText = privateConversationHistory
-    ? formatDmHistoryByChannel(privateConversationHistory.messages, dmChannels)
+    ? formatDmHistoryByChannel(privateConversationHistory.messages, dmChannels, privateConversationHistory.end ?? now)
     : ''
 
   // Use caller-provided transcript if available; otherwise default to last 10 minutes
@@ -196,6 +207,7 @@ export async function runInterventionAnalysis(
       .join('') + baseUserTemplate
 
   const templateVars = {
+    currentTime: formatAbsoluteDateTime(now),
     topic: this.conversation.name,
     recentTranscript: resolvedTranscript,
     retrievedChunks: chunks,
@@ -313,7 +325,13 @@ export async function runInterventionAnalysis(
   // (toolNamesByGoalId, built above from its own registry keys), not just "was any tool invoked
   // by anyone this tick" — two eligible goals can each declare a different tool, and the model
   // choosing goal A is only actually grounded if A's own tool ran, not merely because goal B's did.
-  const invokedToolNames = new Set((analysis.toolTrace?.calls ?? []).map((call) => call.name))
+  // A tool can mark a result `{ grounding: false }` when it only lists candidates that still need a
+  // follow-up lookup, so that call alone doesn't count.
+  const invokedToolNames = new Set(
+    (analysis.toolTrace?.calls ?? [])
+      .filter((call) => (call.artifact as { grounding?: boolean } | undefined)?.grounding !== false)
+      .map((call) => call.name)
+  )
   const matchedGoalOwnToolNames = matchedGoal ? toolNamesByGoalId.get(matchedGoal.id) : undefined
   const ungroundedToolGoal =
     Boolean(matchedGoal?.tools?.length) && ![...(matchedGoalOwnToolNames ?? [])].some((name) => invokedToolNames.has(name))

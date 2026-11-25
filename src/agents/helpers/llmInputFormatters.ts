@@ -11,6 +11,28 @@ function formatTime(date, timezone = 'UTC') {
   })
 }
 
+/** Date + clock time, e.g. "2026-11-20 11:40:52 AM" — one "current time" anchor, not per-message. */
+export function formatAbsoluteDateTime(date: Date, timezone = 'UTC'): string {
+  return `${date.toISOString().slice(0, 10)} ${formatTime(date, timezone)}`
+}
+
+const RECENCY_LABEL_CUTOFF_MS = 7 * 24 * 60 * 60 * 1000 // 1 week
+const recencyFormatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
+
+/** Coarsens with distance ("5 min ago" → "yesterday" → "on 2026-11-13" past a week) — a model
+ * can't reconstruct real calendar distance from "3 weeks ago" the way it can from a date. */
+export function formatRecency(targetDate: Date, baseDate: Date = new Date()): string {
+  const diffMs = Math.max(0, baseDate.getTime() - targetDate.getTime())
+  if (diffMs < 60_000) return 'just now'
+  if (diffMs >= RECENCY_LABEL_CUTOFF_MS) return `on ${targetDate.toISOString().slice(0, 10)}`
+  // Floor, not timeDiffHuman's rounding: rounding turns 4 days into "last week" and 13 hours into "yesterday".
+  const minutes = Math.floor(diffMs / 60_000)
+  if (minutes < 60) return recencyFormatter.format(-minutes, 'minute')
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return recencyFormatter.format(-hours, 'hour')
+  return recencyFormatter.format(-Math.floor(hours / 24), 'day')
+}
+
 function formatTranscriptMessage(message, timezone = 'UTC') {
   // Human speakers are deliberately never named here: live transcription attributes every
   // line to a single Zoom user rather than the actual person talking, so labeling a line with
@@ -113,8 +135,10 @@ function formatSingleUserConversationHistory(conversationHistory: ConversationHi
 }
 
 function formatMultiUserConversationHistory(conversationHistory: ConversationHistory) {
+  const now = conversationHistory.end ?? new Date()
   return conversationHistory.messages?.flatMap((message) => {
     const messageText = extractMessageText(message)
+    const label = message.createdAt ? `[${formatRecency(message.createdAt, now)}] ` : ''
     if (message.fromAgent) {
       // For voice assistant responses, prepend the original question so other agents
       // see the full exchange rather than an unexplained answer
@@ -122,14 +146,15 @@ function formatMultiUserConversationHistory(conversationHistory: ConversationHis
       if (body?.source === 'voice' && body?.sourceMessage) {
         const asker = (body.sourcePseudonym as string) || 'User'
         return [
-          { role: 'user', content: `${asker}: ${body.sourceMessage}` },
+          { role: 'user', content: `${label}${asker}: ${body.sourceMessage}` },
           { role: 'assistant', content: messageText }
         ]
       }
+      // Chat agents replay these as the model's own past turns; a label here gets copied into its reply.
       return { role: 'assistant', content: messageText }
     }
     // For multi-user environments, include the pseudonym in the content
-    return { role: 'user', content: `${message.pseudonym}: ${messageText}` }
+    return { role: 'user', content: `${label}${message.pseudonym}: ${messageText}` }
   })
 }
 
@@ -145,7 +170,7 @@ function formatMultiUserConversationHistory(conversationHistory: ConversationHis
  *
  * Returns a plain string suitable for use as an LLM template variable.
  */
-function formatDmHistoryByChannel(messages: IMessage[], dmChannels: IChannel[]): string {
+function formatDmHistoryByChannel(messages: IMessage[], dmChannels: IChannel[], now: Date = new Date()): string {
   const channelBuckets = new Map<string, IMessage[]>()
   for (const ch of dmChannels) {
     channelBuckets.set(ch.name, [])
@@ -175,7 +200,10 @@ function formatDmHistoryByChannel(messages: IMessage[], dmChannels: IChannel[]):
 
     const lines = msgs.map((msg) => {
       const text = extractMessageText(msg)
-      return msg.fromAgent ? `Assistant (to ${participantPseudonym}): "${text}"` : `${participantPseudonym}: "${text}"`
+      const label = msg.createdAt ? `[${formatRecency(msg.createdAt, now)}] ` : ''
+      return msg.fromAgent
+        ? `${label}Assistant (to ${participantPseudonym}): "${text}"`
+        : `${label}${participantPseudonym}: "${text}"`
     })
 
     sections.push(`[DM — ${participantPseudonym}]\n${lines.join('\n')}`)

@@ -150,6 +150,21 @@ describe('Tool Registry', () => {
     expect(tools).toHaveLength(0)
   })
 
+  test('open_threads factory returns list_open_threads when topicIds is provided', async () => {
+    const tools = await getTools(['open_threads'], { topicIds: ['507f1f77bcf86cd799439011'] })
+    expect(tools.map((t) => t.name)).toEqual(['list_open_threads'])
+  })
+
+  test('open_threads factory returns list_open_threads when only activeConversationId is provided', async () => {
+    const tools = await getTools(['open_threads'], { activeConversationId: '507f1f77bcf86cd799439012' })
+    expect(tools.map((t) => t.name)).toEqual(['list_open_threads'])
+  })
+
+  test('open_threads factory returns empty array with neither topicIds nor activeConversationId in context', async () => {
+    const tools = await getTools(['open_threads'], {})
+    expect(tools).toHaveLength(0)
+  })
+
   test('buildToolsGuidance lists uploaded resource titles so the model can judge relevance', async () => {
     const user = await createUser('Guidance Tester')
     const topic = await createPublicTopic()
