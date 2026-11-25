@@ -182,7 +182,7 @@ const eventAssistant: ConversationType = {
       label: 'Unpacker',
       description: 'Lets participants ask the assistant to explain what the speaker just said in plain language.',
       category: 'assistant',
-      userControlled: true,
+      userControlled: false,
       default: false,
       agents: [],
       respondingAgent: 'eventAssistant',
