@@ -10,10 +10,9 @@ import UnpackGroupPost from '../../models/unpackGroupPost.model.js'
 import UnpackPassageExplanation from '../../models/unpackPassageExplanation.model.js'
 import UnpackRequest from '../../models/unpackRequest.model.js'
 import websocketGateway from '../../websockets/websocketGateway.js'
+import { UNPACK_CARD_TYPES } from '../../types/index.types.js'
 
 export const TOPIC_TRANSCRIPT_COLLECTION_PREFIX = 'topic-transcript'
-
-const UNPACK_CARD_TYPES = ['unpack_explanation', 'catch_up_summary', 'unpack_already_posted']
 
 /** Every message replying to these, directly or through other replies: a thread can't outlive its post. */
 async function findThreadReplies(parentIds) {
@@ -35,7 +34,7 @@ async function findThreadReplies(parentIds) {
 
 /**
  * Deletes Unpacker cards, all of an event's or the ones `filter` picks, with any thread replies under them, and tells
- * open clients to drop them. There is no deletion event, so this sends `message:hidden` to each channel they were in.
+ * open clients to drop them.
  */
 async function deleteUnpackCards(conversationId, filter: Record<string, unknown> = {}) {
   const found = await Message.find({
@@ -50,9 +49,9 @@ async function deleteUnpackCards(conversationId, filter: Record<string, unknown>
   const cards = [...found, ...(await findThreadReplies(found.map(({ _id }) => _id)))]
   await Message.deleteMany({ _id: { $in: cards.map(({ _id }) => _id) } })
   try {
-    await websocketGateway.broadcastMessagesHidden(
+    await websocketGateway.broadcastMessagesDeleted(
       conversationId.toString(),
-      { messageIds: cards.map(({ _id }) => _id.toString()), hidden: true, display: 'omit' },
+      cards.map(({ _id }) => _id.toString()),
       [...new Set(cards.flatMap(({ channels }) => channels ?? []))]
     )
   } catch (error) {

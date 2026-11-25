@@ -347,8 +347,8 @@ components:
         footer:
           type: string
           description: >-
-            Group Chat posts only. Says why the assistant posted it, without naming anyone, for example
-            "A participant asked Berkie to share this." Show it as written; other kinds of post will use other text.
+            Group Chat posts only. Says where the post came from. A participant's share reads "<pseudonym> shared
+            this explanation from <bot name>." Show it as written; other kinds of post will use other text.
         text:
           type: string
           description: >-
@@ -646,6 +646,7 @@ components:
             - noGroupChat
             - cardNotFound
             - eventNotStarted
+            - eventEnded
             - eventLocked
             - chunkNotInTranscript
             - offsetPastEnd
@@ -662,7 +663,8 @@ components:
             groupChatRateLimited (429), the participant already posted to Group Chat in this event in the last
             2 minutes. noGroupChat (409), the event has no Group Chat. cardNotFound (404), the message to share
             is not one of the participant's Private Chat cards in this event. eventNotStarted (409), a share was
-            sent before the event started.
+            sent during the pre-event window, when participants can join before the event starts. eventEnded
+            (409), a share was sent after the event ended.
             eventLocked (409), the event is locked, so no card can be posted.
             chunkNotInTranscript (400), a chunk ID is not in this event's transcript. offsetPastEnd
             (400), a position is past the end of its chunk. selectionBackwards (400), the selection

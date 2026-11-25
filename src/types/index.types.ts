@@ -300,6 +300,8 @@ export type UnpackRequestStatus = (typeof UNPACK_REQUEST_STATUSES)[number]
 export const UNPACK_EXPLANATION_STATUSES = ['generating', 'ready'] as const
 export type UnpackExplanationStatus = (typeof UNPACK_EXPLANATION_STATUSES)[number]
 export const UNPACK_GROUP_POST_STATUSES = ['posting', 'posted'] as const
+// JSON message bodies clients draw as Unpacker cards, so only the server may post them
+export const UNPACK_CARD_TYPES = ['unpack_explanation', 'catch_up_summary', 'unpack_already_posted']
 export type UnpackGroupPostStatus = (typeof UNPACK_GROUP_POST_STATUSES)[number]
 
 // Offsets count UTF-16 code units (JavaScript string indexes) into each chunk's saved body

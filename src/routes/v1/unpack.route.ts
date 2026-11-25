@@ -139,16 +139,21 @@ router
  *     summary: Share a Private Chat explanation card to Group Chat
  *     description: >
  *       Posts a copy of one of the participant's own `unpack_explanation` cards from Private Chat to Group Chat,
- *       as the event assistant and without the participant's name. The copy is the card as the participant saw
- *       it, with `destination: groupChat` and a `footer`. Group Chat never gets two posts about the same
+ *       as the participant's own message under their pseudonym (`fromAgent` is false). The copy is the card as
+ *       the participant saw it, with `destination: groupChat` and a `footer` saying the explanation came from the
+ *       assistant. Agents don't evaluate or answer it. If a moderator has hidden the participant, the post is
+ *       hidden from the room like their other messages, the participant still sees it, and it doesn't stop
+ *       anyone else posting the passage. Clearing the transcript deletes these posts, and open clients get a
+ *       `message:deleted` event with their IDs. Group Chat never gets two posts about the same
  *       transcript: if a post already covers any chunk of this passage, nothing is posted, the answer is
  *       `status: alreadyPosted` with that post's message ID, and the assistant sends the participant one
  *       UnpackAlreadyPosted note in Private Chat per existing post. If that post is still being made, the call
  *       waits for it, and answers unpackFailed (503) if it isn't done in 10 seconds. Sharing a card that was
  *       already posted from the same card answers `status: sent` with the existing post's ID. Each participant
  *       can post to Group Chat once every 2 minutes per event, counted from their last post that went
- *       through; an alreadyPosted answer doesn't count. Sharing opens when the event starts, so a share in the
- *       pre-event window is refused with eventNotStarted.
+ *       through; an alreadyPosted answer doesn't count. A share during the pre-event window, when participants
+ *       can join before the event starts, is refused with eventNotStarted, and a share after the event ends is
+ *       refused with eventEnded.
  *     tags: [Unpack]
  *     security:
  *       - bearerAuth: []
