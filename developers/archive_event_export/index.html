@@ -431,10 +431,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#live-acceptance-gate-run-complete-sign-off-pending-pr-400" class="md-nav__link">
+  <a href="#live-acceptance-gate-passed-and-signed-off-pr-400" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Live acceptance gate — run complete, sign-off pending (PR #400)
+        Live acceptance gate — passed and signed off (PR #400)
       
     </span>
   </a>
@@ -568,7 +568,7 @@ separate and is intentionally outside this change.</p>
 <li>Cross-repository HTTP test uses this engine's compiled delivery client against
   the real archive API app with synthetic content and a temporary inbox.</li>
 </ul>
-<h2 id="live-acceptance-gate-run-complete-sign-off-pending-pr-400">Live acceptance gate — run complete, sign-off pending (PR #400)</h2>
+<h2 id="live-acceptance-gate-passed-and-signed-off-pr-400">Live acceptance gate — passed and signed off (PR #400)</h2>
 <p>Automated tests do not close this gate. Keep <code>BKC_ARCHIVE_EXPORT_ENABLED=false</code>
 for general production use until the deployment operator records the evidence and
 sign-off below. A controlled acceptance run must temporarily enable the flag on
@@ -586,7 +586,7 @@ again if acceptance fails or sign-off is still pending.</p>
       instead of stopping a live one.)</li>
 <li class="task-list-item"><label class="task-list-control"><input type="checkbox" checked/><span class="task-list-indicator"></span></label> Enqueue that ID twice; verify <code>already_delivered</code> and exactly one private draft.
       Confirm the draft contains the summary, without chat/transcripts/attendee lists.</li>
-<li class="task-list-item"><label class="task-list-control"><input type="checkbox"/><span class="task-list-indicator"></span></label> Record operator, timestamp, evidence location and pass/fail result below.
+<li class="task-list-item"><label class="task-list-control"><input type="checkbox" checked/><span class="task-list-indicator"></span></label> Record operator, timestamp, evidence location and pass/fail result below.
       Only a passing, signed-off result permits leaving export enabled for normal use.</li>
 </ul>
 <p>Acceptance record:</p>
@@ -607,9 +607,9 @@ again if acceptance fails or sign-off is still pending.</p>
 <li>Result: <strong>passed.</strong> The first dry run against production data failed on an
   unregistered <code>Topic</code> model in the backfill command, fixed in #449 and covered by
   #449 and #450 before this run.</li>
-<li>Rollout sign-off: <strong>pending operator sign-off.</strong> The export flag is currently
-  enabled in production for this event and for events stopped after it. Record the
-  sign-off here, or set the flag back to <code>false</code>.</li>
+<li>Rollout sign-off: <strong>signed off</strong> by Brendan A. Miller, 2026-11-24. The export flag
+  stays enabled in production for events stopped after the acceptance event. Past
+  events are exported only by an explicit, bounded backfill.</li>
 </ul>
 
 
