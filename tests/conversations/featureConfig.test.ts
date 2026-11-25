@@ -50,6 +50,11 @@ describe('eventAssistant unpacker feature', () => {
     expect(unpacker!.userControlled).toBe(false)
   })
 
+  test('comes last, after Pregame Access, since clients list features in this order', () => {
+    const names = conversationTypes.eventAssistant.features!.map((f) => f.name)
+    expect(names.slice(-2)).toEqual(['pregame', 'unpacker'])
+  })
+
   test('starts no agents and has no slash command, since participants trigger it with buttons', () => {
     expect(unpacker!.agents).toEqual([])
     expect(unpacker!.slashCommand).toBeUndefined()

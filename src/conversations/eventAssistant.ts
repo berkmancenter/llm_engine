@@ -178,17 +178,6 @@ const eventAssistant: ConversationType = {
       properties: []
     },
     {
-      name: 'unpacker',
-      label: 'Unpacker',
-      description: 'Lets participants ask the assistant to explain what the speaker just said in plain language.',
-      category: 'assistant',
-      userControlled: false,
-      default: false,
-      agents: [],
-      respondingAgent: 'eventAssistant',
-      properties: []
-    },
-    {
       name: 'seriesHistory',
       label: 'Series History',
       description: 'Lets the assistant draw on transcripts from past events in the same series when answering questions.',
@@ -300,6 +289,17 @@ const eventAssistant: ConversationType = {
           default: true
         }
       ]
+    },
+    {
+      name: 'unpacker',
+      label: 'Unpacker',
+      description: 'Lets participants ask the assistant to explain what the speaker just said in plain language.',
+      category: 'assistant',
+      userControlled: false,
+      default: false,
+      agents: [],
+      respondingAgent: 'eventAssistant',
+      properties: []
     }
   ],
 
