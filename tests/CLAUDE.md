@@ -188,7 +188,9 @@ const testConfig = setupAgentTest('eventAssistant') // returns { llmPlatform, ll
   `jest.agent.config.ts`), so one off model answer doesn't fail CI. A test that fails all
   three tries is a real failure, and the log shows each failed try. `beforeEach` hooks rerun
   before a retry, but module-level variables don't reset, so don't let a test depend on state
-  its own earlier try left behind. A test that keeps passing only on a retry still needs fixing.
+  its own earlier try left behind. `beforeAll` hooks don't rerun, so a model call there (a
+  fixture or seed step) gets no retry; move it into `beforeEach` or the test if it can flake.
+  A test that keeps passing only on a retry still needs fixing.
 - `tests/utils/agentTestHelpers.ts` has factories for the common setups:
   `createEventAssistantConversation`, `createBackChannelConversation`,
   `loadTestTranscript` / `load*Transcript`, `createUser`, `createMessage`, etc. Build
