@@ -1334,10 +1334,6 @@ describe('POST /v1/unpack/:conversationId/share', () => {
     await work()
   }
 
-  function alreadyPostedNotes() {
-    return Message.find({ 'body.type': 'unpack_already_posted' })
-  }
-
   it("posts the card to Group Chat under the participant's pseudonym, with a footer naming them and the event's bot", async () => {
     const { conversation, berkie } = await createEvent()
     await Agent.updateOne({ _id: berkie!._id }, { 'agentConfig.botName': 'Sage' })
@@ -1411,12 +1407,15 @@ describe('POST /v1/unpack/:conversationId/share', () => {
       await share(conversation, duplicate, userTwoAccessToken).expect(httpStatus.ACCEPTED)
 
       const [card] = await cardsIn(otherPrivateChat)
-      expect(card.body).toMatchObject({ groupChatShare: { status: 'alreadyPosted', messageId: first.body.messageId } })
+      expect(card.body).toMatchObject({
+        groupChatShare: { status: 'alreadyPosted', messageId: first.body.messageId, text: alreadyInGroupChat }
+      })
       await Message.deleteOne({ _id: first.body.messageId })
       await UnpackGroupPost.deleteMany({})
       const later = await share(conversation, duplicate, userTwoAccessToken).expect(httpStatus.ACCEPTED)
       const [updated] = await cardsIn(otherPrivateChat)
       expect(updated.body).toMatchObject({ groupChatShare: { status: 'sent', messageId: later.body.messageId } })
+      expect(updated.body).not.toHaveProperty('groupChatShare.text')
       const [post] = await cardsIn(groupChat)
       expect(post.body).not.toHaveProperty('groupChatShare')
     })
@@ -1465,10 +1464,11 @@ describe('POST /v1/unpack/:conversationId/share', () => {
 
   it('posts once when two people share the same passage at the same moment, and tells the other it was already explained', async () => {
     const { conversation, berkie } = await createEvent()
-    const otherPrivateChat = await addPrivateChat(conversation, berkie, userTwo)
+    await addPrivateChat(conversation, berkie, userTwo)
     const { quoted } = await seedTranscript(conversation)
     const firstCard = await cardFor(conversation, selectionIn(quoted))
     const secondCard = await cardFor(conversation, selectionIn(quoted, 'error budget'), userTwoAccessToken)
+    const messagesBefore = await Message.countDocuments()
 
     const results = await Promise.all([share(conversation, firstCard), share(conversation, secondCard, userTwoAccessToken)])
 
@@ -1477,20 +1477,15 @@ describe('POST /v1/unpack/:conversationId/share', () => {
     expect(results.map(({ status }) => status)).toEqual([httpStatus.ACCEPTED, httpStatus.ACCEPTED])
     expect(results.map(({ body }) => body.status).sort()).toEqual(['alreadyPosted', 'sent'])
     expect(results.map(({ body }) => body.messageId)).toEqual([posts[0]._id.toString(), posts[0]._id.toString()])
-    const refusedChat =
-      results[0].body.status === 'alreadyPosted' ? `direct-${participant._id}-${berkie!._id}` : otherPrivateChat.name
-    const note = await Message.findOne({ 'body.type': 'unpack_already_posted' })
-    expect(note!.body).toEqual({
-      type: 'unpack_already_posted',
-      groupChatMessageId: posts[0]._id.toString(),
-      text: alreadyInGroupChat
-    })
-    expect(note!.channels).toEqual([refusedChat])
+    const refused = results.find(({ body }) => body.status === 'alreadyPosted')!
+    expect(refused.body.text).toBe(alreadyInGroupChat)
+    expect(results.find(({ body }) => body.status === 'sent')!.body).not.toHaveProperty('text')
+    expect(await Message.countDocuments()).toBe(messagesBefore + 1)
     expect(await UnpackGroupPost.countDocuments()).toBe(1)
   })
 
-  it('posts nothing when another post lands between its check and its write, sends the note, and keeps its slot', async () => {
-    const { conversation, berkie } = await createEvent()
+  it('posts nothing when another post lands between its check and its write, and keeps its slot', async () => {
+    const { conversation } = await createEvent()
     const { before, quoted } = await seedTranscript(conversation)
     const cardId = await cardFor(conversation, selectionIn(quoted))
     const otherCard = await cardFor(conversation, selectionIn(before, 'sets an SLO'))
@@ -1504,11 +1499,13 @@ describe('POST /v1/unpack/:conversationId/share', () => {
 
     const res = await share(conversation, cardId).expect(httpStatus.ACCEPTED)
 
-    expect(res.body).toMatchObject({ status: 'alreadyPosted', messageId: otherPost.message.toString() })
+    expect(res.body).toMatchObject({
+      status: 'alreadyPosted',
+      messageId: otherPost.message.toString(),
+      text: alreadyInGroupChat
+    })
     expect(await cardsIn(groupChat)).toHaveLength(0)
     expect(await UnpackGroupPost.countDocuments()).toBe(1)
-    const note = await Message.findOne({ 'body.type': 'unpack_already_posted' })
-    expect(note!.channels).toEqual([`direct-${participant._id}-${berkie!._id}`])
     expect((await share(conversation, otherCard).expect(httpStatus.ACCEPTED)).body.status).toBe('sent')
   })
 
@@ -1663,7 +1660,6 @@ describe('POST /v1/unpack/:conversationId/share', () => {
     expect(res.status).toBe(httpStatus.ACCEPTED)
     expect(res.body.status).toBe('sent')
     expect(await cardsIn(groupChat)).toHaveLength(1)
-    expect(await alreadyPostedNotes()).toHaveLength(0)
   })
 
   it('links to a finished overlapping post without waiting on another overlapping post that is still being made', async () => {
@@ -1694,7 +1690,6 @@ describe('POST /v1/unpack/:conversationId/share', () => {
     const res = await share(conversation, cardId).expect(httpStatus.SERVICE_UNAVAILABLE)
 
     expect(res.body.reason).toBe('unpackFailed')
-    expect(await alreadyPostedNotes()).toHaveLength(0)
   })
 
   it('removes its own post when its record was cleared as abandoned mid-post, and links to the one that replaced it', async () => {
@@ -1717,7 +1712,7 @@ describe('POST /v1/unpack/:conversationId/share', () => {
     expect(await cardsIn(groupChat)).toHaveLength(0)
   })
 
-  it('gives back its own post, with no note, when a participant shares the same card again', async () => {
+  it('gives back its own post when a participant shares the same card again', async () => {
     const { conversation } = await createEvent()
     const { quoted } = await seedTranscript(conversation)
     const cardId = await cardFor(conversation, selectionIn(quoted))
@@ -1727,21 +1722,22 @@ describe('POST /v1/unpack/:conversationId/share', () => {
 
     expect(again.body).toEqual(first.body)
     expect(await cardsIn(groupChat)).toHaveLength(1)
-    expect(await alreadyPostedNotes()).toHaveLength(0)
   })
 
-  it('sends the "already in Group Chat" note once per post, however often the passage is shared', async () => {
+  it('tells a participant the passage is already in Group Chat without posting anything, however often they share it', async () => {
     const { conversation, berkie } = await createEvent()
     await addPrivateChat(conversation, berkie, userTwo)
     const { quoted } = await seedTranscript(conversation)
     await share(conversation, await cardFor(conversation, selectionIn(quoted))).expect(httpStatus.ACCEPTED)
     const duplicate = await cardFor(conversation, selectionIn(quoted), userTwoAccessToken)
+    const messagesBefore = await Message.countDocuments()
 
     const first = await share(conversation, duplicate, userTwoAccessToken).expect(httpStatus.ACCEPTED)
     const second = await share(conversation, duplicate, userTwoAccessToken).expect(httpStatus.ACCEPTED)
 
-    expect([first.body.status, second.body.status]).toEqual(['alreadyPosted', 'alreadyPosted'])
-    expect(await alreadyPostedNotes()).toHaveLength(1)
+    expect(first.body).toMatchObject({ status: 'alreadyPosted', text: alreadyInGroupChat })
+    expect(second.body).toEqual(first.body)
+    expect(await Message.countDocuments()).toBe(messagesBefore)
   })
 
   it("hides a hidden participant's share from the room like their other posts, without blocking the passage for others", async () => {
@@ -1786,30 +1782,6 @@ describe('POST /v1/unpack/:conversationId/share', () => {
 
     expect(again.body).toEqual(first.body)
     expect(await cardsIn(groupChat)).toHaveLength(1)
-  })
-
-  it('sends one "already in Group Chat" note when two tabs share the same passage at once', async () => {
-    const { conversation, berkie } = await createEvent()
-    await addPrivateChat(conversation, berkie, userTwo)
-    const { quoted } = await seedTranscript(conversation)
-    await share(conversation, await cardFor(conversation, selectionIn(quoted))).expect(httpStatus.ACCEPTED)
-    const duplicate = await cardFor(conversation, selectionIn(quoted), userTwoAccessToken)
-    const post = messageService.newMessageHandler
-    let otherTab
-    jest.spyOn(messageService, 'newMessageHandler').mockImplementation(async (...args) => {
-      // The other tab gets past the "already told?" check before this tab's note is saved
-      if (!otherTab && args[0].body?.type === 'unpack_already_posted') {
-        otherTab = share(conversation, duplicate, userTwoAccessToken)
-        await otherTab
-      }
-      return post(...args)
-    })
-
-    const res = await share(conversation, duplicate, userTwoAccessToken).expect(httpStatus.ACCEPTED)
-
-    expect(res.body.status).toBe('alreadyPosted')
-    expect((await otherTab).body.status).toBe('alreadyPosted')
-    expect(await alreadyPostedNotes()).toHaveLength(1)
   })
 
   it("refuses a card that isn't the participant's own", async () => {
@@ -1985,8 +1957,7 @@ describe('Unpacker cards sent by a client', () => {
   // The website draws these as cards, so a participant who could post one could fake an explanation
   const cardBodies = [
     { type: 'unpack_explanation', destination: 'groupChat', text: 'A made-up explanation.' },
-    { type: 'catch_up_summary', text: 'A made-up summary.' },
-    { type: 'unpack_already_posted', groupChatMessageId: new mongoose.Types.ObjectId().toString(), text: 'Made up.' }
+    { type: 'catch_up_summary', text: 'A made-up summary.' }
   ]
 
   const groupChatWithPasscode = (conversation) => [
@@ -2105,26 +2076,13 @@ describe('deleting Unpacker rows with the transcript they quote', () => {
     })
   }
 
-  it('removes Group Chat posts, the thread replies under them, and "already in Group Chat" notes too', async () => {
-    const { conversation, berkie } = await createEvent()
+  it('removes Group Chat posts and the thread replies under them too', async () => {
+    const { conversation } = await createEvent()
     const { quoted } = await seedTranscript(conversation)
     const cardId = await cardFor(conversation, selectionIn(quoted))
     const shared = await share(conversation, cardId).expect(httpStatus.ACCEPTED)
     const reply = await saveThreadReply(conversation, shared.body.messageId)
     const replyToReply = await saveThreadReply(conversation, reply._id)
-    await Message.create({
-      conversation: conversation._id,
-      body: {
-        type: 'unpack_already_posted',
-        groupChatMessageId: shared.body.messageId,
-        text: 'A post about this part of the talk is already in Group Chat.'
-      },
-      bodyType: 'json',
-      channels: [`direct-${participant._id}-${berkie!._id}`],
-      pseudonym: 'Berkie',
-      pseudonymId: new mongoose.Types.ObjectId(),
-      visible: true
-    })
     const deleted = jest.spyOn(websocketGateway, 'broadcastMessagesDeleted').mockResolvedValue(undefined)
 
     await transcript.deleteTranscript(conversation)

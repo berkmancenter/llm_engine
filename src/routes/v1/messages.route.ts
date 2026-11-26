@@ -64,7 +64,7 @@ const router = express.Router()
  *       400:
  *         description: >-
  *           Bad request - conversation locked or validation error. Also refused: a `json` body whose `type` is an
- *           Unpacker card (`unpack_explanation`, `catch_up_summary` or `unpack_already_posted`), since clients draw
+ *           Unpacker card (`unpack_explanation` or `catch_up_summary`), since clients draw
  *           those as cards and only the server may post them.
  *         content:
  *           application/json:

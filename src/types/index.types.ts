@@ -301,7 +301,7 @@ export const UNPACK_EXPLANATION_STATUSES = ['generating', 'ready'] as const
 export type UnpackExplanationStatus = (typeof UNPACK_EXPLANATION_STATUSES)[number]
 export const UNPACK_GROUP_POST_STATUSES = ['posting', 'posted'] as const
 // JSON message bodies clients draw as Unpacker cards, so only the server may post them
-export const UNPACK_CARD_TYPES = ['unpack_explanation', 'catch_up_summary', 'unpack_already_posted']
+export const UNPACK_CARD_TYPES = ['unpack_explanation', 'catch_up_summary']
 export type UnpackGroupPostStatus = (typeof UNPACK_GROUP_POST_STATUSES)[number]
 
 // Offsets count UTF-16 code units (JavaScript string indexes) into each chunk's saved body
@@ -389,7 +389,7 @@ export interface IUnpackPassageExplanation extends Partial<UnpackPassageSections
 export interface IUnpackGroupPost {
   _id: mongoose.Types.ObjectId
   conversation: mongoose.Types.ObjectId
-  // Lets a participant who shares their own card again get their post back instead of a note
+  // Lets a participant who shares their own card again get their own post back instead of alreadyPosted
   ask: mongoose.Types.ObjectId
   chunkIds: mongoose.Types.ObjectId[]
   message: mongoose.Types.ObjectId
@@ -423,14 +423,8 @@ export interface UnpackExplanation {
   // Only on Group Chat posts: says who shared it and that the explanation is the assistant's
   footer?: string
   // Only on Private Chat cards: the result of the participant's latest share, so it survives a reload
-  groupChatShare?: { status: 'sent' | 'alreadyPosted'; messageId: string }
+  groupChatShare?: { status: 'sent'; messageId: string } | { status: 'alreadyPosted'; messageId: string; text: string }
   // plain-text copy for chat history and clients that can't render the card
-  text: string
-}
-
-export interface UnpackAlreadyPosted {
-  type: 'unpack_already_posted'
-  groupChatMessageId: string
   text: string
 }
 

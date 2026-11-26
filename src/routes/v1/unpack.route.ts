@@ -146,9 +146,9 @@ router
  *       anyone else posting the passage. Clearing the transcript deletes these posts, and open clients get a
  *       `message:deleted` event with their IDs. Group Chat never gets two posts about the same
  *       transcript: if a post already covers any chunk of this passage, nothing is posted, the answer is
- *       `status: alreadyPosted` with that post's message ID, and the assistant sends the participant one
- *       UnpackAlreadyPosted note in Private Chat per existing post. If that post is still being made, the call
- *       waits for it, and answers unpackFailed (503) if it isn't done in 10 seconds. Sharing a card that was
+ *       `status: alreadyPosted` with that post's message ID and the `text` to show. If that post is still being
+ *       made, the call waits for it, and answers unpackFailed (503) if it isn't done in 10 seconds. Every 202
+ *       answer is also saved on the participant's card as `groupChatShare`. Sharing a card that was
  *       already posted from the same card answers `status: sent` with the existing post's ID. Each participant
  *       can post to Group Chat once every 2 minutes per event, counted from their last post that went
  *       through; an alreadyPosted answer doesn't count. A share during the pre-event window, when participants

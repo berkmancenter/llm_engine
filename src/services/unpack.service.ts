@@ -34,7 +34,6 @@ import { resolveDisplayName } from './user.service.js'
 import {
   IUnpackPassageExplanation,
   ReadyUnpackPassageExplanation,
-  UnpackAlreadyPosted,
   UnpackDestination,
   UnpackEvent,
   UnpackExplanation,
@@ -723,7 +722,11 @@ function toGroupChatCard(card: UnpackExplanation, assistant, pseudonym: string):
 
 /** Saves the share's result on the participant's card, so clients can show it after a reload. */
 async function saveShareOnCard(conversationId: mongoose.Types.ObjectId, cardId: mongoose.Types.ObjectId, result) {
-  const groupChatShare: UnpackExplanation['groupChatShare'] = { status: result.status, messageId: result.messageId }
+  const groupChatShare: UnpackExplanation['groupChatShare'] = {
+    status: result.status,
+    messageId: result.messageId,
+    ...(result.text && { text: result.text })
+  }
   try {
     await Message.updateOne(
       { _id: cardId, conversation: conversationId },
@@ -795,24 +798,13 @@ function takeGroupChatSlot(key: string) {
   }
 }
 
-/**
- * Sends the participant one note per existing post, however often they share a passage it covers. The note's ID
- * comes from the participant and the post, so when two tabs send it at once, the second save fails and is ignored.
- */
-async function tellAlreadyPosted(event: UnpackEvent, user, askId: mongoose.Types.ObjectId, existingMessageId) {
-  const result = { askId: askId.toString(), status: 'alreadyPosted', messageId: existingMessageId.toString() }
-  const note: UnpackAlreadyPosted = {
-    type: 'unpack_already_posted',
-    groupChatMessageId: result.messageId,
+function alreadyPosted(askId: mongoose.Types.ObjectId, existingMessageId) {
+  return {
+    askId: askId.toString(),
+    status: 'alreadyPosted',
+    messageId: existingMessageId.toString(),
     text: UNPACK_ALREADY_POSTED_TEXT
   }
-  const messageId = stableMessageId('unpackAlreadyPosted', user._id, existingMessageId)
-  try {
-    await postToPrivateChat(event, user._id, { message: note, messageType: 'json', messageId })
-  } catch (error) {
-    if (!isDuplicateKey(error)) throw error
-  }
-  return result
 }
 
 /**
@@ -903,7 +895,7 @@ async function postToGroupChat(event: UnpackEvent, groupChat, user, askId: mongo
     await settleAbandonedGroupPosts(conversationId, chunkIds)
     const existing = await waitForGroupPost(chunkIds, deadline)
     if (existing?.ask.equals(askId)) return sentToGroupChat(askId, existing.message)
-    if (existing) return tellAlreadyPosted(event, user, askId, existing.message)
+    if (existing) return alreadyPosted(askId, existing.message)
     if (hiddenAuthors.has(user._id.toString())) {
       const postId = groupChatPostId(askId)
       if (await cardSaved(conversationId, postId)) return sentToGroupChat(askId, postId)

@@ -365,31 +365,16 @@ components:
             messageId:
               type: string
               description: ID of the Group Chat post, the same as the share call's messageId.
+            text:
+              type: string
+              description: >-
+                Present when status is alreadyPosted. The text to show, "A post about this part of the talk is
+                already in Group Chat."
         text:
           type: string
           description: >-
             Plain-text version of all sections, for chat history and clients that can't render the card. Ends with
             the footer when there is one.
-
-    UnpackAlreadyPosted:
-      type: object
-      description: >-
-        Message body (bodyType "json") the event assistant posts in a participant's Private Chat when they share
-        a passage that Group Chat already has a post about. Nothing new is posted to Group Chat.
-      required:
-        - type
-        - groupChatMessageId
-        - text
-      properties:
-        type:
-          type: string
-          enum: [unpack_already_posted]
-        groupChatMessageId:
-          type: string
-          description: ID of the existing Group Chat post (in the chat channel) to link to.
-        text:
-          type: string
-          description: The note to show, "A post about this part of the talk is already in Group Chat."
 
     CatchUpSummary:
       type: object
@@ -638,11 +623,15 @@ components:
           enum: [sent, alreadyPosted]
           description: >-
             sent, the card was posted to Group Chat, now or by an earlier share of the same card. alreadyPosted, a
-            Group Chat post already covers part of this passage, so nothing was posted and the participant got an
-            UnpackAlreadyPosted note in Private Chat.
+            Group Chat post already covers part of this passage, so nothing was posted.
         messageId:
           type: string
           description: ID of the Group Chat post, the new one when sent and the existing one when alreadyPosted.
+        text:
+          type: string
+          description: >-
+            Present when status is alreadyPosted. The text to show, "A post about this part of the talk is already
+            in Group Chat."
 
     UnpackError:
       type: object
