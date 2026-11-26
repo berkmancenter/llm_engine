@@ -420,8 +420,10 @@ export interface UnpackExplanation {
   terms: UnpackTerm[]
   headline?: string
   range?: UnpackRange
-  // Only on Group Chat posts: says why the assistant posted it, without naming anyone
+  // Only on Group Chat posts: says who shared it and that the explanation is the assistant's
   footer?: string
+  // Only on Private Chat cards: the result of the participant's latest share, so it survives a reload
+  groupChatShare?: { status: 'sent' | 'alreadyPosted'; messageId: string }
   // plain-text copy for chat history and clients that can't render the card
   text: string
 }

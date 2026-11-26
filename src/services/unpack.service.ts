@@ -4,7 +4,7 @@ import httpStatus from 'http-status'
 import mongoose from 'mongoose'
 import config from '../config/config.js'
 import logger from '../config/logger.js'
-import { Channel, Conversation, UnpackGroupPost, UnpackPassageExplanation, UnpackRequest } from '../models/index.js'
+import { Channel, Conversation, Message, UnpackGroupPost, UnpackPassageExplanation, UnpackRequest } from '../models/index.js'
 import ApiError from '../utils/ApiError.js'
 import assertMembership from '../utils/assertMembership.js'
 import authChannels, { assertChannelPasscode } from '../utils/authChannels.js'
@@ -715,8 +715,24 @@ const finishPendingAsk = async (askId: string, attempt: number) => {
 
 // The post carries the participant's name, so the footer says the words are the assistant's, not theirs
 function toGroupChatCard(card: UnpackExplanation, assistant, pseudonym: string): UnpackExplanation {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { groupChatShare, ...shared } = card
   const footer = `${pseudonym} shared this explanation from ${assistant.agentConfig.botName}.`
-  return { ...card, destination: 'groupChat', footer, text: `${card.text}\n\n${footer}` }
+  return { ...shared, destination: 'groupChat', footer, text: `${card.text}\n\n${footer}` }
+}
+
+/** Saves the share's result on the participant's card, so clients can show it after a reload. */
+async function saveShareOnCard(conversationId: mongoose.Types.ObjectId, cardId: mongoose.Types.ObjectId, result) {
+  const groupChatShare: UnpackExplanation['groupChatShare'] = { status: result.status, messageId: result.messageId }
+  try {
+    await Message.updateOne(
+      { _id: cardId, conversation: conversationId },
+      { $set: { 'body.groupChatShare': groupChatShare } }
+    )
+  } catch (error) {
+    // The share already happened, so the participant still gets its answer
+    logger.error(`unpack: could not save the Group Chat share on card ${cardId}`, error)
+  }
 }
 
 // One ask is one participant's card for one passage, so each ask has at most one Group Chat post
@@ -938,7 +954,15 @@ const sharePassage = async (
   )
   if (!card) throw cardNotFound()
   const { pseudonym } = resolveDisplayName(user, event.conversation)
-  return postToGroupChat(event, groupChat, user, ask._id, toGroupChatCard(card.body, event.assistant, pseudonym))
+  const result = await postToGroupChat(
+    event,
+    groupChat,
+    user,
+    ask._id,
+    toGroupChatCard(card.body, event.assistant, pseudonym)
+  )
+  await saveShareOnCard(event.conversation._id, card._id, result)
+  return result
 }
 
 export default { previewPassage, sendPassage, sharePassage, finishPendingAsk }

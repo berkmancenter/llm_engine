@@ -1387,6 +1387,67 @@ describe('POST /v1/unpack/:conversationId/share', () => {
     expect(post.body).toMatchObject({ whatTheyreSaying: sections.whatTheyreSaying })
   })
 
+  describe("saving the share's result on the Private Chat card, so it survives a reload", () => {
+    it('saves a sent share on the card, and keeps it off the Group Chat post', async () => {
+      const { conversation, privateChat } = await createEvent()
+      const { quoted } = await seedTranscript(conversation)
+      const cardId = await cardFor(conversation, selectionIn(quoted))
+
+      const res = await share(conversation, cardId).expect(httpStatus.ACCEPTED)
+
+      const [card] = await cardsIn(privateChat)
+      expect(card.body).toMatchObject({ groupChatShare: { status: 'sent', messageId: res.body.messageId } })
+      const [post] = await cardsIn(groupChat)
+      expect(post.body).not.toHaveProperty('groupChatShare')
+    })
+
+    it('saves an already-posted share, and replaces it when a later share goes through', async () => {
+      const { conversation, berkie } = await createEvent()
+      const otherPrivateChat = await addPrivateChat(conversation, berkie, userTwo)
+      const { quoted } = await seedTranscript(conversation)
+      const first = await share(conversation, await cardFor(conversation, selectionIn(quoted))).expect(httpStatus.ACCEPTED)
+      const duplicate = await cardFor(conversation, selectionIn(quoted), userTwoAccessToken)
+
+      await share(conversation, duplicate, userTwoAccessToken).expect(httpStatus.ACCEPTED)
+
+      const [card] = await cardsIn(otherPrivateChat)
+      expect(card.body).toMatchObject({ groupChatShare: { status: 'alreadyPosted', messageId: first.body.messageId } })
+      await Message.deleteOne({ _id: first.body.messageId })
+      await UnpackGroupPost.deleteMany({})
+      const later = await share(conversation, duplicate, userTwoAccessToken).expect(httpStatus.ACCEPTED)
+      const [updated] = await cardsIn(otherPrivateChat)
+      expect(updated.body).toMatchObject({ groupChatShare: { status: 'sent', messageId: later.body.messageId } })
+      const [post] = await cardsIn(groupChat)
+      expect(post.body).not.toHaveProperty('groupChatShare')
+    })
+
+    it("saves a hidden participant's share on their card too", async () => {
+      const { conversation, privateChat } = await createEvent()
+      const { quoted } = await seedTranscript(conversation)
+      const cardId = await cardFor(conversation, selectionIn(quoted))
+      await Conversation.updateOne({ _id: conversation._id }, { $addToSet: { hiddenAuthors: participant._id } })
+
+      const res = await share(conversation, cardId).expect(httpStatus.ACCEPTED)
+
+      const [card] = await cardsIn(privateChat)
+      expect(card.body).toMatchObject({ groupChatShare: { status: 'sent', messageId: res.body.messageId } })
+    })
+
+    it('still answers that the share went through when saving it on the card fails', async () => {
+      const { conversation } = await createEvent()
+      const { quoted } = await seedTranscript(conversation)
+      const cardId = await cardFor(conversation, selectionIn(quoted))
+      jest.spyOn(Message, 'updateOne').mockRejectedValueOnce(new Error('database down'))
+      const error = jest.spyOn(logger, 'error')
+
+      const res = await share(conversation, cardId).expect(httpStatus.ACCEPTED)
+
+      expect(res.body.status).toBe('sent')
+      expect(await cardsIn(groupChat)).toHaveLength(1)
+      expect(error).toHaveBeenCalledWith(expect.stringContaining(cardId), expect.any(Error))
+    })
+  })
+
   it('records Group Chat on the ask, next to Private Chat', async () => {
     const { conversation } = await createEvent()
     const { quoted } = await seedTranscript(conversation)
