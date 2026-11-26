@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - 'src/services/archiveEvent.service.ts'
+      - 'src/services/archiveNotify.service.ts'
+      - 'src/adapters/slack/client.ts'
+      - 'src/adapters/slack/blocks/archive/**'
       - 'src/services/conversation.service/lifecycle.ts'
       - 'src/jobs/**'
       - 'src/config/config.ts'
@@ -10,10 +13,13 @@ on:
       - 'scripts/backfillArchiveEvents.ts'
       - 'tests/unit/jobs/archiveEvent*.test.ts'
       - 'tests/unit/services/archiveEvent.service.test.ts'
+      - 'tests/unit/services/archiveNotify.service.test.ts'
+      - 'tests/unit/adapters/slack/blocks/archiveDraftCard.test.ts'
       - 'tests/unit/services/conversationService.lifecycle.summary.test.ts'
       - 'tests/unit/scripts/backfillArchiveEvents.test.ts'
       - 'tests/unit/scripts/archiveExportModelRegistration.test.ts'
       - 'tests/unit/scripts/archiveExportIntegration.test.ts'
+      - 'tests/unit/config/archiveNotifyConfig.test.ts'
       - '.github/workflows/archive-export.yml'
   workflow_dispatch:
 permissions:
@@ -49,6 +55,8 @@ jobs:
       - run: >-
           yarn test
           tests/unit/services/archiveEvent.service.test.ts
+          tests/unit/services/archiveNotify.service.test.ts
+          tests/unit/adapters/slack/blocks/archiveDraftCard.test.ts
           tests/unit/jobs/archiveEvent.test.ts
           tests/unit/jobs/archiveEvent.schedule.test.ts
           tests/unit/scripts/backfillArchiveEvents.test.ts
@@ -57,3 +65,4 @@ jobs:
           tests/unit/jobs/define.test.ts
           tests/unit/jobs/startup.test.ts
           tests/unit/services/conversationService.lifecycle.summary.test.ts
+          tests/unit/config/archiveNotifyConfig.test.ts

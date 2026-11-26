@@ -43,7 +43,13 @@ export class ArchiveDeliveryError extends Error {
   }
 }
 
-export async function deliverArchiveEvent(apiUrl: string, token: string, event: ArchiveEvent): Promise<string> {
+export interface ArchiveDelivery {
+  path: string
+  /** True only when the API created a new draft (HTTP 201); false for an idempotent duplicate (200). */
+  created: boolean
+}
+
+export async function deliverArchiveEvent(apiUrl: string, token: string, event: ArchiveEvent): Promise<ArchiveDelivery> {
   if (!apiUrl || !token) throw new ArchiveDeliveryError('missing_configuration', false)
   const endpoint = `${apiUrl.replace(/\/+$/, '')}/v1/conversations`
   let response: Response
@@ -66,5 +72,5 @@ export async function deliverArchiveEvent(apiUrl: string, token: string, event: 
   if (typeof result?.path !== 'string' || !/^inbox\/conversations\/event-[a-f0-9]{64}\.md$/.test(result.path)) {
     throw new ArchiveDeliveryError('invalid_acknowledgment', true)
   }
-  return result.path
+  return { path: result.path, created: response.status === 201 }
 }

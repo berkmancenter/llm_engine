@@ -54,10 +54,26 @@ test('payload contains only summary, date, identity and presenters', () => {
 test('posts an authenticated idempotent event and accepts a duplicate acknowledgment', async () => {
   const path = `inbox/conversations/event-${'a'.repeat(64)}.md`
   const spy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ path }), { status: 200 }))
-  expect(await deliverArchiveEvent('https://archive.example/', 'test-token', event)).toBe(path)
+  expect(await deliverArchiveEvent('https://archive.example/', 'test-token', event)).toEqual({ path, created: false })
   expect(spy.mock.calls[0][0]).toBe('https://archive.example/v1/conversations')
   expect(spy.mock.calls[0][1]?.headers).toEqual({ Authorization: 'Bearer test-token', 'Content-Type': 'application/json' })
   expect(JSON.parse(String(spy.mock.calls[0][1]?.body)).source_id).toBe(event._id.toString())
+})
+
+test('HTTP 201 reports a newly created draft; 200 reports a duplicate', async () => {
+  const path = `inbox/conversations/event-${'b'.repeat(64)}.md`
+  const spy = jest.spyOn(globalThis, 'fetch')
+  spy.mockResolvedValueOnce(new Response(JSON.stringify({ path }), { status: 201 }))
+  expect(await deliverArchiveEvent('https://archive.example', 'test-token', event)).toEqual({ path, created: true })
+  spy.mockResolvedValueOnce(new Response(JSON.stringify({ path }), { status: 200 }))
+  expect(await deliverArchiveEvent('https://archive.example', 'test-token', event)).toEqual({ path, created: false })
+})
+
+test('a 201 with an invalid path is still rejected', async () => {
+  jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ path: '../x.md' }), { status: 201 }))
+  await expect(deliverArchiveEvent('https://archive.example', 'test-token', event)).rejects.toMatchObject({
+    message: 'invalid_acknowledgment'
+  })
 })
 
 test.each([

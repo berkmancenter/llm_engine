@@ -247,6 +247,14 @@ const envVarsSchema = Joi.object()
     BKC_ARCHIVE_EXPORT_ENABLED: Joi.boolean()
       .default(false)
       .description('Queue public completed event summaries for archive review'),
+    BKC_ARCHIVE_NOTIFY_SLACK_ADAPTER_ID: Joi.string()
+      .allow('')
+      .optional()
+      .description('Slack Adapter document whose bot token posts new archive draft notices'),
+    BKC_ARCHIVE_NOTIFY_SLACK_CHANNEL: Joi.string()
+      .allow('')
+      .optional()
+      .description('Slack channel ID that receives new archive draft notices'),
     CONVERSATION_AUTO_STOP_DELAY_MINUTES: Joi.number()
       .default(30)
       .description('Minutes after scheduledEndTime to auto-stop a conversation'),
@@ -432,7 +440,9 @@ const config = {
   bkcArchive: {
     apiUrl: envVars.BKC_ARCHIVE_API_URL,
     apiToken: envVars.BKC_ARCHIVE_API_TOKEN,
-    exportEnabled: envVars.BKC_ARCHIVE_EXPORT_ENABLED
+    exportEnabled: envVars.BKC_ARCHIVE_EXPORT_ENABLED,
+    notifySlackAdapterId: envVars.BKC_ARCHIVE_NOTIFY_SLACK_ADAPTER_ID || '',
+    notifySlackChannel: envVars.BKC_ARCHIVE_NOTIFY_SLACK_CHANNEL || ''
   },
   webSearchProvider: envVars.WEB_SEARCH_PROVIDER,
   conversation: {
