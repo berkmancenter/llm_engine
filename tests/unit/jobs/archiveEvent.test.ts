@@ -29,10 +29,10 @@ const adapterLean = jest.fn<() => Promise<any>>()
 const adapterQuery = { select: () => adapterQuery, lean: adapterLean }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const postMessage = jest.fn<(...args: any[]) => Promise<any>>()
-const getClient = jest.fn(() => ({ chat: { postMessage } }))
+const WebClient = jest.fn(() => ({ chat: { postMessage } }))
 jest.unstable_mockModule('../src/models/conversation.model.js', () => ({ default: { findById: () => query } }))
 jest.unstable_mockModule('../src/models/adapter.model.js', () => ({ default: { findById: () => adapterQuery } }))
-jest.unstable_mockModule('../src/adapters/slack/client.js', () => ({ default: { getClient } }))
+jest.unstable_mockModule('@slack/web-api', () => ({ WebClient }))
 jest.unstable_mockModule('../src/config/config.js', () => ({ default: config }))
 jest.unstable_mockModule('../src/config/logger.js', () => ({ default: logger }))
 const { archiveEvent } = await import('../../../src/jobs/handlers/archiveEvent.js')
@@ -53,7 +53,7 @@ beforeEach(() => {
   lean.mockResolvedValue(event)
   adapterLean.mockReset().mockResolvedValue({ type: 'slack', config: { botToken: 'xoxb-test-only' } })
   postMessage.mockReset().mockResolvedValue({ ok: true })
-  getClient.mockClear()
+  WebClient.mockClear()
   logger.info.mockClear()
   logger.warn.mockClear()
 })
@@ -77,7 +77,7 @@ test('a newly created draft pings the curator channel exactly once, without draf
   await archiveEvent(job as unknown as Job<ArchiveEventJobData>)
   await archiveEvent(job as unknown as Job<ArchiveEventJobData>)
   expect(job.attrs.data.status).toBe('delivered')
-  expect(getClient).toHaveBeenCalledWith('xoxb-test-only')
+  expect(WebClient).toHaveBeenCalledWith('xoxb-test-only', expect.anything())
   expect(postMessage).toHaveBeenCalledTimes(1)
   const args = postMessage.mock.calls[0][0]
   expect(args.channel).toBe('C0CURATORS')
@@ -86,6 +86,22 @@ test('a newly created draft pings the curator channel exactly once, without draf
   expect(JSON.stringify(args)).not.toContain('Summary')
   expect(logger.info).toHaveBeenCalledWith('Archive export notified event=event-1')
   expect(logged()).not.toContain('xoxb-test-only')
+  expect(logged()).not.toContain(event.postEventAnalysis.summary)
+})
+
+test('a failed save of the delivered status takes the retry path and does not ping', async () => {
+  enableNotify()
+  ackWith(201)
+  const job = makeJob()
+  // First save marks `delivering`; the second (marking `delivered`) fails.
+  job.save.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('write conflict'))
+  await archiveEvent(job as unknown as Job<ArchiveEventJobData>)
+  expect(postMessage).not.toHaveBeenCalled()
+  expect(WebClient).not.toHaveBeenCalled()
+  expect(job.attrs.data.status).toBe('retry')
+  expect(job.attrs.data.reason).toBe('internal_error')
+  expect(job.schedule).toHaveBeenCalledWith(expect.any(Date))
+  expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('Archive export retry event=event-1'))
 })
 
 test('a duplicate acknowledgment (200) does not ping', async () => {
@@ -103,7 +119,7 @@ test('no ping when notification is unconfigured or only half configured', async 
   config.bkcArchive.notifySlackChannel = 'C0CURATORS'
   await archiveEvent(makeJob() as unknown as Job<ArchiveEventJobData>)
   expect(postMessage).not.toHaveBeenCalled()
-  expect(getClient).not.toHaveBeenCalled()
+  expect(WebClient).not.toHaveBeenCalled()
 })
 
 test('a Slack failure is logged and leaves the job delivered without a retry', async () => {

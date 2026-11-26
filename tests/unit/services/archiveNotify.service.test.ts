@@ -6,9 +6,10 @@ const adapterQuery = { select: () => adapterQuery, lean: adapterLean }
 const findById = jest.fn(() => adapterQuery)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const postMessage = jest.fn<(...args: any[]) => Promise<any>>()
-const getClient = jest.fn(() => ({ chat: { postMessage } }))
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const WebClient = jest.fn((_token: string, _options: unknown) => ({ chat: { postMessage } }))
 jest.unstable_mockModule('../src/models/adapter.model.js', () => ({ default: { findById } }))
-jest.unstable_mockModule('../src/adapters/slack/client.js', () => ({ default: { getClient } }))
+jest.unstable_mockModule('@slack/web-api', () => ({ WebClient }))
 const { archiveDraftId, isArchiveNotifyConfigured, notifyArchiveDraftCreated } = await import(
   '../../../src/services/archiveNotify.service.js'
 )
@@ -19,10 +20,9 @@ const notice = { title: 'Public event', date: '2026-10-14', path: `inbox/convers
 beforeEach(() => {
   adapterLean.mockReset().mockResolvedValue({ type: 'slack', config: { botToken: 'xoxb-test-only' } })
   postMessage.mockReset().mockResolvedValue({ ok: true })
-  getClient.mockClear()
+  WebClient.mockClear()
   findById.mockClear()
 })
-afterEach(() => jest.useRealTimers())
 
 test('configuration requires both the adapter and the channel', () => {
   expect(isArchiveNotifyConfigured(config)).toBe(true)
@@ -37,7 +37,12 @@ test('draft ID is the event slug from the inbox path', () => {
 test('posts a card with text fallback to the configured channel using the adapter bot token', async () => {
   expect(await notifyArchiveDraftCreated(config, notice)).toEqual({ sent: true })
   expect(findById).toHaveBeenCalledWith(config.notifySlackAdapterId)
-  expect(getClient).toHaveBeenCalledWith('xoxb-test-only')
+  // A dedicated fail-fast client: no retries, a request timeout, and no waiting out rate limits.
+  expect(WebClient).toHaveBeenCalledWith('xoxb-test-only', {
+    retryConfig: { retries: 0 },
+    timeout: 10000,
+    rejectRateLimitedCalls: true
+  })
   const args = postMessage.mock.calls[0][0]
   expect(args.channel).toBe('C0CURATORS')
   expect(args.text).toContain('Public event')
@@ -68,10 +73,23 @@ test('lookup errors and Slack errors become short reasons without throwing', asy
   expect(await notifyArchiveDraftCreated(config, notice)).toEqual({ sent: false, reason: 'slack_channel_not_found' })
 })
 
-test('a hung Slack call is bounded by a timeout', async () => {
-  jest.useFakeTimers()
-  postMessage.mockReturnValue(new Promise(() => undefined))
-  const pending = notifyArchiveDraftCreated(config, notice)
-  await jest.advanceTimersByTimeAsync(10000)
-  expect(await pending).toEqual({ sent: false, reason: 'timeout' })
+test('timeouts and rate limits map to their own reasons', async () => {
+  postMessage.mockRejectedValueOnce(
+    Object.assign(new Error('A request error occurred: timeout of 10000ms exceeded'), {
+      code: 'slack_webapi_request_error',
+      original: { code: 'ECONNABORTED' }
+    })
+  )
+  expect(await notifyArchiveDraftCreated(config, notice)).toEqual({ sent: false, reason: 'timeout' })
+  postMessage.mockRejectedValueOnce(
+    Object.assign(new Error('A rate limit was exceeded'), { code: 'slack_webapi_rate_limited_error', retryAfter: 30 })
+  )
+  expect(await notifyArchiveDraftCreated(config, notice)).toEqual({ sent: false, reason: 'slack_rate_limited' })
+  postMessage.mockRejectedValueOnce(
+    Object.assign(new Error('A request error occurred: connect ECONNREFUSED'), {
+      code: 'slack_webapi_request_error',
+      original: { code: 'ECONNREFUSED' }
+    })
+  )
+  expect(await notifyArchiveDraftCreated(config, notice)).toEqual({ sent: false, reason: 'slack_request_failed' })
 })

@@ -26,3 +26,10 @@ test('titles are escaped for mrkdwn and truncated', () => {
   expect(json).toContain('&lt;!channel&gt; &amp;')
   expect(json).not.toContain('x'.repeat(200))
 })
+
+test('the plain-text fallback is escaped too, since Slack parses it as mrkdwn in notifications', () => {
+  const text = archiveDraftCardText({ ...data, title: '<!channel> & x', date: '<@U123>' })
+  expect(text).toContain('&lt;!channel&gt; &amp;')
+  expect(text).not.toContain('<!channel>')
+  expect(text).toContain('&lt;@U123&gt;')
+})

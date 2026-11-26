@@ -89,9 +89,12 @@ Archive export notified event=<id>
 Archive export notify failed event=<id> reason=<code>
 ```
 
-Reasons include `adapter_not_found`, `adapter_not_slack`, `missing_bot_token`,
-`timeout` (10 s bound) and `slack_<error>` (e.g. `slack_not_in_channel`). Tokens
-and Slack response bodies are never logged.
+The post uses its own Slack client with no retries, a 10 s request timeout, and
+rate-limited calls rejected rather than waited out, so a notice that logged as
+failed is never posted later. Reasons include `adapter_not_found`,
+`adapter_not_slack`, `missing_bot_token`, `timeout`, `slack_rate_limited` and
+`slack_<error>` (e.g. `slack_not_in_channel`). Tokens and Slack response bodies are
+never logged.
 
 ## Verify one event and backfill
 

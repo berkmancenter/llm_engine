@@ -18,7 +18,9 @@ function truncate(value: string, max: number) {
 
 /** Plain-text fallback Slack uses for notifications and accessibility. */
 export function archiveDraftCardText(data: ArchiveDraftCardData) {
-  return `New archive draft ready for curator review: ${truncate(data.title, 200)} (${data.date}), draft ${data.draftId}`
+  // Slack parses the fallback as mrkdwn in notifications, so escape it like the blocks.
+  const [title, date, draftId] = [truncate(data.title, 200), data.date, data.draftId].map(escapeMrkdwn)
+  return `New archive draft ready for curator review: ${title} (${date}), draft ${draftId}`
 }
 
 /**

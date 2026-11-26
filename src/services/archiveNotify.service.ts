@@ -1,6 +1,5 @@
-import type { ChatPostMessageResponse } from '@slack/web-api'
+import { WebClient, type WebClientOptions } from '@slack/web-api'
 import Adapter from '../models/adapter.model.js'
-import slackClientPool from '../adapters/slack/client.js'
 import renderArchiveDraftCard, {
   archiveDraftCardText,
   type ArchiveDraftCardData
@@ -20,7 +19,22 @@ export interface ArchiveDraftNotice {
 
 export type ArchiveNotifyResult = { sent: true } | { sent: false; reason: string }
 
-const NOTIFY_TIMEOUT_MS = 10000
+export const NOTIFY_TIMEOUT_MS = 10000
+
+/**
+ * A one-shot client for the notice, not the shared pooled client: the pooled
+ * default retries for ~30 minutes and waits out rate limits, which could post
+ * long after the job logged a failure. This one fails fast and never posts late.
+ */
+export const notifyClientOptions: WebClientOptions = {
+  retryConfig: { retries: 0 },
+  timeout: NOTIFY_TIMEOUT_MS,
+  rejectRateLimitedCalls: true
+}
+
+export function createNotifyClient(botToken: string) {
+  return new WebClient(botToken, notifyClientOptions)
+}
 
 export function isArchiveNotifyConfigured(config: ArchiveNotifyConfig) {
   return !!config.notifySlackAdapterId && !!config.notifySlackChannel
@@ -33,7 +47,12 @@ export function archiveDraftId(path: string) {
 
 /** Short log-safe reason: never a token, response body or draft content. */
 function slackFailureReason(error: unknown) {
-  const code = (error as { data?: { error?: unknown } } | undefined)?.data?.error
+  const err = error as { code?: unknown; original?: { code?: unknown }; data?: { error?: unknown } } | undefined
+  if (err?.code === 'slack_webapi_rate_limited_error') return 'slack_rate_limited'
+  if (err?.code === 'slack_webapi_request_error' && ['ECONNABORTED', 'ETIMEDOUT'].includes(err.original?.code as string)) {
+    return 'timeout'
+  }
+  const code = err?.data?.error
   return typeof code === 'string' && /^[a-z_]{1,64}$/.test(code) ? `slack_${code}` : 'slack_request_failed'
 }
 
@@ -58,29 +77,15 @@ export async function notifyArchiveDraftCreated(
   if (typeof botToken !== 'string' || !botToken) return { sent: false, reason: 'missing_bot_token' }
 
   const data: ArchiveDraftCardData = { title: notice.title, date: notice.date, draftId: archiveDraftId(notice.path) }
-  let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    const post = slackClientPool.getClient(botToken).chat.postMessage({
+    const response = await createNotifyClient(botToken).chat.postMessage({
       channel: config.notifySlackChannel!,
       text: archiveDraftCardText(data),
       blocks: renderArchiveDraftCard(data)
     })
-    // The Slack client retries internally; bound the wait so a slow Slack never holds the job.
-    const timeout = new Promise<'timeout'>((resolve) => {
-      timer = setTimeout(() => resolve('timeout'), NOTIFY_TIMEOUT_MS)
-      timer.unref?.()
-    })
-    const result = await Promise.race([post, timeout])
-    if (result === 'timeout') {
-      post.catch(() => undefined)
-      return { sent: false, reason: 'timeout' }
-    }
-    const response = result as ChatPostMessageResponse
     if (!response.ok) return { sent: false, reason: slackFailureReason({ data: response }) }
     return { sent: true }
   } catch (error) {
     return { sent: false, reason: slackFailureReason(error) }
-  } finally {
-    if (timer) clearTimeout(timer)
   }
 }
