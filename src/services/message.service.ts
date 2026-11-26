@@ -363,7 +363,18 @@ const handleFeedbackMessage = async (message, user, conversation) => {
  * @param {User} user
  * @returns {Promise<[Message]>}
  */
-const isUnpackCard = (message) => message.bodyType === 'json' && UNPACK_CARD_TYPES.includes(message.body?.type)
+// Clients draw a card from an object body whatever its bodyType, and from a JSON string body when bodyType is json
+const isUnpackCard = (message) => {
+  let { body } = message
+  if (message.bodyType === 'json' && typeof body === 'string') {
+    try {
+      body = JSON.parse(body)
+    } catch {
+      return false
+    }
+  }
+  return UNPACK_CARD_TYPES.includes(body?.type)
+}
 
 /**
  * @param {Object} options - `serverCard`: an Unpacker card the server built for this user, such as a share to Group

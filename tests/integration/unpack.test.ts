@@ -37,6 +37,9 @@ const { default: JobHandlers } = await import('../../src/jobs/handlers/index.js'
 const { UNPACK_GROUP_CHAT_POST_WINDOW_MS, UNPACK_MODEL_CALLS_PER_MINUTE, UNPACK_TIMING, settleBackgroundUnpacks } =
   await import('../../src/services/unpack.service.js')
 const { default: transcript } = await import('../../src/agents/helpers/transcript.js')
+const { default: Adapter, setAdapterTypes } = await import('../../src/models/adapter.model.js')
+const { default: defaultAdapterTypes } = await import('../../src/adapters/index.js')
+const { Direction } = await import('../../src/types/index.types.js')
 const { getAllConversationTypes, getConversationType, resetConversationTypes, setConversationTypes } = await import(
   '../../src/conversations/index.js'
 )
@@ -1361,6 +1364,39 @@ describe('POST /v1/unpack/:conversationId/share', () => {
     })
   })
 
+  it('gives chat adapters the shared card as short plain text, not the card itself', async () => {
+    const sendMessage = jest.fn<(...args: unknown[]) => Promise<void>>()
+    setAdapterTypes({ zoom: { sendMessage } })
+    try {
+      const { conversation } = await createEvent()
+      const adapter = await Adapter.create({
+        type: 'zoom',
+        conversation: conversation._id,
+        active: true,
+        chatChannels: [{ name: 'chat', direction: Direction.OUTGOING }]
+      })
+      conversation.adapters.push(adapter)
+      await conversation.save()
+      const { quoted } = await seedTranscript(conversation)
+
+      await share(conversation, await cardFor(conversation, selectionIn(quoted))).expect(httpStatus.ACCEPTED)
+
+      expect(sendMessage).toHaveBeenCalledTimes(1)
+      expect(sendMessage.mock.calls[0][0]).toMatchObject({
+        bodyType: 'text',
+        pseudonym: 'Curious Heron',
+        body: [
+          'Sharing this explanation from Berkie:',
+          '"Missing it eats the error budget."',
+          `What they're saying: ${sections.whatTheyreSaying}`,
+          `Why it matters here: ${sections.whyItMatters}`
+        ].join('\n\n')
+      })
+    } finally {
+      setAdapterTypes(defaultAdapterTypes)
+    }
+  })
+
   it("doesn't ask the event's agents to evaluate or answer a shared card", async () => {
     const { conversation } = await createEvent()
     const { quoted } = await seedTranscript(conversation)
@@ -2081,6 +2117,50 @@ describe('Unpacker cards sent by a client', () => {
       .expect(httpStatus.BAD_REQUEST)
 
     expect(await Message.countDocuments({ 'body.type': body.type })).toBe(0)
+  })
+
+  it.each(cardBodies)('refuses a $type message whose body is a JSON string', async (body) => {
+    const { conversation } = await createEvent()
+
+    await request(app)
+      .post('/v1/messages')
+      .set('Authorization', `Bearer ${participantAccessToken}`)
+      .send({
+        conversation: conversation._id.toString(),
+        bodyType: 'json',
+        channels: groupChatWithPasscode(conversation),
+        body: JSON.stringify(body)
+      })
+      .expect(httpStatus.BAD_REQUEST)
+
+    expect(await Message.countDocuments({ conversation: conversation._id, channels: 'chat' })).toBe(0)
+  })
+
+  it.each(cardBodies)('refuses a $type message sent without a body type', async (body) => {
+    const { conversation } = await createEvent()
+
+    await request(app)
+      .post('/v1/messages')
+      .set('Authorization', `Bearer ${participantAccessToken}`)
+      .send({ conversation: conversation._id.toString(), channels: groupChatWithPasscode(conversation), body })
+      .expect(httpStatus.BAD_REQUEST)
+
+    expect(await Message.countDocuments({ 'body.type': body.type })).toBe(0)
+  })
+
+  it('still accepts a JSON string body that is not a card', async () => {
+    const { conversation } = await createEvent()
+
+    await request(app)
+      .post('/v1/messages')
+      .set('Authorization', `Bearer ${participantAccessToken}`)
+      .send({
+        conversation: conversation._id.toString(),
+        bodyType: 'json',
+        channels: groupChatWithPasscode(conversation),
+        body: JSON.stringify({ text: 'Hi' })
+      })
+      .expect(httpStatus.CREATED)
   })
 
   it('refuses one sent over the websocket, even when it claims to come from an agent', async () => {
