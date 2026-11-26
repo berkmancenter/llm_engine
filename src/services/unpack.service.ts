@@ -432,7 +432,7 @@ async function postAsk(event: UnpackEvent, askId: mongoose.Types.ObjectId, expla
   if (!ask) return
   const card = toCard(explanation, 'privateChat')
   // eslint-disable-next-line no-use-before-define
-  if (await isSharingDisabled(ask.conversation, card)) card.sharingDisabled = true
+  if (await isSharingDisabled(ask.conversation, card, ask.user)) card.sharingDisabled = true
   try {
     await postToPrivateChat(event, ask.user, {
       message: card,
@@ -828,23 +828,26 @@ function findSingleHiddenGroupPosts(conversationId: mongoose.Types.ObjectId | st
       hiddenByAdmin: true,
       'body.chunkIds': { $in: chunkIds }
     },
-    { select: '_id body.chunkIds', lean: true }
+    { select: '_id owner body.chunkIds', lean: true }
   )
 }
 
 /**
- * Whether a card overlaps a post hidden on its own. The card that made the post doesn't count: its author still sees
- * their post, so marking their card would tell them it was hidden.
+ * Whether a participant's card overlaps someone else's post hidden on its own. Their own hidden posts don't count:
+ * they still see those posts, so a mark or refusal would tell them a post was hidden.
  */
-function blocksCard(hiddenPosts, card: UnpackExplanation) {
-  const ownPost = card.groupChatShare?.status === 'sent' ? card.groupChatShare.messageId : null
+function blocksCard(hiddenPosts, card: UnpackExplanation, participantId: mongoose.Types.ObjectId) {
   return hiddenPosts.some(
-    ({ _id, body }) => _id.toString() !== ownPost && body.chunkIds.some((id) => card.chunkIds.includes(id))
+    ({ owner, body }) => !participantId.equals(owner) && body.chunkIds.some((id) => card.chunkIds.includes(id))
   )
 }
 
-async function isSharingDisabled(conversationId: mongoose.Types.ObjectId, card: UnpackExplanation) {
-  return blocksCard(await findSingleHiddenGroupPosts(conversationId, card.chunkIds), card)
+async function isSharingDisabled(
+  conversationId: mongoose.Types.ObjectId,
+  card: UnpackExplanation,
+  participantId: mongoose.Types.ObjectId
+) {
+  return blocksCard(await findSingleHiddenGroupPosts(conversationId, card.chunkIds), card, participantId)
 }
 
 /**
@@ -871,14 +874,18 @@ async function refreshSharingDisabled(
       'body.destination': 'privateChat',
       'body.chunkIds': { $in: post.body.chunkIds }
     },
-    { select: 'body.chunkIds body.groupChatShare', lean: true }
+    { select: 'body.chunkIds', lean: true }
   )
   if (cards.length === 0) return
+  const asks = await UnpackRequest.find({ answerMessage: { $in: cards.map(({ _id }) => _id) } })
+    .select('user answerMessage')
+    .lean()
+  const participantOf = new Map(asks.map(({ answerMessage, user }) => [answerMessage!.toString(), user]))
   const hiddenPosts = await findSingleHiddenGroupPosts(
     conversationId,
     cards.flatMap(({ body }) => body.chunkIds)
   )
-  const blocked = cards.filter(({ body }) => blocksCard(hiddenPosts, body))
+  const blocked = cards.filter(({ _id, body }) => blocksCard(hiddenPosts, body, participantOf.get(_id.toString())!))
   const open = cards.filter((card) => !blocked.includes(card))
   await Message.updateMany({ _id: { $in: blocked.map(({ _id }) => _id) } }, { $set: { 'body.sharingDisabled': true } })
   await Message.updateMany({ _id: { $in: open.map(({ _id }) => _id) } }, { $unset: { 'body.sharingDisabled': 1 } })
@@ -1013,7 +1020,7 @@ async function postToGroupChat(event: UnpackEvent, groupChat, user, askId: mongo
   // A hidden post may have no row, so its author's repeat share finds it by its ID instead
   if (hiddenIds.has(ownPostId.toString())) return sentToGroupChat(askId, ownPostId)
   const singleHidden = await findSingleHiddenGroupPosts(conversationId, card.chunkIds)
-  if (singleHidden.some(({ _id }) => !_id.equals(ownPostId))) throw sharingDisabled()
+  if (singleHidden.some(({ owner }) => !user._id.equals(owner))) throw sharingDisabled()
   const deadline = Date.now() + UNPACK_TIMING.groupPostWaitMs
   for (;;) {
     await settleAbandonedGroupPosts(conversationId, chunkIds)

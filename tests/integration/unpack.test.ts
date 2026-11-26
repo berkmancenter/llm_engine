@@ -1891,6 +1891,28 @@ describe('POST /v1/unpack/:conversationId/share', () => {
       expect(post.body).not.toHaveProperty('sharingDisabled')
     })
 
+    it("never blocks or marks the post author's other cards, so the author can't tell it was hidden", async () => {
+      const { conversation } = await createEvent()
+      const { before, quoted, after: afterChunk } = await seedTranscript(conversation)
+      const spanning = (from, fromWords: string, to, toWords: string) => ({
+        startMessageId: from._id.toString(),
+        startOffset: from.body.indexOf(fromWords),
+        endMessageId: to._id.toString(),
+        endOffset: to.body.indexOf(toWords) + toWords.length
+      })
+      const first = await share(conversation, await cardFor(conversation, selectionIn(quoted))).expect(httpStatus.ACCEPTED)
+      const earlierCard = await cardFor(conversation, spanning(quoted, 'Then the', afterChunk, 'feature work'))
+
+      await moderationService.hideMessage(first.body.messageId, await moderator())
+      const laterCard = await cardFor(conversation, spanning(before, 'sets an', quoted, 'eats the'))
+
+      for (const cardId of [earlierCard, laterCard]) {
+        expect(await cardBody(cardId)).not.toHaveProperty('sharingDisabled')
+        const res = await share(conversation, cardId).expect(httpStatus.ACCEPTED)
+        expect(res.body).toMatchObject({ status: 'alreadyPosted', messageId: first.body.messageId })
+      }
+    })
+
     it("blocks the passage even when the post's author was also hidden before they shared", async () => {
       const { conversation, berkie } = await createEvent()
       await addPrivateChat(conversation, berkie, userTwo)
